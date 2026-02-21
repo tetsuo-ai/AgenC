@@ -9,40 +9,67 @@
  */
 
 import type {
-  RawTaskCreatedEvent, TaskCreatedEvent,
-  RawTaskClaimedEvent, TaskClaimedEvent,
-  RawTaskCompletedEvent, TaskCompletedEvent,
-  RawTaskCancelledEvent, TaskCancelledEvent,
-  RawDependentTaskCreatedEvent, DependentTaskCreatedEvent,
-  RawDisputeInitiatedEvent, DisputeInitiatedEvent,
-  RawDisputeVoteCastEvent, DisputeVoteCastEvent,
-  RawDisputeResolvedEvent, DisputeResolvedEvent,
-  RawDisputeExpiredEvent, DisputeExpiredEvent,
-  RawDisputeCancelledEvent, DisputeCancelledEvent,
-  RawArbiterVotesCleanedUpEvent, ArbiterVotesCleanedUpEvent,
-  RawStateUpdatedEvent, StateUpdatedEvent,
-  RawProtocolInitializedEvent, ProtocolInitializedEvent,
-  RawRewardDistributedEvent, RewardDistributedEvent,
-  RawRateLimitHitEvent, RateLimitHitEvent,
-  RawMigrationCompletedEvent, MigrationCompletedEvent,
-  RawProtocolVersionUpdatedEvent, ProtocolVersionUpdatedEvent,
-  RawRateLimitsUpdatedEvent, RateLimitsUpdatedEvent,
-  RawProtocolFeeUpdatedEvent, ProtocolFeeUpdatedEvent,
-  RawReputationChangedEvent, ReputationChangedEvent,
-  RawBondDepositedEvent, BondDepositedEvent,
-  RawBondLockedEvent, BondLockedEvent,
-  RawBondReleasedEvent, BondReleasedEvent,
-  RawBondSlashedEvent, BondSlashedEvent,
-  RawSpeculativeCommitmentCreatedEvent, SpeculativeCommitmentCreatedEvent,
-} from './types.js';
-import { toUint8Array } from '../utils/encoding.js';
+  RawTaskCreatedEvent,
+  TaskCreatedEvent,
+  RawTaskClaimedEvent,
+  TaskClaimedEvent,
+  RawTaskCompletedEvent,
+  TaskCompletedEvent,
+  RawTaskCancelledEvent,
+  TaskCancelledEvent,
+  RawDependentTaskCreatedEvent,
+  DependentTaskCreatedEvent,
+  RawDisputeInitiatedEvent,
+  DisputeInitiatedEvent,
+  RawDisputeVoteCastEvent,
+  DisputeVoteCastEvent,
+  RawDisputeResolvedEvent,
+  DisputeResolvedEvent,
+  RawDisputeExpiredEvent,
+  DisputeExpiredEvent,
+  RawDisputeCancelledEvent,
+  DisputeCancelledEvent,
+  RawArbiterVotesCleanedUpEvent,
+  ArbiterVotesCleanedUpEvent,
+  RawStateUpdatedEvent,
+  StateUpdatedEvent,
+  RawProtocolInitializedEvent,
+  ProtocolInitializedEvent,
+  RawRewardDistributedEvent,
+  RewardDistributedEvent,
+  RawRateLimitHitEvent,
+  RateLimitHitEvent,
+  RawMigrationCompletedEvent,
+  MigrationCompletedEvent,
+  RawProtocolVersionUpdatedEvent,
+  ProtocolVersionUpdatedEvent,
+  RawRateLimitsUpdatedEvent,
+  RateLimitsUpdatedEvent,
+  RawProtocolFeeUpdatedEvent,
+  ProtocolFeeUpdatedEvent,
+  RawReputationChangedEvent,
+  ReputationChangedEvent,
+  RawBondDepositedEvent,
+  BondDepositedEvent,
+  RawBondLockedEvent,
+  BondLockedEvent,
+  RawBondReleasedEvent,
+  BondReleasedEvent,
+  RawBondSlashedEvent,
+  BondSlashedEvent,
+  RawSpeculativeCommitmentCreatedEvent,
+  SpeculativeCommitmentCreatedEvent,
+} from "./types.js";
+import { toUint8Array } from "../utils/encoding.js";
 
 // --- Task Parse Functions ---
 
 /**
  * Parses a raw TaskCreated event into typed form.
  */
-export function parseTaskCreatedEvent(raw: RawTaskCreatedEvent): TaskCreatedEvent {
+export function parseTaskCreatedEvent(
+  raw: RawTaskCreatedEvent,
+): TaskCreatedEvent {
   return {
     taskId: toUint8Array(raw.taskId),
     creator: raw.creator,
@@ -59,7 +86,9 @@ export function parseTaskCreatedEvent(raw: RawTaskCreatedEvent): TaskCreatedEven
 /**
  * Parses a raw TaskClaimed event into typed form.
  */
-export function parseTaskClaimedEvent(raw: RawTaskClaimedEvent): TaskClaimedEvent {
+export function parseTaskClaimedEvent(
+  raw: RawTaskClaimedEvent,
+): TaskClaimedEvent {
   return {
     taskId: toUint8Array(raw.taskId),
     worker: raw.worker,
@@ -72,7 +101,9 @@ export function parseTaskClaimedEvent(raw: RawTaskClaimedEvent): TaskClaimedEven
 /**
  * Parses a raw TaskCompleted event into typed form.
  */
-export function parseTaskCompletedEvent(raw: RawTaskCompletedEvent): TaskCompletedEvent {
+export function parseTaskCompletedEvent(
+  raw: RawTaskCompletedEvent,
+): TaskCompletedEvent {
   return {
     taskId: toUint8Array(raw.taskId),
     worker: raw.worker,
@@ -86,7 +117,9 @@ export function parseTaskCompletedEvent(raw: RawTaskCompletedEvent): TaskComplet
 /**
  * Parses a raw TaskCancelled event into typed form.
  */
-export function parseTaskCancelledEvent(raw: RawTaskCancelledEvent): TaskCancelledEvent {
+export function parseTaskCancelledEvent(
+  raw: RawTaskCancelledEvent,
+): TaskCancelledEvent {
   return {
     taskId: toUint8Array(raw.taskId),
     creator: raw.creator,
@@ -98,7 +131,9 @@ export function parseTaskCancelledEvent(raw: RawTaskCancelledEvent): TaskCancell
 /**
  * Parses a raw DependentTaskCreated event into typed form.
  */
-export function parseDependentTaskCreatedEvent(raw: RawDependentTaskCreatedEvent): DependentTaskCreatedEvent {
+export function parseDependentTaskCreatedEvent(
+  raw: RawDependentTaskCreatedEvent,
+): DependentTaskCreatedEvent {
   return {
     taskId: toUint8Array(raw.taskId),
     creator: raw.creator,
@@ -114,7 +149,9 @@ export function parseDependentTaskCreatedEvent(raw: RawDependentTaskCreatedEvent
 /**
  * Parses a raw DisputeInitiated event into typed form.
  */
-export function parseDisputeInitiatedEvent(raw: RawDisputeInitiatedEvent): DisputeInitiatedEvent {
+export function parseDisputeInitiatedEvent(
+  raw: RawDisputeInitiatedEvent,
+): DisputeInitiatedEvent {
   return {
     disputeId: toUint8Array(raw.disputeId),
     taskId: toUint8Array(raw.taskId),
@@ -129,7 +166,9 @@ export function parseDisputeInitiatedEvent(raw: RawDisputeInitiatedEvent): Dispu
 /**
  * Parses a raw DisputeVoteCast event into typed form.
  */
-export function parseDisputeVoteCastEvent(raw: RawDisputeVoteCastEvent): DisputeVoteCastEvent {
+export function parseDisputeVoteCastEvent(
+  raw: RawDisputeVoteCastEvent,
+): DisputeVoteCastEvent {
   return {
     disputeId: toUint8Array(raw.disputeId),
     voter: raw.voter,
@@ -143,7 +182,9 @@ export function parseDisputeVoteCastEvent(raw: RawDisputeVoteCastEvent): Dispute
 /**
  * Parses a raw DisputeResolved event into typed form.
  */
-export function parseDisputeResolvedEvent(raw: RawDisputeResolvedEvent): DisputeResolvedEvent {
+export function parseDisputeResolvedEvent(
+  raw: RawDisputeResolvedEvent,
+): DisputeResolvedEvent {
   return {
     disputeId: toUint8Array(raw.disputeId),
     resolutionType: raw.resolutionType,
@@ -157,7 +198,9 @@ export function parseDisputeResolvedEvent(raw: RawDisputeResolvedEvent): Dispute
 /**
  * Parses a raw DisputeExpired event into typed form.
  */
-export function parseDisputeExpiredEvent(raw: RawDisputeExpiredEvent): DisputeExpiredEvent {
+export function parseDisputeExpiredEvent(
+  raw: RawDisputeExpiredEvent,
+): DisputeExpiredEvent {
   return {
     disputeId: toUint8Array(raw.disputeId),
     taskId: toUint8Array(raw.taskId),
@@ -171,7 +214,9 @@ export function parseDisputeExpiredEvent(raw: RawDisputeExpiredEvent): DisputeEx
 /**
  * Parses a raw DisputeCancelled event into typed form.
  */
-export function parseDisputeCancelledEvent(raw: RawDisputeCancelledEvent): DisputeCancelledEvent {
+export function parseDisputeCancelledEvent(
+  raw: RawDisputeCancelledEvent,
+): DisputeCancelledEvent {
   return {
     disputeId: toUint8Array(raw.disputeId),
     task: raw.task,
@@ -183,7 +228,9 @@ export function parseDisputeCancelledEvent(raw: RawDisputeCancelledEvent): Dispu
 /**
  * Parses a raw ArbiterVotesCleanedUp event into typed form.
  */
-export function parseArbiterVotesCleanedUpEvent(raw: RawArbiterVotesCleanedUpEvent): ArbiterVotesCleanedUpEvent {
+export function parseArbiterVotesCleanedUpEvent(
+  raw: RawArbiterVotesCleanedUpEvent,
+): ArbiterVotesCleanedUpEvent {
   return {
     disputeId: toUint8Array(raw.disputeId),
     arbiterCount: raw.arbiterCount,
@@ -195,7 +242,9 @@ export function parseArbiterVotesCleanedUpEvent(raw: RawArbiterVotesCleanedUpEve
 /**
  * Parses a raw StateUpdated event into typed form.
  */
-export function parseStateUpdatedEvent(raw: RawStateUpdatedEvent): StateUpdatedEvent {
+export function parseStateUpdatedEvent(
+  raw: RawStateUpdatedEvent,
+): StateUpdatedEvent {
   return {
     stateKey: toUint8Array(raw.stateKey),
     stateValue: toUint8Array(raw.stateValue),
@@ -208,7 +257,9 @@ export function parseStateUpdatedEvent(raw: RawStateUpdatedEvent): StateUpdatedE
 /**
  * Parses a raw ProtocolInitialized event into typed form.
  */
-export function parseProtocolInitializedEvent(raw: RawProtocolInitializedEvent): ProtocolInitializedEvent {
+export function parseProtocolInitializedEvent(
+  raw: RawProtocolInitializedEvent,
+): ProtocolInitializedEvent {
   return {
     authority: raw.authority,
     treasury: raw.treasury,
@@ -221,7 +272,9 @@ export function parseProtocolInitializedEvent(raw: RawProtocolInitializedEvent):
 /**
  * Parses a raw RewardDistributed event into typed form.
  */
-export function parseRewardDistributedEvent(raw: RawRewardDistributedEvent): RewardDistributedEvent {
+export function parseRewardDistributedEvent(
+  raw: RawRewardDistributedEvent,
+): RewardDistributedEvent {
   return {
     taskId: toUint8Array(raw.taskId),
     recipient: raw.recipient,
@@ -234,7 +287,9 @@ export function parseRewardDistributedEvent(raw: RawRewardDistributedEvent): Rew
 /**
  * Parses a raw RateLimitHit event into typed form.
  */
-export function parseRateLimitHitEvent(raw: RawRateLimitHitEvent): RateLimitHitEvent {
+export function parseRateLimitHitEvent(
+  raw: RawRateLimitHitEvent,
+): RateLimitHitEvent {
   return {
     agentId: toUint8Array(raw.agentId),
     actionType: raw.actionType,
@@ -249,7 +304,9 @@ export function parseRateLimitHitEvent(raw: RawRateLimitHitEvent): RateLimitHitE
 /**
  * Parses a raw MigrationCompleted event into typed form.
  */
-export function parseMigrationCompletedEvent(raw: RawMigrationCompletedEvent): MigrationCompletedEvent {
+export function parseMigrationCompletedEvent(
+  raw: RawMigrationCompletedEvent,
+): MigrationCompletedEvent {
   return {
     fromVersion: raw.fromVersion,
     toVersion: raw.toVersion,
@@ -261,7 +318,9 @@ export function parseMigrationCompletedEvent(raw: RawMigrationCompletedEvent): M
 /**
  * Parses a raw ProtocolVersionUpdated event into typed form.
  */
-export function parseProtocolVersionUpdatedEvent(raw: RawProtocolVersionUpdatedEvent): ProtocolVersionUpdatedEvent {
+export function parseProtocolVersionUpdatedEvent(
+  raw: RawProtocolVersionUpdatedEvent,
+): ProtocolVersionUpdatedEvent {
   return {
     oldVersion: raw.oldVersion,
     newVersion: raw.newVersion,
@@ -273,7 +332,9 @@ export function parseProtocolVersionUpdatedEvent(raw: RawProtocolVersionUpdatedE
 /**
  * Parses a raw RateLimitsUpdated event into typed form.
  */
-export function parseRateLimitsUpdatedEvent(raw: RawRateLimitsUpdatedEvent): RateLimitsUpdatedEvent {
+export function parseRateLimitsUpdatedEvent(
+  raw: RawRateLimitsUpdatedEvent,
+): RateLimitsUpdatedEvent {
   return {
     taskCreationCooldown: raw.taskCreationCooldown.toNumber(),
     maxTasksPer24h: raw.maxTasksPer24h,
@@ -288,7 +349,9 @@ export function parseRateLimitsUpdatedEvent(raw: RawRateLimitsUpdatedEvent): Rat
 /**
  * Parses a raw ProtocolFeeUpdated event into typed form.
  */
-export function parseProtocolFeeUpdatedEvent(raw: RawProtocolFeeUpdatedEvent): ProtocolFeeUpdatedEvent {
+export function parseProtocolFeeUpdatedEvent(
+  raw: RawProtocolFeeUpdatedEvent,
+): ProtocolFeeUpdatedEvent {
   return {
     oldFeeBps: raw.oldFeeBps,
     newFeeBps: raw.newFeeBps,
@@ -300,7 +363,9 @@ export function parseProtocolFeeUpdatedEvent(raw: RawProtocolFeeUpdatedEvent): P
 /**
  * Parses a raw ReputationChanged event into typed form.
  */
-export function parseReputationChangedEvent(raw: RawReputationChangedEvent): ReputationChangedEvent {
+export function parseReputationChangedEvent(
+  raw: RawReputationChangedEvent,
+): ReputationChangedEvent {
   return {
     agentId: toUint8Array(raw.agentId),
     oldReputation: raw.oldReputation,
@@ -313,7 +378,9 @@ export function parseReputationChangedEvent(raw: RawReputationChangedEvent): Rep
 /**
  * Parses a raw BondDeposited event into typed form.
  */
-export function parseBondDepositedEvent(raw: RawBondDepositedEvent): BondDepositedEvent {
+export function parseBondDepositedEvent(
+  raw: RawBondDepositedEvent,
+): BondDepositedEvent {
   return {
     agent: raw.agent,
     amount: BigInt(raw.amount.toString()),
@@ -337,7 +404,9 @@ export function parseBondLockedEvent(raw: RawBondLockedEvent): BondLockedEvent {
 /**
  * Parses a raw BondReleased event into typed form.
  */
-export function parseBondReleasedEvent(raw: RawBondReleasedEvent): BondReleasedEvent {
+export function parseBondReleasedEvent(
+  raw: RawBondReleasedEvent,
+): BondReleasedEvent {
   return {
     agent: raw.agent,
     commitment: raw.commitment,
@@ -349,7 +418,9 @@ export function parseBondReleasedEvent(raw: RawBondReleasedEvent): BondReleasedE
 /**
  * Parses a raw BondSlashed event into typed form.
  */
-export function parseBondSlashedEvent(raw: RawBondSlashedEvent): BondSlashedEvent {
+export function parseBondSlashedEvent(
+  raw: RawBondSlashedEvent,
+): BondSlashedEvent {
   return {
     agent: raw.agent,
     commitment: raw.commitment,
@@ -363,7 +434,7 @@ export function parseBondSlashedEvent(raw: RawBondSlashedEvent): BondSlashedEven
  * Parses a raw SpeculativeCommitmentCreated event into typed form.
  */
 export function parseSpeculativeCommitmentCreatedEvent(
-  raw: RawSpeculativeCommitmentCreatedEvent
+  raw: RawSpeculativeCommitmentCreatedEvent,
 ): SpeculativeCommitmentCreatedEvent {
   return {
     task: raw.task,

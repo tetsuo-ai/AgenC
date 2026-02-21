@@ -6,20 +6,25 @@ export interface DisputeDriftPromptInput {
 export interface DisputeDriftPromptOutput {
   [key: string]: unknown;
   messages: Array<{
-    role: 'user' | 'assistant';
-    content: { type: 'text'; text: string };
+    role: "user" | "assistant";
+    content: { type: "text"; text: string };
   }>;
 }
 
-export function buildDisputeDriftPrompt(input: DisputeDriftPromptInput): DisputeDriftPromptOutput {
-  const traceRef = input.trace_id ? `\nTrace ID for correlation: ${input.trace_id}` : '';
+export function buildDisputeDriftPrompt(
+  input: DisputeDriftPromptInput,
+): DisputeDriftPromptOutput {
+  const traceRef = input.trace_id
+    ? `\nTrace ID for correlation: ${input.trace_id}`
+    : "";
 
   return {
-    messages: [{
-      role: 'user',
-      content: {
-        type: 'text',
-        text: `Triage dispute drift for dispute at PDA ${input.dispute_pda}.${traceRef}
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Triage dispute drift for dispute at PDA ${input.dispute_pda}.${traceRef}
 
 ## Investigation Steps
 
@@ -56,8 +61,9 @@ Provide:
 2. Specific drift conditions found
 3. Root cause hypothesis
 4. Recommended remediation (expire_dispute, resolve_dispute, or escalate)
-${input.trace_id ? `\nInclude trace_id "${input.trace_id}" in any follow-up tool calls for correlation.` : ''}`,
+${input.trace_id ? `\nInclude trace_id "${input.trace_id}" in any follow-up tool calls for correlation.` : ""}`,
+        },
       },
-    }],
+    ],
   };
 }

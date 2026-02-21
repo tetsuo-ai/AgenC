@@ -21,10 +21,11 @@ import {
   SendTransactionError,
 } from "@solana/web3.js";
 import * as bs58 from "bs58";
+import * as path from "path";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 
 const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
-  "BPFLoaderUpgradeab1e11111111111111111111111"
+  "BPFLoaderUpgradeab1e11111111111111111111111",
 );
 
 export interface LiteSVMContext {
@@ -42,11 +43,11 @@ export interface LiteSVMContext {
 function setupProgramDataAccount(
   svm: LiteSVM,
   programId: PublicKey,
-  authority: PublicKey
+  authority: PublicKey,
 ): void {
   const [programDataPda] = PublicKey.findProgramAddressSync(
     [programId.toBuffer()],
-    BPF_LOADER_UPGRADEABLE_ID
+    BPF_LOADER_UPGRADEABLE_ID,
   );
 
   // ProgramData layout:
@@ -56,9 +57,9 @@ function setupProgramDataAccount(
   //   32 bytes: upgrade_authority pubkey
   const data = new Uint8Array(45);
   const view = new DataView(data.buffer);
-  view.setUint32(0, 3, true);       // AccountType::ProgramData
-  view.setBigUint64(4, 0n, true);   // slot = 0
-  data[12] = 1;                      // Option::Some
+  view.setUint32(0, 3, true); // AccountType::ProgramData
+  view.setBigUint64(4, 0n, true); // slot = 0
+  data[12] = 1; // Option::Some
   data.set(authority.toBytes(), 13); // upgrade_authority
 
   svm.setAccount(programDataPda, {
@@ -82,7 +83,7 @@ function setupProgramDataAccount(
 function extendConnectionProxy(
   svm: LiteSVM,
   connection: any,
-  walletRef: { publicKey: PublicKey }
+  walletRef: { publicKey: PublicKey },
 ): void {
   // Save original getAccountInfo to wrap it
   const originalGetAccountInfo = connection.getAccountInfo.bind(connection);
@@ -91,7 +92,7 @@ function extendConnectionProxy(
   // This matches the real Connection behavior and is required by @solana/spl-token.
   connection.getAccountInfo = async (
     publicKey: PublicKey,
-    commitmentOrConfig?: any
+    commitmentOrConfig?: any,
   ) => {
     const account = svm.getAccount(publicKey);
     if (!account) return null;
@@ -104,7 +105,7 @@ function extendConnectionProxy(
   // Also override getAccountInfoAndContext for consistency
   connection.getAccountInfoAndContext = async (
     publicKey: PublicKey,
-    commitmentOrConfig?: any
+    commitmentOrConfig?: any,
   ) => {
     const account = svm.getAccount(publicKey);
     if (!account) {
@@ -125,7 +126,7 @@ function extendConnectionProxy(
   // getBalance — used ~48 times across tests for balance verification
   connection.getBalance = async (
     address: PublicKey,
-    _commitment?: any
+    _commitment?: any,
   ): Promise<number> => {
     const balance = svm.getBalance(address);
     return balance !== null ? Number(balance) : 0;
@@ -142,19 +143,22 @@ function extendConnectionProxy(
   connection.sendTransaction = async (
     transaction: Transaction | VersionedTransaction,
     signersOrOptions?: any,
-    options?: any
+    options?: any,
   ): Promise<string> => {
     if ("version" in transaction) {
       // VersionedTransaction
       const signers = Array.isArray(signersOrOptions) ? signersOrOptions : [];
       signers.forEach((s: any) => transaction.sign([s]));
       const res = svm.sendTransaction(transaction);
-      if (res instanceof FailedTransactionMetadata) {
+      // Use constructor.name instead of instanceof to handle module boundary
+      // mismatch between anchor-litesvm's bundled litesvm and project litesvm
+      if (res.constructor.name === "FailedTransactionMetadata") {
+        const failed = res as any;
         throw new SendTransactionError({
           action: "send",
           signature: "unknown",
-          transactionMessage: res.err().toString(),
-          logs: res.meta().logs(),
+          transactionMessage: failed.err().toString(),
+          logs: failed.meta().logs(),
         });
       }
       return bs58.encode(transaction.signatures[0]);
@@ -169,14 +173,15 @@ function extendConnectionProxy(
     }
 
     const res = svm.sendTransaction(transaction);
-    if (res instanceof FailedTransactionMetadata) {
+    if (res.constructor.name === "FailedTransactionMetadata") {
+      const failed = res as any;
       const sigRaw = transaction.signature;
       const signature = sigRaw ? bs58.encode(sigRaw) : "unknown";
       throw new SendTransactionError({
         action: "send",
         signature,
-        transactionMessage: res.err().toString(),
-        logs: res.meta().logs(),
+        transactionMessage: failed.err().toString(),
+        logs: failed.meta().logs(),
       });
     }
 
@@ -186,7 +191,7 @@ function extendConnectionProxy(
   // confirmTransaction — no-op since LiteSVM is synchronous
   connection.confirmTransaction = async (
     _strategyOrSignature?: any,
-    _commitment?: any
+    _commitment?: any,
   ): Promise<any> => ({
     context: { slot: Number(svm.getClock().slot) },
     value: { err: null },
@@ -195,7 +200,7 @@ function extendConnectionProxy(
   // requestAirdrop — delegates to svm.airdrop(), returns a dummy signature
   connection.requestAirdrop = async (
     address: PublicKey,
-    lamports: number
+    lamports: number,
   ): Promise<string> => {
     svm.airdrop(address, BigInt(lamports));
     return "litesvm-airdrop-" + address.toBase58().slice(0, 8);
@@ -215,7 +220,7 @@ function extendConnectionProxy(
   // Returns a simplified object matching the fields tests actually check.
   connection.getTransaction = async (
     signature: string,
-    _opts?: any
+    _opts?: any,
   ): Promise<any> => {
     let sigBytes: Uint8Array;
     try {
@@ -231,11 +236,12 @@ function extendConnectionProxy(
     // Standard Solana base fee is 5000 lamports per signature.
     const BASE_FEE = 5000;
 
-    if (meta instanceof FailedTransactionMetadata) {
+    if (meta.constructor.name === "FailedTransactionMetadata") {
+      const failed = meta as any;
       return {
         meta: {
           fee: BASE_FEE,
-          err: meta.err().toString(),
+          err: failed.err().toString(),
         },
       };
     }
@@ -254,7 +260,7 @@ function extendConnectionProxy(
   // getSignatureStatus — no-op, everything is confirmed
   connection.getSignatureStatuses = async (
     _signatures: string[],
-    _config?: any
+    _config?: any,
   ) => ({
     context: { slot: Number(svm.getClock().slot) },
     value: _signatures.map(() => ({
@@ -302,7 +308,10 @@ export function createLiteSVMContext(opts?: {
 
   // Create Anchor-compatible provider
   const wallet = new anchor.Wallet(payer);
-  const provider = new LiteSVMProvider(svm, wallet) as unknown as anchor.AnchorProvider;
+  const provider = new LiteSVMProvider(
+    svm,
+    wallet,
+  ) as unknown as anchor.AnchorProvider;
 
   // Extend the connection proxy with missing methods
   extendConnectionProxy(svm, (provider as any).connection, wallet);
@@ -328,7 +337,7 @@ export function createLiteSVMContext(opts?: {
 export function fundAccount(
   svm: LiteSVM,
   pubkey: PublicKey,
-  lamports: number | bigint
+  lamports: number | bigint,
 ): void {
   svm.airdrop(pubkey, BigInt(lamports));
 }
@@ -351,4 +360,74 @@ export function advanceClock(svm: LiteSVM, seconds: number): void {
   clock.unixTimestamp = newTimestamp;
   clock.slot = newSlot;
   svm.setClock(clock);
+}
+
+// ============================================================================
+// Mock Verifier Router for ZK integration tests
+// ============================================================================
+
+const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
+  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+);
+const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
+  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+);
+const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
+const VERIFIER_ENTRY_DISCRIMINATOR = Uint8Array.from([
+  102, 247, 148, 158, 33, 153, 100, 93,
+]);
+
+/**
+ * Inject a mock Verifier Router into LiteSVM for ZK integration tests.
+ *
+ * Loads a no-op BPF program at both the trusted Router and Verifier program IDs,
+ * then injects the router PDA and verifier-entry PDA with correct data layouts.
+ * The mock router accepts any CPI call (returns Ok), allowing positive-path
+ * testing of complete_task_private without a real RISC Zero prover.
+ */
+export function injectMockVerifierRouter(svm: LiteSVM): void {
+  const mockSoPath = path.resolve(
+    __dirname,
+    "fixtures",
+    "mock_verifier_router.so",
+  );
+
+  // Load mock program at both trusted program IDs
+  svm.addProgramFromFile(TRUSTED_RISC0_ROUTER_PROGRAM_ID, mockSoPath);
+  svm.addProgramFromFile(TRUSTED_RISC0_VERIFIER_PROGRAM_ID, mockSoPath);
+
+  // Inject router PDA: seeds=["router"] under router program
+  const [routerPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("router")],
+    TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+  );
+  svm.setAccount(routerPda, {
+    lamports: 1_000_000,
+    data: new Uint8Array(0),
+    owner: TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+    executable: false,
+  });
+
+  // Inject verifier-entry PDA: seeds=["verifier", selector] under router program
+  // Data layout (45 bytes):
+  //   [0..8]   discriminator
+  //   [8..12]  selector (RISC0_SELECTOR_LEN)
+  //   [12..44] verifier pubkey (32 bytes)
+  //   [44]     estopped flag (1 byte, 0 = not estopped)
+  const [verifierEntryPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("verifier"), Buffer.from(TRUSTED_RISC0_SELECTOR)],
+    TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+  );
+  const verifierEntryData = new Uint8Array(45);
+  verifierEntryData.set(VERIFIER_ENTRY_DISCRIMINATOR, 0);
+  verifierEntryData.set(TRUSTED_RISC0_SELECTOR, 8);
+  verifierEntryData.set(TRUSTED_RISC0_VERIFIER_PROGRAM_ID.toBytes(), 12);
+  verifierEntryData[44] = 0; // not estopped
+
+  svm.setAccount(verifierEntryPda, {
+    lamports: 1_000_000,
+    data: verifierEntryData,
+    owner: TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+    executable: false,
+  });
 }

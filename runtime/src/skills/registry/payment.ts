@@ -7,17 +7,20 @@
  * @module
  */
 
-import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../../types/agenc_coordination.js';
-import type { Logger } from '../../utils/logger.js';
-import { silentLogger } from '../../utils/logger.js';
-import { findAgentPda, findProtocolPda } from '../../agent/pda.js';
-import { fetchTreasury } from '../../utils/treasury.js';
-import { isAnchorError, AnchorErrorCodes } from '../../types/errors.js';
-import { SkillPurchaseError } from './errors.js';
-import type { SkillRegistryClient } from './types.js';
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../../types/agenc_coordination.js";
+import type { Logger } from "../../utils/logger.js";
+import { silentLogger } from "../../utils/logger.js";
+import { findAgentPda, findProtocolPda } from "../../agent/pda.js";
+import { fetchTreasury } from "../../utils/treasury.js";
+import { isAnchorError, AnchorErrorCodes } from "../../types/errors.js";
+import { SkillPurchaseError } from "./errors.js";
+import type { SkillRegistryClient } from "./types.js";
 
 // ============================================================================
 // Types
@@ -54,12 +57,17 @@ export interface OnChainPurchaseRecord {
 /** Buyer field offset: 8 (discriminator) + 32 (skill pubkey) = 40 */
 const PURCHASE_RECORD_BUYER_OFFSET = 40;
 
-function parseOnChainPurchaseRecord(raw: Record<string, any>): OnChainPurchaseRecord {
+function parseOnChainPurchaseRecord(
+  raw: Record<string, any>,
+): OnChainPurchaseRecord {
   return {
     skill: raw.skill as PublicKey,
     buyer: raw.buyer as PublicKey,
     pricePaid: BigInt(raw.pricePaid.toString()),
-    timestamp: typeof raw.timestamp === 'number' ? raw.timestamp : raw.timestamp.toNumber(),
+    timestamp:
+      typeof raw.timestamp === "number"
+        ? raw.timestamp
+        : raw.timestamp.toNumber(),
     bump: raw.bump,
   };
 }
@@ -102,7 +110,7 @@ export class SkillPurchaseManager {
       try {
         await this.registryClient.install(skillId, targetPath);
       } catch {
-        contentPath = '';
+        contentPath = "";
       }
       return {
         skillId,
@@ -119,7 +127,9 @@ export class SkillPurchaseManager {
       skill.author as PublicKey,
     );
     const treasury = await this.getTreasury();
-    const protocolConfig = await this.program.account.protocolConfig.fetch(this.protocolPda);
+    const protocolConfig = await this.program.account.protocolConfig.fetch(
+      this.protocolPda,
+    );
     const feeBps = BigInt(protocolConfig.protocolFeeBps.toString());
     const price = BigInt(skill.price.toString());
 
@@ -128,7 +138,11 @@ export class SkillPurchaseManager {
     const priceMint = skill.priceMint as PublicKey | null;
 
     // Build optional SPL token accounts
-    const tokenAccounts = this.buildTokenAccounts(priceMint, authorWallet, treasury);
+    const tokenAccounts = this.buildTokenAccounts(
+      priceMint,
+      authorWallet,
+      treasury,
+    );
 
     try {
       const sig = await this.program.methods
@@ -162,7 +176,7 @@ export class SkillPurchaseManager {
             err instanceof Error ? err.message : String(err)
           }`,
         );
-        contentPath = '';
+        contentPath = "";
       }
 
       return {
@@ -189,12 +203,21 @@ export class SkillPurchaseManager {
   /**
    * Fetch the purchase record for a skill, or null if not purchased.
    */
-  async fetchPurchaseRecord(skillPda: PublicKey): Promise<OnChainPurchaseRecord | null> {
+  async fetchPurchaseRecord(
+    skillPda: PublicKey,
+  ): Promise<OnChainPurchaseRecord | null> {
     const [purchaseRecordPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('skill_purchase'), skillPda.toBuffer(), this.buyerAgentPda.toBuffer()],
+      [
+        Buffer.from("skill_purchase"),
+        skillPda.toBuffer(),
+        this.buyerAgentPda.toBuffer(),
+      ],
       this.program.programId,
     );
-    const raw = await this.program.account.purchaseRecord.fetchNullable(purchaseRecordPda);
+    const raw =
+      await this.program.account.purchaseRecord.fetchNullable(
+        purchaseRecordPda,
+      );
     if (!raw) return null;
     return parseOnChainPurchaseRecord(raw as Record<string, any>);
   }
@@ -227,7 +250,10 @@ export class SkillPurchaseManager {
 
   private async getTreasury(): Promise<PublicKey> {
     if (!this.cachedTreasury) {
-      this.cachedTreasury = await fetchTreasury(this.program, this.program.programId);
+      this.cachedTreasury = await fetchTreasury(
+        this.program,
+        this.program.programId,
+      );
     }
     return this.cachedTreasury;
   }
@@ -252,7 +278,10 @@ export class SkillPurchaseManager {
         priceMint,
         this.program.provider.publicKey!,
       ),
-      authorTokenAccount: getAssociatedTokenAddressSync(priceMint, authorWallet),
+      authorTokenAccount: getAssociatedTokenAddressSync(
+        priceMint,
+        authorWallet,
+      ),
       treasuryTokenAccount: getAssociatedTokenAddressSync(priceMint, treasury),
       tokenProgram: TOKEN_PROGRAM_ID,
     };
@@ -260,22 +289,25 @@ export class SkillPurchaseManager {
 
   private mapPurchaseError(err: unknown, skillId: string): Error {
     if (isAnchorError(err, AnchorErrorCodes.SkillNotActive)) {
-      return new SkillPurchaseError(skillId, 'Skill is not active');
+      return new SkillPurchaseError(skillId, "Skill is not active");
     }
     if (isAnchorError(err, AnchorErrorCodes.SkillSelfPurchase)) {
-      return new SkillPurchaseError(skillId, 'Cannot purchase own skill');
+      return new SkillPurchaseError(skillId, "Cannot purchase own skill");
     }
     if (isAnchorError(err, AnchorErrorCodes.AgentNotActive)) {
-      return new SkillPurchaseError(skillId, 'Buyer agent is not active');
+      return new SkillPurchaseError(skillId, "Buyer agent is not active");
     }
     if (isAnchorError(err, AnchorErrorCodes.InsufficientFunds)) {
-      return new SkillPurchaseError(skillId, 'Insufficient balance');
+      return new SkillPurchaseError(skillId, "Insufficient balance");
     }
     if (isAnchorError(err, AnchorErrorCodes.MissingTokenAccounts)) {
-      return new SkillPurchaseError(skillId, 'Missing token accounts for SPL payment');
+      return new SkillPurchaseError(
+        skillId,
+        "Missing token accounts for SPL payment",
+      );
     }
     if (isAnchorError(err, AnchorErrorCodes.InvalidTokenMint)) {
-      return new SkillPurchaseError(skillId, 'Token mint mismatch');
+      return new SkillPurchaseError(skillId, "Token mint mismatch");
     }
     // Re-throw unmapped errors
     if (err instanceof Error) return err;

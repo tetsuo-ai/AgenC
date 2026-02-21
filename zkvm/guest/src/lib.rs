@@ -47,12 +47,18 @@ impl JournalFields {
 
     pub fn to_bytes(&self) -> JournalBytes {
         let mut out = [0_u8; JOURNAL_TOTAL_LEN];
-        out[0..32].copy_from_slice(&self.task_pda);
-        out[32..64].copy_from_slice(&self.agent_authority);
-        out[64..96].copy_from_slice(&self.constraint_hash);
-        out[96..128].copy_from_slice(&self.output_commitment);
-        out[128..160].copy_from_slice(&self.binding);
-        out[160..192].copy_from_slice(&self.nullifier);
+        let fields: [&JournalField; JOURNAL_FIELD_COUNT] = [
+            &self.task_pda,
+            &self.agent_authority,
+            &self.constraint_hash,
+            &self.output_commitment,
+            &self.binding,
+            &self.nullifier,
+        ];
+        for (i, field) in fields.iter().enumerate() {
+            let start = i * JOURNAL_FIELD_LEN;
+            out[start..start + JOURNAL_FIELD_LEN].copy_from_slice(*field);
+        }
         out
     }
 }
@@ -148,15 +154,8 @@ mod tests {
         let short = [9_u8; JOURNAL_FIELD_LEN - 1];
         let long = [8_u8; JOURNAL_FIELD_LEN + 1];
 
-        let err = serialize_journal_from_slices(
-            &short,
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-        )
-        .expect_err("short task_pda must fail");
+        let err = serialize_journal_from_slices(&short, &ok, &ok, &ok, &ok, &ok)
+            .expect_err("short task_pda must fail");
 
         assert_eq!(
             err,
@@ -167,15 +166,8 @@ mod tests {
             }
         );
 
-        let err = serialize_journal_from_slices(
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-            &long,
-        )
-        .expect_err("long nullifier must fail");
+        let err = serialize_journal_from_slices(&ok, &ok, &ok, &ok, &ok, &long)
+            .expect_err("long nullifier must fail");
 
         assert_eq!(
             err,

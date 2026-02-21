@@ -7,8 +7,8 @@
  * @module
  */
 
-import { ensureLazyModule } from '../utils/lazy-import.js';
-import { LLMProviderError } from './errors.js';
+import { ensureLazyModule } from "../utils/lazy-import.js";
+import { LLMProviderError } from "./errors.js";
 
 /**
  * Dynamically import an optional LLM SDK package and extract the constructor.

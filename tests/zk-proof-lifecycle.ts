@@ -1,174 +1,183 @@
+/**
+ * ZK proof verification lifecycle tests (LiteSVM).
+ *
+ * Exercises the full private task completion lifecycle with real hash
+ * computations and a mock Verifier Router.
+ */
+
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  LAMPORTS_PER_SOL,
+  SendTransactionError,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  createLiteSVMContext,
+  fundAccount,
+  getClockTimestamp,
+  injectMockVerifierRouter,
+  type LiteSVMContext,
+} from "./litesvm-helpers";
 import {
   CAPABILITY_COMPUTE,
   TASK_TYPE_EXCLUSIVE,
+  TASK_TYPE_COMPETITIVE,
+  deriveProtocolPda,
+  deriveTaskPda,
+  deriveEscrowPda,
+  deriveClaimPda,
   deriveProgramDataPda,
+  deriveBindingSpendPda,
+  deriveNullifierSpendPda,
+  deriveRouterPda,
+  deriveVerifierEntryPda,
   disableRateLimitsForTests,
+  ensureAgentRegistered,
+  generateRunId,
+  makeAgentId,
+  makeTaskId,
+  createDescription,
+  computeHashes,
+  computeConstraintHash,
+  generateSalt,
+  bigintToBytes32,
+  buildTestSealBytes,
+  buildTestJournal,
+  TRUSTED_IMAGE_ID,
+  TRUSTED_ROUTER_PROGRAM_ID,
+  TRUSTED_VERIFIER_PROGRAM_ID,
 } from "./test-utils";
 
-describe("ZK Proof Verification Lifecycle (router payload)", () => {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
+describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
+  let ctx: LiteSVMContext;
+  let program: Program<AgencCoordination>;
+  let protocolPda: PublicKey;
+  let routerPda: PublicKey;
+  let verifierEntryPda: PublicKey;
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
-
-  const HASH_SIZE = 32;
-  const TRUSTED_SELECTOR = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
-  const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
-  const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
-  const TRUSTED_IMAGE_ID = Buffer.from([
-    6, 15, 16, 25, 34, 43, 44, 53, 62, 71, 72, 81, 90, 99, 100, 109, 118, 127, 128, 137, 146,
-    155, 156, 165, 174, 183, 184, 193, 202, 211, 212, 221,
-  ]);
-
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("protocol")],
-    program.programId
-  );
-  const [routerPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("router")],
-    TRUSTED_ROUTER_PROGRAM_ID
-  );
-  const [verifierEntryPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("verifier"), TRUSTED_SELECTOR],
-    TRUSTED_ROUTER_PROGRAM_ID
-  );
-
-  const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  let taskNonce = 0;
-
+  const runId = generateRunId();
   let treasury: Keypair;
-  let treasuryPubkey: PublicKey;
   let taskCreator: Keypair;
   let worker: Keypair;
   let creatorAgentPda: PublicKey;
   let workerAgentPda: PublicKey;
 
-  const creatorAgentId = Buffer.from(`zk-creator-${runId}`.slice(0, 32).padEnd(32, "\0"));
-  const workerAgentId = Buffer.from(`zk-worker-${runId}`.slice(0, 32).padEnd(32, "\0"));
-
-  function deriveAgentPda(agentId: Buffer): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("agent"), agentId],
-      program.programId
-    )[0];
-  }
-
-  function deriveTaskPda(creatorPubkey: PublicKey, taskId: Buffer): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("task"), creatorPubkey.toBuffer(), taskId],
-      program.programId
-    )[0];
-  }
-
-  function deriveEscrowPda(taskPda: PublicKey): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), taskPda.toBuffer()],
-      program.programId
-    )[0];
-  }
-
-  function deriveClaimPda(taskPda: PublicKey, workerPda: PublicKey): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("claim"), taskPda.toBuffer(), workerPda.toBuffer()],
-      program.programId
-    )[0];
-  }
-
-  function deriveBindingSpendPda(bindingSeed: Buffer): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("binding_spend"), bindingSeed],
-      program.programId
-    )[0];
-  }
-
-  function deriveNullifierSpendPda(nullifierSeed: Buffer): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("nullifier_spend"), nullifierSeed],
-      program.programId
-    )[0];
-  }
-
   function taskIdToBn(taskId: Buffer): BN {
     return new BN(taskId.subarray(0, 8), "le");
   }
 
-  function buildJournal(params: {
-    taskPda: PublicKey;
-    authority: PublicKey;
-    constraintHash: Buffer;
-    outputCommitment: Buffer;
-    bindingSeed: Buffer;
-    nullifierSeed: Buffer;
-  }): Buffer {
-    return Buffer.concat([
-      params.taskPda.toBuffer(),
-      params.authority.toBuffer(),
-      params.constraintHash,
-      params.outputCommitment,
-      params.bindingSeed,
-      params.nullifierSeed,
-    ]);
-  }
-
-  function createProofPayload(params: {
-    taskPda: PublicKey;
-    authority: PublicKey;
-    constraintHash: Buffer;
-    outputCommitment?: Buffer;
-    bindingSeed?: Buffer;
-    nullifierSeed?: Buffer;
-    sealBytesLen?: number;
-  }) {
-    const outputCommitment = params.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x51);
-    const bindingSeed = params.bindingSeed ?? Buffer.alloc(HASH_SIZE, 0x52);
-    const nullifierSeed = params.nullifierSeed ?? Buffer.alloc(HASH_SIZE, 0x53);
-    const journal = buildJournal({
-      taskPda: params.taskPda,
-      authority: params.authority,
-      constraintHash: params.constraintHash,
-      outputCommitment,
-      bindingSeed,
-      nullifierSeed,
-    });
-
-    return {
-      sealBytes: Buffer.alloc(params.sealBytesLen ?? 260, 0xaa),
-      journal,
-      imageId: Array.from(TRUSTED_IMAGE_ID),
-      bindingSeed: Array.from(bindingSeed),
-      nullifierSeed: Array.from(nullifierSeed),
+  /**
+   * Send completeTaskPrivate with the signer as fee payer to avoid
+   * exceeding the 1232-byte transaction limit.
+   *
+   * Uses constructor.name check instead of instanceof because
+   * anchor-litesvm's fromWorkspace() bundles its own litesvm module,
+   * causing class identity mismatch across module boundaries.
+   */
+  async function sendCompleteTaskPrivate(params: {
+    taskIdBuf: Buffer;
+    proof: {
+      sealBytes: Buffer;
+      journal: Buffer;
+      imageId: number[];
+      bindingSeed: number[];
+      nullifierSeed: number[];
     };
+    taskPda: PublicKey;
+    claimPda: PublicKey;
+    escrowPda: PublicKey;
+    bindingSpendPda: PublicKey;
+    nullifierSpendPda: PublicKey;
+    signer?: Keypair;
+    workerAgent?: PublicKey;
+    taskCreatorKey?: PublicKey;
+  }): Promise<void> {
+    const signer = params.signer ?? worker;
+    const workerAgent = params.workerAgent ?? workerAgentPda;
+    const taskCreatorKey = params.taskCreatorKey ?? taskCreator.publicKey;
+
+    const ix = await program.methods
+      .completeTaskPrivate(taskIdToBn(params.taskIdBuf), params.proof)
+      .accountsPartial({
+        task: params.taskPda,
+        claim: params.claimPda,
+        escrow: params.escrowPda,
+        creator: taskCreatorKey,
+        worker: workerAgent,
+        protocolConfig: protocolPda,
+        bindingSpend: params.bindingSpendPda,
+        nullifierSpend: params.nullifierSpendPda,
+        treasury: treasury.publicKey,
+        authority: signer.publicKey,
+        routerProgram: TRUSTED_ROUTER_PROGRAM_ID,
+        router: routerPda,
+        verifierEntry: verifierEntryPda,
+        verifierProgram: TRUSTED_VERIFIER_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        tokenEscrowAta: null,
+        workerTokenAccount: null,
+        treasuryTokenAccount: null,
+        rewardMint: null,
+        tokenProgram: null,
+      })
+      .instruction();
+
+    const tx = new Transaction();
+    tx.add(ix);
+    tx.feePayer = signer.publicKey;
+    tx.recentBlockhash = ctx.svm.latestBlockhash();
+    tx.sign(signer);
+
+    const res = ctx.svm.sendTransaction(tx);
+    if (res.constructor.name === "FailedTransactionMetadata") {
+      const failed = res as any;
+      throw new SendTransactionError({
+        action: "send",
+        signature: "unknown",
+        transactionMessage: failed.err().toString(),
+        logs: failed.meta().logs(),
+      });
+    }
   }
 
-  async function createPrivateTaskAndClaim(constraintHash: Buffer) {
-    const taskId = Buffer.from(
-      `zk-${runId}-${(taskNonce++).toString(36)}`.slice(0, 32).padEnd(32, "\0")
+  async function createPrivateTaskAndClaim(
+    constraintHash: Buffer,
+    taskIdBuf: Buffer,
+    taskType: number = TASK_TYPE_EXCLUSIVE,
+  ) {
+    const description = createDescription("zk-lifecycle-task");
+    const deadline = new BN(getClockTimestamp(ctx.svm) + 3600);
+    const taskPda = deriveTaskPda(
+      taskCreator.publicKey,
+      taskIdBuf,
+      program.programId,
     );
-    const description = Buffer.alloc(64, 0);
-    description.write("zk-lifecycle-private-task");
-    const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
-    const taskPda = deriveTaskPda(taskCreator.publicKey, taskId);
-    const escrowPda = deriveEscrowPda(taskPda);
-    const claimPda = deriveClaimPda(taskPda, workerAgentPda);
+    const escrowPda = deriveEscrowPda(taskPda, program.programId);
+    const claimPda = deriveClaimPda(
+      taskPda,
+      workerAgentPda,
+      program.programId,
+    );
 
     await program.methods
       .createTask(
-        Array.from(taskId),
+        Array.from(taskIdBuf),
         new BN(CAPABILITY_COMPUTE),
-        Array.from(description),
+        description,
         new BN(0.3 * LAMPORTS_PER_SOL),
-        1,
+        taskType === TASK_TYPE_COMPETITIVE ? 3 : 1,
         deadline,
-        TASK_TYPE_EXCLUSIVE,
+        taskType,
         Array.from(constraintHash),
         0,
-        null
+        null,
       )
       .accountsPartial({
         task: taskPda,
@@ -200,185 +209,312 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
       .signers([worker])
       .rpc();
 
-    return { taskId, taskPda, escrowPda, claimPda };
+    return { taskPda, escrowPda, claimPda };
   }
 
-  async function submitPrivateCompletion(input: {
-    taskId: Buffer;
-    taskPda: PublicKey;
-    escrowPda: PublicKey;
-    claimPda: PublicKey;
-    proof: ReturnType<typeof createProofPayload>;
-  }) {
-    const bindingSeed = Buffer.from(input.proof.bindingSeed);
-    const nullifierSeed = Buffer.from(input.proof.nullifierSeed);
+  function buildProofForTask(
+    taskPda: PublicKey,
+    workerPublicKey: PublicKey,
+    constraintHashBuf: Buffer,
+    output: bigint[],
+    salt: bigint,
+  ) {
+    const hashes = computeHashes(taskPda, workerPublicKey, output, salt);
+    const bindingSeed = bigintToBytes32(hashes.binding);
+    const nullifierSeed = bigintToBytes32(hashes.nullifier);
+    const outputCommitment = bigintToBytes32(hashes.outputCommitment);
 
-    return program.methods
-      .completeTaskPrivate(taskIdToBn(input.taskId), input.proof)
-      .accountsPartial({
-        task: input.taskPda,
-        claim: input.claimPda,
-        escrow: input.escrowPda,
-        creator: taskCreator.publicKey,
-        worker: workerAgentPda,
-        protocolConfig: protocolPda,
-        bindingSpend: deriveBindingSpendPda(bindingSeed),
-        nullifierSpend: deriveNullifierSpendPda(nullifierSeed),
-        treasury: treasuryPubkey,
-        authority: worker.publicKey,
-        routerProgram: TRUSTED_ROUTER_PROGRAM_ID,
-        router: routerPda,
-        verifierEntry: verifierEntryPda,
-        verifierProgram: TRUSTED_VERIFIER_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([worker])
-      .rpc();
+    const journal = buildTestJournal({
+      taskPda: taskPda.toBuffer(),
+      authority: workerPublicKey.toBuffer(),
+      constraintHash: constraintHashBuf,
+      outputCommitment,
+      binding: bindingSeed,
+      nullifier: nullifierSeed,
+    });
+
+    return {
+      proof: {
+        sealBytes: buildTestSealBytes(),
+        journal,
+        imageId: Array.from(TRUSTED_IMAGE_ID),
+        bindingSeed: Array.from(bindingSeed),
+        nullifierSeed: Array.from(nullifierSeed),
+      },
+      bindingSeed,
+      nullifierSeed,
+    };
   }
 
-  before(async function () {
-    try {
-      await provider.connection.getLatestBlockhash("confirmed");
-    } catch (_err) {
-      this.skip();
-      return;
-    }
+  before(async () => {
+    ctx = createLiteSVMContext();
+    injectMockVerifierRouter(ctx.svm);
+    program = ctx.program;
+    protocolPda = deriveProtocolPda(program.programId);
+    routerPda = deriveRouterPda();
+    verifierEntryPda = deriveVerifierEntryPda();
 
     treasury = Keypair.generate();
     taskCreator = Keypair.generate();
     worker = Keypair.generate();
-
-    for (const keypair of [treasury, taskCreator, worker]) {
-      const sig = await provider.connection.requestAirdrop(
-        keypair.publicKey,
-        10 * LAMPORTS_PER_SOL
-      );
-      await provider.connection.confirmTransaction(sig, "confirmed");
+    for (const kp of [treasury, taskCreator, worker]) {
+      fundAccount(ctx.svm, kp.publicKey, 50 * LAMPORTS_PER_SOL);
     }
 
-    try {
-      await program.methods
-        .initializeProtocol(
-          51,
-          100,
-          new BN(LAMPORTS_PER_SOL / 10),
-          new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [provider.wallet.publicKey, treasury.publicKey]
-        )
-        .accountsPartial({
-          protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
-          authority: provider.wallet.publicKey,
-          secondSigner: treasury.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .remainingAccounts([
-          {
-            pubkey: deriveProgramDataPda(program.programId),
-            isSigner: false,
-            isWritable: false,
-          },
-        ])
-        .signers([treasury])
-        .rpc();
-      treasuryPubkey = treasury.publicKey;
-    } catch (e) {
-      const config = await program.account.protocolConfig.fetch(protocolPda);
-      treasuryPubkey = config.treasury;
-    }
+    await program.methods
+      .initializeProtocol(
+        51,
+        100,
+        new BN(LAMPORTS_PER_SOL / 10),
+        new BN(LAMPORTS_PER_SOL / 100),
+        1,
+        [ctx.payer.publicKey, treasury.publicKey],
+      )
+      .accountsPartial({
+        protocolConfig: protocolPda,
+        treasury: treasury.publicKey,
+        authority: ctx.payer.publicKey,
+        secondSigner: treasury.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts([
+        {
+          pubkey: deriveProgramDataPda(program.programId),
+          isSigner: false,
+          isWritable: false,
+        },
+      ])
+      .signers([treasury])
+      .rpc();
 
     await disableRateLimitsForTests({
       program,
       protocolPda,
-      authority: provider.wallet.publicKey,
-      minStakeForDisputeLamports: 0,
-      skipPreflight: false,
+      authority: ctx.payer.publicKey,
     });
 
-    const protocol = await program.account.protocolConfig.fetch(protocolPda);
-    const minAgentStakeLamportsRaw = (protocol as { minAgentStake: unknown }).minAgentStake;
-    const minAgentStakeLamports = BN.isBN(minAgentStakeLamportsRaw)
-      ? minAgentStakeLamportsRaw.toNumber()
-      : Number(minAgentStakeLamportsRaw);
-    const registerStakeLamports = Math.max(minAgentStakeLamports, Math.floor(LAMPORTS_PER_SOL / 10));
-
-    creatorAgentPda = deriveAgentPda(creatorAgentId);
-    workerAgentPda = deriveAgentPda(workerAgentId);
-
-    for (const [agentId, agentPda, signer] of [
-      [creatorAgentId, creatorAgentPda, taskCreator],
-      [workerAgentId, workerAgentPda, worker],
-    ] as const) {
-      try {
-        await program.methods
-          .registerAgent(
-            Array.from(agentId),
-            new BN(CAPABILITY_COMPUTE),
-            `https://zk-lifecycle-${runId}.example.com`,
-            null,
-            new BN(registerStakeLamports)
-          )
-          .accountsPartial({
-            agent: agentPda,
-            protocolConfig: protocolPda,
-            authority: signer.publicKey,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([signer])
-          .rpc();
-      } catch (e) {
-        const existingAgent = await (program.account.agentRegistration as {
-          fetchNullable: (pubkey: PublicKey) => Promise<{ authority: PublicKey } | null>;
-        }).fetchNullable(agentPda);
-        if (!existingAgent) {
-          throw e;
-        }
-        if (!existingAgent.authority.equals(signer.publicKey)) {
-          throw new Error(
-            `agent ${agentPda.toBase58()} authority mismatch (${existingAgent.authority.toBase58()} != ${signer.publicKey.toBase58()})`
-          );
-        }
-      }
-    }
+    const creatorAgentId = makeAgentId("zlc", runId);
+    const workerAgentId = makeAgentId("zlw", runId);
+    creatorAgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: creatorAgentId,
+      authority: taskCreator,
+      capabilities: CAPABILITY_COMPUTE,
+      stakeLamports: LAMPORTS_PER_SOL / 10,
+    });
+    workerAgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: workerAgentId,
+      authority: worker,
+      capabilities: CAPABILITY_COMPUTE,
+      stakeLamports: LAMPORTS_PER_SOL / 10,
+    });
   });
 
   it("submits complete_task_private with dual-spend + router accounts", async () => {
-    const constraintHash = Buffer.alloc(HASH_SIZE, 0x61);
-    const { taskId, taskPda, escrowPda, claimPda } = await createPrivateTaskAndClaim(constraintHash);
-    const proof = createProofPayload({
+    const output = [11n, 22n, 33n, 44n];
+    const salt = generateSalt();
+    const constraintHash = computeConstraintHash(output);
+    const constraintHashBuf = bigintToBytes32(constraintHash);
+    const taskIdBuf = makeTaskId("zl1", runId);
+
+    const { taskPda, escrowPda, claimPda } = await createPrivateTaskAndClaim(
+      constraintHashBuf,
+      taskIdBuf,
+    );
+
+    const { proof, bindingSeed, nullifierSeed } = buildProofForTask(
       taskPda,
-      authority: worker.publicKey,
-      constraintHash,
-      sealBytesLen: 260,
+      worker.publicKey,
+      constraintHashBuf,
+      output,
+      salt,
+    );
+
+    await sendCompleteTaskPrivate({
+      taskIdBuf,
+      proof,
+      taskPda,
+      claimPda,
+      escrowPda,
+      bindingSpendPda: deriveBindingSpendPda(bindingSeed, program.programId),
+      nullifierSpendPda: deriveNullifierSpendPda(nullifierSeed, program.programId),
     });
 
-    try {
-      await submitPrivateCompletion({ taskId, taskPda, escrowPda, claimPda, proof });
-      // A fully deployed router/verifier in local test env could make this succeed.
-    } catch (e) {
-      expect(String(e)).to.not.equal("");
-    }
+    const taskAccount = await program.account.task.fetch(taskPda);
+    expect("completed" in taskAccount.status).to.be.true;
+
+    const bindingSpend = await program.account.bindingSpend.fetch(
+      deriveBindingSpendPda(bindingSeed, program.programId),
+    );
+    expect(bindingSpend.task.equals(taskPda)).to.be.true;
   });
 
   it("accepts explicit bindingSeed/nullifierSeed fields in payload", async () => {
-    const constraintHash = Buffer.alloc(HASH_SIZE, 0x62);
-    const bindingSeed = Buffer.alloc(HASH_SIZE, 0x73);
-    const nullifierSeed = Buffer.alloc(HASH_SIZE, 0x74);
-    const { taskId, taskPda, escrowPda, claimPda } = await createPrivateTaskAndClaim(constraintHash);
-    const proof = createProofPayload({
+    const output = [55n, 66n, 77n, 88n];
+    const salt = generateSalt();
+    const constraintHash = computeConstraintHash(output);
+    const constraintHashBuf = bigintToBytes32(constraintHash);
+    const taskIdBuf = makeTaskId("zl2", runId);
+
+    const { taskPda, escrowPda, claimPda } = await createPrivateTaskAndClaim(
+      constraintHashBuf,
+      taskIdBuf,
+    );
+
+    const { proof, bindingSeed, nullifierSeed } = buildProofForTask(
       taskPda,
-      authority: worker.publicKey,
-      constraintHash,
-      bindingSeed,
-      nullifierSeed,
-      sealBytesLen: 64,
+      worker.publicKey,
+      constraintHashBuf,
+      output,
+      salt,
+    );
+
+    await sendCompleteTaskPrivate({
+      taskIdBuf,
+      proof,
+      taskPda,
+      claimPda,
+      escrowPda,
+      bindingSpendPda: deriveBindingSpendPda(bindingSeed, program.programId),
+      nullifierSpendPda: deriveNullifierSpendPda(nullifierSeed, program.programId),
     });
 
+    const taskAccount = await program.account.task.fetch(taskPda);
+    expect("completed" in taskAccount.status).to.be.true;
+  });
+
+  it("prevents double-completion of competitive private task", async () => {
+    const output = [100n, 200n, 300n, 400n];
+    const salt = generateSalt();
+    const constraintHash = computeConstraintHash(output);
+    const constraintHashBuf = bigintToBytes32(constraintHash);
+    const taskIdBuf = makeTaskId("zl3", runId);
+
+    // Create competitive task (max_workers=3)
+    const description = createDescription("zk-competitive-task");
+    const deadline = new BN(getClockTimestamp(ctx.svm) + 3600);
+    const taskPda = deriveTaskPda(
+      taskCreator.publicKey,
+      taskIdBuf,
+      program.programId,
+    );
+    const escrowPda = deriveEscrowPda(taskPda, program.programId);
+
+    await program.methods
+      .createTask(
+        Array.from(taskIdBuf),
+        new BN(CAPABILITY_COMPUTE),
+        description,
+        new BN(0.3 * LAMPORTS_PER_SOL),
+        3,
+        deadline,
+        TASK_TYPE_COMPETITIVE,
+        Array.from(constraintHashBuf),
+        0,
+        null,
+      )
+      .accountsPartial({
+        task: taskPda,
+        escrow: escrowPda,
+        creatorAgent: creatorAgentPda,
+        protocolConfig: protocolPda,
+        authority: taskCreator.publicKey,
+        creator: taskCreator.publicKey,
+        systemProgram: SystemProgram.programId,
+        rewardMint: null,
+        creatorTokenAccount: null,
+        tokenEscrowAta: null,
+        tokenProgram: null,
+        associatedTokenProgram: null,
+      })
+      .signers([taskCreator])
+      .rpc();
+
+    // Register second worker
+    const worker2 = Keypair.generate();
+    fundAccount(ctx.svm, worker2.publicKey, 10 * LAMPORTS_PER_SOL);
+    const worker2AgentId = makeAgentId("zlw2", runId);
+    const worker2AgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: worker2AgentId,
+      authority: worker2,
+      capabilities: CAPABILITY_COMPUTE,
+      stakeLamports: LAMPORTS_PER_SOL / 10,
+    });
+
+    // Both workers claim BEFORE any completion
+    const claimPda = deriveClaimPda(taskPda, workerAgentPda, program.programId);
+    await program.methods
+      .claimTask()
+      .accountsPartial({
+        task: taskPda,
+        claim: claimPda,
+        worker: workerAgentPda,
+        protocolConfig: protocolPda,
+        authority: worker.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([worker])
+      .rpc();
+
+    const claim2Pda = deriveClaimPda(taskPda, worker2AgentPda, program.programId);
+    await program.methods
+      .claimTask()
+      .accountsPartial({
+        task: taskPda,
+        claim: claim2Pda,
+        worker: worker2AgentPda,
+        protocolConfig: protocolPda,
+        authority: worker2.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([worker2])
+      .rpc();
+
+    // First completion succeeds
+    const { proof, bindingSeed, nullifierSeed } = buildProofForTask(
+      taskPda,
+      worker.publicKey,
+      constraintHashBuf,
+      output,
+      salt,
+    );
+
+    await sendCompleteTaskPrivate({
+      taskIdBuf,
+      proof,
+      taskPda,
+      claimPda,
+      escrowPda,
+      bindingSpendPda: deriveBindingSpendPda(bindingSeed, program.programId),
+      nullifierSpendPda: deriveNullifierSpendPda(nullifierSeed, program.programId),
+    });
+
+    // Second completion should fail (competitive tasks enforce completions == 0)
+    const salt2 = generateSalt();
+    const { proof: proof2, bindingSeed: bs2, nullifierSeed: ns2 } =
+      buildProofForTask(taskPda, worker2.publicKey, constraintHashBuf, output, salt2);
+
     try {
-      await submitPrivateCompletion({ taskId, taskPda, escrowPda, claimPda, proof });
-      expect.fail("submission unexpectedly succeeded with malformed seal");
-    } catch (e) {
+      await sendCompleteTaskPrivate({
+        taskIdBuf,
+        proof: proof2,
+        taskPda,
+        claimPda: claim2Pda,
+        escrowPda,
+        bindingSpendPda: deriveBindingSpendPda(bs2, program.programId),
+        nullifierSpendPda: deriveNullifierSpendPda(ns2, program.programId),
+        signer: worker2,
+        workerAgent: worker2AgentPda,
+      });
+      expect.fail("double-completion of competitive task should fail");
+    } catch (e: any) {
+      // Expected: competitive tasks enforce completions == 0 before paying
+      if (e.name === "AssertionError") throw e;
       expect(String(e)).to.not.equal("");
     }
   });
@@ -386,29 +522,19 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
 
 describe("Private Replay Seed Semantics", () => {
   it("derives distinct spend PDAs for distinct binding/nullifier seeds", () => {
-    const programId = new PublicKey("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7");
+    const programId = new PublicKey(
+      "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
+    );
 
     const bindingA = Buffer.alloc(32, 0x21);
     const bindingB = Buffer.alloc(32, 0x22);
     const nullifierA = Buffer.alloc(32, 0x31);
     const nullifierB = Buffer.alloc(32, 0x32);
 
-    const [bindingSpendA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("binding_spend"), bindingA],
-      programId
-    );
-    const [bindingSpendB] = PublicKey.findProgramAddressSync(
-      [Buffer.from("binding_spend"), bindingB],
-      programId
-    );
-    const [nullifierSpendA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("nullifier_spend"), nullifierA],
-      programId
-    );
-    const [nullifierSpendB] = PublicKey.findProgramAddressSync(
-      [Buffer.from("nullifier_spend"), nullifierB],
-      programId
-    );
+    const bindingSpendA = deriveBindingSpendPda(bindingA, programId);
+    const bindingSpendB = deriveBindingSpendPda(bindingB, programId);
+    const nullifierSpendA = deriveNullifierSpendPda(nullifierA, programId);
+    const nullifierSpendB = deriveNullifierSpendPda(nullifierB, programId);
 
     expect(bindingSpendA.equals(bindingSpendB)).to.equal(false);
     expect(nullifierSpendA.equals(nullifierSpendB)).to.equal(false);

@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { LLMProviderConfig } from '../types.js';
+import type { LLMProviderConfig } from "../types.js";
 
 /**
  * Configuration specific to the Grok (xAI) provider.
@@ -18,7 +18,7 @@ export interface GrokProviderConfig extends LLMProviderConfig {
   /** Enable web search tool (injects a web_search tool) */
   webSearch?: boolean;
   /** Search mode when web search is enabled */
-  searchMode?: 'auto' | 'on' | 'off';
+  searchMode?: "auto" | "on" | "off";
   /** Vision-capable model to auto-switch to when images are present (default: 'grok-2-vision-1212') */
   visionModel?: string;
 }

@@ -5,7 +5,7 @@
  * log levels and formatted output.
  */
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LOG_LEVELS: Record<LogLevel, number> = {
   debug: 0,
@@ -29,7 +29,10 @@ export interface Logger {
  * @param prefix - Prefix for log messages (default: '[AgenC SDK]')
  * @returns Logger instance
  */
-export function createLogger(minLevel: LogLevel = 'info', prefix = '[AgenC SDK]'): Logger {
+export function createLogger(
+  minLevel: LogLevel = "info",
+  prefix = "[AgenC SDK]",
+): Logger {
   let currentLevel = LOG_LEVELS[minLevel];
 
   const log = (level: LogLevel, message: string, ...args: unknown[]) => {
@@ -39,16 +42,16 @@ export function createLogger(minLevel: LogLevel = 'info', prefix = '[AgenC SDK]'
       const fullMessage = `${timestamp} ${levelStr} ${prefix} ${message}`;
 
       switch (level) {
-        case 'debug':
+        case "debug":
           console.debug(fullMessage, ...args);
           break;
-        case 'info':
+        case "info":
           console.info(fullMessage, ...args);
           break;
-        case 'warn':
+        case "warn":
           console.warn(fullMessage, ...args);
           break;
-        case 'error':
+        case "error":
           console.error(fullMessage, ...args);
           break;
       }
@@ -56,10 +59,10 @@ export function createLogger(minLevel: LogLevel = 'info', prefix = '[AgenC SDK]'
   };
 
   return {
-    debug: (message, ...args) => log('debug', message, ...args),
-    info: (message, ...args) => log('info', message, ...args),
-    warn: (message, ...args) => log('warn', message, ...args),
-    error: (message, ...args) => log('error', message, ...args),
+    debug: (message, ...args) => log("debug", message, ...args),
+    info: (message, ...args) => log("info", message, ...args),
+    warn: (message, ...args) => log("warn", message, ...args),
+    error: (message, ...args) => log("error", message, ...args),
     setLevel: (level) => {
       currentLevel = LOG_LEVELS[level];
     },

@@ -9,7 +9,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -17,26 +22,29 @@ import {
   TASK_TYPE_EXCLUSIVE,
   RESOLUTION_TYPE_REFUND,
   deriveProgramDataPda,
+  disableRateLimitsForTests,
 } from "./test-utils";
 
 describe("sybil-attack", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   // Generate unique run ID to prevent conflicts with persisted validator state
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const runId =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;
   let creator: Keypair;
-  let sybilAttacker: Keypair;  // One wallet trying to vote multiple times
+  let sybilAttacker: Keypair; // One wallet trying to vote multiple times
   let legitimateArbiter: Keypair;
   let creatorAgentPda: PublicKey;
 
@@ -49,29 +57,40 @@ describe("sybil-attack", () => {
   function deriveAgentPda(agentId: Buffer): PublicKey {
     const [pda] = PublicKey.findProgramAddressSync(
       [Buffer.from("agent"), agentId],
-      program.programId
+      program.programId,
     );
     return pda;
   }
 
-  function deriveVotePda(disputePda: PublicKey, arbiterPda: PublicKey): PublicKey {
+  function deriveVotePda(
+    disputePda: PublicKey,
+    arbiterPda: PublicKey,
+  ): PublicKey {
     const [pda] = PublicKey.findProgramAddressSync(
       [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
-      program.programId
+      program.programId,
     );
     return pda;
   }
 
-  function deriveAuthorityVotePda(disputePda: PublicKey, authority: PublicKey): PublicKey {
+  function deriveAuthorityVotePda(
+    disputePda: PublicKey,
+    authority: PublicKey,
+  ): PublicKey {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("authority_vote"), disputePda.toBuffer(), authority.toBuffer()],
-      program.programId
+      [
+        Buffer.from("authority_vote"),
+        disputePda.toBuffer(),
+        authority.toBuffer(),
+      ],
+      program.programId,
     );
     return pda;
   }
 
   // Evidence must be at least 50 characters per initiate_dispute.rs requirements
-  const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
+  const VALID_EVIDENCE =
+    "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
 
   before(async () => {
     treasury = Keypair.generate();
@@ -84,8 +103,11 @@ describe("sybil-attack", () => {
 
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, airdropAmount),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          wallet.publicKey,
+          airdropAmount,
+        ),
+        "confirmed",
       );
     }
 
@@ -93,7 +115,14 @@ describe("sybil-attack", () => {
     try {
       const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
+        .initializeProtocol(
+          51,
+          100,
+          new BN(1 * LAMPORTS_PER_SOL),
+          new BN(LAMPORTS_PER_SOL / 100),
+          1,
+          [provider.wallet.publicKey, treasury.publicKey],
+        )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
@@ -101,35 +130,28 @@ describe("sybil-attack", () => {
           secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([treasury])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     } catch (e: any) {
-      const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
+      const protocolConfig =
+        await program.account.protocolConfig.fetch(protocolPda);
       treasuryPubkey = protocolConfig.treasury;
     }
 
     // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(
-          new BN(0),  // task_creation_cooldown = 0 (disabled)
-          0,          // max_tasks_per_24h = 0 (unlimited)
-          new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
-          0,          // max_disputes_per_24h = 0 (unlimited)
-          new BN(0)   // min_stake_for_dispute = 0
-        )
-        .accountsPartial({
-          protocolConfig: protocolPda,
-        })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
-        .rpc();
-    } catch (e: any) {
-      // May already be configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+    });
 
     // Register creator agent for task creation
     const creatorAgentId = makeId("cre-sybil");
@@ -142,7 +164,7 @@ describe("sybil-attack", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://creator.example.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)
+          new BN(1 * LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: creatorAgentPda,
@@ -170,11 +192,11 @@ describe("sybil-attack", () => {
       const taskId = makeId("sybil-task");
       taskPda = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), creator.publicKey.toBuffer(), taskId],
-        program.programId
+        program.programId,
       )[0];
       escrowPda = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda.toBuffer()],
-        program.programId
+        program.programId,
       )[0];
 
       await program.methods
@@ -220,7 +242,7 @@ describe("sybil-attack", () => {
           new BN(CAPABILITY_ARBITER),
           "https://arbiter1.sybil.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)
+          new BN(1 * LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: arbiter1Pda,
@@ -236,7 +258,7 @@ describe("sybil-attack", () => {
           new BN(CAPABILITY_ARBITER),
           "https://arbiter2.sybil.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)
+          new BN(1 * LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: arbiter2Pda,
@@ -257,7 +279,7 @@ describe("sybil-attack", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://worker.sybil.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)
+          new BN(1 * LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: workerAgentPda,
@@ -269,7 +291,7 @@ describe("sybil-attack", () => {
 
       workerClaimPda = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), taskPda.toBuffer(), workerAgentPda.toBuffer()],
-        program.programId
+        program.programId,
       )[0];
 
       await program.methods
@@ -289,7 +311,7 @@ describe("sybil-attack", () => {
       const disputeId = makeId("disp-sybil");
       disputePda = PublicKey.findProgramAddressSync(
         [Buffer.from("dispute"), disputeId],
-        program.programId
+        program.programId,
       )[0];
 
       await program.methods
@@ -298,7 +320,7 @@ describe("sybil-attack", () => {
           Array.from(taskId),
           Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
           RESOLUTION_TYPE_REFUND,
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: disputePda,
@@ -317,7 +339,10 @@ describe("sybil-attack", () => {
 
     it("First vote from authority succeeds", async () => {
       const votePda = deriveVotePda(disputePda, arbiter1Pda);
-      const authorityVotePda = deriveAuthorityVotePda(disputePda, sybilAttacker.publicKey);
+      const authorityVotePda = deriveAuthorityVotePda(
+        disputePda,
+        sybilAttacker.publicKey,
+      );
 
       try {
         await program.methods
@@ -345,18 +370,21 @@ describe("sybil-attack", () => {
     it("Second vote from same authority (via different agent) is prevented", async () => {
       // Same authority (sybilAttacker) tries to vote again with a different agent
       const votePda = deriveVotePda(disputePda, arbiter2Pda);
-      const authorityVotePda = deriveAuthorityVotePda(disputePda, sybilAttacker.publicKey);
+      const authorityVotePda = deriveAuthorityVotePda(
+        disputePda,
+        sybilAttacker.publicKey,
+      );
 
       try {
         await program.methods
-          .voteDispute(false)  // Different vote, but same authority
+          .voteDispute(false) // Different vote, but same authority
           .accountsPartial({
             dispute: disputePda,
             task: taskPda,
             workerClaim: workerClaimPda,
             defendantAgent: workerAgentPda,
             vote: votePda,
-            authorityVote: authorityVotePda,  // This will fail - account already exists
+            authorityVote: authorityVotePda, // This will fail - account already exists
             arbiter: arbiter2Pda,
             protocolConfig: protocolPda,
             authority: sybilAttacker.publicKey,
@@ -381,7 +409,7 @@ describe("sybil-attack", () => {
           new BN(CAPABILITY_ARBITER),
           "https://legit-arbiter.example.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)
+          new BN(1 * LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: legitArbPda,
@@ -392,7 +420,10 @@ describe("sybil-attack", () => {
         .rpc();
 
       const votePda = deriveVotePda(disputePda, legitArbPda);
-      const authorityVotePda = deriveAuthorityVotePda(disputePda, legitimateArbiter.publicKey);
+      const authorityVotePda = deriveAuthorityVotePda(
+        disputePda,
+        legitimateArbiter.publicKey,
+      );
 
       await program.methods
         .voteDispute(false)
@@ -419,7 +450,10 @@ describe("sybil-attack", () => {
     });
 
     it("AuthorityDisputeVote account contains correct data", async () => {
-      const authorityVotePda = deriveAuthorityVotePda(disputePda, sybilAttacker.publicKey);
+      const authorityVotePda = deriveAuthorityVotePda(
+        disputePda,
+        sybilAttacker.publicKey,
+      );
       let missingSybilVote = false;
       try {
         await program.account.authorityDisputeVote.fetch(authorityVotePda);
@@ -429,11 +463,17 @@ describe("sybil-attack", () => {
       expect(missingSybilVote).to.be.true;
 
       // Check the legitimate arbiter's vote record
-      const legitVotePda = deriveAuthorityVotePda(disputePda, legitimateArbiter.publicKey);
-      const legitVote = await program.account.authorityDisputeVote.fetch(legitVotePda);
+      const legitVotePda = deriveAuthorityVotePda(
+        disputePda,
+        legitimateArbiter.publicKey,
+      );
+      const legitVote =
+        await program.account.authorityDisputeVote.fetch(legitVotePda);
 
       expect(legitVote.dispute.toString()).to.equal(disputePda.toString());
-      expect(legitVote.authority.toString()).to.equal(legitimateArbiter.publicKey.toString());
+      expect(legitVote.authority.toString()).to.equal(
+        legitimateArbiter.publicKey.toString(),
+      );
     });
   });
 
@@ -445,8 +485,11 @@ describe("sybil-attack", () => {
       const multiArbiter = Keypair.generate();
 
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(multiArbiter.publicKey, 5 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          multiArbiter.publicKey,
+          5 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
 
       await program.methods
@@ -455,7 +498,7 @@ describe("sybil-attack", () => {
           new BN(CAPABILITY_ARBITER),
           "https://multi-arbiter.example.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)
+          new BN(1 * LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: arb3Pda,
@@ -475,7 +518,7 @@ describe("sybil-attack", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://multi-worker.example.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)
+          new BN(1 * LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: multiWorkerPda,
@@ -492,7 +535,7 @@ describe("sybil-attack", () => {
       for (const taskId of [task1Id, task2Id]) {
         const taskPda = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), taskId],
-          program.programId
+          program.programId,
         )[0];
 
         await program.methods
@@ -512,7 +555,7 @@ describe("sybil-attack", () => {
             task: taskPda,
             escrow: PublicKey.findProgramAddressSync(
               [Buffer.from("escrow"), taskPda.toBuffer()],
-              program.programId
+              program.programId,
             )[0],
             protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -531,7 +574,7 @@ describe("sybil-attack", () => {
         // Claim the task
         const claimPda = PublicKey.findProgramAddressSync(
           [Buffer.from("claim"), taskPda.toBuffer(), multiWorkerPda.toBuffer()],
-          program.programId
+          program.programId,
         )[0];
 
         await program.methods
@@ -554,28 +597,28 @@ describe("sybil-attack", () => {
 
       const task1Pda = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), creator.publicKey.toBuffer(), task1Id],
-        program.programId
+        program.programId,
       )[0];
       const task2Pda = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), creator.publicKey.toBuffer(), task2Id],
-        program.programId
+        program.programId,
       )[0];
       const claim1Pda = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), task1Pda.toBuffer(), multiWorkerPda.toBuffer()],
-        program.programId
+        program.programId,
       )[0];
       const claim2Pda = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), task2Pda.toBuffer(), multiWorkerPda.toBuffer()],
-        program.programId
+        program.programId,
       )[0];
 
       const dispute1Pda = PublicKey.findProgramAddressSync(
         [Buffer.from("dispute"), dispute1Id],
-        program.programId
+        program.programId,
       )[0];
       const dispute2Pda = PublicKey.findProgramAddressSync(
         [Buffer.from("dispute"), dispute2Id],
-        program.programId
+        program.programId,
       )[0];
 
       // Initiate both disputes
@@ -585,7 +628,7 @@ describe("sybil-attack", () => {
           Array.from(task1Id),
           Array.from(Buffer.from("evidence1".padEnd(32, "\0"))),
           RESOLUTION_TYPE_REFUND,
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: dispute1Pda,
@@ -607,7 +650,7 @@ describe("sybil-attack", () => {
           Array.from(task2Id),
           Array.from(Buffer.from("evidence2".padEnd(32, "\0"))),
           RESOLUTION_TYPE_REFUND,
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: dispute2Pda,
@@ -625,7 +668,10 @@ describe("sybil-attack", () => {
 
       // Participant authority cannot vote on a dispute they are part of.
       const vote1Pda = deriveVotePda(dispute1Pda, arb3Pda);
-      const authVote1Pda = deriveAuthorityVotePda(dispute1Pda, multiArbiter.publicKey);
+      const authVote1Pda = deriveAuthorityVotePda(
+        dispute1Pda,
+        multiArbiter.publicKey,
+      );
 
       try {
         await program.methods

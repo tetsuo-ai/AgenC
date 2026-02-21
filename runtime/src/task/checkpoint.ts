@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { TaskCheckpoint, CheckpointStore } from './types.js';
+import type { TaskCheckpoint, CheckpointStore } from "./types.js";
 
 /**
  * In-memory checkpoint store backed by a simple Map.

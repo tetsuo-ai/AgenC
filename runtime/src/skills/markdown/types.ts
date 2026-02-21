@@ -58,7 +58,7 @@ export interface SkillRequirements {
 /** A single installation step. */
 export interface SkillInstallStep {
   /** Package manager or method. */
-  readonly type: 'brew' | 'apt' | 'npm' | 'cargo' | 'download';
+  readonly type: "brew" | "apt" | "npm" | "cargo" | "download";
   /** Package name (for brew/apt/npm/cargo). */
   readonly package?: string;
   /** Download URL (for download type). */

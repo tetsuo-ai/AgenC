@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 import {
   BenchmarkRunner,
   serializeBenchmarkArtifact,
   type BenchmarkManifest,
   type BenchmarkScenarioRunner,
-} from './benchmark-runner.js';
-import { BENCHMARK_MANIFEST_SCHEMA_VERSION } from './benchmark-manifest.js';
+} from "./benchmark-runner.js";
+import { BENCHMARK_MANIFEST_SCHEMA_VERSION } from "./benchmark-manifest.js";
 
 function buildTrace(options: {
   traceId: string;
@@ -16,36 +16,59 @@ function buildTrace(options: {
   policyViolation?: boolean;
 }): unknown {
   const events: Array<Record<string, unknown>> = [
-    { seq: 1, type: 'discovered', taskPda: options.taskPda, timestampMs: 1, payload: {} },
-    { seq: 2, type: 'claimed', taskPda: options.taskPda, timestampMs: 2, payload: { claimTx: 'claim-tx' } },
-    { seq: 3, type: 'executed', taskPda: options.taskPda, timestampMs: 3, payload: { outputLength: 1 } },
+    {
+      seq: 1,
+      type: "discovered",
+      taskPda: options.taskPda,
+      timestampMs: 1,
+      payload: {},
+    },
+    {
+      seq: 2,
+      type: "claimed",
+      taskPda: options.taskPda,
+      timestampMs: 2,
+      payload: { claimTx: "claim-tx" },
+    },
+    {
+      seq: 3,
+      type: "executed",
+      taskPda: options.taskPda,
+      timestampMs: 3,
+      payload: { outputLength: 1 },
+    },
   ];
 
   if (options.policyViolation) {
     events.push({
       seq: 4,
-      type: 'policy_violation',
+      type: "policy_violation",
       taskPda: options.taskPda,
       timestampMs: 4,
-      payload: { code: 'risk_threshold_exceeded' },
+      payload: { code: "risk_threshold_exceeded" },
     });
   }
 
-  events.push(options.pass
-    ? {
-      seq: options.policyViolation ? 5 : 4,
-      type: 'completed',
-      taskPda: options.taskPda,
-      timestampMs: 10,
-      payload: { completionTx: 'complete-tx', durationMs: options.durationMs },
-    }
-    : {
-      seq: options.policyViolation ? 5 : 4,
-      type: 'failed',
-      taskPda: options.taskPda,
-      timestampMs: 10,
-      payload: { error: 'failed' },
-    });
+  events.push(
+    options.pass
+      ? {
+          seq: options.policyViolation ? 5 : 4,
+          type: "completed",
+          taskPda: options.taskPda,
+          timestampMs: 10,
+          payload: {
+            completionTx: "complete-tx",
+            durationMs: options.durationMs,
+          },
+        }
+      : {
+          seq: options.policyViolation ? 5 : 4,
+          type: "failed",
+          taskPda: options.taskPda,
+          timestampMs: 10,
+          payload: { error: "failed" },
+        },
+  );
 
   return {
     schemaVersion: 1,
@@ -59,26 +82,26 @@ function buildTrace(options: {
 function manifestFixture(): BenchmarkManifest {
   return {
     schemaVersion: BENCHMARK_MANIFEST_SCHEMA_VERSION,
-    corpusVersion: 'v-test',
-    baselineScenarioId: 'baseline',
+    corpusVersion: "v-test",
+    baselineScenarioId: "baseline",
     k: 2,
     scenarios: [
       {
-        id: 'baseline',
-        title: 'Baseline',
-        taskClass: 'qa',
-        riskTier: 'medium',
-        expectedConstraints: ['deterministic_replay'],
+        id: "baseline",
+        title: "Baseline",
+        taskClass: "qa",
+        riskTier: "medium",
+        expectedConstraints: ["deterministic_replay"],
         seeds: [1, 2],
         verifierGated: true,
         costUnits: 1.2,
       },
       {
-        id: 'regression',
-        title: 'Regression',
-        taskClass: 'qa',
-        riskTier: 'high',
-        expectedConstraints: ['policy_guardrail'],
+        id: "regression",
+        title: "Regression",
+        taskClass: "qa",
+        riskTier: "high",
+        expectedConstraints: ["policy_guardrail"],
         seeds: [3, 4],
         verifierGated: true,
         costUnits: 2.4,
@@ -87,8 +110,8 @@ function manifestFixture(): BenchmarkManifest {
   };
 }
 
-describe('BenchmarkRunner', () => {
-  it('produces deterministic artifact outputs from fixed manifest and seeds', async () => {
+describe("BenchmarkRunner", () => {
+  it("produces deterministic artifact outputs from fixed manifest and seeds", async () => {
     const runners: Record<string, BenchmarkScenarioRunner> = {
       baseline: async ({ scenario, seed }) => ({
         trace: buildTrace({
@@ -113,25 +136,31 @@ describe('BenchmarkRunner', () => {
 
     const runnerA = new BenchmarkRunner({
       now: () => 1700000000000,
-      runId: 'bench-test',
+      runId: "bench-test",
     });
     const runnerB = new BenchmarkRunner({
       now: () => 1700000000000,
-      runId: 'bench-test',
+      runId: "bench-test",
     });
 
-    const first = await runnerA.run(manifestFixture(), { scenarioRunners: runners });
-    const second = await runnerB.run(manifestFixture(), { scenarioRunners: runners });
+    const first = await runnerA.run(manifestFixture(), {
+      scenarioRunners: runners,
+    });
+    const second = await runnerB.run(manifestFixture(), {
+      scenarioRunners: runners,
+    });
 
-    expect(serializeBenchmarkArtifact(first)).toBe(serializeBenchmarkArtifact(second));
+    expect(serializeBenchmarkArtifact(first)).toBe(
+      serializeBenchmarkArtifact(second),
+    );
     expect(first.scenarios).toHaveLength(2);
     expect(first.aggregate.scorecard.aggregate.runCount).toBe(4);
   });
 
-  it('computes scenario and aggregate deltas against baseline scorecard', async () => {
+  it("computes scenario and aggregate deltas against baseline scorecard", async () => {
     const artifact = await new BenchmarkRunner({
       now: () => 1700000000010,
-      runId: 'bench-delta',
+      runId: "bench-delta",
     }).run(manifestFixture(), {
       scenarioRunners: {
         baseline: async ({ scenario, seed }) => ({
@@ -156,11 +185,17 @@ describe('BenchmarkRunner', () => {
       },
     });
 
-    const baseline = artifact.scenarios.find((scenario) => scenario.scenarioId === 'baseline');
-    const regression = artifact.scenarios.find((scenario) => scenario.scenarioId === 'regression');
+    const baseline = artifact.scenarios.find(
+      (scenario) => scenario.scenarioId === "baseline",
+    );
+    const regression = artifact.scenarios.find(
+      (scenario) => scenario.scenarioId === "regression",
+    );
 
     expect(baseline?.deltasFromBaseline?.passRate).toBeCloseTo(0, 8);
     expect(regression?.deltasFromBaseline?.passRate).toBeLessThan(0);
-    expect(artifact.aggregate.deltasFromBaseline?.conformanceScore).toBeLessThanOrEqual(0);
+    expect(
+      artifact.aggregate.deltasFromBaseline?.conformanceScore,
+    ).toBeLessThanOrEqual(0);
   });
 });

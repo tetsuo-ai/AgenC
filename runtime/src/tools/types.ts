@@ -7,12 +7,12 @@
  * @module
  */
 
-import type { Connection, PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Wallet } from '../types/wallet.js';
-import type { Logger } from '../utils/logger.js';
-import type { PolicyEngine } from '../policy/engine.js';
+import type { Connection, PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Wallet } from "../types/wallet.js";
+import type { Logger } from "../utils/logger.js";
+import type { PolicyEngine } from "../policy/engine.js";
 
 /**
  * JSON Schema type alias.
@@ -88,7 +88,7 @@ export interface ToolRegistryConfig {
  * throws `TypeError: Do not know how to serialize a BigInt`.
  */
 export function bigintReplacer(_key: string, value: unknown): unknown {
-  return typeof value === 'bigint' ? value.toString() : value;
+  return typeof value === "bigint" ? value.toString() : value;
 }
 
 /**

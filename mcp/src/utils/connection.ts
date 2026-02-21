@@ -5,8 +5,8 @@
  * Configuration via environment variables or runtime switching.
  */
 
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { AnchorProvider, Program } from '@coral-xyz/anchor';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import {
   PROGRAM_ID,
   DEVNET_RPC,
@@ -17,21 +17,21 @@ import {
   loadKeypairFromFile,
   getDefaultKeypairPath,
   type AgencCoordination,
-} from '@agenc/runtime';
+} from "@agenc/runtime";
 
 /** Supported network names */
-export type NetworkName = 'localnet' | 'devnet' | 'mainnet';
+export type NetworkName = "localnet" | "devnet" | "mainnet";
 
 /** RPC endpoints for each network */
 const NETWORK_URLS: Record<NetworkName, string> = {
-  localnet: 'http://localhost:8899',
+  localnet: "http://localhost:8899",
   devnet: DEVNET_RPC,
   mainnet: MAINNET_RPC,
 };
 
 /** Current connection state */
 let currentConnection: Connection | null = null;
-let currentNetwork: NetworkName | string = 'localnet';
+let currentNetwork: NetworkName | string = "localnet";
 let currentProgramId: PublicKey = PROGRAM_ID;
 
 /**
@@ -57,7 +57,7 @@ function getConfiguredProgramId(): PublicKey {
  */
 export function getConnection(): Connection {
   if (!currentConnection) {
-    currentConnection = new Connection(getConfiguredRpcUrl(), 'confirmed');
+    currentConnection = new Connection(getConfiguredRpcUrl(), "confirmed");
     currentProgramId = getConfiguredProgramId();
   }
   return currentConnection;
@@ -80,13 +80,16 @@ export function getCurrentProgramId(): PublicKey {
 /**
  * Switch to a different network or custom RPC URL.
  */
-export function setNetwork(networkOrUrl: string): { rpcUrl: string; network: string } {
+export function setNetwork(networkOrUrl: string): {
+  rpcUrl: string;
+  network: string;
+} {
   const isKnownNetwork = networkOrUrl in NETWORK_URLS;
   const rpcUrl = isKnownNetwork
     ? NETWORK_URLS[networkOrUrl as NetworkName]
     : networkOrUrl;
 
-  currentConnection = new Connection(rpcUrl, 'confirmed');
+  currentConnection = new Connection(rpcUrl, "confirmed");
   currentNetwork = isKnownNetwork ? networkOrUrl : rpcUrl;
   currentProgramId = getConfiguredProgramId();
 
@@ -112,11 +115,16 @@ function getKeypairPath(): string {
  * Loads keypair from SOLANA_KEYPAIR_PATH env var or default location.
  * Returns both the program and the keypair for operations that need the signer.
  */
-export async function getSigningProgram(): Promise<{ program: Program<AgencCoordination>; keypair: import('@solana/web3.js').Keypair }> {
+export async function getSigningProgram(): Promise<{
+  program: Program<AgencCoordination>;
+  keypair: import("@solana/web3.js").Keypair;
+}> {
   const keypairPath = getKeypairPath();
   const keypair = await loadKeypairFromFile(keypairPath);
   const wallet = keypairToWallet(keypair);
-  const provider = new AnchorProvider(getConnection(), wallet, { commitment: 'confirmed' });
+  const provider = new AnchorProvider(getConnection(), wallet, {
+    commitment: "confirmed",
+  });
   const program = createProgram(provider, currentProgramId);
   return { program, keypair };
 }
@@ -133,7 +141,9 @@ export async function getWalletPublicKey(): Promise<PublicKey> {
 /**
  * Get SOL balance for a public key.
  */
-export async function getSolBalance(pubkey: PublicKey): Promise<{ lamports: number; sol: number }> {
+export async function getSolBalance(
+  pubkey: PublicKey,
+): Promise<{ lamports: number; sol: number }> {
   const lamports = await getConnection().getBalance(pubkey);
   return { lamports, sol: lamports / LAMPORTS_PER_SOL };
 }
@@ -143,10 +153,10 @@ export async function getSolBalance(pubkey: PublicKey): Promise<{ lamports: numb
  */
 export async function requestAirdrop(
   pubkey: PublicKey,
-  solAmount: number
+  solAmount: number,
 ): Promise<string> {
   const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
   const sig = await getConnection().requestAirdrop(pubkey, lamports);
-  await getConnection().confirmTransaction(sig, 'confirmed');
+  await getConnection().confirmTransaction(sig, "confirmed");
   return sig;
 }

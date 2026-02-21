@@ -1,0 +1,894 @@
+{
+  "address": "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+  "metadata": {
+    "name": "verifier_router",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "docs": [
+    "Verifier Router Program for Anchor",
+    "",
+    "This program provides a routing and management system for zero-knowledge proof verifiers",
+    "on Solana. It implements a registry of verifier programs that can be dynamically added",
+    "and managed, with built-in emergency stop capabilities for security.",
+    "",
+    "# Features",
+    "* Registry of verifier programs with unique selectors",
+    "* Two-step ownership transfers via the Ownable trait",
+    "* Verifier upgrade authority checks on addition to registry",
+    "* Emergency stop functionality with proof-based or owner-based calls"
+  ],
+  "instructions": [
+    {
+      "name": "accept_ownership",
+      "discriminator": [
+        172,
+        23,
+        43,
+        13,
+        238,
+        213,
+        85,
+        150
+      ],
+      "accounts": [
+        {
+          "name": "state",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "add_verifier",
+      "discriminator": [
+        165,
+        72,
+        135,
+        225,
+        67,
+        181,
+        255,
+        135
+      ],
+      "accounts": [
+        {
+          "name": "router",
+          "docs": [
+            "The router account PDA managing verifiers and required Upgrade Authority address of verifier"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  117,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_entry",
+          "docs": [
+            "The new verifier entry to be created"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "selector"
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_program_data",
+          "docs": [
+            "Program data account (Data of account authority from LoaderV3) of the verifier being added"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "verifier_program"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "name": "verifier_program",
+          "docs": [
+            "The program executable code account of the verifier program to be added",
+            "Must be an unchecked account because any program ID can be here"
+          ]
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The owner of the router which must sign this transaction"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Required for account initialization"
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "selector",
+          "type": {
+            "array": [
+              "u8",
+              4
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancel_transfer",
+      "discriminator": [
+        50,
+        32,
+        70,
+        130,
+        142,
+        41,
+        111,
+        175
+      ],
+      "accounts": [
+        {
+          "name": "state",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "emergency_stop",
+      "discriminator": [
+        179,
+        143,
+        200,
+        137,
+        108,
+        245,
+        248,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "router",
+          "docs": [
+            "The router account PDA managing verifiers and required Upgrade Authority address of verifier"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  117,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_entry",
+          "docs": [
+            "The verifier entry of the program to be stopped."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "selector"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The authority attempting the emergency stop (either the router owner OR the person presenting proof of exploit)",
+            "The authority will get the rent refund of both the program account of the verifier and the verifierEntry account"
+          ],
+          "signer": true
+        },
+        {
+          "name": "verifier_program",
+          "docs": [
+            "The program account of the verifier to be used Address is verified against VerifierEntry",
+            "Must be Unchecked as there could be any program ID here."
+          ]
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Required because we are closing accounts"
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "selector",
+          "type": {
+            "array": [
+              "u8",
+              4
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "emergency_stop_with_proof",
+      "discriminator": [
+        54,
+        84,
+        135,
+        9,
+        249,
+        7,
+        161,
+        4
+      ],
+      "accounts": [
+        {
+          "name": "router",
+          "docs": [
+            "The router account PDA managing verifiers and required Upgrade Authority address of verifier"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  117,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_entry",
+          "docs": [
+            "The verifier entry of the program to be stopped."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "selector"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The authority attempting the emergency stop (either the router owner OR the person presenting proof of exploit)",
+            "The authority will get the rent refund of both the program account of the verifier and the verifierEntry account"
+          ],
+          "signer": true
+        },
+        {
+          "name": "verifier_program",
+          "docs": [
+            "The program account of the verifier to be used Address is verified against VerifierEntry",
+            "Must be Unchecked as there could be any program ID here."
+          ]
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Required because we are closing accounts"
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "selector",
+          "type": {
+            "array": [
+              "u8",
+              4
+            ]
+          }
+        },
+        {
+          "name": "proof",
+          "type": {
+            "defined": {
+              "name": "Proof"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "router",
+          "docs": [
+            "The router account PDA to be initialized",
+            "Space allocated for discriminator + owner (Option<Pubkey>) + pending_owner: (Option<Pubkey>)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  117,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The authority initializing and paying for the router"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Required for account initialization"
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "transfer_ownership",
+      "discriminator": [
+        65,
+        177,
+        215,
+        73,
+        53,
+        45,
+        99,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "state",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_owner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "verify",
+      "discriminator": [
+        133,
+        161,
+        141,
+        48,
+        120,
+        198,
+        88,
+        150
+      ],
+      "accounts": [
+        {
+          "name": "router",
+          "docs": [
+            "The router account PDA managing verifiers"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  117,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_entry",
+          "docs": [
+            "The verifier entry to use, validated using PDA derivation"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "seal.selector"
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_program",
+          "docs": [
+            "The verifier program to be invoked",
+            "Must match the address of the program listed in the verifier entry of the specific selector",
+            "Must be an unchecked account because any program ID can be here"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "seal",
+          "type": {
+            "defined": {
+              "name": "Seal"
+            }
+          }
+        },
+        {
+          "name": "image_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "journal_digest",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "VerifierEntry",
+      "discriminator": [
+        102,
+        247,
+        148,
+        158,
+        33,
+        153,
+        100,
+        93
+      ]
+    },
+    {
+      "name": "VerifierRouter",
+      "discriminator": [
+        188,
+        46,
+        30,
+        54,
+        25,
+        63,
+        197,
+        26
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "EmergencyStopEvent",
+      "discriminator": [
+        44,
+        170,
+        247,
+        63,
+        91,
+        138,
+        146,
+        110
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "VerifierInvalidAuthority",
+      "msg": "Attempted to add a verifier contract that the router contract does not own and thus cannot delete"
+    },
+    {
+      "code": 6001,
+      "name": "SelectorDeactivated",
+      "msg": "Selector has been deactivated"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidVerifier",
+      "msg": "Invalid verifier program"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidInitializationAuthority",
+      "msg": "Authority used for initialization does not match the value expected by the program"
+    }
+  ],
+  "types": [
+    {
+      "name": "EmergencyStopEvent",
+      "docs": [
+        "Event emitted when an emergency stop is executed on a verifier",
+        "",
+        "# Fields",
+        "* `router` - The public key of the router account managing the verifier",
+        "* `selector` - A u32 that uniquely identifies the verifier entry in the router",
+        "* `verifier` - The public key of the verifier program being emergency stopped",
+        "* `triggered_by` - The public key of the account that initiated the emergency stop",
+        "* `reason` - A string explaining why the emergency stop was triggered"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "router",
+            "type": "pubkey"
+          },
+          {
+            "name": "selector",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "verifier",
+            "type": "pubkey"
+          },
+          {
+            "name": "triggered_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "reason",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ownership",
+      "docs": [
+        "This structure tracks both the current owner and any pending ownership transfers.",
+        "It's designed to be embedded within Anchor accounts that need ownership functionality.",
+        "This structure is 66 bytes in size.",
+        "",
+        "# Example",
+        "```rust",
+        "#[account]",
+        "#[derive(Ownable)]",
+        "pub struct TestState {",
+        "pub ownership: Ownership,",
+        "pub data: u64,",
+        "}",
+        "```"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "docs": [
+              "The current owner's public key"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "pending_owner",
+            "docs": [
+              "The public key of the pending owner during a transfer, if any"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Proof",
+      "docs": [
+        "Groth16 proof elements on BN254 curve",
+        "- pi_a must be a point in G1",
+        "- pi_b must be a point in G2",
+        "- pi_c must be a point in G1",
+        "Note: pi_a must be negated before calling verify"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pi_a",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "pi_b",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "pi_c",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Seal",
+      "docs": [
+        "An encoded RISC Zero proof along with a selector",
+        "which encodes the required verifier version"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "selector",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "proof",
+            "type": {
+              "defined": {
+                "name": "Proof"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VerifierEntry",
+      "docs": [
+        "Account storing information about a registered verifier",
+        "",
+        "Each verifier entry represents a deployed verifier program that can be used",
+        "for zero-knowledge proof verification.",
+        "",
+        "# Fields",
+        "* `selector` - Unique identifier for this verifier entry",
+        "* `verifier` - Public key of the verifier program",
+        "* `estopped` - Boolean flag indicating if the verifier has been emergency stopped"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "selector",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "verifier",
+            "type": "pubkey"
+          },
+          {
+            "name": "estopped",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VerifierRouter",
+      "docs": [
+        "Main router account",
+        "",
+        "This account maintains the registry of verifiers and implements ownership controls",
+        "for administrative operations.",
+        "",
+        "# Fields",
+        "* `ownership` - Stores the current and pending owner information using the Ownable trait"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ownership",
+            "type": {
+              "defined": {
+                "name": "Ownership"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

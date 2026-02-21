@@ -1,7 +1,7 @@
-import { PublicKey } from '@solana/web3.js';
-import { type Program } from '@coral-xyz/anchor';
-import { SEEDS } from './constants';
-import { getAccount } from './anchor-utils';
+import { PublicKey } from "@solana/web3.js";
+import { type Program } from "@coral-xyz/anchor";
+import { SEEDS } from "./constants";
+import { getAccount } from "./anchor-utils";
 
 export interface FeatureFlags {
   splTokenTasks: boolean;
@@ -15,11 +15,11 @@ export interface FeatureFlags {
 }
 
 export enum VersionStatus {
-  Current = 'current',
-  CompatibleOld = 'compatible_old',
-  SdkTooOld = 'sdk_too_old',
-  ProtocolTooOld = 'protocol_too_old',
-  SdkBehind = 'sdk_behind',
+  Current = "current",
+  CompatibleOld = "compatible_old",
+  SdkTooOld = "sdk_too_old",
+  ProtocolTooOld = "protocol_too_old",
+  SdkBehind = "sdk_behind",
 }
 
 export interface ProtocolVersionInfo {
@@ -48,7 +48,7 @@ export const SDK_PROTOCOL_VERSION = 1;
 export const SDK_MIN_PROTOCOL_VERSION = 1;
 
 /** Human-readable SDK package version. Keep in sync with sdk/src/index.ts VERSION. */
-export const SDK_PACKAGE_VERSION = '1.3.0';
+export const SDK_PACKAGE_VERSION = "1.3.0";
 
 const FEATURE_REGISTRY: Record<number, Partial<FeatureFlags>> = {
   1: {
@@ -64,9 +64,9 @@ const FEATURE_REGISTRY: Record<number, Partial<FeatureFlags>> = {
 };
 
 function toNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'bigint') return Number(value);
-  if (value && typeof value === 'object' && 'toNumber' in value) {
+  if (typeof value === "number") return value;
+  if (typeof value === "bigint") return Number(value);
+  if (value && typeof value === "object" && "toNumber" in value) {
     return (value as { toNumber: () => number }).toNumber();
   }
   return 0;
@@ -116,17 +116,26 @@ export async function checkVersionCompatibility(
   program: Program,
   options: VersionCompatibilityOptions = {},
 ): Promise<ProtocolVersionInfo> {
-  const [protocolPda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], program.programId);
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [SEEDS.PROTOCOL],
+    program.programId,
+  );
 
-  const config = await getAccount(program, 'protocolConfig').fetch(protocolPda) as {
+  const config = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
     protocolVersion?: unknown;
     protocol_version?: unknown;
     minSupportedVersion?: unknown;
     min_supported_version?: unknown;
   };
 
-  const onChainVersion = toNumber(config.protocolVersion ?? config.protocol_version);
-  const onChainMinVersion = toNumber(config.minSupportedVersion ?? config.min_supported_version);
+  const onChainVersion = toNumber(
+    config.protocolVersion ?? config.protocol_version,
+  );
+  const onChainMinVersion = toNumber(
+    config.minSupportedVersion ?? config.min_supported_version,
+  );
 
   const sdkVersion = options.sdkVersion ?? SDK_PROTOCOL_VERSION;
   const sdkMinVersion = options.sdkMinVersion ?? SDK_MIN_PROTOCOL_VERSION;
@@ -186,7 +195,7 @@ export async function requireVersionCompatibility(
 ): Promise<ProtocolVersionInfo> {
   const info = await checkVersionCompatibility(program, options);
   if (!info.compatible) {
-    throw new Error(info.error ?? 'Protocol version incompatible');
+    throw new Error(info.error ?? "Protocol version incompatible");
   }
   return info;
 }

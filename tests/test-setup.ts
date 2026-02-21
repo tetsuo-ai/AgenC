@@ -21,7 +21,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -70,7 +75,8 @@ export interface TestContext {
 export function setupTestContext(ctx: TestContext): void {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
   const protocolPda = deriveProtocolPda(program.programId);
   const runId = generateRunId();
 
@@ -93,11 +99,24 @@ export function setupTestContext(ctx: TestContext): void {
 
     // Fund wallets
     const airdropAmount = 100 * LAMPORTS_PER_SOL;
-    const wallets = [ctx.treasury, ctx.secondSigner, ctx.creator, ctx.worker1, ctx.worker2, ctx.worker3];
+    const wallets = [
+      ctx.treasury,
+      ctx.secondSigner,
+      ctx.creator,
+      ctx.worker1,
+      ctx.worker2,
+      ctx.worker3,
+    ];
     const airdropSigs = await Promise.all(
-      wallets.map(wallet => provider.connection.requestAirdrop(wallet.publicKey, airdropAmount))
+      wallets.map((wallet) =>
+        provider.connection.requestAirdrop(wallet.publicKey, airdropAmount),
+      ),
     );
-    await Promise.all(airdropSigs.map(sig => provider.connection.confirmTransaction(sig, "confirmed")));
+    await Promise.all(
+      airdropSigs.map((sig) =>
+        provider.connection.confirmTransaction(sig, "confirmed"),
+      ),
+    );
 
     // Initialize protocol
     try {
@@ -105,7 +124,10 @@ export function setupTestContext(ctx: TestContext): void {
       const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100);
       const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, minStake, minStakeForDispute, 1, [provider.wallet.publicKey, ctx.secondSigner.publicKey])
+        .initializeProtocol(51, 100, minStake, minStakeForDispute, 1, [
+          provider.wallet.publicKey,
+          ctx.secondSigner.publicKey,
+        ])
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: ctx.treasury.publicKey,
@@ -113,12 +135,19 @@ export function setupTestContext(ctx: TestContext): void {
           secondSigner: ctx.secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([ctx.secondSigner])
         .rpc();
       ctx.treasuryPubkey = ctx.treasury.publicKey;
     } catch {
-      const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
+      const protocolConfig =
+        await program.account.protocolConfig.fetch(protocolPda);
       ctx.treasuryPubkey = protocolConfig.treasury;
     }
 
@@ -126,16 +155,34 @@ export function setupTestContext(ctx: TestContext): void {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
-      minStakeForDisputeLamports: 0,
-      skipPreflight: true,
     });
 
     // Register agents
     const agents = [
-      { id: ctx.creatorAgentId, capabilities: CAPABILITY_COMPUTE, endpoint: "https://creator.example.com", wallet: ctx.creator },
-      { id: ctx.agentId1, capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE, endpoint: "https://worker1.example.com", wallet: ctx.worker1 },
-      { id: ctx.agentId2, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker2.example.com", wallet: ctx.worker2 },
-      { id: ctx.agentId3, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker3.example.com", wallet: ctx.worker3 },
+      {
+        id: ctx.creatorAgentId,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://creator.example.com",
+        wallet: ctx.creator,
+      },
+      {
+        id: ctx.agentId1,
+        capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE,
+        endpoint: "https://worker1.example.com",
+        wallet: ctx.worker1,
+      },
+      {
+        id: ctx.agentId2,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker2.example.com",
+        wallet: ctx.worker2,
+      },
+      {
+        id: ctx.agentId3,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker3.example.com",
+        wallet: ctx.worker3,
+      },
     ];
 
     for (const agent of agents) {
@@ -152,25 +199,55 @@ export function setupTestContext(ctx: TestContext): void {
     }
 
     // Initialize worker pool
-    ctx.workerPool = await createWorkerPool(program, provider, protocolPda, 20, runId);
+    ctx.workerPool = await createWorkerPool(
+      program,
+      provider,
+      protocolPda,
+      20,
+      runId,
+    );
   });
 
   beforeEach(async () => {
     const agentsToCheck = [
-      { id: ctx.agentId1, wallet: ctx.worker1, capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE, endpoint: "https://worker1.example.com" },
-      { id: ctx.agentId2, wallet: ctx.worker2, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker2.example.com" },
-      { id: ctx.agentId3, wallet: ctx.worker3, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker3.example.com" },
-      { id: ctx.creatorAgentId, wallet: ctx.creator, capabilities: CAPABILITY_COMPUTE, endpoint: "https://creator.example.com" },
+      {
+        id: ctx.agentId1,
+        wallet: ctx.worker1,
+        capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE,
+        endpoint: "https://worker1.example.com",
+      },
+      {
+        id: ctx.agentId2,
+        wallet: ctx.worker2,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker2.example.com",
+      },
+      {
+        id: ctx.agentId3,
+        wallet: ctx.worker3,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker3.example.com",
+      },
+      {
+        id: ctx.creatorAgentId,
+        wallet: ctx.creator,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://creator.example.com",
+      },
     ];
 
     for (const agent of agentsToCheck) {
       const agentPda = deriveAgentPda(agent.id, program.programId);
       try {
-        const agentAccount = await program.account.agentRegistration.fetch(agentPda);
-        if (agentAccount.status && 'inactive' in agentAccount.status) {
+        const agentAccount =
+          await program.account.agentRegistration.fetch(agentPda);
+        if (agentAccount.status && "inactive" in agentAccount.status) {
           await program.methods
             .updateAgent(null, null, null, 1)
-            .accountsPartial({ agent: agentPda, authority: agent.wallet.publicKey })
+            .accountsPartial({
+              agent: agentPda,
+              authority: agent.wallet.publicKey,
+            })
             .signers([agent.wallet])
             .rpc();
         }

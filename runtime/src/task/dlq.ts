@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { DeadLetterEntry, DeadLetterQueueConfig } from './types.js';
+import type { DeadLetterEntry, DeadLetterQueueConfig } from "./types.js";
 
 // ============================================================================
 // Defaults

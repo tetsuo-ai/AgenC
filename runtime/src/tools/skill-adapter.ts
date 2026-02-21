@@ -7,11 +7,11 @@
  * @module
  */
 
-import type { Skill, SkillAction } from '../skills/types.js';
-import { SkillState } from '../skills/types.js';
-import type { Tool, JSONSchema, ToolResult } from './types.js';
-import { safeStringify } from './types.js';
-import { ToolExecutionError } from './errors.js';
+import type { Skill, SkillAction } from "../skills/types.js";
+import { SkillState } from "../skills/types.js";
+import type { Tool, JSONSchema, ToolResult } from "./types.js";
+import { safeStringify } from "./types.js";
+import { ToolExecutionError } from "./errors.js";
 
 /**
  * Map of action names to their JSON Schema definitions.
@@ -44,7 +44,10 @@ export interface SkillToToolsOptions {
  * @returns Array of Tool instances
  * @throws ToolExecutionError if skill is not in Ready state
  */
-export function skillToTools(skill: Skill, options: SkillToToolsOptions): Tool[] {
+export function skillToTools(
+  skill: Skill,
+  options: SkillToToolsOptions,
+): Tool[] {
   if (skill.state !== SkillState.Ready) {
     throw new ToolExecutionError(
       skill.metadata.name,
@@ -107,67 +110,109 @@ function createToolFromAction(
  */
 export const JUPITER_ACTION_SCHEMAS: ActionSchemaMap = {
   getQuote: {
-    type: 'object',
+    type: "object",
     properties: {
-      inputMint: { type: 'string', description: 'Input token mint address (base58)' },
-      outputMint: { type: 'string', description: 'Output token mint address (base58)' },
-      amount: { type: 'string', description: 'Amount in smallest unit (e.g. lamports)' },
-      slippageBps: { type: 'number', description: 'Slippage tolerance in basis points' },
-      onlyDirectRoutes: { type: 'boolean', description: 'Restrict to direct routes only' },
+      inputMint: {
+        type: "string",
+        description: "Input token mint address (base58)",
+      },
+      outputMint: {
+        type: "string",
+        description: "Output token mint address (base58)",
+      },
+      amount: {
+        type: "string",
+        description: "Amount in smallest unit (e.g. lamports)",
+      },
+      slippageBps: {
+        type: "number",
+        description: "Slippage tolerance in basis points",
+      },
+      onlyDirectRoutes: {
+        type: "boolean",
+        description: "Restrict to direct routes only",
+      },
     },
-    required: ['inputMint', 'outputMint', 'amount'],
+    required: ["inputMint", "outputMint", "amount"],
   },
   executeSwap: {
-    type: 'object',
+    type: "object",
     properties: {
-      inputMint: { type: 'string', description: 'Input token mint address (base58)' },
-      outputMint: { type: 'string', description: 'Output token mint address (base58)' },
-      amount: { type: 'string', description: 'Amount in smallest unit (e.g. lamports)' },
-      slippageBps: { type: 'number', description: 'Slippage tolerance in basis points' },
-      onlyDirectRoutes: { type: 'boolean', description: 'Restrict to direct routes only' },
+      inputMint: {
+        type: "string",
+        description: "Input token mint address (base58)",
+      },
+      outputMint: {
+        type: "string",
+        description: "Output token mint address (base58)",
+      },
+      amount: {
+        type: "string",
+        description: "Amount in smallest unit (e.g. lamports)",
+      },
+      slippageBps: {
+        type: "number",
+        description: "Slippage tolerance in basis points",
+      },
+      onlyDirectRoutes: {
+        type: "boolean",
+        description: "Restrict to direct routes only",
+      },
     },
-    required: ['inputMint', 'outputMint', 'amount'],
+    required: ["inputMint", "outputMint", "amount"],
   },
   getSolBalance: {
-    type: 'object',
+    type: "object",
     properties: {
-      address: { type: 'string', description: 'Wallet address (base58). Omit for own wallet.' },
+      address: {
+        type: "string",
+        description: "Wallet address (base58). Omit for own wallet.",
+      },
     },
   },
   getTokenBalance: {
-    type: 'object',
+    type: "object",
     properties: {
-      mint: { type: 'string', description: 'Token mint address (base58)' },
-      owner: { type: 'string', description: 'Owner wallet address (base58). Omit for own wallet.' },
-    },
-    required: ['mint'],
-  },
-  transferSol: {
-    type: 'object',
-    properties: {
-      recipient: { type: 'string', description: 'Recipient wallet address (base58)' },
-      lamports: { type: 'string', description: 'Amount in lamports' },
-    },
-    required: ['recipient', 'lamports'],
-  },
-  transferToken: {
-    type: 'object',
-    properties: {
-      recipient: { type: 'string', description: 'Recipient wallet address (base58)' },
-      mint: { type: 'string', description: 'Token mint address (base58)' },
-      amount: { type: 'string', description: 'Amount in smallest unit' },
-    },
-    required: ['recipient', 'mint', 'amount'],
-  },
-  getTokenPrice: {
-    type: 'object',
-    properties: {
-      mints: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Token mint addresses to look up',
+      mint: { type: "string", description: "Token mint address (base58)" },
+      owner: {
+        type: "string",
+        description: "Owner wallet address (base58). Omit for own wallet.",
       },
     },
-    required: ['mints'],
+    required: ["mint"],
+  },
+  transferSol: {
+    type: "object",
+    properties: {
+      recipient: {
+        type: "string",
+        description: "Recipient wallet address (base58)",
+      },
+      lamports: { type: "string", description: "Amount in lamports" },
+    },
+    required: ["recipient", "lamports"],
+  },
+  transferToken: {
+    type: "object",
+    properties: {
+      recipient: {
+        type: "string",
+        description: "Recipient wallet address (base58)",
+      },
+      mint: { type: "string", description: "Token mint address (base58)" },
+      amount: { type: "string", description: "Amount in smallest unit" },
+    },
+    required: ["recipient", "mint", "amount"],
+  },
+  getTokenPrice: {
+    type: "object",
+    properties: {
+      mints: {
+        type: "array",
+        items: { type: "string" },
+        description: "Token mint addresses to look up",
+      },
+    },
+    required: ["mints"],
   },
 };

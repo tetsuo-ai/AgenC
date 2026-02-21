@@ -7,9 +7,9 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { bytesToHex } from '../utils/encoding.js';
-import type { OnChainTask } from './types.js';
+import { PublicKey } from "@solana/web3.js";
+import { bytesToHex } from "../utils/encoding.js";
+import type { OnChainTask } from "./types.js";
 
 // ============================================================================
 // Type Definitions
@@ -30,7 +30,7 @@ export enum DependencyType {
 /**
  * Status of a task node in the dependency graph.
  */
-export type TaskNodeStatus = 'pending' | 'executing' | 'completed' | 'failed';
+export type TaskNodeStatus = "pending" | "executing" | "completed" | "failed";
 
 /**
  * Represents a task node in the dependency graph.
@@ -153,7 +153,7 @@ export class DependencyGraph {
       dependsOn: null,
       dependencyType: DependencyType.Data,
       depth: 0,
-      status: 'pending',
+      status: "pending",
     };
 
     this.nodes.set(pdaKey, node);
@@ -172,7 +172,7 @@ export class DependencyGraph {
     task: OnChainTask,
     taskPda: PublicKey,
     parentPda: PublicKey,
-    dependencyType: DependencyType = DependencyType.Data
+    dependencyType: DependencyType = DependencyType.Data,
   ): void {
     const pdaKey = taskPda.toBase58();
     const parentKey = parentPda.toBase58();
@@ -188,7 +188,7 @@ export class DependencyGraph {
 
     // Check for cycles
     if (this.wouldCreateCycle(parentPda, taskPda)) {
-      throw new Error('Adding this dependency would create a cycle');
+      throw new Error("Adding this dependency would create a cycle");
     }
 
     const depth = parentNode.depth + 1;
@@ -199,7 +199,7 @@ export class DependencyGraph {
       dependsOn: parentPda,
       dependencyType,
       depth,
-      status: 'pending',
+      status: "pending",
     };
 
     this.nodes.set(pdaKey, node);
@@ -239,7 +239,9 @@ export class DependencyGraph {
     // Check if task has dependents
     const dependents = this.edges.get(pdaKey);
     if (dependents && dependents.length > 0) {
-      throw new Error(`Cannot remove task ${pdaKey}: has ${dependents.length} dependent(s)`);
+      throw new Error(
+        `Cannot remove task ${pdaKey}: has ${dependents.length} dependent(s)`,
+      );
     }
 
     // Remove from parent's edges
@@ -435,8 +437,11 @@ export class DependencyGraph {
   validateConsistency(): GraphConsistencyResult {
     const cycles = this.detectCycles();
     const danglingEdges: Array<{ from: string; to: string }> = [];
-    const depthMismatches: Array<{ taskPda: string; expected: number; actual: number }> =
-      [];
+    const depthMismatches: Array<{
+      taskPda: string;
+      expected: number;
+      actual: number;
+    }> = [];
 
     // Validate edges
     for (const [fromKey, edges] of this.edges.entries()) {
@@ -470,7 +475,10 @@ export class DependencyGraph {
     }
 
     return {
-      valid: cycles.length === 0 && danglingEdges.length === 0 && depthMismatches.length === 0,
+      valid:
+        cycles.length === 0 &&
+        danglingEdges.length === 0 &&
+        depthMismatches.length === 0,
       cycles,
       danglingEdges,
       depthMismatches,
@@ -606,7 +614,7 @@ export class DependencyGraph {
 
     for (const node of this.nodes.values()) {
       // Skip tasks that are already executing, completed, or failed
-      if (node.status !== 'pending') {
+      if (node.status !== "pending") {
         continue;
       }
 
@@ -618,7 +626,10 @@ export class DependencyGraph {
 
       // Check parent status
       const parent = this.nodes.get(node.dependsOn.toBase58());
-      if (parent && (parent.status === 'completed' || parent.status === 'executing')) {
+      if (
+        parent &&
+        (parent.status === "completed" || parent.status === "executing")
+      ) {
         speculatable.push(node);
       }
     }

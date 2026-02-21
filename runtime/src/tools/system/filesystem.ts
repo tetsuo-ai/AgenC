@@ -18,12 +18,23 @@
  * @module
  */
 
-import { readFile, writeFile, appendFile, opendir, stat, lstat, mkdir, rm, rename, realpath } from 'node:fs/promises';
-import { resolve, dirname, relative, isAbsolute, basename } from 'node:path';
-import type { Tool, ToolResult } from '../types.js';
-import { safeStringify } from '../types.js';
+import {
+  readFile,
+  writeFile,
+  appendFile,
+  opendir,
+  stat,
+  lstat,
+  mkdir,
+  rm,
+  rename,
+  realpath,
+} from "node:fs/promises";
+import { resolve, dirname, relative, isAbsolute, basename } from "node:path";
+import type { Tool, ToolResult } from "../types.js";
+import { safeStringify } from "../types.js";
 
-const DEFAULT_MAX_READ_BYTES = 10_485_760;  // 10 MB
+const DEFAULT_MAX_READ_BYTES = 10_485_760; // 10 MB
 const DEFAULT_MAX_WRITE_BYTES = 10_485_760; // 10 MB
 const MAX_LIST_ENTRIES = 10_000;
 const MAX_PATH_LENGTH = 4096;
@@ -68,7 +79,7 @@ function hasTraversalSegment(rawPath: string): boolean {
   if (/%2f/i.test(rawPath) || /%5c/i.test(rawPath) || /%00/i.test(rawPath)) {
     return true;
   }
-  return rawPath.split(/[/\\]+/).some((seg) => seg === '..');
+  return rawPath.split(/[/\\]+/).some((seg) => seg === "..");
 }
 
 /**
@@ -83,7 +94,7 @@ async function canonicalize(targetPath: string): Promise<string> {
     return await realpath(abs);
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
-    if (e.code !== 'ENOENT') throw e;
+    if (e.code !== "ENOENT") throw e;
     // Walk up ancestors until we find one that exists
     const segments: string[] = [];
     let current = abs;
@@ -101,7 +112,7 @@ async function canonicalize(targetPath: string): Promise<string> {
         return resolve(parentReal, ...segments);
       } catch (parentErr) {
         const pe = parentErr as NodeJS.ErrnoException;
-        if (pe.code !== 'ENOENT') throw pe;
+        if (pe.code !== "ENOENT") throw pe;
         // Keep walking up
       }
     }
@@ -111,7 +122,7 @@ async function canonicalize(targetPath: string): Promise<string> {
 /** Check if `candidate` is contained within `base` using relative path analysis. */
 function isWithin(base: string, candidate: string): boolean {
   const rel = relative(base, candidate);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 /**
@@ -128,39 +139,51 @@ export async function safePath(
   allowedPaths: readonly string[],
 ): Promise<{ safe: boolean; resolved: string; reason?: string }> {
   try {
-    if (typeof targetPath !== 'string' || targetPath.trim().length === 0) {
-      return { safe: false, resolved: '', reason: 'Path must be a non-empty string' };
+    if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
+      return {
+        safe: false,
+        resolved: "",
+        reason: "Path must be a non-empty string",
+      };
     }
 
     // Reject null bytes (resolve() throws on these — catch proactively)
-    if (targetPath.includes('\0')) {
-      return { safe: false, resolved: '', reason: 'Path contains null byte' };
+    if (targetPath.includes("\0")) {
+      return { safe: false, resolved: "", reason: "Path contains null byte" };
     }
 
     // Defence-in-depth: reject explicit traversal segments before resolution
     if (hasTraversalSegment(targetPath)) {
-      return { safe: false, resolved: '', reason: 'Path traversal detected' };
+      return { safe: false, resolved: "", reason: "Path traversal detected" };
     }
 
     // Reject excessively long paths (OS-level PATH_MAX)
     if (resolve(targetPath).length > MAX_PATH_LENGTH) {
-      return { safe: false, resolved: '', reason: 'Path exceeds maximum length' };
+      return {
+        safe: false,
+        resolved: "",
+        reason: "Path exceeds maximum length",
+      };
     }
 
     if (allowedPaths.length === 0) {
-      return { safe: false, resolved: '', reason: 'No allowed paths configured' };
+      return {
+        safe: false,
+        resolved: "",
+        reason: "No allowed paths configured",
+      };
     }
 
     // Canonicalize target (follows symlinks, normalize Unicode for macOS HFS+/APFS)
-    const canonical = (await canonicalize(targetPath)).normalize('NFC');
+    const canonical = (await canonicalize(targetPath)).normalize("NFC");
 
     for (const allowed of allowedPaths) {
       // Canonicalize each allowed path too (follows symlinks in allowlist)
       let canonicalAllowed: string;
       try {
-        canonicalAllowed = (await realpath(resolve(allowed))).normalize('NFC');
+        canonicalAllowed = (await realpath(resolve(allowed))).normalize("NFC");
       } catch {
-        canonicalAllowed = resolve(allowed).normalize('NFC');
+        canonicalAllowed = resolve(allowed).normalize("NFC");
       }
 
       if (isWithin(canonicalAllowed, canonical)) {
@@ -169,10 +192,18 @@ export async function safePath(
     }
 
     // Don't leak canonical host path on denial
-    return { safe: false, resolved: '', reason: 'Path is outside allowed directories' };
+    return {
+      safe: false,
+      resolved: "",
+      reason: "Path is outside allowed directories",
+    };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
-    return { safe: false, resolved: '', reason: code ? `Invalid path (${code})` : 'Invalid path' };
+    return {
+      safe: false,
+      resolved: "",
+      reason: code ? `Invalid path (${code})` : "Invalid path",
+    };
   }
 }
 
@@ -191,9 +222,9 @@ export async function isPathAllowed(
 async function validatePath(
   input: unknown,
   allowedPaths: readonly string[],
-  paramName = 'path',
+  paramName = "path",
 ): Promise<[string | null, ToolResult | null]> {
-  if (typeof input !== 'string' || input.trim().length === 0) {
+  if (typeof input !== "string" || input.trim().length === 0) {
     return [null, errorResult(`${paramName} must be a non-empty string`)];
   }
   const result = await safePath(input, allowedPaths);
@@ -203,7 +234,7 @@ async function validatePath(
   return [result.resolved, null];
 }
 
-const VALID_ENCODINGS = new Set(['utf-8', 'base64']);
+const VALID_ENCODINGS = new Set(["utf-8", "base64"]);
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /** Detect if file content is likely binary (contains null bytes). */
@@ -223,36 +254,42 @@ function createReadFileTool(
   maxReadBytes: number,
 ): Tool {
   return {
-    name: 'system.readFile',
+    name: "system.readFile",
     description:
-      'Read a file from the filesystem. Returns text content (UTF-8) by default, or base64 for binary files. Gated by path allowlist and size limits.',
+      "Read a file from the filesystem. Returns text content (UTF-8) by default, or base64 for binary files. Gated by path allowlist and size limits.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'Absolute or relative file path to read',
+          type: "string",
+          description: "Absolute or relative file path to read",
         },
         encoding: {
-          type: 'string',
-          enum: ['utf-8', 'base64'],
-          description: 'Output encoding (default: auto-detect — utf-8 for text, base64 for binary)',
+          type: "string",
+          enum: ["utf-8", "base64"],
+          description:
+            "Output encoding (default: auto-detect — utf-8 for text, base64 for binary)",
         },
       },
-      required: ['path'],
+      required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
         const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
         if (pathErr) return pathErr;
 
-        if (args.encoding !== undefined && !VALID_ENCODINGS.has(args.encoding as string)) {
-          return errorResult(`Invalid encoding: ${args.encoding}. Must be utf-8 or base64.`);
+        if (
+          args.encoding !== undefined &&
+          !VALID_ENCODINGS.has(args.encoding as string)
+        ) {
+          return errorResult(
+            `Invalid encoding: ${args.encoding}. Must be utf-8 or base64.`,
+          );
         }
 
         const fileStats = await stat(resolved!);
         if (!fileStats.isFile()) {
-          return errorResult('Path is not a regular file');
+          return errorResult("Path is not a regular file");
         }
         if (fileStats.size > maxReadBytes) {
           return errorResult(
@@ -268,21 +305,27 @@ function createReadFileTool(
           );
         }
         const forceEncoding = args.encoding as string | undefined;
-        const binary = forceEncoding === 'base64' || (!forceEncoding && isBinaryContent(buffer));
+        const binary =
+          forceEncoding === "base64" ||
+          (!forceEncoding && isBinaryContent(buffer));
 
         return {
           content: safeStringify({
             path: args.path,
             size: buffer.length,
-            encoding: binary ? 'base64' : 'utf-8',
-            content: binary ? buffer.toString('base64') : buffer.toString('utf-8'),
+            encoding: binary ? "base64" : "utf-8",
+            content: binary
+              ? buffer.toString("base64")
+              : buffer.toString("utf-8"),
           }),
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('ENOENT')) return errorResult(`File not found: ${args.path}`);
-        if (msg.includes('EACCES')) return errorResult(`Permission denied: ${args.path}`);
-        return errorResult(safeError(err, 'read'));
+        if (msg.includes("ENOENT"))
+          return errorResult(`File not found: ${args.path}`);
+        if (msg.includes("EACCES"))
+          return errorResult(`Permission denied: ${args.path}`);
+        return errorResult(safeError(err, "read"));
       }
     },
   };
@@ -293,55 +336,61 @@ function createWriteFileTool(
   maxWriteBytes: number,
 ): Tool {
   return {
-    name: 'system.writeFile',
+    name: "system.writeFile",
     description:
-      'Write content to a file. Creates parent directories if needed. Gated by path allowlist and size limits.',
+      "Write content to a file. Creates parent directories if needed. Gated by path allowlist and size limits.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'Absolute or relative file path to write',
+          type: "string",
+          description: "Absolute or relative file path to write",
         },
         content: {
-          type: 'string',
-          description: 'Text content to write',
+          type: "string",
+          description: "Text content to write",
         },
         encoding: {
-          type: 'string',
-          enum: ['utf-8', 'base64'],
-          description: 'Input encoding (default: utf-8). Use base64 for binary data.',
+          type: "string",
+          enum: ["utf-8", "base64"],
+          description:
+            "Input encoding (default: utf-8). Use base64 for binary data.",
         },
       },
-      required: ['path', 'content'],
+      required: ["path", "content"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
         const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
         if (pathErr) return pathErr;
 
-        if (typeof args.content !== 'string') {
-          return errorResult('content must be a string');
+        if (typeof args.content !== "string") {
+          return errorResult("content must be a string");
         }
 
-        const encoding = (args.encoding as string) || 'utf-8';
+        const encoding = (args.encoding as string) || "utf-8";
         if (!VALID_ENCODINGS.has(encoding)) {
-          return errorResult(`Invalid encoding: ${encoding}. Must be utf-8 or base64.`);
+          return errorResult(
+            `Invalid encoding: ${encoding}. Must be utf-8 or base64.`,
+          );
         }
 
-        if (encoding === 'base64') {
+        if (encoding === "base64") {
           // Pre-check encoded string length before regex/decode to prevent memory exhaustion
           const maxBase64Length = Math.ceil(maxWriteBytes / 3) * 4 + 4;
           if (args.content.length > maxBase64Length) {
-            return errorResult(`Base64 content too large (decoded would exceed ${maxWriteBytes} bytes)`);
+            return errorResult(
+              `Base64 content too large (decoded would exceed ${maxWriteBytes} bytes)`,
+            );
           }
           if (args.content.length % 4 !== 0 || !BASE64_RE.test(args.content)) {
-            return errorResult('Invalid base64 content');
+            return errorResult("Invalid base64 content");
           }
         }
-        const data = encoding === 'base64'
-          ? Buffer.from(args.content, 'base64')
-          : Buffer.from(args.content, 'utf-8');
+        const data =
+          encoding === "base64"
+            ? Buffer.from(args.content, "base64")
+            : Buffer.from(args.content, "utf-8");
 
         if (data.length > maxWriteBytes) {
           return errorResult(
@@ -358,7 +407,7 @@ function createWriteFileTool(
           }),
         };
       } catch (err) {
-        return errorResult(safeError(err, 'write'));
+        return errorResult(safeError(err, "write"));
       }
     },
   };
@@ -369,33 +418,33 @@ function createAppendFileTool(
   maxWriteBytes: number,
 ): Tool {
   return {
-    name: 'system.appendFile',
+    name: "system.appendFile",
     description:
-      'Append content to an existing file. Creates the file if it does not exist. Gated by path allowlist.',
+      "Append content to an existing file. Creates the file if it does not exist. Gated by path allowlist.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'Absolute or relative file path to append to',
+          type: "string",
+          description: "Absolute or relative file path to append to",
         },
         content: {
-          type: 'string',
-          description: 'Text content to append',
+          type: "string",
+          description: "Text content to append",
         },
       },
-      required: ['path', 'content'],
+      required: ["path", "content"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
         const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
         if (pathErr) return pathErr;
 
-        if (typeof args.content !== 'string') {
-          return errorResult('content must be a string');
+        if (typeof args.content !== "string") {
+          return errorResult("content must be a string");
         }
 
-        const data = Buffer.from(args.content, 'utf-8');
+        const data = Buffer.from(args.content, "utf-8");
         if (data.length > maxWriteBytes) {
           return errorResult(
             `Content size ${data.length} bytes exceeds limit of ${maxWriteBytes} bytes`,
@@ -424,7 +473,7 @@ function createAppendFileTool(
           }),
         };
       } catch (err) {
-        return errorResult(safeError(err, 'append'));
+        return errorResult(safeError(err, "append"));
       }
     },
   };
@@ -432,18 +481,18 @@ function createAppendFileTool(
 
 function createListDirTool(allowedPaths: readonly string[]): Tool {
   return {
-    name: 'system.listDir',
+    name: "system.listDir",
     description:
-      'List directory contents. Returns entry names, types (file/dir), and sizes. Gated by path allowlist.',
+      "List directory contents. Returns entry names, types (file/dir), and sizes. Gated by path allowlist.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'Absolute or relative directory path',
+          type: "string",
+          description: "Absolute or relative directory path",
         },
       },
-      required: ['path'],
+      required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
@@ -469,10 +518,13 @@ function createListDirTool(allowedPaths: readonly string[]): Tool {
                 // lstat may fail for race conditions; skip size
               }
             }
-            const type = d.isDirectory() ? 'dir'
-              : d.isFile() ? 'file'
-              : d.isSymbolicLink() ? 'symlink'
-              : 'other';
+            const type = d.isDirectory()
+              ? "dir"
+              : d.isFile()
+                ? "file"
+                : d.isSymbolicLink()
+                  ? "symlink"
+                  : "other";
             entries.push({ name: d.name, type, size });
           }
         } finally {
@@ -487,9 +539,11 @@ function createListDirTool(allowedPaths: readonly string[]): Tool {
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('ENOENT')) return errorResult(`Directory not found: ${args.path}`);
-        if (msg.includes('ENOTDIR')) return errorResult(`Not a directory: ${args.path}`);
-        return errorResult(safeError(err, 'list'));
+        if (msg.includes("ENOENT"))
+          return errorResult(`Directory not found: ${args.path}`);
+        if (msg.includes("ENOTDIR"))
+          return errorResult(`Not a directory: ${args.path}`);
+        return errorResult(safeError(err, "list"));
       }
     },
   };
@@ -497,18 +551,18 @@ function createListDirTool(allowedPaths: readonly string[]): Tool {
 
 function createStatTool(allowedPaths: readonly string[]): Tool {
   return {
-    name: 'system.stat',
+    name: "system.stat",
     description:
-      'Get file or directory metadata including size, timestamps, and type. Gated by path allowlist.',
+      "Get file or directory metadata including size, timestamps, and type. Gated by path allowlist.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'Absolute or relative path to stat',
+          type: "string",
+          description: "Absolute or relative path to stat",
         },
       },
-      required: ['path'],
+      required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
@@ -529,8 +583,9 @@ function createStatTool(allowedPaths: readonly string[]): Tool {
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('ENOENT')) return errorResult(`Path not found: ${args.path}`);
-        return errorResult(safeError(err, 'stat'));
+        if (msg.includes("ENOENT"))
+          return errorResult(`Path not found: ${args.path}`);
+        return errorResult(safeError(err, "stat"));
       }
     },
   };
@@ -538,18 +593,18 @@ function createStatTool(allowedPaths: readonly string[]): Tool {
 
 function createMkdirTool(allowedPaths: readonly string[]): Tool {
   return {
-    name: 'system.mkdir',
+    name: "system.mkdir",
     description:
-      'Create a directory. Creates parent directories as needed. Gated by path allowlist.',
+      "Create a directory. Creates parent directories as needed. Gated by path allowlist.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'Absolute or relative directory path to create',
+          type: "string",
+          description: "Absolute or relative directory path to create",
         },
       },
-      required: ['path'],
+      required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
@@ -561,7 +616,7 @@ function createMkdirTool(allowedPaths: readonly string[]): Tool {
           content: safeStringify({ path: args.path, created: true }),
         };
       } catch (err) {
-        return errorResult(safeError(err, 'mkdir'));
+        return errorResult(safeError(err, "mkdir"));
       }
     },
   };
@@ -572,22 +627,22 @@ function createDeleteTool(
   allowDelete: boolean,
 ): Tool {
   return {
-    name: 'system.delete',
+    name: "system.delete",
     description:
-      'Delete a file or directory. Requires explicit opt-in via allowDelete config. Gated by path allowlist.',
+      "Delete a file or directory. Requires explicit opt-in via allowDelete config. Gated by path allowlist.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'Absolute or relative path to delete',
+          type: "string",
+          description: "Absolute or relative path to delete",
         },
         recursive: {
-          type: 'boolean',
-          description: 'Required to delete directories. Defaults to false.',
+          type: "boolean",
+          description: "Required to delete directories. Defaults to false.",
         },
       },
-      required: ['path'],
+      required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
@@ -596,26 +651,28 @@ function createDeleteTool(
         if (pathErr) return pathErr;
 
         if (!allowDelete) {
-          return errorResult('Delete operations are disabled. Set allowDelete: true in config.');
+          return errorResult(
+            "Delete operations are disabled. Set allowDelete: true in config.",
+          );
         }
 
         // Prevent deletion of sandbox root directories
         for (const allowed of allowedPaths) {
           let canonicalAllowed: string;
           try {
-            canonicalAllowed = (await realpath(allowed)).normalize('NFC');
+            canonicalAllowed = (await realpath(allowed)).normalize("NFC");
           } catch {
-            canonicalAllowed = allowed.normalize('NFC');
+            canonicalAllowed = allowed.normalize("NFC");
           }
           if (resolved === canonicalAllowed) {
-            return errorResult('Cannot delete sandbox root directory');
+            return errorResult("Cannot delete sandbox root directory");
           }
         }
 
         // Check if target is a directory — require explicit recursive opt-in
         const targetStat = await stat(resolved!);
         if (targetStat.isDirectory() && args.recursive !== true) {
-          return errorResult('Cannot delete directory without recursive: true');
+          return errorResult("Cannot delete directory without recursive: true");
         }
 
         await rm(resolved!, { recursive: args.recursive === true });
@@ -624,8 +681,9 @@ function createDeleteTool(
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('ENOENT')) return errorResult(`Path not found: ${args.path}`);
-        return errorResult(safeError(err, 'delete'));
+        if (msg.includes("ENOENT"))
+          return errorResult(`Path not found: ${args.path}`);
+        return errorResult(safeError(err, "delete"));
       }
     },
   };
@@ -633,40 +691,53 @@ function createDeleteTool(
 
 function createMoveTool(allowedPaths: readonly string[]): Tool {
   return {
-    name: 'system.move',
+    name: "system.move",
     description:
-      'Move or rename a file or directory. Both source and destination must be within allowed paths.',
+      "Move or rename a file or directory. Both source and destination must be within allowed paths.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         source: {
-          type: 'string',
-          description: 'Source path',
+          type: "string",
+          description: "Source path",
         },
         destination: {
-          type: 'string',
-          description: 'Destination path',
+          type: "string",
+          description: "Destination path",
         },
       },
-      required: ['source', 'destination'],
+      required: ["source", "destination"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
-        const [src, srcErr] = await validatePath(args.source, allowedPaths, 'source');
+        const [src, srcErr] = await validatePath(
+          args.source,
+          allowedPaths,
+          "source",
+        );
         if (srcErr) return srcErr;
 
-        const [dst, dstErr] = await validatePath(args.destination, allowedPaths, 'destination');
+        const [dst, dstErr] = await validatePath(
+          args.destination,
+          allowedPaths,
+          "destination",
+        );
         if (dstErr) return dstErr;
 
         await mkdir(dirname(dst!), { recursive: true });
         await rename(src!, dst!);
         return {
-          content: safeStringify({ source: args.source, destination: args.destination, moved: true }),
+          content: safeStringify({
+            source: args.source,
+            destination: args.destination,
+            moved: true,
+          }),
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('ENOENT')) return errorResult(`Source not found: ${args.source}`);
-        return errorResult(safeError(err, 'move'));
+        if (msg.includes("ENOENT"))
+          return errorResult(`Source not found: ${args.source}`);
+        return errorResult(safeError(err, "move"));
       }
     },
   };
@@ -695,26 +766,36 @@ function createMoveTool(allowedPaths: readonly string[]): Tool {
 export function createFilesystemTools(config: FilesystemToolConfig): Tool[] {
   // ── Config validation (Finding 1 + 2) ──────────────────────────────────
   if (!Array.isArray(config.allowedPaths) || config.allowedPaths.length === 0) {
-    throw new TypeError('allowedPaths must be a non-empty array of strings');
+    throw new TypeError("allowedPaths must be a non-empty array of strings");
   }
   for (const p of config.allowedPaths) {
-    if (typeof p !== 'string' || p.trim().length === 0) {
-      throw new TypeError(`Each allowedPaths entry must be a non-empty string, got: ${typeof p}`);
+    if (typeof p !== "string" || p.trim().length === 0) {
+      throw new TypeError(
+        `Each allowedPaths entry must be a non-empty string, got: ${typeof p}`,
+      );
     }
   }
-  const allowedPaths = config.allowedPaths.map((p) => resolve(p).normalize('NFC'));
+  const allowedPaths = config.allowedPaths.map((p) =>
+    resolve(p).normalize("NFC"),
+  );
 
   const maxReadBytes = config.maxReadBytes ?? DEFAULT_MAX_READ_BYTES;
   if (!Number.isFinite(maxReadBytes) || maxReadBytes <= 0) {
-    throw new TypeError(`maxReadBytes must be a positive finite number, got: ${maxReadBytes}`);
+    throw new TypeError(
+      `maxReadBytes must be a positive finite number, got: ${maxReadBytes}`,
+    );
   }
   const maxWriteBytes = config.maxWriteBytes ?? DEFAULT_MAX_WRITE_BYTES;
   if (!Number.isFinite(maxWriteBytes) || maxWriteBytes <= 0) {
-    throw new TypeError(`maxWriteBytes must be a positive finite number, got: ${maxWriteBytes}`);
+    throw new TypeError(
+      `maxWriteBytes must be a positive finite number, got: ${maxWriteBytes}`,
+    );
   }
   const allowDelete = config.allowDelete ?? false;
   if (allowDelete !== true && allowDelete !== false) {
-    throw new TypeError(`allowDelete must be a boolean, got: ${typeof allowDelete}`);
+    throw new TypeError(
+      `allowDelete must be a boolean, got: ${typeof allowDelete}`,
+    );
   }
 
   return [

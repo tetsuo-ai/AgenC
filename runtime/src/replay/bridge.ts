@@ -1,7 +1,12 @@
-import { createLogger, silentLogger, type Logger, type LogLevel } from '../utils/logger.js';
-import { EventMonitor } from '../events/index.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import {
+  createLogger,
+  silentLogger,
+  type Logger,
+  type LogLevel,
+} from "../utils/logger.js";
+import { EventMonitor } from "../events/index.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 import type {
   BackfillFetcher,
   BackfillResult,
@@ -11,19 +16,19 @@ import type {
   ReplayTimelineQuery,
   ReplayTimelineRecord,
   ReplayTimelineStore,
-} from './types.js';
+} from "./types.js";
 import {
   InMemoryReplayTimelineStore,
   ReplayBackfillService,
   SqliteReplayTimelineStore,
-} from './index.js';
+} from "./index.js";
 import {
   createReplayAlertDispatcher,
   type ReplayAlertDispatcher,
   type ReplayAlertingPolicyOptions,
-} from './alerting.js';
-import { computeProjectionHash } from './types.js';
-import { extractDisputePdaFromPayload } from './pda-utils.js';
+} from "./alerting.js";
+import { computeProjectionHash } from "./types.js";
+import { extractDisputePdaFromPayload } from "./pda-utils.js";
 import {
   buildReplayTraceContext,
   DEFAULT_TRACE_SAMPLE_RATE,
@@ -32,11 +37,14 @@ import {
   deriveTraceId,
   startReplaySpan,
   type ReplayTracingPolicy,
-} from './trace.js';
-import type { OnChainProjectionInput } from '../eval/projector.js';
-import { projectOnChainEvents, type ProjectedTimelineEvent } from '../eval/projector.js';
+} from "./trace.js";
+import type { OnChainProjectionInput } from "../eval/projector.js";
+import {
+  projectOnChainEvents,
+  type ProjectedTimelineEvent,
+} from "../eval/projector.js";
 
-export type ReplayBridgeStoreType = 'memory' | 'sqlite';
+export type ReplayBridgeStoreType = "memory" | "sqlite";
 
 export interface ReplayBridgeStoreConfig {
   type: ReplayBridgeStoreType;
@@ -68,7 +76,9 @@ export interface ReplayBridgeHandle {
   start(): Promise<void>;
   runBackfill(options: ReplayBridgeBackfillOptions): Promise<BackfillResult>;
   getStore(): ReplayTimelineStore;
-  query(query?: ReplayTimelineQuery): Promise<ReadonlyArray<ReplayTimelineRecord>>;
+  query(
+    query?: ReplayTimelineQuery,
+  ): Promise<ReadonlyArray<ReplayTimelineRecord>>;
   getCursor(): Promise<ReplayEventCursor | null>;
   clear(): Promise<void>;
   saveCursor(cursor: ReplayEventCursor | null): Promise<void>;
@@ -76,47 +86,45 @@ export interface ReplayBridgeHandle {
 }
 
 const EVENT_MONITOR_EVENT_NAMES = [
-  'taskCreated',
-  'taskClaimed',
-  'taskCompleted',
-  'taskCancelled',
-  'dependentTaskCreated',
-  'disputeInitiated',
-  'disputeVoteCast',
-  'disputeResolved',
-  'disputeExpired',
-  'disputeCancelled',
-  'arbiterVotesCleanedUp',
-  'stateUpdated',
-  'protocolInitialized',
-  'rewardDistributed',
-  'rateLimitHit',
-  'migrationCompleted',
-  'protocolVersionUpdated',
-  'rateLimitsUpdated',
-  'protocolFeeUpdated',
-  'reputationChanged',
-  'bondDeposited',
-  'bondLocked',
-  'bondReleased',
-  'bondSlashed',
-  'speculativeCommitmentCreated',
-  'agentRegistered',
-  'agentUpdated',
-  'agentDeregistered',
-  'agentSuspended',
-  'agentUnsuspended',
+  "taskCreated",
+  "taskClaimed",
+  "taskCompleted",
+  "taskCancelled",
+  "dependentTaskCreated",
+  "disputeInitiated",
+  "disputeVoteCast",
+  "disputeResolved",
+  "disputeExpired",
+  "disputeCancelled",
+  "arbiterVotesCleanedUp",
+  "stateUpdated",
+  "protocolInitialized",
+  "rewardDistributed",
+  "rateLimitHit",
+  "migrationCompleted",
+  "protocolVersionUpdated",
+  "rateLimitsUpdated",
+  "protocolFeeUpdated",
+  "reputationChanged",
+  "bondDeposited",
+  "bondLocked",
+  "bondReleased",
+  "bondSlashed",
+  "speculativeCommitmentCreated",
+  "agentRegistered",
+  "agentUpdated",
+  "agentDeregistered",
+  "agentSuspended",
+  "agentUnsuspended",
 ] as const;
 
-function createReplayLogger(
-  options: ReplayBridgeConfig,
-): Logger {
+function createReplayLogger(options: ReplayBridgeConfig): Logger {
   if (options.logger) {
     return options.logger;
   }
 
   if (options.traceLevel) {
-    return createLogger(options.traceLevel, '[ReplayEventBridge]');
+    return createLogger(options.traceLevel, "[ReplayEventBridge]");
   }
 
   return silentLogger;
@@ -126,37 +134,51 @@ function buildStore(
   options: ReplayBridgeConfig,
   fallbackLogger: Logger,
 ): ReplayTimelineStore {
-  const storeConfig = options.store ?? { type: 'memory' as const };
-  if (storeConfig.type === 'sqlite' && storeConfig.sqlitePath) {
-    fallbackLogger.debug(`ReplayBridge using sqlite store at ${storeConfig.sqlitePath}`);
+  const storeConfig = options.store ?? { type: "memory" as const };
+  if (storeConfig.type === "sqlite" && storeConfig.sqlitePath) {
+    fallbackLogger.debug(
+      `ReplayBridge using sqlite store at ${storeConfig.sqlitePath}`,
+    );
     return new SqliteReplayTimelineStore(storeConfig.sqlitePath, {
       retention: storeConfig.retention,
       compaction: storeConfig.compaction,
     });
   }
 
-  if (storeConfig.type === 'sqlite') {
-    fallbackLogger.debug('ReplayBridge sqlite store requested without path, using memory fallback');
+  if (storeConfig.type === "sqlite") {
+    fallbackLogger.debug(
+      "ReplayBridge sqlite store requested without path, using memory fallback",
+    );
   }
   return new InMemoryReplayTimelineStore();
 }
 
-function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecord {
+function toReplayStoreRecord(
+  event: ProjectedTimelineEvent,
+): ReplayTimelineRecord {
   const base = event.type;
-  const trace = (event.payload.onchain as Record<string, unknown> | undefined)?.trace as
+  const trace = (event.payload.onchain as Record<string, unknown> | undefined)
+    ?.trace as
     | undefined
-    | { traceId?: string; spanId?: string; parentSpanId?: string; sampled?: boolean };
+    | {
+        traceId?: string;
+        spanId?: string;
+        parentSpanId?: string;
+        sampled?: boolean;
+      };
 
   // Synthesize traceId from canonical tuple when trace context is absent
-  const resolvedTraceId = trace?.traceId ?? deriveTraceId(
-    undefined,
-    event.slot,
-    event.signature,
-    event.sourceEventName,
-    event.sourceEventSequence,
-  );
+  const resolvedTraceId =
+    trace?.traceId ??
+    deriveTraceId(
+      undefined,
+      event.slot,
+      event.signature,
+      event.sourceEventName,
+      event.sourceEventSequence,
+    );
 
-  const recordEvent: Omit<ReplayTimelineRecord, 'projectionHash'> = {
+  const recordEvent: Omit<ReplayTimelineRecord, "projectionHash"> = {
     seq: event.seq,
     type: event.type,
     taskPda: event.taskPda,
@@ -184,7 +206,9 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
   };
 }
 
-function strictTelemetryErrors(telemetry: ReturnType<typeof projectOnChainEvents>['telemetry']): string[] {
+function strictTelemetryErrors(
+  telemetry: ReturnType<typeof projectOnChainEvents>["telemetry"],
+): string[] {
   return [
     ...telemetry.malformedInputs.map((issue) => `malformed:${issue}`),
     ...telemetry.unknownEvents.map((eventName) => `unknown:${eventName}`),
@@ -206,16 +230,26 @@ export class ReplayEventBridge {
   private intakeSequence = 0;
   private running = false;
 
-  private constructor(program: Program<AgencCoordination>, store: ReplayTimelineStore, options: ReplayBridgeConfig) {
-    this.monitor = new EventMonitor({ program, logger: createReplayLogger(options) });
+  private constructor(
+    program: Program<AgencCoordination>,
+    store: ReplayTimelineStore,
+    options: ReplayBridgeConfig,
+  ) {
+    this.monitor = new EventMonitor({
+      program,
+      logger: createReplayLogger(options),
+    });
     this.logger = createReplayLogger(options);
     this.store = store;
-    this.traceId = options.traceId ?? 'runtime-replay-bridge';
+    this.traceId = options.traceId ?? "runtime-replay-bridge";
     this.projectionSeed = options.projectionSeed ?? 0;
     this.strictProjection = options.strictProjection ?? false;
     this.tracing = options.tracing ?? {};
     this.traceSampleRate = this.tracing.sampleRate ?? DEFAULT_TRACE_SAMPLE_RATE;
-    this.alertDispatcher = createReplayAlertDispatcher(options.alerting, this.logger);
+    this.alertDispatcher = createReplayAlertDispatcher(
+      options.alerting,
+      this.logger,
+    );
   }
 
   static create(
@@ -244,47 +278,49 @@ export class ReplayEventBridge {
     }
 
     this.monitor.subscribeToTaskEvents({
-      onTaskCreated: this.capture('taskCreated'),
-      onTaskClaimed: this.capture('taskClaimed'),
-      onTaskCompleted: this.capture('taskCompleted'),
-      onTaskCancelled: this.capture('taskCancelled'),
-      onDependentTaskCreated: this.capture('dependentTaskCreated'),
+      onTaskCreated: this.capture("taskCreated"),
+      onTaskClaimed: this.capture("taskClaimed"),
+      onTaskCompleted: this.capture("taskCompleted"),
+      onTaskCancelled: this.capture("taskCancelled"),
+      onDependentTaskCreated: this.capture("dependentTaskCreated"),
     });
     this.monitor.subscribeToDisputeEvents({
-      onDisputeInitiated: this.capture('disputeInitiated'),
-      onDisputeVoteCast: this.capture('disputeVoteCast'),
-      onDisputeResolved: this.capture('disputeResolved'),
-      onDisputeExpired: this.capture('disputeExpired'),
-      onDisputeCancelled: this.capture('disputeCancelled'),
-      onArbiterVotesCleanedUp: this.capture('arbiterVotesCleanedUp'),
+      onDisputeInitiated: this.capture("disputeInitiated"),
+      onDisputeVoteCast: this.capture("disputeVoteCast"),
+      onDisputeResolved: this.capture("disputeResolved"),
+      onDisputeExpired: this.capture("disputeExpired"),
+      onDisputeCancelled: this.capture("disputeCancelled"),
+      onArbiterVotesCleanedUp: this.capture("arbiterVotesCleanedUp"),
     });
     this.monitor.subscribeToProtocolEvents({
-      onStateUpdated: this.capture('stateUpdated'),
-      onProtocolInitialized: this.capture('protocolInitialized'),
-      onRewardDistributed: this.capture('rewardDistributed'),
-      onRateLimitHit: this.capture('rateLimitHit'),
-      onMigrationCompleted: this.capture('migrationCompleted'),
-      onProtocolVersionUpdated: this.capture('protocolVersionUpdated'),
-      onRateLimitsUpdated: this.capture('rateLimitsUpdated'),
-      onProtocolFeeUpdated: this.capture('protocolFeeUpdated'),
-      onReputationChanged: this.capture('reputationChanged'),
-      onBondDeposited: this.capture('bondDeposited'),
-      onBondLocked: this.capture('bondLocked'),
-      onBondReleased: this.capture('bondReleased'),
-      onBondSlashed: this.capture('bondSlashed'),
-      onSpeculativeCommitmentCreated: this.capture('speculativeCommitmentCreated'),
+      onStateUpdated: this.capture("stateUpdated"),
+      onProtocolInitialized: this.capture("protocolInitialized"),
+      onRewardDistributed: this.capture("rewardDistributed"),
+      onRateLimitHit: this.capture("rateLimitHit"),
+      onMigrationCompleted: this.capture("migrationCompleted"),
+      onProtocolVersionUpdated: this.capture("protocolVersionUpdated"),
+      onRateLimitsUpdated: this.capture("rateLimitsUpdated"),
+      onProtocolFeeUpdated: this.capture("protocolFeeUpdated"),
+      onReputationChanged: this.capture("reputationChanged"),
+      onBondDeposited: this.capture("bondDeposited"),
+      onBondLocked: this.capture("bondLocked"),
+      onBondReleased: this.capture("bondReleased"),
+      onBondSlashed: this.capture("bondSlashed"),
+      onSpeculativeCommitmentCreated: this.capture(
+        "speculativeCommitmentCreated",
+      ),
     });
     this.monitor.subscribeToAgentEvents({
-      onRegistered: this.capture('agentRegistered'),
-      onUpdated: this.capture('agentUpdated'),
-      onDeregistered: this.capture('agentDeregistered'),
-      onSuspended: this.capture('agentSuspended'),
-      onUnsuspended: this.capture('agentUnsuspended'),
+      onRegistered: this.capture("agentRegistered"),
+      onUpdated: this.capture("agentUpdated"),
+      onDeregistered: this.capture("agentDeregistered"),
+      onSuspended: this.capture("agentSuspended"),
+      onUnsuspended: this.capture("agentUnsuspended"),
     });
 
     this.monitor.start();
     this.running = true;
-    this.logger.info('Replay bridge started');
+    this.logger.info("Replay bridge started");
   }
 
   async stop(): Promise<void> {
@@ -293,32 +329,33 @@ export class ReplayEventBridge {
     }
     await this.monitor.stop();
     this.running = false;
-    this.logger.info('Replay bridge stopped');
+    this.logger.info("Replay bridge stopped");
   }
 
   async isRunning(): Promise<boolean> {
     return this.running;
   }
 
-  async runBackfill(options: ReplayBridgeBackfillOptions): Promise<BackfillResult> {
-    const service = new ReplayBackfillService(
-      this.store,
-      {
-        toSlot: options.toSlot,
-        fetcher: options.fetcher,
-        pageSize: options.pageSize,
-        alertDispatcher: this.alertDispatcher,
-        tracePolicy: {
-          traceId: options.traceId ?? this.tracing.traceId ?? this.traceId,
-          sampleRate: this.traceSampleRate,
-          emitOtel: this.tracing.emitOtel,
-        },
+  async runBackfill(
+    options: ReplayBridgeBackfillOptions,
+  ): Promise<BackfillResult> {
+    const service = new ReplayBackfillService(this.store, {
+      toSlot: options.toSlot,
+      fetcher: options.fetcher,
+      pageSize: options.pageSize,
+      alertDispatcher: this.alertDispatcher,
+      tracePolicy: {
+        traceId: options.traceId ?? this.tracing.traceId ?? this.traceId,
+        sampleRate: this.traceSampleRate,
+        emitOtel: this.tracing.emitOtel,
       },
-    );
+    });
     return service.runBackfill();
   }
 
-  async query(query?: ReplayTimelineQuery): Promise<ReadonlyArray<ReplayTimelineRecord>> {
+  async query(
+    query?: ReplayTimelineQuery,
+  ): Promise<ReadonlyArray<ReplayTimelineRecord>> {
     return this.store.query(query);
   }
 
@@ -358,18 +395,20 @@ export class ReplayEventBridge {
         sourceEventSequence: sequence,
         traceContext,
       }).catch((error) => {
-        this.logger.warn(`Replay projection failed for ${eventName} event in slot ${slot}: ${error}`);
+        this.logger.warn(
+          `Replay projection failed for ${eventName} event in slot ${slot}: ${error}`,
+        );
       });
     };
   }
 
   private async ingest(input: OnChainProjectionInput): Promise<void> {
     const previousSlot = this.sourceEventLastSlot.get(input.eventName);
-    if (typeof previousSlot === 'number' && input.slot < previousSlot) {
+    if (typeof previousSlot === "number" && input.slot < previousSlot) {
       await this.emitReplayAlert({
-        code: 'replay.ingestion.lag',
-        severity: 'warning',
-        kind: 'replay_ingestion_lag',
+        code: "replay.ingestion.lag",
+        severity: "warning",
+        kind: "replay_ingestion_lag",
         message: `event slot regression detected for ${input.eventName}`,
         taskPda: extractTaskFromEvent(input),
         disputePda: extractDisputeFromEvent(input),
@@ -382,8 +421,9 @@ export class ReplayEventBridge {
     }
     this.sourceEventLastSlot.set(input.eventName, input.slot);
 
-    const traceContext = input.traceContext
-      ?? buildReplayTraceContext({
+    const traceContext =
+      input.traceContext ??
+      buildReplayTraceContext({
         traceId: this.tracing.traceId ?? this.traceId,
         eventName: input.eventName,
         slot: input.slot,
@@ -399,13 +439,13 @@ export class ReplayEventBridge {
     };
 
     const intakeSpan = startReplaySpan({
-      name: buildReplaySpanName('replay.intake', {
+      name: buildReplaySpanName("replay.intake", {
         slot: input.slot,
         signature: input.signature,
       }),
       trace: traceContext,
       emitOtel: this.tracing.emitOtel,
-      attributes: buildReplaySpanEvent('replay.intake', {
+      attributes: buildReplaySpanEvent("replay.intake", {
         slot: input.slot,
         signature: input.signature,
         sourceEventSequence: input.sourceEventSequence,
@@ -413,13 +453,13 @@ export class ReplayEventBridge {
     });
 
     const projectionSpan = startReplaySpan({
-      name: buildReplaySpanName('replay.projector', {
+      name: buildReplaySpanName("replay.projector", {
         slot: input.slot,
         signature: input.signature,
       }),
       trace: traceContext,
       emitOtel: this.tracing.emitOtel,
-      attributes: buildReplaySpanEvent('replay.projector', {
+      attributes: buildReplaySpanEvent("replay.projector", {
         slot: input.slot,
         signature: input.signature,
         sourceEventSequence: input.sourceEventSequence,
@@ -427,13 +467,13 @@ export class ReplayEventBridge {
     });
 
     const saveSpan = startReplaySpan({
-      name: buildReplaySpanName('replay.store.save', {
+      name: buildReplaySpanName("replay.store.save", {
         slot: input.slot,
         signature: input.signature,
       }),
       trace: traceContext,
       emitOtel: this.tracing.emitOtel,
-      attributes: buildReplaySpanEvent('replay.store.save', {
+      attributes: buildReplaySpanEvent("replay.store.save", {
         slot: input.slot,
         signature: input.signature,
         sourceEventSequence: input.sourceEventSequence,
@@ -455,7 +495,9 @@ export class ReplayEventBridge {
 
     projectionSpan.end();
 
-    const records = projection.events.map((entry) => toReplayStoreRecord(entry));
+    const records = projection.events.map((entry) =>
+      toReplayStoreRecord(entry),
+    );
     if (records.length === 0) {
       saveSpan.end();
       intakeSpan.end();
@@ -465,15 +507,22 @@ export class ReplayEventBridge {
     try {
       await this.store.save(records);
       saveSpan.end();
-      await this.emitProjectionTelemetry({
-        ...input,
-        traceContext,
-      }, projection);
+      await this.emitProjectionTelemetry(
+        {
+          ...input,
+          traceContext,
+        },
+        projection,
+      );
 
       const issues = strictTelemetryErrors(projection.telemetry);
       if (this.strictProjection && issues.length > 0) {
-        this.logger.error(`Replay projection strict mode blocked event projection (${input.eventName})`);
-        throw new Error(`Replay projection strict mode failed: ${issues.join('; ')}`);
+        this.logger.error(
+          `Replay projection strict mode blocked event projection (${input.eventName})`,
+        );
+        throw new Error(
+          `Replay projection strict mode failed: ${issues.join("; ")}`,
+        );
       }
 
       intakeSpan.end();
@@ -493,9 +542,9 @@ export class ReplayEventBridge {
 
     if (malformedIssueCount > 0) {
       await this.emitReplayAlert({
-        code: 'replay.projection.malformed',
-        severity: malformedIssueCount > 3 ? 'error' : 'warning',
-        kind: 'transition_validation',
+        code: "replay.projection.malformed",
+        severity: malformedIssueCount > 3 ? "error" : "warning",
+        kind: "transition_validation",
         message: `malformed projection input for ${input.eventName}`,
         taskPda: extractTaskFromEvent(input),
         disputePda: extractDisputeFromEvent(input),
@@ -506,16 +555,16 @@ export class ReplayEventBridge {
         traceId: input.traceContext?.traceId ?? this.traceId,
         metadata: {
           issueCount: malformedIssueCount,
-          issues: projection.telemetry.malformedInputs.join('|'),
+          issues: projection.telemetry.malformedInputs.join("|"),
         },
       });
     }
 
     if (unknownIssueCount > 0) {
       await this.emitReplayAlert({
-        code: 'replay.projection.unknown',
-        severity: 'warning',
-        kind: 'transition_validation',
+        code: "replay.projection.unknown",
+        severity: "warning",
+        kind: "transition_validation",
         message: `unknown event variant for ${input.eventName}`,
         taskPda: extractTaskFromEvent(input),
         disputePda: extractDisputeFromEvent(input),
@@ -526,19 +575,28 @@ export class ReplayEventBridge {
         traceId: input.traceContext?.traceId ?? this.traceId,
         metadata: {
           unknownEventCount: unknownIssueCount,
-          events: projection.telemetry.unknownEvents.join('|'),
+          events: projection.telemetry.unknownEvents.join("|"),
         },
       });
     }
 
     for (const violation of projection.telemetry.transitionViolations) {
       await this.emitReplayAlert({
-        code: 'replay.projection.transition_invalid',
-        severity: violation.scope === 'dispute' || violation.scope === 'speculation' ? 'error' : 'warning',
-        kind: 'transition_validation',
+        code: "replay.projection.transition_invalid",
+        severity:
+          violation.scope === "dispute" || violation.scope === "speculation"
+            ? "error"
+            : "warning",
+        kind: "transition_validation",
         message: `transition violation ${violation.scope}: ${violation.reason}`,
-        taskPda: violation.scope === 'task' ? violation.entityId : extractTaskFromEvent(input),
-        disputePda: violation.scope === 'dispute' ? violation.entityId : extractDisputeFromEvent(input),
+        taskPda:
+          violation.scope === "task"
+            ? violation.entityId
+            : extractTaskFromEvent(input),
+        disputePda:
+          violation.scope === "dispute"
+            ? violation.entityId
+            : extractDisputeFromEvent(input),
         sourceEventName: violation.eventName,
         signature: violation.signature,
         slot: violation.slot,
@@ -556,8 +614,12 @@ export class ReplayEventBridge {
 
   private async emitReplayAlert(context: {
     code: string;
-    severity: 'info' | 'warning' | 'error';
-    kind: 'transition_validation' | 'replay_hash_mismatch' | 'replay_anomaly_repeat' | 'replay_ingestion_lag';
+    severity: "info" | "warning" | "error";
+    kind:
+      | "transition_validation"
+      | "replay_hash_mismatch"
+      | "replay_anomaly_repeat"
+      | "replay_ingestion_lag";
     message: string;
     taskPda?: string;
     disputePda?: string;
@@ -571,27 +633,31 @@ export class ReplayEventBridge {
     try {
       await this.alertDispatcher.emit(context);
     } catch (error) {
-      this.logger.warn('replay alert dispatch failed', error);
+      this.logger.warn("replay alert dispatch failed", error);
     }
   }
 }
 
-function extractTaskFromEvent(input: OnChainProjectionInput): string | undefined {
-  if (typeof input.event !== 'object' || input.event === null) {
+function extractTaskFromEvent(
+  input: OnChainProjectionInput,
+): string | undefined {
+  if (typeof input.event !== "object" || input.event === null) {
     return undefined;
   }
 
   const event = input.event as Record<string, unknown>;
   const candidate = event.taskId ?? event.task;
-  return typeof candidate === 'string' ? candidate : undefined;
+  return typeof candidate === "string" ? candidate : undefined;
 }
 
-function extractDisputeFromEvent(input: OnChainProjectionInput): string | undefined {
-  if (typeof input.event !== 'object' || input.event === null) {
+function extractDisputeFromEvent(
+  input: OnChainProjectionInput,
+): string | undefined {
+  if (typeof input.event !== "object" || input.event === null) {
     return undefined;
   }
 
   const event = input.event as Record<string, unknown>;
   const candidate = event.disputeId;
-  return typeof candidate === 'string' ? candidate : undefined;
+  return typeof candidate === "string" ? candidate : undefined;
 }

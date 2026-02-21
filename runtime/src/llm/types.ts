@@ -10,14 +10,14 @@
 /**
  * Message role in a conversation
  */
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
+export type MessageRole = "system" | "user" | "assistant" | "tool";
 
 /**
  * A content part for multimodal messages (OpenAI/Grok-compatible format).
  */
 export type LLMContentPart =
-  | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } };
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
 /**
  * A single message in an LLM conversation.
@@ -39,7 +39,7 @@ export interface LLMMessage {
  * Tool definition in OpenAI-compatible format
  */
 export interface LLMTool {
-  type: 'function';
+  type: "function";
   function: {
     name: string;
     description: string;
@@ -73,7 +73,7 @@ export interface LLMResponse {
   toolCalls: LLMToolCall[];
   usage: LLMUsage;
   model: string;
-  finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter' | 'error';
+  finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "error";
   /** Underlying error when finishReason is "error". */
   error?: Error;
   /** True if partial content was received before an error. */
@@ -97,7 +97,10 @@ export type StreamProgressCallback = (chunk: LLMStreamChunk) => void;
 /**
  * Handler for tool calls — maps tool name + arguments to a string result
  */
-export type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<string>;
+export type ToolHandler = (
+  name: string,
+  args: Record<string, unknown>,
+) => Promise<string>;
 
 /**
  * Core LLM provider interface that all adapters implement
@@ -105,7 +108,10 @@ export type ToolHandler = (name: string, args: Record<string, unknown>) => Promi
 export interface LLMProvider {
   readonly name: string;
   chat(messages: LLMMessage[]): Promise<LLMResponse>;
-  chatStream(messages: LLMMessage[], onChunk: StreamProgressCallback): Promise<LLMResponse>;
+  chatStream(
+    messages: LLMMessage[],
+    onChunk: StreamProgressCallback,
+  ): Promise<LLMResponse>;
   healthCheck(): Promise<boolean>;
 }
 
@@ -141,16 +147,16 @@ export interface LLMProviderConfig {
  * Ensures `id` and `name` are non-empty strings, and `arguments` is a JSON string.
  */
 export function validateToolCall(raw: unknown): LLMToolCall | null {
-  if (typeof raw !== 'object' || raw === null) {
+  if (typeof raw !== "object" || raw === null) {
     return null;
   }
 
   const candidate = raw as Record<string, unknown>;
-  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
-  const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+  const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+  const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
   const argumentsRaw = candidate.arguments;
 
-  if (!id || !name || typeof argumentsRaw !== 'string') {
+  if (!id || !name || typeof argumentsRaw !== "string") {
     return null;
   }
 

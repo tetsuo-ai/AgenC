@@ -7,7 +7,7 @@
 export const WORKFLOW_FEATURE_SCHEMA_VERSION = 1 as const;
 export const WORKFLOW_OBJECTIVE_SCHEMA_VERSION = 1 as const;
 
-export type WorkflowRunOutcome = 'completed' | 'failed' | 'partially_completed';
+export type WorkflowRunOutcome = "completed" | "failed" | "partially_completed";
 
 export interface WorkflowTopologyFeatures {
   nodeCount: number;
@@ -71,16 +71,16 @@ export interface LegacyWorkflowFeatureVectorV0 {
 }
 
 export type WorkflowObjectiveMetric =
-  | 'success_rate'
-  | 'conformance_score'
-  | 'latency_ms'
-  | 'cost_units'
-  | 'rollback_rate'
-  | 'verifier_disagreement_rate';
+  | "success_rate"
+  | "conformance_score"
+  | "latency_ms"
+  | "cost_units"
+  | "rollback_rate"
+  | "verifier_disagreement_rate";
 
 export interface WorkflowObjectiveWeight {
   metric: WorkflowObjectiveMetric;
-  direction: 'maximize' | 'minimize';
+  direction: "maximize" | "minimize";
   weight: number;
   /** Optional baseline for scale normalization. */
   baseline?: number;
@@ -108,12 +108,12 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
   }
@@ -124,20 +124,40 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
  * Default multi-objective spec with conservative weighting.
  */
 export function createDefaultWorkflowObjectiveSpec(
-  id = 'default-v1',
+  id = "default-v1",
 ): WorkflowObjectiveSpec {
   return {
     id,
     schemaVersion: WORKFLOW_OBJECTIVE_SCHEMA_VERSION,
     weights: [
-      { metric: 'success_rate', direction: 'maximize', weight: 0.35, baseline: 1 },
-      { metric: 'conformance_score', direction: 'maximize', weight: 0.25, baseline: 1 },
-      { metric: 'latency_ms', direction: 'minimize', weight: 0.15, baseline: 60_000 },
-      { metric: 'cost_units', direction: 'minimize', weight: 0.10, baseline: 1 },
-      { metric: 'rollback_rate', direction: 'minimize', weight: 0.10, baseline: 0.1 },
       {
-        metric: 'verifier_disagreement_rate',
-        direction: 'minimize',
+        metric: "success_rate",
+        direction: "maximize",
+        weight: 0.35,
+        baseline: 1,
+      },
+      {
+        metric: "conformance_score",
+        direction: "maximize",
+        weight: 0.25,
+        baseline: 1,
+      },
+      {
+        metric: "latency_ms",
+        direction: "minimize",
+        weight: 0.15,
+        baseline: 60_000,
+      },
+      { metric: "cost_units", direction: "minimize", weight: 0.1, baseline: 1 },
+      {
+        metric: "rollback_rate",
+        direction: "minimize",
+        weight: 0.1,
+        baseline: 0.1,
+      },
+      {
+        metric: "verifier_disagreement_rate",
+        direction: "minimize",
         weight: 0.05,
         baseline: 0.1,
       },
@@ -145,29 +165,37 @@ export function createDefaultWorkflowObjectiveSpec(
   };
 }
 
-export function validateWorkflowObjectiveSpec(spec: WorkflowObjectiveSpec): void {
-  assert(spec.schemaVersion === WORKFLOW_OBJECTIVE_SCHEMA_VERSION, 'unsupported objective schemaVersion');
-  assert(spec.id.trim().length > 0, 'objective id must be non-empty');
-  assert(spec.weights.length > 0, 'objective must contain at least one weight');
+export function validateWorkflowObjectiveSpec(
+  spec: WorkflowObjectiveSpec,
+): void {
+  assert(
+    spec.schemaVersion === WORKFLOW_OBJECTIVE_SCHEMA_VERSION,
+    "unsupported objective schemaVersion",
+  );
+  assert(spec.id.trim().length > 0, "objective id must be non-empty");
+  assert(spec.weights.length > 0, "objective must contain at least one weight");
 
   for (const weight of spec.weights) {
-    assert(weight.weight >= 0, `weight for ${weight.metric} must be non-negative`);
+    assert(
+      weight.weight >= 0,
+      `weight for ${weight.metric} must be non-negative`,
+    );
     if (weight.baseline !== undefined) {
       assert(weight.baseline > 0, `baseline for ${weight.metric} must be > 0`);
     }
   }
 
   const totalWeight = spec.weights.reduce((sum, item) => sum + item.weight, 0);
-  assert(totalWeight > 0, 'objective weights must sum to > 0');
+  assert(totalWeight > 0, "objective weights must sum to > 0");
 }
 
 function normalizeMetric(
   value: number,
-  direction: 'maximize' | 'minimize',
+  direction: "maximize" | "minimize",
   baseline?: number,
 ): number {
   const safeValue = Math.max(0, value);
-  if (direction === 'maximize') {
+  if (direction === "maximize") {
     return Math.max(0, Math.min(1, safeValue));
   }
 
@@ -196,7 +224,11 @@ export function scoreWorkflowObjective(
   let weightedScore = 0;
   for (const weight of spec.weights) {
     const rawValue = metricMap[weight.metric] ?? 0;
-    const normalized = normalizeMetric(rawValue, weight.direction, weight.baseline);
+    const normalized = normalizeMetric(
+      rawValue,
+      weight.direction,
+      weight.baseline,
+    );
     weightedScore += normalized * weight.weight;
   }
 
@@ -219,11 +251,16 @@ export function workflowObjectiveOutcomeFromFeature(
 /**
  * Parse and migrate feature vectors for backward compatibility.
  */
-export function parseWorkflowFeatureVector(input: unknown): WorkflowFeatureVector {
-  assert(isObject(input), 'feature vector must be an object');
+export function parseWorkflowFeatureVector(
+  input: unknown,
+): WorkflowFeatureVector {
+  assert(isObject(input), "feature vector must be an object");
 
-  if ('schemaVersion' in input) {
-    assert(input.schemaVersion === WORKFLOW_FEATURE_SCHEMA_VERSION, 'unsupported feature schemaVersion');
+  if ("schemaVersion" in input) {
+    assert(
+      input.schemaVersion === WORKFLOW_FEATURE_SCHEMA_VERSION,
+      "unsupported feature schemaVersion",
+    );
 
     const schemaVersion = input.schemaVersion;
     const workflowId = input.workflowId;
@@ -234,12 +271,18 @@ export function parseWorkflowFeatureVector(input: unknown): WorkflowFeatureVecto
     const nodeFeatures = input.nodeFeatures;
     const metadata = input.metadata;
 
-    assert(typeof workflowId === 'string' && workflowId.length > 0, 'workflowId must be non-empty');
-    assert(Number.isInteger(capturedAtMs) && (capturedAtMs as number) >= 0, 'capturedAtMs must be non-negative integer');
-    assert(isObject(topology), 'topology must be an object');
-    assert(isObject(composition), 'composition must be an object');
-    assert(isObject(outcomes), 'outcomes must be an object');
-    assert(Array.isArray(nodeFeatures), 'nodeFeatures must be an array');
+    assert(
+      typeof workflowId === "string" && workflowId.length > 0,
+      "workflowId must be non-empty",
+    );
+    assert(
+      Number.isInteger(capturedAtMs) && (capturedAtMs as number) >= 0,
+      "capturedAtMs must be non-negative integer",
+    );
+    assert(isObject(topology), "topology must be an object");
+    assert(isObject(composition), "composition must be an object");
+    assert(isObject(outcomes), "outcomes must be an object");
+    assert(Array.isArray(nodeFeatures), "nodeFeatures must be an array");
 
     return {
       schemaVersion: schemaVersion as typeof WORKFLOW_FEATURE_SCHEMA_VERSION,
@@ -256,24 +299,34 @@ export function parseWorkflowFeatureVector(input: unknown): WorkflowFeatureVecto
   // Legacy v0 migration path (missing schemaVersion).
   const legacy = input as Record<string, unknown>;
   assert(
-    typeof legacy.workflowId === 'string' && legacy.workflowId.length > 0,
-    'legacy workflowId must be non-empty',
+    typeof legacy.workflowId === "string" && legacy.workflowId.length > 0,
+    "legacy workflowId must be non-empty",
   );
-  assert(isObject(legacy.topology), 'legacy topology must be an object');
-  assert(isObject(legacy.composition), 'legacy composition must be an object');
-  assert(isObject(legacy.outcomes), 'legacy outcomes must be an object');
-  assert(Array.isArray(legacy.nodeFeatures), 'legacy nodeFeatures must be an array');
+  assert(isObject(legacy.topology), "legacy topology must be an object");
+  assert(isObject(legacy.composition), "legacy composition must be an object");
+  assert(isObject(legacy.outcomes), "legacy outcomes must be an object");
+  assert(
+    Array.isArray(legacy.nodeFeatures),
+    "legacy nodeFeatures must be an array",
+  );
   const metadata = legacy.metadata;
-  assert(metadata === undefined || isObject(metadata), 'legacy metadata must be an object when provided');
+  assert(
+    metadata === undefined || isObject(metadata),
+    "legacy metadata must be an object when provided",
+  );
 
   return {
     schemaVersion: WORKFLOW_FEATURE_SCHEMA_VERSION,
     workflowId: legacy.workflowId as string,
     capturedAtMs: toFiniteNumber(legacy.capturedAtMs, Date.now()),
-    topology: legacy.topology as unknown as LegacyWorkflowFeatureVectorV0['topology'],
-    composition: legacy.composition as unknown as LegacyWorkflowFeatureVectorV0['composition'],
-    outcomes: legacy.outcomes as unknown as LegacyWorkflowFeatureVectorV0['outcomes'],
-    nodeFeatures: legacy.nodeFeatures as unknown as LegacyWorkflowFeatureVectorV0['nodeFeatures'],
+    topology:
+      legacy.topology as unknown as LegacyWorkflowFeatureVectorV0["topology"],
+    composition:
+      legacy.composition as unknown as LegacyWorkflowFeatureVectorV0["composition"],
+    outcomes:
+      legacy.outcomes as unknown as LegacyWorkflowFeatureVectorV0["outcomes"],
+    nodeFeatures:
+      legacy.nodeFeatures as unknown as LegacyWorkflowFeatureVectorV0["nodeFeatures"],
     metadata: metadata as Record<string, string> | undefined,
   };
 }

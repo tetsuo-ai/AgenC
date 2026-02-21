@@ -5,7 +5,7 @@
  * and helper functions for error handling in AgenC applications.
  */
 
-import type { PublicKey } from '@solana/web3.js';
+import type { PublicKey } from "@solana/web3.js";
 
 // ============================================================================
 // Runtime Error Codes
@@ -17,203 +17,204 @@ import type { PublicKey } from '@solana/web3.js';
  */
 export const RuntimeErrorCodes = {
   /** Agent is not registered in the protocol */
-  AGENT_NOT_REGISTERED: 'AGENT_NOT_REGISTERED',
+  AGENT_NOT_REGISTERED: "AGENT_NOT_REGISTERED",
   /** Agent is already registered */
-  AGENT_ALREADY_REGISTERED: 'AGENT_ALREADY_REGISTERED',
+  AGENT_ALREADY_REGISTERED: "AGENT_ALREADY_REGISTERED",
   /** Input validation failed */
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  VALIDATION_ERROR: "VALIDATION_ERROR",
   /** Rate limit exceeded */
-  RATE_LIMIT_ERROR: 'RATE_LIMIT_ERROR',
+  RATE_LIMIT_ERROR: "RATE_LIMIT_ERROR",
   /** Insufficient stake for operation */
-  INSUFFICIENT_STAKE: 'INSUFFICIENT_STAKE',
+  INSUFFICIENT_STAKE: "INSUFFICIENT_STAKE",
   /** Agent has active tasks preventing operation */
-  ACTIVE_TASKS_ERROR: 'ACTIVE_TASKS_ERROR',
+  ACTIVE_TASKS_ERROR: "ACTIVE_TASKS_ERROR",
   /** Agent has pending dispute votes */
-  PENDING_DISPUTE_VOTES: 'PENDING_DISPUTE_VOTES',
+  PENDING_DISPUTE_VOTES: "PENDING_DISPUTE_VOTES",
   /** Agent has recent vote activity */
-  RECENT_VOTE_ACTIVITY: 'RECENT_VOTE_ACTIVITY',
+  RECENT_VOTE_ACTIVITY: "RECENT_VOTE_ACTIVITY",
   /** Task not found by PDA */
-  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
+  TASK_NOT_FOUND: "TASK_NOT_FOUND",
   /** Task is not claimable */
-  TASK_NOT_CLAIMABLE: 'TASK_NOT_CLAIMABLE',
+  TASK_NOT_CLAIMABLE: "TASK_NOT_CLAIMABLE",
   /** Task execution failed locally */
-  TASK_EXECUTION_FAILED: 'TASK_EXECUTION_FAILED',
+  TASK_EXECUTION_FAILED: "TASK_EXECUTION_FAILED",
   /** Task result submission failed on-chain */
-  TASK_SUBMISSION_FAILED: 'TASK_SUBMISSION_FAILED',
+  TASK_SUBMISSION_FAILED: "TASK_SUBMISSION_FAILED",
   /** Executor state machine is in an invalid state */
-  EXECUTOR_STATE_ERROR: 'EXECUTOR_STATE_ERROR',
+  EXECUTOR_STATE_ERROR: "EXECUTOR_STATE_ERROR",
   /** Task execution timed out */
-  TASK_TIMEOUT: 'TASK_TIMEOUT',
+  TASK_TIMEOUT: "TASK_TIMEOUT",
   /** Claim deadline expired or about to expire */
-  CLAIM_EXPIRED: 'CLAIM_EXPIRED',
+  CLAIM_EXPIRED: "CLAIM_EXPIRED",
   /** All retry attempts exhausted */
-  RETRY_EXHAUSTED: 'RETRY_EXHAUSTED',
+  RETRY_EXHAUSTED: "RETRY_EXHAUSTED",
   /** LLM provider returned an error */
-  LLM_PROVIDER_ERROR: 'LLM_PROVIDER_ERROR',
+  LLM_PROVIDER_ERROR: "LLM_PROVIDER_ERROR",
   /** LLM provider rate limit exceeded */
-  LLM_RATE_LIMIT: 'LLM_RATE_LIMIT',
+  LLM_RATE_LIMIT: "LLM_RATE_LIMIT",
   /** Failed to convert LLM response to output */
-  LLM_RESPONSE_CONVERSION: 'LLM_RESPONSE_CONVERSION',
+  LLM_RESPONSE_CONVERSION: "LLM_RESPONSE_CONVERSION",
   /** LLM tool call failed */
-  LLM_TOOL_CALL_ERROR: 'LLM_TOOL_CALL_ERROR',
+  LLM_TOOL_CALL_ERROR: "LLM_TOOL_CALL_ERROR",
   /** LLM request timed out */
-  LLM_TIMEOUT: 'LLM_TIMEOUT',
+  LLM_TIMEOUT: "LLM_TIMEOUT",
   /** Memory backend operation failure */
-  MEMORY_BACKEND_ERROR: 'MEMORY_BACKEND_ERROR',
+  MEMORY_BACKEND_ERROR: "MEMORY_BACKEND_ERROR",
   /** Memory backend connection failure or missing dependency */
-  MEMORY_CONNECTION_ERROR: 'MEMORY_CONNECTION_ERROR',
+  MEMORY_CONNECTION_ERROR: "MEMORY_CONNECTION_ERROR",
   /** Memory serialization/deserialization failure */
-  MEMORY_SERIALIZATION_ERROR: 'MEMORY_SERIALIZATION_ERROR',
+  MEMORY_SERIALIZATION_ERROR: "MEMORY_SERIALIZATION_ERROR",
   /** ZK proof generation failed */
-  PROOF_GENERATION_ERROR: 'PROOF_GENERATION_ERROR',
+  PROOF_GENERATION_ERROR: "PROOF_GENERATION_ERROR",
   /** ZK proof verification failed */
-  PROOF_VERIFICATION_ERROR: 'PROOF_VERIFICATION_ERROR',
+  PROOF_VERIFICATION_ERROR: "PROOF_VERIFICATION_ERROR",
   /** Proof cache operation failed */
-  PROOF_CACHE_ERROR: 'PROOF_CACHE_ERROR',
+  PROOF_CACHE_ERROR: "PROOF_CACHE_ERROR",
   /** Dispute not found by PDA */
-  DISPUTE_NOT_FOUND: 'DISPUTE_NOT_FOUND',
+  DISPUTE_NOT_FOUND: "DISPUTE_NOT_FOUND",
   /** Dispute vote operation failed */
-  DISPUTE_VOTE_ERROR: 'DISPUTE_VOTE_ERROR',
+  DISPUTE_VOTE_ERROR: "DISPUTE_VOTE_ERROR",
   /** Dispute resolution operation failed */
-  DISPUTE_RESOLUTION_ERROR: 'DISPUTE_RESOLUTION_ERROR',
+  DISPUTE_RESOLUTION_ERROR: "DISPUTE_RESOLUTION_ERROR",
   /** Dispute slash operation failed */
-  DISPUTE_SLASH_ERROR: 'DISPUTE_SLASH_ERROR',
+  DISPUTE_SLASH_ERROR: "DISPUTE_SLASH_ERROR",
   /** Workflow definition failed validation */
-  WORKFLOW_VALIDATION_ERROR: 'WORKFLOW_VALIDATION_ERROR',
+  WORKFLOW_VALIDATION_ERROR: "WORKFLOW_VALIDATION_ERROR",
   /** Workflow on-chain task submission failed */
-  WORKFLOW_SUBMISSION_ERROR: 'WORKFLOW_SUBMISSION_ERROR',
+  WORKFLOW_SUBMISSION_ERROR: "WORKFLOW_SUBMISSION_ERROR",
   /** Workflow event subscription or polling failed */
-  WORKFLOW_MONITORING_ERROR: 'WORKFLOW_MONITORING_ERROR',
+  WORKFLOW_MONITORING_ERROR: "WORKFLOW_MONITORING_ERROR",
   /** Workflow state transition or lookup failed */
-  WORKFLOW_STATE_ERROR: 'WORKFLOW_STATE_ERROR',
+  WORKFLOW_STATE_ERROR: "WORKFLOW_STATE_ERROR",
   /** Team contract definition failed validation */
-  TEAM_CONTRACT_VALIDATION_ERROR: 'TEAM_CONTRACT_VALIDATION_ERROR',
+  TEAM_CONTRACT_VALIDATION_ERROR: "TEAM_CONTRACT_VALIDATION_ERROR",
   /** Team contract state transition or lifecycle operation failed */
-  TEAM_CONTRACT_STATE_ERROR: 'TEAM_CONTRACT_STATE_ERROR',
+  TEAM_CONTRACT_STATE_ERROR: "TEAM_CONTRACT_STATE_ERROR",
   /** Team payout configuration or computation failed */
-  TEAM_PAYOUT_ERROR: 'TEAM_PAYOUT_ERROR',
+  TEAM_PAYOUT_ERROR: "TEAM_PAYOUT_ERROR",
   /** Team workflow topology is not launch-compatible */
-  TEAM_WORKFLOW_TOPOLOGY_ERROR: 'TEAM_WORKFLOW_TOPOLOGY_ERROR',
+  TEAM_WORKFLOW_TOPOLOGY_ERROR: "TEAM_WORKFLOW_TOPOLOGY_ERROR",
   /** Marketplace bid input validation failed */
-  MARKETPLACE_VALIDATION_ERROR: 'MARKETPLACE_VALIDATION_ERROR',
+  MARKETPLACE_VALIDATION_ERROR: "MARKETPLACE_VALIDATION_ERROR",
   /** Marketplace lifecycle state transition failed */
-  MARKETPLACE_STATE_ERROR: 'MARKETPLACE_STATE_ERROR',
+  MARKETPLACE_STATE_ERROR: "MARKETPLACE_STATE_ERROR",
   /** Marketplace authorization failed */
-  MARKETPLACE_AUTHORIZATION_ERROR: 'MARKETPLACE_AUTHORIZATION_ERROR',
+  MARKETPLACE_AUTHORIZATION_ERROR: "MARKETPLACE_AUTHORIZATION_ERROR",
   /** Marketplace matching/scoring operation failed */
-  MARKETPLACE_MATCHING_ERROR: 'MARKETPLACE_MATCHING_ERROR',
+  MARKETPLACE_MATCHING_ERROR: "MARKETPLACE_MATCHING_ERROR",
   /** RPC connection error (timeout, server error, etc.) */
-  CONNECTION_ERROR: 'CONNECTION_ERROR',
+  CONNECTION_ERROR: "CONNECTION_ERROR",
   /** All configured RPC endpoints are unhealthy */
-  ALL_ENDPOINTS_UNHEALTHY: 'ALL_ENDPOINTS_UNHEALTHY',
+  ALL_ENDPOINTS_UNHEALTHY: "ALL_ENDPOINTS_UNHEALTHY",
   /** Telemetry system error */
-  TELEMETRY_ERROR: 'TELEMETRY_ERROR',
+  TELEMETRY_ERROR: "TELEMETRY_ERROR",
   /** Gateway configuration validation failed */
-  GATEWAY_VALIDATION_ERROR: 'GATEWAY_VALIDATION_ERROR',
+  GATEWAY_VALIDATION_ERROR: "GATEWAY_VALIDATION_ERROR",
   /** Gateway WebSocket or file system connection error */
-  GATEWAY_CONNECTION_ERROR: 'GATEWAY_CONNECTION_ERROR',
+  GATEWAY_CONNECTION_ERROR: "GATEWAY_CONNECTION_ERROR",
   /** Gateway invalid lifecycle state transition */
-  GATEWAY_STATE_ERROR: 'GATEWAY_STATE_ERROR',
+  GATEWAY_STATE_ERROR: "GATEWAY_STATE_ERROR",
   /** Gateway start/stop lifecycle failure */
-  GATEWAY_LIFECYCLE_ERROR: 'GATEWAY_LIFECYCLE_ERROR',
+  GATEWAY_LIFECYCLE_ERROR: "GATEWAY_LIFECYCLE_ERROR",
   /** Workspace configuration validation failed */
-  WORKSPACE_VALIDATION_ERROR: 'WORKSPACE_VALIDATION_ERROR',
+  WORKSPACE_VALIDATION_ERROR: "WORKSPACE_VALIDATION_ERROR",
   /** Chat session token budget exceeded */
-  CHAT_BUDGET_EXCEEDED: 'CHAT_BUDGET_EXCEEDED',
+  CHAT_BUDGET_EXCEEDED: "CHAT_BUDGET_EXCEEDED",
   /** Governance proposal not found */
-  GOVERNANCE_PROPOSAL_NOT_FOUND: 'GOVERNANCE_PROPOSAL_NOT_FOUND',
+  GOVERNANCE_PROPOSAL_NOT_FOUND: "GOVERNANCE_PROPOSAL_NOT_FOUND",
   /** Governance vote operation failed */
-  GOVERNANCE_VOTE_ERROR: 'GOVERNANCE_VOTE_ERROR',
+  GOVERNANCE_VOTE_ERROR: "GOVERNANCE_VOTE_ERROR",
   /** Governance proposal execution failed */
-  GOVERNANCE_EXECUTION_ERROR: 'GOVERNANCE_EXECUTION_ERROR',
+  GOVERNANCE_EXECUTION_ERROR: "GOVERNANCE_EXECUTION_ERROR",
   /** Identity link code has expired */
-  IDENTITY_LINK_EXPIRED: 'IDENTITY_LINK_EXPIRED',
+  IDENTITY_LINK_EXPIRED: "IDENTITY_LINK_EXPIRED",
   /** Identity link code not found */
-  IDENTITY_LINK_NOT_FOUND: 'IDENTITY_LINK_NOT_FOUND',
+  IDENTITY_LINK_NOT_FOUND: "IDENTITY_LINK_NOT_FOUND",
   /** Cannot link an account to itself */
-  IDENTITY_SELF_LINK: 'IDENTITY_SELF_LINK',
+  IDENTITY_SELF_LINK: "IDENTITY_SELF_LINK",
   /** Ed25519 signature verification failed for identity linking */
-  IDENTITY_SIGNATURE_INVALID: 'IDENTITY_SIGNATURE_INVALID',
+  IDENTITY_SIGNATURE_INVALID: "IDENTITY_SIGNATURE_INVALID",
   /** Identity input validation failed */
-  IDENTITY_VALIDATION_ERROR: 'IDENTITY_VALIDATION_ERROR',
+  IDENTITY_VALIDATION_ERROR: "IDENTITY_VALIDATION_ERROR",
   /** Heartbeat scheduler invalid lifecycle state transition */
-  HEARTBEAT_STATE_ERROR: 'HEARTBEAT_STATE_ERROR',
+  HEARTBEAT_STATE_ERROR: "HEARTBEAT_STATE_ERROR",
   /** Heartbeat action execution failed */
-  HEARTBEAT_ACTION_FAILED: 'HEARTBEAT_ACTION_FAILED',
+  HEARTBEAT_ACTION_FAILED: "HEARTBEAT_ACTION_FAILED",
   /** Heartbeat action exceeded timeout */
-  HEARTBEAT_TIMEOUT: 'HEARTBEAT_TIMEOUT',
+  HEARTBEAT_TIMEOUT: "HEARTBEAT_TIMEOUT",
   /** Skill not found in on-chain registry */
-  SKILL_REGISTRY_NOT_FOUND: 'SKILL_REGISTRY_NOT_FOUND',
+  SKILL_REGISTRY_NOT_FOUND: "SKILL_REGISTRY_NOT_FOUND",
   /** Skill download from content gateway failed */
-  SKILL_DOWNLOAD_ERROR: 'SKILL_DOWNLOAD_ERROR',
+  SKILL_DOWNLOAD_ERROR: "SKILL_DOWNLOAD_ERROR",
   /** Skill content hash verification failed */
-  SKILL_VERIFICATION_ERROR: 'SKILL_VERIFICATION_ERROR',
+  SKILL_VERIFICATION_ERROR: "SKILL_VERIFICATION_ERROR",
   /** Skill publish operation failed */
-  SKILL_PUBLISH_ERROR: 'SKILL_PUBLISH_ERROR',
+  SKILL_PUBLISH_ERROR: "SKILL_PUBLISH_ERROR",
   /** Skill purchase operation failed */
-  SKILL_PURCHASE_ERROR: 'SKILL_PURCHASE_ERROR',
+  SKILL_PURCHASE_ERROR: "SKILL_PURCHASE_ERROR",
   /** Docker sandbox command execution failed */
-  SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
+  SANDBOX_EXECUTION_ERROR: "SANDBOX_EXECUTION_ERROR",
   /** Docker daemon is not available or not running */
-  SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
+  SANDBOX_UNAVAILABLE: "SANDBOX_UNAVAILABLE",
   /** Agent discovery query failed */
-  DISCOVERY_ERROR: 'DISCOVERY_ERROR',
+  DISCOVERY_ERROR: "DISCOVERY_ERROR",
   /** Speech-to-text transcription failed */
-  VOICE_TRANSCRIPTION_ERROR: 'VOICE_TRANSCRIPTION_ERROR',
+  VOICE_TRANSCRIPTION_ERROR: "VOICE_TRANSCRIPTION_ERROR",
   /** Text-to-speech synthesis failed */
-  VOICE_SYNTHESIS_ERROR: 'VOICE_SYNTHESIS_ERROR',
+  VOICE_SYNTHESIS_ERROR: "VOICE_SYNTHESIS_ERROR",
   /** Real-time voice session error (xAI Realtime API) */
-  VOICE_REALTIME_ERROR: 'VOICE_REALTIME_ERROR',
+  VOICE_REALTIME_ERROR: "VOICE_REALTIME_ERROR",
   /** Cross-protocol bridge operation failed */
-  BRIDGE_ERROR: 'BRIDGE_ERROR',
+  BRIDGE_ERROR: "BRIDGE_ERROR",
   /** x402 payment transfer failed */
-  BRIDGE_PAYMENT_ERROR: 'BRIDGE_PAYMENT_ERROR',
+  BRIDGE_PAYMENT_ERROR: "BRIDGE_PAYMENT_ERROR",
   /** Sub-agent spawning or setup failed */
-  SUB_AGENT_SPAWN_ERROR: 'SUB_AGENT_SPAWN_ERROR',
+  SUB_AGENT_SPAWN_ERROR: "SUB_AGENT_SPAWN_ERROR",
   /** Sub-agent execution exceeded configured timeout */
-  SUB_AGENT_TIMEOUT: 'SUB_AGENT_TIMEOUT',
+  SUB_AGENT_TIMEOUT: "SUB_AGENT_TIMEOUT",
   /** Sub-agent session ID not found */
-  SUB_AGENT_NOT_FOUND: 'SUB_AGENT_NOT_FOUND',
+  SUB_AGENT_NOT_FOUND: "SUB_AGENT_NOT_FOUND",
   /** Messaging send failed (on-chain tx or off-chain delivery) */
-  MESSAGING_SEND_ERROR: 'MESSAGING_SEND_ERROR',
+  MESSAGING_SEND_ERROR: "MESSAGING_SEND_ERROR",
   /** Messaging off-chain connection failed */
-  MESSAGING_CONNECTION_ERROR: 'MESSAGING_CONNECTION_ERROR',
+  MESSAGING_CONNECTION_ERROR: "MESSAGING_CONNECTION_ERROR",
   /** Messaging Ed25519 signature verification failed */
-  MESSAGING_SIGNATURE_ERROR: 'MESSAGING_SIGNATURE_ERROR',
+  MESSAGING_SIGNATURE_ERROR: "MESSAGING_SIGNATURE_ERROR",
   /** Feed post operation failed */
-  FEED_POST_ERROR: 'FEED_POST_ERROR',
+  FEED_POST_ERROR: "FEED_POST_ERROR",
   /** Feed upvote operation failed */
-  FEED_UPVOTE_ERROR: 'FEED_UPVOTE_ERROR',
+  FEED_UPVOTE_ERROR: "FEED_UPVOTE_ERROR",
   /** Feed query operation failed */
-  FEED_QUERY_ERROR: 'FEED_QUERY_ERROR',
+  FEED_QUERY_ERROR: "FEED_QUERY_ERROR",
   /** Reputation scoring computation failed */
-  REPUTATION_SCORING_ERROR: 'REPUTATION_SCORING_ERROR',
+  REPUTATION_SCORING_ERROR: "REPUTATION_SCORING_ERROR",
   /** Reputation event tracking or history query failed */
-  REPUTATION_TRACKING_ERROR: 'REPUTATION_TRACKING_ERROR',
+  REPUTATION_TRACKING_ERROR: "REPUTATION_TRACKING_ERROR",
   /** Collaboration request creation or retrieval failed */
-  COLLABORATION_REQUEST_ERROR: 'COLLABORATION_REQUEST_ERROR',
+  COLLABORATION_REQUEST_ERROR: "COLLABORATION_REQUEST_ERROR",
   /** Collaboration response send or processing failed */
-  COLLABORATION_RESPONSE_ERROR: 'COLLABORATION_RESPONSE_ERROR',
+  COLLABORATION_RESPONSE_ERROR: "COLLABORATION_RESPONSE_ERROR",
   /** Team formation from collaboration failed */
-  COLLABORATION_FORMATION_ERROR: 'COLLABORATION_FORMATION_ERROR',
+  COLLABORATION_FORMATION_ERROR: "COLLABORATION_FORMATION_ERROR",
   /** Skill subscription lifecycle operation failed */
-  SKILL_SUBSCRIPTION_ERROR: 'SKILL_SUBSCRIPTION_ERROR',
+  SKILL_SUBSCRIPTION_ERROR: "SKILL_SUBSCRIPTION_ERROR",
   /** Skill revenue share computation failed */
-  SKILL_REVENUE_ERROR: 'SKILL_REVENUE_ERROR',
+  SKILL_REVENUE_ERROR: "SKILL_REVENUE_ERROR",
   /** Remote Gateway authentication failed */
-  REMOTE_AUTH_ERROR: 'REMOTE_AUTH_ERROR',
+  REMOTE_AUTH_ERROR: "REMOTE_AUTH_ERROR",
   /** Reputation staking operation failed */
-  REPUTATION_STAKE_ERROR: 'REPUTATION_STAKE_ERROR',
+  REPUTATION_STAKE_ERROR: "REPUTATION_STAKE_ERROR",
   /** Reputation delegation operation failed */
-  REPUTATION_DELEGATION_ERROR: 'REPUTATION_DELEGATION_ERROR',
+  REPUTATION_DELEGATION_ERROR: "REPUTATION_DELEGATION_ERROR",
   /** Reputation withdrawal operation failed */
-  REPUTATION_WITHDRAW_ERROR: 'REPUTATION_WITHDRAW_ERROR',
+  REPUTATION_WITHDRAW_ERROR: "REPUTATION_WITHDRAW_ERROR",
   /** Reputation portability proof operation failed */
-  REPUTATION_PORTABILITY_ERROR: 'REPUTATION_PORTABILITY_ERROR',
+  REPUTATION_PORTABILITY_ERROR: "REPUTATION_PORTABILITY_ERROR",
 } as const;
 
 /** Union type of all runtime error code values */
-export type RuntimeErrorCode = (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
+export type RuntimeErrorCode =
+  (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
 // Anchor Error Codes (194 codes: 6000-6193)
@@ -421,7 +422,8 @@ export const AnchorErrorCodes = {
 } as const;
 
 /** Union type of all Anchor error code values */
-export type AnchorErrorCode = (typeof AnchorErrorCodes)[keyof typeof AnchorErrorCodes];
+export type AnchorErrorCode =
+  (typeof AnchorErrorCodes)[keyof typeof AnchorErrorCodes];
 
 /** Union type of all Anchor error names */
 export type AnchorErrorName = keyof typeof AnchorErrorCodes;
@@ -647,7 +649,7 @@ export function validateByteLength(
   const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
   if (bytes.length !== expectedLength) {
     throw new ValidationError(
-      `Invalid ${paramName}: expected ${expectedLength} bytes, got ${bytes.length}`
+      `Invalid ${paramName}: expected ${expectedLength} bytes, got ${bytes.length}`,
     );
   }
   return bytes;
@@ -657,8 +659,11 @@ export function validateByteLength(
  * Validates that a byte array is not all zeros.
  * @throws ValidationError if all bytes are zero
  */
-export function validateNonZeroBytes(value: Uint8Array, paramName: string): void {
-  if (value.every(b => b === 0)) {
+export function validateNonZeroBytes(
+  value: Uint8Array,
+  paramName: string,
+): void {
+  if (value.every((b) => b === 0)) {
     throw new ValidationError(`Invalid ${paramName}: cannot be all zeros`);
   }
 }
@@ -687,7 +692,7 @@ export class RuntimeError extends Error {
 
   constructor(message: string, code: RuntimeErrorCode) {
     super(message);
-    this.name = 'RuntimeError';
+    this.name = "RuntimeError";
     this.code = code;
     // Maintain proper stack trace in V8 environments.
     // Using this.constructor ensures subclass constructors are hidden from the
@@ -714,8 +719,11 @@ export class RuntimeError extends Error {
  */
 export class AgentNotRegisteredError extends RuntimeError {
   constructor() {
-    super('Agent is not registered in the protocol', RuntimeErrorCodes.AGENT_NOT_REGISTERED);
-    this.name = 'AgentNotRegisteredError';
+    super(
+      "Agent is not registered in the protocol",
+      RuntimeErrorCodes.AGENT_NOT_REGISTERED,
+    );
+    this.name = "AgentNotRegisteredError";
   }
 }
 
@@ -735,8 +743,11 @@ export class AgentAlreadyRegisteredError extends RuntimeError {
   public readonly agentId: string;
 
   constructor(agentId: string) {
-    super(`Agent "${agentId}" is already registered`, RuntimeErrorCodes.AGENT_ALREADY_REGISTERED);
-    this.name = 'AgentAlreadyRegisteredError';
+    super(
+      `Agent "${agentId}" is already registered`,
+      RuntimeErrorCodes.AGENT_ALREADY_REGISTERED,
+    );
+    this.name = "AgentAlreadyRegisteredError";
     this.agentId = agentId;
   }
 }
@@ -754,7 +765,7 @@ export class AgentAlreadyRegisteredError extends RuntimeError {
 export class ValidationError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.VALIDATION_ERROR);
-    this.name = 'ValidationError';
+    this.name = "ValidationError";
   }
 }
 
@@ -777,9 +788,9 @@ export class RateLimitError extends RuntimeError {
   constructor(limitType: string, cooldownEnds: Date) {
     super(
       `Rate limit exceeded for "${limitType}". Cooldown ends at ${cooldownEnds.toISOString()}`,
-      RuntimeErrorCodes.RATE_LIMIT_ERROR
+      RuntimeErrorCodes.RATE_LIMIT_ERROR,
     );
-    this.name = 'RateLimitError';
+    this.name = "RateLimitError";
     this.limitType = limitType;
     this.cooldownEnds = cooldownEnds;
   }
@@ -804,9 +815,9 @@ export class InsufficientStakeError extends RuntimeError {
   constructor(required: bigint, available: bigint) {
     super(
       `Insufficient stake: required ${required} lamports, available ${available} lamports`,
-      RuntimeErrorCodes.INSUFFICIENT_STAKE
+      RuntimeErrorCodes.INSUFFICIENT_STAKE,
     );
-    this.name = 'InsufficientStakeError';
+    this.name = "InsufficientStakeError";
     this.required = required;
     this.available = available;
   }
@@ -828,10 +839,10 @@ export class ActiveTasksError extends RuntimeError {
 
   constructor(activeTaskCount: number) {
     super(
-      `Agent has ${activeTaskCount} active ${activeTaskCount === 1 ? 'task' : 'tasks'} and cannot perform this operation`,
-      RuntimeErrorCodes.ACTIVE_TASKS_ERROR
+      `Agent has ${activeTaskCount} active ${activeTaskCount === 1 ? "task" : "tasks"} and cannot perform this operation`,
+      RuntimeErrorCodes.ACTIVE_TASKS_ERROR,
     );
-    this.name = 'ActiveTasksError';
+    this.name = "ActiveTasksError";
     this.activeTaskCount = activeTaskCount;
   }
 }
@@ -852,10 +863,10 @@ export class PendingDisputeVotesError extends RuntimeError {
 
   constructor(voteCount: number) {
     super(
-      `Agent has ${voteCount} pending dispute ${voteCount === 1 ? 'vote' : 'votes'} that must be resolved first`,
-      RuntimeErrorCodes.PENDING_DISPUTE_VOTES
+      `Agent has ${voteCount} pending dispute ${voteCount === 1 ? "vote" : "votes"} that must be resolved first`,
+      RuntimeErrorCodes.PENDING_DISPUTE_VOTES,
     );
-    this.name = 'PendingDisputeVotesError';
+    this.name = "PendingDisputeVotesError";
     this.voteCount = voteCount;
   }
 }
@@ -878,9 +889,9 @@ export class RecentVoteActivityError extends RuntimeError {
   constructor(lastVoteTimestamp: Date) {
     super(
       `Agent must wait 24 hours after voting before performing this operation. Last vote: ${lastVoteTimestamp.toISOString()}`,
-      RuntimeErrorCodes.RECENT_VOTE_ACTIVITY
+      RuntimeErrorCodes.RECENT_VOTE_ACTIVITY,
     );
-    this.name = 'RecentVoteActivityError';
+    this.name = "RecentVoteActivityError";
     this.lastVoteTimestamp = lastVoteTimestamp;
   }
 }
@@ -898,8 +909,8 @@ export class TaskNotFoundError extends RuntimeError {
   public readonly taskPda: PublicKey;
 
   constructor(taskPda: PublicKey, message?: string) {
-    super(message || 'Task not found', RuntimeErrorCodes.TASK_NOT_FOUND);
-    this.name = 'TaskNotFoundError';
+    super(message || "Task not found", RuntimeErrorCodes.TASK_NOT_FOUND);
+    this.name = "TaskNotFoundError";
     this.taskPda = taskPda;
   }
 }
@@ -919,8 +930,11 @@ export class TaskNotClaimableError extends RuntimeError {
   public readonly reason: string;
 
   constructor(taskPda: PublicKey, reason: string) {
-    super(`Task not claimable: ${reason}`, RuntimeErrorCodes.TASK_NOT_CLAIMABLE);
-    this.name = 'TaskNotClaimableError';
+    super(
+      `Task not claimable: ${reason}`,
+      RuntimeErrorCodes.TASK_NOT_CLAIMABLE,
+    );
+    this.name = "TaskNotClaimableError";
     this.taskPda = taskPda;
     this.reason = reason;
   }
@@ -941,8 +955,11 @@ export class TaskExecutionError extends RuntimeError {
   public readonly cause: string;
 
   constructor(taskPda: PublicKey, cause: string) {
-    super(`Task execution failed: ${cause}`, RuntimeErrorCodes.TASK_EXECUTION_FAILED);
-    this.name = 'TaskExecutionError';
+    super(
+      `Task execution failed: ${cause}`,
+      RuntimeErrorCodes.TASK_EXECUTION_FAILED,
+    );
+    this.name = "TaskExecutionError";
     this.taskPda = taskPda;
     this.cause = cause;
   }
@@ -963,8 +980,11 @@ export class TaskSubmissionError extends RuntimeError {
   public readonly cause: string;
 
   constructor(taskPda: PublicKey, cause: string) {
-    super(`Task submission failed: ${cause}`, RuntimeErrorCodes.TASK_SUBMISSION_FAILED);
-    this.name = 'TaskSubmissionError';
+    super(
+      `Task submission failed: ${cause}`,
+      RuntimeErrorCodes.TASK_SUBMISSION_FAILED,
+    );
+    this.name = "TaskSubmissionError";
     this.taskPda = taskPda;
     this.cause = cause;
   }
@@ -981,7 +1001,7 @@ export class TaskSubmissionError extends RuntimeError {
 export class ExecutorStateError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.EXECUTOR_STATE_ERROR);
-    this.name = 'ExecutorStateError';
+    this.name = "ExecutorStateError";
   }
 }
 
@@ -1006,7 +1026,7 @@ export class TaskTimeoutError extends RuntimeError {
       `Task execution timed out after ${timeoutMs}ms`,
       RuntimeErrorCodes.TASK_TIMEOUT,
     );
-    this.name = 'TaskTimeoutError';
+    this.name = "TaskTimeoutError";
     this.timeoutMs = timeoutMs;
   }
 }
@@ -1034,7 +1054,7 @@ export class ClaimExpiredError extends RuntimeError {
       `Claim deadline expiring: expires_at=${expiresAt}, buffer=${bufferMs}ms`,
       RuntimeErrorCodes.CLAIM_EXPIRED,
     );
-    this.name = 'ClaimExpiredError';
+    this.name = "ClaimExpiredError";
     this.expiresAt = expiresAt;
     this.bufferMs = bufferMs;
   }
@@ -1067,7 +1087,7 @@ export class RetryExhaustedError extends RuntimeError {
       `Retry exhausted for ${stage} after ${attempts} attempts: ${lastError.message}`,
       RuntimeErrorCodes.RETRY_EXHAUSTED,
     );
-    this.name = 'RetryExhaustedError';
+    this.name = "RetryExhaustedError";
     this.stage = stage;
     this.attempts = attempts;
     this.lastError = lastError;
@@ -1096,10 +1116,9 @@ export interface ParsedAnchorError {
 
 /** Reverse lookup map from code to name */
 const codeToNameMap: Map<number, AnchorErrorName> = new Map(
-  (Object.entries(AnchorErrorCodes) as [AnchorErrorName, number][]).map(([name, code]) => [
-    code,
-    name,
-  ])
+  (Object.entries(AnchorErrorCodes) as [AnchorErrorName, number][]).map(
+    ([name, code]) => [code, name],
+  ),
 );
 
 /**
@@ -1129,48 +1148,54 @@ const codeToNameMap: Map<number, AnchorErrorName> = new Map(
  * @returns True if the error matches the specified code
  */
 export function isAnchorError(error: unknown, code: AnchorErrorCode): boolean {
-  if (!error || typeof error !== 'object') {
+  if (!error || typeof error !== "object") {
     return false;
   }
 
   const err = error as Record<string, unknown>;
 
   // Check direct code property
-  if ('code' in err && err.code === code) {
+  if ("code" in err && err.code === code) {
     return true;
   }
 
   // Check Anchor SDK errorCode format: { errorCode: { code: string, number: number } }
-  if ('errorCode' in err && typeof err.errorCode === 'object' && err.errorCode !== null) {
+  if (
+    "errorCode" in err &&
+    typeof err.errorCode === "object" &&
+    err.errorCode !== null
+  ) {
     const errorCode = err.errorCode as Record<string, unknown>;
-    if ('number' in errorCode && errorCode.number === code) {
+    if ("number" in errorCode && errorCode.number === code) {
       return true;
     }
   }
 
   // Check for error.error format (nested error object)
-  if ('error' in err && typeof err.error === 'object' && err.error !== null) {
+  if ("error" in err && typeof err.error === "object" && err.error !== null) {
     const innerError = err.error as Record<string, unknown>;
-    if ('errorCode' in innerError && typeof innerError.errorCode === 'object') {
+    if ("errorCode" in innerError && typeof innerError.errorCode === "object") {
       const errorCode = innerError.errorCode as Record<string, unknown>;
-      if ('number' in errorCode && errorCode.number === code) {
+      if ("number" in errorCode && errorCode.number === code) {
         return true;
       }
     }
   }
 
   // Check transaction logs for error code pattern
-  if ('logs' in err && Array.isArray(err.logs)) {
-    const errorPattern = new RegExp(`Error Code: \\w+\\. Error Number: ${code}\\.`);
+  if ("logs" in err && Array.isArray(err.logs)) {
+    const errorPattern = new RegExp(
+      `Error Code: \\w+\\. Error Number: ${code}\\.`,
+    );
     for (const log of err.logs) {
-      if (typeof log === 'string' && errorPattern.test(log)) {
+      if (typeof log === "string" && errorPattern.test(log)) {
         return true;
       }
     }
   }
 
   // Check error message for error code
-  if ('message' in err && typeof err.message === 'string') {
+  if ("message" in err && typeof err.message === "string") {
     // Match patterns like "custom program error: 0x1770" (hex) or "Error Number: 6000"
     const hexCode = `0x${code.toString(16)}`;
     if (
@@ -1203,7 +1228,7 @@ export function isAnchorError(error: unknown, code: AnchorErrorCode): boolean {
  * @returns Parsed error object if it's an Anchor error, null otherwise
  */
 export function parseAnchorError(error: unknown): ParsedAnchorError | null {
-  if (!error || typeof error !== 'object') {
+  if (!error || typeof error !== "object") {
     return null;
   }
 
@@ -1214,40 +1239,49 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   // Try to extract code from various formats
 
   // Format 1: Direct code property
-  if ('code' in err && typeof err.code === 'number') {
+  if ("code" in err && typeof err.code === "number") {
     code = err.code;
   }
 
   // Format 2: Anchor SDK errorCode format
-  if ('errorCode' in err && typeof err.errorCode === 'object' && err.errorCode !== null) {
+  if (
+    "errorCode" in err &&
+    typeof err.errorCode === "object" &&
+    err.errorCode !== null
+  ) {
     const errorCode = err.errorCode as Record<string, unknown>;
-    if ('number' in errorCode && typeof errorCode.number === 'number') {
+    if ("number" in errorCode && typeof errorCode.number === "number") {
       code = errorCode.number;
     }
-    if ('code' in errorCode && typeof errorCode.code === 'string') {
+    if ("code" in errorCode && typeof errorCode.code === "string") {
       name = errorCode.code as AnchorErrorName;
     }
   }
 
   // Format 3: Nested error.error format
-  if (!code && 'error' in err && typeof err.error === 'object' && err.error !== null) {
+  if (
+    !code &&
+    "error" in err &&
+    typeof err.error === "object" &&
+    err.error !== null
+  ) {
     const innerError = err.error as Record<string, unknown>;
-    if ('errorCode' in innerError && typeof innerError.errorCode === 'object') {
+    if ("errorCode" in innerError && typeof innerError.errorCode === "object") {
       const errorCode = innerError.errorCode as Record<string, unknown>;
-      if ('number' in errorCode && typeof errorCode.number === 'number') {
+      if ("number" in errorCode && typeof errorCode.number === "number") {
         code = errorCode.number;
       }
-      if ('code' in errorCode && typeof errorCode.code === 'string') {
+      if ("code" in errorCode && typeof errorCode.code === "string") {
         name = errorCode.code as AnchorErrorName;
       }
     }
   }
 
   // Format 4: Extract from logs
-  if (!code && 'logs' in err && Array.isArray(err.logs)) {
+  if (!code && "logs" in err && Array.isArray(err.logs)) {
     const errorPattern = /Error Code: (\w+)\. Error Number: (\d+)\./;
     for (const log of err.logs) {
-      if (typeof log === 'string') {
+      if (typeof log === "string") {
         const match = log.match(errorPattern);
         if (match) {
           name = match[1] as AnchorErrorName;
@@ -1259,9 +1293,11 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   }
 
   // Format 5: Extract from error message
-  if (!code && 'message' in err && typeof err.message === 'string') {
+  if (!code && "message" in err && typeof err.message === "string") {
     // Match hex pattern: "custom program error: 0x1770"
-    const hexMatch = err.message.match(/custom program error: 0x([0-9a-fA-F]+)/);
+    const hexMatch = err.message.match(
+      /custom program error: 0x([0-9a-fA-F]+)/,
+    );
     if (hexMatch) {
       code = parseInt(hexMatch[1], 16);
     }
@@ -1276,7 +1312,11 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   }
 
   // Validate code is in our known range
-  if (code === undefined || code < ANCHOR_ERROR_MIN_CODE || code > ANCHOR_ERROR_MAX_CODE) {
+  if (
+    code === undefined ||
+    code < ANCHOR_ERROR_MIN_CODE ||
+    code > ANCHOR_ERROR_MAX_CODE
+  ) {
     return null;
   }
 

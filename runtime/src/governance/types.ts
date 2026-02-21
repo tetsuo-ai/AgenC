@@ -4,8 +4,8 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import { toUint8Array } from '../utils/encoding.js';
+import type { PublicKey } from "@solana/web3.js";
+import { toUint8Array } from "../utils/encoding.js";
 
 // ============================================================================
 // On-Chain Enums (match state.rs)
@@ -122,20 +122,23 @@ export interface OnChainGovernanceConfig {
   bump: number;
 }
 
-export function parseOnChainGovernanceConfig(raw: Record<string, unknown>): OnChainGovernanceConfig {
+export function parseOnChainGovernanceConfig(
+  raw: Record<string, unknown>,
+): OnChainGovernanceConfig {
   const r = raw as Record<string, any>;
   return {
     authority: r.authority,
     minProposalStake: toBNBigint(r.minProposalStake),
     votingPeriod: toBNNumber(r.votingPeriod),
     executionDelay: toBNNumber(r.executionDelay),
-    quorumBps: typeof r.quorumBps === 'number' ? r.quorumBps : Number(r.quorumBps),
+    quorumBps:
+      typeof r.quorumBps === "number" ? r.quorumBps : Number(r.quorumBps),
     approvalThresholdBps:
-      typeof r.approvalThresholdBps === 'number'
+      typeof r.approvalThresholdBps === "number"
         ? r.approvalThresholdBps
         : Number(r.approvalThresholdBps),
     totalProposals: toBNBigint(r.totalProposals),
-    bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
+    bump: typeof r.bump === "number" ? r.bump : Number(r.bump),
   };
 }
 
@@ -162,7 +165,9 @@ export interface ProposalWithVotes extends OnChainProposal {
 // Parse Functions
 // ============================================================================
 
-export function parseOnChainProposal(raw: Record<string, unknown>): OnChainProposal {
+export function parseOnChainProposal(
+  raw: Record<string, unknown>,
+): OnChainProposal {
   const r = raw as Record<string, any>;
   return {
     proposer: r.proposer,
@@ -179,13 +184,16 @@ export function parseOnChainProposal(raw: Record<string, unknown>): OnChainPropo
     executedAt: toBNNumber(r.executedAt),
     votesFor: toBNBigint(r.votesFor),
     votesAgainst: toBNBigint(r.votesAgainst),
-    totalVoters: typeof r.totalVoters === 'number' ? r.totalVoters : Number(r.totalVoters),
+    totalVoters:
+      typeof r.totalVoters === "number" ? r.totalVoters : Number(r.totalVoters),
     quorum: toBNBigint(r.quorum),
-    bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
+    bump: typeof r.bump === "number" ? r.bump : Number(r.bump),
   };
 }
 
-export function parseOnChainGovernanceVote(raw: Record<string, unknown>): OnChainGovernanceVote {
+export function parseOnChainGovernanceVote(
+  raw: Record<string, unknown>,
+): OnChainGovernanceVote {
   const r = raw as Record<string, any>;
   return {
     proposal: r.proposal,
@@ -193,20 +201,20 @@ export function parseOnChainGovernanceVote(raw: Record<string, unknown>): OnChai
     approved: Boolean(r.approved),
     votedAt: toBNNumber(r.votedAt),
     voteWeight: toBNBigint(r.voteWeight),
-    bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
+    bump: typeof r.bump === "number" ? r.bump : Number(r.bump),
   };
 }
 
 export function proposalStatusToString(status: ProposalStatus): string {
   switch (status) {
     case ProposalStatus.Active:
-      return 'Active';
+      return "Active";
     case ProposalStatus.Executed:
-      return 'Executed';
+      return "Executed";
     case ProposalStatus.Defeated:
-      return 'Defeated';
+      return "Defeated";
     case ProposalStatus.Cancelled:
-      return 'Cancelled';
+      return "Cancelled";
     default:
       return `Unknown(${status})`;
   }
@@ -217,36 +225,38 @@ export function proposalStatusToString(status: ProposalStatus): string {
 // ============================================================================
 
 function toBNNumber(val: unknown): number {
-  if (typeof val === 'number') return val;
-  if (typeof val === 'bigint') return Number(val);
-  if (val && typeof (val as any).toNumber === 'function') return (val as any).toNumber();
+  if (typeof val === "number") return val;
+  if (typeof val === "bigint") return Number(val);
+  if (val && typeof (val as any).toNumber === "function")
+    return (val as any).toNumber();
   return Number(val);
 }
 
 function toBNBigint(val: unknown): bigint {
-  if (typeof val === 'bigint') return val;
-  if (val && typeof (val as any).toString === 'function') return BigInt((val as any).toString());
+  if (typeof val === "bigint") return val;
+  if (val && typeof (val as any).toString === "function")
+    return BigInt((val as any).toString());
   return BigInt(String(val));
 }
 
 function parseProposalType(val: unknown): ProposalType {
-  if (typeof val === 'number') return val as ProposalType;
-  if (val && typeof val === 'object') {
-    if ('protocolUpgrade' in val) return ProposalType.ProtocolUpgrade;
-    if ('feeChange' in val) return ProposalType.FeeChange;
-    if ('treasurySpend' in val) return ProposalType.TreasurySpend;
-    if ('rateLimitChange' in val) return ProposalType.RateLimitChange;
+  if (typeof val === "number") return val as ProposalType;
+  if (val && typeof val === "object") {
+    if ("protocolUpgrade" in val) return ProposalType.ProtocolUpgrade;
+    if ("feeChange" in val) return ProposalType.FeeChange;
+    if ("treasurySpend" in val) return ProposalType.TreasurySpend;
+    if ("rateLimitChange" in val) return ProposalType.RateLimitChange;
   }
   return Number(val) as ProposalType;
 }
 
 function parseProposalStatus(val: unknown): ProposalStatus {
-  if (typeof val === 'number') return val as ProposalStatus;
-  if (val && typeof val === 'object') {
-    if ('active' in val) return ProposalStatus.Active;
-    if ('executed' in val) return ProposalStatus.Executed;
-    if ('defeated' in val) return ProposalStatus.Defeated;
-    if ('cancelled' in val) return ProposalStatus.Cancelled;
+  if (typeof val === "number") return val as ProposalStatus;
+  if (val && typeof val === "object") {
+    if ("active" in val) return ProposalStatus.Active;
+    if ("executed" in val) return ProposalStatus.Executed;
+    if ("defeated" in val) return ProposalStatus.Defeated;
+    if ("cancelled" in val) return ProposalStatus.Cancelled;
   }
   return Number(val) as ProposalStatus;
 }

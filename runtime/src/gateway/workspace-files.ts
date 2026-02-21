@@ -9,30 +9,31 @@
  * @module
  */
 
-import { readFile, readdir, mkdir, writeFile, access } from 'node:fs/promises';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { constants } from 'node:fs';
+import { readFile, readdir, mkdir, writeFile, access } from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { constants } from "node:fs";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 export const WORKSPACE_FILES = {
-  AGENT: 'AGENT.md',
-  SOUL: 'SOUL.md',
-  USER: 'USER.md',
-  TOOLS: 'TOOLS.md',
-  HEARTBEAT: 'HEARTBEAT.md',
-  BOOT: 'BOOT.md',
-  IDENTITY: 'IDENTITY.md',
-  MEMORY: 'MEMORY.md',
-  CAPABILITIES: 'CAPABILITIES.md',
-  POLICY: 'POLICY.md',
-  REPUTATION: 'REPUTATION.md',
+  AGENT: "AGENT.md",
+  SOUL: "SOUL.md",
+  USER: "USER.md",
+  TOOLS: "TOOLS.md",
+  HEARTBEAT: "HEARTBEAT.md",
+  BOOT: "BOOT.md",
+  IDENTITY: "IDENTITY.md",
+  MEMORY: "MEMORY.md",
+  CAPABILITIES: "CAPABILITIES.md",
+  POLICY: "POLICY.md",
+  REPUTATION: "REPUTATION.md",
 } as const;
 
-export type WorkspaceFileName = (typeof WORKSPACE_FILES)[keyof typeof WORKSPACE_FILES];
+export type WorkspaceFileName =
+  (typeof WORKSPACE_FILES)[keyof typeof WORKSPACE_FILES];
 
 // ============================================================================
 // Interfaces
@@ -66,9 +67,13 @@ export interface WorkspaceValidation {
 
 async function readSafe(filePath: string): Promise<string | undefined> {
   try {
-    return await readFile(filePath, 'utf-8');
+    return await readFile(filePath, "utf-8");
   } catch (err: unknown) {
-    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (
+      err instanceof Error &&
+      "code" in err &&
+      (err as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
       return undefined;
     }
     // Non-ENOENT errors (permission denied, etc.) — log warning and skip
@@ -93,8 +98,17 @@ export class WorkspaceLoader {
   /** Read all workspace files, returning undefined for missing ones. */
   async load(): Promise<WorkspaceFiles> {
     const [
-      agent, soul, user, tools, heartbeat, boot,
-      identity, memory, capabilities, policy, reputation,
+      agent,
+      soul,
+      user,
+      tools,
+      heartbeat,
+      boot,
+      identity,
+      memory,
+      capabilities,
+      policy,
+      reputation,
     ] = await Promise.all([
       readSafe(join(this.path, WORKSPACE_FILES.AGENT)),
       readSafe(join(this.path, WORKSPACE_FILES.SOUL)),
@@ -110,13 +124,24 @@ export class WorkspaceLoader {
     ]);
 
     return {
-      agent, soul, user, tools, heartbeat, boot,
-      identity, memory, capabilities, policy, reputation,
+      agent,
+      soul,
+      user,
+      tools,
+      heartbeat,
+      boot,
+      identity,
+      memory,
+      capabilities,
+      policy,
+      reputation,
     };
   }
 
   /** Read a single workspace file by key (e.g. 'AGENT'). */
-  async loadFile(name: keyof typeof WORKSPACE_FILES): Promise<string | undefined> {
+  async loadFile(
+    name: keyof typeof WORKSPACE_FILES,
+  ): Promise<string | undefined> {
     return readSafe(join(this.path, WORKSPACE_FILES[name]));
   }
 
@@ -128,14 +153,22 @@ export class WorkspaceLoader {
     try {
       await access(this.path, constants.R_OK);
     } catch {
-      return { valid: false, missing: [this.path], warnings: ['Workspace directory does not exist'] };
+      return {
+        valid: false,
+        missing: [this.path],
+        warnings: ["Workspace directory does not exist"],
+      };
     }
 
     let entries: string[];
     try {
       entries = await readdir(this.path);
     } catch {
-      return { valid: false, missing: [this.path], warnings: ['Cannot read workspace directory'] };
+      return {
+        valid: false,
+        missing: [this.path],
+        warnings: ["Cannot read workspace directory"],
+      };
     }
 
     const entrySet = new Set(entries);
@@ -146,7 +179,9 @@ export class WorkspaceLoader {
     }
 
     if (!entrySet.has(WORKSPACE_FILES.AGENT)) {
-      warnings.push('AGENT.md is missing — agent has no personality configuration');
+      warnings.push(
+        "AGENT.md is missing — agent has no personality configuration",
+      );
     }
 
     return { valid: true, missing, warnings };
@@ -159,7 +194,7 @@ export class WorkspaceLoader {
 
 /** Return the default workspace path: `~/.agenc/workspace/`. */
 export function getDefaultWorkspacePath(): string {
-  return join(homedir(), '.agenc', 'workspace');
+  return join(homedir(), ".agenc", "workspace");
 }
 
 // ============================================================================
@@ -209,11 +244,11 @@ export function assembleSystemPrompt(
     sections.push(options.additionalContext.trim());
   }
 
-  let result = sections.join('\n\n');
+  let result = sections.join("\n\n");
 
   if (options?.maxLength !== undefined && result.length > options.maxLength) {
-    if (options.maxLength < 1) return '';
-    result = result.slice(0, options.maxLength - 1) + '\u2026';
+    if (options.maxLength < 1) return "";
+    result = result.slice(0, options.maxLength - 1) + "\u2026";
   }
 
   return result;
@@ -339,7 +374,9 @@ export function generateTemplate(fileName: WorkspaceFileName): string {
  *
  * Returns the list of files that were created (skips existing files).
  */
-export async function scaffoldWorkspace(workspacePath: string): Promise<string[]> {
+export async function scaffoldWorkspace(
+  workspacePath: string,
+): Promise<string[]> {
   await mkdir(workspacePath, { recursive: true });
 
   const created: string[] = [];
@@ -347,11 +384,20 @@ export async function scaffoldWorkspace(workspacePath: string): Promise<string[]
   for (const fileName of Object.values(WORKSPACE_FILES)) {
     const filePath = join(workspacePath, fileName);
     try {
-      await writeFile(filePath, TEMPLATES[fileName], { encoding: 'utf-8', flag: 'wx' });
+      await writeFile(filePath, TEMPLATES[fileName], {
+        encoding: "utf-8",
+        flag: "wx",
+      });
       created.push(fileName);
     } catch (err: unknown) {
       // EEXIST = file already exists — skip. Re-throw anything else.
-      if (!(err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST')) {
+      if (
+        !(
+          err instanceof Error &&
+          "code" in err &&
+          (err as NodeJS.ErrnoException).code === "EEXIST"
+        )
+      ) {
         throw err;
       }
     }

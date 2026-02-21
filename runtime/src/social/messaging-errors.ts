@@ -6,7 +6,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a message send operation fails (on-chain tx or off-chain delivery).
@@ -22,7 +22,7 @@ export class MessagingSendError extends RuntimeError {
       `Message send failed to ${recipient}: ${reason}`,
       RuntimeErrorCodes.MESSAGING_SEND_ERROR,
     );
-    this.name = 'MessagingSendError';
+    this.name = "MessagingSendError";
     this.recipient = recipient;
     this.reason = reason;
   }
@@ -42,7 +42,7 @@ export class MessagingConnectionError extends RuntimeError {
       `Messaging connection failed to ${endpoint}: ${reason}`,
       RuntimeErrorCodes.MESSAGING_CONNECTION_ERROR,
     );
-    this.name = 'MessagingConnectionError';
+    this.name = "MessagingConnectionError";
     this.endpoint = endpoint;
     this.reason = reason;
   }
@@ -62,7 +62,7 @@ export class MessagingSignatureError extends RuntimeError {
       `Messaging signature verification failed for ${sender}: ${reason}`,
       RuntimeErrorCodes.MESSAGING_SIGNATURE_ERROR,
     );
-    this.name = 'MessagingSignatureError';
+    this.name = "MessagingSignatureError";
     this.sender = sender;
     this.reason = reason;
   }

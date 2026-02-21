@@ -4,17 +4,17 @@
  * @module
  */
 
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
+import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
 import {
   SpeculativeExecutor,
   type SpeculativeExecutorConfig,
   type SpeculativeExecutorEvents,
   type SpeculativeTask,
-} from './speculative-executor.js';
-import { DependencyGraph, DependencyType } from './dependency-graph.js';
-import type { ProofPipeline, ProofGenerationJob } from './proof-pipeline.js';
-import type { TaskOperations } from './operations.js';
+} from "./speculative-executor.js";
+import { DependencyGraph, DependencyType } from "./dependency-graph.js";
+import type { ProofPipeline, ProofGenerationJob } from "./proof-pipeline.js";
+import type { TaskOperations } from "./operations.js";
 import type {
   OnChainTask,
   OnChainTaskStatus,
@@ -23,8 +23,8 @@ import type {
   PrivateTaskExecutionResult,
   TaskExecutionContext,
   TaskHandler,
-} from './types.js';
-import { TaskType } from '../events/types.js';
+} from "./types.js";
+import { TaskType } from "../events/types.js";
 
 // ============================================================================
 // Test Helpers
@@ -54,7 +54,9 @@ function createMockTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
   };
 }
 
-function createMockClaim(overrides: Partial<OnChainTaskClaim> = {}): OnChainTaskClaim {
+function createMockClaim(
+  overrides: Partial<OnChainTaskClaim> = {},
+): OnChainTaskClaim {
   return {
     task: Keypair.generate().publicKey,
     worker: Keypair.generate().publicKey,
@@ -82,19 +84,19 @@ function createMockOperations(): TaskOperations {
       success: true,
       taskId: mockTask.taskId,
       claimPda: Keypair.generate().publicKey,
-      transactionSignature: 'test-sig',
+      transactionSignature: "test-sig",
     }),
     completeTask: vi.fn().mockResolvedValue({
       success: true,
       taskId: mockTask.taskId,
       isPrivate: false,
-      transactionSignature: 'complete-sig',
+      transactionSignature: "complete-sig",
     }),
     completeTaskPrivate: vi.fn().mockResolvedValue({
       success: true,
       taskId: mockTask.taskId,
       isPrivate: true,
-      transactionSignature: 'complete-private-sig',
+      transactionSignature: "complete-private-sig",
     }),
     fetchTaskEscrow: vi.fn().mockResolvedValue(null),
     fetchProtocolConfig: vi.fn().mockResolvedValue(null),
@@ -108,7 +110,7 @@ function createMockOperations(): TaskOperations {
 // Tests
 // ============================================================================
 
-describe('SpeculativeExecutor', () => {
+describe("SpeculativeExecutor", () => {
   let operations: TaskOperations;
   let handler: TaskHandler;
   let agentId: Uint8Array;
@@ -123,8 +125,8 @@ describe('SpeculativeExecutor', () => {
     agentPda = Keypair.generate().publicKey;
   });
 
-  describe('constructor', () => {
-    it('should create executor with default config', () => {
+  describe("constructor", () => {
+    it("should create executor with default config", () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -138,7 +140,7 @@ describe('SpeculativeExecutor', () => {
       expect(status.tasksAwaitingParent).toBe(0);
     });
 
-    it('should respect custom speculation config', () => {
+    it("should respect custom speculation config", () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -155,8 +157,8 @@ describe('SpeculativeExecutor', () => {
     });
   });
 
-  describe('addTaskToGraph', () => {
-    it('should add root task to graph', () => {
+  describe("addTaskToGraph", () => {
+    it("should add root task to graph", () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -174,7 +176,7 @@ describe('SpeculativeExecutor', () => {
       expect(graph.getDepth(taskPda)).toBe(0);
     });
 
-    it('should add task with parent dependency', () => {
+    it("should add task with parent dependency", () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -188,7 +190,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       const graph = executor.getDependencyGraph();
       expect(graph.hasTask(childPda)).toBe(true);
@@ -197,8 +204,8 @@ describe('SpeculativeExecutor', () => {
     });
   });
 
-  describe('executeTask', () => {
-    it('should execute task and return result', async () => {
+  describe("executeTask", () => {
+    it("should execute task and return result", async () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -215,12 +222,14 @@ describe('SpeculativeExecutor', () => {
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    it('should pass parent result to handler context', async () => {
+    it("should pass parent result to handler context", async () => {
       let capturedContext: TaskExecutionContext | null = null;
-      handler = vi.fn().mockImplementation(async (ctx: TaskExecutionContext) => {
-        capturedContext = ctx;
-        return { proofHash: new Uint8Array(32).fill(1) };
-      });
+      handler = vi
+        .fn()
+        .mockImplementation(async (ctx: TaskExecutionContext) => {
+          capturedContext = ctx;
+          return { proofHash: new Uint8Array(32).fill(1) };
+        });
 
       const executor = new SpeculativeExecutor({
         operations,
@@ -238,11 +247,13 @@ describe('SpeculativeExecutor', () => {
 
       expect(capturedContext).toBeDefined();
       // Check parent result is accessible
-      const ctxWithParent = capturedContext as TaskExecutionContext & { parentResult?: TaskExecutionResult };
+      const ctxWithParent = capturedContext as TaskExecutionContext & {
+        parentResult?: TaskExecutionResult;
+      };
       expect(ctxWithParent.parentResult).toEqual(parentResult);
     });
 
-    it('should throw if task not found', async () => {
+    it("should throw if task not found", async () => {
       (operations.fetchTask as Mock).mockResolvedValue(null);
 
       const executor = new SpeculativeExecutor({
@@ -254,10 +265,12 @@ describe('SpeculativeExecutor', () => {
 
       const taskPda = Keypair.generate().publicKey;
 
-      await expect(executor.executeTask(taskPda)).rejects.toThrow('Task not found');
+      await expect(executor.executeTask(taskPda)).rejects.toThrow(
+        "Task not found",
+      );
     });
 
-    it('should throw if claim not found', async () => {
+    it("should throw if claim not found", async () => {
       (operations.fetchClaim as Mock).mockResolvedValue(null);
 
       const executor = new SpeculativeExecutor({
@@ -269,12 +282,14 @@ describe('SpeculativeExecutor', () => {
 
       const taskPda = Keypair.generate().publicKey;
 
-      await expect(executor.executeTask(taskPda)).rejects.toThrow('Claim not found');
+      await expect(executor.executeTask(taskPda)).rejects.toThrow(
+        "Claim not found",
+      );
     });
   });
 
-  describe('executeWithSpeculation', () => {
-    it('should execute task and queue proof', async () => {
+  describe("executeWithSpeculation", () => {
+    it("should execute task and queue proof", async () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -295,10 +310,16 @@ describe('SpeculativeExecutor', () => {
       const job = pipeline.getJob(taskPda);
       expect(job).toBeDefined();
       // Job may be queued, generating, or already confirmed depending on timing
-      expect(['queued', 'generating', 'generated', 'submitting', 'confirmed']).toContain(job?.status);
+      expect([
+        "queued",
+        "generating",
+        "generated",
+        "submitting",
+        "confirmed",
+      ]).toContain(job?.status);
     });
 
-    it('should start speculative execution of dependents', async () => {
+    it("should start speculative execution of dependents", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
       };
@@ -318,7 +339,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       // Execute parent (should trigger speculation on child)
       await executor.executeWithSpeculation(parentPda);
@@ -326,13 +352,16 @@ describe('SpeculativeExecutor', () => {
       // Wait for speculative execution to start
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(childPda, parentPda);
+      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(
+        childPda,
+        parentPda,
+      );
 
       const status = executor.getStatus();
       expect(status.activeSpeculativeTasks).toBeGreaterThanOrEqual(1);
     });
 
-    it('should not speculate when speculation is disabled', async () => {
+    it("should not speculate when speculation is disabled", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
       };
@@ -353,7 +382,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       await executor.executeWithSpeculation(parentPda);
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -361,7 +395,7 @@ describe('SpeculativeExecutor', () => {
       expect(events.onSpeculativeExecutionStarted).not.toHaveBeenCalled();
     });
 
-    it('should respect maxSpeculativeTasksPerParent limit', async () => {
+    it("should respect maxSpeculativeTasksPerParent limit", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
       };
@@ -381,9 +415,16 @@ describe('SpeculativeExecutor', () => {
       executor.addTaskToGraph(parentTask, parentPda);
 
       for (let i = 0; i < 5; i++) {
-        const childTask = createMockTask({ taskId: new Uint8Array(32).fill(10 + i) });
+        const childTask = createMockTask({
+          taskId: new Uint8Array(32).fill(10 + i),
+        });
         const childPda = Keypair.generate().publicKey;
-        executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+        executor.addTaskToGraph(
+          childTask,
+          childPda,
+          parentPda,
+          DependencyType.Data,
+        );
       }
 
       await executor.executeWithSpeculation(parentPda);
@@ -393,7 +434,7 @@ describe('SpeculativeExecutor', () => {
       expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledTimes(2);
     });
 
-    it('should only speculate on allowed dependency types', async () => {
+    it("should only speculate on allowed dependency types", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
       };
@@ -408,27 +449,44 @@ describe('SpeculativeExecutor', () => {
       executor.on(events);
 
       const parentTask = createMockTask({ taskId: new Uint8Array(32).fill(1) });
-      const dataChildTask = createMockTask({ taskId: new Uint8Array(32).fill(2) });
-      const resourceChildTask = createMockTask({ taskId: new Uint8Array(32).fill(3) });
+      const dataChildTask = createMockTask({
+        taskId: new Uint8Array(32).fill(2),
+      });
+      const resourceChildTask = createMockTask({
+        taskId: new Uint8Array(32).fill(3),
+      });
       const parentPda = Keypair.generate().publicKey;
       const dataChildPda = Keypair.generate().publicKey;
       const resourceChildPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(dataChildTask, dataChildPda, parentPda, DependencyType.Data);
-      executor.addTaskToGraph(resourceChildTask, resourceChildPda, parentPda, DependencyType.Resource);
+      executor.addTaskToGraph(
+        dataChildTask,
+        dataChildPda,
+        parentPda,
+        DependencyType.Data,
+      );
+      executor.addTaskToGraph(
+        resourceChildTask,
+        resourceChildPda,
+        parentPda,
+        DependencyType.Resource,
+      );
 
       await executor.executeWithSpeculation(parentPda);
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Only the Data dependency child should be speculated
       expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledTimes(1);
-      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(dataChildPda, parentPda);
+      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(
+        dataChildPda,
+        parentPda,
+      );
     });
   });
 
-  describe('cancelSpeculativeTask', () => {
-    it('should cancel a pending speculative task', async () => {
+  describe("cancelSpeculativeTask", () => {
+    it("should cancel a pending speculative task", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
         onSpeculativeExecutionAborted: vi.fn(),
@@ -478,7 +536,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       // Start parent execution - this will complete and trigger speculation
       const parentPromise = executor.executeWithSpeculation(parentPda);
@@ -488,16 +551,25 @@ describe('SpeculativeExecutor', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Verify speculation started
-      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(childPda, parentPda);
+      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(
+        childPda,
+        parentPda,
+      );
 
       // Cancel the speculative child (should be executing now)
-      const cancelled = executor.cancelSpeculativeTask(childPda, 'test cancellation');
+      const cancelled = executor.cancelSpeculativeTask(
+        childPda,
+        "test cancellation",
+      );
 
       expect(cancelled).toBe(true);
-      expect(events.onSpeculativeExecutionAborted).toHaveBeenCalledWith(childPda, 'test cancellation');
+      expect(events.onSpeculativeExecutionAborted).toHaveBeenCalledWith(
+        childPda,
+        "test cancellation",
+      );
     });
 
-    it('should return false if task not found', () => {
+    it("should return false if task not found", () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -506,14 +578,14 @@ describe('SpeculativeExecutor', () => {
       });
 
       const unknownPda = Keypair.generate().publicKey;
-      const result = executor.cancelSpeculativeTask(unknownPda, 'test');
+      const result = executor.cancelSpeculativeTask(unknownPda, "test");
 
       expect(result).toBe(false);
     });
   });
 
-  describe('event callbacks', () => {
-    it('should emit onTaskExecutionStarted for each execution', async () => {
+  describe("event callbacks", () => {
+    it("should emit onTaskExecutionStarted for each execution", async () => {
       const events: SpeculativeExecutorEvents = {
         onTaskExecutionStarted: vi.fn(),
       };
@@ -538,11 +610,11 @@ describe('SpeculativeExecutor', () => {
           taskPda,
           agentId,
           agentPda,
-        })
+        }),
       );
     });
 
-    it('should emit parent proof events', async () => {
+    it("should emit parent proof events", async () => {
       const events: SpeculativeExecutorEvents = {
         onParentProofConfirmed: vi.fn(),
       };
@@ -573,8 +645,8 @@ describe('SpeculativeExecutor', () => {
     });
   });
 
-  describe('metrics', () => {
-    it('should track speculative execution metrics', async () => {
+  describe("metrics", () => {
+    it("should track speculative execution metrics", async () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -589,7 +661,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       await executor.executeWithSpeculation(parentPda);
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -598,7 +675,7 @@ describe('SpeculativeExecutor', () => {
       expect(metrics.speculativeExecutionsStarted).toBe(1);
     });
 
-    it('should provide complete status snapshot', () => {
+    it("should provide complete status snapshot", () => {
       const executor = new SpeculativeExecutor({
         operations,
         handler,
@@ -626,13 +703,13 @@ describe('SpeculativeExecutor', () => {
             speculativeExecutionsAborted: 0,
             estimatedTimeSavedMs: 0,
           }),
-        })
+        }),
       );
     });
   });
 
-  describe('proof ordering invariant', () => {
-    it('should queue proofs for speculative tasks', async () => {
+  describe("proof ordering invariant", () => {
+    it("should queue proofs for speculative tasks", async () => {
       // This test verifies that speculative tasks get their proofs queued
       // The actual ordering is handled by the ProofPipeline
 
@@ -654,13 +731,21 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       await executor.executeWithSpeculation(parentPda);
       await new Promise((resolve) => setTimeout(resolve, 150));
 
       // Verify speculative execution was started
-      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(childPda, parentPda);
+      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(
+        childPda,
+        parentPda,
+      );
 
       // Verify that the parent proof was queued
       const pipeline = executor.getProofPipeline();
@@ -669,8 +754,8 @@ describe('SpeculativeExecutor', () => {
     });
   });
 
-  describe('abort on parent failure', () => {
-    it('should abort speculative tasks when parent proof fails', async () => {
+  describe("abort on parent failure", () => {
+    it("should abort speculative tasks when parent proof fails", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
         onSpeculativeExecutionAborted: vi.fn(),
@@ -678,7 +763,9 @@ describe('SpeculativeExecutor', () => {
       };
 
       // Make complete task fail
-      (operations.completeTask as Mock).mockRejectedValue(new Error('Proof verification failed'));
+      (operations.completeTask as Mock).mockRejectedValue(
+        new Error("Proof verification failed"),
+      );
 
       const executor = new SpeculativeExecutor({
         operations,
@@ -687,7 +774,12 @@ describe('SpeculativeExecutor', () => {
         agentPda,
         abortOnParentFailure: true,
         proofPipelineConfig: {
-          retryPolicy: { maxAttempts: 1, baseDelayMs: 10, maxDelayMs: 10, jitter: false },
+          retryPolicy: {
+            maxAttempts: 1,
+            baseDelayMs: 10,
+            maxDelayMs: 10,
+            jitter: false,
+          },
         },
       });
       executor.on(events);
@@ -698,7 +790,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       await executor.executeWithSpeculation(parentPda);
 
@@ -711,16 +808,18 @@ describe('SpeculativeExecutor', () => {
       // Verify speculative task was aborted
       expect(events.onSpeculativeExecutionAborted).toHaveBeenCalledWith(
         childPda,
-        expect.stringContaining('ancestor proof failed')
+        expect.stringContaining("ancestor proof failed"),
       );
     });
 
-    it('should not abort when abortOnParentFailure is false', async () => {
+    it("should not abort when abortOnParentFailure is false", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionAborted: vi.fn(),
       };
 
-      (operations.completeTask as Mock).mockRejectedValue(new Error('Proof verification failed'));
+      (operations.completeTask as Mock).mockRejectedValue(
+        new Error("Proof verification failed"),
+      );
 
       const executor = new SpeculativeExecutor({
         operations,
@@ -729,7 +828,12 @@ describe('SpeculativeExecutor', () => {
         agentPda,
         abortOnParentFailure: false,
         proofPipelineConfig: {
-          retryPolicy: { maxAttempts: 1, baseDelayMs: 10, maxDelayMs: 10, jitter: false },
+          retryPolicy: {
+            maxAttempts: 1,
+            baseDelayMs: 10,
+            maxDelayMs: 10,
+            jitter: false,
+          },
         },
       });
       executor.on(events);
@@ -740,7 +844,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       await executor.executeWithSpeculation(parentPda);
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -750,8 +859,8 @@ describe('SpeculativeExecutor', () => {
     });
   });
 
-  describe('shutdown', () => {
-    it('should abort all speculative tasks on shutdown', async () => {
+  describe("shutdown", () => {
+    it("should abort all speculative tasks on shutdown", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
         onSpeculativeExecutionAborted: vi.fn(),
@@ -787,7 +896,12 @@ describe('SpeculativeExecutor', () => {
       const childPda = Keypair.generate().publicKey;
 
       executor.addTaskToGraph(parentTask, parentPda);
-      executor.addTaskToGraph(childTask, childPda, parentPda, DependencyType.Data);
+      executor.addTaskToGraph(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       // Start parent execution (will complete and trigger speculation)
       const execPromise = executor.executeWithSpeculation(parentPda);
@@ -797,17 +911,23 @@ describe('SpeculativeExecutor', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Verify speculation started
-      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(childPda, parentPda);
+      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(
+        childPda,
+        parentPda,
+      );
 
       // Shutdown while child is still executing
       await executor.shutdown();
 
-      expect(events.onSpeculativeExecutionAborted).toHaveBeenCalledWith(childPda, 'shutdown');
+      expect(events.onSpeculativeExecutionAborted).toHaveBeenCalledWith(
+        childPda,
+        "shutdown",
+      );
     });
   });
 
-  describe('single-level speculation constraint', () => {
-    it('should only speculate one level deep (no chaining)', async () => {
+  describe("single-level speculation constraint", () => {
+    it("should only speculate one level deep (no chaining)", async () => {
       const events: SpeculativeExecutorEvents = {
         onSpeculativeExecutionStarted: vi.fn(),
       };
@@ -839,7 +959,10 @@ describe('SpeculativeExecutor', () => {
       // B should be speculated (direct dependent of A)
       // C should NOT be speculated (only single-level, not chained)
       expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledTimes(1);
-      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(pdaB, pdaA);
+      expect(events.onSpeculativeExecutionStarted).toHaveBeenCalledWith(
+        pdaB,
+        pdaA,
+      );
     });
   });
 });

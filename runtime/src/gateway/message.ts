@@ -8,24 +8,28 @@
  * @module
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from "node:crypto";
 import {
   type ValidationResult,
   validationResult,
   requireNonEmptyString,
   requireFiniteNumber,
   requireOneOf,
-} from '../utils/validation.js';
-import { isRecord } from '../utils/type-guards.js';
+} from "../utils/validation.js";
+import { isRecord } from "../utils/type-guards.js";
 
 // ============================================================================
 // Scope
 // ============================================================================
 
 /** Conversation scope for a gateway message. */
-export type MessageScope = 'dm' | 'group' | 'thread';
+export type MessageScope = "dm" | "group" | "thread";
 
-const VALID_SCOPES: ReadonlySet<string> = new Set<string>(['dm', 'group', 'thread']);
+const VALID_SCOPES: ReadonlySet<string> = new Set<string>([
+  "dm",
+  "group",
+  "thread",
+]);
 
 // ============================================================================
 // Attachments
@@ -102,7 +106,10 @@ export interface OutboundMessage {
 // ============================================================================
 
 /** Parameters for creating a GatewayMessage (id and timestamp are generated). */
-export type CreateGatewayMessageParams = Omit<GatewayMessage, 'id' | 'timestamp'>;
+export type CreateGatewayMessageParams = Omit<
+  GatewayMessage,
+  "id" | "timestamp"
+>;
 
 // ============================================================================
 // Factory functions
@@ -111,7 +118,9 @@ export type CreateGatewayMessageParams = Omit<GatewayMessage, 'id' | 'timestamp'
 /**
  * Create a new GatewayMessage with an auto-generated UUID and timestamp.
  */
-export function createGatewayMessage(params: CreateGatewayMessageParams): GatewayMessage {
+export function createGatewayMessage(
+  params: CreateGatewayMessageParams,
+): GatewayMessage {
   return {
     ...params,
     id: randomUUID(),
@@ -122,10 +131,12 @@ export function createGatewayMessage(params: CreateGatewayMessageParams): Gatewa
 /**
  * Create a new OutboundMessage, validating required fields.
  */
-export function createOutboundMessage(params: OutboundMessage): OutboundMessage {
+export function createOutboundMessage(
+  params: OutboundMessage,
+): OutboundMessage {
   const result = validateOutboundMessage(params);
   if (!result.valid) {
-    throw new TypeError(`Invalid OutboundMessage: ${result.errors.join('; ')}`);
+    throw new TypeError(`Invalid OutboundMessage: ${result.errors.join("; ")}`);
   }
   return { ...params };
 }
@@ -141,25 +152,25 @@ export function validateGatewayMessage(msg: unknown): ValidationResult {
   const errors: string[] = [];
 
   if (!isRecord(msg)) {
-    return { valid: false, errors: ['Message must be a non-null object'] };
+    return { valid: false, errors: ["Message must be a non-null object"] };
   }
 
-  requireNonEmptyString(msg.id, 'id', errors);
-  requireNonEmptyString(msg.channel, 'channel', errors);
-  requireNonEmptyString(msg.senderId, 'senderId', errors);
-  requireNonEmptyString(msg.senderName, 'senderName', errors);
-  requireNonEmptyString(msg.sessionId, 'sessionId', errors);
+  requireNonEmptyString(msg.id, "id", errors);
+  requireNonEmptyString(msg.channel, "channel", errors);
+  requireNonEmptyString(msg.senderId, "senderId", errors);
+  requireNonEmptyString(msg.senderName, "senderName", errors);
+  requireNonEmptyString(msg.sessionId, "sessionId", errors);
 
-  if (typeof msg.content !== 'string') {
-    errors.push('content must be a string');
+  if (typeof msg.content !== "string") {
+    errors.push("content must be a string");
   }
 
-  requireFiniteNumber(msg.timestamp, 'timestamp', errors);
-  requireOneOf(msg.scope, 'scope', VALID_SCOPES, errors);
+  requireFiniteNumber(msg.timestamp, "timestamp", errors);
+  requireOneOf(msg.scope, "scope", VALID_SCOPES, errors);
 
   if (msg.attachments !== undefined) {
     if (!Array.isArray(msg.attachments)) {
-      errors.push('attachments must be an array');
+      errors.push("attachments must be an array");
     } else {
       for (let i = 0; i < msg.attachments.length; i++) {
         const result = validateAttachment(msg.attachments[i] as unknown);
@@ -182,13 +193,16 @@ export function validateOutboundMessage(msg: unknown): ValidationResult {
   const errors: string[] = [];
 
   if (!isRecord(msg)) {
-    return { valid: false, errors: ['OutboundMessage must be a non-null object'] };
+    return {
+      valid: false,
+      errors: ["OutboundMessage must be a non-null object"],
+    };
   }
 
-  requireNonEmptyString(msg.sessionId, 'sessionId', errors);
+  requireNonEmptyString(msg.sessionId, "sessionId", errors);
 
-  if (typeof msg.content !== 'string') {
-    errors.push('content must be a string');
+  if (typeof msg.content !== "string") {
+    errors.push("content must be a string");
   }
 
   return validationResult(errors);
@@ -207,17 +221,19 @@ export function validateAttachment(
   const errors: string[] = [];
 
   if (!isRecord(att)) {
-    return { valid: false, errors: ['Attachment must be a non-null object'] };
+    return { valid: false, errors: ["Attachment must be a non-null object"] };
   }
 
-  requireNonEmptyString(att.type, 'type', errors);
-  requireNonEmptyString(att.mimeType, 'mimeType', errors);
+  requireNonEmptyString(att.type, "type", errors);
+  requireNonEmptyString(att.mimeType, "mimeType", errors);
 
   if (att.sizeBytes !== undefined) {
-    if (typeof att.sizeBytes !== 'number' || att.sizeBytes < 0) {
-      errors.push('sizeBytes must be a non-negative number');
+    if (typeof att.sizeBytes !== "number" || att.sizeBytes < 0) {
+      errors.push("sizeBytes must be a non-negative number");
     } else if (maxSizeBytes !== undefined && att.sizeBytes > maxSizeBytes) {
-      errors.push(`sizeBytes (${att.sizeBytes}) exceeds maximum (${maxSizeBytes})`);
+      errors.push(
+        `sizeBytes (${att.sizeBytes}) exceeds maximum (${maxSizeBytes})`,
+      );
     }
   }
 

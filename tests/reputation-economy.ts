@@ -11,7 +11,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -20,10 +25,18 @@ import {
   deriveProgramDataPda,
   errorContainsAny,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount, getClockTimestamp, advanceClock } from "./litesvm-helpers";
+import {
+  createLiteSVMContext,
+  fundAccount,
+  getClockTimestamp,
+  advanceClock,
+} from "./litesvm-helpers";
 
 // PDA derivation helpers for reputation accounts
-function deriveReputationStakePda(agentPda: PublicKey, programId: PublicKey): PublicKey {
+function deriveReputationStakePda(
+  agentPda: PublicKey,
+  programId: PublicKey,
+): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
     [Buffer.from("reputation_stake"), agentPda.toBuffer()],
     programId,
@@ -37,7 +50,11 @@ function deriveReputationDelegationPda(
   programId: PublicKey,
 ): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("reputation_delegation"), delegatorPda.toBuffer(), delegateePda.toBuffer()],
+    [
+      Buffer.from("reputation_delegation"),
+      delegatorPda.toBuffer(),
+      delegateePda.toBuffer(),
+    ],
     programId,
   );
   return pda;
@@ -47,7 +64,8 @@ describe("reputation economy (issue #1110)", () => {
   const { svm, provider, program, payer } = createLiteSVMContext();
 
   const protocolPda = deriveProtocolPda(program.programId);
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const runId =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   let alice: Keypair;
   let bob: Keypair;
@@ -67,7 +85,10 @@ describe("reputation economy (issue #1110)", () => {
     return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
   }
 
-  const airdrop = (wallets: Keypair[], amount: number = 100 * LAMPORTS_PER_SOL) => {
+  const airdrop = (
+    wallets: Keypair[],
+    amount: number = 100 * LAMPORTS_PER_SOL,
+  ) => {
     for (const wallet of wallets) {
       fundAccount(svm, wallet.publicKey, amount);
     }
@@ -84,7 +105,13 @@ describe("reputation economy (issue #1110)", () => {
       await program.account.agentRegistration.fetch(agentPda);
     } catch {
       await program.methods
-        .registerAgent(Array.from(agentId), new BN(capabilities), "https://example.com", null, new BN(stake))
+        .registerAgent(
+          Array.from(agentId),
+          new BN(capabilities),
+          "https://example.com",
+          null,
+          new BN(stake),
+        )
         .accountsPartial({
           agent: agentPda,
           protocolConfig: protocolPda,
@@ -113,7 +140,14 @@ describe("reputation economy (issue #1110)", () => {
       await program.account.protocolConfig.fetch(protocolPda);
     } catch {
       await program.methods
-        .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL / 100), new BN(LAMPORTS_PER_SOL / 100), 1, [payer.publicKey, secondSigner.publicKey])
+        .initializeProtocol(
+          51,
+          100,
+          new BN(LAMPORTS_PER_SOL / 100),
+          new BN(LAMPORTS_PER_SOL / 100),
+          1,
+          [payer.publicKey, secondSigner.publicKey],
+        )
         .accountsPartial({
           protocolConfig: protocolPda,
           authority: payer.publicKey,
@@ -121,7 +155,13 @@ describe("reputation economy (issue #1110)", () => {
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([secondSigner])
         .rpc();
     }
@@ -139,7 +179,10 @@ describe("reputation economy (issue #1110)", () => {
 
   describe("stake_reputation", () => {
     it("successfully stakes SOL", async () => {
-      const stakePda = deriveReputationStakePda(aliceAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        aliceAgentPda,
+        program.programId,
+      );
       const stakeAmount = new BN(LAMPORTS_PER_SOL);
 
       await program.methods
@@ -153,14 +196,19 @@ describe("reputation economy (issue #1110)", () => {
         .signers([alice])
         .rpc();
 
-      const stakeAccount = await (program.account as any).reputationStake.fetch(stakePda);
+      const stakeAccount = await (program.account as any).reputationStake.fetch(
+        stakePda,
+      );
       expect(stakeAccount.stakedAmount.toNumber()).to.equal(LAMPORTS_PER_SOL);
       expect(stakeAccount.agent.toBase58()).to.equal(aliceAgentPda.toBase58());
       expect(stakeAccount.slashCount).to.equal(0);
     });
 
     it("incremental stake increases total", async () => {
-      const stakePda = deriveReputationStakePda(aliceAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        aliceAgentPda,
+        program.programId,
+      );
       const additionalAmount = new BN(500_000_000); // 0.5 SOL
 
       await program.methods
@@ -174,12 +222,19 @@ describe("reputation economy (issue #1110)", () => {
         .signers([alice])
         .rpc();
 
-      const stakeAccount = await (program.account as any).reputationStake.fetch(stakePda);
-      expect(stakeAccount.stakedAmount.toNumber()).to.equal(LAMPORTS_PER_SOL + 500_000_000);
+      const stakeAccount = await (program.account as any).reputationStake.fetch(
+        stakePda,
+      );
+      expect(stakeAccount.stakedAmount.toNumber()).to.equal(
+        LAMPORTS_PER_SOL + 500_000_000,
+      );
     });
 
     it("fails with zero amount", async () => {
-      const stakePda = deriveReputationStakePda(aliceAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        aliceAgentPda,
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -194,7 +249,8 @@ describe("reputation economy (issue #1110)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["ReputationStakeAmountTooLow"])).to.be.true;
+        expect(errorContainsAny(err, ["ReputationStakeAmountTooLow"])).to.be
+          .true;
       }
     });
   });
@@ -205,7 +261,10 @@ describe("reputation economy (issue #1110)", () => {
 
   describe("withdraw_reputation_stake", () => {
     it("fails before cooldown period", async () => {
-      const stakePda = deriveReputationStakePda(aliceAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        aliceAgentPda,
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -224,7 +283,10 @@ describe("reputation economy (issue #1110)", () => {
     });
 
     it("succeeds after cooldown period", async () => {
-      const stakePda = deriveReputationStakePda(aliceAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        aliceAgentPda,
+        program.programId,
+      );
 
       // Advance clock past cooldown
       advanceClock(svm, STAKING_COOLDOWN + 1);
@@ -240,13 +302,18 @@ describe("reputation economy (issue #1110)", () => {
         .signers([alice])
         .rpc();
 
-      const stakeAccount = await (program.account as any).reputationStake.fetch(stakePda);
+      const stakeAccount = await (program.account as any).reputationStake.fetch(
+        stakePda,
+      );
       // Was 1.5 SOL, withdrew 0.5 SOL = 1.0 SOL remaining
       expect(stakeAccount.stakedAmount.toNumber()).to.equal(LAMPORTS_PER_SOL);
     });
 
     it("fails with insufficient balance", async () => {
-      const stakePda = deriveReputationStakePda(aliceAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        aliceAgentPda,
+        program.programId,
+      );
 
       // Advance past cooldown again (new stake resets lock)
       advanceClock(svm, STAKING_COOLDOWN + 1);
@@ -263,7 +330,8 @@ describe("reputation economy (issue #1110)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["ReputationStakeInsufficientBalance"])).to.be.true;
+        expect(errorContainsAny(err, ["ReputationStakeInsufficientBalance"])).to
+          .be.true;
       }
     });
   });
@@ -292,8 +360,12 @@ describe("reputation economy (issue #1110)", () => {
         .signers([alice])
         .rpc();
 
-      const delegation = await (program.account as any).reputationDelegation.fetch(delegationPda);
-      expect(delegation.delegator.toBase58()).to.equal(aliceAgentPda.toBase58());
+      const delegation = await (
+        program.account as any
+      ).reputationDelegation.fetch(delegationPda);
+      expect(delegation.delegator.toBase58()).to.equal(
+        aliceAgentPda.toBase58(),
+      );
       expect(delegation.delegatee.toBase58()).to.equal(bobAgentPda.toBase58());
       expect(delegation.amount).to.equal(1000);
       expect(delegation.expiresAt.toNumber()).to.equal(0);
@@ -320,7 +392,8 @@ describe("reputation economy (issue #1110)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["ReputationCannotDelegateSelf"])).to.be.true;
+        expect(errorContainsAny(err, ["ReputationCannotDelegateSelf"])).to.be
+          .true;
       }
     });
 
@@ -351,7 +424,8 @@ describe("reputation economy (issue #1110)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["ReputationDelegationAmountInvalid"])).to.be.true;
+        expect(errorContainsAny(err, ["ReputationDelegationAmountInvalid"])).to
+          .be.true;
       }
     });
 
@@ -381,7 +455,8 @@ describe("reputation economy (issue #1110)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["ReputationDelegationAmountInvalid"])).to.be.true;
+        expect(errorContainsAny(err, ["ReputationDelegationAmountInvalid"])).to
+          .be.true;
       }
     });
   });
@@ -399,7 +474,9 @@ describe("reputation economy (issue #1110)", () => {
       );
 
       // Verify delegation exists
-      const before = await (program.account as any).reputationDelegation.fetch(delegationPda);
+      const before = await (program.account as any).reputationDelegation.fetch(
+        delegationPda,
+      );
       expect(before).to.not.be.null;
 
       await program.methods
@@ -413,7 +490,9 @@ describe("reputation economy (issue #1110)", () => {
         .rpc();
 
       // Verify delegation account is closed
-      const after = await (program.account as any).reputationDelegation.fetchNullable(delegationPda);
+      const after = await (
+        program.account as any
+      ).reputationDelegation.fetchNullable(delegationPda);
       expect(after).to.be.null;
     });
   });
@@ -452,7 +531,8 @@ describe("reputation economy (issue #1110)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["ReputationDelegationExpired"])).to.be.true;
+        expect(errorContainsAny(err, ["ReputationDelegationExpired"])).to.be
+          .true;
       }
     });
 
@@ -473,7 +553,10 @@ describe("reputation economy (issue #1110)", () => {
         })
         .rpc();
 
-      const stakePda = deriveReputationStakePda(frankAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        frankAgentPda,
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -493,7 +576,10 @@ describe("reputation economy (issue #1110)", () => {
     });
 
     it("bob cannot withdraw from alice's stake", async () => {
-      const stakePda = deriveReputationStakePda(aliceAgentPda, program.programId);
+      const stakePda = deriveReputationStakePda(
+        aliceAgentPda,
+        program.programId,
+      );
 
       // Advance clock past cooldown to rule out that error
       advanceClock(svm, STAKING_COOLDOWN + 1);

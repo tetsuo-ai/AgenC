@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
+import { describe, it, expect } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
 import {
   deriveTaskPda,
   findTaskPda,
@@ -10,7 +10,7 @@ import {
   findEscrowPda,
   TASK_ID_LENGTH,
   type PdaWithBump,
-} from './pda.js';
+} from "./pda.js";
 
 /**
  * Creates a valid 32-byte task ID from a seed value.
@@ -23,9 +23,9 @@ function createTaskId(seed = 0): Uint8Array {
   return bytes;
 }
 
-describe('Task PDA derivation helpers', () => {
-  describe('deriveTaskPda', () => {
-    it('derives deterministic PDA from creator + taskId', () => {
+describe("Task PDA derivation helpers", () => {
+  describe("deriveTaskPda", () => {
+    it("derives deterministic PDA from creator + taskId", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(1);
 
@@ -36,7 +36,7 @@ describe('Task PDA derivation helpers', () => {
       expect(result1.bump).toBe(result2.bump);
     });
 
-    it('different creator produces different PDA', () => {
+    it("different creator produces different PDA", () => {
       const creator1 = Keypair.generate().publicKey;
       const creator2 = Keypair.generate().publicKey;
       const taskId = createTaskId(1);
@@ -47,7 +47,7 @@ describe('Task PDA derivation helpers', () => {
       expect(result1.address.equals(result2.address)).toBe(false);
     });
 
-    it('different taskId produces different PDA', () => {
+    it("different taskId produces different PDA", () => {
       const creator = Keypair.generate().publicKey;
       const taskId1 = createTaskId(1);
       const taskId2 = createTaskId(2);
@@ -58,13 +58,13 @@ describe('Task PDA derivation helpers', () => {
       expect(result1.address.equals(result2.address)).toBe(false);
     });
 
-    it('returns consistent bump', () => {
+    it("returns consistent bump", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(42);
 
       const result = deriveTaskPda(creator, taskId);
 
-      expect(typeof result.bump).toBe('number');
+      expect(typeof result.bump).toBe("number");
       expect(result.bump).toBeGreaterThanOrEqual(0);
       expect(result.bump).toBeLessThanOrEqual(255);
 
@@ -73,7 +73,7 @@ describe('Task PDA derivation helpers', () => {
       expect(result.bump).toBe(result2.bump);
     });
 
-    it('uses default PROGRAM_ID when not specified', () => {
+    it("uses default PROGRAM_ID when not specified", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(1);
 
@@ -89,10 +89,10 @@ describe('Task PDA derivation helpers', () => {
       expect(result.bump).toBe(expectedBump);
     });
 
-    it('uses custom programId when provided', () => {
+    it("uses custom programId when provided", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(2);
-      const customProgramId = new PublicKey('11111111111111111111111111111111');
+      const customProgramId = new PublicKey("11111111111111111111111111111111");
 
       const result = deriveTaskPda(creator, taskId, customProgramId);
 
@@ -105,7 +105,7 @@ describe('Task PDA derivation helpers', () => {
       expect(result.bump).toBe(expectedBump);
     });
 
-    it('throws for taskId shorter than 32 bytes', () => {
+    it("throws for taskId shorter than 32 bytes", () => {
       const creator = Keypair.generate().publicKey;
       const shortId = new Uint8Array(16);
 
@@ -114,7 +114,7 @@ describe('Task PDA derivation helpers', () => {
       );
     });
 
-    it('throws for taskId longer than 32 bytes', () => {
+    it("throws for taskId longer than 32 bytes", () => {
       const creator = Keypair.generate().publicKey;
       const longId = new Uint8Array(64);
 
@@ -123,7 +123,7 @@ describe('Task PDA derivation helpers', () => {
       );
     });
 
-    it('throws for empty taskId', () => {
+    it("throws for empty taskId", () => {
       const creator = Keypair.generate().publicKey;
       const emptyId = new Uint8Array(0);
 
@@ -133,8 +133,8 @@ describe('Task PDA derivation helpers', () => {
     });
   });
 
-  describe('deriveClaimPda', () => {
-    it('derives deterministic PDA from taskPda + workerPda', () => {
+  describe("deriveClaimPda", () => {
+    it("derives deterministic PDA from taskPda + workerPda", () => {
       const taskPda = Keypair.generate().publicKey;
       const workerPda = Keypair.generate().publicKey;
 
@@ -145,7 +145,7 @@ describe('Task PDA derivation helpers', () => {
       expect(result1.bump).toBe(result2.bump);
     });
 
-    it('different worker produces different PDA', () => {
+    it("different worker produces different PDA", () => {
       const taskPda = Keypair.generate().publicKey;
       const worker1 = Keypair.generate().publicKey;
       const worker2 = Keypair.generate().publicKey;
@@ -156,18 +156,18 @@ describe('Task PDA derivation helpers', () => {
       expect(result1.address.equals(result2.address)).toBe(false);
     });
 
-    it('returns consistent bump', () => {
+    it("returns consistent bump", () => {
       const taskPda = Keypair.generate().publicKey;
       const workerPda = Keypair.generate().publicKey;
 
       const result = deriveClaimPda(taskPda, workerPda);
 
-      expect(typeof result.bump).toBe('number');
+      expect(typeof result.bump).toBe("number");
       expect(result.bump).toBeGreaterThanOrEqual(0);
       expect(result.bump).toBeLessThanOrEqual(255);
     });
 
-    it('uses correct seeds', () => {
+    it("uses correct seeds", () => {
       const taskPda = Keypair.generate().publicKey;
       const workerPda = Keypair.generate().publicKey;
 
@@ -183,8 +183,8 @@ describe('Task PDA derivation helpers', () => {
     });
   });
 
-  describe('deriveEscrowPda', () => {
-    it('derives deterministic PDA from taskPda', () => {
+  describe("deriveEscrowPda", () => {
+    it("derives deterministic PDA from taskPda", () => {
       const taskPda = Keypair.generate().publicKey;
 
       const result1 = deriveEscrowPda(taskPda);
@@ -194,7 +194,7 @@ describe('Task PDA derivation helpers', () => {
       expect(result1.bump).toBe(result2.bump);
     });
 
-    it('different taskPda produces different PDA', () => {
+    it("different taskPda produces different PDA", () => {
       const taskPda1 = Keypair.generate().publicKey;
       const taskPda2 = Keypair.generate().publicKey;
 
@@ -204,17 +204,17 @@ describe('Task PDA derivation helpers', () => {
       expect(result1.address.equals(result2.address)).toBe(false);
     });
 
-    it('returns consistent bump', () => {
+    it("returns consistent bump", () => {
       const taskPda = Keypair.generate().publicKey;
 
       const result = deriveEscrowPda(taskPda);
 
-      expect(typeof result.bump).toBe('number');
+      expect(typeof result.bump).toBe("number");
       expect(result.bump).toBeGreaterThanOrEqual(0);
       expect(result.bump).toBeLessThanOrEqual(255);
     });
 
-    it('uses correct seeds', () => {
+    it("uses correct seeds", () => {
       const taskPda = Keypair.generate().publicKey;
 
       const result = deriveEscrowPda(taskPda);
@@ -229,8 +229,8 @@ describe('Task PDA derivation helpers', () => {
     });
   });
 
-  describe('findTaskPda', () => {
-    it('returns address only (no bump)', () => {
+  describe("findTaskPda", () => {
+    it("returns address only (no bump)", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(10);
 
@@ -239,7 +239,7 @@ describe('Task PDA derivation helpers', () => {
       expect(address).toBeInstanceOf(PublicKey);
     });
 
-    it('matches deriveTaskPda().address', () => {
+    it("matches deriveTaskPda().address", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(20);
 
@@ -249,27 +249,33 @@ describe('Task PDA derivation helpers', () => {
       expect(address.equals(derivedAddress)).toBe(true);
     });
 
-    it('accepts custom programId', () => {
+    it("accepts custom programId", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(30);
-      const customProgramId = new PublicKey('11111111111111111111111111111111');
+      const customProgramId = new PublicKey("11111111111111111111111111111111");
 
       const address = findTaskPda(creator, taskId, customProgramId);
-      const { address: derivedAddress } = deriveTaskPda(creator, taskId, customProgramId);
+      const { address: derivedAddress } = deriveTaskPda(
+        creator,
+        taskId,
+        customProgramId,
+      );
 
       expect(address.equals(derivedAddress)).toBe(true);
     });
 
-    it('throws for invalid taskId length', () => {
+    it("throws for invalid taskId length", () => {
       const creator = Keypair.generate().publicKey;
       const shortId = new Uint8Array(10);
 
-      expect(() => findTaskPda(creator, shortId)).toThrow('Invalid taskId length');
+      expect(() => findTaskPda(creator, shortId)).toThrow(
+        "Invalid taskId length",
+      );
     });
   });
 
-  describe('findClaimPda', () => {
-    it('returns address only (no bump)', () => {
+  describe("findClaimPda", () => {
+    it("returns address only (no bump)", () => {
       const taskPda = Keypair.generate().publicKey;
       const workerPda = Keypair.generate().publicKey;
 
@@ -278,7 +284,7 @@ describe('Task PDA derivation helpers', () => {
       expect(address).toBeInstanceOf(PublicKey);
     });
 
-    it('matches deriveClaimPda().address', () => {
+    it("matches deriveClaimPda().address", () => {
       const taskPda = Keypair.generate().publicKey;
       const workerPda = Keypair.generate().publicKey;
 
@@ -289,8 +295,8 @@ describe('Task PDA derivation helpers', () => {
     });
   });
 
-  describe('findEscrowPda', () => {
-    it('returns address only (no bump)', () => {
+  describe("findEscrowPda", () => {
+    it("returns address only (no bump)", () => {
       const taskPda = Keypair.generate().publicKey;
 
       const address = findEscrowPda(taskPda);
@@ -298,7 +304,7 @@ describe('Task PDA derivation helpers', () => {
       expect(address).toBeInstanceOf(PublicKey);
     });
 
-    it('matches deriveEscrowPda().address', () => {
+    it("matches deriveEscrowPda().address", () => {
       const taskPda = Keypair.generate().publicKey;
 
       const address = findEscrowPda(taskPda);
@@ -308,8 +314,8 @@ describe('Task PDA derivation helpers', () => {
     });
   });
 
-  describe('PdaWithBump type', () => {
-    it('satisfies interface contract', () => {
+  describe("PdaWithBump type", () => {
+    it("satisfies interface contract", () => {
       const creator = Keypair.generate().publicKey;
       const taskId = createTaskId(42);
       const pda: PdaWithBump = deriveTaskPda(creator, taskId);
@@ -318,7 +324,7 @@ describe('Task PDA derivation helpers', () => {
       const _bump: number = pda.bump;
 
       expect(_address).toBeInstanceOf(PublicKey);
-      expect(typeof _bump).toBe('number');
+      expect(typeof _bump).toBe("number");
     });
   });
 });

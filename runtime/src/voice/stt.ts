@@ -8,29 +8,29 @@ import type {
   SpeechToTextProvider,
   STTOptions,
   TranscriptionResult,
-} from './types.js';
-import type { TranscriptionProvider } from '../gateway/media.js';
-import { VoiceTranscriptionError } from './errors.js';
-import { ensureLazyModule } from '../utils/lazy-import.js';
+} from "./types.js";
+import type { TranscriptionProvider } from "../gateway/media.js";
+import { VoiceTranscriptionError } from "./errors.js";
+import { ensureLazyModule } from "../utils/lazy-import.js";
 
 // ============================================================================
 // MIME → codec mapping
 // ============================================================================
 
 const MIME_TO_CODEC: Record<string, string> = {
-  'audio/ogg': 'ogg',
-  'audio/mpeg': 'mp3',
-  'audio/mp3': 'mp3',
-  'audio/wav': 'wav',
-  'audio/x-wav': 'wav',
-  'audio/webm': 'webm',
-  'audio/flac': 'flac',
-  'audio/opus': 'opus',
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/webm": "webm",
+  "audio/flac": "flac",
+  "audio/opus": "opus",
 };
 
 function mimeToExtension(mimeType: string): string {
-  const base = mimeType.split(';')[0].trim();
-  return MIME_TO_CODEC[base] ?? 'ogg';
+  const base = mimeType.split(";")[0].trim();
+  return MIME_TO_CODEC[base] ?? "ogg";
 }
 
 // ============================================================================
@@ -44,7 +44,7 @@ export interface WhisperAPIProviderConfig {
   readonly baseURL?: string;
 }
 
-const DEFAULT_WHISPER_MODEL = 'whisper-1';
+const DEFAULT_WHISPER_MODEL = "whisper-1";
 
 /**
  * Speech-to-text provider using the OpenAI Whisper API.
@@ -52,7 +52,7 @@ const DEFAULT_WHISPER_MODEL = 'whisper-1';
  * Lazily loads the `openai` package on first use.
  */
 export class WhisperAPIProvider implements SpeechToTextProvider {
-  readonly name = 'whisper-api';
+  readonly name = "whisper-api";
 
   private client: unknown | null = null;
   private readonly config: WhisperAPIProviderConfig;
@@ -65,10 +65,12 @@ export class WhisperAPIProvider implements SpeechToTextProvider {
     if (this.client) return this.client;
 
     this.client = await ensureLazyModule(
-      'openai',
+      "openai",
       (msg) => new VoiceTranscriptionError(this.name, msg),
       (mod) => {
-        const OpenAI = (mod.default ?? mod['OpenAI']) as new (opts: Record<string, unknown>) => unknown;
+        const OpenAI = (mod.default ?? mod["OpenAI"]) as new (
+          opts: Record<string, unknown>,
+        ) => unknown;
         return new OpenAI({
           apiKey: this.config.apiKey,
           ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
@@ -82,8 +84,8 @@ export class WhisperAPIProvider implements SpeechToTextProvider {
     audio: Buffer | Uint8Array,
     options?: STTOptions,
   ): Promise<TranscriptionResult> {
-    const client = await this.ensureClient() as any;
-    const ext = options?.format?.codec ?? 'ogg';
+    const client = (await this.ensureClient()) as any;
+    const ext = options?.format?.codec ?? "ogg";
     const filename = `audio.${ext}`;
 
     // Build a File object from the audio buffer
@@ -94,9 +96,9 @@ export class WhisperAPIProvider implements SpeechToTextProvider {
       file,
       model: this.config.model ?? DEFAULT_WHISPER_MODEL,
     };
-    if (options?.language) params['language'] = options.language;
-    if (options?.prompt) params['prompt'] = options.prompt;
-    if (options?.timestamps) params['response_format'] = 'verbose_json';
+    if (options?.language) params["language"] = options.language;
+    if (options?.prompt) params["prompt"] = options.prompt;
+    if (options?.timestamps) params["response_format"] = "verbose_json";
 
     try {
       const response = await client.audio.transcriptions.create(
@@ -114,13 +116,16 @@ export class WhisperAPIProvider implements SpeechToTextProvider {
 
   private parseResponse(response: any): TranscriptionResult {
     // Simple response: { text: string }
-    if (typeof response === 'string') {
+    if (typeof response === "string") {
       return { text: response };
     }
     const result: TranscriptionResult = {
-      text: response.text ?? '',
+      text: response.text ?? "",
       language: response.language,
-      durationMs: response.duration != null ? Math.round(response.duration * 1000) : undefined,
+      durationMs:
+        response.duration != null
+          ? Math.round(response.duration * 1000)
+          : undefined,
       segments: response.segments?.map((s: any) => ({
         text: s.text,
         startMs: Math.round(s.start * 1000),

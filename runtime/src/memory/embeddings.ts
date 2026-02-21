@@ -8,8 +8,8 @@
  * @module
  */
 
-import { ensureLazyModule } from '../utils/lazy-import.js';
-import { MemoryBackendError, MemoryConnectionError } from './errors.js';
+import { ensureLazyModule } from "../utils/lazy-import.js";
+import { MemoryBackendError, MemoryConnectionError } from "./errors.js";
 
 // ============================================================================
 // Interface
@@ -33,13 +33,13 @@ export interface EmbeddingProvider {
 // OpenAI-compatible provider (works with Grok)
 // ============================================================================
 
-const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
-const OPENAI_DEFAULT_MODEL = 'text-embedding-3-small';
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const OPENAI_DEFAULT_MODEL = "text-embedding-3-small";
 const OPENAI_DEFAULT_DIMENSION = 1536;
 
 /** OpenAI-compatible embedding provider (works with Grok). */
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
-  readonly name = 'openai';
+  readonly name = "openai";
   readonly dimension = OPENAI_DEFAULT_DIMENSION;
 
   private client: unknown | null = null;
@@ -90,7 +90,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
     if (this.client) return this.client;
 
     this.client = await ensureLazyModule(
-      'openai',
+      "openai",
       (msg) => new MemoryConnectionError(this.name, msg),
       (mod) => {
         const OpenAI = (mod.default ?? mod.OpenAI ?? mod) as any;
@@ -108,13 +108,13 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 // Ollama local provider
 // ============================================================================
 
-const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
-const OLLAMA_DEFAULT_MODEL = 'nomic-embed-text';
+const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
+const OLLAMA_DEFAULT_MODEL = "nomic-embed-text";
 const OLLAMA_DEFAULT_DIMENSION = 768;
 
 /** Ollama local embedding provider. */
 export class OllamaEmbeddingProvider implements EmbeddingProvider {
-  readonly name = 'ollama';
+  readonly name = "ollama";
   readonly dimension = OLLAMA_DEFAULT_DIMENSION;
 
   private client: unknown | null = null;
@@ -167,7 +167,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
     if (this.client) return this.client;
 
     this.client = await ensureLazyModule(
-      'ollama',
+      "ollama",
       (msg) => new MemoryConnectionError(this.name, msg),
       (mod) => {
         const OllamaClass = (mod.Ollama ?? mod.default) as any;
@@ -184,7 +184,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 
 /** Noop provider for testing (returns zero vectors). */
 export class NoopEmbeddingProvider implements EmbeddingProvider {
-  readonly name = 'noop';
+  readonly name = "noop";
   readonly dimension: number;
 
   constructor(dimension?: number) {
@@ -210,18 +210,21 @@ export class NoopEmbeddingProvider implements EmbeddingProvider {
 
 /** Create embedding provider with auto-selection fallback chain. */
 export async function createEmbeddingProvider(config?: {
-  preferred?: 'openai' | 'ollama' | 'noop';
+  preferred?: "openai" | "ollama" | "noop";
   apiKey?: string;
   baseUrl?: string;
   model?: string;
 }): Promise<EmbeddingProvider> {
-  if (config?.preferred === 'noop') {
+  if (config?.preferred === "noop") {
     return new NoopEmbeddingProvider();
   }
 
-  if (config?.preferred === 'openai') {
+  if (config?.preferred === "openai") {
     if (!config.apiKey) {
-      throw new MemoryBackendError('openai', 'API key is required for OpenAI embedding provider');
+      throw new MemoryBackendError(
+        "openai",
+        "API key is required for OpenAI embedding provider",
+      );
     }
     return new OpenAIEmbeddingProvider({
       apiKey: config.apiKey,
@@ -230,7 +233,7 @@ export async function createEmbeddingProvider(config?: {
     });
   }
 
-  if (config?.preferred === 'ollama') {
+  if (config?.preferred === "ollama") {
     return new OllamaEmbeddingProvider({
       host: config.baseUrl,
       model: config.model,

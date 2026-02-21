@@ -7,10 +7,10 @@
  * @module
  */
 
-import type { Program } from '@coral-xyz/anchor';
-import type { PublicKey } from '@solana/web3.js';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import { findProtocolPda } from '../agent/pda.js';
+import type { Program } from "@coral-xyz/anchor";
+import type { PublicKey } from "@solana/web3.js";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import { findProtocolPda } from "../agent/pda.js";
 
 /**
  * Fetch the protocol treasury address from on-chain config.

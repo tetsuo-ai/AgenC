@@ -11,13 +11,13 @@ import {
   BPS_BASE,
   canonicalizeMarketplaceId,
   validateMarketplaceId,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 import {
   MarketplaceAuthorizationError,
   MarketplaceStateError,
   MarketplaceValidationError,
-} from './errors.js';
-import { TaskBidMarketplace } from './engine.js';
+} from "./errors.js";
+import { TaskBidMarketplace } from "./engine.js";
 import type {
   ServiceMarketplaceConfig,
   ServiceRequestRecord,
@@ -32,8 +32,8 @@ import type {
   DisputeServiceInput,
   ResolveServiceDisputeInput,
   ListServiceRequestsInput,
-} from './types.js';
-import type { TaskBid } from '@agenc/sdk';
+} from "./types.js";
+import type { TaskBid } from "@agenc/sdk";
 
 const DEFAULT_MAX_TITLE_LENGTH = 256;
 const DEFAULT_MAX_DESCRIPTION_LENGTH = 4096;
@@ -61,19 +61,24 @@ export class ServiceMarketplace {
 
   constructor(config: ServiceMarketplaceConfig = {}) {
     this.now = config.now ?? Date.now;
-    this.bidMarketplace = config.bidMarketplace ?? new TaskBidMarketplace({ now: this.now });
+    this.bidMarketplace =
+      config.bidMarketplace ?? new TaskBidMarketplace({ now: this.now });
     this.authorizedResolvers = new Set(
-      (config.authorizedDisputeResolverIds ?? []).map((id) => normalizeIdOrThrow(id, 'resolver id')),
+      (config.authorizedDisputeResolverIds ?? []).map((id) =>
+        normalizeIdOrThrow(id, "resolver id"),
+      ),
     );
     this.maxTitleLength = config.maxTitleLength ?? DEFAULT_MAX_TITLE_LENGTH;
-    this.maxDescriptionLength = config.maxDescriptionLength ?? DEFAULT_MAX_DESCRIPTION_LENGTH;
+    this.maxDescriptionLength =
+      config.maxDescriptionLength ?? DEFAULT_MAX_DESCRIPTION_LENGTH;
     this.maxDeliverables = config.maxDeliverables ?? DEFAULT_MAX_DELIVERABLES;
-    this.maxDeliverableLength = config.maxDeliverableLength ?? DEFAULT_MAX_DELIVERABLE_LENGTH;
+    this.maxDeliverableLength =
+      config.maxDeliverableLength ?? DEFAULT_MAX_DELIVERABLE_LENGTH;
   }
 
   createRequest(input: CreateServiceRequestInput): ServiceRequestSnapshot {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
 
     if (this.services.has(serviceId)) {
       throw new MarketplaceStateError(`service "${serviceId}" already exists`);
@@ -87,7 +92,7 @@ export class ServiceMarketplace {
       serviceId,
       request: cloneRequest(input.request),
       requesterId: actorId,
-      status: 'open',
+      status: "open",
       acceptedBidId: null,
       awardedAgentId: null,
       completionProof: null,
@@ -106,17 +111,19 @@ export class ServiceMarketplace {
   }
 
   bidOnService(input: BidOnServiceInput): TaskBid {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
 
     const record = this.getRecordOrThrow(serviceId);
     this.applyLazyDeadlineExpiry(record);
 
     if (actorId === record.requesterId) {
-      throw new MarketplaceAuthorizationError('requester cannot bid on own service');
+      throw new MarketplaceAuthorizationError(
+        "requester cannot bid on own service",
+      );
     }
 
-    if (record.status !== 'open' && record.status !== 'bidding') {
+    if (record.status !== "open" && record.status !== "bidding") {
       throw new MarketplaceStateError(
         `cannot bid on service "${serviceId}" in status "${record.status}"`,
       );
@@ -133,16 +140,19 @@ export class ServiceMarketplace {
         rewardLamports: input.bid.price,
         etaSeconds: input.bid.deliveryTime,
         confidenceBps: BPS_BASE,
-        expiresAtMs: record.request.deadline ?? this.now() + 365 * 24 * 60 * 60 * 1000,
+        expiresAtMs:
+          record.request.deadline ?? this.now() + 365 * 24 * 60 * 60 * 1000,
         metadata: {
           proposal: input.bid.proposal.trim(),
-          ...(input.bid.portfolioLinks ? { portfolioLinks: [...input.bid.portfolioLinks] } : {}),
+          ...(input.bid.portfolioLinks
+            ? { portfolioLinks: [...input.bid.portfolioLinks] }
+            : {}),
         },
       },
     });
 
-    if (record.status === 'open') {
-      record.status = 'bidding';
+    if (record.status === "open") {
+      record.status = "bidding";
     }
     record.updatedAtMs = this.now();
     record.version += 1;
@@ -151,9 +161,9 @@ export class ServiceMarketplace {
   }
 
   acceptBid(input: AcceptServiceBidInput): ServiceRequestSnapshot {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
-    const bidId = normalizeIdOrThrow(input.bidId, 'bid id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
+    const bidId = normalizeIdOrThrow(input.bidId, "bid id");
 
     const record = this.getRecordOrThrow(serviceId);
     this.applyLazyDeadlineExpiry(record);
@@ -165,7 +175,7 @@ export class ServiceMarketplace {
       );
     }
 
-    if (record.status !== 'bidding') {
+    if (record.status !== "bidding") {
       throw new MarketplaceStateError(
         `cannot accept bid on service "${serviceId}" in status "${record.status}"`,
       );
@@ -177,7 +187,7 @@ export class ServiceMarketplace {
       bidId,
     });
 
-    record.status = 'awarded';
+    record.status = "awarded";
     record.acceptedBidId = result.acceptedBid.bidId;
     record.awardedAgentId = result.acceptedBid.bidderId;
     record.updatedAtMs = this.now();
@@ -187,8 +197,8 @@ export class ServiceMarketplace {
   }
 
   startService(input: StartServiceInput): ServiceRequestSnapshot {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
 
     const record = this.getRecordOrThrow(serviceId);
     this.applyLazyDeadlineExpiry(record);
@@ -199,13 +209,13 @@ export class ServiceMarketplace {
       );
     }
 
-    if (record.status !== 'awarded') {
+    if (record.status !== "awarded") {
       throw new MarketplaceStateError(
         `cannot start service "${serviceId}" in status "${record.status}"`,
       );
     }
 
-    record.status = 'active';
+    record.status = "active";
     record.updatedAtMs = this.now();
     record.version += 1;
 
@@ -213,8 +223,8 @@ export class ServiceMarketplace {
   }
 
   completeService(input: CompleteServiceInput): ServiceRequestSnapshot {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
 
     const record = this.getRecordOrThrow(serviceId);
 
@@ -224,7 +234,7 @@ export class ServiceMarketplace {
       );
     }
 
-    if (record.status !== 'active') {
+    if (record.status !== "active") {
       throw new MarketplaceStateError(
         `cannot complete service "${serviceId}" in status "${record.status}"`,
       );
@@ -232,10 +242,12 @@ export class ServiceMarketplace {
 
     const proof = input.proof?.trim();
     if (!proof) {
-      throw new MarketplaceValidationError('completion proof must be non-empty');
+      throw new MarketplaceValidationError(
+        "completion proof must be non-empty",
+      );
     }
 
-    record.status = 'completed';
+    record.status = "completed";
     record.completionProof = proof;
     record.updatedAtMs = this.now();
     record.version += 1;
@@ -244,8 +256,8 @@ export class ServiceMarketplace {
   }
 
   cancelService(input: CancelServiceInput): ServiceRequestSnapshot {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
 
     const record = this.getRecordOrThrow(serviceId);
     this.applyLazyDeadlineExpiry(record);
@@ -256,14 +268,14 @@ export class ServiceMarketplace {
       );
     }
 
-    const cancellable: ServiceRequestStatus[] = ['open', 'bidding', 'awarded'];
+    const cancellable: ServiceRequestStatus[] = ["open", "bidding", "awarded"];
     if (!cancellable.includes(record.status)) {
       throw new MarketplaceStateError(
         `cannot cancel service "${serviceId}" in status "${record.status}"`,
       );
     }
 
-    record.status = 'cancelled';
+    record.status = "cancelled";
     record.updatedAtMs = this.now();
     record.version += 1;
 
@@ -271,8 +283,8 @@ export class ServiceMarketplace {
   }
 
   disputeService(input: DisputeServiceInput): ServiceRequestSnapshot {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
 
     const record = this.getRecordOrThrow(serviceId);
 
@@ -282,7 +294,7 @@ export class ServiceMarketplace {
       );
     }
 
-    if (record.status !== 'active') {
+    if (record.status !== "active") {
       throw new MarketplaceStateError(
         `cannot dispute service "${serviceId}" in status "${record.status}"`,
       );
@@ -290,10 +302,10 @@ export class ServiceMarketplace {
 
     const reason = input.reason?.trim();
     if (!reason) {
-      throw new MarketplaceValidationError('dispute reason must be non-empty');
+      throw new MarketplaceValidationError("dispute reason must be non-empty");
     }
 
-    record.status = 'disputed';
+    record.status = "disputed";
     record.disputeReason = reason;
     record.updatedAtMs = this.now();
     record.version += 1;
@@ -302,8 +314,8 @@ export class ServiceMarketplace {
   }
 
   resolveDispute(input: ResolveServiceDisputeInput): ServiceRequestSnapshot {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const serviceId = normalizeIdOrThrow(input.serviceId, 'service id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const serviceId = normalizeIdOrThrow(input.serviceId, "service id");
 
     const record = this.getRecordOrThrow(serviceId);
 
@@ -313,20 +325,20 @@ export class ServiceMarketplace {
       );
     }
 
-    if (record.status !== 'disputed') {
+    if (record.status !== "disputed") {
       throw new MarketplaceStateError(
         `cannot resolve service "${serviceId}" in status "${record.status}"`,
       );
     }
 
-    const validOutcomes = ['refund', 'pay_agent', 'split'] as const;
+    const validOutcomes = ["refund", "pay_agent", "split"] as const;
     if (!validOutcomes.includes(input.outcome)) {
       throw new MarketplaceValidationError(
-        `invalid outcome "${input.outcome as string}", expected one of: ${validOutcomes.join(', ')}`,
+        `invalid outcome "${input.outcome as string}", expected one of: ${validOutcomes.join(", ")}`,
       );
     }
 
-    record.status = 'resolved';
+    record.status = "resolved";
     record.disputeOutcome = input.outcome;
     record.updatedAtMs = this.now();
     record.version += 1;
@@ -335,7 +347,7 @@ export class ServiceMarketplace {
   }
 
   getService(serviceIdRaw: string): ServiceRequestSnapshot | null {
-    const serviceId = normalizeIdOrThrow(serviceIdRaw, 'service id');
+    const serviceId = normalizeIdOrThrow(serviceIdRaw, "service id");
     const record = this.services.get(serviceId);
     if (!record) return null;
 
@@ -349,12 +361,29 @@ export class ServiceMarketplace {
     for (const record of this.services.values()) {
       this.applyLazyDeadlineExpiry(record);
 
-      if (input?.status !== undefined && record.status !== input.status) continue;
-      if (input?.requesterId !== undefined && record.requesterId !== input.requesterId) continue;
-      if (input?.requiredCapabilities !== undefined &&
-          (record.request.requiredCapabilities & input.requiredCapabilities) !== input.requiredCapabilities) continue;
-      if (input?.minBudget !== undefined && record.request.budget < input.minBudget) continue;
-      if (input?.maxBudget !== undefined && record.request.budget > input.maxBudget) continue;
+      if (input?.status !== undefined && record.status !== input.status)
+        continue;
+      if (
+        input?.requesterId !== undefined &&
+        record.requesterId !== input.requesterId
+      )
+        continue;
+      if (
+        input?.requiredCapabilities !== undefined &&
+        (record.request.requiredCapabilities & input.requiredCapabilities) !==
+          input.requiredCapabilities
+      )
+        continue;
+      if (
+        input?.minBudget !== undefined &&
+        record.request.budget < input.minBudget
+      )
+        continue;
+      if (
+        input?.maxBudget !== undefined &&
+        record.request.budget > input.maxBudget
+      )
+        continue;
 
       results.push(this.toSnapshot(record));
     }
@@ -363,7 +392,7 @@ export class ServiceMarketplace {
   }
 
   listBids(serviceIdRaw: string): TaskBid[] {
-    const serviceId = normalizeIdOrThrow(serviceIdRaw, 'service id');
+    const serviceId = normalizeIdOrThrow(serviceIdRaw, "service id");
     return this.bidMarketplace.listBids({ taskId: serviceId });
   }
 
@@ -379,11 +408,16 @@ export class ServiceMarketplace {
     return record;
   }
 
-  private assertVersion(record: ServiceRequestRecord, expectedVersion: number | undefined): void {
+  private assertVersion(
+    record: ServiceRequestRecord,
+    expectedVersion: number | undefined,
+  ): void {
     if (expectedVersion === undefined) return;
 
     if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
-      throw new MarketplaceValidationError('expectedVersion must be a non-negative integer');
+      throw new MarketplaceValidationError(
+        "expectedVersion must be a non-negative integer",
+      );
     }
 
     if (record.version !== expectedVersion) {
@@ -396,11 +430,11 @@ export class ServiceMarketplace {
   private applyLazyDeadlineExpiry(record: ServiceRequestRecord): void {
     if (record.request.deadline === undefined) return;
 
-    const expirable: ServiceRequestStatus[] = ['open', 'bidding'];
+    const expirable: ServiceRequestStatus[] = ["open", "bidding"];
     if (!expirable.includes(record.status)) return;
 
     if (this.now() >= record.request.deadline) {
-      record.status = 'cancelled';
+      record.status = "cancelled";
       record.updatedAtMs = this.now();
       record.version += 1;
     }
@@ -415,7 +449,7 @@ export class ServiceMarketplace {
   }): void {
     const title = request.title?.trim();
     if (!title || title.length === 0) {
-      throw new MarketplaceValidationError('title must be non-empty');
+      throw new MarketplaceValidationError("title must be non-empty");
     }
     if (title.length > this.maxTitleLength) {
       throw new MarketplaceValidationError(
@@ -425,7 +459,7 @@ export class ServiceMarketplace {
 
     const description = request.description?.trim();
     if (!description || description.length === 0) {
-      throw new MarketplaceValidationError('description must be non-empty');
+      throw new MarketplaceValidationError("description must be non-empty");
     }
     if (description.length > this.maxDescriptionLength) {
       throw new MarketplaceValidationError(
@@ -434,15 +468,20 @@ export class ServiceMarketplace {
     }
 
     if (request.requiredCapabilities <= 0n) {
-      throw new MarketplaceValidationError('requiredCapabilities must be > 0');
+      throw new MarketplaceValidationError("requiredCapabilities must be > 0");
     }
 
     if (request.budget <= 0n) {
-      throw new MarketplaceValidationError('budget must be > 0');
+      throw new MarketplaceValidationError("budget must be > 0");
     }
 
-    if (!Array.isArray(request.deliverables) || request.deliverables.length === 0) {
-      throw new MarketplaceValidationError('deliverables must be a non-empty array');
+    if (
+      !Array.isArray(request.deliverables) ||
+      request.deliverables.length === 0
+    ) {
+      throw new MarketplaceValidationError(
+        "deliverables must be a non-empty array",
+      );
     }
     if (request.deliverables.length > this.maxDeliverables) {
       throw new MarketplaceValidationError(
@@ -450,9 +489,11 @@ export class ServiceMarketplace {
       );
     }
     for (const d of request.deliverables) {
-      const trimmed = typeof d === 'string' ? d.trim() : '';
+      const trimmed = typeof d === "string" ? d.trim() : "";
       if (!trimmed) {
-        throw new MarketplaceValidationError('each deliverable must be non-empty');
+        throw new MarketplaceValidationError(
+          "each deliverable must be non-empty",
+        );
       }
       if (trimmed.length > this.maxDeliverableLength) {
         throw new MarketplaceValidationError(
@@ -462,9 +503,12 @@ export class ServiceMarketplace {
     }
   }
 
-  private validateBid(bid: { price: bigint; deliveryTime: number; proposal: string }, budget: bigint): void {
+  private validateBid(
+    bid: { price: bigint; deliveryTime: number; proposal: string },
+    budget: bigint,
+  ): void {
     if (bid.price <= 0n) {
-      throw new MarketplaceValidationError('bid price must be > 0');
+      throw new MarketplaceValidationError("bid price must be > 0");
     }
     if (bid.price > budget) {
       throw new MarketplaceValidationError(
@@ -473,12 +517,14 @@ export class ServiceMarketplace {
     }
 
     if (!Number.isInteger(bid.deliveryTime) || bid.deliveryTime <= 0) {
-      throw new MarketplaceValidationError('deliveryTime must be a positive integer');
+      throw new MarketplaceValidationError(
+        "deliveryTime must be a positive integer",
+      );
     }
 
     const proposal = bid.proposal?.trim();
     if (!proposal) {
-      throw new MarketplaceValidationError('proposal must be non-empty');
+      throw new MarketplaceValidationError("proposal must be non-empty");
     }
   }
 

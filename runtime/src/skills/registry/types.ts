@@ -4,9 +4,9 @@
  * @module
  */
 
-import type { Connection } from '@solana/web3.js';
-import type { Wallet } from '../../types/wallet.js';
-import type { Logger } from '../../utils/logger.js';
+import type { Connection } from "@solana/web3.js";
+import type { Wallet } from "../../types/wallet.js";
+import type { Logger } from "../../utils/logger.js";
 
 // ============================================================================
 // Data Types
@@ -88,7 +88,10 @@ export interface SkillRegistryClient {
    * @param options - Optional search filters (tags, limit, offset)
    * @returns Array of matching skill listing entries
    */
-  search(query: string, options?: SearchOptions): Promise<readonly SkillListingEntry[]>;
+  search(
+    query: string,
+    options?: SearchOptions,
+  ): Promise<readonly SkillListingEntry[]>;
 
   /**
    * Get the full listing for a specific skill.
@@ -120,7 +123,12 @@ export interface SkillRegistryClient {
    */
   publish(
     skillPath: string,
-    metadata: { name: string; description: string; tags?: readonly string[]; priceLamports?: bigint },
+    metadata: {
+      name: string;
+      description: string;
+      tags?: readonly string[];
+      priceLamports?: bigint;
+    },
   ): Promise<string>;
 
   /**

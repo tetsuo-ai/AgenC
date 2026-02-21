@@ -4,12 +4,12 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import { PublicKey } from '@solana/web3.js';
-import { bytesToHex, hexToBytes } from '../utils/encoding.js';
-import { stableStringifyJson, type JsonValue } from './types.js';
-import type { ProjectedTimelineEvent } from './projector.js';
-import type { ReplayAnomaly, ReplayAnomalyCode } from './replay-comparison.js';
+import { createHash } from "node:crypto";
+import { PublicKey } from "@solana/web3.js";
+import { bytesToHex, hexToBytes } from "../utils/encoding.js";
+import { stableStringifyJson, type JsonValue } from "./types.js";
+import type { ProjectedTimelineEvent } from "./projector.js";
+import type { ReplayAnomaly, ReplayAnomalyCode } from "./replay-comparison.js";
 
 /** Schema version for case export format — bump on breaking layout changes. */
 export const INCIDENT_CASE_SCHEMA_VERSION = 1 as const;
@@ -23,7 +23,12 @@ export interface IncidentTraceWindow {
 }
 
 /** Actor role in the incident context. */
-export type IncidentActorRole = 'creator' | 'worker' | 'arbiter' | 'authority' | 'unknown';
+export type IncidentActorRole =
+  | "creator"
+  | "worker"
+  | "arbiter"
+  | "authority"
+  | "unknown";
 
 /** Resolved actor entry. */
 export interface IncidentActor {
@@ -49,7 +54,7 @@ export interface IncidentTransition {
 export interface IncidentAnomalyRef {
   anomalyId: string;
   code: ReplayAnomalyCode;
-  severity: 'error' | 'warning';
+  severity: "error" | "warning";
   message: string;
   seq?: number;
 }
@@ -60,7 +65,11 @@ export interface IncidentEvidenceHash {
   sha256: string;
 }
 
-export type IncidentCaseStatus = 'open' | 'investigating' | 'resolved' | 'archived';
+export type IncidentCaseStatus =
+  | "open"
+  | "investigating"
+  | "resolved"
+  | "archived";
 
 /** Top-level incident case payload. */
 export interface IncidentCase {
@@ -87,51 +96,55 @@ export interface BuildIncidentCaseInput {
 }
 
 const TASK_TRANSITIONS: Readonly<Record<string, ReadonlySet<string>>> = {
-  discovered: new Set(['claimed', 'failed']),
-  claimed: new Set(['completed', 'failed', 'disputed']),
-  disputed: new Set(['completed', 'failed']),
+  discovered: new Set(["claimed", "failed"]),
+  claimed: new Set(["completed", "failed", "disputed"]),
+  disputed: new Set(["completed", "failed"]),
   completed: new Set(),
   failed: new Set(),
 };
 
 const TASK_EVENT_TYPES = new Set<string>([
-  'discovered',
-  'claimed',
-  'completed',
-  'failed',
-  'disputed',
+  "discovered",
+  "claimed",
+  "completed",
+  "failed",
+  "disputed",
 ]);
 
 const DISPUTE_EVENT_TYPES = new Set<string>([
-  'dispute:initiated',
-  'dispute:vote_cast',
-  'dispute:resolved',
-  'dispute:cancelled',
-  'dispute:expired',
+  "dispute:initiated",
+  "dispute:vote_cast",
+  "dispute:resolved",
+  "dispute:cancelled",
+  "dispute:expired",
 ]);
 
 const SPECULATION_EVENT_TYPES = new Set<string>([
-  'speculation_started',
-  'speculation_confirmed',
-  'speculation_aborted',
+  "speculation_started",
+  "speculation_confirmed",
+  "speculation_aborted",
 ]);
 
 export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
   const sorted = [...input.events].sort((left, right) => {
     if (left.seq !== right.seq) return left.seq - right.seq;
     if (left.slot !== right.slot) return left.slot - right.slot;
-    if (left.timestampMs !== right.timestampMs) return left.timestampMs - right.timestampMs;
-    if (left.signature !== right.signature) return left.signature.localeCompare(right.signature);
-    if (left.sourceEventName !== right.sourceEventName) return left.sourceEventName.localeCompare(right.sourceEventName);
+    if (left.timestampMs !== right.timestampMs)
+      return left.timestampMs - right.timestampMs;
+    if (left.signature !== right.signature)
+      return left.signature.localeCompare(right.signature);
+    if (left.sourceEventName !== right.sourceEventName)
+      return left.sourceEventName.localeCompare(right.sourceEventName);
     if (left.type !== right.type) return left.type.localeCompare(right.type);
-    return (left.taskPda ?? '').localeCompare(right.taskPda ?? '');
+    return (left.taskPda ?? "").localeCompare(right.taskPda ?? "");
   });
 
   const traceWindow = computeTraceWindow(sorted, input.window);
 
-  const windowedEvents = sorted.filter((event) => (
-    event.slot >= traceWindow.fromSlot && event.slot <= traceWindow.toSlot
-  ));
+  const windowedEvents = sorted.filter(
+    (event) =>
+      event.slot >= traceWindow.fromSlot && event.slot <= traceWindow.toSlot,
+  );
 
   const transitions = buildTransitions(windowedEvents);
   const actorMap = resolveActors(windowedEvents);
@@ -141,14 +154,21 @@ export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
     code: anomaly.code,
     severity: anomaly.severity,
     message: anomaly.message,
-    ...(typeof anomaly.context.seq === 'number' ? { seq: anomaly.context.seq } : {}),
+    ...(typeof anomaly.context.seq === "number"
+      ? { seq: anomaly.context.seq }
+      : {}),
   }));
 
-  const taskIds = [...new Set(
-    windowedEvents
-      .map((event) => event.taskPda)
-      .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0),
-  )].sort();
+  const taskIds = [
+    ...new Set(
+      windowedEvents
+        .map((event) => event.taskPda)
+        .filter(
+          (entry): entry is string =>
+            typeof entry === "string" && entry.length > 0,
+        ),
+    ),
+  ].sort();
 
   const disputeIds = collectDisputeIds(windowedEvents);
   const caseId = computeCaseId(traceWindow, taskIds, disputeIds);
@@ -163,17 +183,20 @@ export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
     anomalies: anomalyRefs,
     actorMap,
     evidenceHashes: [],
-    caseStatus: 'open',
+    caseStatus: "open",
     taskIds,
     disputeIds,
     metadata: input.metadata,
   };
 }
 
-export function computeEvidenceHash(label: string, content: JsonValue): IncidentEvidenceHash {
-  const sha256 = createHash('sha256')
+export function computeEvidenceHash(
+  label: string,
+  content: JsonValue,
+): IncidentEvidenceHash {
+  const sha256 = createHash("sha256")
     .update(stableStringifyJson(content))
-    .digest('hex');
+    .digest("hex");
   return { label, sha256 };
 }
 
@@ -188,23 +211,30 @@ function computeTraceWindow(
   const overrideFrom = override?.fromSlot;
   const overrideTo = override?.toSlot;
 
-  const resolvedFromSlot = Number.isInteger(overrideFrom) && (overrideFrom as number) >= 0
-    ? (overrideFrom as number)
-    : events[0].slot;
-  const resolvedToSlot = Number.isInteger(overrideTo) && (overrideTo as number) >= 0
-    ? (overrideTo as number)
-    : events[events.length - 1].slot;
+  const resolvedFromSlot =
+    Number.isInteger(overrideFrom) && (overrideFrom as number) >= 0
+      ? (overrideFrom as number)
+      : events[0].slot;
+  const resolvedToSlot =
+    Number.isInteger(overrideTo) && (overrideTo as number) >= 0
+      ? (overrideTo as number)
+      : events[events.length - 1].slot;
 
   const fromSlot = Math.min(resolvedFromSlot, resolvedToSlot);
   const toSlot = Math.max(resolvedFromSlot, resolvedToSlot);
 
-  const fromTimestampMs = events.find((event) => event.slot >= fromSlot)?.timestampMs ?? 0;
-  const toTimestampMs = [...events].reverse().find((event) => event.slot <= toSlot)?.timestampMs ?? 0;
+  const fromTimestampMs =
+    events.find((event) => event.slot >= fromSlot)?.timestampMs ?? 0;
+  const toTimestampMs =
+    [...events].reverse().find((event) => event.slot <= toSlot)?.timestampMs ??
+    0;
 
   return { fromSlot, toSlot, fromTimestampMs, toTimestampMs };
 }
 
-function resolveActors(events: readonly ProjectedTimelineEvent[]): IncidentActor[] {
+function resolveActors(
+  events: readonly ProjectedTimelineEvent[],
+): IncidentActor[] {
   const actors = new Map<string, IncidentActor>();
 
   for (const event of events) {
@@ -212,35 +242,48 @@ function resolveActors(events: readonly ProjectedTimelineEvent[]): IncidentActor
     const candidates: Array<{ pubkey: string; role: IncidentActorRole }> = [];
 
     const creator = payload.creator;
-    if (typeof creator === 'string' && creator.length > 0) candidates.push({ pubkey: creator, role: 'creator' });
+    if (typeof creator === "string" && creator.length > 0)
+      candidates.push({ pubkey: creator, role: "creator" });
 
     const worker = payload.worker;
-    if (typeof worker === 'string' && worker.length > 0) candidates.push({ pubkey: worker, role: 'worker' });
+    if (typeof worker === "string" && worker.length > 0)
+      candidates.push({ pubkey: worker, role: "worker" });
 
     const authority = payload.authority;
-    if (typeof authority === 'string' && authority.length > 0) candidates.push({ pubkey: authority, role: 'authority' });
+    if (typeof authority === "string" && authority.length > 0)
+      candidates.push({ pubkey: authority, role: "authority" });
 
     const voter = payload.voter;
-    if (typeof voter === 'string' && voter.length > 0) candidates.push({ pubkey: voter, role: 'arbiter' });
+    if (typeof voter === "string" && voter.length > 0)
+      candidates.push({ pubkey: voter, role: "arbiter" });
 
     const initiator = payload.initiator;
-    if (typeof initiator === 'string' && initiator.length > 0) candidates.push({ pubkey: initiator, role: 'creator' });
+    if (typeof initiator === "string" && initiator.length > 0)
+      candidates.push({ pubkey: initiator, role: "creator" });
 
     const defendant = payload.defendant;
-    if (typeof defendant === 'string' && defendant.length > 0) candidates.push({ pubkey: defendant, role: 'worker' });
+    if (typeof defendant === "string" && defendant.length > 0)
+      candidates.push({ pubkey: defendant, role: "worker" });
 
     const recipient = payload.recipient;
-    if (typeof recipient === 'string' && recipient.length > 0) candidates.push({ pubkey: recipient, role: 'worker' });
+    if (typeof recipient === "string" && recipient.length > 0)
+      candidates.push({ pubkey: recipient, role: "worker" });
 
     const updater = payload.updater;
-    if (typeof updater === 'string' && updater.length > 0) candidates.push({ pubkey: updater, role: 'authority' });
+    if (typeof updater === "string" && updater.length > 0)
+      candidates.push({ pubkey: updater, role: "authority" });
 
     const updatedBy = payload.updatedBy;
-    if (typeof updatedBy === 'string' && updatedBy.length > 0) candidates.push({ pubkey: updatedBy, role: 'authority' });
+    if (typeof updatedBy === "string" && updatedBy.length > 0)
+      candidates.push({ pubkey: updatedBy, role: "authority" });
 
     const agent = payload.agent;
-    if (typeof agent === 'string' && agent.length > 0 && !candidates.some((entry) => entry.pubkey === agent)) {
-      candidates.push({ pubkey: agent, role: 'unknown' });
+    if (
+      typeof agent === "string" &&
+      agent.length > 0 &&
+      !candidates.some((entry) => entry.pubkey === agent)
+    ) {
+      candidates.push({ pubkey: agent, role: "unknown" });
     }
 
     for (const { pubkey, role } of candidates) {
@@ -250,19 +293,22 @@ function resolveActors(events: readonly ProjectedTimelineEvent[]): IncidentActor
         continue;
       }
 
-      if (existing.role === 'unknown' && role !== 'unknown') {
+      if (existing.role === "unknown" && role !== "unknown") {
         existing.role = role;
       }
     }
   }
 
   return [...actors.values()].sort((left, right) => {
-    if (left.firstSeenSeq !== right.firstSeenSeq) return left.firstSeenSeq - right.firstSeenSeq;
+    if (left.firstSeenSeq !== right.firstSeenSeq)
+      return left.firstSeenSeq - right.firstSeenSeq;
     return left.pubkey.localeCompare(right.pubkey);
   });
 }
 
-function buildTransitions(events: readonly ProjectedTimelineEvent[]): IncidentTransition[] {
+function buildTransitions(
+  events: readonly ProjectedTimelineEvent[],
+): IncidentTransition[] {
   const transitions: IncidentTransition[] = [];
 
   const taskStates = new Map<string, string>();
@@ -270,7 +316,15 @@ function buildTransitions(events: readonly ProjectedTimelineEvent[]): IncidentTr
   const speculationStates = new Map<string, string>();
 
   for (const event of events) {
-    const { seq, type, slot, signature, sourceEventName, timestampMs, taskPda } = event;
+    const {
+      seq,
+      type,
+      slot,
+      signature,
+      sourceEventName,
+      timestampMs,
+      taskPda,
+    } = event;
 
     if (TASK_EVENT_TYPES.has(type) && taskPda) {
       const previous = taskStates.get(taskPda) ?? null;
@@ -287,20 +341,23 @@ function buildTransitions(events: readonly ProjectedTimelineEvent[]): IncidentTr
       taskStates.set(taskPda, type);
     }
 
-    if (sourceEventName === 'disputeInitiated' && taskPda) {
+    if (sourceEventName === "disputeInitiated" && taskPda) {
       const previous = taskStates.get(taskPda);
-      if (previous !== undefined && TASK_TRANSITIONS[previous]?.has('disputed')) {
+      if (
+        previous !== undefined &&
+        TASK_TRANSITIONS[previous]?.has("disputed")
+      ) {
         transitions.push({
           seq,
           fromState: previous,
-          toState: 'disputed',
+          toState: "disputed",
           slot,
           signature,
           sourceEventName,
           timestampMs,
           taskPda,
         });
-        taskStates.set(taskPda, 'disputed');
+        taskStates.set(taskPda, "disputed");
       }
     }
 
@@ -342,7 +399,9 @@ function buildTransitions(events: readonly ProjectedTimelineEvent[]): IncidentTr
   return transitions;
 }
 
-function collectDisputeIds(events: readonly ProjectedTimelineEvent[]): string[] {
+function collectDisputeIds(
+  events: readonly ProjectedTimelineEvent[],
+): string[] {
   const disputeIds = new Set<string>();
   for (const event of events) {
     const disputePda = extractDisputePda(event);
@@ -355,7 +414,7 @@ function extractDisputePda(event: ProjectedTimelineEvent): string | undefined {
   const payload = event.payload as unknown as Record<string, unknown>;
   const onchain = payload.onchain;
 
-  if (typeof onchain === 'object' && onchain !== null) {
+  if (typeof onchain === "object" && onchain !== null) {
     const raw = (onchain as Record<string, unknown>).disputeId;
     const normalized = normalizePdaValue(raw);
     if (normalized) return normalized;
@@ -375,12 +434,17 @@ function normalizePdaValue(value: unknown): string | undefined {
     return bytesToPdaString(value);
   }
 
-  if (Array.isArray(value) && value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
+  if (
+    Array.isArray(value) &&
+    value.every(
+      (entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255,
+    )
+  ) {
     return bytesToPdaString(new Uint8Array(value));
   }
 
-  if (typeof value === 'string' && value.length > 0) {
-    const clean = value.startsWith('0x') ? value.slice(2) : value;
+  if (typeof value === "string" && value.length > 0) {
+    const clean = value.startsWith("0x") ? value.slice(2) : value;
     if (clean.length === 64 && /^[0-9a-fA-F]+$/.test(clean)) {
       try {
         return bytesToPdaString(hexToBytes(clean));
@@ -415,10 +479,13 @@ function computeCaseId(
     disputeIds,
   } as unknown as JsonValue);
 
-  return createHash('sha256').update(seed).digest('hex').slice(0, 32);
+  return createHash("sha256").update(seed).digest("hex").slice(0, 32);
 }
 
-function computeAnomalyId(anomaly: ReplayAnomaly, fallbackIndex: number): string {
+function computeAnomalyId(
+  anomaly: ReplayAnomaly,
+  fallbackIndex: number,
+): string {
   const context = anomaly.context;
   const seed = stableStringifyJson({
     code: anomaly.code,
@@ -436,5 +503,5 @@ function computeAnomalyId(anomaly: ReplayAnomaly, fallbackIndex: number): string
     traceSampled: context.traceSampled,
   } as unknown as JsonValue);
 
-  return createHash('sha1').update(seed).digest('hex').slice(0, 16);
+  return createHash("sha1").update(seed).digest("hex").slice(0, 16);
 }

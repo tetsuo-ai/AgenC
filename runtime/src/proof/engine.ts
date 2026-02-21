@@ -10,18 +10,20 @@
 
 import {
   generateProof as sdkGenerateProof,
-  generateProofWithProver as sdkGenerateProofWithProver,
-  verifyProofLocally as sdkVerifyProofLocally,
   computeHashes as sdkComputeHashes,
   generateSalt as sdkGenerateSalt,
-} from '@agenc/sdk';
-import type { HashResult, ProverConfig as SdkProverConfig } from '@agenc/sdk';
-import type { ProofGenerator } from '../task/proof-pipeline.js';
-import type { OnChainTask, TaskExecutionResult, PrivateTaskExecutionResult } from '../task/types.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { MetricsProvider } from '../task/types.js';
-import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
+} from "@agenc/sdk";
+import type { HashResult, ProverConfig as SdkProverConfig } from "@agenc/sdk";
+import type { ProofGenerator } from "../task/proof-pipeline.js";
+import type {
+  OnChainTask,
+  TaskExecutionResult,
+  PrivateTaskExecutionResult,
+} from "../task/types.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { MetricsProvider } from "../task/types.js";
+import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 import type {
   ProofEngineConfig,
   ProofInputs,
@@ -31,42 +33,54 @@ import type {
   ProverBackendConfig,
   RouterConfig,
   ToolsStatus,
-} from './types.js';
-import { ProofCache } from './cache.js';
-import { ProofGenerationError, ProofVerificationError } from './errors.js';
+} from "./types.js";
+import { ProofCache } from "./cache.js";
+import { ProofGenerationError } from "./errors.js";
 const METHOD_ID_LEN = 32;
-
 
 /**
  * Map runtime ProverBackendConfig to SDK's ProverConfig for real prover backends.
  * Throws ProofGenerationError if required fields are missing.
  */
-export function buildSdkProverConfig(config: ProverBackendConfig): SdkProverConfig {
-  const kind = config.kind ?? 'deterministic-local';
+export function buildSdkProverConfig(
+  config: ProverBackendConfig,
+): SdkProverConfig {
+  const kind = config.kind;
+  if (!kind) {
+    throw new ProofGenerationError(
+      "ProofEngine requires an explicit proverBackend kind (local-binary or remote)",
+    );
+  }
   switch (kind) {
-    case 'local-binary': {
+    case "local-binary": {
       if (!config.binaryPath) {
-        throw new ProofGenerationError('binaryPath is required for local-binary prover backend');
+        throw new ProofGenerationError(
+          "binaryPath is required for local-binary prover backend",
+        );
       }
       return {
-        kind: 'local-binary',
+        kind: "local-binary",
         binaryPath: config.binaryPath,
         timeoutMs: config.timeoutMs,
       };
     }
-    case 'remote': {
+    case "remote": {
       if (!config.endpoint) {
-        throw new ProofGenerationError('endpoint is required for remote prover backend');
+        throw new ProofGenerationError(
+          "endpoint is required for remote prover backend",
+        );
       }
       return {
-        kind: 'remote',
+        kind: "remote",
         endpoint: config.endpoint,
         timeoutMs: config.timeoutMs,
         headers: config.headers,
       };
     }
     default:
-      throw new ProofGenerationError(`buildSdkProverConfig called with unsupported kind: ${kind}`);
+      throw new ProofGenerationError(
+        `buildSdkProverConfig called with unsupported kind: ${kind}`,
+      );
   }
 }
 
@@ -117,18 +131,25 @@ export class ProofEngine implements ProofGenerator {
     }
     this.routerConfig = config?.routerConfig ?? null;
     this.proverBackendConfig = config?.proverBackend;
-    this.proverBackend = config?.proverBackend?.kind ?? 'deterministic-local';
+    this.proverBackend = config?.proverBackend?.kind ?? "local-binary";
     this.verifyAfterGeneration = config?.verifyAfterGeneration ?? false;
     this.cache = config?.cache ? new ProofCache(config.cache) : null;
     this.logger = config?.logger ?? silentLogger;
     this.metrics = config?.metrics;
 
     // Warn on config inconsistencies
-    if (config?.proverBackend?.binaryPath && this.proverBackend !== 'local-binary') {
-      this.logger.warn('binaryPath is set but prover backend kind is not "local-binary" — binaryPath will be ignored');
+    if (
+      config?.proverBackend?.binaryPath &&
+      this.proverBackend !== "local-binary"
+    ) {
+      this.logger.warn(
+        'binaryPath is set but prover backend kind is not "local-binary" — binaryPath will be ignored',
+      );
     }
-    if (config?.proverBackend?.endpoint && this.proverBackend !== 'remote') {
-      this.logger.warn('endpoint is set but prover backend kind is not "remote" — endpoint will be ignored');
+    if (config?.proverBackend?.endpoint && this.proverBackend !== "remote") {
+      this.logger.warn(
+        'endpoint is set but prover backend kind is not "remote" — endpoint will be ignored',
+      );
     }
   }
 
@@ -147,7 +168,7 @@ export class ProofEngine implements ProofGenerator {
       if (cached) {
         this._cacheHits++;
         this.metrics?.counter(TELEMETRY_METRIC_NAMES.PROOF_CACHE_HITS);
-        this.logger.debug('Proof cache hit');
+        this.logger.debug("Proof cache hit");
         return { ...cached, fromCache: true };
       }
       this._cacheMisses++;
@@ -156,27 +177,24 @@ export class ProofEngine implements ProofGenerator {
 
     // Generate proof via SDK
     const startTime = Date.now();
-    const useRealProver = this.proverBackend === 'local-binary' || this.proverBackend === 'remote';
+    if (!this.proverBackendConfig) {
+      throw new ProofGenerationError(
+        "ProofEngine requires an explicit proverBackend configuration (local-binary or remote)",
+      );
+    }
     let sdkResult;
     try {
-      if (useRealProver) {
-        const sdkProverConfig = buildSdkProverConfig(this.proverBackendConfig!);
-        sdkResult = await sdkGenerateProofWithProver({
+      const sdkProverConfig = buildSdkProverConfig(this.proverBackendConfig);
+      sdkResult = await sdkGenerateProof(
+        {
           taskPda: inputs.taskPda,
           agentPubkey: inputs.agentPubkey,
           output: inputs.output,
           salt: inputs.salt,
           agentSecret: inputs.agentSecret,
-        }, sdkProverConfig);
-      } else {
-        sdkResult = await sdkGenerateProof({
-          taskPda: inputs.taskPda,
-          agentPubkey: inputs.agentPubkey,
-          output: inputs.output,
-          salt: inputs.salt,
-          agentSecret: inputs.agentSecret,
-        });
-      }
+        },
+        sdkProverConfig,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new ProofGenerationError(message);
@@ -186,10 +204,14 @@ export class ProofEngine implements ProofGenerator {
     if (this.methodId) {
       const generatedMethodId = new Uint8Array(sdkResult.imageId);
       if (generatedMethodId.length !== METHOD_ID_LEN) {
-        throw new ProofGenerationError(`imageId must be ${METHOD_ID_LEN} bytes`);
+        throw new ProofGenerationError(
+          `imageId must be ${METHOD_ID_LEN} bytes`,
+        );
       }
       if (!Buffer.from(generatedMethodId).equals(Buffer.from(this.methodId))) {
-        throw new ProofGenerationError('Generated imageId does not match configured methodId');
+        throw new ProofGenerationError(
+          "Generated imageId does not match configured methodId",
+        );
       }
     }
 
@@ -208,36 +230,17 @@ export class ProofEngine implements ProofGenerator {
 
     this._proofsGenerated++;
     this._totalGenerationTimeMs += generationTimeMs;
-    this.metrics?.histogram(TELEMETRY_METRIC_NAMES.PROOF_GENERATION_DURATION, generationTimeMs);
+    this.metrics?.histogram(
+      TELEMETRY_METRIC_NAMES.PROOF_GENERATION_DURATION,
+      generationTimeMs,
+    );
 
-    // Verify if configured
+    // Note: verifyAfterGeneration is a no-op — local verification was removed.
+    // On-chain Verifier Router CPI is the authoritative verification.
     if (this.verifyAfterGeneration) {
-      if (useRealProver) {
-        // verifyProofLocally() only verifies the simulated XOR transform and would
-        // always return false for real Groth16 proofs. On-chain Verifier Router CPI
-        // is the authoritative verification for real prover backends.
-        this.logger.warn('verifyAfterGeneration is not supported with real prover backends — on-chain Verifier Router CPI is the authoritative verification');
-      } else {
-        this._verificationsPerformed++;
-        try {
-          const valid = await sdkVerifyProofLocally(
-            sdkResult.sealBytes,
-            sdkResult.journal,
-          );
-          if (!valid) {
-            this._verificationsFailed++;
-            throw new ProofVerificationError('Generated proof failed local verification');
-          }
-          result.verified = true;
-        } catch (err) {
-          if (err instanceof ProofVerificationError) {
-            throw err;
-          }
-          this._verificationsFailed++;
-          const message = err instanceof Error ? err.message : String(err);
-          throw new ProofVerificationError(message);
-        }
-      }
+      this.logger.warn(
+        "verifyAfterGeneration is not supported — on-chain Verifier Router CPI is the authoritative verification",
+      );
     }
 
     // Cache result
@@ -250,29 +253,16 @@ export class ProofEngine implements ProofGenerator {
   }
 
   /**
-   * Verify a proof locally against its journal.
-   */
-  async verify(proof: Uint8Array, journal: Uint8Array): Promise<boolean> {
-    this._verificationsPerformed++;
-    try {
-      const proofBuffer = Buffer.from(proof);
-      const valid = await sdkVerifyProofLocally(proofBuffer, Buffer.from(journal));
-      if (!valid) {
-        this._verificationsFailed++;
-      }
-      return valid;
-    } catch (err) {
-      this._verificationsFailed++;
-      const message = err instanceof Error ? err.message : String(err);
-      throw new ProofVerificationError(message);
-    }
-  }
-
-  /**
    * Compute hashes (constraintHash, outputCommitment, binding) without generating a proof.
    */
   computeHashes(inputs: ProofInputs): HashResult {
-    return sdkComputeHashes(inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret);
+    return sdkComputeHashes(
+      inputs.taskPda,
+      inputs.agentPubkey,
+      inputs.output,
+      inputs.salt,
+      inputs.agentSecret,
+    );
   }
 
   /**

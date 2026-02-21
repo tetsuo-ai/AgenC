@@ -59,7 +59,7 @@ export {
   type DisputeEventFilterOptions,
   type ProtocolEventCallbacks,
   type ProtocolEventFilterOptions,
-} from './types.js';
+} from "./types.js";
 
 // NOTE: Raw event interfaces (RawTaskCreatedEvent, etc.) are intentionally NOT
 // exported from this barrel. They are implementation details used by parse functions
@@ -92,7 +92,7 @@ export {
   parseBondReleasedEvent,
   parseBondSlashedEvent,
   parseSpeculativeCommitmentCreatedEvent,
-} from './parse.js';
+} from "./parse.js";
 
 // Task subscriptions
 export {
@@ -102,7 +102,7 @@ export {
   subscribeToTaskCancelled,
   subscribeToDependentTaskCreated,
   subscribeToAllTaskEvents,
-} from './task.js';
+} from "./task.js";
 
 // Dispute subscriptions
 export {
@@ -113,7 +113,7 @@ export {
   subscribeToDisputeCancelled,
   subscribeToArbiterVotesCleanedUp,
   subscribeToAllDisputeEvents,
-} from './dispute.js';
+} from "./dispute.js";
 
 // Protocol subscriptions
 export {
@@ -132,17 +132,17 @@ export {
   subscribeToBondSlashed,
   subscribeToSpeculativeCommitmentCreated,
   subscribeToAllProtocolEvents,
-} from './protocol.js';
+} from "./protocol.js";
 
 // Event subscription factory
 export {
   createEventSubscription,
   type EventSubscriptionConfig,
-} from './factory.js';
+} from "./factory.js";
 
 // EventMonitor class
 export {
   EventMonitor,
   type EventMonitorConfig,
   type EventMonitorMetrics,
-} from './monitor.js';
+} from "./monitor.js";

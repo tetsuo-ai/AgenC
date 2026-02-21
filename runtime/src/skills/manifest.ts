@@ -4,12 +4,12 @@
  * @module
  */
 
-import { isRecord, isStringArray } from '../utils/type-guards.js';
+import { isRecord, isStringArray } from "../utils/type-guards.js";
 
 /** Permission a plugin requests. */
 export interface PluginPermission {
   /** Permission type. */
-  type: 'tool_call' | 'network' | 'filesystem' | 'wallet_sign';
+  type: "tool_call" | "network" | "filesystem" | "wallet_sign";
 
   /** Scope this permission applies to. */
   scope: string;
@@ -79,78 +79,88 @@ export class PluginManifestError extends Error {
     super(
       `Plugin manifest validation failed: ${errors
         .map((entry) => `[${entry.pluginId}] ${entry.message}`)
-        .join('; ')}`,
+        .join("; ")}`,
     );
-    this.name = 'PluginManifestError';
+    this.name = "PluginManifestError";
     this.errors = errors;
   }
 }
 
 const VALID_PLUGIN_ID = /^[a-z][a-z0-9._-]*$/;
 
-const VALID_PERMISSION_TYPES = ['tool_call', 'network', 'filesystem', 'wallet_sign'];
+const VALID_PERMISSION_TYPES = [
+  "tool_call",
+  "network",
+  "filesystem",
+  "wallet_sign",
+];
 
 /**
  * Validate a single plugin manifest and return structured errors.
  */
-export function validatePluginManifest(manifest: unknown): ManifestValidationError[] {
+export function validatePluginManifest(
+  manifest: unknown,
+): ManifestValidationError[] {
   const errors: ManifestValidationError[] = [];
 
   if (!isRecord(manifest)) {
     errors.push({
-      pluginId: 'unknown',
-      field: 'root',
-      message: 'Manifest must be an object',
+      pluginId: "unknown",
+      field: "root",
+      message: "Manifest must be an object",
       value: manifest,
     });
     return errors;
   }
 
-  const pluginId = typeof manifest.id === 'string' ? manifest.id : 'unknown';
+  const pluginId = typeof manifest.id === "string" ? manifest.id : "unknown";
 
-  if (typeof manifest.id !== 'string' || manifest.id.length === 0) {
+  if (typeof manifest.id !== "string" || manifest.id.length === 0) {
     errors.push({
       pluginId,
-      field: 'id',
-      message: 'Plugin id is required and must be a non-empty string',
+      field: "id",
+      message: "Plugin id is required and must be a non-empty string",
       value: manifest.id,
     });
   } else if (!VALID_PLUGIN_ID.test(manifest.id)) {
     errors.push({
       pluginId,
-      field: 'id',
-      message: 'Plugin id must match pattern: ^[a-z][a-z0-9._-]*$',
+      field: "id",
+      message: "Plugin id must match pattern: ^[a-z][a-z0-9._-]*$",
       value: manifest.id,
     });
   }
 
-  if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
+  if (typeof manifest.version !== "string" || manifest.version.length === 0) {
     errors.push({
       pluginId,
-      field: 'version',
-      message: 'Version is required',
+      field: "version",
+      message: "Version is required",
       value: manifest.version,
     });
   }
 
   if (
-    typeof manifest.schemaVersion !== 'number'
-    || !Number.isInteger(manifest.schemaVersion)
-    || manifest.schemaVersion < 1
+    typeof manifest.schemaVersion !== "number" ||
+    !Number.isInteger(manifest.schemaVersion) ||
+    manifest.schemaVersion < 1
   ) {
     errors.push({
       pluginId,
-      field: 'schemaVersion',
-      message: 'schemaVersion must be a positive integer',
+      field: "schemaVersion",
+      message: "schemaVersion must be a positive integer",
       value: manifest.schemaVersion,
     });
   }
 
-  if (typeof manifest.displayName !== 'string' || manifest.displayName.length === 0) {
+  if (
+    typeof manifest.displayName !== "string" ||
+    manifest.displayName.length === 0
+  ) {
     errors.push({
       pluginId,
-      field: 'displayName',
-      message: 'displayName is required',
+      field: "displayName",
+      message: "displayName is required",
       value: manifest.displayName,
     });
   }
@@ -158,8 +168,8 @@ export function validatePluginManifest(manifest: unknown): ManifestValidationErr
   if (!isStringArray(manifest.labels)) {
     errors.push({
       pluginId,
-      field: 'labels',
-      message: 'labels must be an array of strings',
+      field: "labels",
+      message: "labels must be an array of strings",
       value: manifest.labels,
     });
   }
@@ -167,8 +177,8 @@ export function validatePluginManifest(manifest: unknown): ManifestValidationErr
   if (!Array.isArray(manifest.permissions)) {
     errors.push({
       pluginId,
-      field: 'permissions',
-      message: 'permissions must be an array',
+      field: "permissions",
+      message: "permissions must be an array",
       value: manifest.permissions,
     });
     return errors;
@@ -179,35 +189,35 @@ export function validatePluginManifest(manifest: unknown): ManifestValidationErr
       errors.push({
         pluginId,
         field: `permissions[${index}]`,
-        message: 'Permission must be an object',
+        message: "Permission must be an object",
         value: permission,
       });
       continue;
     }
 
-    if (typeof permission.scope !== 'string') {
+    if (typeof permission.scope !== "string") {
       errors.push({
         pluginId,
         field: `permissions[${index}].scope`,
-        message: 'Permission scope must be a string',
+        message: "Permission scope must be a string",
         value: permission.scope,
       });
     }
 
-    if (typeof permission.required !== 'boolean') {
+    if (typeof permission.required !== "boolean") {
       errors.push({
         pluginId,
         field: `permissions[${index}].required`,
-        message: 'Permission required flag must be a boolean',
+        message: "Permission required flag must be a boolean",
         value: permission.required,
       });
-  }
+    }
 
     if (!VALID_PERMISSION_TYPES.includes(permission.type as string)) {
       errors.push({
         pluginId,
         field: `permissions[${index}].type`,
-        message: `Permission type must be one of: ${VALID_PERMISSION_TYPES.join(', ')}`,
+        message: `Permission type must be one of: ${VALID_PERMISSION_TYPES.join(", ")}`,
         value: permission.type,
       });
     }
@@ -220,22 +230,22 @@ export function validatePluginManifest(manifest: unknown): ManifestValidationErr
   if (!isRecord(manifest.allowDeny)) {
     errors.push({
       pluginId,
-      field: 'allowDeny',
-      message: 'allowDeny must be an object',
+      field: "allowDeny",
+      message: "allowDeny must be an object",
       value: manifest.allowDeny,
     });
     return errors;
   }
 
-  if (!('allow' in manifest.allowDeny) && !('deny' in manifest.allowDeny)) {
+  if (!("allow" in manifest.allowDeny) && !("deny" in manifest.allowDeny)) {
     return errors;
   }
 
   if (!isStringArray((manifest.allowDeny as PluginAllowDeny).allow)) {
     errors.push({
       pluginId,
-      field: 'allowDeny.allow',
-      message: 'allow must be an array of strings',
+      field: "allowDeny.allow",
+      message: "allow must be an array of strings",
       value: manifest.allowDeny.allow,
     });
   }
@@ -243,8 +253,8 @@ export function validatePluginManifest(manifest: unknown): ManifestValidationErr
   if (!isStringArray((manifest.allowDeny as PluginAllowDeny).deny)) {
     errors.push({
       pluginId,
-      field: 'allowDeny.deny',
-      message: 'deny must be an array of strings',
+      field: "allowDeny.deny",
+      message: "deny must be an array of strings",
       value: manifest.allowDeny.deny,
     });
   }
@@ -255,14 +265,18 @@ export function validatePluginManifest(manifest: unknown): ManifestValidationErr
 /**
  * Validate a plugins config object and return all discovered errors.
  */
-export function validatePluginsConfig(config: unknown): ManifestValidationError[] {
+export function validatePluginsConfig(
+  config: unknown,
+): ManifestValidationError[] {
   if (!isRecord(config)) {
-    return [{
-      pluginId: 'unknown',
-      field: 'root',
-      message: 'Plugins config must be an object',
-      value: config,
-    }];
+    return [
+      {
+        pluginId: "unknown",
+        field: "root",
+        message: "Plugins config must be an object",
+        value: config,
+      },
+    ];
   }
 
   const errors: ManifestValidationError[] = [];
@@ -274,9 +288,9 @@ export function validatePluginsConfig(config: unknown): ManifestValidationError[
 
   if (!isRecord(typedConfig.entries)) {
     errors.push({
-      pluginId: 'config',
-      field: 'entries',
-      message: 'entries must be an object',
+      pluginId: "config",
+      field: "entries",
+      message: "entries must be an object",
       value: typedConfig.entries,
     });
   } else {
@@ -284,47 +298,54 @@ export function validatePluginsConfig(config: unknown): ManifestValidationError[
     const knownIds = new Set(Object.keys(entries));
 
     for (const [pluginId, manifest] of Object.entries(entries)) {
-      if (!isRecord(manifest) || !('id' in manifest)) {
+      if (!isRecord(manifest) || !("id" in manifest)) {
         errors.push({
           pluginId,
-          field: 'manifest',
-          message: 'Manifest must be an object',
+          field: "manifest",
+          message: "Manifest must be an object",
           value: manifest,
         });
         continue;
       }
 
-      const declaredId = typeof manifest.id === 'string' ? manifest.id : pluginId;
+      const declaredId =
+        typeof manifest.id === "string" ? manifest.id : pluginId;
 
       if (declaredId !== pluginId) {
         errors.push({
           pluginId,
-          field: 'id',
+          field: "id",
           message: `Manifest id "${declaredId}" does not match config key "${pluginId}"`,
         });
       }
 
-      errors.push(...validatePluginManifest(manifest).map((error) => ({
-        ...error,
-        pluginId,
-      })));
+      errors.push(
+        ...validatePluginManifest(manifest).map((error) => ({
+          ...error,
+          pluginId,
+        })),
+      );
     }
 
-    for (const allowedId of isStringArray(typedConfig.allow) ? typedConfig.allow : []) {
+    for (const allowedId of isStringArray(typedConfig.allow)
+      ? typedConfig.allow
+      : []) {
       if (!knownIds.has(allowedId)) {
         errors.push({
           pluginId: allowedId,
-          field: 'allow',
+          field: "allow",
           message: `Plugin "${allowedId}" in allow list is not declared in entries`,
         });
       }
     }
 
-    for (const deniedId of isStringArray(typedConfig.deny) ? typedConfig.deny : []) {
+    for (const deniedId of isStringArray(typedConfig.deny)
+      ? typedConfig.deny
+      : []) {
       if (!knownIds.has(deniedId)) {
         errors.push({
           pluginId: deniedId,
-          field: 'deny',
+          field: "deny",
           message: `Plugin "${deniedId}" in deny list is not declared in entries`,
         });
       }
@@ -333,18 +354,18 @@ export function validatePluginsConfig(config: unknown): ManifestValidationError[
 
   if (typedConfig.allow !== undefined && !isStringArray(typedConfig.allow)) {
     errors.push({
-      pluginId: 'config',
-      field: 'allow',
-      message: 'allow must be an array of strings',
+      pluginId: "config",
+      field: "allow",
+      message: "allow must be an array of strings",
       value: typedConfig.allow,
     });
   }
 
   if (typedConfig.deny !== undefined && !isStringArray(typedConfig.deny)) {
     errors.push({
-      pluginId: 'config',
-      field: 'deny',
-      message: 'deny must be an array of strings',
+      pluginId: "config",
+      field: "deny",
+      message: "deny must be an array of strings",
       value: typedConfig.deny,
     });
   }

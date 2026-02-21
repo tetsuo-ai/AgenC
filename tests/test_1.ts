@@ -2,7 +2,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -19,23 +24,29 @@ import {
   deriveEscrowPda as _deriveEscrowPda,
   deriveClaimPda as _deriveClaimPda,
   deriveProgramDataPda,
+  disableRateLimitsForTests,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount, advanceClock, getClockTimestamp } from "./litesvm-helpers";
+import {
+  createLiteSVMContext,
+  fundAccount,
+  advanceClock,
+  getClockTimestamp,
+} from "./litesvm-helpers";
 
 describe("test_1", () => {
   const { svm, provider, program } = createLiteSVMContext();
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   // Generate unique run ID to prevent conflicts with persisted validator state
   const runId = generateRunId();
 
   let treasury: Keypair;
-  let treasuryPubkey: PublicKey;  // Actual treasury from protocol config
-  let secondSigner: Keypair;  // Required for protocol initialization (fix #556)
+  let treasuryPubkey: PublicKey; // Actual treasury from protocol config
+  let secondSigner: Keypair; // Required for protocol initialization (fix #556)
   let creator: Keypair;
   let worker1: Keypair;
   let worker2: Keypair;
@@ -47,7 +58,6 @@ describe("test_1", () => {
   let agentId2: Buffer;
   let agentId3: Buffer;
   let creatorAgentId: Buffer;
-
 
   // PDA helpers close over program.programId for convenience (2-arg variants)
   function deriveAgentPda(agentId: Buffer): PublicKey {
@@ -62,7 +72,10 @@ describe("test_1", () => {
     return _deriveEscrowPda(taskPda, program.programId);
   }
 
-  function deriveClaimPda(taskPda: PublicKey, workerPubkey: PublicKey): PublicKey {
+  function deriveClaimPda(
+    taskPda: PublicKey,
+    workerPubkey: PublicKey,
+  ): PublicKey {
     return _deriveClaimPda(taskPda, workerPubkey, program.programId);
   }
 
@@ -71,12 +84,16 @@ describe("test_1", () => {
     return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
   }
 
-
   // Counter for generating unique agent names within tests
   let testAgentCounter = 0;
 
   // Pre-funded worker pool for fast test execution
-  const workerPool: Array<{ wallet: Keypair; agentId: Buffer; agentPda: PublicKey; inUse: boolean }> = [];
+  const workerPool: Array<{
+    wallet: Keypair;
+    agentId: Buffer;
+    agentPda: PublicKey;
+    inUse: boolean;
+  }> = [];
   const WORKER_POOL_SIZE = 50; // Pre-create workers to avoid airdrop delays
 
   // Initialize worker pool (called once in before())
@@ -101,7 +118,7 @@ describe("test_1", () => {
           new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
           `https://pool-worker-${i}.example.com`,
           null,
-          new BN(LAMPORTS_PER_SOL / 10)
+          new BN(LAMPORTS_PER_SOL / 10),
         )
         .accountsPartial({
           agent: agentPda,
@@ -118,27 +135,41 @@ describe("test_1", () => {
   }
 
   // Get a worker from the pool (fast - no airdrop needed)
-  function getPooledWorker(): { wallet: Keypair; agentId: Buffer; agentPda: PublicKey } {
-    const worker = workerPool.find(w => !w.inUse);
+  function getPooledWorker(): {
+    wallet: Keypair;
+    agentId: Buffer;
+    agentPda: PublicKey;
+  } {
+    const worker = workerPool.find((w) => !w.inUse);
     if (!worker) {
       throw new Error("Worker pool exhausted! Increase WORKER_POOL_SIZE");
     }
     worker.inUse = true;
-    return { wallet: worker.wallet, agentId: worker.agentId, agentPda: worker.agentPda };
+    return {
+      wallet: worker.wallet,
+      agentId: worker.agentId,
+      agentPda: worker.agentPda,
+    };
   }
 
   // Helper to create a fresh worker agent for a test (avoids MaxActiveTasksReached)
   // Now uses pool when possible, falls back to creating new worker if pool exhausted
-  async function createFreshWorker(capabilities: number = CAPABILITY_COMPUTE): Promise<{
+  async function createFreshWorker(
+    capabilities: number = CAPABILITY_COMPUTE,
+  ): Promise<{
     wallet: Keypair;
     agentId: Buffer;
     agentPda: PublicKey;
   }> {
     // Try to get from pool first (fast path)
-    const poolWorker = workerPool.find(w => !w.inUse);
+    const poolWorker = workerPool.find((w) => !w.inUse);
     if (poolWorker) {
       poolWorker.inUse = true;
-      return { wallet: poolWorker.wallet, agentId: poolWorker.agentId, agentPda: poolWorker.agentPda };
+      return {
+        wallet: poolWorker.wallet,
+        agentId: poolWorker.agentId,
+        agentPda: poolWorker.agentPda,
+      };
     }
 
     // Fallback: create new worker
@@ -155,7 +186,7 @@ describe("test_1", () => {
         new BN(capabilities),
         `https://test-worker-${testAgentCounter}.example.com`,
         null,
-        new BN(LAMPORTS_PER_SOL / 10)
+        new BN(LAMPORTS_PER_SOL / 10),
       )
       .accountsPartial({
         agent: agentPda,
@@ -170,7 +201,7 @@ describe("test_1", () => {
 
   before(async () => {
     treasury = Keypair.generate();
-    secondSigner = Keypair.generate();  // Required for protocol initialization (fix #556)
+    secondSigner = Keypair.generate(); // Required for protocol initialization (fix #556)
     creator = Keypair.generate();
     worker1 = Keypair.generate();
     worker2 = Keypair.generate();
@@ -183,7 +214,14 @@ describe("test_1", () => {
     creatorAgentId = Buffer.from(`cre-${runId}`.padEnd(32, "\0"));
 
     const airdropAmount = 100 * LAMPORTS_PER_SOL;
-    const wallets = [treasury, secondSigner, creator, worker1, worker2, worker3];
+    const wallets = [
+      treasury,
+      secondSigner,
+      creator,
+      worker1,
+      worker2,
+      worker3,
+    ];
 
     // Fund all wallets instantly via LiteSVM
     for (const wallet of wallets) {
@@ -197,65 +235,78 @@ describe("test_1", () => {
       // - second_signer different from authority
       // - both authority and second_signer in multisig_owners
       // - threshold < multisig_owners.length
-      const minStake = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL = 10_000_000 lamports
-      const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL
+      const minStake = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL = 10_000_000 lamports
+      const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
       const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
         .initializeProtocol(
-          51,                // dispute_threshold
-          100,               // protocol_fee_bps
-          minStake,          // min_stake
+          51, // dispute_threshold
+          100, // protocol_fee_bps
+          minStake, // min_stake
           minStakeForDispute, // min_stake_for_dispute (new arg)
-          1,                 // multisig_threshold (must be < owners.length)
-          [provider.wallet.publicKey, secondSigner.publicKey]  // multisig_owners (need at least 2)
+          1, // multisig_threshold (must be < owners.length)
+          [provider.wallet.publicKey, secondSigner.publicKey], // multisig_owners (need at least 2)
         )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
-          secondSigner: secondSigner.publicKey,  // new account (fix #556)
+          secondSigner: secondSigner.publicKey, // new account (fix #556)
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([secondSigner])
         .rpc();
       treasuryPubkey = secondSigner.publicKey;
     } catch (e: unknown) {
       // Protocol may already be initialized by another test file
       // Read the actual treasury from protocol config
-      const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
+      const protocolConfig =
+        await program.account.protocolConfig.fetch(protocolPda);
       treasuryPubkey = protocolConfig.treasury;
     }
 
-    // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(
-          new BN(0),  // task_creation_cooldown = 0 (disabled)
-          0,          // max_tasks_per_24h = 0 (unlimited)
-          new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
-          0,          // max_disputes_per_24h = 0 (unlimited)
-          new BN(0)   // min_stake_for_dispute = 0
-        )
-        .accountsPartial({
-          protocolConfig: protocolPda,
-        })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
-        .rpc({ skipPreflight: true });
-    } catch (e: any) {
-      // May already be configured
-    }
+    // Disable rate limiting for tests (cooldowns=0, per-24h=unlimited)
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+    });
 
     creatorAgentPda = deriveAgentPda(creatorAgentId);
 
     // Register agents (handle already registered gracefully)
     const agents = [
-      { id: creatorAgentId, capabilities: CAPABILITY_COMPUTE, endpoint: "https://creator.example.com", wallet: creator },
-      { id: agentId1, capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE, endpoint: "https://worker1.example.com", wallet: worker1 },
-      { id: agentId2, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker2.example.com", wallet: worker2 },
-      { id: agentId3, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker3.example.com", wallet: worker3 },
+      {
+        id: creatorAgentId,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://creator.example.com",
+        wallet: creator,
+      },
+      {
+        id: agentId1,
+        capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE,
+        endpoint: "https://worker1.example.com",
+        wallet: worker1,
+      },
+      {
+        id: agentId2,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker2.example.com",
+        wallet: worker2,
+      },
+      {
+        id: agentId3,
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker3.example.com",
+        wallet: worker3,
+      },
     ];
 
     for (const agent of agents) {
@@ -266,7 +317,7 @@ describe("test_1", () => {
             new BN(agent.capabilities),
             agent.endpoint,
             null,
-            new BN(LAMPORTS_PER_SOL / 100)
+            new BN(LAMPORTS_PER_SOL / 100),
           )
           .accountsPartial({
             agent: deriveAgentPda(agent.id),
@@ -291,10 +342,34 @@ describe("test_1", () => {
   // and ensures agents are registered even if before() had issues
   beforeEach(async () => {
     const agentsToCheck = [
-      { id: agentId1, wallet: worker1, name: "agentId1", capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE, endpoint: "https://worker1.example.com" },
-      { id: agentId2, wallet: worker2, name: "agentId2", capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker2.example.com" },
-      { id: agentId3, wallet: worker3, name: "agentId3", capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker3.example.com" },
-      { id: creatorAgentId, wallet: creator, name: "creatorAgentId", capabilities: CAPABILITY_COMPUTE, endpoint: "https://creator.example.com" },
+      {
+        id: agentId1,
+        wallet: worker1,
+        name: "agentId1",
+        capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE,
+        endpoint: "https://worker1.example.com",
+      },
+      {
+        id: agentId2,
+        wallet: worker2,
+        name: "agentId2",
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker2.example.com",
+      },
+      {
+        id: agentId3,
+        wallet: worker3,
+        name: "agentId3",
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://worker3.example.com",
+      },
+      {
+        id: creatorAgentId,
+        wallet: creator,
+        name: "creatorAgentId",
+        capabilities: CAPABILITY_COMPUTE,
+        endpoint: "https://creator.example.com",
+      },
     ];
 
     const failedAgents: string[] = [];
@@ -302,13 +377,14 @@ describe("test_1", () => {
     for (const agent of agentsToCheck) {
       const agentPda = deriveAgentPda(agent.id);
       try {
-        const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+        const agentAccount =
+          await program.account.agentRegistration.fetch(agentPda);
 
         // If agent is inactive, reactivate it (status values: 0=Inactive, 1=Active)
-        if (agentAccount.status && 'inactive' in agentAccount.status) {
-          advanceClock(svm, 61);  // satisfy update cooldown
+        if (agentAccount.status && "inactive" in agentAccount.status) {
+          advanceClock(svm, 61); // satisfy update cooldown
           await program.methods
-            .updateAgent(null, null, null, 1)  // 1 = Active status
+            .updateAgent(null, null, null, 1) // 1 = Active status
             .accountsPartial({
               agent: agentPda,
               authority: agent.wallet.publicKey,
@@ -325,7 +401,7 @@ describe("test_1", () => {
               new BN(agent.capabilities),
               agent.endpoint,
               null,
-              new BN(LAMPORTS_PER_SOL / 100)
+              new BN(LAMPORTS_PER_SOL / 100),
             )
             .accountsPartial({
               agent: agentPda,
@@ -338,20 +414,25 @@ describe("test_1", () => {
           // If registration fails with "already in use", agent was registered by another test
           if (!regError.message?.includes("already in use")) {
             failedAgents.push(agent.name);
-            console.error(`Failed to register agent ${agent.name}:`, regError.message);
+            console.error(
+              `Failed to register agent ${agent.name}:`,
+              regError.message,
+            );
           }
         }
       }
     }
 
     if (failedAgents.length > 0) {
-      throw new Error(`Failed to register agents: ${failedAgents.join(', ')}`);
+      throw new Error(`Failed to register agents: ${failedAgents.join(", ")}`);
     }
   });
 
   describe("create_task Happy Paths", () => {
     it("Exclusive task creation with Open state", async () => {
-      const taskId001 = Buffer.from("task-000000000000000000000001".padEnd(32, "\0"));
+      const taskId001 = Buffer.from(
+        "task-000000000000000000000001".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId001);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -364,7 +445,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -392,7 +473,9 @@ describe("test_1", () => {
     });
 
     it("Collaborative task with required_completions validation", async () => {
-      const taskId002 = Buffer.from("task-000000000000000000000002".padEnd(32, "\0"));
+      const taskId002 = Buffer.from(
+        "task-000000000000000000000002".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId002);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -405,7 +488,7 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -433,7 +516,9 @@ describe("test_1", () => {
     });
 
     it("Competitive task with multiple slots", async () => {
-      const taskId003 = Buffer.from("task-000000000000000000000003".padEnd(32, "\0"));
+      const taskId003 = Buffer.from(
+        "task-000000000000000000000003".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId003);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -446,7 +531,7 @@ describe("test_1", () => {
           5,
           getDefaultDeadline(),
           TASK_TYPE_COMPETITIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -473,12 +558,16 @@ describe("test_1", () => {
     });
 
     it("Reward transfer to escrow validation", async () => {
-      const taskId004 = Buffer.from("task-000000000000000000000004".padEnd(32, "\0"));
+      const taskId004 = Buffer.from(
+        "task-000000000000000000000004".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId004);
       const escrowPda = deriveEscrowPda(taskPda);
       const rewardAmount = 2 * LAMPORTS_PER_SOL;
 
-      const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+      const creatorBalanceBefore = await provider.connection.getBalance(
+        creator.publicKey,
+      );
 
       await program.methods
         .createTask(
@@ -489,7 +578,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -514,13 +603,20 @@ describe("test_1", () => {
       expect(escrow.amount.toNumber()).to.equal(rewardAmount);
       expect(escrow.distributed.toNumber()).to.equal(0);
 
-      const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
+      const creatorBalanceAfter = await provider.connection.getBalance(
+        creator.publicKey,
+      );
       // Creator pays reward + rent for task & escrow accounts + tx fee, use closeTo for rent/fee variations
-      expect(creatorBalanceBefore - creatorBalanceAfter).to.be.closeTo(rewardAmount, 5_000_000);
+      expect(creatorBalanceBefore - creatorBalanceAfter).to.be.closeTo(
+        rewardAmount,
+        5_000_000,
+      );
     });
 
     it("Zero-reward task handling - rejects zero reward", async () => {
-      const taskId005 = Buffer.from("task-000000000000000000000005".padEnd(32, "\0"));
+      const taskId005 = Buffer.from(
+        "task-000000000000000000000005".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId005);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -535,7 +631,7 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
             null, // reward_mint
           )
@@ -565,7 +661,9 @@ describe("test_1", () => {
 
   describe("create_task Rejection Cases", () => {
     it("Non-creator authority rejection", async () => {
-      const taskId006 = Buffer.from("task-000000000000000000000006".padEnd(32, "\0"));
+      const taskId006 = Buffer.from(
+        "task-000000000000000000000006".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId006);
       const escrowPda = deriveEscrowPda(taskPda);
       const unauthorized = Keypair.generate();
@@ -603,13 +701,19 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("max_workers == 0 rejection", async () => {
-      const taskId007 = Buffer.from("task-000000000000000000000007".padEnd(32, "\0"));
+      const taskId007 = Buffer.from(
+        "task-000000000000000000000007".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId007);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -646,13 +750,19 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Past deadline rejection", async () => {
-      const taskId008 = Buffer.from("task-000000000000000000000008".padEnd(32, "\0"));
+      const taskId008 = Buffer.from(
+        "task-000000000000000000000008".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId008);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -691,13 +801,19 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Invalid task type rejection", async () => {
-      const taskId009 = Buffer.from("task-000000000000000000000009".padEnd(32, "\0"));
+      const taskId009 = Buffer.from(
+        "task-000000000000000000000009".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId009);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -734,8 +850,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
   });
@@ -743,7 +863,9 @@ describe("test_1", () => {
   describe("claim_task Happy Paths", () => {
     it("Single claim on Open task", async () => {
       const worker = await createFreshWorker();
-      const taskId010 = Buffer.from("task-000000000000000000000010".padEnd(32, "\0"));
+      const taskId010 = Buffer.from(
+        "task-000000000000000000000010".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId010);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -756,7 +878,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -798,7 +920,9 @@ describe("test_1", () => {
     it("Multiple claims on collaborative task", async () => {
       const worker1 = await createFreshWorker();
       const worker2 = await createFreshWorker();
-      const taskId011 = Buffer.from("task-000000000000000000000011".padEnd(32, "\0"));
+      const taskId011 = Buffer.from(
+        "task-000000000000000000000011".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId011);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -811,7 +935,7 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -865,7 +989,9 @@ describe("test_1", () => {
       const worker1 = await createFreshWorker();
       const worker2 = await createFreshWorker();
       const worker3 = await createFreshWorker();
-      const taskId012 = Buffer.from("task-000000000000000000000012".padEnd(32, "\0"));
+      const taskId012 = Buffer.from(
+        "task-000000000000000000000012".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId012);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -878,7 +1004,7 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -947,7 +1073,9 @@ describe("test_1", () => {
   describe("claim_task Rejection Cases", () => {
     it("Non-worker authority rejection", async () => {
       const worker = await createFreshWorker();
-      const taskId013 = Buffer.from("task-000000000000000000000013".padEnd(32, "\0"));
+      const taskId013 = Buffer.from(
+        "task-000000000000000000000013".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId013);
       const escrowPda = deriveEscrowPda(taskPda);
       const unauthorized = Keypair.generate();
@@ -961,7 +1089,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -999,21 +1127,27 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Inactive agent rejection", async () => {
       const worker = await createFreshWorker();
-      const taskId014 = Buffer.from("task-000000000000000000000014".padEnd(32, "\0"));
+      const taskId014 = Buffer.from(
+        "task-000000000000000000000014".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId014);
       const escrowPda = deriveEscrowPda(taskPda);
 
       // Deactivate the fresh worker (advance clock to satisfy update cooldown)
       advanceClock(svm, 61);
       await program.methods
-        .updateAgent(null, null, null, 0)  // 0 = Inactive
+        .updateAgent(null, null, null, 0) // 0 = Inactive
         .accountsPartial({
           agent: worker.agentPda,
           authority: worker.wallet.publicKey,
@@ -1030,7 +1164,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1068,8 +1202,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
 
       // Note: Don't reactivate the worker - agent update cooldown prevents immediate reactivation
@@ -1077,21 +1215,23 @@ describe("test_1", () => {
     });
 
     it("Insufficient capabilities rejection", async () => {
-      const worker = await createFreshWorker();  // has CAPABILITY_COMPUTE only
-      const taskId015 = Buffer.from("task-000000000000000000000015".padEnd(32, "\0"));
+      const worker = await createFreshWorker(); // has CAPABILITY_COMPUTE only
+      const taskId015 = Buffer.from(
+        "task-000000000000000000000015".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId015);
       const escrowPda = deriveEscrowPda(taskPda);
 
       await program.methods
         .createTask(
           Array.from(taskId015),
-          new BN(1 << 5),  // Requires capability that worker doesn't have
+          new BN(1 << 5), // Requires capability that worker doesn't have
           Buffer.from("Capability check task".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100),
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1129,15 +1269,21 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Claim on Completed task rejection", async () => {
       const worker1 = await createFreshWorker();
       const worker2 = await createFreshWorker();
-      const taskId016 = Buffer.from("task-000000000000000000000016".padEnd(32, "\0"));
+      const taskId016 = Buffer.from(
+        "task-000000000000000000000016".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId016);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1150,7 +1296,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1221,14 +1367,20 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Claim on Cancelled task rejection", async () => {
       const worker = await createFreshWorker();
-      const taskId017 = Buffer.from("task-000000000000000000000017".padEnd(32, "\0"));
+      const taskId017 = Buffer.from(
+        "task-000000000000000000000017".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId017);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1241,7 +1393,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1295,13 +1447,19 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Claim after deadline rejection", async () => {
-      const taskId019 = Buffer.from("task-000000000000000000000019".padEnd(32, "\0"));
+      const taskId019 = Buffer.from(
+        "task-000000000000000000000019".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId019);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1340,8 +1498,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
@@ -1349,7 +1511,9 @@ describe("test_1", () => {
       const worker1 = await createFreshWorker();
       const worker2 = await createFreshWorker();
       const worker3 = await createFreshWorker();
-      const taskId020 = Buffer.from("task-000000000000000000000020".padEnd(32, "\0"));
+      const taskId020 = Buffer.from(
+        "task-000000000000000000000020".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId020);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1362,7 +1526,7 @@ describe("test_1", () => {
           2,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1425,13 +1589,19 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Claim with 10 active tasks rejection", async () => {
-      const taskId021 = Buffer.from("task-000000000000000000000021".padEnd(32, "\0"));
+      const taskId021 = Buffer.from(
+        "task-000000000000000000000021".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId021);
       const escrowPda = deriveEscrowPda(taskPda);
       const claimPda = deriveClaimPda(taskPda, deriveAgentPda(agentId1));
@@ -1445,7 +1615,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1466,7 +1636,9 @@ describe("test_1", () => {
         .signers([creator])
         .rpc();
 
-      const agent = await program.account.agentRegistration.fetch(deriveAgentPda(agentId1));
+      const agent = await program.account.agentRegistration.fetch(
+        deriveAgentPda(agentId1),
+      );
       agent.activeTasks = 10;
       agent.active_tasks = 10;
 
@@ -1478,7 +1650,7 @@ describe("test_1", () => {
             claim: claimPda,
             worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-          creator: worker1.publicKey,
+            creator: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
@@ -1486,8 +1658,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
   });
@@ -1496,7 +1672,9 @@ describe("test_1", () => {
     it("Completed task cannot be claimed", async () => {
       const worker1 = await createFreshWorker();
       const worker2 = await createFreshWorker();
-      const taskId022 = Buffer.from("task-000000000000000000000022".padEnd(32, "\0"));
+      const taskId022 = Buffer.from(
+        "task-000000000000000000000022".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId022);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1509,7 +1687,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1580,14 +1758,20 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Cancelled task cannot be claimed", async () => {
       const worker = await createFreshWorker();
-      const taskId023 = Buffer.from("task-000000000000000000000023".padEnd(32, "\0"));
+      const taskId023 = Buffer.from(
+        "task-000000000000000000000023".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId023);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1600,7 +1784,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1654,14 +1838,20 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
     it("Open to InProgress state transition", async () => {
       const worker = await createFreshWorker();
-      const taskId024 = Buffer.from("task-000000000000000000000024".padEnd(32, "\0"));
+      const taskId024 = Buffer.from(
+        "task-000000000000000000000024".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId024);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1674,7 +1864,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1717,7 +1907,9 @@ describe("test_1", () => {
       const worker1 = await createFreshWorker();
       const worker2 = await createFreshWorker();
       const worker3 = await createFreshWorker();
-      const taskId025 = Buffer.from("task-000000000000000000000025".padEnd(32, "\0"));
+      const taskId025 = Buffer.from(
+        "task-000000000000000000000025".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId025);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1730,7 +1922,7 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1801,7 +1993,9 @@ describe("test_1", () => {
 
     it("Worker cannot claim same task twice", async () => {
       const worker = await createFreshWorker();
-      const taskId026 = Buffer.from("task-000000000000000000000026".padEnd(32, "\0"));
+      const taskId026 = Buffer.from(
+        "task-000000000000000000000026".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId026);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1814,7 +2008,7 @@ describe("test_1", () => {
           2,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1863,15 +2057,21 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
   });
 
   describe("Design-Bounded Invariants", () => {
     it("Worker count max limit (design-bounded: max 100)", async () => {
-      const taskId027 = Buffer.from("task-000000000000000000000027".padEnd(32, "\0"));
+      const taskId027 = Buffer.from(
+        "task-000000000000000000000027".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId027);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -1882,10 +2082,10 @@ describe("test_1", () => {
           new BN(CAPABILITY_COMPUTE),
           Buffer.from("Worker count test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100),
-          100,  // Max allowed is 100
+          100, // Max allowed is 100
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1933,7 +2133,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -1968,7 +2168,9 @@ describe("test_1", () => {
         .rpc();
 
       // Snapshot Balance Before Completion
-      const workerBalanceBefore = await provider.connection.getBalance(worker.wallet.publicKey);
+      const workerBalanceBefore = await provider.connection.getBalance(
+        worker.wallet.publicKey,
+      );
 
       // 3. Complete
       await program.methods
@@ -1993,13 +2195,15 @@ describe("test_1", () => {
         .rpc();
 
       // Snapshot Balance After
-      const workerBalanceAfter = await provider.connection.getBalance(worker.wallet.publicKey);
+      const workerBalanceAfter = await provider.connection.getBalance(
+        worker.wallet.publicKey,
+      );
 
       // Assertions
       // Worker should get reward minus protocol fee (1%) minus tx fees.
       // Protocol fee = 1% (100 bps), so worker gets 99% of reward.
       // Then worker pays tx fee (~5000 lamports). Net gain should be positive.
-      const protocolFee = Math.floor(rewardAmount * 100 / 10000); // 1%
+      const protocolFee = Math.floor((rewardAmount * 100) / 10000); // 1%
       const workerReward = rewardAmount - protocolFee;
       const balanceGain = workerBalanceAfter - workerBalanceBefore;
       // Worker should have gained close to workerReward (minus small tx fee of ~5000 lamports)
@@ -2014,7 +2218,9 @@ describe("test_1", () => {
 
     it("PDA-based double claim prevention (design-bounded: unique seeds)", async () => {
       const worker = await createFreshWorker();
-      const taskId028 = Buffer.from("task-000000000000000000000028".padEnd(32, "\0"));
+      const taskId028 = Buffer.from(
+        "task-000000000000000000000028".padEnd(32, "\0"),
+      );
       const taskPda = deriveTaskPda(creator.publicKey, taskId028);
       const escrowPda = deriveEscrowPda(taskPda);
 
@@ -2027,7 +2233,7 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -2076,8 +2282,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
   });
@@ -2087,7 +2297,7 @@ describe("test_1", () => {
   function deriveStatePda(authority: PublicKey, stateKey: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("state"), authority.toBuffer(), stateKey],
-      program.programId
+      program.programId,
     )[0];
   }
 
@@ -2095,23 +2305,33 @@ describe("test_1", () => {
   function deriveDisputePda(disputeId: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("dispute"), disputeId],
-      program.programId
+      program.programId,
     )[0];
   }
 
   // Helper function to derive vote PDA
-  function deriveVotePda(disputePda: PublicKey, arbiterPda: PublicKey): PublicKey {
+  function deriveVotePda(
+    disputePda: PublicKey,
+    arbiterPda: PublicKey,
+  ): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
   }
 
   // Helper function to derive authority vote PDA (for Sybil attack prevention)
-  function deriveAuthorityVotePda(disputePda: PublicKey, authority: PublicKey): PublicKey {
+  function deriveAuthorityVotePda(
+    disputePda: PublicKey,
+    authority: PublicKey,
+  ): PublicKey {
     return PublicKey.findProgramAddressSync(
-      [Buffer.from("authority_vote"), disputePda.toBuffer(), authority.toBuffer()],
-      program.programId
+      [
+        Buffer.from("authority_vote"),
+        disputePda.toBuffer(),
+        authority.toBuffer(),
+      ],
+      program.programId,
     )[0];
   }
 
@@ -2186,7 +2406,9 @@ describe("test_1", () => {
           .createTask(
             Array.from(taskId),
             new BN(CAPABILITY_COMPUTE),
-            Buffer.from("Lifecycle test InProgress->Completed".padEnd(64, "\0")),
+            Buffer.from(
+              "Lifecycle test InProgress->Completed".padEnd(64, "\0"),
+            ),
             new BN(LAMPORTS_PER_SOL / 100),
             1,
             getDefaultDeadline(),
@@ -2503,8 +2725,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -2598,8 +2824,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -2677,8 +2907,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -2813,8 +3047,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -2943,7 +3181,10 @@ describe("test_1", () => {
 
         // Complete first claim
         await program.methods
-          .completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null)
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
           .accountsPartial({
             task: taskPda,
             claim: claimPda1,
@@ -2966,7 +3207,10 @@ describe("test_1", () => {
         // Try to complete same claim again - should fail (ClaimAlreadyCompleted)
         try {
           await program.methods
-            .completeTask(Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null)
+            .completeTask(
+              Array.from(Buffer.from("proof2".padEnd(32, "\0"))),
+              null,
+            )
             .accountsPartial({
               task: taskPda,
               claim: claimPda1,
@@ -2988,8 +3232,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -3152,7 +3400,7 @@ describe("test_1", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://test.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL / 10)  // stake_amount
+            new BN(LAMPORTS_PER_SOL / 10), // stake_amount
           )
           .accountsPartial({
             agent: agentPda,
@@ -3165,7 +3413,9 @@ describe("test_1", () => {
 
         // Verify the agent was registered with wrongSigner as authority
         const agent = await program.account.agentRegistration.fetch(agentPda);
-        expect(agent.authority.toString()).to.equal(wrongSigner.publicKey.toString());
+        expect(agent.authority.toString()).to.equal(
+          wrongSigner.publicKey.toString(),
+        );
       });
     });
 
@@ -3177,7 +3427,12 @@ describe("test_1", () => {
         // Try to update agent1 (owned by worker1) with non-owner signer
         try {
           await program.methods
-            .updateAgent(new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE), null, null, null)
+            .updateAgent(
+              new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
+              null,
+              null,
+              null,
+            )
             .accountsPartial({
               agent: deriveAgentPda(agentId1),
               authority: nonOwner.publicKey,
@@ -3187,8 +3442,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -3206,8 +3465,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -3230,7 +3493,7 @@ describe("test_1", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://dereg-test.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL / 10)  // stake_amount
+            new BN(LAMPORTS_PER_SOL / 10), // stake_amount
           )
           .accountsPartial({
             agent: deregAgentPda,
@@ -3255,8 +3518,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -3301,8 +3568,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -3361,8 +3632,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -3419,8 +3694,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -3479,7 +3758,10 @@ describe("test_1", () => {
         // Try to complete with wrong authority (worker2 trying to complete worker1's claim)
         try {
           await program.methods
-            .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+            .completeTask(
+              Array.from(Buffer.from("proof".padEnd(32, "\0"))),
+              null,
+            )
             .accountsPartial({
               task: taskPda,
               claim: claimPda,
@@ -3501,8 +3783,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -3559,7 +3845,10 @@ describe("test_1", () => {
         // Try to complete with wrong treasury
         try {
           await program.methods
-            .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+            .completeTask(
+              Array.from(Buffer.from("proof".padEnd(32, "\0"))),
+              null,
+            )
             .accountsPartial({
               task: taskPda,
               claim: claimPda,
@@ -3581,8 +3870,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -3654,7 +3947,10 @@ describe("test_1", () => {
         // Worker1 tries to complete using Worker2's claim PDA
         try {
           await program.methods
-            .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+            .completeTask(
+              Array.from(Buffer.from("proof".padEnd(32, "\0"))),
+              null,
+            )
             .accountsPartial({
               task: taskPda,
               claim: claimPda2, // Worker2's claim
@@ -3676,8 +3972,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -3741,8 +4041,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -3858,7 +4162,7 @@ describe("test_1", () => {
             .updateState(
               Array.from(stateKey),
               Array.from(stateValue),
-              new BN(0)
+              new BN(0),
             )
             .accountsPartial({
               state: statePda,
@@ -3872,8 +4176,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -3886,7 +4194,8 @@ describe("test_1", () => {
         // Fetch current state version if it exists (for re-runs on persistent validator)
         let expectedVersion = 0;
         try {
-          const existingState = await program.account.coordinationState.fetch(statePda);
+          const existingState =
+            await program.account.coordinationState.fetch(statePda);
           expectedVersion = existingState.version.toNumber();
         } catch {
           // State doesn't exist yet, version 0 is correct
@@ -3896,7 +4205,7 @@ describe("test_1", () => {
           .updateState(
             Array.from(stateKey),
             Array.from(stateValue),
-            new BN(expectedVersion)
+            new BN(expectedVersion),
           )
           .accountsPartial({
             state: statePda,
@@ -3976,7 +4285,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               0, // Refund
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -3994,8 +4303,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -4019,7 +4332,7 @@ describe("test_1", () => {
             new BN(CAPABILITY_ARBITER | CAPABILITY_COMPUTE),
             "https://arbiter.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL)  // stake_amount - required parameter
+            new BN(LAMPORTS_PER_SOL), // stake_amount - required parameter
           )
           .accountsPartial({
             agent: arbiterAgentPda,
@@ -4089,7 +4402,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             0,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -4108,7 +4421,10 @@ describe("test_1", () => {
         // Try to vote with wrong authority
         const votePda = deriveVotePda(disputePda, arbiterAgentPda);
         const wrongSigner = Keypair.generate();
-        const authorityVotePda = deriveAuthorityVotePda(disputePda, wrongSigner.publicKey);
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          wrongSigner.publicKey,
+        );
         fundAccount(svm, wrongSigner.publicKey, 1 * LAMPORTS_PER_SOL);
 
         try {
@@ -4116,8 +4432,8 @@ describe("test_1", () => {
             .voteDispute(true)
             .accountsPartial({
               dispute: disputePda,
-              task: taskPda,  // Required for party validation
-              workerClaim: claimPda,  // Optional but needed for validation
+              task: taskPda, // Required for party validation
+              workerClaim: claimPda, // Optional but needed for validation
               vote: votePda,
               authorityVote: authorityVotePda,
               arbiter: arbiterAgentPda, // Correct arbiter agent
@@ -4131,8 +4447,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -4193,7 +4513,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             0,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -4211,15 +4531,18 @@ describe("test_1", () => {
 
         // Worker's agent doesn't have ARBITER capability
         const votePda = deriveVotePda(disputePda, worker.agentPda);
-        const authorityVotePda = deriveAuthorityVotePda(disputePda, worker.wallet.publicKey);
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          worker.wallet.publicKey,
+        );
 
         try {
           await program.methods
             .voteDispute(true)
             .accountsPartial({
               dispute: disputePda,
-              task: taskPda,  // Required for party validation
-              workerClaim: claimPda,  // Optional
+              task: taskPda, // Required for party validation
+              workerClaim: claimPda, // Optional
               vote: votePda,
               authorityVote: authorityVotePda,
               arbiter: worker.agentPda, // Agent without ARBITER capability
@@ -4233,8 +4556,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -4297,7 +4624,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             0,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -4324,7 +4651,7 @@ describe("test_1", () => {
               protocolConfig: protocolPda,
               resolver: provider.wallet.publicKey,
               creator: creator.publicKey,
-              workerClaim: null,  // Required with worker/workerAuthority
+              workerClaim: null, // Required with worker/workerAuthority
               worker: null,
               workerAuthority: null,
               systemProgram: SystemProgram.programId,
@@ -4339,8 +4666,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -4404,7 +4735,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             0,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -4422,9 +4753,21 @@ describe("test_1", () => {
 
         // Verify dispute has 0 votes
         const dispute = await program.account.dispute.fetch(disputePda);
-        expect(typeof dispute.votesFor === 'object' ? dispute.votesFor.toNumber() : dispute.votesFor).to.equal(0);
-        expect(typeof dispute.votesAgainst === 'object' ? dispute.votesAgainst.toNumber() : dispute.votesAgainst).to.equal(0);
-        expect(typeof dispute.totalVoters === 'object' ? dispute.totalVoters.toNumber() : dispute.totalVoters).to.equal(0);
+        expect(
+          typeof dispute.votesFor === "object"
+            ? dispute.votesFor.toNumber()
+            : dispute.votesFor,
+        ).to.equal(0);
+        expect(
+          typeof dispute.votesAgainst === "object"
+            ? dispute.votesAgainst.toNumber()
+            : dispute.votesAgainst,
+        ).to.equal(0);
+        expect(
+          typeof dispute.totalVoters === "object"
+            ? dispute.totalVoters.toNumber()
+            : dispute.totalVoters,
+        ).to.equal(0);
 
         // Resolution would fail with VotingNotEnded and InsufficientVotes
         // We can't test the InsufficientVotes path without time manipulation
@@ -4445,13 +4788,23 @@ describe("test_1", () => {
               authority: provider.wallet.publicKey,
               systemProgram: SystemProgram.programId,
             })
-            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+            .remainingAccounts([
+              {
+                pubkey: deriveProgramDataPda(program.programId),
+                isSigner: false,
+                isWritable: false,
+              },
+            ])
             .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -4459,13 +4812,15 @@ describe("test_1", () => {
         // The protocol PDA is deterministic - only one can exist
         const [derivedPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("protocol")],
-          program.programId
+          program.programId,
         );
         expect(derivedPda.toString()).to.equal(protocolPda.toString());
 
         // Verify it exists
         const config = await program.account.protocolConfig.fetch(protocolPda);
-        expect(config.authority.toString()).to.equal(provider.wallet.publicKey.toString());
+        expect(config.authority.toString()).to.equal(
+          provider.wallet.publicKey.toString(),
+        );
       });
     });
   });
@@ -4508,7 +4863,8 @@ describe("test_1", () => {
         .rpc();
 
       try {
-        await program.methods.cancelTask()
+        await program.methods
+          .cancelTask()
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
@@ -4525,8 +4881,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
@@ -4570,7 +4930,8 @@ describe("test_1", () => {
         .rpc();
 
       const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-      await program.methods.claimTask()
+      await program.methods
+        .claimTask()
         .accountsPartial({
           task: taskPda,
           claim: claimPda,
@@ -4581,7 +4942,8 @@ describe("test_1", () => {
         .rpc();
 
       try {
-        await program.methods.completeTask(Array.from(Buffer.from("proof")), null)
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof")), null)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
@@ -4603,8 +4965,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
@@ -4645,7 +5011,8 @@ describe("test_1", () => {
         .rpc();
 
       const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-      await program.methods.claimTask()
+      await program.methods
+        .claimTask()
         .accountsPartial({
           task: taskPda,
           claim: claimPda,
@@ -4655,7 +5022,8 @@ describe("test_1", () => {
         .signers([worker.wallet])
         .rpc();
 
-      await program.methods.completeTask(Array.from(Buffer.from("proof")), null)
+      await program.methods
+        .completeTask(Array.from(Buffer.from("proof")), null)
         .accountsPartial({
           task: taskPda,
           claim: claimPda,
@@ -4676,7 +5044,8 @@ describe("test_1", () => {
         .rpc();
 
       try {
-        await program.methods.cancelTask()
+        await program.methods
+          .cancelTask()
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
@@ -4693,8 +5062,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
 
@@ -4734,7 +5107,8 @@ describe("test_1", () => {
         .signers([creator])
         .rpc();
 
-      await program.methods.cancelTask()
+      await program.methods
+        .cancelTask()
         .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
@@ -4752,7 +5126,8 @@ describe("test_1", () => {
       const claimPda = deriveClaimPda(taskPda, worker.agentPda);
 
       try {
-        await program.methods.completeTask(Array.from(Buffer.from("proof")), null)
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof")), null)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
@@ -4774,8 +5149,12 @@ describe("test_1", () => {
         expect.fail("Should have failed");
       } catch (e: unknown) {
         // Verify error occurred - Anchor returns AnchorError with errorCode
-        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+        const anchorError = e as {
+          error?: { errorCode?: { code: string } };
+          message?: string;
+        };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to
+          .exist;
       }
     });
   });
@@ -4805,7 +5184,9 @@ describe("test_1", () => {
         const escrowRent = await getMinRent(ESCROW_SIZE);
 
         // Snapshot before
-        const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
 
         const tx = await program.methods
           .createTask(
@@ -4838,20 +5219,29 @@ describe("test_1", () => {
           .rpc();
 
         // Get transaction fee
-        const txDetails = await provider.connection.getTransaction(tx, { commitment: "confirmed" });
+        const txDetails = await provider.connection.getTransaction(tx, {
+          commitment: "confirmed",
+        });
         const txFee = txDetails?.meta?.fee || 0;
 
         // Snapshot after
-        const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceAfter = await provider.connection.getBalance(
+          creator.publicKey,
+        );
         const escrowBalance = await provider.connection.getBalance(escrowPda);
         const taskBalance = await provider.connection.getBalance(taskPda);
 
         // Verify accounting (with tolerance for rent variations across validator versions)
-        const expectedCreatorDecrease = rewardAmount + taskRent + escrowRent + txFee;
-        const actualCreatorDecrease = creatorBalanceBefore - creatorBalanceAfter;
+        const expectedCreatorDecrease =
+          rewardAmount + taskRent + escrowRent + txFee;
+        const actualCreatorDecrease =
+          creatorBalanceBefore - creatorBalanceAfter;
 
         // Allow ~500000 lamport tolerance for rent calculation variations
-        expect(actualCreatorDecrease).to.be.closeTo(expectedCreatorDecrease, 500000);
+        expect(actualCreatorDecrease).to.be.closeTo(
+          expectedCreatorDecrease,
+          500000,
+        );
         expect(escrowBalance).to.be.closeTo(escrowRent + rewardAmount, 500000);
         expect(taskBalance).to.be.closeTo(taskRent, 500000);
 
@@ -4960,9 +5350,13 @@ describe("test_1", () => {
           .rpc();
 
         // Snapshot before completion
-        const escrowBalanceBefore = await provider.connection.getBalance(escrowPda);
-        const workerBalanceBefore = await provider.connection.getBalance(worker.wallet.publicKey);
-        const treasuryBalanceBefore = await provider.connection.getBalance(treasuryPubkey);
+        const escrowBalanceBefore =
+          await provider.connection.getBalance(escrowPda);
+        const workerBalanceBefore = await provider.connection.getBalance(
+          worker.wallet.publicKey,
+        );
+        const treasuryBalanceBefore =
+          await provider.connection.getBalance(treasuryPubkey);
 
         // Complete task
         const tx = await program.methods
@@ -4986,28 +5380,44 @@ describe("test_1", () => {
           .signers([worker.wallet])
           .rpc();
 
-        const txDetails = await provider.connection.getTransaction(tx, { commitment: "confirmed" });
+        const txDetails = await provider.connection.getTransaction(tx, {
+          commitment: "confirmed",
+        });
         const txFee = txDetails?.meta?.fee || 0;
 
         // Snapshot after
         // Escrow is closed after task completion (rent returned to creator)
-        const escrowBalanceAfter = await provider.connection.getBalance(escrowPda);
-        const workerBalanceAfter = await provider.connection.getBalance(worker.wallet.publicKey);
-        const treasuryBalanceAfter = await provider.connection.getBalance(treasuryPubkey);
+        const escrowBalanceAfter =
+          await provider.connection.getBalance(escrowPda);
+        const workerBalanceAfter = await provider.connection.getBalance(
+          worker.wallet.publicKey,
+        );
+        const treasuryBalanceAfter =
+          await provider.connection.getBalance(treasuryPubkey);
 
         // Calculate expected amounts
         // Verify the on-chain fee matches expected protocol fee
         const taskAccount = await program.account.task.fetch(taskPda);
-        expect(taskAccount.protocolFeeBps).to.equal(PROTOCOL_FEE_BPS, "Task protocol_fee_bps should match protocol config");
-        const protocolFee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
+        expect(taskAccount.protocolFeeBps).to.equal(
+          PROTOCOL_FEE_BPS,
+          "Task protocol_fee_bps should match protocol config",
+        );
+        const protocolFee = Math.floor(
+          (rewardAmount * PROTOCOL_FEE_BPS) / 10000,
+        );
         const workerReward = rewardAmount - protocolFee;
 
         // Escrow is closed, so all funds (including rent) are transferred out
         // Worker receives reward - fee (and also claim rent refund)
         // Use closeTo with wider tolerance since claim rent is also refunded to worker
         // The worker also receives claim account rent refund (~2.3M lamports)
-        expect(workerBalanceAfter - workerBalanceBefore).to.be.closeTo(workerReward - txFee, 2500000);
-        expect(treasuryBalanceAfter - treasuryBalanceBefore).to.equal(protocolFee);
+        expect(workerBalanceAfter - workerBalanceBefore).to.be.closeTo(
+          workerReward - txFee,
+          2500000,
+        );
+        expect(treasuryBalanceAfter - treasuryBalanceBefore).to.equal(
+          protocolFee,
+        );
 
         // Verify escrow is closed (balance is 0)
         expect(escrowBalanceAfter).to.equal(0);
@@ -5059,82 +5469,148 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, w2.agentPda);
         const claimPda3 = deriveClaimPda(taskPda, w3.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: w1.agentPda,
-          authority: w1.wallet.publicKey,
-        }).signers([w1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: w1.agentPda,
+            authority: w1.wallet.publicKey,
+          })
+          .signers([w1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: w2.agentPda,
-          authority: w2.wallet.publicKey,
-        }).signers([w2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: w2.agentPda,
+            authority: w2.wallet.publicKey,
+          })
+          .signers([w2.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda3, worker: w3.agentPda,
-          authority: w3.wallet.publicKey,
-        }).signers([w3.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            worker: w3.agentPda,
+            authority: w3.wallet.publicKey,
+          })
+          .signers([w3.wallet])
+          .rpc();
 
         // Snapshot balances before completions
         const escrowBefore = await provider.connection.getBalance(escrowPda);
-        const treasuryBefore = await provider.connection.getBalance(treasuryPubkey);
+        const treasuryBefore =
+          await provider.connection.getBalance(treasuryPubkey);
 
         // Each worker should receive 1/3 of the reward
         const rewardPerWorker = Math.floor(rewardAmount / 3);
-        const feePerWorker = Math.floor((rewardPerWorker * PROTOCOL_FEE_BPS) / 10000);
+        const feePerWorker = Math.floor(
+          (rewardPerWorker * PROTOCOL_FEE_BPS) / 10000,
+        );
         const netRewardPerWorker = rewardPerWorker - feePerWorker;
 
         // Worker 1 completes — escrow stays open for remaining workers
-        const w1Before = await provider.connection.getBalance(w1.wallet.publicKey);
-        const tx1 = await program.methods.completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: w1.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: w1.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([w1.wallet]).rpc();
-        const tx1Details = await provider.connection.getTransaction(tx1, { commitment: "confirmed" });
+        const w1Before = await provider.connection.getBalance(
+          w1.wallet.publicKey,
+        );
+        const tx1 = await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            worker: w1.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: w1.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([w1.wallet])
+          .rpc();
+        const tx1Details = await provider.connection.getTransaction(tx1, {
+          commitment: "confirmed",
+        });
         const tx1Fee = tx1Details?.meta?.fee || 0;
-        const w1After = await provider.connection.getBalance(w1.wallet.publicKey);
+        const w1After = await provider.connection.getBalance(
+          w1.wallet.publicKey,
+        );
         // Use closeTo with wider tolerance to account for claim rent refund
-        expect(w1After - w1Before + tx1Fee).to.be.closeTo(netRewardPerWorker, 2500000);
+        expect(w1After - w1Before + tx1Fee).to.be.closeTo(
+          netRewardPerWorker,
+          2500000,
+        );
 
         // Escrow should still exist after first completion
         const escrowMid1 = await provider.connection.getAccountInfo(escrowPda);
         expect(escrowMid1).to.not.be.null;
 
         // Worker 2 completes — escrow stays open (2/3 done)
-        await program.methods.completeTask(Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: w2.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: w2.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([w2.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof2".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            escrow: escrowPda,
+            worker: w2.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: w2.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([w2.wallet])
+          .rpc();
 
         // Escrow should still exist after second completion
         const escrowMid2 = await provider.connection.getAccountInfo(escrowPda);
         expect(escrowMid2).to.not.be.null;
 
         // Worker 3 completes — final completion closes escrow
-        await program.methods.completeTask(Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: w3.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: w3.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([w3.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof3".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            escrow: escrowPda,
+            worker: w3.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: w3.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([w3.wallet])
+          .rpc();
 
         // Verify escrow is closed after final completion
         const escrowAfter = await provider.connection.getAccountInfo(escrowPda);
@@ -5185,8 +5661,11 @@ describe("test_1", () => {
           .rpc();
 
         // Snapshot before cancel
-        const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
-        const escrowBalanceBefore = await provider.connection.getBalance(escrowPda);
+        const creatorBalanceBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
+        const escrowBalanceBefore =
+          await provider.connection.getBalance(escrowPda);
         const escrowRent = await getMinRent(ESCROW_SIZE);
 
         // Cancel task
@@ -5206,16 +5685,23 @@ describe("test_1", () => {
           .signers([creator])
           .rpc();
 
-        const txDetails = await provider.connection.getTransaction(tx, { commitment: "confirmed" });
+        const txDetails = await provider.connection.getTransaction(tx, {
+          commitment: "confirmed",
+        });
         const txFee = txDetails?.meta?.fee || 0;
 
         // Snapshot after
-        const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
-        const escrowBalanceAfter = await provider.connection.getBalance(escrowPda);
+        const creatorBalanceAfter = await provider.connection.getBalance(
+          creator.publicKey,
+        );
+        const escrowBalanceAfter =
+          await provider.connection.getBalance(escrowPda);
 
         // Verify creator receives full refund (minus tx fee) plus escrow rent
         // Use wider tolerance since escrow rent is also returned
-        expect(creatorBalanceAfter - creatorBalanceBefore + txFee).to.be.closeTo(rewardAmount + escrowRent, 50000);
+        expect(
+          creatorBalanceAfter - creatorBalanceBefore + txFee,
+        ).to.be.closeTo(rewardAmount + escrowRent, 50000);
 
         // Verify escrow is closed (balance is 0)
         expect(escrowBalanceAfter).to.equal(0);
@@ -5269,25 +5755,43 @@ describe("test_1", () => {
 
         // Worker claims and completes
         const claimPda1 = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: worker.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            worker: worker.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Wait for deadline
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
 
         // Verify task has completions > 0
         const task = await program.account.task.fetch(taskPda);
@@ -5298,22 +5802,28 @@ describe("test_1", () => {
         // 2. Additionally, escrow is closed after completion (close = creator directive)
         // Either TaskCannotBeCancelled or AccountNotInitialized error is acceptable
         try {
-          await program.methods.cancelTask().accountsPartial({
-            task: taskPda, escrow: escrowPda, creator: creator.publicKey,
-            protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
-            tokenEscrowAta: null,
-            creatorTokenAccount: null,
-            rewardMint: null,
-            tokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .cancelTask()
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              creator: creator.publicKey,
+              protocolConfig: protocolPda,
+              systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Expected cancel to fail after completion");
         } catch (e: any) {
           const errorCode = e.error?.errorCode?.code || e.message || "";
           // Escrow is closed after completion, so either error is valid
           expect(
             errorCode.includes("TaskCannotBeCancelled") ||
-            errorCode.includes("AccountNotInitialized")
+              errorCode.includes("AccountNotInitialized"),
           ).to.be.true;
         }
       });
@@ -5361,30 +5871,54 @@ describe("test_1", () => {
         const claimPda1 = deriveClaimPda(taskPda, w1.agentPda);
         const claimPda2 = deriveClaimPda(taskPda, w2.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: w1.agentPda,
-          authority: w1.wallet.publicKey,
-        }).signers([w1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: w1.agentPda,
+            authority: w1.wallet.publicKey,
+          })
+          .signers([w1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: w2.agentPda,
-          authority: w2.wallet.publicKey,
-        }).signers([w2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: w2.agentPda,
+            authority: w2.wallet.publicKey,
+          })
+          .signers([w2.wallet])
+          .rpc();
 
         // Worker 1 completes successfully
         const escrowBefore = await provider.connection.getBalance(escrowPda);
 
-        await program.methods.completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: w1.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: w1.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([w1.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            worker: w1.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: w1.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([w1.wallet])
+          .rpc();
 
         const escrowAfter = await provider.connection.getBalance(escrowPda);
 
@@ -5396,23 +5930,38 @@ describe("test_1", () => {
         // 1. Claim is already closed (close = authority)
         // 2. Even if claim existed, isCompleted = true would reject
         try {
-          await program.methods.completeTask(Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null).accountsPartial({
-            task: taskPda, claim: claimPda1, escrow: escrowPda, worker: w1.agentPda,
-            creator: creator.publicKey,
-            protocolConfig: protocolPda, treasury: treasuryPubkey,
-            authority: w1.wallet.publicKey,
-            tokenEscrowAta: null,
-            workerTokenAccount: null,
-            treasuryTokenAccount: null,
-            rewardMint: null,
-            tokenProgram: null,
-          }).signers([w1.wallet]).rpc();
+          await program.methods
+            .completeTask(
+              Array.from(Buffer.from("proof2".padEnd(32, "\0"))),
+              null,
+            )
+            .accountsPartial({
+              task: taskPda,
+              claim: claimPda1,
+              escrow: escrowPda,
+              worker: w1.agentPda,
+              creator: creator.publicKey,
+              protocolConfig: protocolPda,
+              treasury: treasuryPubkey,
+              authority: w1.wallet.publicKey,
+              tokenEscrowAta: null,
+              workerTokenAccount: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
+            })
+            .signers([w1.wallet])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Claim is closed after first completion, so second attempt fails
           // Error is AccountNotInitialized (claim closed) or ClaimAlreadyCompleted
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
 
         // Verify escrow balance didn't change on failed attempt (may be 0 if closed)
@@ -5458,46 +6007,75 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: worker.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: worker.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Snapshot before attempted cancel
-        const creatorBefore = await provider.connection.getBalance(creator.publicKey);
+        const creatorBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
 
         // Try to cancel completed task - should fail
         try {
-          await program.methods.cancelTask().accountsPartial({
-            task: taskPda, escrow: escrowPda, creator: creator.publicKey,
-            protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
-            tokenEscrowAta: null,
-            creatorTokenAccount: null,
-            rewardMint: null,
-            tokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .cancelTask()
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              creator: creator.publicKey,
+              protocolConfig: protocolPda,
+              systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
 
         // Verify no funds moved
-        const creatorAfter = await provider.connection.getBalance(creator.publicKey);
+        const creatorAfter = await provider.connection.getBalance(
+          creator.publicKey,
+        );
         expect(creatorAfter).to.equal(creatorBefore);
       });
     });
@@ -5543,25 +6121,42 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Snapshot creator balance before completion to verify escrow rent returned
-        const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
 
-        await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: worker.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: worker.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Note: Escrow account is closed (close = creator directive) after completion
         // All lamports are drained to creator, account no longer exists
@@ -5571,7 +6166,9 @@ describe("test_1", () => {
         expect(escrowBalance).to.equal(0);
 
         // Verify creator received the escrow rent (escrow account closed)
-        const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceAfter = await provider.connection.getBalance(
+          creator.publicKey,
+        );
         expect(creatorBalanceAfter).to.be.greaterThan(creatorBalanceBefore);
 
         // Verify task state is completed
@@ -5616,17 +6213,25 @@ describe("test_1", () => {
           .rpc();
 
         // Snapshot creator balance before cancel to verify escrow is refunded
-        const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
 
-        await program.methods.cancelTask().accountsPartial({
-          task: taskPda, escrow: escrowPda, creator: creator.publicKey,
-          protocolConfig: protocolPda,
-          systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          creatorTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .cancelTask()
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // Note: Escrow account is closed (close = creator directive) after cancel
         // All lamports (reward + rent) are refunded to creator
@@ -5636,7 +6241,9 @@ describe("test_1", () => {
         expect(escrowBalance).to.equal(0);
 
         // Verify creator received refund
-        const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceAfter = await provider.connection.getBalance(
+          creator.publicKey,
+        );
         expect(creatorBalanceAfter).to.be.greaterThan(creatorBalanceBefore);
 
         // Verify task state is cancelled
@@ -5657,9 +6264,14 @@ describe("test_1", () => {
         const claimRent = await getMinRent(CLAIM_SIZE);
 
         // Snapshot all balances before
-        const creatorBefore = await provider.connection.getBalance(creator.publicKey);
-        const workerBefore = await provider.connection.getBalance(worker.wallet.publicKey);
-        const treasuryBefore = await provider.connection.getBalance(treasuryPubkey);
+        const creatorBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
+        const workerBefore = await provider.connection.getBalance(
+          worker.wallet.publicKey,
+        );
+        const treasuryBefore =
+          await provider.connection.getBalance(treasuryPubkey);
 
         let totalTxFees = 0;
 
@@ -5693,37 +6305,63 @@ describe("test_1", () => {
           })
           .signers([creator])
           .rpc();
-        const tx1Details = await provider.connection.getTransaction(tx1, { commitment: "confirmed" });
+        const tx1Details = await provider.connection.getTransaction(tx1, {
+          commitment: "confirmed",
+        });
         totalTxFees += tx1Details?.meta?.fee || 0;
 
         // Claim task
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        const tx2 = await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
-        const tx2Details = await provider.connection.getTransaction(tx2, { commitment: "confirmed" });
+        const tx2 = await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
+        const tx2Details = await provider.connection.getTransaction(tx2, {
+          commitment: "confirmed",
+        });
         totalTxFees += tx2Details?.meta?.fee || 0;
 
         // Complete task
-        const tx3 = await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: worker.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker.wallet]).rpc();
-        const tx3Details = await provider.connection.getTransaction(tx3, { commitment: "confirmed" });
+        const tx3 = await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: worker.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
+        const tx3Details = await provider.connection.getTransaction(tx3, {
+          commitment: "confirmed",
+        });
         totalTxFees += tx3Details?.meta?.fee || 0;
 
         // Snapshot all balances after
-        const creatorAfter = await provider.connection.getBalance(creator.publicKey);
-        const workerAfter = await provider.connection.getBalance(worker.wallet.publicKey);
-        const treasuryAfter = await provider.connection.getBalance(treasuryPubkey);
+        const creatorAfter = await provider.connection.getBalance(
+          creator.publicKey,
+        );
+        const workerAfter = await provider.connection.getBalance(
+          worker.wallet.publicKey,
+        );
+        const treasuryAfter =
+          await provider.connection.getBalance(treasuryPubkey);
         const taskBalance = await provider.connection.getBalance(taskPda);
         const escrowBalance = await provider.connection.getBalance(escrowPda);
         const claimBalance = await provider.connection.getBalance(claimPda);
@@ -5738,7 +6376,9 @@ describe("test_1", () => {
         // Treasury received protocol fee
         // New accounts hold rent
 
-        const protocolFee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
+        const protocolFee = Math.floor(
+          (rewardAmount * PROTOCOL_FEE_BPS) / 10000,
+        );
         const workerReward = rewardAmount - protocolFee;
 
         // Verify conservation: all deltas + new account balances - tx fees = 0
@@ -5749,7 +6389,10 @@ describe("test_1", () => {
         // Conservation check: what went out of existing accounts = what went into new accounts + fees
         // creatorDelta (negative) + workerDelta + treasuryDelta + newAccountsTotal = -totalTxFees
         // Use closeTo to account for tx fee retrieval timing issues
-        expect(totalDelta + newAccountsTotal + totalTxFees).to.be.closeTo(0, 25000);
+        expect(totalDelta + newAccountsTotal + totalTxFees).to.be.closeTo(
+          0,
+          25000,
+        );
       });
     });
   });
@@ -5760,10 +6403,14 @@ describe("test_1", () => {
     describe("Valid dispute initiation", () => {
       it("Can dispute InProgress task", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from(`dispute-valid-001-${runId}`.padEnd(32, "\0"));
+        const taskId = Buffer.from(
+          `dispute-valid-001-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-v-001-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-v-001-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5797,10 +6444,16 @@ describe("test_1", () => {
           .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Verify task is InProgress
         let task = await program.account.task.fetch(taskPda);
@@ -5813,7 +6466,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence-hash".padEnd(32, "\0"))),
             0, // Refund type
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -5841,10 +6494,14 @@ describe("test_1", () => {
 
       it("Dispute creates with correct voting_deadline (24 hours from creation)", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from(`dispute-valid-002-${runId}`.padEnd(32, "\0"));
+        const taskId = Buffer.from(
+          `dispute-valid-002-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-v-002-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-v-002-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5878,10 +6535,16 @@ describe("test_1", () => {
           .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         const beforeTimestamp = getClockTimestamp(svm);
 
@@ -5891,7 +6554,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             1, // Complete type
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -5912,31 +6575,44 @@ describe("test_1", () => {
         const dispute = await program.account.dispute.fetch(disputePda);
 
         // Voting deadline should be >= createdAt (votingPeriod may be 0 or small on test validator)
-        expect(dispute.votingDeadline.toNumber()).to.be.at.least(dispute.createdAt.toNumber());
+        expect(dispute.votingDeadline.toNumber()).to.be.at.least(
+          dispute.createdAt.toNumber(),
+        );
 
         // Verify votingDeadline was calculated from createdAt + votingPeriod
         // The votingPeriod could be 0 (not configured) or 24 hours (default)
-        const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
-        const actualVotingPeriod = (protocolConfig as any).votingPeriod?.toNumber?.() ||
-          ((protocolConfig as any).votingPeriod) || 0;
+        const protocolConfig =
+          await program.account.protocolConfig.fetch(protocolPda);
+        const actualVotingPeriod =
+          (protocolConfig as any).votingPeriod?.toNumber?.() ||
+          (protocolConfig as any).votingPeriod ||
+          0;
 
         if (actualVotingPeriod > 0) {
           // If voting period is set, verify the calculation
           expect(dispute.votingDeadline.toNumber()).to.equal(
-            dispute.createdAt.toNumber() + actualVotingPeriod
+            dispute.createdAt.toNumber() + actualVotingPeriod,
           );
         }
         // Verify createdAt is reasonable (within range of SVM clock, allowing for clock advances in prior tests)
-        expect(dispute.createdAt.toNumber()).to.be.at.least(beforeTimestamp - 300);
-        expect(dispute.createdAt.toNumber()).to.be.at.most(afterTimestamp + 300);
+        expect(dispute.createdAt.toNumber()).to.be.at.least(
+          beforeTimestamp - 300,
+        );
+        expect(dispute.createdAt.toNumber()).to.be.at.most(
+          afterTimestamp + 300,
+        );
       });
 
       it("Task status changes to Disputed after initiation", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from(`dispute-valid-003-${runId}`.padEnd(32, "\0"));
+        const taskId = Buffer.from(
+          `dispute-valid-003-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-v-003-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-v-003-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5970,10 +6646,16 @@ describe("test_1", () => {
           .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Confirm InProgress before dispute
         let task = await program.account.task.fetch(taskPda);
@@ -5985,7 +6667,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             2, // Split type
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -6009,44 +6691,79 @@ describe("test_1", () => {
       it("All resolution types (0, 1, 2) are accepted", async () => {
         const worker = await createFreshWorker();
         // Test resolution type 0 (Refund)
-        const taskId0 = Buffer.from(`dispute-valid-004a-${runId}`.padEnd(32, "\0"));
+        const taskId0 = Buffer.from(
+          `dispute-valid-004a-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda0 = deriveTaskPda(creator.publicKey, taskId0);
         const escrowPda0 = deriveEscrowPda(taskPda0);
-        const disputeId0 = Buffer.from(`dispute-v-004a-${runId}`.padEnd(32, "\0"));
+        const disputeId0 = Buffer.from(
+          `dispute-v-004a-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda0 = deriveDisputePda(disputeId0);
 
-        await program.methods.createTask(
-          Array.from(taskId0), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Resolution type 0".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda0, escrow: escrowPda0, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId0),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Resolution type 0".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda0,
+            escrow: escrowPda0,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda0 = deriveClaimPda(taskPda0, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda0, claim: claimPda0, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda0,
+            claim: claimPda0,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId0), Array.from(taskId0),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda0, task: taskPda0, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda0, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId0),
+            Array.from(taskId0),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda0,
+            task: taskPda0,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda0,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         const dispute0 = await program.account.dispute.fetch(disputePda0);
         expect(dispute0.resolutionType).to.deep.equal({ refund: {} });
@@ -6063,7 +6780,9 @@ describe("test_1", () => {
         const taskId = Buffer.from(`dispute-inv-001-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-i-001-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-i-001-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -6108,7 +6827,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               0,
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -6126,8 +6845,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -6136,7 +6859,9 @@ describe("test_1", () => {
         const taskId = Buffer.from(`dispute-inv-002-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-i-002-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-i-002-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -6170,22 +6895,37 @@ describe("test_1", () => {
           .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: worker.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: worker.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Task is Completed
         const task = await program.account.task.fetch(taskPda);
@@ -6199,7 +6939,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               0,
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -6217,8 +6957,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -6227,7 +6971,9 @@ describe("test_1", () => {
         const taskId = Buffer.from(`dispute-inv-003-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-i-003-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-i-003-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -6260,15 +7006,21 @@ describe("test_1", () => {
           .signers([creator])
           .rpc();
 
-        await program.methods.cancelTask().accountsPartial({
-          task: taskPda, escrow: escrowPda, creator: creator.publicKey,
-          protocolConfig: protocolPda,
-          systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          creatorTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .cancelTask()
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // Task is Cancelled
         const task = await program.account.task.fetch(taskPda);
@@ -6282,7 +7034,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               0,
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -6300,8 +7052,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -6311,9 +7067,13 @@ describe("test_1", () => {
         const taskId = Buffer.from(`dispute-inv-004-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId1 = Buffer.from(`dispute-i-004a-${runId}`.padEnd(32, "\0"));
+        const disputeId1 = Buffer.from(
+          `dispute-i-004a-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda1 = deriveDisputePda(disputeId1);
-        const disputeId2 = Buffer.from(`dispute-i-004b-${runId}`.padEnd(32, "\0"));
+        const disputeId2 = Buffer.from(
+          `dispute-i-004b-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda2 = deriveDisputePda(disputeId2);
 
         await program.methods
@@ -6347,10 +7107,16 @@ describe("test_1", () => {
           .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // First dispute succeeds
         await program.methods
@@ -6359,7 +7125,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence1".padEnd(32, "\0"))),
             0,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda1,
@@ -6387,7 +7153,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence2".padEnd(32, "\0"))),
               0,
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda2,
@@ -6405,8 +7171,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -6425,7 +7195,7 @@ describe("test_1", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://inactive.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL / 10)  // stake_amount
+            new BN(LAMPORTS_PER_SOL / 10), // stake_amount
           )
           .accountsPartial({
             agent: inactiveAgentPda,
@@ -6439,7 +7209,7 @@ describe("test_1", () => {
         // Deactivate the agent (advance clock to satisfy update cooldown)
         advanceClock(svm, 61);
         await program.methods
-          .updateAgent(null, null, null, 0)  // 0 = Inactive
+          .updateAgent(null, null, null, 0) // 0 = Inactive
           .accountsPartial({
             agent: inactiveAgentPda,
             authority: inactiveOwner.publicKey,
@@ -6448,14 +7218,17 @@ describe("test_1", () => {
           .rpc();
 
         // Verify agent is inactive
-        const agent = await program.account.agentRegistration.fetch(inactiveAgentPda);
+        const agent =
+          await program.account.agentRegistration.fetch(inactiveAgentPda);
         expect(agent.status).to.deep.equal({ inactive: {} });
 
         // Create a task for dispute
         const taskId = Buffer.from(`dispute-inv-005-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-i-005-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-i-005-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -6491,10 +7264,16 @@ describe("test_1", () => {
         // Have a fresh worker claim to move to InProgress
         const worker = await createFreshWorker();
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Inactive agent tries to dispute - should fail
         try {
@@ -6504,7 +7283,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               0,
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -6522,8 +7301,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -6531,7 +7314,9 @@ describe("test_1", () => {
         const taskId = Buffer.from(`dispute-inv-006-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-i-006-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-i-006-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -6566,10 +7351,16 @@ describe("test_1", () => {
 
         const worker = await createFreshWorker();
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Try to dispute with worker's agent but a different authority - should fail
         const wrongAuthority = Keypair.generate();
@@ -6581,7 +7372,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               0,
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -6599,8 +7390,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -6610,7 +7405,9 @@ describe("test_1", () => {
         const taskId = Buffer.from(`dispute-inv-007-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-i-007-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-i-007-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -6645,10 +7442,16 @@ describe("test_1", () => {
 
         const worker = await createFreshWorker();
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Try with resolution_type = 3 (invalid)
         try {
@@ -6658,7 +7461,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               3, // Invalid - only 0, 1, 2 are valid
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -6676,8 +7479,12 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
 
         // Try with resolution_type = 255 (invalid)
@@ -6688,7 +7495,7 @@ describe("test_1", () => {
               Array.from(taskId),
               Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
               255,
-              VALID_EVIDENCE
+              VALID_EVIDENCE,
             )
             .accountsPartial({
               dispute: disputePda,
@@ -6706,20 +7513,30 @@ describe("test_1", () => {
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
 
     describe("Dispute initialization details", () => {
       it("Dispute fields are correctly initialized", async () => {
-        const taskId = Buffer.from(`dispute-detail-001-${runId}`.padEnd(32, "\0"));
+        const taskId = Buffer.from(
+          `dispute-detail-001-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`dispute-d-001-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `dispute-d-001-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
-        const evidenceHash = Buffer.from("my-evidence-hash-12345".padEnd(32, "\0"));
+        const evidenceHash = Buffer.from(
+          "my-evidence-hash-12345".padEnd(32, "\0"),
+        );
 
         await program.methods
           .createTask(
@@ -6753,10 +7570,16 @@ describe("test_1", () => {
 
         const worker = await createFreshWorker();
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         await program.methods
           .initiateDispute(
@@ -6764,7 +7587,7 @@ describe("test_1", () => {
             Array.from(taskId),
             Array.from(evidenceHash),
             1, // Complete type
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -6785,13 +7608,27 @@ describe("test_1", () => {
         // Verify all fields
         expect(Buffer.from(dispute.disputeId)).to.deep.equal(disputeId);
         expect(dispute.task.toString()).to.equal(taskPda.toString());
-        expect(dispute.initiator.toString()).to.equal(worker.agentPda.toString());
+        expect(dispute.initiator.toString()).to.equal(
+          worker.agentPda.toString(),
+        );
         expect(Buffer.from(dispute.evidenceHash)).to.deep.equal(evidenceHash);
         expect(dispute.resolutionType).to.deep.equal({ complete: {} });
         expect(dispute.status).to.deep.equal({ active: {} });
-        expect(typeof dispute.votesFor === 'object' ? dispute.votesFor.toNumber() : dispute.votesFor).to.equal(0);
-        expect(typeof dispute.votesAgainst === 'object' ? dispute.votesAgainst.toNumber() : dispute.votesAgainst).to.equal(0);
-        expect(typeof dispute.totalVoters === 'object' ? dispute.totalVoters.toNumber() : dispute.totalVoters).to.equal(0);
+        expect(
+          typeof dispute.votesFor === "object"
+            ? dispute.votesFor.toNumber()
+            : dispute.votesFor,
+        ).to.equal(0);
+        expect(
+          typeof dispute.votesAgainst === "object"
+            ? dispute.votesAgainst.toNumber()
+            : dispute.votesAgainst,
+        ).to.equal(0);
+        expect(
+          typeof dispute.totalVoters === "object"
+            ? dispute.totalVoters.toNumber()
+            : dispute.totalVoters,
+        ).to.equal(0);
         expect(dispute.resolvedAt.toNumber()).to.equal(0);
       });
     });
@@ -6810,38 +7647,69 @@ describe("test_1", () => {
         const disputeId = Buffer.from(`vote-d-001-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Voting capability test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Voting capability test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Create an arbiter with ARBITER capability and stake
         const arbiterOwner = Keypair.generate();
@@ -6850,42 +7718,65 @@ describe("test_1", () => {
 
         fundAccount(svm, arbiterOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(arbiterId),
-          new BN(CAPABILITY_COMPUTE | CAPABILITY_ARBITER),
-          "https://arbiter.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: arbiterPda, protocolConfig: protocolPda,
-          authority: arbiterOwner.publicKey,
-        }).signers([arbiterOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(arbiterId),
+            new BN(CAPABILITY_COMPUTE | CAPABILITY_ARBITER),
+            "https://arbiter.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiterOwner.publicKey,
+          })
+          .signers([arbiterOwner])
+          .rpc();
 
         // Set stake for arbiter (advance clock to satisfy update cooldown)
         advanceClock(svm, 61);
-        await program.methods.updateAgent(
-          null, null, null, null
-        ).accountsPartial({
-          agent: arbiterPda, authority: arbiterOwner.publicKey,
-        }).signers([arbiterOwner]).rpc();
+        await program.methods
+          .updateAgent(null, null, null, null)
+          .accountsPartial({
+            agent: arbiterPda,
+            authority: arbiterOwner.publicKey,
+          })
+          .signers([arbiterOwner])
+          .rpc();
 
         // Non-arbiter (worker has COMPUTE, not ARBITER) should fail to vote
         const votePdaNonArbiter = deriveVotePda(disputePda, worker.agentPda);
-        const authorityVotePdaNonArbiter = deriveAuthorityVotePda(disputePda, worker.wallet.publicKey);
+        const authorityVotePdaNonArbiter = deriveAuthorityVotePda(
+          disputePda,
+          worker.wallet.publicKey,
+        );
         try {
-          await program.methods.voteDispute(true).accountsPartial({
-            dispute: disputePda, task: taskPda, workerClaim: claimPda,
-            vote: votePdaNonArbiter,
-            authorityVote: authorityVotePdaNonArbiter,
-            arbiter: worker.agentPda, protocolConfig: protocolPda,
-            authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
-            defendantAgent: null,
-          }).signers([worker.wallet]).rpc();
+          await program.methods
+            .voteDispute(true)
+            .accountsPartial({
+              dispute: disputePda,
+              task: taskPda,
+              workerClaim: claimPda,
+              vote: votePdaNonArbiter,
+              authorityVote: authorityVotePdaNonArbiter,
+              arbiter: worker.agentPda,
+              protocolConfig: protocolPda,
+              authority: worker.wallet.publicKey,
+              systemProgram: SystemProgram.programId,
+              defendantAgent: null,
+            })
+            .signers([worker.wallet])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -6898,38 +7789,69 @@ describe("test_1", () => {
         const disputeId = Buffer.from(`vote-d-002-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Stake test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Stake test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Try to create arbiter with ARBITER capability but zero stake
         // The program should reject registration of arbiters with insufficient stake
@@ -6941,16 +7863,21 @@ describe("test_1", () => {
 
         // Program requires min_arbiter_stake for ARBITER capability registration
         try {
-          await program.methods.registerAgent(
-            Array.from(lowStakeId),
-            new BN(CAPABILITY_ARBITER),
-            "https://lowstake.example.com",
-            null,
-            new BN(0)  // zero stake - should fail for arbiter
-          ).accountsPartial({
-            agent: lowStakePda, protocolConfig: protocolPda,
-            authority: lowStakeOwner.publicKey,
-          }).signers([lowStakeOwner]).rpc();
+          await program.methods
+            .registerAgent(
+              Array.from(lowStakeId),
+              new BN(CAPABILITY_ARBITER),
+              "https://lowstake.example.com",
+              null,
+              new BN(0), // zero stake - should fail for arbiter
+            )
+            .accountsPartial({
+              agent: lowStakePda,
+              protocolConfig: protocolPda,
+              authority: lowStakeOwner.publicKey,
+            })
+            .signers([lowStakeOwner])
+            .rpc();
           expect.fail("Should have rejected low stake arbiter registration");
         } catch (e: any) {
           expect(e.message).to.include("InsufficientStake");
@@ -6966,38 +7893,69 @@ describe("test_1", () => {
         const disputeId = Buffer.from(`vote-d-003-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Deadline vote test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Deadline vote test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Create arbiter with proper stake
         const arbiterOwner = Keypair.generate();
@@ -7006,16 +7964,21 @@ describe("test_1", () => {
 
         fundAccount(svm, arbiterOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(arbiterId),
-          new BN(CAPABILITY_ARBITER),
-          "https://arbiter-deadline.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: arbiterPda, protocolConfig: protocolPda,
-          authority: arbiterOwner.publicKey,
-        }).signers([arbiterOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(arbiterId),
+            new BN(CAPABILITY_ARBITER),
+            "https://arbiter-deadline.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiterOwner.publicKey,
+          })
+          .signers([arbiterOwner])
+          .rpc();
 
         // Voting deadline is set based on protocol's votingPeriod
         // Can't easily test actual voting rejection without time manipulation
@@ -7023,16 +7986,21 @@ describe("test_1", () => {
         const dispute = await program.account.dispute.fetch(disputePda);
 
         // Voting deadline should be >= createdAt (votingPeriod may be 0 or small)
-        expect(dispute.votingDeadline.toNumber()).to.be.at.least(dispute.createdAt.toNumber());
+        expect(dispute.votingDeadline.toNumber()).to.be.at.least(
+          dispute.createdAt.toNumber(),
+        );
 
         // If votingPeriod is configured, verify the calculation
-        const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
-        const actualVotingPeriod = (protocolConfig as any).votingPeriod?.toNumber?.() ||
-          ((protocolConfig as any).votingPeriod) || 0;
+        const protocolConfig =
+          await program.account.protocolConfig.fetch(protocolPda);
+        const actualVotingPeriod =
+          (protocolConfig as any).votingPeriod?.toNumber?.() ||
+          (protocolConfig as any).votingPeriod ||
+          0;
 
         if (actualVotingPeriod > 0) {
           expect(dispute.votingDeadline.toNumber()).to.equal(
-            dispute.createdAt.toNumber() + actualVotingPeriod
+            dispute.createdAt.toNumber() + actualVotingPeriod,
           );
         }
       });
@@ -7046,38 +8014,69 @@ describe("test_1", () => {
         const disputeId = Buffer.from(`vote-d-004-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Double vote test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Double vote test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Create arbiter with proper stake
         const arbiterOwner = Keypair.generate();
@@ -7086,16 +8085,21 @@ describe("test_1", () => {
 
         fundAccount(svm, arbiterOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(arbiterId),
-          new BN(CAPABILITY_ARBITER),
-          "https://arbiter-double.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: arbiterPda, protocolConfig: protocolPda,
-          authority: arbiterOwner.publicKey,
-        }).signers([arbiterOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(arbiterId),
+            new BN(CAPABILITY_ARBITER),
+            "https://arbiter-double.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiterOwner.publicKey,
+          })
+          .signers([arbiterOwner])
+          .rpc();
 
         // Update stake to meet min requirement
         // Note: Need to add stake - this depends on implementation
@@ -7118,16 +8122,21 @@ describe("test_1", () => {
         fundAccount(svm, arbiterOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
         // Register arbiter with ARBITER capability and stake
-        await program.methods.registerAgent(
-          Array.from(arbiterId),
-          new BN(CAPABILITY_ARBITER),
-          "https://arbiter-count.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: arbiterPda, protocolConfig: protocolPda,
-          authority: arbiterOwner.publicKey,
-        }).signers([arbiterOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(arbiterId),
+            new BN(CAPABILITY_ARBITER),
+            "https://arbiter-count.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiterOwner.publicKey,
+          })
+          .signers([arbiterOwner])
+          .rpc();
 
         // Check initial vote counts would be 0 on new dispute
         // Create task and dispute
@@ -7137,45 +8146,88 @@ describe("test_1", () => {
         const disputeId = Buffer.from(`vote-d-005-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Vote count test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Vote count test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const workerCount = await createFreshWorker();
         const claimPda = deriveClaimPda(taskPda, workerCount.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: workerCount.agentPda,
-          authority: workerCount.wallet.publicKey,
-        }).signers([workerCount.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: workerCount.agentPda,
+            authority: workerCount.wallet.publicKey,
+          })
+          .signers([workerCount.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: workerCount.agentPda,
-          authority: workerCount.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([workerCount.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: workerCount.agentPda,
+            authority: workerCount.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([workerCount.wallet])
+          .rpc();
 
         // Verify initial vote counts
         const disputeBefore = await program.account.dispute.fetch(disputePda);
-        expect(typeof disputeBefore.votesFor === 'object' ? disputeBefore.votesFor.toNumber() : disputeBefore.votesFor).to.equal(0);
-        expect(typeof disputeBefore.votesAgainst === 'object' ? disputeBefore.votesAgainst.toNumber() : disputeBefore.votesAgainst).to.equal(0);
-        expect(typeof disputeBefore.totalVoters === 'object' ? disputeBefore.totalVoters.toNumber() : disputeBefore.totalVoters).to.equal(0);
+        expect(
+          typeof disputeBefore.votesFor === "object"
+            ? disputeBefore.votesFor.toNumber()
+            : disputeBefore.votesFor,
+        ).to.equal(0);
+        expect(
+          typeof disputeBefore.votesAgainst === "object"
+            ? disputeBefore.votesAgainst.toNumber()
+            : disputeBefore.votesAgainst,
+        ).to.equal(0);
+        expect(
+          typeof disputeBefore.totalVoters === "object"
+            ? disputeBefore.totalVoters.toNumber()
+            : disputeBefore.totalVoters,
+        ).to.equal(0);
       });
 
       it("Active agent status required to vote", async () => {
@@ -7187,38 +8239,69 @@ describe("test_1", () => {
         const disputeId = Buffer.from(`vote-d-006-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Inactive voter test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Inactive voter test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Create arbiter, then deactivate
         const inactiveArbiterOwner = Keypair.generate();
@@ -7227,26 +8310,36 @@ describe("test_1", () => {
 
         fundAccount(svm, inactiveArbiterOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(inactiveArbiterId),
-          new BN(CAPABILITY_ARBITER),
-          "https://inactive-arbiter.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: inactiveArbiterPda, protocolConfig: protocolPda,
-          authority: inactiveArbiterOwner.publicKey,
-        }).signers([inactiveArbiterOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(inactiveArbiterId),
+            new BN(CAPABILITY_ARBITER),
+            "https://inactive-arbiter.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: inactiveArbiterPda,
+            protocolConfig: protocolPda,
+            authority: inactiveArbiterOwner.publicKey,
+          })
+          .signers([inactiveArbiterOwner])
+          .rpc();
 
         // Deactivate the arbiter (advance clock to satisfy update cooldown)
         advanceClock(svm, 61);
-        await program.methods.updateAgent(null, null, null, 0)  // 0 = Inactive
+        await program.methods
+          .updateAgent(null, null, null, 0) // 0 = Inactive
           .accountsPartial({
-            agent: inactiveArbiterPda, authority: inactiveArbiterOwner.publicKey,
-          }).signers([inactiveArbiterOwner]).rpc();
+            agent: inactiveArbiterPda,
+            authority: inactiveArbiterOwner.publicKey,
+          })
+          .signers([inactiveArbiterOwner])
+          .rpc();
 
         // Verify agent is inactive
-        const arbiter = await program.account.agentRegistration.fetch(inactiveArbiterPda);
+        const arbiter =
+          await program.account.agentRegistration.fetch(inactiveArbiterPda);
         expect(arbiter.status).to.deep.equal({ inactive: {} });
 
         // Check if voting is still active before testing
@@ -7256,23 +8349,34 @@ describe("test_1", () => {
         if (dispute.votingDeadline.toNumber() <= currentTime) {
           // Voting period has already ended (protocol may have short/zero voting period)
           // Just verify the agent is inactive and the test setup was correct
-          const arbiter = await program.account.agentRegistration.fetch(inactiveArbiterPda);
+          const arbiter =
+            await program.account.agentRegistration.fetch(inactiveArbiterPda);
           expect(arbiter.status).to.deep.equal({ inactive: {} });
           return;
         }
 
         // Inactive arbiter should not be able to vote
         const votePda = deriveVotePda(disputePda, inactiveArbiterPda);
-        const authorityVotePda = deriveAuthorityVotePda(disputePda, inactiveArbiterOwner.publicKey);
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          inactiveArbiterOwner.publicKey,
+        );
         try {
-          await program.methods.voteDispute(true).accountsPartial({
-            dispute: disputePda, task: taskPda, workerClaim: claimPda,
-            vote: votePda,
-            authorityVote: authorityVotePda,
-            arbiter: inactiveArbiterPda, protocolConfig: protocolPda,
-            authority: inactiveArbiterOwner.publicKey,
-            defendantAgent: null,
-          }).signers([inactiveArbiterOwner]).rpc();
+          await program.methods
+            .voteDispute(true)
+            .accountsPartial({
+              dispute: disputePda,
+              task: taskPda,
+              workerClaim: claimPda,
+              vote: votePda,
+              authorityVote: authorityVotePda,
+              arbiter: inactiveArbiterPda,
+              protocolConfig: protocolPda,
+              authority: inactiveArbiterOwner.publicKey,
+              defendantAgent: null,
+            })
+            .signers([inactiveArbiterOwner])
+            .rpc();
           expect.fail("Inactive arbiter should not vote");
         } catch (e: any) {
           // Check for AgentNotActive error code
@@ -7286,63 +8390,112 @@ describe("test_1", () => {
     describe("Resolution tests", () => {
       it("Cannot resolve before voting_deadline", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from(`resolve-test-001-${runId}`.padEnd(32, "\0"));
+        const taskId = Buffer.from(
+          `resolve-test-001-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`resolve-d-001-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `resolve-d-001-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Early resolve test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Early resolve test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Try to resolve immediately (before 24 hours) - should fail
         try {
-          await program.methods.resolveDispute().accountsPartial({
-            dispute: disputePda, task: taskPda, escrow: escrowPda,
-            protocolConfig: protocolPda, resolver: provider.wallet.publicKey, creator: creator.publicKey,
-            workerClaim: null, worker: null, workerAuthority: null, systemProgram: SystemProgram.programId,
-            tokenEscrowAta: null,
-            creatorTokenAccount: null,
-            workerTokenAccountAta: null,
-            treasuryTokenAccount: null,
-            rewardMint: null,
-            tokenProgram: null,
-          }).rpc();
+          await program.methods
+            .resolveDispute()
+            .accountsPartial({
+              dispute: disputePda,
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              resolver: provider.wallet.publicKey,
+              creator: creator.publicKey,
+              workerClaim: null,
+              worker: null,
+              workerAuthority: null,
+              systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              workerTokenAccountAta: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
+            })
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -7350,49 +8503,90 @@ describe("test_1", () => {
         const worker = await createFreshWorker();
         // This test requires waiting for voting deadline - covered in existing tests
         // Verify the logic exists by checking dispute state
-        const taskId = Buffer.from(`resolve-test-002-${runId}`.padEnd(32, "\0"));
+        const taskId = Buffer.from(
+          `resolve-test-002-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`resolve-d-002-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `resolve-d-002-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Zero votes test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Zero votes test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Verify zero votes initially
         const dispute = await program.account.dispute.fetch(disputePda);
-        const votesForNum = typeof dispute.votesFor === 'object' ? dispute.votesFor.toNumber() : dispute.votesFor;
-        const votesAgainstNum = typeof dispute.votesAgainst === 'object' ? dispute.votesAgainst.toNumber() : dispute.votesAgainst;
+        const votesForNum =
+          typeof dispute.votesFor === "object"
+            ? dispute.votesFor.toNumber()
+            : dispute.votesFor;
+        const votesAgainstNum =
+          typeof dispute.votesAgainst === "object"
+            ? dispute.votesAgainst.toNumber()
+            : dispute.votesAgainst;
         expect(votesForNum + votesAgainstNum).to.equal(0);
       });
 
@@ -7400,44 +8594,79 @@ describe("test_1", () => {
         const worker = await createFreshWorker();
         // This functionality is tested in the existing resolve_dispute tests
         // Verify dispute starts as Active
-        const taskId = Buffer.from(`resolve-test-003-${runId}`.padEnd(32, "\0"));
+        const taskId = Buffer.from(
+          `resolve-test-003-${runId}`.padEnd(32, "\0"),
+        );
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from(`resolve-d-003-${runId}`.padEnd(32, "\0"));
+        const disputeId = Buffer.from(
+          `resolve-d-003-${runId}`.padEnd(32, "\0"),
+        );
         const disputePda = deriveDisputePda(disputeId);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Status change test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey, systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Status change test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.initiateDispute(
-          Array.from(disputeId), Array.from(taskId),
-          Array.from(Buffer.from("evidence".padEnd(32, "\0"))), 0, VALID_EVIDENCE
-        ).accountsPartial({
-          dispute: disputePda, task: taskPda, agent: worker.agentPda,
-          authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
-          initiatorClaim: claimPda, workerAgent: null, workerClaim: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .initiateDispute(
+            Array.from(disputeId),
+            Array.from(taskId),
+            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            0,
+            VALID_EVIDENCE,
+          )
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            initiatorClaim: claimPda,
+            workerAgent: null,
+            workerClaim: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         const dispute = await program.account.dispute.fetch(disputePda);
         expect(dispute.status).to.deep.equal({ active: {} });
@@ -7455,18 +8684,24 @@ describe("test_1", () => {
 
         fundAccount(svm, newAgentOwner.publicKey, 2 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(newAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://rep-test.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: newAgentPda, protocolConfig: protocolPda,
-          authority: newAgentOwner.publicKey,
-        }).signers([newAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(newAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://rep-test.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: newAgentPda,
+            protocolConfig: protocolPda,
+            authority: newAgentOwner.publicKey,
+          })
+          .signers([newAgentOwner])
+          .rpc();
 
-        const agent = await program.account.agentRegistration.fetch(newAgentPda);
+        const agent =
+          await program.account.agentRegistration.fetch(newAgentPda);
         expect(agent.reputation).to.equal(5000);
       });
 
@@ -7478,16 +8713,21 @@ describe("test_1", () => {
 
         fundAccount(svm, repAgentOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(repAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://rep-complete.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: repAgentPda, protocolConfig: protocolPda,
-          authority: repAgentOwner.publicKey,
-        }).signers([repAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(repAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://rep-complete.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: repAgentPda,
+            protocolConfig: protocolPda,
+            authority: repAgentOwner.publicKey,
+          })
+          .signers([repAgentOwner])
+          .rpc();
 
         // Verify initial reputation
         let agent = await program.account.agentRegistration.fetch(repAgentPda);
@@ -7499,43 +8739,66 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Reputation increment test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Reputation increment test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, repAgentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: repAgentPda,
-          authority: repAgentOwner.publicKey,
-        }).signers([repAgentOwner]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: repAgentPda,
+            authority: repAgentOwner.publicKey,
+          })
+          .signers([repAgentOwner])
+          .rpc();
 
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: repAgentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: repAgentOwner.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([repAgentOwner]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: repAgentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: repAgentOwner.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([repAgentOwner])
+          .rpc();
 
         // Verify reputation increased by 100
         agent = await program.account.agentRegistration.fetch(repAgentPda);
@@ -7550,23 +8813,29 @@ describe("test_1", () => {
 
         fundAccount(svm, capAgentOwner.publicKey, 10 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(capAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://rep-cap.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: capAgentPda, protocolConfig: protocolPda,
-          authority: capAgentOwner.publicKey,
-        }).signers([capAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(capAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://rep-cap.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: capAgentPda,
+            protocolConfig: protocolPda,
+            authority: capAgentOwner.publicKey,
+          })
+          .signers([capAgentOwner])
+          .rpc();
 
         // Agent starts at 5000, needs 50 completions to hit 10000
         // We'll verify the cap logic exists by checking the code path
         // Actually completing 50 tasks would be time-consuming
 
         // Instead, verify the initial state and logic path
-        const agent = await program.account.agentRegistration.fetch(capAgentPda);
+        const agent =
+          await program.account.agentRegistration.fetch(capAgentPda);
         expect(agent.reputation).to.equal(5000);
         expect(agent.reputation).to.be.at.most(10000);
       });
@@ -7580,18 +8849,24 @@ describe("test_1", () => {
 
         fundAccount(svm, negAgentOwner.publicKey, 2 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(negAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://rep-neg.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: negAgentPda, protocolConfig: protocolPda,
-          authority: negAgentOwner.publicKey,
-        }).signers([negAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(negAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://rep-neg.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: negAgentPda,
+            protocolConfig: protocolPda,
+            authority: negAgentOwner.publicKey,
+          })
+          .signers([negAgentOwner])
+          .rpc();
 
-        const agent = await program.account.agentRegistration.fetch(negAgentPda);
+        const agent =
+          await program.account.agentRegistration.fetch(negAgentPda);
         expect(agent.reputation).to.be.at.least(0);
         expect(agent.reputation).to.be.at.most(10000);
       });
@@ -7613,16 +8888,21 @@ describe("test_1", () => {
         fundAccount(svm, zeroStakeOwner.publicKey, 2 * LAMPORTS_PER_SOL);
 
         try {
-          await program.methods.registerAgent(
-            Array.from(zeroStakeId),
-            new BN(1 << 7), // ARBITER capability
-            "https://zero-stake.example.com",
-            null,
-            new BN(0)  // zero stake - should fail for arbiter
-          ).accountsPartial({
-            agent: zeroStakePda, protocolConfig: protocolPda,
-            authority: zeroStakeOwner.publicKey,
-          }).signers([zeroStakeOwner]).rpc();
+          await program.methods
+            .registerAgent(
+              Array.from(zeroStakeId),
+              new BN(1 << 7), // ARBITER capability
+              "https://zero-stake.example.com",
+              null,
+              new BN(0), // zero stake - should fail for arbiter
+            )
+            .accountsPartial({
+              agent: zeroStakePda,
+              protocolConfig: protocolPda,
+              authority: zeroStakeOwner.publicKey,
+            })
+            .signers([zeroStakeOwner])
+            .rpc();
           expect.fail("Should have rejected zero-stake arbiter registration");
         } catch (e: any) {
           expect(e.message).to.include("InsufficientStake");
@@ -7636,18 +8916,24 @@ describe("test_1", () => {
 
         fundAccount(svm, stakeAgentOwner.publicKey, 2 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(stakeAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://stake-track.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: stakeAgentPda, protocolConfig: protocolPda,
-          authority: stakeAgentOwner.publicKey,
-        }).signers([stakeAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(stakeAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://stake-track.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: stakeAgentPda,
+            protocolConfig: protocolPda,
+            authority: stakeAgentOwner.publicKey,
+          })
+          .signers([stakeAgentOwner])
+          .rpc();
 
-        const agent = await program.account.agentRegistration.fetch(stakeAgentPda);
+        const agent =
+          await program.account.agentRegistration.fetch(stakeAgentPda);
         // Stake field exists and is set to what we passed
         expect(agent.stake).to.not.be.undefined;
         expect(agent.stake.toNumber()).to.equal(LAMPORTS_PER_SOL);
@@ -7662,19 +8948,25 @@ describe("test_1", () => {
 
         fundAccount(svm, statsAgentOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(statsAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://stats-complete.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: statsAgentPda, protocolConfig: protocolPda,
-          authority: statsAgentOwner.publicKey,
-        }).signers([statsAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(statsAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://stats-complete.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: statsAgentPda,
+            protocolConfig: protocolPda,
+            authority: statsAgentOwner.publicKey,
+          })
+          .signers([statsAgentOwner])
+          .rpc();
 
         // Verify initial tasks_completed is 0
-        let agent = await program.account.agentRegistration.fetch(statsAgentPda);
+        let agent =
+          await program.account.agentRegistration.fetch(statsAgentPda);
         expect(agent.tasksCompleted.toNumber()).to.equal(0);
 
         // Create, claim, complete a task
@@ -7682,43 +8974,66 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Stats increment test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Stats increment test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, statsAgentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: statsAgentPda,
-          authority: statsAgentOwner.publicKey,
-        }).signers([statsAgentOwner]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: statsAgentPda,
+            authority: statsAgentOwner.publicKey,
+          })
+          .signers([statsAgentOwner])
+          .rpc();
 
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: statsAgentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: statsAgentOwner.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([statsAgentOwner]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: statsAgentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: statsAgentOwner.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([statsAgentOwner])
+          .rpc();
 
         // Verify tasks_completed incremented
         agent = await program.account.agentRegistration.fetch(statsAgentPda);
@@ -7732,16 +9047,21 @@ describe("test_1", () => {
 
         fundAccount(svm, earnAgentOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(earnAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://stats-earned.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: earnAgentPda, protocolConfig: protocolPda,
-          authority: earnAgentOwner.publicKey,
-        }).signers([earnAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(earnAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://stats-earned.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: earnAgentPda,
+            protocolConfig: protocolPda,
+            authority: earnAgentOwner.publicKey,
+          })
+          .signers([earnAgentOwner])
+          .rpc();
 
         // Verify initial total_earned is 0
         let agent = await program.account.agentRegistration.fetch(earnAgentPda);
@@ -7753,47 +9073,71 @@ describe("test_1", () => {
         const escrowPda = deriveEscrowPda(taskPda);
         const rewardAmount = 1 * LAMPORTS_PER_SOL;
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Earnings test".padEnd(64, "\0")),
-          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Earnings test".padEnd(64, "\0")),
+            new BN(rewardAmount),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, earnAgentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: earnAgentPda,
-          authority: earnAgentOwner.publicKey,
-        }).signers([earnAgentOwner]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: earnAgentPda,
+            authority: earnAgentOwner.publicKey,
+          })
+          .signers([earnAgentOwner])
+          .rpc();
 
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: earnAgentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: earnAgentOwner.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([earnAgentOwner]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: earnAgentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: earnAgentOwner.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([earnAgentOwner])
+          .rpc();
 
         // Verify total_earned (reward minus 1% protocol fee)
         agent = await program.account.agentRegistration.fetch(earnAgentPda);
-        const expectedEarned = rewardAmount - Math.floor(rewardAmount * 100 / 10000);
+        const expectedEarned =
+          rewardAmount - Math.floor((rewardAmount * 100) / 10000);
         expect(agent.totalEarned.toNumber()).to.equal(expectedEarned);
       });
 
@@ -7804,19 +9148,25 @@ describe("test_1", () => {
 
         fundAccount(svm, activeAgentOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(activeAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://stats-active.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: activeAgentPda, protocolConfig: protocolPda,
-          authority: activeAgentOwner.publicKey,
-        }).signers([activeAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(activeAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://stats-active.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: activeAgentPda,
+            protocolConfig: protocolPda,
+            authority: activeAgentOwner.publicKey,
+          })
+          .signers([activeAgentOwner])
+          .rpc();
 
         // Verify initial active_tasks is 0
-        let agent = await program.account.agentRegistration.fetch(activeAgentPda);
+        let agent =
+          await program.account.agentRegistration.fetch(activeAgentPda);
         expect(agent.activeTasks).to.equal(0);
 
         // Create and claim a task
@@ -7824,48 +9174,71 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Active tasks test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Active tasks test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const claimPda = deriveClaimPda(taskPda, activeAgentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: activeAgentPda,
-          authority: activeAgentOwner.publicKey,
-        }).signers([activeAgentOwner]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: activeAgentPda,
+            authority: activeAgentOwner.publicKey,
+          })
+          .signers([activeAgentOwner])
+          .rpc();
 
         // Verify active_tasks incremented to 1
         agent = await program.account.agentRegistration.fetch(activeAgentPda);
         expect(agent.activeTasks).to.equal(1);
 
         // Complete the task
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: activeAgentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: activeAgentOwner.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([activeAgentOwner]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: activeAgentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: activeAgentOwner.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([activeAgentOwner])
+          .rpc();
 
         // Verify active_tasks decremented to 0
         agent = await program.account.agentRegistration.fetch(activeAgentPda);
@@ -7881,23 +9254,34 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Multi-claim test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Multi-claim test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 33),
+            3,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // All 3 workers claim using fresh agents
         const worker1 = await createFreshWorker();
@@ -7907,20 +9291,38 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, worker2.agentPda);
         const claimPda3 = deriveClaimPda(taskPda, worker3.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker1.agentPda,
-          authority: worker1.wallet.publicKey,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker1.agentPda,
+            authority: worker1.wallet.publicKey,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: worker2.agentPda,
-          authority: worker2.wallet.publicKey,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: worker2.agentPda,
+            authority: worker2.wallet.publicKey,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda3, worker: worker3.agentPda,
-          authority: worker3.wallet.publicKey,
-        }).signers([worker3.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            worker: worker3.agentPda,
+            authority: worker3.wallet.publicKey,
+          })
+          .signers([worker3.wallet])
+          .rpc();
 
         // Verify all 3 claims succeeded
         const task = await program.account.task.fetch(taskPda);
@@ -7933,23 +9335,34 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Overflow claim test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Overflow claim test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 50),
+            2,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // First 2 claims succeed using fresh workers
         const worker1 = await createFreshWorker();
@@ -7959,22 +9372,40 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, worker2.agentPda);
         const claimPda3 = deriveClaimPda(taskPda, worker3.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker1.agentPda,
-          authority: worker1.wallet.publicKey,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker1.agentPda,
+            authority: worker1.wallet.publicKey,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: worker2.agentPda,
-          authority: worker2.wallet.publicKey,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: worker2.agentPda,
+            authority: worker2.wallet.publicKey,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
         // Third claim should fail
         try {
-          await program.methods.claimTask().accountsPartial({
-            task: taskPda, claim: claimPda3, worker: worker3.agentPda,
-            authority: worker3.wallet.publicKey,
-          }).signers([worker3.wallet]).rpc();
+          await program.methods
+            .claimTask()
+            .accountsPartial({
+              task: taskPda,
+              claim: claimPda3,
+              worker: worker3.agentPda,
+              authority: worker3.wallet.publicKey,
+            })
+            .signers([worker3.wallet])
+            .rpc();
           expect.fail("Third claim should fail");
         } catch (e: any) {
           expect(e.message).to.include("TaskFullyClaimed");
@@ -7989,38 +9420,61 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("PDA uniqueness test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("PDA uniqueness test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // First claim succeeds
         const worker = await createFreshWorker();
         const claimPda1 = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Same worker trying to claim again should fail (PDA already exists)
         try {
-          await program.methods.claimTask().accountsPartial({
-            task: taskPda, claim: claimPda1, worker: worker.agentPda,
-            authority: worker.wallet.publicKey,
-          }).signers([worker.wallet]).rpc();
+          await program.methods
+            .claimTask()
+            .accountsPartial({
+              task: taskPda,
+              claim: claimPda1,
+              worker: worker.agentPda,
+              authority: worker.wallet.publicKey,
+            })
+            .signers([worker.wallet])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: any) {
           // PDA already exists - error could be "already in use" (system),
@@ -8037,49 +9491,76 @@ describe("test_1", () => {
         const escrowPda = deriveEscrowPda(taskPda);
         const rewardAmount = 1 * LAMPORTS_PER_SOL;
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("First wins test".padEnd(64, "\0")),
-          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("First wins test".padEnd(64, "\0")),
+            new BN(rewardAmount),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const worker = await createFreshWorker();
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        const workerBefore = await provider.connection.getBalance(worker.wallet.publicKey);
+        const workerBefore = await provider.connection.getBalance(
+          worker.wallet.publicKey,
+        );
 
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: worker.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: worker.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        const workerAfter = await provider.connection.getBalance(worker.wallet.publicKey);
-        const protocolFee = Math.floor(rewardAmount * 100 / 10000);
+        const workerAfter = await provider.connection.getBalance(
+          worker.wallet.publicKey,
+        );
+        const protocolFee = Math.floor((rewardAmount * 100) / 10000);
         const expectedReward = rewardAmount - protocolFee;
 
         // Worker should have received the reward (minus tx fee)
@@ -8091,74 +9572,116 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("All completions test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("All completions test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 50),
+            2,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const worker1 = await createFreshWorker();
         const worker2 = await createFreshWorker();
         const claimPda1 = deriveClaimPda(taskPda, worker1.agentPda);
         const claimPda2 = deriveClaimPda(taskPda, worker2.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker1.agentPda,
-          authority: worker1.wallet.publicKey,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker1.agentPda,
+            authority: worker1.wallet.publicKey,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: worker2.agentPda,
-          authority: worker2.wallet.publicKey,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: worker2.agentPda,
+            authority: worker2.wallet.publicKey,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
         // First completion pays first worker — escrow stays open for collaborative tasks
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: worker1.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker1.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            worker: worker1.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker1.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
         let task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(1);
         // Escrow should still exist after first completion
-        const escrowAccount = await provider.connection.getAccountInfo(escrowPda);
+        const escrowAccount =
+          await provider.connection.getAccountInfo(escrowPda);
         expect(escrowAccount).to.not.be.null;
 
         // Second completion succeeds — escrow closes after final completion
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: worker2.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker2.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof2".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            escrow: escrowPda,
+            worker: worker2.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker2.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
         task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(2);
@@ -8176,23 +9699,34 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Worker count test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Worker count test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 33),
+            3,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         let task = await program.account.task.fetch(taskPda);
         expect(task.currentWorkers).to.equal(0);
@@ -8204,30 +9738,48 @@ describe("test_1", () => {
 
         // Claim 1
         const claimPda1 = deriveClaimPda(taskPda, worker1.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker1.agentPda,
-          authority: worker1.wallet.publicKey,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker1.agentPda,
+            authority: worker1.wallet.publicKey,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
         task = await program.account.task.fetch(taskPda);
         expect(task.currentWorkers).to.equal(1);
 
         // Claim 2
         const claimPda2 = deriveClaimPda(taskPda, worker2.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: worker2.agentPda,
-          authority: worker2.wallet.publicKey,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: worker2.agentPda,
+            authority: worker2.wallet.publicKey,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
         task = await program.account.task.fetch(taskPda);
         expect(task.currentWorkers).to.equal(2);
 
         // Claim 3
         const claimPda3 = deriveClaimPda(taskPda, worker3.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda3, worker: worker3.agentPda,
-          authority: worker3.wallet.publicKey,
-        }).signers([worker3.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            worker: worker3.agentPda,
+            authority: worker3.wallet.publicKey,
+          })
+          .signers([worker3.wallet])
+          .rpc();
 
         task = await program.account.task.fetch(taskPda);
         expect(task.currentWorkers).to.equal(3);
@@ -8238,23 +9790,34 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Completion count test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Completion count test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 33),
+            3,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const worker1 = await createFreshWorker();
         const worker2 = await createFreshWorker();
@@ -8263,74 +9826,119 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, worker2.agentPda);
         const claimPda3 = deriveClaimPda(taskPda, worker3.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker1.agentPda,
-          authority: worker1.wallet.publicKey,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker1.agentPda,
+            authority: worker1.wallet.publicKey,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: worker2.agentPda,
-          authority: worker2.wallet.publicKey,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: worker2.agentPda,
+            authority: worker2.wallet.publicKey,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda3, worker: worker3.agentPda,
-          authority: worker3.wallet.publicKey,
-        }).signers([worker3.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            worker: worker3.agentPda,
+            authority: worker3.wallet.publicKey,
+          })
+          .signers([worker3.wallet])
+          .rpc();
 
         let task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(0);
 
         // Complete 1 — escrow stays open
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: worker1.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker1.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            worker: worker1.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker1.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
         task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(1);
 
         // Complete 2 — escrow stays open
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: worker2.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker2.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof2".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            escrow: escrowPda,
+            worker: worker2.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker2.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
         task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(2);
 
         // Complete 3 — final completion closes escrow
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: worker3.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker3.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker3.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof3".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            escrow: escrowPda,
+            worker: worker3.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker3.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker3.wallet])
+          .rpc();
 
         task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(3);
@@ -8345,18 +9953,24 @@ describe("test_1", () => {
 
         fundAccount(svm, trackAgentOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(trackAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://track.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: trackAgentPda, protocolConfig: protocolPda,
-          authority: trackAgentOwner.publicKey,
-        }).signers([trackAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(trackAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://track.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: trackAgentPda,
+            protocolConfig: protocolPda,
+            authority: trackAgentOwner.publicKey,
+          })
+          .signers([trackAgentOwner])
+          .rpc();
 
-        let agent = await program.account.agentRegistration.fetch(trackAgentPda);
+        let agent =
+          await program.account.agentRegistration.fetch(trackAgentPda);
         expect(agent.activeTasks).to.equal(0);
 
         // Claim task 1
@@ -8364,29 +9978,49 @@ describe("test_1", () => {
         const taskPda1 = deriveTaskPda(creator.publicKey, taskId1);
         const escrowPda1 = deriveEscrowPda(taskPda1);
 
-        await program.methods.createTask(
-          Array.from(taskId1), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Track test 1".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda1, escrow: escrowPda1, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId1),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Track test 1".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda1,
+            escrow: escrowPda1,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
-        const claimPda1 = deriveClaimPda(taskPda1, deriveAgentPda(trackAgentId));
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda1, claim: claimPda1, worker: deriveAgentPda(trackAgentId),
-          authority: trackAgentOwner.publicKey,
-        }).signers([trackAgentOwner]).rpc();
+        const claimPda1 = deriveClaimPda(
+          taskPda1,
+          deriveAgentPda(trackAgentId),
+        );
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda1,
+            claim: claimPda1,
+            worker: deriveAgentPda(trackAgentId),
+            authority: trackAgentOwner.publicKey,
+          })
+          .signers([trackAgentOwner])
+          .rpc();
 
         agent = await program.account.agentRegistration.fetch(trackAgentPda);
         expect(agent.activeTasks).to.equal(1);
@@ -8396,65 +10030,103 @@ describe("test_1", () => {
         const taskPda2 = deriveTaskPda(creator.publicKey, taskId2);
         const escrowPda2 = deriveEscrowPda(taskPda2);
 
-        await program.methods.createTask(
-          Array.from(taskId2), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Track test 2".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda2, escrow: escrowPda2, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId2),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Track test 2".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda2,
+            escrow: escrowPda2,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
-        const claimPda2 = deriveClaimPda(taskPda2, deriveAgentPda(trackAgentId));
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda2, claim: claimPda2, worker: deriveAgentPda(trackAgentId),
-          authority: trackAgentOwner.publicKey,
-        }).signers([trackAgentOwner]).rpc();
+        const claimPda2 = deriveClaimPda(
+          taskPda2,
+          deriveAgentPda(trackAgentId),
+        );
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda2,
+            claim: claimPda2,
+            worker: deriveAgentPda(trackAgentId),
+            authority: trackAgentOwner.publicKey,
+          })
+          .signers([trackAgentOwner])
+          .rpc();
 
         agent = await program.account.agentRegistration.fetch(trackAgentPda);
         expect(agent.activeTasks).to.equal(2);
 
         // Complete task 1
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda1, claim: claimPda1, escrow: escrowPda1, worker: deriveAgentPda(trackAgentId),
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: trackAgentOwner.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([trackAgentOwner]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda1,
+            claim: claimPda1,
+            escrow: escrowPda1,
+            worker: deriveAgentPda(trackAgentId),
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: trackAgentOwner.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([trackAgentOwner])
+          .rpc();
 
         agent = await program.account.agentRegistration.fetch(trackAgentPda);
         expect(agent.activeTasks).to.equal(1);
 
         // Complete task 2
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda2, claim: claimPda2, escrow: escrowPda2, worker: deriveAgentPda(trackAgentId),
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: trackAgentOwner.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([trackAgentOwner]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof2".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda2,
+            claim: claimPda2,
+            escrow: escrowPda2,
+            worker: deriveAgentPda(trackAgentId),
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: trackAgentOwner.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([trackAgentOwner])
+          .rpc();
 
         agent = await program.account.agentRegistration.fetch(trackAgentPda);
         expect(agent.activeTasks).to.equal(0);
@@ -8469,23 +10141,34 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Max workers test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 100, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Max workers test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            100,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const task = await program.account.task.fetch(taskPda);
         expect(task.maxWorkers).to.equal(100);
@@ -8497,26 +10180,39 @@ describe("test_1", () => {
         const escrowPda = deriveEscrowPda(taskPda);
 
         try {
-          await program.methods.createTask(
-            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-            Buffer.from("Zero workers test".padEnd(64, "\0")),
-            new BN(LAMPORTS_PER_SOL / 100), 0, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-            0, // min_reputation
-            null, // reward_mint
-          ).accountsPartial({
-            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator.publicKey,
-            creator: creator.publicKey,
-            rewardMint: null,
-            creatorTokenAccount: null,
-            tokenEscrowAta: null,
-            tokenProgram: null,
-            associatedTokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from("Zero workers test".padEnd(64, "\0")),
+              new BN(LAMPORTS_PER_SOL / 100),
+              0,
+              getDefaultDeadline(),
+              TASK_TYPE_EXCLUSIVE,
+              null,
+              0, // min_reputation
+              null, // reward_mint
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: any) {
-          expect(e.error?.errorCode?.code || e.message).to.include("InvalidMaxWorkers");
+          expect(e.error?.errorCode?.code || e.message).to.include(
+            "InvalidMaxWorkers",
+          );
         }
       });
 
@@ -8526,23 +10222,34 @@ describe("test_1", () => {
         const escrowPda = deriveEscrowPda(taskPda);
 
         try {
-          await program.methods.createTask(
-            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-            Buffer.from("Zero reward test".padEnd(64, "\0")),
-            new BN(0), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-            0, // min_reputation
-            null, // reward_mint
-          ).accountsPartial({
-            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator.publicKey,
-            creator: creator.publicKey,
-            rewardMint: null,
-            creatorTokenAccount: null,
-            tokenEscrowAta: null,
-            tokenProgram: null,
-            associatedTokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from("Zero reward test".padEnd(64, "\0")),
+              new BN(0),
+              1,
+              getDefaultDeadline(),
+              TASK_TYPE_EXCLUSIVE,
+              null,
+              0, // min_reputation
+              null, // reward_mint
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Should have rejected zero reward");
         } catch (e: any) {
           expect(e.error?.errorCode?.code).to.equal("InvalidReward");
@@ -8556,29 +10263,43 @@ describe("test_1", () => {
 
         // Creator doesn't have u64::MAX lamports
         try {
-          await program.methods.createTask(
-            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-            Buffer.from("Huge reward test".padEnd(64, "\0")),
-            new BN("18446744073709551615"), // u64::MAX
-            1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-            0, // min_reputation
-            null, // reward_mint
-          ).accountsPartial({
-            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator.publicKey,
-            creator: creator.publicKey,
-            rewardMint: null,
-            creatorTokenAccount: null,
-            tokenEscrowAta: null,
-            tokenProgram: null,
-            associatedTokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from("Huge reward test".padEnd(64, "\0")),
+              new BN("18446744073709551615"), // u64::MAX
+              1,
+              getDefaultDeadline(),
+              TASK_TYPE_EXCLUSIVE,
+              null,
+              0, // min_reputation
+              null, // reward_mint
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -8588,28 +10309,43 @@ describe("test_1", () => {
         const escrowPda = deriveEscrowPda(taskPda);
 
         try {
-          await program.methods.createTask(
-            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-            Buffer.from("No deadline test".padEnd(64, "\0")),
-            new BN(LAMPORTS_PER_SOL), 1, new BN(0), TASK_TYPE_EXCLUSIVE, null,
-            0, // min_reputation
-            null, // reward_mint
-          ).accountsPartial({
-            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator.publicKey,
-            creator: creator.publicKey,
-            rewardMint: null,
-            creatorTokenAccount: null,
-            tokenEscrowAta: null,
-            tokenProgram: null,
-            associatedTokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from("No deadline test".padEnd(64, "\0")),
+              new BN(LAMPORTS_PER_SOL),
+              1,
+              new BN(0),
+              TASK_TYPE_EXCLUSIVE,
+              null,
+              0, // min_reputation
+              null, // reward_mint
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Should have failed with deadline=0");
         } catch (e: unknown) {
           // Deadline=0 is rejected as past deadline (DeadlinePassed)
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -8621,28 +10357,43 @@ describe("test_1", () => {
         const pastDeadline = getClockTimestamp(svm) - 3600; // 1 hour ago
 
         try {
-          await program.methods.createTask(
-            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-            Buffer.from("Past deadline test".padEnd(64, "\0")),
-            new BN(0), 1, new BN(pastDeadline), TASK_TYPE_EXCLUSIVE, null,
-            0, // min_reputation
-            null, // reward_mint
-          ).accountsPartial({
-            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator.publicKey,
-            creator: creator.publicKey,
-            rewardMint: null,
-            creatorTokenAccount: null,
-            tokenEscrowAta: null,
-            tokenProgram: null,
-            associatedTokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from("Past deadline test".padEnd(64, "\0")),
+              new BN(0),
+              1,
+              new BN(pastDeadline),
+              TASK_TYPE_EXCLUSIVE,
+              null,
+              0, // min_reputation
+              null, // reward_mint
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
@@ -8652,23 +10403,34 @@ describe("test_1", () => {
         const escrowPda = deriveEscrowPda(taskPda);
 
         try {
-          await program.methods.createTask(
-            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-            Buffer.from("Invalid type test".padEnd(64, "\0")),
-            new BN(0), 1, new BN(0), 3, null, // Invalid: only 0, 1, 2 are valid
-            0, // min_reputation
-            null, // reward_mint
-          ).accountsPartial({
-            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator.publicKey,
-            creator: creator.publicKey,
-            rewardMint: null,
-            creatorTokenAccount: null,
-            tokenEscrowAta: null,
-            tokenProgram: null,
-            associatedTokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from("Invalid type test".padEnd(64, "\0")),
+              new BN(0),
+              1,
+              new BN(0),
+              3,
+              null, // Invalid: only 0, 1, 2 are valid
+              0, // min_reputation
+              null, // reward_mint
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: any) {
           expect(e.message).to.include("InvalidTaskType");
@@ -8683,16 +10445,21 @@ describe("test_1", () => {
         fundAccount(svm, zeroCapOwner.publicKey, 2 * LAMPORTS_PER_SOL);
 
         try {
-          await program.methods.registerAgent(
-            Array.from(zeroCapId),
-            new BN(0), // Zero capabilities - now rejected
-            "https://zero-cap.example.com",
-            null,
-            new BN(LAMPORTS_PER_SOL)
-          ).accountsPartial({
-            agent: zeroCapPda, protocolConfig: protocolPda,
-            authority: zeroCapOwner.publicKey,
-          }).signers([zeroCapOwner]).rpc();
+          await program.methods
+            .registerAgent(
+              Array.from(zeroCapId),
+              new BN(0), // Zero capabilities - now rejected
+              "https://zero-cap.example.com",
+              null,
+              new BN(LAMPORTS_PER_SOL),
+            )
+            .accountsPartial({
+              agent: zeroCapPda,
+              protocolConfig: protocolPda,
+              authority: zeroCapOwner.publicKey,
+            })
+            .signers([zeroCapOwner])
+            .rpc();
           expect.fail("Should have failed with InvalidCapabilities");
         } catch (e: any) {
           expect(e.message).to.include("InvalidCapabilities");
@@ -8706,22 +10473,29 @@ describe("test_1", () => {
 
         fundAccount(svm, maxCapOwner.publicKey, 2 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(maxCapId),
-          new BN("18446744073709551615"), // u64::MAX
-          "https://max-cap.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: maxCapPda, protocolConfig: protocolPda,
-          authority: maxCapOwner.publicKey,
-        }).signers([maxCapOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(maxCapId),
+            new BN("18446744073709551615"), // u64::MAX
+            "https://max-cap.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: maxCapPda,
+            protocolConfig: protocolPda,
+            authority: maxCapOwner.publicKey,
+          })
+          .signers([maxCapOwner])
+          .rpc();
 
         const agent = await program.account.agentRegistration.fetch(maxCapPda);
         // Verify u64::MAX was stored — BN.js may have precision issues with max u64 in some environments
         // so we verify the raw bytes instead of the decimal string
         const rawCapBytes = agent.capabilities.toArray("le", 8);
-        expect(rawCapBytes).to.deep.equal([255, 255, 255, 255, 255, 255, 255, 255]);
+        expect(rawCapBytes).to.deep.equal([
+          255, 255, 255, 255, 255, 255, 255, 255,
+        ]);
       });
 
       it("Empty strings for endpoint are rejected (InvalidInput)", async () => {
@@ -8732,16 +10506,21 @@ describe("test_1", () => {
         fundAccount(svm, emptyStrOwner.publicKey, 2 * LAMPORTS_PER_SOL);
 
         try {
-          await program.methods.registerAgent(
-            Array.from(emptyStrId),
-            new BN(CAPABILITY_COMPUTE),
-            "", // Empty endpoint - now rejected
-            "", // Empty metadata
-            new BN(LAMPORTS_PER_SOL)
-          ).accountsPartial({
-            agent: emptyStrPda, protocolConfig: protocolPda,
-            authority: emptyStrOwner.publicKey,
-          }).signers([emptyStrOwner]).rpc();
+          await program.methods
+            .registerAgent(
+              Array.from(emptyStrId),
+              new BN(CAPABILITY_COMPUTE),
+              "", // Empty endpoint - now rejected
+              "", // Empty metadata
+              new BN(LAMPORTS_PER_SOL),
+            )
+            .accountsPartial({
+              agent: emptyStrPda,
+              protocolConfig: protocolPda,
+              authority: emptyStrOwner.publicKey,
+            })
+            .signers([emptyStrOwner])
+            .rpc();
           expect.fail("Should have failed with InvalidInput");
         } catch (e: any) {
           expect(e.message).to.include("InvalidInput");
@@ -8760,16 +10539,21 @@ describe("test_1", () => {
         const padding = "a".repeat(128 - baseUrl.length);
         const maxUrl = baseUrl + padding;
 
-        await program.methods.registerAgent(
-          Array.from(maxLenId),
-          new BN(CAPABILITY_COMPUTE),
-          maxUrl,
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: maxLenPda, protocolConfig: protocolPda,
-          authority: maxLenOwner.publicKey,
-        }).signers([maxLenOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(maxLenId),
+            new BN(CAPABILITY_COMPUTE),
+            maxUrl,
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: maxLenPda,
+            protocolConfig: protocolPda,
+            authority: maxLenOwner.publicKey,
+          })
+          .signers([maxLenOwner])
+          .rpc();
 
         const agent = await program.account.agentRegistration.fetch(maxLenPda);
         expect(agent.endpoint.length).to.equal(128);
@@ -8787,20 +10571,28 @@ describe("test_1", () => {
         const overStr = baseUrl + padding;
 
         try {
-          await program.methods.registerAgent(
-            Array.from(overLenId),
-            new BN(CAPABILITY_COMPUTE),
-            overStr, // 129 chars - too long
-            null,
-            new BN(LAMPORTS_PER_SOL)
-          ).accountsPartial({
-            agent: overLenPda, protocolConfig: protocolPda,
-            authority: overLenOwner.publicKey,
-          }).signers([overLenOwner]).rpc();
+          await program.methods
+            .registerAgent(
+              Array.from(overLenId),
+              new BN(CAPABILITY_COMPUTE),
+              overStr, // 129 chars - too long
+              null,
+              new BN(LAMPORTS_PER_SOL),
+            )
+            .accountsPartial({
+              agent: overLenPda,
+              protocolConfig: protocolPda,
+              authority: overLenOwner.publicKey,
+            })
+            .signers([overLenOwner])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: any) {
           // May be StringTooLong or InvalidInput depending on validation order
-          expect(e.message).to.satisfy((msg: string) => msg.includes("StringTooLong") || msg.includes("InvalidInput"));
+          expect(e.message).to.satisfy(
+            (msg: string) =>
+              msg.includes("StringTooLong") || msg.includes("InvalidInput"),
+          );
         }
       });
     });
@@ -8811,23 +10603,34 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Invariant test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Invariant test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 50),
+            2,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // Claim up to max using fresh workers
         const worker1 = await createFreshWorker();
@@ -8835,15 +10638,27 @@ describe("test_1", () => {
         const claimPda1 = deriveClaimPda(taskPda, worker1.agentPda);
         const claimPda2 = deriveClaimPda(taskPda, worker2.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker1.agentPda,
-          authority: worker1.wallet.publicKey,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker1.agentPda,
+            authority: worker1.wallet.publicKey,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: worker2.agentPda,
-          authority: worker2.wallet.publicKey,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: worker2.agentPda,
+            authority: worker2.wallet.publicKey,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
         const task = await program.account.task.fetch(taskPda);
         expect(task.currentWorkers).to.be.at.most(task.maxWorkers);
@@ -8854,53 +10669,85 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Completion invariant".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Completion invariant".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 50),
+            2,
+            getDefaultDeadline(),
+            TASK_TYPE_COLLABORATIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         const worker1 = await createFreshWorker();
         const worker2 = await createFreshWorker();
         const claimPda1 = deriveClaimPda(taskPda, worker1.agentPda);
         const claimPda2 = deriveClaimPda(taskPda, worker2.agentPda);
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda1, worker: worker1.agentPda,
-          authority: worker1.wallet.publicKey,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            worker: worker1.agentPda,
+            authority: worker1.wallet.publicKey,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda2, worker: worker2.agentPda,
-          authority: worker2.wallet.publicKey,
-        }).signers([worker2.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            worker: worker2.agentPda,
+            authority: worker2.wallet.publicKey,
+          })
+          .signers([worker2.wallet])
+          .rpc();
 
         // Complete first worker - this closes the escrow in current design
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: worker1.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker1.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker1.wallet]).rpc();
+        await program.methods
+          .completeTask(
+            Array.from(Buffer.from("proof1".padEnd(32, "\0"))),
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            worker: worker1.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker1.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker1.wallet])
+          .rpc();
 
         // Note: For exclusive tasks (max_workers=1), escrow is closed after single completion
 
@@ -8914,49 +10761,74 @@ describe("test_1", () => {
         const escrowPda = deriveEscrowPda(taskPda);
         const rewardAmount = 1 * LAMPORTS_PER_SOL;
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Escrow invariant".padEnd(64, "\0")),
-          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Escrow invariant".padEnd(64, "\0")),
+            new BN(rewardAmount),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // Check escrow invariant before completion (escrow is closed after completion)
         const escrowBefore = await program.account.taskEscrow.fetch(escrowPda);
-        expect(escrowBefore.distributed.toNumber()).to.be.at.most(escrowBefore.amount.toNumber());
+        expect(escrowBefore.distributed.toNumber()).to.be.at.most(
+          escrowBefore.amount.toNumber(),
+        );
         expect(escrowBefore.distributed.toNumber()).to.equal(0); // No distributions yet
 
         const worker = await createFreshWorker();
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: worker.agentPda,
-          authority: worker.wallet.publicKey,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: worker.agentPda,
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: worker.wallet.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([worker.wallet]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: worker.agentPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([worker.wallet])
+          .rpc();
 
         // Escrow is closed after completion - verify task is completed
         const task = await program.account.task.fetch(taskPda);
@@ -8971,46 +10843,70 @@ describe("test_1", () => {
 
         fundAccount(svm, busyAgentOwner.publicKey, 15 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(busyAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://busy.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: busyAgentPda, protocolConfig: protocolPda,
-          authority: busyAgentOwner.publicKey,
-        }).signers([busyAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(busyAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://busy.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: busyAgentPda,
+            protocolConfig: protocolPda,
+            authority: busyAgentOwner.publicKey,
+          })
+          .signers([busyAgentOwner])
+          .rpc();
 
         // Create and claim 10 tasks
         for (let i = 0; i < 10; i++) {
-        const taskId = Buffer.from(`busy-task-${i.toString().padStart(3, "0")}`.padEnd(32, "\0"));
+          const taskId = Buffer.from(
+            `busy-task-${i.toString().padStart(3, "0")}`.padEnd(32, "\0"),
+          );
           const taskPda = deriveTaskPda(creator.publicKey, taskId);
           const escrowPda = deriveEscrowPda(taskPda);
 
-          await program.methods.createTask(
-            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-            Buffer.from(`Busy task ${i}`.padEnd(64, "\0")),
-            new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-            0, // min_reputation
-            null, // reward_mint
-          ).accountsPartial({
-            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator.publicKey,
-            creator: creator.publicKey,
-            rewardMint: null,
-            creatorTokenAccount: null,
-            tokenEscrowAta: null,
-            tokenProgram: null,
-            associatedTokenProgram: null,
-          }).signers([creator]).rpc();
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from(`Busy task ${i}`.padEnd(64, "\0")),
+              new BN(LAMPORTS_PER_SOL / 100),
+              1,
+              getDefaultDeadline(),
+              TASK_TYPE_EXCLUSIVE,
+              null,
+              0, // min_reputation
+              null, // reward_mint
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
+            })
+            .signers([creator])
+            .rpc();
 
           const claimPda = deriveClaimPda(taskPda, deriveAgentPda(busyAgentId));
-          await program.methods.claimTask().accountsPartial({
-            task: taskPda, claim: claimPda, worker: deriveAgentPda(busyAgentId),
-            authority: busyAgentOwner.publicKey,
-          }).signers([busyAgentOwner]).rpc();
+          await program.methods
+            .claimTask()
+            .accountsPartial({
+              task: taskPda,
+              claim: claimPda,
+              worker: deriveAgentPda(busyAgentId),
+              authority: busyAgentOwner.publicKey,
+            })
+            .signers([busyAgentOwner])
+            .rpc();
         }
 
         // Verify active_tasks is 10
@@ -9022,35 +10918,59 @@ describe("test_1", () => {
         const taskPda11 = deriveTaskPda(creator.publicKey, taskId11);
         const escrowPda11 = deriveEscrowPda(taskPda11);
 
-        await program.methods.createTask(
-          Array.from(taskId11), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Busy task 10".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda11, escrow: escrowPda11, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId11),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Busy task 10".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda11,
+            escrow: escrowPda11,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
-        const claimPda11 = deriveClaimPda(taskPda11, deriveAgentPda(busyAgentId));
+        const claimPda11 = deriveClaimPda(
+          taskPda11,
+          deriveAgentPda(busyAgentId),
+        );
         try {
-          await program.methods.claimTask().accountsPartial({
-            task: taskPda11, claim: claimPda11, worker: deriveAgentPda(busyAgentId),
-            authority: busyAgentOwner.publicKey,
-          }).signers([busyAgentOwner]).rpc();
+          await program.methods
+            .claimTask()
+            .accountsPartial({
+              task: taskPda11,
+              claim: claimPda11,
+              worker: deriveAgentPda(busyAgentId),
+              authority: busyAgentOwner.publicKey,
+            })
+            .signers([busyAgentOwner])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
 
         // Verify active_tasks is still 10
@@ -9060,7 +10980,8 @@ describe("test_1", () => {
 
       it("Protocol stats only increase (total_tasks, total_agents, completed_tasks)", async () => {
         // Get initial stats
-        const configBefore = await program.account.protocolConfig.fetch(protocolPda);
+        const configBefore =
+          await program.account.protocolConfig.fetch(protocolPda);
         const totalTasksBefore = configBefore.totalTasks.toNumber();
         const totalAgentsBefore = configBefore.totalAgents.toNumber();
         const completedTasksBefore = configBefore.completedTasks.toNumber();
@@ -9070,27 +10991,41 @@ describe("test_1", () => {
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Stats increase test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Stats increase test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // Verify total_tasks increased
-        let configAfter = await program.account.protocolConfig.fetch(protocolPda);
-        expect(configAfter.totalTasks.toNumber()).to.be.greaterThan(totalTasksBefore);
+        let configAfter =
+          await program.account.protocolConfig.fetch(protocolPda);
+        expect(configAfter.totalTasks.toNumber()).to.be.greaterThan(
+          totalTasksBefore,
+        );
 
         // Create an agent
         const newAgentOwner = Keypair.generate();
@@ -9099,45 +11034,66 @@ describe("test_1", () => {
 
         fundAccount(svm, newAgentOwner.publicKey, 5 * LAMPORTS_PER_SOL);
 
-        await program.methods.registerAgent(
-          Array.from(newAgentId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://stats-agent.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: newAgentPda, protocolConfig: protocolPda,
-          authority: newAgentOwner.publicKey,
-        }).signers([newAgentOwner]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(newAgentId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://stats-agent.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: newAgentPda,
+            protocolConfig: protocolPda,
+            authority: newAgentOwner.publicKey,
+          })
+          .signers([newAgentOwner])
+          .rpc();
 
         // Verify total_agents increased
         configAfter = await program.account.protocolConfig.fetch(protocolPda);
-        expect(configAfter.totalAgents.toNumber()).to.be.greaterThan(totalAgentsBefore);
+        expect(configAfter.totalAgents.toNumber()).to.be.greaterThan(
+          totalAgentsBefore,
+        );
 
         // Complete a task
         const claimPda = deriveClaimPda(taskPda, deriveAgentPda(newAgentId));
-        await program.methods.claimTask().accountsPartial({
-          task: taskPda, claim: claimPda, worker: deriveAgentPda(newAgentId),
-          authority: newAgentOwner.publicKey,
-        }).signers([newAgentOwner]).rpc();
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: deriveAgentPda(newAgentId),
+            authority: newAgentOwner.publicKey,
+          })
+          .signers([newAgentOwner])
+          .rpc();
 
-        await program.methods.completeTask(
-          Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
-        ).accountsPartial({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: deriveAgentPda(newAgentId),
-          creator: creator.publicKey,
-          protocolConfig: protocolPda, treasury: treasuryPubkey,
-          authority: newAgentOwner.publicKey,
-          tokenEscrowAta: null,
-          workerTokenAccount: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        }).signers([newAgentOwner]).rpc();
+        await program.methods
+          .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: deriveAgentPda(newAgentId),
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: newAgentOwner.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .signers([newAgentOwner])
+          .rpc();
 
         // Verify completed_tasks increased
         configAfter = await program.account.protocolConfig.fetch(protocolPda);
-        expect(configAfter.completedTasks.toNumber()).to.be.greaterThan(completedTasksBefore);
+        expect(configAfter.completedTasks.toNumber()).to.be.greaterThan(
+          completedTasksBefore,
+        );
       });
     });
 
@@ -9149,45 +11105,67 @@ describe("test_1", () => {
         const taskPda1 = deriveTaskPda(creator.publicKey, sharedTaskId);
         const escrowPda1 = deriveEscrowPda(taskPda1);
 
-        await program.methods.createTask(
-          Array.from(sharedTaskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Shared ID test 1".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda1, escrow: escrowPda1, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([creator]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(sharedTaskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Shared ID test 1".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda1,
+            escrow: escrowPda1,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
 
         // Creator 2 (using worker1 as different creator)
         const taskPda2 = deriveTaskPda(worker1.publicKey, sharedTaskId);
         const escrowPda2 = deriveEscrowPda(taskPda2);
 
-        await program.methods.createTask(
-          Array.from(sharedTaskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("Shared ID test 2".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
-          0, // min_reputation
-          null, // reward_mint
-        ).accountsPartial({
-          task: taskPda2, escrow: escrowPda2, protocolConfig: protocolPda,
-          creatorAgent: deriveAgentPda(agentId1),
-          authority: worker1.publicKey,
-          creator: worker1.publicKey,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
-        }).signers([worker1]).rpc();
+        await program.methods
+          .createTask(
+            Array.from(sharedTaskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Shared ID test 2".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0, // min_reputation
+            null, // reward_mint
+          )
+          .accountsPartial({
+            task: taskPda2,
+            escrow: escrowPda2,
+            protocolConfig: protocolPda,
+            creatorAgent: deriveAgentPda(agentId1),
+            authority: worker1.publicKey,
+            creator: worker1.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([worker1])
+          .rpc();
 
         // Verify PDAs are different
         expect(taskPda1.toString()).to.not.equal(taskPda2.toString());
@@ -9207,32 +11185,42 @@ describe("test_1", () => {
         fundAccount(svm, owner1.publicKey, 2 * LAMPORTS_PER_SOL);
 
         // First registration succeeds
-        await program.methods.registerAgent(
-          Array.from(duplicateId),
-          new BN(CAPABILITY_COMPUTE),
-          "https://duplicate.example.com",
-          null,
-          new BN(LAMPORTS_PER_SOL)
-        ).accountsPartial({
-          agent: duplicatePda, protocolConfig: protocolPda,
-          authority: owner1.publicKey,
-        }).signers([owner1]).rpc();
+        await program.methods
+          .registerAgent(
+            Array.from(duplicateId),
+            new BN(CAPABILITY_COMPUTE),
+            "https://duplicate.example.com",
+            null,
+            new BN(LAMPORTS_PER_SOL),
+          )
+          .accountsPartial({
+            agent: duplicatePda,
+            protocolConfig: protocolPda,
+            authority: owner1.publicKey,
+          })
+          .signers([owner1])
+          .rpc();
 
         // Second registration with same ID should fail (PDA already exists)
         const owner2 = Keypair.generate();
         fundAccount(svm, owner2.publicKey, 2 * LAMPORTS_PER_SOL);
 
         try {
-          await program.methods.registerAgent(
-            Array.from(duplicateId),
-            new BN(CAPABILITY_COMPUTE),
-            "https://duplicate2.example.com",
-            null,
-            new BN(LAMPORTS_PER_SOL)
-          ).accountsPartial({
-            agent: duplicatePda, protocolConfig: protocolPda,
-            authority: owner2.publicKey,
-          }).signers([owner2]).rpc();
+          await program.methods
+            .registerAgent(
+              Array.from(duplicateId),
+              new BN(CAPABILITY_COMPUTE),
+              "https://duplicate2.example.com",
+              null,
+              new BN(LAMPORTS_PER_SOL),
+            )
+            .accountsPartial({
+              agent: duplicatePda,
+              protocolConfig: protocolPda,
+              authority: owner2.publicKey,
+            })
+            .signers([owner2])
+            .rpc();
           expect.fail("Should have failed");
         } catch (e: any) {
           expect(e.message).to.include("already in use");
@@ -9244,7 +11232,11 @@ describe("test_1", () => {
   describe("Reputation System", () => {
     describe("Reputation gate on claim_task", () => {
       it("rejects claim when worker reputation is below task min_reputation", async () => {
-        const { wallet: w, agentId: wId, agentPda: wPda } = await createFreshWorker(CAPABILITY_COMPUTE);
+        const {
+          wallet: w,
+          agentId: wId,
+          agentPda: wPda,
+        } = await createFreshWorker(CAPABILITY_COMPUTE);
 
         // Create task with min_reputation = 6000 (default agent rep is 5000)
         const taskId = makeAgentId(`rep-gate`);
@@ -9260,8 +11252,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
-            6000,  // min_reputation (worker has 5000)
+            null, // constraint_hash
+            6000, // min_reputation (worker has 5000)
             null, // reward_mint
           )
           .accountsPartial({
@@ -9302,7 +11294,11 @@ describe("test_1", () => {
       });
 
       it("allows claim when worker reputation meets task min_reputation", async () => {
-        const { wallet: w, agentId: wId, agentPda: wPda } = await createFreshWorker(CAPABILITY_COMPUTE);
+        const {
+          wallet: w,
+          agentId: wId,
+          agentPda: wPda,
+        } = await createFreshWorker(CAPABILITY_COMPUTE);
 
         // Create task with min_reputation = 5000 (default agent rep is 5000)
         const taskId = makeAgentId(`rep-ok`);
@@ -9318,8 +11314,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
-            5000,  // min_reputation (worker has exactly 5000)
+            null, // constraint_hash
+            5000, // min_reputation (worker has exactly 5000)
             null, // reward_mint
           )
           .accountsPartial({
@@ -9359,7 +11355,11 @@ describe("test_1", () => {
       });
 
       it("allows claim when min_reputation is 0 (no gate)", async () => {
-        const { wallet: w, agentId: wId, agentPda: wPda } = await createFreshWorker(CAPABILITY_COMPUTE);
+        const {
+          wallet: w,
+          agentId: wId,
+          agentPda: wPda,
+        } = await createFreshWorker(CAPABILITY_COMPUTE);
 
         const taskId = makeAgentId(`rep-0`);
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
@@ -9374,8 +11374,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
-            0,  // min_reputation (no gate)
+            null, // constraint_hash
+            0, // min_reputation (no gate)
             null, // reward_mint
           )
           .accountsPartial({
@@ -9430,8 +11430,8 @@ describe("test_1", () => {
               1,
               getDefaultDeadline(),
               TASK_TYPE_EXCLUSIVE,
-              null,  // constraint_hash
-              10001,  // min_reputation > MAX_REPUTATION
+              null, // constraint_hash
+              10001, // min_reputation > MAX_REPUTATION
               null, // reward_mint
             )
             .accountsPartial({
@@ -9470,8 +11470,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
-            7500,  // min_reputation
+            null, // constraint_hash
+            7500, // min_reputation
             null, // reward_mint
           )
           .accountsPartial({

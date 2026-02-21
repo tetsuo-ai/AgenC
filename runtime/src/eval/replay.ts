@@ -4,7 +4,7 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 import {
   canonicalizeTrajectoryTrace,
   parseTrajectoryTrace,
@@ -12,16 +12,16 @@ import {
   type JsonValue,
   type TrajectoryEvent,
   type TrajectoryTrace,
-} from './types.js';
+} from "./types.js";
 
 export type ReplayTaskStatus =
-  | 'unknown'
-  | 'discovered'
-  | 'claimed'
-  | 'executed'
-  | 'completed'
-  | 'failed'
-  | 'escalated';
+  | "unknown"
+  | "discovered"
+  | "claimed"
+  | "executed"
+  | "completed"
+  | "failed"
+  | "escalated";
 
 export interface ReplayTaskState {
   taskPda: string;
@@ -64,27 +64,29 @@ interface MutableReplayTaskState extends ReplayTaskState {
 }
 
 const TASK_REQUIRED_EVENTS = new Set<string>([
-  'discovered',
-  'claimed',
-  'executed',
-  'executed_speculative',
-  'completed',
-  'completed_speculative',
-  'failed',
-  'proof_failed',
-  'escalated',
-  'speculation_started',
-  'speculation_confirmed',
-  'speculation_aborted',
+  "discovered",
+  "claimed",
+  "executed",
+  "executed_speculative",
+  "completed",
+  "completed_speculative",
+  "failed",
+  "proof_failed",
+  "escalated",
+  "speculation_started",
+  "speculation_confirmed",
+  "speculation_aborted",
 ]);
 
 function isLifecycleStatus(status: ReplayTaskStatus): boolean {
-  return status === 'discovered'
-    || status === 'claimed'
-    || status === 'executed'
-    || status === 'completed'
-    || status === 'failed'
-    || status === 'escalated';
+  return (
+    status === "discovered" ||
+    status === "claimed" ||
+    status === "executed" ||
+    status === "completed" ||
+    status === "failed" ||
+    status === "escalated"
+  );
 }
 
 /**
@@ -133,7 +135,12 @@ export class TrajectoryReplayEngine {
     const summary = this.buildSummary(trace, finalizedTasks);
 
     const replaySeed = this.seed ?? trace.seed;
-    const deterministicHash = this.computeHash(trace, finalizedTasks, summary, replaySeed);
+    const deterministicHash = this.computeHash(
+      trace,
+      finalizedTasks,
+      summary,
+      replaySeed,
+    );
 
     return {
       trace,
@@ -172,23 +179,23 @@ export class TrajectoryReplayEngine {
     task.lastEventType = event.type;
     task.lastTimestampMs = event.timestampMs;
 
-    if (event.type === 'verifier_verdict') {
+    if (event.type === "verifier_verdict") {
       task.verifierVerdicts++;
       return;
     }
 
-    if (event.type === 'policy_violation') {
+    if (event.type === "policy_violation") {
       task.policyViolations++;
       return;
     }
 
-    if (event.type === 'speculation_aborted') {
+    if (event.type === "speculation_aborted") {
       task.speculationAborts++;
     }
 
     const previousStatus = task.status;
 
-    if (event.type === 'dispute:initiated' && previousStatus === 'failed') {
+    if (event.type === "dispute:initiated" && previousStatus === "failed") {
       const message = `invalid dispute transition ${previousStatus} -> dispute:initiated at seq=${event.seq}`;
       if (this.strictMode) {
         errors.push(message);
@@ -198,43 +205,45 @@ export class TrajectoryReplayEngine {
     }
 
     switch (event.type) {
-      case 'discovered':
-        task.status = 'discovered';
+      case "discovered":
+        task.status = "discovered";
         break;
-      case 'claimed':
-        task.status = 'claimed';
+      case "claimed":
+        task.status = "claimed";
         break;
-      case 'dispute:initiated':
-      case 'dispute:vote_cast':
-      case 'dispute:resolved':
-      case 'dispute:cancelled':
-      case 'dispute:expired':
+      case "dispute:initiated":
+      case "dispute:vote_cast":
+      case "dispute:resolved":
+      case "dispute:cancelled":
+      case "dispute:expired":
         break;
-      case 'executed':
-      case 'executed_speculative':
-      case 'speculation_started':
-      case 'speculation_confirmed':
-      case 'proof_generated':
-      case 'sequential_enforcement_bypass':
-      case 'verifier_verdict':
-        task.status = isLifecycleStatus(previousStatus) ? previousStatus : 'executed';
-        if (task.status === 'discovered' || task.status === 'claimed') {
-          task.status = 'executed';
+      case "executed":
+      case "executed_speculative":
+      case "speculation_started":
+      case "speculation_confirmed":
+      case "proof_generated":
+      case "sequential_enforcement_bypass":
+      case "verifier_verdict":
+        task.status = isLifecycleStatus(previousStatus)
+          ? previousStatus
+          : "executed";
+        if (task.status === "discovered" || task.status === "claimed") {
+          task.status = "executed";
         }
         break;
-      case 'completed':
-      case 'completed_speculative':
-        task.status = 'completed';
+      case "completed":
+      case "completed_speculative":
+        task.status = "completed";
         task.terminal = true;
         break;
-      case 'failed':
-      case 'proof_failed':
-      case 'speculation_aborted':
-        task.status = 'failed';
+      case "failed":
+      case "proof_failed":
+      case "speculation_aborted":
+        task.status = "failed";
         task.terminal = true;
         break;
-      case 'escalated':
-        task.status = 'escalated';
+      case "escalated":
+        task.status = "escalated";
         task.terminal = true;
         break;
       default:
@@ -242,7 +251,13 @@ export class TrajectoryReplayEngine {
         break;
     }
 
-    this.validateTransition(previousStatus, task.status, event, warnings, errors);
+    this.validateTransition(
+      previousStatus,
+      task.status,
+      event,
+      warnings,
+      errors,
+    );
   }
 
   private validateTransition(
@@ -253,24 +268,30 @@ export class TrajectoryReplayEngine {
     errors: string[],
   ): void {
     const invalidCompletion =
-      (event.type === 'completed' || event.type === 'completed_speculative')
-      && !(previous === 'executed' || previous === 'claimed');
+      (event.type === "completed" || event.type === "completed_speculative") &&
+      !(previous === "executed" || previous === "claimed");
 
     const invalidExecution =
-      (event.type === 'executed' || event.type === 'executed_speculative')
-      && !(previous === 'claimed' || previous === 'discovered');
+      (event.type === "executed" || event.type === "executed_speculative") &&
+      !(previous === "claimed" || previous === "discovered");
 
-    const invalidClaim = event.type === 'claimed' && previous === 'completed';
+    const invalidClaim = event.type === "claimed" && previous === "completed";
 
     const messages: string[] = [];
     if (invalidCompletion) {
-      messages.push(`invalid completion transition ${previous} -> ${next} at seq=${event.seq}`);
+      messages.push(
+        `invalid completion transition ${previous} -> ${next} at seq=${event.seq}`,
+      );
     }
     if (invalidExecution) {
-      messages.push(`invalid execution transition ${previous} -> ${next} at seq=${event.seq}`);
+      messages.push(
+        `invalid execution transition ${previous} -> ${next} at seq=${event.seq}`,
+      );
     }
     if (invalidClaim) {
-      messages.push(`invalid claim transition ${previous} -> ${next} at seq=${event.seq}`);
+      messages.push(
+        `invalid claim transition ${previous} -> ${next} at seq=${event.seq}`,
+      );
     }
 
     for (const message of messages) {
@@ -294,7 +315,7 @@ export class TrajectoryReplayEngine {
 
     const created: MutableReplayTaskState = {
       taskPda,
-      status: 'unknown',
+      status: "unknown",
       eventCount: 0,
       verifierVerdicts: 0,
       policyViolations: 0,
@@ -316,12 +337,23 @@ export class TrajectoryReplayEngine {
     return {
       totalEvents: trace.events.length,
       taskCount: taskValues.length,
-      completedTasks: taskValues.filter((task) => task.status === 'completed').length,
-      failedTasks: taskValues.filter((task) => task.status === 'failed').length,
-      escalatedTasks: taskValues.filter((task) => task.status === 'escalated').length,
-      policyViolations: taskValues.reduce((acc, task) => acc + task.policyViolations, 0),
-      verifierVerdicts: taskValues.reduce((acc, task) => acc + task.verifierVerdicts, 0),
-      speculationAborts: taskValues.reduce((acc, task) => acc + task.speculationAborts, 0),
+      completedTasks: taskValues.filter((task) => task.status === "completed")
+        .length,
+      failedTasks: taskValues.filter((task) => task.status === "failed").length,
+      escalatedTasks: taskValues.filter((task) => task.status === "escalated")
+        .length,
+      policyViolations: taskValues.reduce(
+        (acc, task) => acc + task.policyViolations,
+        0,
+      ),
+      verifierVerdicts: taskValues.reduce(
+        (acc, task) => acc + task.verifierVerdicts,
+        0,
+      ),
+      speculationAborts: taskValues.reduce(
+        (acc, task) => acc + task.speculationAborts,
+        0,
+      ),
     };
   }
 
@@ -348,8 +380,8 @@ export class TrajectoryReplayEngine {
       tasks: sortedTaskEntries,
     };
 
-    return createHash('sha256')
+    return createHash("sha256")
       .update(stableStringifyJson(payload as unknown as JsonValue))
-      .digest('hex');
+      .digest("hex");
   }
 }

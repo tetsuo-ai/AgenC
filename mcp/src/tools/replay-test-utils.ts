@@ -1,18 +1,17 @@
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { runReplayBackfillTool, type ReplayPolicy } from './replay.js';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runReplayBackfillTool, type ReplayPolicy } from "./replay.js";
 
 type ReplayToolRuntime = Parameters<typeof runReplayBackfillTool>[1];
 
 export type FakeReplayStore = {
-  save: (records: readonly Record<string, unknown>[]) => Promise<{ inserted: number; duplicates: number }>;
-  query: (filter?: Record<string, unknown>) => Promise<readonly Record<string, unknown>[]>;
+  save: (
+    records: readonly Record<string, unknown>[],
+  ) => Promise<{ inserted: number; duplicates: number }>;
+  query: (
+    filter?: Record<string, unknown>,
+  ) => Promise<readonly Record<string, unknown>[]>;
   getCursor: () => Promise<Record<string, unknown> | null>;
   saveCursor: (cursor: Record<string, unknown> | null) => Promise<void>;
   clear: () => Promise<void>;
@@ -42,7 +41,7 @@ export function createInMemoryReplayStore(): FakeReplayStore {
       let inserted = 0;
       let duplicates = 0;
       for (const event of input) {
-        const key = `${String(event.slot)}|${String(event.signature)}|${String(event.sourceEventType ?? event.type ?? '')}`;
+        const key = `${String(event.slot)}|${String(event.signature)}|${String(event.sourceEventType ?? event.type ?? "")}`;
         if (index.has(key)) {
           duplicates += 1;
           continue;
@@ -61,11 +60,18 @@ export function createInMemoryReplayStore(): FakeReplayStore {
         toSlot?: number;
       };
       return records.filter((event) => {
-        const slot = typeof event.slot === 'number' ? event.slot : Number(event.slot ?? 0);
-        if (typedFilter.taskPda !== undefined && event.taskPda !== typedFilter.taskPda) {
+        const slot =
+          typeof event.slot === "number" ? event.slot : Number(event.slot ?? 0);
+        if (
+          typedFilter.taskPda !== undefined &&
+          event.taskPda !== typedFilter.taskPda
+        ) {
           return false;
         }
-        if (typedFilter.disputePda !== undefined && event.disputePda !== typedFilter.disputePda) {
+        if (
+          typedFilter.disputePda !== undefined &&
+          event.disputePda !== typedFilter.disputePda
+        ) {
           return false;
         }
         if (typedFilter.fromSlot !== undefined && slot < typedFilter.fromSlot) {
@@ -105,11 +111,11 @@ export function createReplayRuntime(runtime: TestRuntime): ReplayToolRuntime {
       return runtime.fetcher;
     },
     readLocalTrace(path: string) {
-      const trace = runtime.trace ?? '';
+      const trace = runtime.trace ?? "";
       if (path === trace) {
-        return JSON.parse(readFileSync(trace, 'utf8'));
+        return JSON.parse(readFileSync(trace, "utf8"));
       }
-      return JSON.parse(readFileSync(path, 'utf8'));
+      return JSON.parse(readFileSync(path, "utf8"));
     },
     async getCurrentSlot() {
       return 1_000;
@@ -117,7 +123,9 @@ export function createReplayRuntime(runtime: TestRuntime): ReplayToolRuntime {
   } as unknown as ReplayToolRuntime;
 }
 
-export function buildReplayPolicy(overrides: Partial<ReplayPolicy> = {}): ReplayPolicy {
+export function buildReplayPolicy(
+  overrides: Partial<ReplayPolicy> = {},
+): ReplayPolicy {
   return {
     maxSlotWindow: overrides.maxSlotWindow ?? 1_000_000,
     maxEventCount: overrides.maxEventCount ?? 100,
@@ -125,7 +133,7 @@ export function buildReplayPolicy(overrides: Partial<ReplayPolicy> = {}): Replay
     maxToolRuntimeMs: overrides.maxToolRuntimeMs ?? 60_000,
     allowlist: overrides.allowlist ?? new Set<string>(),
     denylist: overrides.denylist ?? new Set<string>(),
-    defaultRedactions: overrides.defaultRedactions ?? ['signature'],
+    defaultRedactions: overrides.defaultRedactions ?? ["signature"],
     auditEnabled: overrides.auditEnabled ?? false,
   };
 }
@@ -133,10 +141,10 @@ export function buildReplayPolicy(overrides: Partial<ReplayPolicy> = {}): Replay
 export async function runWithTempTrace<T>(
   trace: object,
   callback: (path: string) => Promise<T>,
-  prefix = 'agenc-mcp-replay-test-',
+  prefix = "agenc-mcp-replay-test-",
 ): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  const tracePath = join(dir, 'trace.json');
+  const tracePath = join(dir, "trace.json");
   try {
     writeFileSync(tracePath, JSON.stringify(trace));
     return callback(tracePath);

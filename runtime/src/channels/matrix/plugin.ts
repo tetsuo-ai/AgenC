@@ -8,20 +8,23 @@
  * @module
  */
 
-import { BaseChannelPlugin } from '../../gateway/channel.js';
-import type { OutboundMessage, MessageAttachment } from '../../gateway/message.js';
-import { createGatewayMessage } from '../../gateway/message.js';
-import type { MessageScope } from '../../gateway/message.js';
-import { GatewayConnectionError } from '../../gateway/errors.js';
-import { DEFAULT_MAX_ATTACHMENT_BYTES } from '../../gateway/media.js';
-import { ensureLazyModule } from '../../utils/lazy-import.js';
-import type { MatrixChannelConfig } from './types.js';
+import { BaseChannelPlugin } from "../../gateway/channel.js";
+import type {
+  OutboundMessage,
+  MessageAttachment,
+} from "../../gateway/message.js";
+import { createGatewayMessage } from "../../gateway/message.js";
+import type { MessageScope } from "../../gateway/message.js";
+import { GatewayConnectionError } from "../../gateway/errors.js";
+import { DEFAULT_MAX_ATTACHMENT_BYTES } from "../../gateway/media.js";
+import { ensureLazyModule } from "../../utils/lazy-import.js";
+import type { MatrixChannelConfig } from "./types.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const SESSION_PREFIX = 'matrix';
+const SESSION_PREFIX = "matrix";
 
 // ============================================================================
 // matrix-js-sdk type shims (loaded lazily)
@@ -96,7 +99,7 @@ export class MatrixChannel extends BaseChannelPlugin {
 
   async start(): Promise<void> {
     const mod = await ensureLazyModule<MatrixSdkModule>(
-      'matrix-js-sdk',
+      "matrix-js-sdk",
       (msg) => new GatewayConnectionError(msg),
       (m) => m as unknown as MatrixSdkModule,
     );
@@ -110,8 +113,8 @@ export class MatrixChannel extends BaseChannelPlugin {
 
     if (this.config.enableE2ee) {
       this.context.logger.warn(
-        'Matrix E2EE flag is set but actual crypto support requires @matrix-org/olm — ' +
-        'messages will be sent unencrypted. E2EE support is reserved for a future release.',
+        "Matrix E2EE flag is set but actual crypto support requires @matrix-org/olm — " +
+          "messages will be sent unencrypted. E2EE support is reserved for a future release.",
       );
     }
 
@@ -142,20 +145,26 @@ export class MatrixChannel extends BaseChannelPlugin {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.client) {
-      this.context.logger.warn('Cannot send message: Matrix client is not connected');
+      this.context.logger.warn(
+        "Cannot send message: Matrix client is not connected",
+      );
       return;
     }
 
     const roomId = this.extractRoomId(message.sessionId);
     if (!roomId) {
-      this.context.logger.warn(`Cannot resolve room for session: ${message.sessionId}`);
+      this.context.logger.warn(
+        `Cannot resolve room for session: ${message.sessionId}`,
+      );
       return;
     }
 
     try {
       await this.client.sendTextMessage(roomId, message.content);
     } catch (err) {
-      this.context.logger.error(`Failed to send message to ${message.sessionId}: ${errorMessage(err)}`);
+      this.context.logger.error(
+        `Failed to send message to ${message.sessionId}: ${errorMessage(err)}`,
+      );
     }
   }
 
@@ -164,27 +173,33 @@ export class MatrixChannel extends BaseChannelPlugin {
   // --------------------------------------------------------------------------
 
   private wireEventHandlers(client: MatrixClient): void {
-    client.on('sync', (state: unknown) => {
+    client.on("sync", (state: unknown) => {
       const syncState = state as string;
-      if (syncState === 'PREPARED' || syncState === 'SYNCING') {
+      if (syncState === "PREPARED" || syncState === "SYNCING") {
         this.healthy = true;
         this.context.logger.info(`Matrix sync state: ${syncState}`);
-      } else if (syncState === 'ERROR' || syncState === 'STOPPED') {
+      } else if (syncState === "ERROR" || syncState === "STOPPED") {
         this.healthy = false;
         this.context.logger.warn(`Matrix sync state: ${syncState}`);
       }
     });
 
-    client.on('Room.timeline', (event: unknown, room: unknown) => {
-      this.handleTimelineEvent(event as MatrixEvent, room as MatrixRoom).catch((err) => {
-        this.context.logger.error(`Error handling Matrix timeline event: ${errorMessage(err)}`);
-      });
+    client.on("Room.timeline", (event: unknown, room: unknown) => {
+      this.handleTimelineEvent(event as MatrixEvent, room as MatrixRoom).catch(
+        (err) => {
+          this.context.logger.error(
+            `Error handling Matrix timeline event: ${errorMessage(err)}`,
+          );
+        },
+      );
     });
 
     if (this.config.autoJoin) {
-      client.on('RoomMember.membership', (_event: unknown, member: unknown) => {
+      client.on("RoomMember.membership", (_event: unknown, member: unknown) => {
         this.handleMembership(member as MatrixMember).catch((err) => {
-          this.context.logger.error(`Error handling Matrix membership event: ${errorMessage(err)}`);
+          this.context.logger.error(
+            `Error handling Matrix membership event: ${errorMessage(err)}`,
+          );
         });
       });
     }
@@ -194,8 +209,11 @@ export class MatrixChannel extends BaseChannelPlugin {
   // Inbound: timeline events
   // --------------------------------------------------------------------------
 
-  private async handleTimelineEvent(event: MatrixEvent, room: MatrixRoom): Promise<void> {
-    if (event.getType() !== 'm.room.message') return;
+  private async handleTimelineEvent(
+    event: MatrixEvent,
+    room: MatrixRoom,
+  ): Promise<void> {
+    if (event.getType() !== "m.room.message") return;
 
     const senderId = event.getSender();
     if (senderId === this.config.userId) return;
@@ -207,10 +225,10 @@ export class MatrixChannel extends BaseChannelPlugin {
 
     const content = event.getContent();
     const isDM = room.getJoinedMemberCount() <= 2;
-    const scope: MessageScope = isDM ? 'dm' : 'group';
+    const scope: MessageScope = isDM ? "dm" : "group";
     const sessionId = buildSessionId(isDM, senderId, roomId);
 
-    const text = content.body ?? '';
+    const text = content.body ?? "";
     const attachments = this.normalizeAttachment(content);
 
     const gateway = createGatewayMessage({
@@ -236,13 +254,15 @@ export class MatrixChannel extends BaseChannelPlugin {
 
   private async handleMembership(member: MatrixMember): Promise<void> {
     if (member.userId !== this.config.userId) return;
-    if (member.membership !== 'invite') return;
+    if (member.membership !== "invite") return;
 
     try {
       await this.client!.joinRoom(member.roomId);
       this.context.logger.info(`Auto-joined Matrix room: ${member.roomId}`);
     } catch (err) {
-      this.context.logger.error(`Failed to auto-join room ${member.roomId}: ${errorMessage(err)}`);
+      this.context.logger.error(
+        `Failed to auto-join room ${member.roomId}: ${errorMessage(err)}`,
+      );
     }
   }
 
@@ -252,10 +272,10 @@ export class MatrixChannel extends BaseChannelPlugin {
 
   private extractRoomId(sessionId: string): string | null {
     // Session ID format: matrix:dm:<userId> or matrix:<roomId>:<userId>
-    const parts = sessionId.split(':');
+    const parts = sessionId.split(":");
     if (parts.length < 3) return null;
 
-    if (parts[1] === 'dm') {
+    if (parts[1] === "dm") {
       // For DMs we don't store roomId in session — not resolvable without lookup
       // This is a limitation; callers should use the room-based session format
       return null;
@@ -264,8 +284,8 @@ export class MatrixChannel extends BaseChannelPlugin {
     // Reconstruct the roomId (may contain colons, e.g. !abc:matrix.org)
     // Format: matrix:<roomId>:<userId> where roomId itself has colons
     // We need to find the userId part at the end — it starts with @
-    const rest = parts.slice(1).join(':');
-    const lastAt = rest.lastIndexOf('@');
+    const rest = parts.slice(1).join(":");
+    const lastAt = rest.lastIndexOf("@");
     if (lastAt <= 0) return null;
 
     // roomId is everything before the last @, minus the trailing :
@@ -273,28 +293,33 @@ export class MatrixChannel extends BaseChannelPlugin {
     return roomId || null;
   }
 
-  private normalizeAttachment(content: MatrixMessageContent): MessageAttachment[] {
+  private normalizeAttachment(
+    content: MatrixMessageContent,
+  ): MessageAttachment[] {
     const msgtype = content.msgtype;
-    if (!msgtype || msgtype === 'm.text' || msgtype === 'm.notice') return [];
+    if (!msgtype || msgtype === "m.text" || msgtype === "m.notice") return [];
     if (!content.url) return [];
 
-    const maxBytes = this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
+    const maxBytes =
+      this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
     const size = content.info?.size;
     if (size !== undefined && size > maxBytes) return [];
 
-    const mimeType = content.info?.mimetype ?? 'application/octet-stream';
-    let type = 'file';
-    if (msgtype === 'm.image') type = 'image';
-    else if (msgtype === 'm.audio') type = 'audio';
-    else if (msgtype === 'm.video') type = 'video';
+    const mimeType = content.info?.mimetype ?? "application/octet-stream";
+    let type = "file";
+    if (msgtype === "m.image") type = "image";
+    else if (msgtype === "m.audio") type = "audio";
+    else if (msgtype === "m.video") type = "video";
 
-    return [{
-      type,
-      url: content.url,
-      mimeType,
-      filename: content.filename ?? content.body,
-      sizeBytes: size,
-    }];
+    return [
+      {
+        type,
+        url: content.url,
+        mimeType,
+        filename: content.filename ?? content.body,
+        sizeBytes: size,
+      },
+    ];
   }
 }
 

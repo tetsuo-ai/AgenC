@@ -1,12 +1,12 @@
-import type { ResolvedActor } from './replay-actor.js';
-import type { RiskLevel, ToolRiskCaps } from './replay-risk.js';
+import type { ResolvedActor } from "./replay-actor.js";
+import type { RiskLevel, ToolRiskCaps } from "./replay-risk.js";
 
 export interface ReplayAuditEntry {
   timestamp: string;
   tool: string;
   actor: ResolvedActor;
   requestId: string;
-  status: 'start' | 'success' | 'failure' | 'denied';
+  status: "start" | "success" | "failure" | "denied";
   durationMs: number;
   reason?: string;
   violationCode?: string;

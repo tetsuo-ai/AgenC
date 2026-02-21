@@ -6,11 +6,11 @@
  * @module
  */
 
-import { Connection, PublicKey } from '@solana/web3.js';
-import { Program } from '@coral-xyz/anchor';
-import { Task, TaskStatus, TaskFilter } from './types.js';
-import { Logger, silentLogger } from '../utils/logger.js';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { Connection, PublicKey } from "@solana/web3.js";
+import { Program } from "@coral-xyz/anchor";
+import { Task, TaskStatus, TaskFilter } from "./types.js";
+import { Logger, silentLogger } from "../utils/logger.js";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 
 /**
  * Configuration for TaskScanner
@@ -32,7 +32,11 @@ export interface TaskEventSubscription {
 /**
  * Callback for task created events
  */
-export type TaskCreatedCallback = (task: Task, slot: number, signature: string) => void;
+export type TaskCreatedCallback = (
+  task: Task,
+  slot: number,
+  signature: string,
+) => void;
 
 /**
  * Raw TaskCreated event from Anchor
@@ -88,7 +92,7 @@ export class TaskScanner {
    * For high-frequency updates, prefer `subscribeToNewTasks()`.
    */
   async scan(): Promise<Task[]> {
-    this.logger.debug('Scanning for tasks...');
+    this.logger.debug("Scanning for tasks...");
 
     try {
       // Fetch all task accounts
@@ -120,7 +124,7 @@ export class TaskScanner {
       this.logger.debug(`Found ${tasks.length} matching tasks`);
       return tasks;
     } catch (error) {
-      this.logger.error('Task scan failed:', error);
+      this.logger.error("Task scan failed:", error);
       return [];
     }
   }
@@ -136,18 +140,22 @@ export class TaskScanner {
    * @returns Subscription handle for cleanup
    */
   subscribeToNewTasks(callback: TaskCreatedCallback): TaskEventSubscription {
-    this.logger.debug('Subscribing to TaskCreated events...');
+    this.logger.debug("Subscribing to TaskCreated events...");
 
     // Avoid deep type instantiation from the generated IDL event union in this call site.
     const listenerId = (this.program as Program<any>).addEventListener(
-      'taskCreated',
-      async (rawEvent: RawTaskCreatedEvent, slot: number, signature: string) => {
+      "taskCreated",
+      async (
+        rawEvent: RawTaskCreatedEvent,
+        slot: number,
+        signature: string,
+      ) => {
         try {
           // Derive task PDA from task ID
           const taskId = this.toUint8Array(rawEvent.taskId);
           const [taskPda] = PublicKey.findProgramAddressSync(
-            [Buffer.from('task'), taskId],
-            this.program.programId
+            [Buffer.from("task"), taskId],
+            this.program.programId,
           );
 
           // Skip if we've already seen this task
@@ -160,7 +168,9 @@ export class TaskScanner {
           // Fetch full task account for complete data
           const task = await this.getTask(taskPda);
           if (!task) {
-            this.logger.warn(`Could not fetch task ${pdaKey} after creation event`);
+            this.logger.warn(
+              `Could not fetch task ${pdaKey} after creation event`,
+            );
             return;
           }
 
@@ -172,15 +182,15 @@ export class TaskScanner {
 
           callback(task, slot, signature);
         } catch (error) {
-          this.logger.error('Error processing TaskCreated event:', error);
+          this.logger.error("Error processing TaskCreated event:", error);
         }
-      }
+      },
     );
 
     return {
       unsubscribe: async () => {
         await this.program.removeEventListener(listenerId);
-        this.logger.debug('Unsubscribed from TaskCreated events');
+        this.logger.debug("Unsubscribed from TaskCreated events");
       },
     };
   }
@@ -210,7 +220,10 @@ export class TaskScanner {
   async isTaskAvailable(task: Task): Promise<boolean> {
     const refreshed = await this.refreshTask(task);
     if (!refreshed) return false;
-    return refreshed.status === TaskStatus.Open && refreshed.currentClaims < refreshed.maxWorkers;
+    return (
+      refreshed.status === TaskStatus.Open &&
+      refreshed.currentClaims < refreshed.maxWorkers
+    );
   }
 
   /**
@@ -228,7 +241,10 @@ export class TaskScanner {
 
     // Capability filter - agent must have all required capabilities
     if (f.capabilities !== undefined) {
-      if ((task.requiredCapabilities & f.capabilities) !== task.requiredCapabilities) {
+      if (
+        (task.requiredCapabilities & f.capabilities) !==
+        task.requiredCapabilities
+      ) {
         return false;
       }
     }
@@ -293,18 +309,34 @@ export class TaskScanner {
     const data = account as {
       taskId: number[] | Uint8Array;
       creator: PublicKey;
-      requiredCapabilities: { toNumber?: () => number; toString?: () => string } | bigint | number;
-      reward: { toNumber?: () => number; toString?: () => string } | bigint | number;
+      requiredCapabilities:
+        | { toNumber?: () => number; toString?: () => string }
+        | bigint
+        | number;
+      reward:
+        | { toNumber?: () => number; toString?: () => string }
+        | bigint
+        | number;
       description: number[] | Uint8Array;
       constraintHash: number[] | Uint8Array;
       deadline: { toNumber?: () => number } | bigint | number;
       maxWorkers: number;
       currentClaims: number;
       status:
-        | { open?: unknown; inProgress?: unknown; completed?: unknown; cancelled?: unknown; disputed?: unknown }
+        | {
+            open?: unknown;
+            inProgress?: unknown;
+            completed?: unknown;
+            cancelled?: unknown;
+            disputed?: unknown;
+          }
         | number;
       taskType?:
-        | { exclusive?: unknown; collaborative?: unknown; competitive?: unknown }
+        | {
+            exclusive?: unknown;
+            collaborative?: unknown;
+            competitive?: unknown;
+          }
         | number;
       rewardMint: PublicKey | null;
     };
@@ -321,7 +353,10 @@ export class TaskScanner {
       maxWorkers: data.maxWorkers,
       currentClaims: data.currentClaims,
       status: this.parseStatus(data.status),
-      taskType: data.taskType === undefined ? undefined : this.parseTaskType(data.taskType),
+      taskType:
+        data.taskType === undefined
+          ? undefined
+          : this.parseTaskType(data.taskType),
       rewardMint: data.rewardMint ?? null,
     };
   }
@@ -330,7 +365,9 @@ export class TaskScanner {
    * Normalize legacy `acceptedMints` and newer `rewardMint` filter shapes.
    * `rewardMint` takes precedence when both are present.
    */
-  private resolveAcceptedMints(filter: TaskFilter): (PublicKey | null)[] | undefined {
+  private resolveAcceptedMints(
+    filter: TaskFilter,
+  ): (PublicKey | null)[] | undefined {
     if (filter.rewardMint !== undefined) {
       if (Array.isArray(filter.rewardMint)) {
         return [...filter.rewardMint];
@@ -345,40 +382,47 @@ export class TaskScanner {
     return new Uint8Array(value);
   }
 
-  private toBigInt(value: { toNumber?: () => number; toString?: () => string } | bigint | number): bigint {
-    if (typeof value === 'bigint') return value;
-    if (typeof value === 'number') return BigInt(value);
-    if (value && typeof value.toString === 'function') {
+  private toBigInt(
+    value:
+      | { toNumber?: () => number; toString?: () => string }
+      | bigint
+      | number,
+  ): bigint {
+    if (typeof value === "bigint") return value;
+    if (typeof value === "number") return BigInt(value);
+    if (value && typeof value.toString === "function") {
       return BigInt(value.toString());
     }
     return 0n;
   }
 
-  private toNumber(value: { toNumber?: () => number } | bigint | number): number {
-    if (typeof value === 'number') return value;
-    if (typeof value === 'bigint') return Number(value);
-    if (value && typeof value.toNumber === 'function') return value.toNumber();
+  private toNumber(
+    value: { toNumber?: () => number } | bigint | number,
+  ): number {
+    if (typeof value === "number") return value;
+    if (typeof value === "bigint") return Number(value);
+    if (value && typeof value.toNumber === "function") return value.toNumber();
     return 0;
   }
 
   private parseStatus(status: unknown): TaskStatus {
-    if (typeof status === 'number') return status;
-    if (status && typeof status === 'object') {
-      if ('open' in status) return TaskStatus.Open;
-      if ('inProgress' in status) return TaskStatus.InProgress;
-      if ('completed' in status) return TaskStatus.Completed;
-      if ('cancelled' in status) return TaskStatus.Cancelled;
-      if ('disputed' in status) return TaskStatus.Disputed;
+    if (typeof status === "number") return status;
+    if (status && typeof status === "object") {
+      if ("open" in status) return TaskStatus.Open;
+      if ("inProgress" in status) return TaskStatus.InProgress;
+      if ("completed" in status) return TaskStatus.Completed;
+      if ("cancelled" in status) return TaskStatus.Cancelled;
+      if ("disputed" in status) return TaskStatus.Disputed;
     }
     return TaskStatus.Open;
   }
 
   private parseTaskType(taskType: unknown): number | undefined {
-    if (typeof taskType === 'number') return taskType;
-    if (taskType && typeof taskType === 'object') {
-      if ('exclusive' in taskType) return 0;
-      if ('collaborative' in taskType) return 1;
-      if ('competitive' in taskType) return 2;
+    if (typeof taskType === "number") return taskType;
+    if (taskType && typeof taskType === "object") {
+      if ("exclusive" in taskType) return 0;
+      if ("collaborative" in taskType) return 1;
+      if ("competitive" in taskType) return 2;
     }
     return undefined;
   }

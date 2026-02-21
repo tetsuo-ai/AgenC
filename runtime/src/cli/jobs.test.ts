@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { CronScheduler } from '../gateway/scheduler.js';
-import type { HeartbeatActionDef } from '../gateway/scheduler.js';
-import { createContextCapture } from './test-utils.js';
+import { describe, expect, it, vi } from "vitest";
+import { CronScheduler } from "../gateway/scheduler.js";
+import type { HeartbeatActionDef } from "../gateway/scheduler.js";
+import { createContextCapture } from "./test-utils.js";
 import {
   runJobsListCommand,
   runJobsRunCommand,
   runJobsEnableCommand,
   runJobsDisableCommand,
-} from './jobs.js';
+} from "./jobs.js";
 
 const silentLogger = {
   error: () => {},
@@ -18,21 +18,21 @@ const silentLogger = {
 
 function makeAction(fn?: () => Promise<void>): HeartbeatActionDef {
   return {
-    name: 'test-action',
+    name: "test-action",
     execute: fn ?? (async () => {}),
   };
 }
 
-describe('jobs CLI commands', () => {
+describe("jobs CLI commands", () => {
   function createScheduler(): CronScheduler {
     const scheduler = new CronScheduler({ logger: silentLogger });
-    scheduler.addJob('job-a', '*/30 * * * *', makeAction());
-    scheduler.addJob('job-b', '0 8 * * 1-5', makeAction());
+    scheduler.addJob("job-a", "*/30 * * * *", makeAction());
+    scheduler.addJob("job-b", "0 8 * * 1-5", makeAction());
     return scheduler;
   }
 
-  describe('runJobsListCommand', () => {
-    it('returns all jobs', async () => {
+  describe("runJobsListCommand", () => {
+    it("returns all jobs", async () => {
       const { context, outputs } = createContextCapture();
       const scheduler = createScheduler();
 
@@ -41,17 +41,17 @@ describe('jobs CLI commands', () => {
       expect(outputs).toHaveLength(1);
 
       const output = outputs[0] as Record<string, unknown>;
-      expect(output.status).toBe('ok');
-      expect(output.command).toBe('jobs.list');
-      expect(output.schema).toBe('jobs.list.output.v1');
+      expect(output.status).toBe("ok");
+      expect(output.command).toBe("jobs.list");
+      expect(output.schema).toBe("jobs.list.output.v1");
 
       const jobs = output.jobs as Array<Record<string, unknown>>;
       expect(jobs).toHaveLength(2);
-      expect(jobs[0].name).toBe('job-a');
-      expect(jobs[1].name).toBe('job-b');
+      expect(jobs[0].name).toBe("job-a");
+      expect(jobs[1].name).toBe("job-b");
     });
 
-    it('returns empty list when no jobs', async () => {
+    it("returns empty list when no jobs", async () => {
       const { context, outputs } = createContextCapture();
       const scheduler = new CronScheduler({ logger: silentLogger });
 
@@ -63,90 +63,94 @@ describe('jobs CLI commands', () => {
     });
   });
 
-  describe('runJobsRunCommand', () => {
-    it('runs a job successfully', async () => {
+  describe("runJobsRunCommand", () => {
+    it("runs a job successfully", async () => {
       const { context, outputs } = createContextCapture();
       let executed = false;
       const scheduler = new CronScheduler({ logger: silentLogger });
-      scheduler.addJob('run-me', '* * * * *', makeAction(async () => {
-        executed = true;
-      }));
+      scheduler.addJob(
+        "run-me",
+        "* * * * *",
+        makeAction(async () => {
+          executed = true;
+        }),
+      );
 
-      const code = await runJobsRunCommand(context, scheduler, 'run-me');
+      const code = await runJobsRunCommand(context, scheduler, "run-me");
       expect(code).toBe(0);
       expect(executed).toBe(true);
 
       const output = outputs[0] as Record<string, unknown>;
-      expect(output.status).toBe('ok');
-      expect(output.command).toBe('jobs.run');
-      expect(output.job).toBe('run-me');
+      expect(output.status).toBe("ok");
+      expect(output.command).toBe("jobs.run");
+      expect(output.job).toBe("run-me");
     });
 
-    it('returns error for non-existent job', async () => {
+    it("returns error for non-existent job", async () => {
       const { context, errors } = createContextCapture();
       const scheduler = new CronScheduler({ logger: silentLogger });
 
-      const code = await runJobsRunCommand(context, scheduler, 'missing');
+      const code = await runJobsRunCommand(context, scheduler, "missing");
       expect(code).toBe(1);
       expect(errors).toHaveLength(1);
 
       const err = errors[0] as Record<string, unknown>;
-      expect(err.status).toBe('error');
+      expect(err.status).toBe("error");
     });
   });
 
-  describe('runJobsEnableCommand', () => {
-    it('enables a disabled job', async () => {
+  describe("runJobsEnableCommand", () => {
+    it("enables a disabled job", async () => {
       const { context, outputs } = createContextCapture();
       const scheduler = createScheduler();
-      scheduler.disableJob('job-a');
+      scheduler.disableJob("job-a");
 
-      const code = await runJobsEnableCommand(context, scheduler, 'job-a');
+      const code = await runJobsEnableCommand(context, scheduler, "job-a");
       expect(code).toBe(0);
 
       const output = outputs[0] as Record<string, unknown>;
-      expect(output.status).toBe('ok');
-      expect(output.command).toBe('jobs.enable');
-      expect(output.job).toBe('job-a');
+      expect(output.status).toBe("ok");
+      expect(output.command).toBe("jobs.enable");
+      expect(output.job).toBe("job-a");
 
       const jobs = scheduler.listJobs();
-      const jobA = jobs.find(j => j.name === 'job-a');
+      const jobA = jobs.find((j) => j.name === "job-a");
       expect(jobA?.enabled).toBe(true);
     });
 
-    it('returns error for non-existent job', async () => {
+    it("returns error for non-existent job", async () => {
       const { context, errors } = createContextCapture();
       const scheduler = new CronScheduler({ logger: silentLogger });
 
-      const code = await runJobsEnableCommand(context, scheduler, 'nope');
+      const code = await runJobsEnableCommand(context, scheduler, "nope");
       expect(code).toBe(1);
       expect(errors).toHaveLength(1);
     });
   });
 
-  describe('runJobsDisableCommand', () => {
-    it('disables an enabled job', async () => {
+  describe("runJobsDisableCommand", () => {
+    it("disables an enabled job", async () => {
       const { context, outputs } = createContextCapture();
       const scheduler = createScheduler();
 
-      const code = await runJobsDisableCommand(context, scheduler, 'job-a');
+      const code = await runJobsDisableCommand(context, scheduler, "job-a");
       expect(code).toBe(0);
 
       const output = outputs[0] as Record<string, unknown>;
-      expect(output.status).toBe('ok');
-      expect(output.command).toBe('jobs.disable');
-      expect(output.job).toBe('job-a');
+      expect(output.status).toBe("ok");
+      expect(output.command).toBe("jobs.disable");
+      expect(output.job).toBe("job-a");
 
       const jobs = scheduler.listJobs();
-      const jobA = jobs.find(j => j.name === 'job-a');
+      const jobA = jobs.find((j) => j.name === "job-a");
       expect(jobA?.enabled).toBe(false);
     });
 
-    it('returns error for non-existent job', async () => {
+    it("returns error for non-existent job", async () => {
       const { context, errors } = createContextCapture();
       const scheduler = new CronScheduler({ logger: silentLogger });
 
-      const code = await runJobsDisableCommand(context, scheduler, 'nope');
+      const code = await runJobsDisableCommand(context, scheduler, "nope");
       expect(code).toBe(1);
       expect(errors).toHaveLength(1);
     });

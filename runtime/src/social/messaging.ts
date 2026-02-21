@@ -7,18 +7,25 @@
  * @module
  */
 
-import { PublicKey, SystemProgram } from '@solana/web3.js';
-import type { Keypair } from '@solana/web3.js';
-import anchor, { utils, type Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { findAgentPda, findProtocolPda } from '../agent/pda.js';
-import { isAnchorError, AnchorErrorCodes } from '../types/errors.js';
-import { ensureLazyModule } from '../utils/lazy-import.js';
-import { signAgentMessage, verifyAgentSignature, buildSigningPayload } from './crypto.js';
-import { MessagingSendError, MessagingConnectionError } from './messaging-errors.js';
-import type { ReputationSignalCallback } from './reputation-types.js';
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import type { Keypair } from "@solana/web3.js";
+import anchor, { utils, type Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { findAgentPda, findProtocolPda } from "../agent/pda.js";
+import { isAnchorError, AnchorErrorCodes } from "../types/errors.js";
+import { ensureLazyModule } from "../utils/lazy-import.js";
+import {
+  signAgentMessage,
+  verifyAgentSignature,
+  buildSigningPayload,
+} from "./crypto.js";
+import {
+  MessagingSendError,
+  MessagingConnectionError,
+} from "./messaging-errors.js";
+import type { ReputationSignalCallback } from "./reputation-types.js";
 import {
   MSG_MAGIC,
   MSG_CONTENT_MAX_ONCHAIN,
@@ -33,7 +40,7 @@ import {
   type MessagingConfig,
   type MessagingOpsConfig,
   type OffChainEnvelope,
-} from './messaging-types.js';
+} from "./messaging-types.js";
 
 // ============================================================================
 // WebSocket type shims (loaded lazily)
@@ -54,7 +61,9 @@ interface WsWebSocketServer {
 }
 
 interface WsModule {
-  default?: { WebSocketServer: new (opts: { port: number }) => WsWebSocketServer };
+  default?: {
+    WebSocketServer: new (opts: { port: number }) => WsWebSocketServer;
+  };
   WebSocket: new (url: string) => WsWebSocket;
   WebSocketServer: new (opts: { port: number }) => WsWebSocketServer;
 }
@@ -69,9 +78,12 @@ function createDefaultPeerResolver(
   return {
     async resolveEndpoint(agentPubkey: PublicKey): Promise<string | null> {
       try {
-        const account = await program.account.agentRegistration.fetchNullable(agentPubkey);
+        const account =
+          await program.account.agentRegistration.fetchNullable(agentPubkey);
         if (!account) return null;
-        const endpoint = (account as Record<string, unknown>).endpoint as string | undefined;
+        const endpoint = (account as Record<string, unknown>).endpoint as
+          | string
+          | undefined;
         return endpoint && endpoint.length > 0 ? endpoint : null;
       } catch {
         return null;
@@ -105,11 +117,12 @@ export class AgentMessaging {
     this.agentId = new Uint8Array(opsConfig.agentId);
     this.wallet = opsConfig.wallet;
     this.logger = opsConfig.logger ?? silentLogger;
-    this.discovery = opsConfig.discovery ?? createDefaultPeerResolver(this.program);
+    this.discovery =
+      opsConfig.discovery ?? createDefaultPeerResolver(this.program);
     this.onReputationSignal = opsConfig.onReputationSignal;
 
     this.config = {
-      defaultMode: opsConfig.config?.defaultMode ?? 'auto',
+      defaultMode: opsConfig.config?.defaultMode ?? "auto",
       maxOffChainSize: opsConfig.config?.maxOffChainSize ?? 65536,
       connectTimeoutMs: opsConfig.config?.connectTimeoutMs ?? 5000,
       offChainRetries: opsConfig.config?.offChainRetries ?? 3,
@@ -141,30 +154,36 @@ export class AgentMessaging {
     mode?: MessageMode,
   ): Promise<AgentMessage> {
     if (this.disposed) {
-      throw new MessagingSendError(recipient.toBase58(), 'Messaging instance is disposed');
+      throw new MessagingSendError(
+        recipient.toBase58(),
+        "Messaging instance is disposed",
+      );
     }
 
     const effectiveMode = mode ?? this.config.defaultMode;
 
     let message: AgentMessage;
     switch (effectiveMode) {
-      case 'on-chain':
+      case "on-chain":
         message = await this.sendOnChain(recipient, content);
         break;
-      case 'off-chain':
+      case "off-chain":
         message = await this.sendOffChain(recipient, content);
         break;
-      case 'auto':
+      case "auto":
         message = await this.sendAuto(recipient, content);
         break;
       default:
-        throw new MessagingSendError(recipient.toBase58(), `Unknown mode: ${effectiveMode}`);
+        throw new MessagingSendError(
+          recipient.toBase58(),
+          `Unknown mode: ${effectiveMode}`,
+        );
     }
 
     // Emit reputation signal for the sender
     if (this.onReputationSignal) {
       this.onReputationSignal({
-        kind: 'message',
+        kind: "message",
         agent: this.agentPda,
         delta: 1,
         timestamp: message.timestamp,
@@ -232,11 +251,13 @@ export class AgentMessaging {
           sender: myAuthority,
           recipient: peerAuthority,
           content: decodeMessageStateValue(stateValue),
-          mode: 'on-chain',
+          mode: "on-chain",
           signature: new Uint8Array(0),
-          timestamp: typeof (account.updatedAt as { toNumber?: () => number })?.toNumber === 'function'
-            ? (account.updatedAt as { toNumber: () => number }).toNumber()
-            : Number(account.updatedAt),
+          timestamp:
+            typeof (account.updatedAt as { toNumber?: () => number })
+              ?.toNumber === "function"
+              ? (account.updatedAt as { toNumber: () => number }).toNumber()
+              : Number(account.updatedAt),
           nonce: decoded.nonce,
           onChain: true,
         });
@@ -277,11 +298,13 @@ export class AgentMessaging {
           sender: peerAuthority,
           recipient: myAuthority,
           content: decodeMessageStateValue(stateValue),
-          mode: 'on-chain',
+          mode: "on-chain",
           signature: new Uint8Array(0),
-          timestamp: typeof (account.updatedAt as { toNumber?: () => number })?.toNumber === 'function'
-            ? (account.updatedAt as { toNumber: () => number }).toNumber()
-            : Number(account.updatedAt),
+          timestamp:
+            typeof (account.updatedAt as { toNumber?: () => number })
+              ?.toNumber === "function"
+              ? (account.updatedAt as { toNumber: () => number }).toNumber()
+              : Number(account.updatedAt),
           nonce: decoded.nonce,
           onChain: true,
         });
@@ -313,21 +336,29 @@ export class AgentMessaging {
    */
   async startListener(port?: number): Promise<number> {
     if (this.disposed) {
-      throw new MessagingConnectionError('localhost', 'Messaging instance is disposed');
+      throw new MessagingConnectionError(
+        "localhost",
+        "Messaging instance is disposed",
+      );
     }
     if (this.wss) {
-      throw new MessagingConnectionError('localhost', 'Listener already started');
+      throw new MessagingConnectionError(
+        "localhost",
+        "Listener already started",
+      );
     }
 
     const listenPort = port ?? this.config.offChainPort;
     const wsMod = await this.loadWs();
 
-    const ServerClass = wsMod.WebSocketServer ?? (wsMod.default as unknown as WsModule)?.WebSocketServer;
+    const ServerClass =
+      wsMod.WebSocketServer ??
+      (wsMod.default as unknown as WsModule)?.WebSocketServer;
     this.wss = new ServerClass({ port: listenPort });
 
-    this.wss.on('connection', (...args: unknown[]) => {
+    this.wss.on("connection", (...args: unknown[]) => {
       const socket = args[0] as WsWebSocket;
-      socket.on('message', (data: unknown) => {
+      socket.on("message", (data: unknown) => {
         void this.handleIncomingMessage(data);
       });
     });
@@ -346,7 +377,7 @@ export class AgentMessaging {
     return new Promise<void>((resolve) => {
       this.wss!.close(() => {
         this.wss = null;
-        this.logger.info('Messaging listener stopped');
+        this.logger.info("Messaging listener stopped");
         resolve();
       });
     });
@@ -369,11 +400,17 @@ export class AgentMessaging {
   /** Max retries on nonce collision (VersionMismatch with expected_version=0) */
   private static readonly MAX_NONCE_RETRIES = 3;
 
-  private async sendOnChain(recipient: PublicKey, content: string): Promise<AgentMessage> {
+  private async sendOnChain(
+    recipient: PublicKey,
+    content: string,
+  ): Promise<AgentMessage> {
     // Validate content byte length
     const contentBytes = new TextEncoder().encode(content);
     if (contentBytes.length === 0) {
-      throw new MessagingSendError(recipient.toBase58(), 'Message content cannot be empty');
+      throw new MessagingSendError(
+        recipient.toBase58(),
+        "Message content cannot be empty",
+      );
     }
     if (contentBytes.length > MSG_CONTENT_MAX_ONCHAIN) {
       throw new MessagingSendError(
@@ -386,19 +423,28 @@ export class AgentMessaging {
     let lastError: unknown;
 
     // Retry on nonce collision (VersionMismatch = state PDA already exists)
-    for (let attempt = 0; attempt <= AgentMessaging.MAX_NONCE_RETRIES; attempt++) {
+    for (
+      let attempt = 0;
+      attempt <= AgentMessaging.MAX_NONCE_RETRIES;
+      attempt++
+    ) {
       const currentNonce = this.nextNonce();
       const stateKey = encodeMessageStateKey(recipient, currentNonce);
       const stateValue = encodeMessageStateValue(content);
 
       // Derive state PDA: ["state", authority, state_key]
       const [statePda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('state'), authority.toBuffer(), Buffer.from(stateKey)],
+        [Buffer.from("state"), authority.toBuffer(), Buffer.from(stateKey)],
         this.program.programId,
       );
 
       // Sign the message payload for offline verification
-      const payload = buildSigningPayload(authority, recipient, currentNonce, content);
+      const payload = buildSigningPayload(
+        authority,
+        recipient,
+        currentNonce,
+        content,
+      );
       const signature = signAgentMessage(this.wallet, payload);
 
       try {
@@ -422,20 +468,22 @@ export class AgentMessaging {
           sender: authority,
           recipient,
           content,
-          mode: 'on-chain',
+          mode: "on-chain",
           signature,
           timestamp: Math.floor(Date.now() / 1000),
           nonce: currentNonce,
           onChain: true,
         };
 
-        this.logger.info(`On-chain message sent to ${recipient.toBase58()} (nonce: ${currentNonce})`);
+        this.logger.info(
+          `On-chain message sent to ${recipient.toBase58()} (nonce: ${currentNonce})`,
+        );
         return message;
       } catch (err) {
         if (isAnchorError(err, AnchorErrorCodes.RateLimitExceeded)) {
           throw new MessagingSendError(
             recipient.toBase58(),
-            'Rate limit exceeded — on-chain messaging is throttled by state_update_cooldown (~60s)',
+            "Rate limit exceeded — on-chain messaging is throttled by state_update_cooldown (~60s)",
           );
         }
         // Retry on VersionMismatch (nonce collision — state PDA already exists)
@@ -463,7 +511,10 @@ export class AgentMessaging {
   // Private: Off-Chain Send
   // ==========================================================================
 
-  private async sendOffChain(recipient: PublicKey, content: string): Promise<AgentMessage> {
+  private async sendOffChain(
+    recipient: PublicKey,
+    content: string,
+  ): Promise<AgentMessage> {
     // Validate size
     const contentBytes = new TextEncoder().encode(content);
     if (contentBytes.length > this.config.maxOffChainSize) {
@@ -478,7 +529,7 @@ export class AgentMessaging {
     if (!endpoint) {
       throw new MessagingConnectionError(
         recipient.toBase58(),
-        'No endpoint found for recipient',
+        "No endpoint found for recipient",
       );
     }
 
@@ -486,18 +537,23 @@ export class AgentMessaging {
     const authority = this.wallet.publicKey;
 
     // Sign message
-    const signPayload = buildSigningPayload(authority, recipient, currentNonce, content);
+    const signPayload = buildSigningPayload(
+      authority,
+      recipient,
+      currentNonce,
+      content,
+    );
     const signature = signAgentMessage(this.wallet, signPayload);
 
     const timestamp = Math.floor(Date.now() / 1000);
     const envelope: OffChainEnvelope = {
-      type: 'message',
+      type: "message",
       sender: authority.toBase58(),
       recipient: recipient.toBase58(),
       content,
       nonce: currentNonce,
       timestamp,
-      signature: Buffer.from(signature).toString('base64'),
+      signature: Buffer.from(signature).toString("base64"),
     };
 
     // Send via WebSocket with retries
@@ -521,7 +577,9 @@ export class AgentMessaging {
         ? lastWsError
         : new MessagingConnectionError(
             endpoint,
-            lastWsError instanceof Error ? lastWsError.message : String(lastWsError),
+            lastWsError instanceof Error
+              ? lastWsError.message
+              : String(lastWsError),
           );
     }
 
@@ -530,14 +588,16 @@ export class AgentMessaging {
       sender: authority,
       recipient,
       content,
-      mode: 'off-chain',
+      mode: "off-chain",
       signature,
       timestamp,
       nonce: currentNonce,
       onChain: false,
     };
 
-    this.logger.info(`Off-chain message sent to ${recipient.toBase58()} via ${endpoint}`);
+    this.logger.info(
+      `Off-chain message sent to ${recipient.toBase58()} via ${endpoint}`,
+    );
     return message;
   }
 
@@ -545,7 +605,10 @@ export class AgentMessaging {
   // Private: Auto Mode
   // ==========================================================================
 
-  private async sendAuto(recipient: PublicKey, content: string): Promise<AgentMessage> {
+  private async sendAuto(
+    recipient: PublicKey,
+    content: string,
+  ): Promise<AgentMessage> {
     // Try off-chain first
     try {
       return await this.sendOffChain(recipient, content);
@@ -577,24 +640,31 @@ export class AgentMessaging {
 
   private async sendWebSocket(endpoint: string, data: string): Promise<void> {
     const wsMod = await this.loadWs();
-    const WsClient = wsMod.WebSocket ?? (wsMod.default as unknown as WsModule)?.WebSocket;
+    const WsClient =
+      wsMod.WebSocket ?? (wsMod.default as unknown as WsModule)?.WebSocket;
 
     return new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        try { ws.close(); } catch { /* ignore */ }
-        reject(new MessagingConnectionError(endpoint, 'Connection timed out'));
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+        reject(new MessagingConnectionError(endpoint, "Connection timed out"));
       }, this.config.connectTimeoutMs);
 
-      const ws: WsWebSocket = new (WsClient as unknown as new (url: string) => WsWebSocket)(endpoint);
+      const ws: WsWebSocket = new (WsClient as unknown as new (
+        url: string,
+      ) => WsWebSocket)(endpoint);
 
-      ws.on('open', () => {
+      ws.on("open", () => {
         ws.send(data);
         clearTimeout(timeout);
         ws.close();
         resolve();
       });
 
-      ws.on('error', (err: unknown) => {
+      ws.on("error", (err: unknown) => {
         clearTimeout(timeout);
         reject(
           new MessagingConnectionError(
@@ -609,14 +679,14 @@ export class AgentMessaging {
   private async handleIncomingMessage(data: unknown): Promise<void> {
     let envelope: OffChainEnvelope;
     try {
-      const text = typeof data === 'string' ? data : String(data);
+      const text = typeof data === "string" ? data : String(data);
       envelope = JSON.parse(text) as OffChainEnvelope;
     } catch {
-      this.logger.warn('Received malformed message, ignoring');
+      this.logger.warn("Received malformed message, ignoring");
       return;
     }
 
-    if (envelope.type !== 'message') {
+    if (envelope.type !== "message") {
       this.logger.warn(`Unknown envelope type: ${envelope.type}`);
       return;
     }
@@ -638,7 +708,7 @@ export class AgentMessaging {
       return;
     }
 
-    const signature = Buffer.from(envelope.signature, 'base64');
+    const signature = Buffer.from(envelope.signature, "base64");
     const payload = buildSigningPayload(
       senderPubkey,
       recipientPubkey,
@@ -646,7 +716,9 @@ export class AgentMessaging {
       envelope.content,
     );
 
-    if (!verifyAgentSignature(senderPubkey, payload, new Uint8Array(signature))) {
+    if (
+      !verifyAgentSignature(senderPubkey, payload, new Uint8Array(signature))
+    ) {
       this.logger.warn(`Invalid signature from ${envelope.sender}, ignoring`);
       return;
     }
@@ -656,7 +728,7 @@ export class AgentMessaging {
       sender: senderPubkey,
       recipient: recipientPubkey,
       content: envelope.content,
-      mode: 'off-chain',
+      mode: "off-chain",
       signature: new Uint8Array(signature),
       timestamp: envelope.timestamp,
       nonce: envelope.nonce,
@@ -683,8 +755,8 @@ export class AgentMessaging {
 
   private async loadWs(): Promise<WsModule> {
     return ensureLazyModule<WsModule>(
-      'ws',
-      (msg) => new MessagingConnectionError('localhost', msg),
+      "ws",
+      (msg) => new MessagingConnectionError("localhost", msg),
       (mod) => mod as unknown as WsModule,
     );
   }

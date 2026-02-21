@@ -7,15 +7,20 @@
  * @module
  */
 
-export { AutonomousAgent } from './agent.js';
-export { TaskScanner, type TaskScannerConfig, type TaskEventSubscription, type TaskCreatedCallback } from './scanner.js';
+export { AutonomousAgent } from "./agent.js";
+export {
+  TaskScanner,
+  type TaskScannerConfig,
+  type TaskEventSubscription,
+  type TaskCreatedCallback,
+} from "./scanner.js";
 export {
   VerifierExecutor,
   VerifierLaneEscalationError,
   VERIFIER_METRIC_NAMES,
   type VerifierLaneMetrics,
   type VerifierExecutorConfig,
-} from './verifier.js';
+} from "./verifier.js";
 export {
   extractTaskRiskFeatures,
   scoreTaskRisk,
@@ -25,7 +30,7 @@ export {
   type TaskRiskScoringContext,
   type TaskRiskScoringConfig,
   type TaskRiskScoreResult,
-} from './risk-scoring.js';
+} from "./risk-scoring.js";
 export {
   allocateVerificationBudget,
   BudgetAdjustmentInput,
@@ -41,27 +46,27 @@ export {
   resolveBudgetGuardrail,
   validateBudgetGuardrail,
   type VerificationBudgetDecision,
-} from './verification-budget.js';
+} from "./verification-budget.js";
 export {
   planVerifierSchedule,
   type VerifierRouteStrategy,
   type VerifierScheduleInput,
   type VerifierSchedulePlan,
-} from './verifier-scheduler.js';
+} from "./verifier-scheduler.js";
 export {
   resolveEscalationTransition,
   type EscalationTransitionState,
   type EscalationTransitionReason,
   type EscalationGraphInput,
   type EscalationGraphTransition,
-} from './escalation-graph.js';
+} from "./escalation-graph.js";
 export {
   generateExecutionCandidates,
   type GeneratedExecutionCandidate,
   type CandidateGenerationAttemptContext,
   type CandidateGenerationInput,
   type CandidateGenerationResult,
-} from './candidate-generator.js';
+} from "./candidate-generator.js";
 export {
   detectCandidateInconsistencies,
   type CandidateDisagreementReasonCode,
@@ -70,13 +75,13 @@ export {
   type CandidateProvenanceLink,
   type InconsistencyDetectionResult,
   type InconsistencyDetectorInput,
-} from './inconsistency-detector.js';
+} from "./inconsistency-detector.js";
 export {
   arbitrateCandidates,
   type CandidateArbitrationScore,
   type CandidateArbitrationDecision,
   type CandidateArbitrationInput,
-} from './arbitration.js';
+} from "./arbitration.js";
 export {
   // Types
   type Task,
@@ -108,4 +113,4 @@ export {
   type VerifierExecutionResult,
   // Default strategy
   DefaultClaimStrategy,
-} from './types.js';
+} from "./types.js";

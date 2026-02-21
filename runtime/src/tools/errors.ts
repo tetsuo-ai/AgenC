@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a tool cannot be found by name.
@@ -15,7 +15,7 @@ export class ToolNotFoundError extends RuntimeError {
 
   constructor(toolName: string) {
     super(`Tool not found: "${toolName}"`, RuntimeErrorCodes.VALIDATION_ERROR);
-    this.name = 'ToolNotFoundError';
+    this.name = "ToolNotFoundError";
     this.toolName = toolName;
   }
 }
@@ -32,7 +32,7 @@ export class ToolAlreadyRegisteredError extends RuntimeError {
       `Tool "${toolName}" is already registered`,
       RuntimeErrorCodes.VALIDATION_ERROR,
     );
-    this.name = 'ToolAlreadyRegisteredError';
+    this.name = "ToolAlreadyRegisteredError";
     this.toolName = toolName;
   }
 }
@@ -51,7 +51,7 @@ export class ToolExecutionError extends RuntimeError {
       `Tool "${toolName}" execution failed: ${cause}`,
       RuntimeErrorCodes.LLM_TOOL_CALL_ERROR,
     );
-    this.name = 'ToolExecutionError';
+    this.name = "ToolExecutionError";
     this.toolName = toolName;
     this.cause = cause;
   }

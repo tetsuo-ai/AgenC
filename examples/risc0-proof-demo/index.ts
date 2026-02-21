@@ -9,7 +9,8 @@ import { PublicKey } from '@solana/web3.js';
 import {
   PROGRAM_ID,
   TRUSTED_RISC0_SELECTOR,
-  generateProof,
+  computeHashes,
+  bigintToBytes32,
   generateSalt,
 } from '@agenc/sdk';
 
@@ -54,21 +55,20 @@ async function main() {
   const output = [11n, 22n, 33n, 44n];
   const salt = generateSalt();
 
-  const proof = await generateProof({
-    taskPda,
-    agentPubkey,
-    output,
-    salt,
-  });
-  const accounts = deriveRouterSubmissionAccounts(proof.bindingSeed, proof.nullifierSeed);
+  // Actual seal generation requires: generateProof(params, proverConfig)
+  // with a local-binary or remote prover backend.
+  const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 
-  console.log('RISC0 payload');
+  const bindingSeed = bigintToBytes32(hashes.binding);
+  const nullifierSeed = bigintToBytes32(hashes.nullifier);
+  const accounts = deriveRouterSubmissionAccounts(bindingSeed, nullifierSeed);
+
+  console.log('RISC0 hash computation');
   console.log({
-    sealBytes: proof.sealBytes.length,
-    journal: proof.journal.length,
-    imageId: proof.imageId.toString('hex'),
-    bindingSeed: proof.bindingSeed.toString('hex'),
-    nullifierSeed: proof.nullifierSeed.toString('hex'),
+    constraintHash: hashes.constraintHash.toString(16),
+    outputCommitment: hashes.outputCommitment.toString(16),
+    binding: bindingSeed.toString('hex'),
+    nullifier: nullifierSeed.toString('hex'),
   });
 
   console.log('\nRouter account model');

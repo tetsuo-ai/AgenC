@@ -7,12 +7,12 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-} from '@solana/spl-token';
+} from "@solana/spl-token";
 
 export { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID };
 
@@ -46,7 +46,10 @@ export function buildCompleteTaskTokenAccounts(
   }
   return {
     tokenEscrowAta: getAssociatedTokenAddressSync(rewardMint, escrowPda, true),
-    workerTokenAccount: getAssociatedTokenAddressSync(rewardMint, workerAuthority),
+    workerTokenAccount: getAssociatedTokenAddressSync(
+      rewardMint,
+      workerAuthority,
+    ),
     treasuryTokenAccount: getAssociatedTokenAddressSync(rewardMint, treasury),
     rewardMint,
     tokenProgram: TOKEN_PROGRAM_ID,
@@ -79,7 +82,10 @@ export function buildResolveDisputeTokenAccounts(
   }
   return {
     tokenEscrowAta: getAssociatedTokenAddressSync(rewardMint, escrowPda, true),
-    creatorTokenAccount: getAssociatedTokenAddressSync(rewardMint, creatorPubkey),
+    creatorTokenAccount: getAssociatedTokenAddressSync(
+      rewardMint,
+      creatorPubkey,
+    ),
     workerTokenAccountAta: workerAuthority
       ? getAssociatedTokenAddressSync(rewardMint, workerAuthority)
       : null,
@@ -112,7 +118,10 @@ export function buildExpireDisputeTokenAccounts(
   }
   return {
     tokenEscrowAta: getAssociatedTokenAddressSync(rewardMint, escrowPda, true),
-    creatorTokenAccount: getAssociatedTokenAddressSync(rewardMint, creatorPubkey),
+    creatorTokenAccount: getAssociatedTokenAddressSync(
+      rewardMint,
+      creatorPubkey,
+    ),
     workerTokenAccountAta: workerAuthority
       ? getAssociatedTokenAddressSync(rewardMint, workerAuthority)
       : null,
@@ -172,7 +181,10 @@ export function buildCreateTaskTokenAccounts(
   }
   return {
     rewardMint,
-    creatorTokenAccount: getAssociatedTokenAddressSync(rewardMint, creatorPubkey),
+    creatorTokenAccount: getAssociatedTokenAddressSync(
+      rewardMint,
+      creatorPubkey,
+    ),
     tokenEscrowAta: getAssociatedTokenAddressSync(rewardMint, escrowPda, true),
     tokenProgram: TOKEN_PROGRAM_ID,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,

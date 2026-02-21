@@ -146,7 +146,7 @@ pub fn handler(
     // Zero-reward tasks cannot be completed due to RewardTooSmall check in completion_helpers
     require!(reward_amount > 0, CoordinationError::RewardTooSmall);
 
-    if reward_mint.is_some() {
+    if let Some(expected_mint) = reward_mint {
         // Token path: validate required token accounts are provided
         require!(
             ctx.accounts.reward_mint.is_some()
@@ -164,7 +164,7 @@ pub fn handler(
         let ata_program = ctx.accounts.associated_token_program.as_ref().unwrap();
 
         require!(
-            mint.key() == reward_mint.unwrap(),
+            mint.key() == expected_mint,
             CoordinationError::InvalidTokenMint
         );
 

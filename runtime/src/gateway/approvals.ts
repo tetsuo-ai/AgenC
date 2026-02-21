@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { HookHandler, HookContext, HookResult } from './hooks.js';
+import type { HookHandler, HookContext, HookResult } from "./hooks.js";
 
 // ============================================================================
 // Types
@@ -66,7 +66,7 @@ export interface ApprovalRequest {
 }
 
 /** The disposition of an approval response. */
-export type ApprovalDisposition = 'yes' | 'no' | 'always';
+export type ApprovalDisposition = "yes" | "no" | "always";
 
 /** Response to an approval request. */
 export interface ApprovalResponse {
@@ -99,8 +99,8 @@ export interface ApprovalEngineConfig {
  * Escapes regex special chars, then replaces `*` with `.*`.
  */
 export function globMatch(pattern: string, value: string): boolean {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`^${escaped.replace(/\*/g, '.*')}$`);
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
   return regex.test(value);
 }
 
@@ -108,11 +108,13 @@ export function globMatch(pattern: string, value: string): boolean {
  * Extract a numeric "amount" from tool arguments.
  * Checks `amount`, `reward`, and `lamports` keys. Handles string coercion.
  */
-export function extractAmount(args: Record<string, unknown>): number | undefined {
-  for (const key of ['amount', 'reward', 'lamports']) {
+export function extractAmount(
+  args: Record<string, unknown>,
+): number | undefined {
+  for (const key of ["amount", "reward", "lamports"]) {
     const val = args[key];
-    if (val === undefined || val === null || val === '') continue;
-    const num = typeof val === 'number' ? val : Number(val);
+    if (val === undefined || val === null || val === "") continue;
+    const num = typeof val === "number" ? val : Number(val);
     if (!Number.isNaN(num)) return num;
   }
   return undefined;
@@ -125,30 +127,30 @@ export function extractAmount(args: Record<string, unknown>): number | undefined
 /** Built-in approval rules for common dangerous operations. */
 export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
   {
-    tool: 'system.bash',
-    description: 'Shell command execution',
+    tool: "system.bash",
+    description: "Shell command execution",
   },
   {
-    tool: 'system.delete',
-    description: 'File deletion',
+    tool: "system.delete",
+    description: "File deletion",
   },
   {
-    tool: 'system.evaluateJs',
-    description: 'JavaScript evaluation',
+    tool: "system.evaluateJs",
+    description: "JavaScript evaluation",
   },
   {
-    tool: 'wallet.sign',
-    description: 'Wallet transaction signing',
+    tool: "wallet.sign",
+    description: "Wallet transaction signing",
   },
   {
-    tool: 'wallet.transfer',
+    tool: "wallet.transfer",
     conditions: { minAmount: 0.1 },
-    description: 'SOL transfer exceeding 0.1',
+    description: "SOL transfer exceeding 0.1",
   },
   {
-    tool: 'agenc.createTask',
+    tool: "agenc.createTask",
     conditions: { minAmount: 1_000_000_000 },
-    description: 'Task creation with reward exceeding 1 SOL',
+    description: "Task creation with reward exceeding 1 SOL",
   },
   {
     tool: 'agenc.registerAgent',
@@ -168,7 +170,10 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export type ApprovalResponseHandler = (request: ApprovalRequest, response: ApprovalResponse) => void;
+export type ApprovalResponseHandler = (
+  request: ApprovalRequest,
+  response: ApprovalResponse,
+) => void;
 
 /**
  * Approval engine that evaluates tool invocations against configured rules,
@@ -188,14 +193,19 @@ export class ApprovalEngine {
     this.rules = config?.rules ?? DEFAULT_APPROVAL_RULES;
     this.timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.now = config?.now ?? Date.now;
-    this.generateId = config?.generateId ?? (() => `approval-${Date.now()}-${++this.idCounter}`);
+    this.generateId =
+      config?.generateId ??
+      (() => `approval-${Date.now()}-${++this.idCounter}`);
   }
 
   /**
    * Check whether a tool invocation requires approval.
    * Returns the first matching rule, or `null` if none match.
    */
-  requiresApproval(toolName: string, args: Record<string, unknown>): ApprovalRule | null {
+  requiresApproval(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): ApprovalRule | null {
     for (const rule of this.rules) {
       if (!globMatch(rule.tool, toolName)) continue;
 
@@ -203,13 +213,16 @@ export class ApprovalEngine {
         // Check minAmount condition
         if (rule.conditions.minAmount !== undefined) {
           const amount = extractAmount(args);
-          if (amount === undefined || amount <= rule.conditions.minAmount) continue;
+          if (amount === undefined || amount <= rule.conditions.minAmount)
+            continue;
         }
 
         // Check argPatterns condition
         if (rule.conditions.argPatterns) {
           let allMatch = true;
-          for (const [key, pattern] of Object.entries(rule.conditions.argPatterns)) {
+          for (const [key, pattern] of Object.entries(
+            rule.conditions.argPatterns,
+          )) {
             const val = args[key];
             if (val === undefined || !globMatch(pattern, String(val))) {
               allMatch = false;
@@ -255,7 +268,7 @@ export class ApprovalEngine {
       const timer = setTimeout(() => {
         const response: ApprovalResponse = {
           requestId: request.id,
-          disposition: 'no',
+          disposition: "no",
         };
         this.pending.delete(request.id);
         this.notifyHandlers(request, response);
@@ -277,7 +290,7 @@ export class ApprovalEngine {
     clearTimeout(entry.timer);
     this.pending.delete(requestId);
 
-    if (response.disposition === 'always') {
+    if (response.disposition === "always") {
       this.elevate(entry.request.sessionId, entry.request.rule.tool);
     }
 
@@ -339,7 +352,7 @@ export class ApprovalEngine {
   dispose(): void {
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
-      entry.resolve({ requestId: entry.request.id, disposition: 'no' });
+      entry.resolve({ requestId: entry.request.id, disposition: "no" });
     }
     this.pending.clear();
   }
@@ -351,7 +364,10 @@ export class ApprovalEngine {
     return [...this.pending.values()].map((e) => e.request);
   }
 
-  private notifyHandlers(request: ApprovalRequest, response: ApprovalResponse): void {
+  private notifyHandlers(
+    request: ApprovalRequest,
+    response: ApprovalResponse,
+  ): void {
     for (const handler of this.responseHandlers) {
       try {
         handler(request, response);
@@ -375,13 +391,13 @@ export class ApprovalEngine {
  */
 export function createApprovalGateHook(engine: ApprovalEngine): HookHandler {
   return {
-    event: 'tool:before',
-    name: 'approval-gate',
+    event: "tool:before",
+    name: "approval-gate",
     priority: 5,
     handler: async (ctx: HookContext): Promise<HookResult> => {
       const toolName = ctx.payload.toolName as string | undefined;
       const args = (ctx.payload.args as Record<string, unknown>) ?? {};
-      const sessionId = (ctx.payload.sessionId as string) ?? 'unknown';
+      const sessionId = (ctx.payload.sessionId as string) ?? "unknown";
 
       if (!toolName) {
         return { continue: true };
@@ -402,10 +418,16 @@ export function createApprovalGateHook(engine: ApprovalEngine): HookHandler {
       const message = rule.description
         ? `Approval required: ${rule.description}`
         : `Approval required for ${toolName}`;
-      const request = engine.createRequest(toolName, args, sessionId, message, rule);
+      const request = engine.createRequest(
+        toolName,
+        args,
+        sessionId,
+        message,
+        rule,
+      );
       const response = await engine.requestApproval(request);
 
-      if (response.disposition === 'yes' || response.disposition === 'always') {
+      if (response.disposition === "yes" || response.disposition === "always") {
         return { continue: true };
       }
 

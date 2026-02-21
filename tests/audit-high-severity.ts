@@ -2,7 +2,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -15,17 +20,19 @@ import {
   makeTaskId,
   makeDisputeId,
   deriveProgramDataPda,
+  disableRateLimitsForTests,
 } from "./test-utils";
 
 describe("audit-high-severity", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   // Generate unique run ID to prevent conflicts with persisted validator state
@@ -48,46 +55,63 @@ describe("audit-high-severity", () => {
   let arbiterAgentId1: Buffer;
 
   const deriveAgentPda = (agentId: Buffer) =>
-    PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId], program.programId)[0];
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("agent"), agentId],
+      program.programId,
+    )[0];
 
   const deriveTaskPda = (creatorKey: PublicKey, taskId: Buffer) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("task"), creatorKey.toBuffer(), taskId],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveEscrowPda = (taskPda: PublicKey) =>
-    PublicKey.findProgramAddressSync([Buffer.from("escrow"), taskPda.toBuffer()], program.programId)[0];
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), taskPda.toBuffer()],
+      program.programId,
+    )[0];
 
   const deriveClaimPda = (taskPda: PublicKey, workerKey: PublicKey) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("claim"), taskPda.toBuffer(), workerKey.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveVotePda = (disputePda: PublicKey, arbiterPda: PublicKey) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
 
-  const deriveAuthorityVotePda = (disputePda: PublicKey, authority: PublicKey) =>
+  const deriveAuthorityVotePda = (
+    disputePda: PublicKey,
+    authority: PublicKey,
+  ) =>
     PublicKey.findProgramAddressSync(
-      [Buffer.from("authority_vote"), disputePda.toBuffer(), authority.toBuffer()],
-      program.programId
+      [
+        Buffer.from("authority_vote"),
+        disputePda.toBuffer(),
+        authority.toBuffer(),
+      ],
+      program.programId,
     )[0];
 
   const airdrop = async (wallets: Keypair[]) => {
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, 10 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          wallet.publicKey,
+          10 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
     }
   };
 
   // Evidence must be at least 50 characters per initiate_dispute.rs requirements
-  const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
+  const VALID_EVIDENCE =
+    "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
 
   const ensureProtocol = async () => {
     try {
@@ -96,7 +120,14 @@ describe("audit-high-severity", () => {
     } catch {
       const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL / 100), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
+        .initializeProtocol(
+          51,
+          100,
+          new BN(LAMPORTS_PER_SOL / 100),
+          new BN(LAMPORTS_PER_SOL / 100),
+          1,
+          [provider.wallet.publicKey, treasury.publicKey],
+        )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
@@ -104,45 +135,43 @@ describe("audit-high-severity", () => {
           secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([treasury])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     }
 
     // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(
-          new BN(0),  // task_creation_cooldown = 0 (disabled)
-          0,          // max_tasks_per_24h = 0 (unlimited)
-          new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
-          0,          // max_disputes_per_24h = 0 (unlimited)
-          new BN(0)   // min_stake_for_dispute = 0
-        )
-        .accountsPartial({
-          protocolConfig: protocolPda,
-        })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
-        .rpc();
-    } catch (e: any) {
-      // May already be configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+    });
   };
 
   const ensureAgent = async (
     agentId: Buffer,
     authority: Keypair,
-    capabilities: number
+    capabilities: number,
   ) => {
     const agentPda = deriveAgentPda(agentId);
     try {
       await program.account.agentRegistration.fetch(agentPda);
     } catch {
       await program.methods
-        .registerAgent(Array.from(agentId), new BN(capabilities), "https://example.com", null, new BN(LAMPORTS_PER_SOL))
+        .registerAgent(
+          Array.from(agentId),
+          new BN(capabilities),
+          "https://example.com",
+          null,
+          new BN(LAMPORTS_PER_SOL),
+        )
         .accountsPartial({
           agent: agentPda,
           protocolConfig: protocolPda,
@@ -171,10 +200,21 @@ describe("audit-high-severity", () => {
     arbiterAgentId1 = makeAgentId("arb", runId);
 
     // Increase airdrop to prevent lamport depletion
-    for (const wallet of [treasury, creator, worker1, worker2, worker3, arbiter1, unauthorized]) {
+    for (const wallet of [
+      treasury,
+      creator,
+      worker1,
+      worker2,
+      worker3,
+      arbiter1,
+      unauthorized,
+    ]) {
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, 10 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          wallet.publicKey,
+          10 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
     }
     await ensureProtocol();
@@ -199,12 +239,13 @@ describe("audit-high-severity", () => {
     for (const agent of agentsToCheck) {
       try {
         const agentPda = deriveAgentPda(agent.id);
-        const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+        const agentAccount =
+          await program.account.agentRegistration.fetch(agentPda);
 
         // If agent is inactive, reactivate it
-        if (agentAccount.status && 'inactive' in agentAccount.status) {
+        if (agentAccount.status && "inactive" in agentAccount.status) {
           await program.methods
-            .updateAgent(null, null, null, 1)  // 1 = Active
+            .updateAgent(null, null, null, 1) // 1 = Active
             .accountsPartial({
               agent: agentPda,
               authority: agent.wallet.publicKey,
@@ -222,7 +263,9 @@ describe("audit-high-severity", () => {
     const nonAgent = Keypair.generate();
     await airdrop([nonAgent]);
 
-    const nonAgentId = Buffer.from("no-agent-audit-00000000001".padEnd(32, "\0"));
+    const nonAgentId = Buffer.from(
+      "no-agent-audit-00000000001".padEnd(32, "\0"),
+    );
     const taskId = Buffer.from("task-noagent-audit-000001".padEnd(32, "\0"));
     const taskPda = deriveTaskPda(nonAgent.publicKey, taskId);
     const escrowPda = deriveEscrowPda(taskPda);
@@ -238,7 +281,7 @@ describe("audit-high-severity", () => {
           1,
           new BN(Math.floor(Date.now() / 1000) + 3600),
           TASK_TYPE_COMPETITIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -261,8 +304,12 @@ describe("audit-high-severity", () => {
       expect.fail("Should have failed - no agent registration");
     } catch (e: unknown) {
       // Verify error occurred - Anchor returns AnchorError with errorCode
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to
+        .exist;
     }
   });
 
@@ -281,7 +328,7 @@ describe("audit-high-severity", () => {
         3,
         new BN(Math.floor(Date.now() / 1000) + 3600),
         TASK_TYPE_COLLABORATIVE,
-        null,  // constraint_hash
+        null, // constraint_hash
         0, // min_reputation
         null, // reward_mint
       )
@@ -346,9 +393,15 @@ describe("audit-high-severity", () => {
       .signers([worker3])
       .rpc();
 
-    const proofHash1 = Buffer.from("proof-remainder-000000000001".padEnd(32, "\0"));
-    const proofHash2 = Buffer.from("proof-remainder-000000000002".padEnd(32, "\0"));
-    const proofHash3 = Buffer.from("proof-remainder-000000000003".padEnd(32, "\0"));
+    const proofHash1 = Buffer.from(
+      "proof-remainder-000000000001".padEnd(32, "\0"),
+    );
+    const proofHash2 = Buffer.from(
+      "proof-remainder-000000000002".padEnd(32, "\0"),
+    );
+    const proofHash3 = Buffer.from(
+      "proof-remainder-000000000003".padEnd(32, "\0"),
+    );
     const w1Before = await provider.connection.getBalance(worker1.publicKey);
     const w2Before = await provider.connection.getBalance(worker2.publicKey);
     const w3Before = await provider.connection.getBalance(worker3.publicKey);
@@ -449,7 +502,7 @@ describe("audit-high-severity", () => {
         1,
         new BN(Math.floor(Date.now() / 1000) + 3600),
         TASK_TYPE_COMPETITIVE,
-        null,  // constraint_hash
+        null, // constraint_hash
         0, // min_reputation
         null, // reward_mint
       )
@@ -485,7 +538,7 @@ describe("audit-high-severity", () => {
     const disputeId = makeDisputeId("dispute-unauth", runId);
     const [disputePda] = PublicKey.findProgramAddressSync(
       [Buffer.from("dispute"), disputeId],
-      program.programId
+      program.programId,
     );
 
     await program.methods
@@ -494,7 +547,7 @@ describe("audit-high-severity", () => {
         Array.from(taskId),
         Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
         RESOLUTION_TYPE_REFUND,
-        VALID_EVIDENCE
+        VALID_EVIDENCE,
       )
       .accountsPartial({
         dispute: disputePda,
@@ -511,7 +564,10 @@ describe("audit-high-severity", () => {
       .rpc();
 
     const votePda = deriveVotePda(disputePda, arbiterPda1);
-    const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiter1.publicKey);
+    const authorityVotePda = deriveAuthorityVotePda(
+      disputePda,
+      arbiter1.publicKey,
+    );
     await program.methods
       .voteDispute(true)
       .accountsPartial({
@@ -559,8 +615,12 @@ describe("audit-high-severity", () => {
       expect.fail("Should have failed - unauthorized resolver");
     } catch (e: unknown) {
       // Verify error occurred - Anchor returns AnchorError with errorCode
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to
+        .exist;
     }
   });
 
@@ -582,7 +642,7 @@ describe("audit-high-severity", () => {
         2,
         new BN(Math.floor(Date.now() / 1000) + 3600),
         TASK_TYPE_COMPETITIVE,
-        null,  // constraint_hash
+        null, // constraint_hash
         0, // min_reputation
         null, // reward_mint
       )
@@ -630,8 +690,12 @@ describe("audit-high-severity", () => {
       .signers([worker2])
       .rpc();
 
-    const proofHash1 = Buffer.from("proof-competitive-000000001".padEnd(32, "\0"));
-    const proofHash2 = Buffer.from("proof-competitive-000000002".padEnd(32, "\0"));
+    const proofHash1 = Buffer.from(
+      "proof-competitive-000000001".padEnd(32, "\0"),
+    );
+    const proofHash2 = Buffer.from(
+      "proof-competitive-000000002".padEnd(32, "\0"),
+    );
 
     await program.methods
       .completeTask(Array.from(proofHash1), null)
@@ -678,8 +742,12 @@ describe("audit-high-severity", () => {
       expect.fail("Should have failed - second competitive completion");
     } catch (e: unknown) {
       // Verify error occurred - Anchor returns AnchorError with errorCode
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to
+        .exist;
     }
   });
 
@@ -702,7 +770,7 @@ describe("audit-high-severity", () => {
         1,
         new BN(Math.floor(Date.now() / 1000) + 3600),
         TASK_TYPE_COMPETITIVE,
-        null,  // constraint_hash
+        null, // constraint_hash
         0, // min_reputation
         null, // reward_mint
       )
@@ -738,7 +806,7 @@ describe("audit-high-severity", () => {
     const disputeId = makeDisputeId("dispute-deregister", runId);
     const [disputePda] = PublicKey.findProgramAddressSync(
       [Buffer.from("dispute"), disputeId],
-      program.programId
+      program.programId,
     );
 
     await program.methods
@@ -747,7 +815,7 @@ describe("audit-high-severity", () => {
         Array.from(taskId),
         Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
         RESOLUTION_TYPE_REFUND,
-        VALID_EVIDENCE
+        VALID_EVIDENCE,
       )
       .accountsPartial({
         dispute: disputePda,
@@ -764,7 +832,10 @@ describe("audit-high-severity", () => {
       .rpc();
 
     const votePda = deriveVotePda(disputePda, arbiterPda1);
-    const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiter1.publicKey);
+    const authorityVotePda = deriveAuthorityVotePda(
+      disputePda,
+      arbiter1.publicKey,
+    );
     await program.methods
       .voteDispute(true)
       .accountsPartial({
@@ -784,7 +855,10 @@ describe("audit-high-severity", () => {
 
     const dispute = await program.account.dispute.fetch(disputePda);
     const now = Math.floor(Date.now() / 1000);
-    const waitMs = Math.max(0, (dispute.votingDeadline.toNumber() - now + 1) * 1000);
+    const waitMs = Math.max(
+      0,
+      (dispute.votingDeadline.toNumber() - now + 1) * 1000,
+    );
     if (waitMs > 30_000) {
       // Keep local test runs deterministic and avoid multi-minute waits.
       return;
@@ -795,24 +869,24 @@ describe("audit-high-severity", () => {
 
     await program.methods
       .resolveDispute()
-        .accountsPartial({
-          dispute: disputePda,
-          task: taskPda,
-          escrow: escrowPda,
-          protocolConfig: protocolPda,
-          resolver: provider.wallet.publicKey,
-          creator: creator.publicKey,
-          workerClaim: null,
-          worker: null,
-          workerAuthority: null,
-          systemProgram: SystemProgram.programId,
-          tokenEscrowAta: null,
-          creatorTokenAccount: null,
-          workerTokenAccountAta: null,
-          treasuryTokenAccount: null,
-          rewardMint: null,
-          tokenProgram: null,
-        })
+      .accountsPartial({
+        dispute: disputePda,
+        task: taskPda,
+        escrow: escrowPda,
+        protocolConfig: protocolPda,
+        resolver: provider.wallet.publicKey,
+        creator: creator.publicKey,
+        workerClaim: null,
+        worker: null,
+        workerAuthority: null,
+        systemProgram: SystemProgram.programId,
+        tokenEscrowAta: null,
+        creatorTokenAccount: null,
+        workerTokenAccountAta: null,
+        treasuryTokenAccount: null,
+        rewardMint: null,
+        tokenProgram: null,
+      })
       .remainingAccounts([
         { pubkey: votePda, isSigner: false, isWritable: false },
         { pubkey: arbiterPda1, isSigner: false, isWritable: true },
@@ -832,8 +906,12 @@ describe("audit-high-severity", () => {
       expect.fail("Should have failed - arbiter has pending dispute");
     } catch (e: unknown) {
       // Verify error occurred - Anchor returns AnchorError with errorCode
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to
+        .exist;
     }
   });
 
@@ -849,7 +927,7 @@ describe("audit-high-severity", () => {
         new BN(CAPABILITY_COMPUTE),
         "https://example.com",
         null,
-        new BN(LAMPORTS_PER_SOL)
+        new BN(LAMPORTS_PER_SOL),
       )
       .accountsPartial({
         agent: suspendTestAgentPda,
@@ -859,8 +937,9 @@ describe("audit-high-severity", () => {
       .rpc();
 
     // Verify agent is active
-    let agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
-    expect('active' in agentAccount.status).to.be.true;
+    let agentAccount =
+      await program.account.agentRegistration.fetch(suspendTestAgentPda);
+    expect("active" in agentAccount.status).to.be.true;
 
     // Suspend the agent via dedicated instruction (fix #819)
     await program.methods
@@ -873,8 +952,9 @@ describe("audit-high-severity", () => {
       .rpc();
 
     // Verify agent is now suspended
-    agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
-    expect('suspended' in agentAccount.status).to.be.true;
+    agentAccount =
+      await program.account.agentRegistration.fetch(suspendTestAgentPda);
+    expect("suspended" in agentAccount.status).to.be.true;
 
     // Try to bypass suspension by setting status to Active (should fail)
     try {
@@ -885,10 +965,17 @@ describe("audit-high-severity", () => {
           authority: provider.wallet.publicKey,
         })
         .rpc();
-      expect.fail("Should have failed - suspended agent cannot change own status to Active");
+      expect.fail(
+        "Should have failed - suspended agent cannot change own status to Active",
+      );
     } catch (e: unknown) {
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-      expect(["AgentSuspended", "UpdateTooFrequent"]).to.include(anchorError.error?.errorCode?.code);
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
+      expect(["AgentSuspended", "UpdateTooFrequent"]).to.include(
+        anchorError.error?.errorCode?.code,
+      );
     }
 
     // Also try Inactive (0) - should fail
@@ -900,10 +987,17 @@ describe("audit-high-severity", () => {
           authority: provider.wallet.publicKey,
         })
         .rpc();
-      expect.fail("Should have failed - suspended agent cannot change own status to Inactive");
+      expect.fail(
+        "Should have failed - suspended agent cannot change own status to Inactive",
+      );
     } catch (e: unknown) {
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-      expect(["AgentSuspended", "UpdateTooFrequent"]).to.include(anchorError.error?.errorCode?.code);
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
+      expect(["AgentSuspended", "UpdateTooFrequent"]).to.include(
+        anchorError.error?.errorCode?.code,
+      );
     }
 
     // Also try Busy (2) - should fail
@@ -915,15 +1009,23 @@ describe("audit-high-severity", () => {
           authority: provider.wallet.publicKey,
         })
         .rpc();
-      expect.fail("Should have failed - suspended agent cannot change own status to Busy");
+      expect.fail(
+        "Should have failed - suspended agent cannot change own status to Busy",
+      );
     } catch (e: unknown) {
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-      expect(["AgentSuspended", "UpdateTooFrequent"]).to.include(anchorError.error?.errorCode?.code);
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
+      expect(["AgentSuspended", "UpdateTooFrequent"]).to.include(
+        anchorError.error?.errorCode?.code,
+      );
     }
 
     // Verify agent is still suspended after all attempts
-    agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
-    expect('suspended' in agentAccount.status).to.be.true;
+    agentAccount =
+      await program.account.agentRegistration.fetch(suspendTestAgentPda);
+    expect("suspended" in agentAccount.status).to.be.true;
   });
 
   it("rejects dispute initiation from non-participant (issue #294)", async () => {
@@ -984,7 +1086,7 @@ describe("audit-high-severity", () => {
     const disputeId = makeDisputeId("disp-294", runId);
     const [disputePda] = PublicKey.findProgramAddressSync(
       [Buffer.from("dispute"), disputeId],
-      program.programId
+      program.programId,
     );
 
     // Attempt to initiate dispute as non-participant (should fail)
@@ -995,7 +1097,7 @@ describe("audit-high-severity", () => {
           Array.from(taskId),
           Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
           RESOLUTION_TYPE_REFUND,
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: disputePda,
@@ -1010,9 +1112,14 @@ describe("audit-high-severity", () => {
         })
         .signers([worker2])
         .rpc();
-      expect.fail("Should have failed - non-participant cannot initiate dispute");
+      expect.fail(
+        "Should have failed - non-participant cannot initiate dispute",
+      );
     } catch (e: unknown) {
-      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      const anchorError = e as {
+        error?: { errorCode?: { code: string } };
+        message?: string;
+      };
       expect(anchorError.error?.errorCode?.code).to.equal("NotTaskParticipant");
     }
   });

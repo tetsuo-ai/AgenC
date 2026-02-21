@@ -4,9 +4,12 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import { stableStringifyJson, type JsonValue } from '../eval/types.js';
-import type { IncidentCommandCategory, OperatorRole } from './incident-roles.js';
+import { createHash } from "node:crypto";
+import { stableStringifyJson, type JsonValue } from "../eval/types.js";
+import type {
+  IncidentCommandCategory,
+  OperatorRole,
+} from "./incident-roles.js";
 
 /** Single entry in the append-only audit trail. */
 export interface AuditTrailEntry {
@@ -32,7 +35,9 @@ export interface AuditTrailEntry {
 
 /** Persistence interface for audit trail. */
 export interface AuditTrailStore {
-  append(entry: Omit<AuditTrailEntry, 'seq' | 'entryHash' | 'prevEntryHash'>): AuditTrailEntry;
+  append(
+    entry: Omit<AuditTrailEntry, "seq" | "entryHash" | "prevEntryHash">,
+  ): AuditTrailEntry;
   getAll(): ReadonlyArray<AuditTrailEntry>;
   getLast(): AuditTrailEntry | null;
   verify(): AuditTrailVerification;
@@ -46,7 +51,7 @@ export interface AuditTrailVerification {
   message?: string;
 }
 
-function computeEntryHash(entry: Omit<AuditTrailEntry, 'entryHash'>): string {
+function computeEntryHash(entry: Omit<AuditTrailEntry, "entryHash">): string {
   const canonical = stableStringifyJson({
     seq: entry.seq,
     timestamp: entry.timestamp,
@@ -58,18 +63,20 @@ function computeEntryHash(entry: Omit<AuditTrailEntry, 'entryHash'>): string {
     prevEntryHash: entry.prevEntryHash,
   } as unknown as JsonValue);
 
-  return createHash('sha256').update(canonical).digest('hex');
+  return createHash("sha256").update(canonical).digest("hex");
 }
 
 export class InMemoryAuditTrail implements AuditTrailStore {
   private entries: AuditTrailEntry[] = [];
 
-  append(input: Omit<AuditTrailEntry, 'seq' | 'entryHash' | 'prevEntryHash'>): AuditTrailEntry {
+  append(
+    input: Omit<AuditTrailEntry, "seq" | "entryHash" | "prevEntryHash">,
+  ): AuditTrailEntry {
     const seq = this.entries.length + 1;
     const prevEntry = this.entries[this.entries.length - 1];
-    const prevEntryHash = prevEntry?.entryHash ?? '';
+    const prevEntryHash = prevEntry?.entryHash ?? "";
 
-    const entry: Omit<AuditTrailEntry, 'entryHash'> = {
+    const entry: Omit<AuditTrailEntry, "entryHash"> = {
       seq,
       timestamp: input.timestamp,
       actor: input.actor,
@@ -95,7 +102,9 @@ export class InMemoryAuditTrail implements AuditTrailStore {
   }
 
   getLast(): AuditTrailEntry | null {
-    return this.entries.length === 0 ? null : this.entries[this.entries.length - 1] ?? null;
+    return this.entries.length === 0
+      ? null
+      : (this.entries[this.entries.length - 1] ?? null);
   }
 
   verify(): AuditTrailVerification {
@@ -106,13 +115,14 @@ export class InMemoryAuditTrail implements AuditTrailStore {
     for (let index = 0; index < this.entries.length; index += 1) {
       const entry = this.entries[index]!;
 
-      const expectedPrev = index === 0 ? '' : this.entries[index - 1]!.entryHash;
+      const expectedPrev =
+        index === 0 ? "" : this.entries[index - 1]!.entryHash;
       if (entry.prevEntryHash !== expectedPrev) {
         return {
           valid: false,
           entries: this.entries.length,
           brokenAt: entry.seq,
-          message: 'chain link broken',
+          message: "chain link broken",
         };
       }
 
@@ -131,7 +141,7 @@ export class InMemoryAuditTrail implements AuditTrailStore {
           valid: false,
           entries: this.entries.length,
           brokenAt: entry.seq,
-          message: 'entry hash mismatch',
+          message: "entry hash mismatch",
         };
       }
     }
@@ -145,14 +155,13 @@ export class InMemoryAuditTrail implements AuditTrailStore {
 }
 
 export function computeInputHash(input: unknown): string {
-  return createHash('sha256')
+  return createHash("sha256")
     .update(stableStringifyJson(input as JsonValue))
-    .digest('hex');
+    .digest("hex");
 }
 
 export function computeOutputHash(output: unknown): string {
-  return createHash('sha256')
+  return createHash("sha256")
     .update(stableStringifyJson(output as JsonValue))
-    .digest('hex');
+    .digest("hex");
 }
-

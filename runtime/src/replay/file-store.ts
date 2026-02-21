@@ -4,12 +4,18 @@
  * @module
  */
 
-import { readFile, writeFile, rename } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { InMemoryReplayTimelineStore } from './in-memory-store.js';
-import { type ReplayEventCursor, type ReplayStorageWriteResult, type ReplayTimelineQuery, type ReplayTimelineRecord, type ReplayTimelineStore } from './types.js';
+import { readFile, writeFile, rename } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { InMemoryReplayTimelineStore } from "./in-memory-store.js";
+import {
+  type ReplayEventCursor,
+  type ReplayStorageWriteResult,
+  type ReplayTimelineQuery,
+  type ReplayTimelineRecord,
+  type ReplayTimelineStore,
+} from "./types.js";
 
 interface StoredTimelineState {
   cursor: ReplayEventCursor | null;
@@ -20,10 +26,11 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
   private readonly fallback = new InMemoryReplayTimelineStore();
   private loaded = false;
 
-  constructor(private readonly filePath: string) {
-  }
+  constructor(private readonly filePath: string) {}
 
-  async save(records: readonly ReplayTimelineRecord[]): Promise<ReplayStorageWriteResult> {
+  async save(
+    records: readonly ReplayTimelineRecord[],
+  ): Promise<ReplayStorageWriteResult> {
     const state = await this.getState();
     const result = await this.fallback.save(records);
     state.records = [...(await this.fallback.query())];
@@ -31,7 +38,9 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
     return result;
   }
 
-  async query(filter: ReplayTimelineQuery = {}): Promise<ReadonlyArray<ReplayTimelineRecord>> {
+  async query(
+    filter: ReplayTimelineQuery = {},
+  ): Promise<ReadonlyArray<ReplayTimelineRecord>> {
     await this.getState();
     return this.fallback.query(filter);
   }
@@ -53,11 +62,12 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
     await this.fallback.clear();
   }
 
-  getDurability(): import('../memory/types.js').DurabilityInfo {
+  getDurability(): import("../memory/types.js").DurabilityInfo {
     return {
-      level: 'async',
+      level: "async",
       supportsFlush: true,
-      description: 'Data is persisted via atomic file rename. flush() forces a persist of current state.',
+      description:
+        "Data is persisted via atomic file rename. flush() forces a persist of current state.",
     };
   }
 
@@ -83,7 +93,7 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
     }
 
     try {
-      const raw = await readFile(this.filePath, 'utf8');
+      const raw = await readFile(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as StoredTimelineState | null;
       const cursor = parsed?.cursor ?? null;
       const records = Array.isArray(parsed?.records) ? [...parsed.records] : [];
@@ -98,7 +108,7 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
         records,
       };
     } catch (error) {
-      if ((error as { code?: string }).code === 'ENOENT') {
+      if ((error as { code?: string }).code === "ENOENT") {
         const empty: StoredTimelineState = { cursor: null, records: [] };
         this.loaded = true;
         return empty;

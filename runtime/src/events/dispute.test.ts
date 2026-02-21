@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey } from "@solana/web3.js";
 import {
   subscribeToDisputeInitiated,
   subscribeToDisputeVoteCast,
@@ -8,8 +8,13 @@ import {
   subscribeToDisputeCancelled,
   subscribeToArbiterVotesCleanedUp,
   subscribeToAllDisputeEvents,
-} from './dispute';
-import { createId, createMockProgram, mockBN, TEST_PUBKEY } from './test-utils/mock-program.js';
+} from "./dispute";
+import {
+  createId,
+  createMockProgram,
+  mockBN,
+  TEST_PUBKEY,
+} from "./test-utils/mock-program.js";
 
 function createRawDisputeInitiated(disputeId?: Uint8Array) {
   return {
@@ -59,7 +64,7 @@ function createRawDisputeExpired(disputeId?: Uint8Array) {
 function createRawDisputeCancelled(disputeId?: Uint8Array) {
   return {
     disputeId: Array.from(disputeId ?? createId(1)),
-    task: new PublicKey('11111111111111111111111111111112'),
+    task: new PublicKey("11111111111111111111111111111112"),
     initiator: TEST_PUBKEY,
     cancelledAt: mockBN(1234567890),
   };
@@ -72,29 +77,34 @@ function createRawArbiterVotesCleanedUp(disputeId?: Uint8Array) {
   };
 }
 
-describe('Dispute Event Subscriptions', () => {
+describe("Dispute Event Subscriptions", () => {
   let mockProgram: ReturnType<typeof createMockProgram>;
 
   beforeEach(() => {
     mockProgram = createMockProgram();
   });
 
-  describe('subscribeToDisputeInitiated', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToDisputeInitiated", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToDisputeInitiated(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'disputeInitiated',
-        expect.any(Function)
+        "disputeInitiated",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToDisputeInitiated(mockProgram, callback);
 
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(), 100, 'sig1');
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(),
+        100,
+        "sig1",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -105,31 +115,53 @@ describe('Dispute Event Subscriptions', () => {
       expect(event.votingDeadline).toBe(9999999);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(100);
-      expect(sig).toBe('sig1');
+      expect(sig).toBe("sig1");
     });
 
-    it('filters by disputeId when provided', () => {
+    it("filters by disputeId when provided", () => {
       const callback = vi.fn();
       const filterDisputeId = createId(42);
-      subscribeToDisputeInitiated(mockProgram, callback, { disputeId: filterDisputeId });
+      subscribeToDisputeInitiated(mockProgram, callback, {
+        disputeId: filterDisputeId,
+      });
 
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(filterDisputeId), 1, 'sig1');
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(filterDisputeId),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(createId(99)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it('passes all events when no filter', () => {
+    it("passes all events when no filter", () => {
       const callback = vi.fn();
       subscribeToDisputeInitiated(mockProgram, callback);
 
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(createId(1)), 1, 'sig1');
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(createId(2)), 2, 'sig2');
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(createId(1)),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(createId(2)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(2);
     });
 
-    it('unsubscribe removes listener', async () => {
+    it("unsubscribe removes listener", async () => {
       const callback = vi.fn();
       const subscription = subscribeToDisputeInitiated(mockProgram, callback);
 
@@ -139,22 +171,27 @@ describe('Dispute Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToDisputeVoteCast', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToDisputeVoteCast", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToDisputeVoteCast(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'disputeVoteCast',
-        expect.any(Function)
+        "disputeVoteCast",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToDisputeVoteCast(mockProgram, callback);
 
-      mockProgram._emit('disputeVoteCast', createRawDisputeVoteCast(), 200, 'sig2');
+      mockProgram._emit(
+        "disputeVoteCast",
+        createRawDisputeVoteCast(),
+        200,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -165,37 +202,54 @@ describe('Dispute Event Subscriptions', () => {
       expect(event.votesAgainst).toBe(1n);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(200);
-      expect(sig).toBe('sig2');
+      expect(sig).toBe("sig2");
     });
 
-    it('filters by disputeId when provided', () => {
+    it("filters by disputeId when provided", () => {
       const callback = vi.fn();
       const filterDisputeId = createId(42);
-      subscribeToDisputeVoteCast(mockProgram, callback, { disputeId: filterDisputeId });
+      subscribeToDisputeVoteCast(mockProgram, callback, {
+        disputeId: filterDisputeId,
+      });
 
-      mockProgram._emit('disputeVoteCast', createRawDisputeVoteCast(filterDisputeId), 1, 'sig1');
-      mockProgram._emit('disputeVoteCast', createRawDisputeVoteCast(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "disputeVoteCast",
+        createRawDisputeVoteCast(filterDisputeId),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "disputeVoteCast",
+        createRawDisputeVoteCast(createId(99)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('subscribeToDisputeResolved', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToDisputeResolved", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToDisputeResolved(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'disputeResolved',
-        expect.any(Function)
+        "disputeResolved",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToDisputeResolved(mockProgram, callback);
 
-      mockProgram._emit('disputeResolved', createRawDisputeResolved(), 300, 'sig3');
+      mockProgram._emit(
+        "disputeResolved",
+        createRawDisputeResolved(),
+        300,
+        "sig3",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -205,37 +259,54 @@ describe('Dispute Event Subscriptions', () => {
       expect(event.votesAgainst).toBe(2n);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(300);
-      expect(sig).toBe('sig3');
+      expect(sig).toBe("sig3");
     });
 
-    it('filters by disputeId when provided', () => {
+    it("filters by disputeId when provided", () => {
       const callback = vi.fn();
       const filterDisputeId = createId(42);
-      subscribeToDisputeResolved(mockProgram, callback, { disputeId: filterDisputeId });
+      subscribeToDisputeResolved(mockProgram, callback, {
+        disputeId: filterDisputeId,
+      });
 
-      mockProgram._emit('disputeResolved', createRawDisputeResolved(filterDisputeId), 1, 'sig1');
-      mockProgram._emit('disputeResolved', createRawDisputeResolved(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "disputeResolved",
+        createRawDisputeResolved(filterDisputeId),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "disputeResolved",
+        createRawDisputeResolved(createId(99)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('subscribeToDisputeExpired', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToDisputeExpired", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToDisputeExpired(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'disputeExpired',
-        expect.any(Function)
+        "disputeExpired",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToDisputeExpired(mockProgram, callback);
 
-      mockProgram._emit('disputeExpired', createRawDisputeExpired(), 400, 'sig4');
+      mockProgram._emit(
+        "disputeExpired",
+        createRawDisputeExpired(),
+        400,
+        "sig4",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -244,77 +315,99 @@ describe('Dispute Event Subscriptions', () => {
       expect(event.refundAmount).toBe(1_000_000_000n);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(400);
-      expect(sig).toBe('sig4');
+      expect(sig).toBe("sig4");
     });
 
-    it('filters by disputeId when provided', () => {
+    it("filters by disputeId when provided", () => {
       const callback = vi.fn();
       const filterDisputeId = createId(42);
-      subscribeToDisputeExpired(mockProgram, callback, { disputeId: filterDisputeId });
+      subscribeToDisputeExpired(mockProgram, callback, {
+        disputeId: filterDisputeId,
+      });
 
-      mockProgram._emit('disputeExpired', createRawDisputeExpired(filterDisputeId), 1, 'sig1');
-      mockProgram._emit('disputeExpired', createRawDisputeExpired(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "disputeExpired",
+        createRawDisputeExpired(filterDisputeId),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "disputeExpired",
+        createRawDisputeExpired(createId(99)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('subscribeToDisputeCancelled', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToDisputeCancelled", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToDisputeCancelled(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'disputeCancelled',
-        expect.any(Function)
+        "disputeCancelled",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToDisputeCancelled(mockProgram, callback);
 
-      mockProgram._emit('disputeCancelled', createRawDisputeCancelled(), 500, 'sig5');
+      mockProgram._emit(
+        "disputeCancelled",
+        createRawDisputeCancelled(),
+        500,
+        "sig5",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
       expect(event.disputeId).toBeInstanceOf(Uint8Array);
-      expect(event.task.toBase58()).toBe('11111111111111111111111111111112');
+      expect(event.task.toBase58()).toBe("11111111111111111111111111111112");
       expect(event.initiator).toBe(TEST_PUBKEY);
       expect(event.cancelledAt).toBe(1234567890);
       expect(slot).toBe(500);
-      expect(sig).toBe('sig5');
+      expect(sig).toBe("sig5");
     });
   });
 
-  describe('subscribeToArbiterVotesCleanedUp', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToArbiterVotesCleanedUp", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToArbiterVotesCleanedUp(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'arbiterVotesCleanedUp',
-        expect.any(Function)
+        "arbiterVotesCleanedUp",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToArbiterVotesCleanedUp(mockProgram, callback);
 
-      mockProgram._emit('arbiterVotesCleanedUp', createRawArbiterVotesCleanedUp(), 501, 'sig6');
+      mockProgram._emit(
+        "arbiterVotesCleanedUp",
+        createRawArbiterVotesCleanedUp(),
+        501,
+        "sig6",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
       expect(event.disputeId).toBeInstanceOf(Uint8Array);
       expect(event.arbiterCount).toBe(3);
       expect(slot).toBe(501);
-      expect(sig).toBe('sig6');
+      expect(sig).toBe("sig6");
     });
   });
 
-  describe('subscribeToAllDisputeEvents', () => {
-    it('routes events to correct callbacks', () => {
+  describe("subscribeToAllDisputeEvents", () => {
+    it("routes events to correct callbacks", () => {
       const callbacks = {
         onDisputeInitiated: vi.fn(),
         onDisputeVoteCast: vi.fn(),
@@ -328,12 +421,37 @@ describe('Dispute Event Subscriptions', () => {
 
       expect(mockProgram.addEventListener).toHaveBeenCalledTimes(6);
 
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(), 1, 'sig1');
-      mockProgram._emit('disputeVoteCast', createRawDisputeVoteCast(), 2, 'sig2');
-      mockProgram._emit('disputeResolved', createRawDisputeResolved(), 3, 'sig3');
-      mockProgram._emit('disputeExpired', createRawDisputeExpired(), 4, 'sig4');
-      mockProgram._emit('disputeCancelled', createRawDisputeCancelled(), 5, 'sig5');
-      mockProgram._emit('arbiterVotesCleanedUp', createRawArbiterVotesCleanedUp(), 6, 'sig6');
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "disputeVoteCast",
+        createRawDisputeVoteCast(),
+        2,
+        "sig2",
+      );
+      mockProgram._emit(
+        "disputeResolved",
+        createRawDisputeResolved(),
+        3,
+        "sig3",
+      );
+      mockProgram._emit("disputeExpired", createRawDisputeExpired(), 4, "sig4");
+      mockProgram._emit(
+        "disputeCancelled",
+        createRawDisputeCancelled(),
+        5,
+        "sig5",
+      );
+      mockProgram._emit(
+        "arbiterVotesCleanedUp",
+        createRawArbiterVotesCleanedUp(),
+        6,
+        "sig6",
+      );
 
       expect(callbacks.onDisputeInitiated).toHaveBeenCalledTimes(1);
       expect(callbacks.onDisputeVoteCast).toHaveBeenCalledTimes(1);
@@ -343,7 +461,7 @@ describe('Dispute Event Subscriptions', () => {
       expect(callbacks.onArbiterVotesCleanedUp).toHaveBeenCalledTimes(1);
     });
 
-    it('only subscribes to provided callbacks', () => {
+    it("only subscribes to provided callbacks", () => {
       const callbacks = {
         onDisputeInitiated: vi.fn(),
       };
@@ -352,12 +470,12 @@ describe('Dispute Event Subscriptions', () => {
 
       expect(mockProgram.addEventListener).toHaveBeenCalledTimes(1);
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'disputeInitiated',
-        expect.any(Function)
+        "disputeInitiated",
+        expect.any(Function),
       );
     });
 
-    it('unsubscribe removes all listeners', async () => {
+    it("unsubscribe removes all listeners", async () => {
       const callbacks = {
         onDisputeInitiated: vi.fn(),
         onDisputeVoteCast: vi.fn(),
@@ -373,25 +491,37 @@ describe('Dispute Event Subscriptions', () => {
       expect(mockProgram.removeEventListener).toHaveBeenCalledTimes(6);
     });
 
-    it('applies disputeId filter to all subscriptions', () => {
+    it("applies disputeId filter to all subscriptions", () => {
       const callbacks = {
         onDisputeInitiated: vi.fn(),
         onDisputeVoteCast: vi.fn(),
       };
 
       const filterDisputeId = createId(50);
-      subscribeToAllDisputeEvents(mockProgram, callbacks, { disputeId: filterDisputeId });
+      subscribeToAllDisputeEvents(mockProgram, callbacks, {
+        disputeId: filterDisputeId,
+      });
 
       // Matching
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(filterDisputeId), 1, 'sig1');
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(filterDisputeId),
+        1,
+        "sig1",
+      );
       // Non-matching
-      mockProgram._emit('disputeVoteCast', createRawDisputeVoteCast(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "disputeVoteCast",
+        createRawDisputeVoteCast(createId(99)),
+        2,
+        "sig2",
+      );
 
       expect(callbacks.onDisputeInitiated).toHaveBeenCalledTimes(1);
       expect(callbacks.onDisputeVoteCast).not.toHaveBeenCalled();
     });
 
-    it('empty callbacks object creates no subscriptions', () => {
+    it("empty callbacks object creates no subscriptions", () => {
       const subscription = subscribeToAllDisputeEvents(mockProgram, {});
 
       expect(mockProgram.addEventListener).not.toHaveBeenCalled();

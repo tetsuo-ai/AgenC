@@ -4,9 +4,9 @@
  * @module
  */
 
-import type { MetricsProvider } from '../task/types.js';
-import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
-import { getRewardTier, type RewardTier } from './metrics.js';
+import type { MetricsProvider } from "../task/types.js";
+import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
+import { getRewardTier, type RewardTier } from "./metrics.js";
 
 export interface CalibrationSample {
   confidence: number;
@@ -49,7 +49,7 @@ export interface CalibrationReport {
   overall: CalibrationAggregate;
   byTaskType: Record<string, CalibrationAggregate>;
   byRewardTier: Record<RewardTier, CalibrationAggregate>;
-  byVerifierGate: Record<'gated' | 'ungated', CalibrationAggregate>;
+  byVerifierGate: Record<"gated" | "ungated", CalibrationAggregate>;
   overconfidentBinIndices: number[];
   underconfidentBinIndices: number[];
 }
@@ -94,7 +94,10 @@ export function buildCalibrationBins(
 
   for (const sample of samples) {
     const confidence = clamp01(sample.confidence);
-    const index = Math.min(safeBinCount - 1, Math.floor(confidence * safeBinCount));
+    const index = Math.min(
+      safeBinCount - 1,
+      Math.floor(confidence * safeBinCount),
+    );
     bins[index].count += 1;
     confidenceSums[index] += confidence;
     correctnessSums[index] += sample.correct ? 1 : 0;
@@ -110,7 +113,9 @@ export function buildCalibrationBins(
   return bins;
 }
 
-export function computeExpectedCalibrationError(bins: CalibrationBin[]): number {
+export function computeExpectedCalibrationError(
+  bins: CalibrationBin[],
+): number {
   const total = bins.reduce((acc, bin) => acc + bin.count, 0);
   if (total === 0) return 0;
 
@@ -183,14 +188,16 @@ export function buildCalibrationReport(
 
   const byTaskType: Record<string, CalibrationAggregate> = {};
   const taskTypes = new Set<string>([
-    ...samples.map((sample) => sample.taskType ?? 'unknown'),
-    ...comparisons.map((comparison) => comparison.taskType ?? 'unknown'),
+    ...samples.map((sample) => sample.taskType ?? "unknown"),
+    ...comparisons.map((comparison) => comparison.taskType ?? "unknown"),
   ]);
 
   for (const taskType of taskTypes) {
     byTaskType[taskType] = aggregateCalibration(
-      samples.filter((sample) => (sample.taskType ?? 'unknown') === taskType),
-      comparisons.filter((comparison) => (comparison.taskType ?? 'unknown') === taskType),
+      samples.filter((sample) => (sample.taskType ?? "unknown") === taskType),
+      comparisons.filter(
+        (comparison) => (comparison.taskType ?? "unknown") === taskType,
+      ),
       binCount,
     );
   }
@@ -204,27 +211,36 @@ export function buildCalibrationReport(
 
   const rewardTiers = new Set<RewardTier>([
     ...samples.map((sample) => getRewardTier(sample.rewardLamports)),
-    ...comparisons.map((comparison) => getRewardTier(comparison.rewardLamports)),
+    ...comparisons.map((comparison) =>
+      getRewardTier(comparison.rewardLamports),
+    ),
   ]);
 
   for (const rewardTier of rewardTiers) {
     byRewardTier[rewardTier] = aggregateCalibration(
-      samples.filter((sample) => getRewardTier(sample.rewardLamports) === rewardTier),
-      comparisons.filter((comparison) => getRewardTier(comparison.rewardLamports) === rewardTier),
+      samples.filter(
+        (sample) => getRewardTier(sample.rewardLamports) === rewardTier,
+      ),
+      comparisons.filter(
+        (comparison) => getRewardTier(comparison.rewardLamports) === rewardTier,
+      ),
       binCount,
     );
   }
 
-  const byVerifierGate: Record<'gated' | 'ungated', CalibrationAggregate> = {
+  const byVerifierGate: Record<"gated" | "ungated", CalibrationAggregate> = {
     gated: aggregateCalibration([], [], binCount),
     ungated: aggregateCalibration([], [], binCount),
   };
 
-  const gateGroups = groupBy(samples, (sample) => sample.verifierGated === true ? 'gated' : 'ungated');
+  const gateGroups = groupBy(samples, (sample) =>
+    sample.verifierGated === true ? "gated" : "ungated",
+  );
   const comparisonGateGroups = groupBy(comparisons, (comparison) =>
-    comparison.verifierGated === true ? 'gated' : 'ungated');
+    comparison.verifierGated === true ? "gated" : "ungated",
+  );
 
-  for (const gate of ['gated', 'ungated'] as const) {
+  for (const gate of ["gated", "ungated"] as const) {
     byVerifierGate[gate] = aggregateCalibration(
       gateGroups.get(gate) ?? [],
       comparisonGateGroups.get(gate) ?? [],
@@ -259,14 +275,14 @@ export function recordCalibrationMetrics(
   metrics.gauge(
     TELEMETRY_METRIC_NAMES.EVAL_CALIBRATION_ERROR,
     report.overall.expectedCalibrationError,
-    { scope: 'overall' },
+    { scope: "overall" },
   );
 
   for (const [taskType, aggregate] of Object.entries(report.byTaskType)) {
     metrics.gauge(
       TELEMETRY_METRIC_NAMES.EVAL_CALIBRATION_ERROR,
       aggregate.expectedCalibrationError,
-      { scope: 'task_type', task_type: taskType },
+      { scope: "task_type", task_type: taskType },
     );
   }
 
@@ -274,7 +290,7 @@ export function recordCalibrationMetrics(
     metrics.gauge(
       TELEMETRY_METRIC_NAMES.EVAL_CALIBRATION_ERROR,
       aggregate.expectedCalibrationError,
-      { scope: 'reward_tier', reward_tier: rewardTier },
+      { scope: "reward_tier", reward_tier: rewardTier },
     );
   }
 
@@ -282,7 +298,7 @@ export function recordCalibrationMetrics(
     metrics.gauge(
       TELEMETRY_METRIC_NAMES.EVAL_CALIBRATION_ERROR,
       aggregate.expectedCalibrationError,
-      { scope: 'verifier_gate', verifier_gate: gate },
+      { scope: "verifier_gate", verifier_gate: gate },
     );
   }
 }

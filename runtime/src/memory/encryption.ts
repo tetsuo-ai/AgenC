@@ -11,13 +11,13 @@
  * @module
  */
 
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { MEMORY_OPERATIONAL_LIMITS } from './types.js';
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { MEMORY_OPERATIONAL_LIMITS } from "./types.js";
 
 const IV_BYTES = MEMORY_OPERATIONAL_LIMITS.ENCRYPTION_IV_SIZE_BYTES;
 const TAG_BYTES = MEMORY_OPERATIONAL_LIMITS.ENCRYPTION_AUTH_TAG_SIZE_BYTES;
 const KEY_BYTES = MEMORY_OPERATIONAL_LIMITS.ENCRYPTION_KEY_SIZE_BYTES;
-const ALGORITHM = 'aes-256-gcm';
+const ALGORITHM = "aes-256-gcm";
 
 /**
  * Configuration for enabling encryption on a memory backend.
@@ -42,10 +42,13 @@ export interface EncryptionProvider {
  * @returns An EncryptionProvider that encrypts/decrypts strings
  * @throws Error if the key is not exactly 32 bytes
  */
-export function createAES256GCMProvider(config: EncryptionConfig): EncryptionProvider {
-  const keyBuf = typeof config.key === 'string'
-    ? Buffer.from(config.key, 'hex')
-    : config.key;
+export function createAES256GCMProvider(
+  config: EncryptionConfig,
+): EncryptionProvider {
+  const keyBuf =
+    typeof config.key === "string"
+      ? Buffer.from(config.key, "hex")
+      : config.key;
 
   if (keyBuf.length !== KEY_BYTES) {
     throw new Error(
@@ -58,21 +61,21 @@ export function createAES256GCMProvider(config: EncryptionConfig): EncryptionPro
       const iv = randomBytes(IV_BYTES);
       const cipher = createCipheriv(ALGORITHM, keyBuf, iv);
       const encrypted = Buffer.concat([
-        cipher.update(plaintext, 'utf8'),
+        cipher.update(plaintext, "utf8"),
         cipher.final(),
       ]);
       const authTag = cipher.getAuthTag();
 
       // iv ∥ authTag ∥ ciphertext
       const combined = Buffer.concat([iv, authTag, encrypted]);
-      return combined.toString('base64');
+      return combined.toString("base64");
     },
 
     decrypt(ciphertext: string): string {
-      const combined = Buffer.from(ciphertext, 'base64');
+      const combined = Buffer.from(ciphertext, "base64");
 
       if (combined.length < IV_BYTES + TAG_BYTES) {
-        throw new Error('Ciphertext too short');
+        throw new Error("Ciphertext too short");
       }
 
       const iv = combined.subarray(0, IV_BYTES);
@@ -86,7 +89,7 @@ export function createAES256GCMProvider(config: EncryptionConfig): EncryptionPro
         decipher.update(encrypted),
         decipher.final(),
       ]);
-      return decrypted.toString('utf8');
+      return decrypted.toString("utf8");
     },
   };
 }

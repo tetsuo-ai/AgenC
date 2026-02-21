@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../../types/errors.js";
 
 /**
  * Error thrown when a skill cannot be found in the on-chain registry.
@@ -18,7 +18,7 @@ export class SkillRegistryNotFoundError extends RuntimeError {
       `Skill not found in registry: "${skillId}"`,
       RuntimeErrorCodes.SKILL_REGISTRY_NOT_FOUND,
     );
-    this.name = 'SkillRegistryNotFoundError';
+    this.name = "SkillRegistryNotFoundError";
     this.skillId = skillId;
   }
 }
@@ -37,7 +37,7 @@ export class SkillDownloadError extends RuntimeError {
       `Failed to download skill "${skillId}": ${reason}`,
       RuntimeErrorCodes.SKILL_DOWNLOAD_ERROR,
     );
-    this.name = 'SkillDownloadError';
+    this.name = "SkillDownloadError";
     this.skillId = skillId;
     this.reason = reason;
   }
@@ -59,7 +59,7 @@ export class SkillVerificationError extends RuntimeError {
       `Skill "${skillId}" content hash mismatch: expected ${expectedHash}, got ${actualHash}`,
       RuntimeErrorCodes.SKILL_VERIFICATION_ERROR,
     );
-    this.name = 'SkillVerificationError';
+    this.name = "SkillVerificationError";
     this.skillId = skillId;
     this.expectedHash = expectedHash;
     this.actualHash = actualHash;
@@ -80,7 +80,7 @@ export class SkillPublishError extends RuntimeError {
       `Failed to publish skill "${skillPath}": ${reason}`,
       RuntimeErrorCodes.SKILL_PUBLISH_ERROR,
     );
-    this.name = 'SkillPublishError';
+    this.name = "SkillPublishError";
     this.skillPath = skillPath;
     this.reason = reason;
   }
@@ -100,7 +100,7 @@ export class SkillPurchaseError extends RuntimeError {
       `Failed to purchase skill "${skillId}": ${reason}`,
       RuntimeErrorCodes.SKILL_PURCHASE_ERROR,
     );
-    this.name = 'SkillPurchaseError';
+    this.name = "SkillPurchaseError";
     this.skillId = skillId;
     this.reason = reason;
   }

@@ -9,29 +9,37 @@
  * @module
  */
 
-import { execFile } from 'node:child_process';
-import { basename } from 'node:path';
-import type { Tool, ToolResult } from '../types.js';
-import { safeStringify } from '../types.js';
-import type { BashToolConfig, BashToolInput, BashExecutionResult } from './types.js';
+import { execFile } from "node:child_process";
+import { basename } from "node:path";
+import type { Tool, ToolResult } from "../types.js";
+import { safeStringify } from "../types.js";
+import type {
+  BashToolConfig,
+  BashToolInput,
+  BashExecutionResult,
+} from "./types.js";
 import {
   DEFAULT_DENY_LIST,
   DEFAULT_DENY_PREFIXES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
-} from './types.js';
-import { silentLogger } from '../../utils/logger.js';
-import type { Logger } from '../../utils/logger.js';
+} from "./types.js";
+import { silentLogger } from "../../utils/logger.js";
+import type { Logger } from "../../utils/logger.js";
 
 function errorResult(message: string): ToolResult {
   return { content: safeStringify({ error: message }), isError: true };
 }
 
-function truncate(text: string, maxBytes: number): { text: string; truncated: boolean } {
-  if (Buffer.byteLength(text, 'utf-8') <= maxBytes) return { text, truncated: false };
-  const buf = Buffer.from(text, 'utf-8');
-  const truncatedText = buf.subarray(0, maxBytes).toString('utf-8');
-  return { text: truncatedText + '\n[truncated]', truncated: true };
+function truncate(
+  text: string,
+  maxBytes: number,
+): { text: string; truncated: boolean } {
+  if (Buffer.byteLength(text, "utf-8") <= maxBytes)
+    return { text, truncated: false };
+  const buf = Buffer.from(text, "utf-8");
+  const truncatedText = buf.subarray(0, maxBytes).toString("utf-8");
+  return { text: truncatedText + "\n[truncated]", truncated: true };
 }
 
 function buildDenySet(configDenyList?: readonly string[]): Set<string> {
@@ -60,8 +68,8 @@ function matchesDenyPrefix(base: string): boolean {
 function buildEnv(configEnv?: Record<string, string>): Record<string, string> {
   if (configEnv) return configEnv;
   return {
-    PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-    HOME: process.env.HOME ?? '',
+    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: process.env.HOME ?? "",
   };
 }
 
@@ -93,12 +101,18 @@ export function isCommandAllowed(
 
   // Prefix deny list catches version-specific binaries (python3.11, pypy3, etc.)
   if (matchesDenyPrefix(base)) {
-    return { allowed: false, reason: `Command "${command}" is denied (matches deny prefix)` };
+    return {
+      allowed: false,
+      reason: `Command "${command}" is denied (matches deny prefix)`,
+    };
   }
 
   // Allow list check
   if (allowSet && !allowSet.has(command) && !allowSet.has(base)) {
-    return { allowed: false, reason: `Command "${command}" is not in the allow list` };
+    return {
+      allowed: false,
+      reason: `Command "${command}" is not in the allow list`,
+    };
   }
 
   return { allowed: true };
@@ -112,10 +126,13 @@ export function isCommandAllowed(
  */
 export function createBashTool(config?: BashToolConfig): Tool {
   const unrestricted = config?.unrestricted ?? false;
-  const denySet = unrestricted ? new Set<string>() : buildDenySet(config?.denyList);
-  const allowSet = !unrestricted && config?.allowList && config.allowList.length > 0
-    ? new Set<string>(config.allowList)
-    : null;
+  const denySet = unrestricted
+    ? new Set<string>()
+    : buildDenySet(config?.denyList);
+  const allowSet =
+    !unrestricted && config?.allowList && config.allowList.length > 0
+      ? new Set<string>(config.allowList)
+      : null;
   const defaultCwd = config?.cwd ?? process.cwd();
   const defaultTimeout = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxTimeoutMs = config?.maxTimeoutMs ?? defaultTimeout;
@@ -125,40 +142,43 @@ export function createBashTool(config?: BashToolConfig): Tool {
   const lockCwd = config?.lockCwd ?? false;
 
   return {
-    name: 'system.bash',
+    name: "system.bash",
     description:
       'Execute a command. The command argument is the executable name (e.g. "ls", "git"), ' +
-      'and args is an array of arguments. Shell expansion is disabled for security.',
+      "and args is an array of arguments. Shell expansion is disabled for security.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         command: {
-          type: 'string',
+          type: "string",
           description: 'Executable name (e.g. "ls", "git", "node")',
         },
         args: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Arguments array',
+          type: "array",
+          items: { type: "string" },
+          description: "Arguments array",
         },
         cwd: {
-          type: 'string',
-          description: 'Working directory (optional override)',
+          type: "string",
+          description: "Working directory (optional override)",
         },
         timeoutMs: {
-          type: 'number',
-          description: 'Timeout in milliseconds (optional override)',
+          type: "number",
+          description: "Timeout in milliseconds (optional override)",
         },
       },
-      required: ['command'],
+      required: ["command"],
     },
 
     async execute(rawArgs: Record<string, unknown>): Promise<ToolResult> {
       const input = rawArgs as unknown as BashToolInput;
 
       // Validate command
-      if (typeof input.command !== 'string' || input.command.trim().length === 0) {
-        return errorResult('command must be a non-empty string');
+      if (
+        typeof input.command !== "string" ||
+        input.command.trim().length === 0
+      ) {
+        return errorResult("command must be a non-empty string");
       }
 
       const command = input.command.trim();
@@ -176,11 +196,11 @@ export function createBashTool(config?: BashToolConfig): Tool {
       const args: string[] = [];
       if (input.args !== undefined) {
         if (!Array.isArray(input.args)) {
-          return errorResult('args must be an array of strings');
+          return errorResult("args must be an array of strings");
         }
         for (const arg of input.args) {
-          if (typeof arg !== 'string') {
-            return errorResult('Each argument must be a string');
+          if (typeof arg !== "string") {
+            return errorResult("Each argument must be a string");
           }
           args.push(arg);
         }
@@ -190,7 +210,9 @@ export function createBashTool(config?: BashToolConfig): Tool {
       let cwd = defaultCwd;
       if (input.cwd !== undefined) {
         if (lockCwd) {
-          return errorResult('Per-call cwd override is disabled (lockCwd is enabled)');
+          return errorResult(
+            "Per-call cwd override is disabled (lockCwd is enabled)",
+          );
         }
         cwd = input.cwd;
       }
@@ -198,7 +220,7 @@ export function createBashTool(config?: BashToolConfig): Tool {
       // Apply timeout — cap at maxTimeoutMs to prevent LLM from setting arbitrarily high values
       const timeout = Math.min(input.timeoutMs ?? defaultTimeout, maxTimeoutMs);
 
-      logger.debug(`Bash tool executing: ${command} ${args.join(' ')}`);
+      logger.debug(`Bash tool executing: ${command} ${args.join(" ")}`);
       const startTime = Date.now();
 
       return new Promise<ToolResult>((resolve) => {
@@ -216,16 +238,26 @@ export function createBashTool(config?: BashToolConfig): Tool {
             const durationMs = Date.now() - startTime;
 
             if (error) {
-              const isTimeout = error.killed || (error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
-              const exitCode = error.code != null && typeof error.code === 'number'
-                ? error.code
-                : (isTimeout ? null : 1);
+              const isTimeout =
+                error.killed ||
+                (error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+              const exitCode =
+                error.code != null && typeof error.code === "number"
+                  ? error.code
+                  : isTimeout
+                    ? null
+                    : 1;
 
-              const stdoutResult = truncate(stdout ?? '', maxOutputBytes);
-              const stderrResult = truncate(stderr ?? error.message, maxOutputBytes);
+              const stdoutResult = truncate(stdout ?? "", maxOutputBytes);
+              const stderrResult = truncate(
+                stderr ?? error.message,
+                maxOutputBytes,
+              );
 
               if (isTimeout) {
-                logger.warn(`Bash tool timed out after ${durationMs}ms: ${command}`);
+                logger.warn(
+                  `Bash tool timed out after ${durationMs}ms: ${command}`,
+                );
               } else {
                 logger.debug(`Bash tool error (exit ${exitCode}): ${command}`);
               }
@@ -242,7 +274,13 @@ export function createBashTool(config?: BashToolConfig): Tool {
               resolve({
                 content: safeStringify(result),
                 isError: true,
-                metadata: { command, args, cwd, timedOut: isTimeout, durationMs },
+                metadata: {
+                  command,
+                  args,
+                  cwd,
+                  timedOut: isTimeout,
+                  durationMs,
+                },
               });
               return;
             }

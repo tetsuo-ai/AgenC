@@ -9,8 +9,6 @@
 
 export {
   generateProof,
-  generateProofWithProver,
-  verifyProofLocally,
   computeHashes,
   generateSalt,
   pubkeyToField,
@@ -18,11 +16,16 @@ export {
   // Hash computation functions
   computeBinding,
   computeConstraintHash,
+  computeNullifierFromAgentSecret,
+  computeCommitmentFromOutput,
+  // Byte helpers
+  bigintToBytes32,
+  buildJournalBytes,
   // Types
   ProofGenerationParams,
   ProofResult,
   HashResult,
-} from './proofs';
+} from "./proofs";
 
 export {
   type ProverConfig,
@@ -30,7 +33,7 @@ export {
   type RemoteProverConfig,
   type ProverInput,
   ProverError,
-} from './prover';
+} from "./prover";
 
 export {
   createTask,
@@ -58,7 +61,7 @@ export {
   PrivateCompletionPayload,
   CompleteTaskPrivateSafeOptions,
   ProofPreconditionError,
-} from './tasks';
+} from "./tasks";
 
 export {
   BPS_BASE,
@@ -81,7 +84,7 @@ export {
   type TaskBidBookState,
   type WeightedScoringBreakdown,
   type TaskBidSelection,
-} from './bids';
+} from "./bids";
 
 export {
   deriveTokenEscrowAddress,
@@ -91,7 +94,7 @@ export {
   getMintDecimals,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-} from './tokens';
+} from "./tokens";
 
 export {
   PROGRAM_ID,
@@ -138,7 +141,7 @@ export {
   RECOMMENDED_CU_CANCEL_TASK_TOKEN,
   // PDA seeds
   SEEDS,
-} from './constants';
+} from "./constants";
 
 export {
   registerAgent,
@@ -152,7 +155,7 @@ export {
   type RegisterAgentParams,
   type UpdateAgentParams,
   type AgentState,
-} from './agents';
+} from "./agents";
 
 export {
   initiateDispute,
@@ -174,7 +177,7 @@ export {
   type ApplyInitiatorSlashParams,
   type ExpireDisputeParams,
   type DisputeState,
-} from './disputes';
+} from "./disputes";
 
 export {
   updateState,
@@ -182,7 +185,7 @@ export {
   deriveStatePda,
   type CoordinationState,
   type UpdateStateParams,
-} from './state';
+} from "./state";
 
 export {
   initializeProtocol,
@@ -195,7 +198,7 @@ export {
   type InitializeProtocolParams,
   type UpdateRateLimitsParams,
   type ProtocolConfigState,
-} from './protocol';
+} from "./protocol";
 
 export {
   COORDINATION_ERROR_MAP,
@@ -204,7 +207,7 @@ export {
   type ErrorCategory,
   type CoordinationErrorEntry,
   type DecodedError,
-} from './errors';
+} from "./errors";
 
 export {
   // Current API
@@ -220,11 +223,9 @@ export {
   type ProofPreconditionFailure,
   type ProofPreconditionWarning,
   type ValidateProofParams,
-} from './proof-validation';
+} from "./proof-validation";
 
-export {
-  NullifierCache,
-} from './nullifier-cache';
+export { NullifierCache } from "./nullifier-cache";
 
 export {
   checkVersionCompatibility,
@@ -237,7 +238,7 @@ export {
   type ProtocolVersionInfo,
   type FeatureFlags,
   type VersionCompatibilityOptions,
-} from './version';
+} from "./version";
 
 export {
   // Query functions
@@ -258,7 +259,7 @@ export {
   ReplayTimelineRecord,
   ReplayTimelineStoreLike,
   ReplayHealthCheck,
-} from './queries';
+} from "./queries";
 
 export {
   createLogger,
@@ -267,7 +268,7 @@ export {
   getSdkLogger,
   Logger,
   LogLevel,
-} from './logger';
+} from "./logger";
 
 export {
   ProposalType,
@@ -286,12 +287,12 @@ export {
   RECOMMENDED_CU_VOTE_PROPOSAL,
   RECOMMENDED_CU_EXECUTE_PROPOSAL,
   RECOMMENDED_CU_CANCEL_PROPOSAL,
-} from './governance';
+} from "./governance";
 export type {
   InitializeGovernanceParams,
   CreateProposalParams,
   ProposalState,
-} from './governance';
+} from "./governance";
 
 export {
   deriveSkillPda,
@@ -308,18 +309,15 @@ export {
   type SkillState,
   type SkillRatingState,
   type PurchaseRecordState,
-} from './skills';
+} from "./skills";
 
-export {
-  PrivacyClient,
-  type PrivacyClientConfig,
-} from './client';
+export { PrivacyClient, type PrivacyClientConfig } from "./client";
 
 export {
   validateProverEndpoint,
   validateRisc0PayloadShape,
   type Risc0PayloadLike,
-} from './validation';
+} from "./validation";
 
 // Version info
-export const VERSION = '1.3.0';
+export const VERSION = "1.3.0";

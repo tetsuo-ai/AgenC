@@ -48,13 +48,15 @@ import {
   makeDisputeId,
   getDefaultDeadline,
   sleep,
+  disableRateLimitsForTests,
 } from "./test-utils";
 
 describe("AgenC Integration Tests", () => {
   // Provider and program setup
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
   const runId = generateRunId();
 
   // ============================================================================
@@ -71,7 +73,7 @@ describe("AgenC Integration Tests", () => {
   // ============================================================================
 
   let treasury: Keypair;
-  let treasuryPubkey: PublicKey;  // Actual treasury from protocol config
+  let treasuryPubkey: PublicKey; // Actual treasury from protocol config
   let creator: Keypair;
   let worker1: Keypair;
   let worker2: Keypair;
@@ -131,7 +133,7 @@ describe("AgenC Integration Tests", () => {
     for (const account of accounts) {
       const sig = await provider.connection.requestAirdrop(
         account.publicKey,
-        airdropAmount
+        airdropAmount,
       );
       await provider.connection.confirmTransaction(sig, "confirmed");
     }
@@ -158,12 +160,12 @@ describe("AgenC Integration Tests", () => {
       try {
         await program.methods
           .initializeProtocol(
-            DISPUTE_THRESHOLD,                    // dispute_threshold: u8
-            PROTOCOL_FEE_BPS,                     // protocol_fee_bps: u16
-            new BN(MIN_STAKE),                    // min_stake: u64
-            new BN(MIN_STAKE / 100),              // min_stake_for_dispute: u64
-            1,                                    // multisig_threshold: u8
-            [provider.wallet.publicKey, treasury.publicKey] // multisig_owners: Vec<Pubkey>
+            DISPUTE_THRESHOLD, // dispute_threshold: u8
+            PROTOCOL_FEE_BPS, // protocol_fee_bps: u16
+            new BN(MIN_STAKE), // min_stake: u64
+            new BN(MIN_STAKE / 100), // min_stake_for_dispute: u64
+            1, // multisig_threshold: u8
+            [provider.wallet.publicKey, treasury.publicKey], // multisig_owners: Vec<Pubkey>
           )
           .accountsPartial({
             protocolConfig: protocolConfigPda,
@@ -172,7 +174,13 @@ describe("AgenC Integration Tests", () => {
             secondSigner: treasury.publicKey,
             systemProgram: SystemProgram.programId,
           })
-          .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+          .remainingAccounts([
+            {
+              pubkey: deriveProgramDataPda(program.programId),
+              isSigner: false,
+              isWritable: false,
+            },
+          ])
           .signers([treasury])
           .rpc();
 
@@ -181,35 +189,25 @@ describe("AgenC Integration Tests", () => {
       } catch (e: any) {
         // Protocol may already be initialized from previous test runs
         // Read the actual treasury from protocol config
-        const protocolConfig = await program.account.protocolConfig.fetch(protocolConfigPda);
+        const protocolConfig =
+          await program.account.protocolConfig.fetch(protocolConfigPda);
         treasuryPubkey = protocolConfig.treasury;
         console.log("  Protocol already initialized (reusing existing)");
       }
 
       // Disable rate limiting for tests
-      try {
-        await program.methods
-          .updateRateLimits(
-            new BN(0),  // task_creation_cooldown = 0 (disabled)
-            0,          // max_tasks_per_24h = 0 (unlimited)
-            new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
-            0,          // max_disputes_per_24h = 0 (unlimited)
-            new BN(0)   // min_stake_for_dispute = 0
-          )
-          .accountsPartial({
-            protocolConfig: protocolConfigPda,
-          })
-          .remainingAccounts([
-            { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-          ])
-          .rpc();
-      } catch (e: any) {
-        // May already be configured
-      }
+      await disableRateLimitsForTests({
+        program,
+        protocolPda: protocolConfigPda,
+        authority: provider.wallet.publicKey,
+      });
 
       // Verify protocol state
-      const protocol = await program.account.protocolConfig.fetch(protocolConfigPda);
-      expect(protocol.authority.toString()).to.equal(provider.wallet.publicKey.toString());
+      const protocol =
+        await program.account.protocolConfig.fetch(protocolConfigPda);
+      expect(protocol.authority.toString()).to.equal(
+        provider.wallet.publicKey.toString(),
+      );
       expect(protocol.disputeThreshold).to.equal(DISPUTE_THRESHOLD);
       expect(protocol.protocolFeeBps).to.equal(PROTOCOL_FEE_BPS);
     });
@@ -239,11 +237,11 @@ describe("AgenC Integration Tests", () => {
       try {
         await program.methods
           .registerAgent(
-            Array.from(agentId),                  // agent_id: [u8; 32]
-            new BN(CAPABILITY_COMPUTE),           // capabilities: u64
-            "https://agent.example.com",          // endpoint: string
-            null,                                 // metadata_uri: Option<string>
-            new BN(MIN_STAKE)                     // stake_amount: u64
+            Array.from(agentId), // agent_id: [u8; 32]
+            new BN(CAPABILITY_COMPUTE), // capabilities: u64
+            "https://agent.example.com", // endpoint: string
+            null, // metadata_uri: Option<string>
+            new BN(MIN_STAKE), // stake_amount: u64
           )
           .accounts({
             // agent: auto-resolved from agentId arg
@@ -280,7 +278,7 @@ describe("AgenC Integration Tests", () => {
             new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
             "https://agent2.example.com",
             null,
-            new BN(MIN_STAKE)
+            new BN(MIN_STAKE),
           )
           .accounts({
             authority: worker2.publicKey,
@@ -322,7 +320,7 @@ describe("AgenC Integration Tests", () => {
             new BN(CAPABILITY_COORDINATOR),
             "https://creator.example.com",
             null,
-            new BN(MIN_STAKE)
+            new BN(MIN_STAKE),
           )
           .accounts({
             authority: creator.publicKey,
@@ -352,14 +350,14 @@ describe("AgenC Integration Tests", () => {
       try {
         await program.methods
           .createTask(
-            Array.from(taskId),                   // task_id: [u8; 32]
-            new BN(CAPABILITY_COMPUTE),           // required_capabilities: u64
-            createDescription("Test task"),       // description: [u8; 64]
-            new BN(rewardAmount),                 // reward_amount: u64
-            1,                                    // max_workers: u8
+            Array.from(taskId), // task_id: [u8; 32]
+            new BN(CAPABILITY_COMPUTE), // required_capabilities: u64
+            createDescription("Test task"), // description: [u8; 64]
+            new BN(rewardAmount), // reward_amount: u64
+            1, // max_workers: u8
             new BN(Math.floor(Date.now() / 1000) + 86400), // deadline: i64 (must be > 0 and in future)
-            TASK_TYPE_EXCLUSIVE,                  // task_type: u8
-            null,                                  // constraint_hash: Option<[u8; 32]>
+            TASK_TYPE_EXCLUSIVE, // task_type: u8
+            null, // constraint_hash: Option<[u8; 32]>
             0, // min_reputation
             null, // reward_mint
           )
@@ -367,7 +365,7 @@ describe("AgenC Integration Tests", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolConfigPda,
-            creatorAgent: creatorAgentPda,        // MUST provide - self-referential PDA
+            creatorAgent: creatorAgentPda, // MUST provide - self-referential PDA
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
@@ -518,7 +516,7 @@ describe("AgenC Integration Tests", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://complete-worker.example.com",
             null,
-            new BN(MIN_STAKE)
+            new BN(MIN_STAKE),
           )
           .accounts({
             authority: worker1.publicKey,
@@ -537,7 +535,7 @@ describe("AgenC Integration Tests", () => {
             new BN(CAPABILITY_COORDINATOR),
             "https://complete-creator.example.com",
             null,
-            new BN(MIN_STAKE)
+            new BN(MIN_STAKE),
           )
           .accounts({
             authority: creator.publicKey,
@@ -612,15 +610,18 @@ describe("AgenC Integration Tests", () => {
       const resultData = Array.from(Buffer.alloc(64).fill(1));
 
       // Get protocol config to find treasury
-      const protocol = await program.account.protocolConfig.fetch(protocolConfigPda);
+      const protocol =
+        await program.account.protocolConfig.fetch(protocolConfigPda);
 
-      const balanceBefore = await provider.connection.getBalance(worker1.publicKey);
+      const balanceBefore = await provider.connection.getBalance(
+        worker1.publicKey,
+      );
 
       try {
         await program.methods
           .completeTask(
-            proofHash,                            // proof_hash: [u8; 32]
-            resultData                            // result_data: Option<[u8; 64]>
+            proofHash, // proof_hash: [u8; 32]
+            resultData, // result_data: Option<[u8; 64]>
           )
           .accountsPartial({
             task: taskPda,
@@ -643,8 +644,12 @@ describe("AgenC Integration Tests", () => {
 
         console.log("  Task completed successfully");
 
-        const balanceAfter = await provider.connection.getBalance(worker1.publicKey);
-        console.log(`  Worker balance change: ${(balanceAfter - balanceBefore) / LAMPORTS_PER_SOL} SOL`);
+        const balanceAfter = await provider.connection.getBalance(
+          worker1.publicKey,
+        );
+        console.log(
+          `  Worker balance change: ${(balanceAfter - balanceBefore) / LAMPORTS_PER_SOL} SOL`,
+        );
       } catch (e: any) {
         // Task might already be completed
         if (!e.message?.includes("InvalidTaskStatus")) {
@@ -674,7 +679,7 @@ describe("AgenC Integration Tests", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://update-agent.example.com",
             null,
-            new BN(MIN_STAKE)
+            new BN(MIN_STAKE),
           )
           .accounts({
             authority: worker2.publicKey,
@@ -694,10 +699,10 @@ describe("AgenC Integration Tests", () => {
        */
       await program.methods
         .updateAgent(
-          new BN(CAPABILITY_COMPUTE | CAPABILITY_STORAGE),  // capabilities: Option<u64>
-          "https://updated-agent.example.com",               // endpoint: Option<string>
-          null,                                              // metadata_uri: Option<string>
-          null                                               // status: Option<u8>
+          new BN(CAPABILITY_COMPUTE | CAPABILITY_STORAGE), // capabilities: Option<u64>
+          "https://updated-agent.example.com", // endpoint: Option<string>
+          null, // metadata_uri: Option<string>
+          null, // status: Option<u8>
         )
         .accountsPartial({
           agent: agentPda,
@@ -708,7 +713,9 @@ describe("AgenC Integration Tests", () => {
 
       // Verify update
       const agent = await program.account.agentRegistration.fetch(agentPda);
-      expect(agent.capabilities.toNumber()).to.equal(CAPABILITY_COMPUTE | CAPABILITY_STORAGE);
+      expect(agent.capabilities.toNumber()).to.equal(
+        CAPABILITY_COMPUTE | CAPABILITY_STORAGE,
+      );
       expect(agent.endpoint).to.equal("https://updated-agent.example.com");
 
       console.log("  Agent updated successfully");
@@ -739,7 +746,7 @@ describe("AgenC Integration Tests", () => {
             new BN(CAPABILITY_COORDINATOR),
             "https://cancel-creator.example.com",
             null,
-            new BN(MIN_STAKE)
+            new BN(MIN_STAKE),
           )
           .accounts({
             authority: creator.publicKey,
@@ -838,7 +845,7 @@ describe("AgenC Integration Tests", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://deregister.example.com",
             null,
-            new BN(MIN_STAKE)
+            new BN(MIN_STAKE),
           )
           .accounts({
             authority: worker2.publicKey,

@@ -9,20 +9,19 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { GatewayMessage, OutboundMessage } from './message.js';
-import type { SlashCommandContext } from './commands.js';
-import type { HookDispatcher } from './hooks.js';
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
-
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { GatewayMessage, OutboundMessage } from "./message.js";
+import type { SlashCommandContext } from "./commands.js";
+import type { HookDispatcher } from "./hooks.js";
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 // ============================================================================
 // Webhook Router
 // ============================================================================
 
 /** HTTP method for webhook routes. */
-export type WebhookMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+export type WebhookMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
 /** A registered webhook route. */
 export interface WebhookRoute {
@@ -76,12 +75,12 @@ export class WebhookRouter {
 
   /** Shorthand for POST routes (most common for webhooks). */
   post(path: string, handler: WebhookHandler): void {
-    this.route('POST', path, handler);
+    this.route("POST", path, handler);
   }
 
   /** Shorthand for GET routes (used for webhook verification). */
   get(path: string, handler: WebhookHandler): void {
-    this.route('GET', path, handler);
+    this.route("GET", path, handler);
   }
 
   /** All registered routes (returns a shallow copy). */
@@ -176,7 +175,11 @@ export interface ChannelPlugin {
   handleReaction?(event: ReactionEvent): Promise<void>;
 
   /** Optional: handle slash commands from this channel. */
-  handleSlashCommand?(command: string, args: string, context: SlashCommandContext): Promise<void>;
+  handleSlashCommand?(
+    command: string,
+    args: string,
+    context: SlashCommandContext,
+  ): Promise<void>;
 }
 
 // ============================================================================
@@ -200,7 +203,9 @@ export abstract class BaseChannelPlugin implements ChannelPlugin {
   /** Access the channel context. Throws if called before initialize(). */
   protected get context(): ChannelContext {
     if (!this._context) {
-      throw new Error(`Channel "${this.name}" context accessed before initialize()`);
+      throw new Error(
+        `Channel "${this.name}" context accessed before initialize()`,
+      );
     }
     return this._context;
   }
@@ -301,7 +306,9 @@ export class PluginCatalog {
         const router = new WebhookRouter(name);
         plugin.registerWebhooks(router);
         this.webhookRouters.set(name, router);
-        this.logger.info(`Channel "${name}" registered ${router.routesInternal.length} webhook route(s)`);
+        this.logger.info(
+          `Channel "${name}" registered ${router.routesInternal.length} webhook route(s)`,
+        );
       }
 
       await plugin.start();
@@ -392,7 +399,11 @@ export class PluginCatalog {
    * Get health status for all registered channels.
    * The `active` flag distinguishes activated plugins from those only registered.
    */
-  getHealthStatus(): ReadonlyArray<{ name: string; healthy: boolean; active: boolean }> {
+  getHealthStatus(): ReadonlyArray<{
+    name: string;
+    healthy: boolean;
+    active: boolean;
+  }> {
     return Array.from(this.plugins.entries()).map(([name, plugin]) => ({
       name,
       healthy: plugin.isHealthy(),
@@ -420,7 +431,7 @@ export class ChannelNameInvalidError extends RuntimeError {
       `Channel name must be a non-empty string, got "${channelName}"`,
       RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
     );
-    this.name = 'ChannelNameInvalidError';
+    this.name = "ChannelNameInvalidError";
     this.channelName = channelName;
   }
 }
@@ -433,7 +444,7 @@ export class ChannelAlreadyRegisteredError extends RuntimeError {
       `Channel "${channelName}" is already registered`,
       RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
     );
-    this.name = 'ChannelAlreadyRegisteredError';
+    this.name = "ChannelAlreadyRegisteredError";
     this.channelName = channelName;
   }
 }
@@ -446,7 +457,7 @@ export class ChannelNotFoundError extends RuntimeError {
       `Channel "${channelName}" not found`,
       RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
     );
-    this.name = 'ChannelNotFoundError';
+    this.name = "ChannelNotFoundError";
     this.channelName = channelName;
   }
 }

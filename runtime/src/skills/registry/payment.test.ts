@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey, Keypair, SystemProgram } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { SkillPurchaseManager, type SkillPurchaseConfig } from './payment.js';
-import { SkillPurchaseError } from './errors.js';
-import { RuntimeErrorCodes, AnchorErrorCodes } from '../../types/errors.js';
-import { PROGRAM_ID } from '@agenc/sdk';
-import { silentLogger } from '../../utils/logger.js';
-import { generateAgentId } from '../../utils/encoding.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { SkillPurchaseManager, type SkillPurchaseConfig } from "./payment.js";
+import { SkillPurchaseError } from "./errors.js";
+import { RuntimeErrorCodes, AnchorErrorCodes } from "../../types/errors.js";
+import { PROGRAM_ID } from "@agenc/sdk";
+import { silentLogger } from "../../utils/logger.js";
+import { generateAgentId } from "../../utils/encoding.js";
 
 // ============================================================================
 // Test Helpers
@@ -25,7 +25,7 @@ function anchorError(code: number) {
 // ============================================================================
 
 function createMockProgram(overrides: Record<string, any> = {}) {
-  const rpcMock = vi.fn().mockResolvedValue('mock-tx-signature');
+  const rpcMock = vi.fn().mockResolvedValue("mock-tx-signature");
 
   const methodBuilder = {
     accountsPartial: vi.fn().mockReturnThis(),
@@ -44,7 +44,7 @@ function createMockProgram(overrides: Record<string, any> = {}) {
         fetch: vi.fn().mockResolvedValue({
           author: randomPubkey(),
           skillId: new Uint8Array(32).fill(1),
-          price: { toString: () => '1000000' },
+          price: { toString: () => "1000000" },
           priceMint: null,
           isActive: true,
         }),
@@ -58,7 +58,7 @@ function createMockProgram(overrides: Record<string, any> = {}) {
       protocolConfig: {
         fetch: vi.fn().mockResolvedValue({
           treasury: randomPubkey(),
-          protocolFeeBps: { toString: () => '200' },
+          protocolFeeBps: { toString: () => "200" },
         }),
       },
       purchaseRecord: {
@@ -80,7 +80,7 @@ function createMockRegistryClient() {
   return {
     search: vi.fn(),
     get: vi.fn(),
-    install: vi.fn().mockResolvedValue({ id: 'test-skill' }),
+    install: vi.fn().mockResolvedValue({ id: "test-skill" }),
     publish: vi.fn(),
     rate: vi.fn(),
     listByAuthor: vi.fn(),
@@ -93,7 +93,7 @@ function createManager(
   registryClient: any = createMockRegistryClient(),
   agentId?: Uint8Array,
 ): { manager: SkillPurchaseManager; program: any; registryClient: any } {
-  const id = agentId ?? generateAgentId('test-buyer');
+  const id = agentId ?? generateAgentId("test-buyer");
   const manager = new SkillPurchaseManager({
     program,
     agentId: id,
@@ -107,10 +107,10 @@ function createManager(
 // Tests
 // ============================================================================
 
-describe('SkillPurchaseManager', () => {
-  describe('constructor', () => {
-    it('caches buyerAgentPda and protocolPda', () => {
-      const agentId = generateAgentId('test-buyer');
+describe("SkillPurchaseManager", () => {
+  describe("constructor", () => {
+    it("caches buyerAgentPda and protocolPda", () => {
+      const agentId = generateAgentId("test-buyer");
       const program = createMockProgram();
       const registryClient = createMockRegistryClient();
       const manager = new SkillPurchaseManager({
@@ -123,14 +123,14 @@ describe('SkillPurchaseManager', () => {
     });
   });
 
-  describe('isPurchased', () => {
-    it('returns true when purchase record exists', async () => {
+  describe("isPurchased", () => {
+    it("returns true when purchase record exists", async () => {
       const program = createMockProgram();
       const skillPda = randomPubkey();
       program.account.purchaseRecord.fetchNullable.mockResolvedValueOnce({
         skill: skillPda,
         buyer: randomPubkey(),
-        pricePaid: { toString: () => '1000000' },
+        pricePaid: { toString: () => "1000000" },
         timestamp: { toNumber: () => 1700000000 },
         bump: 255,
       });
@@ -138,7 +138,7 @@ describe('SkillPurchaseManager', () => {
       expect(await manager.isPurchased(skillPda)).toBe(true);
     });
 
-    it('returns false when purchase record is absent', async () => {
+    it("returns false when purchase record is absent", async () => {
       const program = createMockProgram();
       program.account.purchaseRecord.fetchNullable.mockResolvedValueOnce(null);
       const { manager } = createManager(program);
@@ -146,22 +146,22 @@ describe('SkillPurchaseManager', () => {
     });
   });
 
-  describe('fetchPurchaseRecord', () => {
-    it('returns null when not found', async () => {
+  describe("fetchPurchaseRecord", () => {
+    it("returns null when not found", async () => {
       const program = createMockProgram();
       program.account.purchaseRecord.fetchNullable.mockResolvedValueOnce(null);
       const { manager } = createManager(program);
       expect(await manager.fetchPurchaseRecord(randomPubkey())).toBeNull();
     });
 
-    it('parses raw record correctly', async () => {
+    it("parses raw record correctly", async () => {
       const program = createMockProgram();
       const skillPda = randomPubkey();
       const buyerPda = randomPubkey();
       program.account.purchaseRecord.fetchNullable.mockResolvedValueOnce({
         skill: skillPda,
         buyer: buyerPda,
-        pricePaid: { toString: () => '5000000' },
+        pricePaid: { toString: () => "5000000" },
         timestamp: { toNumber: () => 1700001234 },
         bump: 253,
       });
@@ -174,73 +174,88 @@ describe('SkillPurchaseManager', () => {
     });
   });
 
-  describe('purchase', () => {
-    it('purchases paid skill (SOL) and returns correct result', async () => {
+  describe("purchase", () => {
+    it("purchases paid skill (SOL) and returns correct result", async () => {
       const program = createMockProgram();
       const registryClient = createMockRegistryClient();
       const { manager } = createManager(program, registryClient);
       const skillPda = randomPubkey();
 
-      const result = await manager.purchase(skillPda, 'test-skill', '/tmp/skill.md');
+      const result = await manager.purchase(
+        skillPda,
+        "test-skill",
+        "/tmp/skill.md",
+      );
 
-      expect(result.skillId).toBe('test-skill');
+      expect(result.skillId).toBe("test-skill");
       expect(result.paid).toBe(true);
       expect(result.pricePaid).toBe(1000000n);
       // feeBps=200, price=1000000 → fee = 1000000 * 200 / 10000 = 20000
       expect(result.protocolFee).toBe(20000n);
-      expect(result.transactionSignature).toBe('mock-tx-signature');
-      expect(result.contentPath).toBe('/tmp/skill.md');
+      expect(result.transactionSignature).toBe("mock-tx-signature");
+      expect(result.contentPath).toBe("/tmp/skill.md");
 
       // Verify tx was submitted
       expect(program.methods.purchaseSkill).toHaveBeenCalled();
       expect(program._methodBuilder.accountsPartial).toHaveBeenCalled();
-      expect(registryClient.install).toHaveBeenCalledWith('test-skill', '/tmp/skill.md');
+      expect(registryClient.install).toHaveBeenCalledWith(
+        "test-skill",
+        "/tmp/skill.md",
+      );
     });
 
-    it('purchases free skill — tx sent, paid=false, pricePaid=0', async () => {
+    it("purchases free skill — tx sent, paid=false, pricePaid=0", async () => {
       const program = createMockProgram();
       program.account.skillRegistration.fetch.mockResolvedValueOnce({
         author: randomPubkey(),
         skillId: new Uint8Array(32).fill(2),
-        price: { toString: () => '0' },
+        price: { toString: () => "0" },
         priceMint: null,
         isActive: true,
       });
       const { manager } = createManager(program);
 
-      const result = await manager.purchase(randomPubkey(), 'free-skill', '/tmp/free.md');
+      const result = await manager.purchase(
+        randomPubkey(),
+        "free-skill",
+        "/tmp/free.md",
+      );
 
       expect(result.paid).toBe(false);
       expect(result.pricePaid).toBe(0n);
       expect(result.protocolFee).toBe(0n);
-      expect(result.transactionSignature).toBe('mock-tx-signature');
+      expect(result.transactionSignature).toBe("mock-tx-signature");
     });
 
-    it('computes correct protocol fee', async () => {
+    it("computes correct protocol fee", async () => {
       const program = createMockProgram();
       const treasury = randomPubkey();
       // price=10000000, feeBps=500
       program.account.skillRegistration.fetch.mockResolvedValueOnce({
         author: randomPubkey(),
         skillId: new Uint8Array(32).fill(3),
-        price: { toString: () => '10000000' },
+        price: { toString: () => "10000000" },
         priceMint: null,
         isActive: true,
       });
       // Override for all calls (getTreasury + purchase both fetch protocolConfig)
       program.account.protocolConfig.fetch.mockResolvedValue({
         treasury,
-        protocolFeeBps: { toString: () => '500' },
+        protocolFeeBps: { toString: () => "500" },
       });
       const { manager } = createManager(program);
 
-      const result = await manager.purchase(randomPubkey(), 'premium-skill', '/tmp/premium.md');
+      const result = await manager.purchase(
+        randomPubkey(),
+        "premium-skill",
+        "/tmp/premium.md",
+      );
 
       // 10000000 * 500 / 10000 = 500000
       expect(result.protocolFee).toBe(500000n);
     });
 
-    it('re-purchase skips tx and re-downloads content', async () => {
+    it("re-purchase skips tx and re-downloads content", async () => {
       const program = createMockProgram();
       const registryClient = createMockRegistryClient();
       const skillPda = randomPubkey();
@@ -248,38 +263,45 @@ describe('SkillPurchaseManager', () => {
       program.account.purchaseRecord.fetchNullable.mockResolvedValueOnce({
         skill: skillPda,
         buyer: randomPubkey(),
-        pricePaid: { toString: () => '1000000' },
+        pricePaid: { toString: () => "1000000" },
         timestamp: { toNumber: () => 1700000000 },
         bump: 255,
       });
       const { manager } = createManager(program, registryClient);
 
-      const result = await manager.purchase(skillPda, 'already-owned', '/tmp/redownload.md');
+      const result = await manager.purchase(
+        skillPda,
+        "already-owned",
+        "/tmp/redownload.md",
+      );
 
       expect(result.paid).toBe(false);
       expect(result.pricePaid).toBe(0n);
       expect(result.protocolFee).toBe(0n);
       expect(result.transactionSignature).toBeUndefined();
-      expect(result.contentPath).toBe('/tmp/redownload.md');
+      expect(result.contentPath).toBe("/tmp/redownload.md");
       // tx should NOT have been called
       expect(program.methods.purchaseSkill).not.toHaveBeenCalled();
       // but install should have been called
-      expect(registryClient.install).toHaveBeenCalledWith('already-owned', '/tmp/redownload.md');
+      expect(registryClient.install).toHaveBeenCalledWith(
+        "already-owned",
+        "/tmp/redownload.md",
+      );
     });
 
-    it('SPL token payment — token accounts passed correctly', async () => {
+    it("SPL token payment — token accounts passed correctly", async () => {
       const program = createMockProgram();
       const mint = randomPubkey();
       program.account.skillRegistration.fetch.mockResolvedValueOnce({
         author: randomPubkey(),
         skillId: new Uint8Array(32).fill(4),
-        price: { toString: () => '5000000' },
+        price: { toString: () => "5000000" },
         priceMint: mint,
         isActive: true,
       });
       const { manager } = createManager(program);
 
-      await manager.purchase(randomPubkey(), 'token-skill', '/tmp/token.md');
+      await manager.purchase(randomPubkey(), "token-skill", "/tmp/token.md");
 
       const callArgs = program._methodBuilder.accountsPartial.mock.calls[0][0];
       expect(callArgs.priceMint).toEqual(mint);
@@ -289,11 +311,11 @@ describe('SkillPurchaseManager', () => {
       expect(callArgs.tokenProgram).toEqual(TOKEN_PROGRAM_ID);
     });
 
-    it('SOL payment — token accounts are null', async () => {
+    it("SOL payment — token accounts are null", async () => {
       const program = createMockProgram();
       const { manager } = createManager(program);
 
-      await manager.purchase(randomPubkey(), 'sol-skill', '/tmp/sol.md');
+      await manager.purchase(randomPubkey(), "sol-skill", "/tmp/sol.md");
 
       const callArgs = program._methodBuilder.accountsPartial.mock.calls[0][0];
       expect(callArgs.priceMint).toBeNull();
@@ -303,101 +325,123 @@ describe('SkillPurchaseManager', () => {
       expect(callArgs.tokenProgram).toBeNull();
     });
 
-    it('download failure after tx — partial result with empty contentPath', async () => {
+    it("download failure after tx — partial result with empty contentPath", async () => {
       const program = createMockProgram();
       const registryClient = createMockRegistryClient();
-      registryClient.install.mockRejectedValueOnce(new Error('Download failed'));
+      registryClient.install.mockRejectedValueOnce(
+        new Error("Download failed"),
+      );
       const { manager } = createManager(program, registryClient);
 
-      const result = await manager.purchase(randomPubkey(), 'broken-dl', '/tmp/broken.md');
+      const result = await manager.purchase(
+        randomPubkey(),
+        "broken-dl",
+        "/tmp/broken.md",
+      );
 
-      expect(result.transactionSignature).toBe('mock-tx-signature');
-      expect(result.contentPath).toBe('');
+      expect(result.transactionSignature).toBe("mock-tx-signature");
+      expect(result.contentPath).toBe("");
       expect(result.paid).toBe(true);
     });
 
     // Error mapping tests
 
-    it('inactive skill → SkillPurchaseError', async () => {
+    it("inactive skill → SkillPurchaseError", async () => {
       const program = createMockProgram();
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.SkillNotActive));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.SkillNotActive),
+      );
       const { manager } = createManager(program);
 
       await expect(
-        manager.purchase(randomPubkey(), 'inactive-skill', '/tmp/inactive.md'),
+        manager.purchase(randomPubkey(), "inactive-skill", "/tmp/inactive.md"),
       ).rejects.toThrow(SkillPurchaseError);
 
       try {
-        await manager.purchase(randomPubkey(), 'inactive-skill', '/tmp/inactive.md');
+        await manager.purchase(
+          randomPubkey(),
+          "inactive-skill",
+          "/tmp/inactive.md",
+        );
       } catch (err) {
         // Second call also has the mock reset, just verify the first rejection
       }
     });
 
-    it('self-purchase → SkillPurchaseError', async () => {
+    it("self-purchase → SkillPurchaseError", async () => {
       const program = createMockProgram();
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.SkillSelfPurchase));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.SkillSelfPurchase),
+      );
       const { manager } = createManager(program);
 
       await expect(
-        manager.purchase(randomPubkey(), 'my-skill', '/tmp/my.md'),
+        manager.purchase(randomPubkey(), "my-skill", "/tmp/my.md"),
       ).rejects.toThrow(SkillPurchaseError);
     });
 
-    it('insufficient balance → SkillPurchaseError', async () => {
+    it("insufficient balance → SkillPurchaseError", async () => {
       const program = createMockProgram();
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.InsufficientFunds));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.InsufficientFunds),
+      );
       const { manager } = createManager(program);
 
       await expect(
-        manager.purchase(randomPubkey(), 'expensive', '/tmp/exp.md'),
+        manager.purchase(randomPubkey(), "expensive", "/tmp/exp.md"),
       ).rejects.toThrow(SkillPurchaseError);
     });
 
-    it('missing token accounts → SkillPurchaseError', async () => {
+    it("missing token accounts → SkillPurchaseError", async () => {
       const program = createMockProgram();
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.MissingTokenAccounts));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.MissingTokenAccounts),
+      );
       const { manager } = createManager(program);
 
       await expect(
-        manager.purchase(randomPubkey(), 'token-skill', '/tmp/token.md'),
+        manager.purchase(randomPubkey(), "token-skill", "/tmp/token.md"),
       ).rejects.toThrow(SkillPurchaseError);
     });
 
-    it('token mint mismatch → SkillPurchaseError', async () => {
+    it("token mint mismatch → SkillPurchaseError", async () => {
       const program = createMockProgram();
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.InvalidTokenMint));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.InvalidTokenMint),
+      );
       const { manager } = createManager(program);
 
       await expect(
-        manager.purchase(randomPubkey(), 'bad-mint', '/tmp/mint.md'),
+        manager.purchase(randomPubkey(), "bad-mint", "/tmp/mint.md"),
       ).rejects.toThrow(SkillPurchaseError);
     });
 
-    it('inactive buyer agent → SkillPurchaseError', async () => {
+    it("inactive buyer agent → SkillPurchaseError", async () => {
       const program = createMockProgram();
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.AgentNotActive));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.AgentNotActive),
+      );
       const { manager } = createManager(program);
 
       await expect(
-        manager.purchase(randomPubkey(), 'paused-agent', '/tmp/paused.md'),
+        manager.purchase(randomPubkey(), "paused-agent", "/tmp/paused.md"),
       ).rejects.toThrow(SkillPurchaseError);
     });
 
-    it('unknown error is re-thrown as-is', async () => {
+    it("unknown error is re-thrown as-is", async () => {
       const program = createMockProgram();
-      const unknownErr = new Error('Network timeout');
+      const unknownErr = new Error("Network timeout");
       program._rpcMock.mockRejectedValueOnce(unknownErr);
       const { manager } = createManager(program);
 
       await expect(
-        manager.purchase(randomPubkey(), 'timeout-skill', '/tmp/timeout.md'),
-      ).rejects.toThrow('Network timeout');
+        manager.purchase(randomPubkey(), "timeout-skill", "/tmp/timeout.md"),
+      ).rejects.toThrow("Network timeout");
     });
   });
 
-  describe('getPurchaseHistory', () => {
-    it('returns parsed records sorted by timestamp desc', async () => {
+  describe("getPurchaseHistory", () => {
+    it("returns parsed records sorted by timestamp desc", async () => {
       const program = createMockProgram();
       const skill1 = randomPubkey();
       const skill2 = randomPubkey();
@@ -408,7 +452,7 @@ describe('SkillPurchaseManager', () => {
           account: {
             skill: skill1,
             buyer,
-            pricePaid: { toString: () => '1000000' },
+            pricePaid: { toString: () => "1000000" },
             timestamp: { toNumber: () => 1700000000 },
             bump: 255,
           },
@@ -418,7 +462,7 @@ describe('SkillPurchaseManager', () => {
           account: {
             skill: skill2,
             buyer,
-            pricePaid: { toString: () => '2000000' },
+            pricePaid: { toString: () => "2000000" },
             timestamp: { toNumber: () => 1700100000 },
             bump: 254,
           },
@@ -436,7 +480,7 @@ describe('SkillPurchaseManager', () => {
       expect(history[1].pricePaid).toBe(1000000n);
     });
 
-    it('returns empty array when no purchases', async () => {
+    it("returns empty array when no purchases", async () => {
       const program = createMockProgram();
       program.account.purchaseRecord.all.mockResolvedValueOnce([]);
       const { manager } = createManager(program);
@@ -445,7 +489,7 @@ describe('SkillPurchaseManager', () => {
       expect(history).toHaveLength(0);
     });
 
-    it('uses memcmp filter on buyer field', async () => {
+    it("uses memcmp filter on buyer field", async () => {
       const program = createMockProgram();
       program.account.purchaseRecord.all.mockResolvedValueOnce([]);
       const { manager } = createManager(program);

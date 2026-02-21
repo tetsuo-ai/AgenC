@@ -2,10 +2,15 @@
  * Runtime event contract drift checker against generated IDL definitions.
  */
 
-import { readFile } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
-import { RUNTIME_EVENT_CONTRACT, type EventContract, type EventFieldContract, type FieldFamily } from './idl-contract.js';
-import idlJson from '../../idl/agenc_coordination.json';
+import { readFile } from "node:fs/promises";
+import { relative, resolve } from "node:path";
+import {
+  RUNTIME_EVENT_CONTRACT,
+  type EventContract,
+  type EventFieldContract,
+  type FieldFamily,
+} from "./idl-contract.js";
+import idlJson from "../../idl/agenc_coordination.json";
 
 interface IdlField {
   name: string;
@@ -52,14 +57,14 @@ export interface IdlDriftFieldOverride {
   reason?: string;
 }
 
-const CONTRACT_FILE = resolve(process.cwd(), 'src/events/idl-contract.ts');
-const CONTRACT_SOURCE_TEXT = readFile(CONTRACT_FILE, 'utf8');
+const CONTRACT_FILE = resolve(process.cwd(), "src/events/idl-contract.ts");
+const CONTRACT_SOURCE_TEXT = readFile(CONTRACT_FILE, "utf8");
 const AGENT_EVENT_NAMES = new Set([
-  'AgentDeregistered',
-  'AgentRegistered',
-  'AgentSuspended',
-  'AgentUnsuspended',
-  'AgentUpdated',
+  "AgentDeregistered",
+  "AgentRegistered",
+  "AgentSuspended",
+  "AgentUnsuspended",
+  "AgentUpdated",
 ]);
 
 function normalizeEventNameToPascalCase(eventName: string): string {
@@ -68,51 +73,62 @@ function normalizeEventNameToPascalCase(eventName: string): string {
 }
 
 function normalizeFieldNameToCamelCase(fieldName: string): string {
-  const parts = fieldName.split('_');
+  const parts = fieldName.split("_");
   return parts
     .map((value, index) => {
       if (!value) return value;
       if (index === 0) return value;
       return value[0].toUpperCase() + value.slice(1);
     })
-    .join('');
+    .join("");
 }
 
-function findEventTypeByName(idl: IdlRoot, eventName: string): IdlType | undefined {
-  return idl.types?.find((entry) => entry.name === eventName && entry.type?.kind === 'struct');
+function findEventTypeByName(
+  idl: IdlRoot,
+  eventName: string,
+): IdlType | undefined {
+  return idl.types?.find(
+    (entry) => entry.name === eventName && entry.type?.kind === "struct",
+  );
 }
 
-function deriveFamily(rawType: unknown): FieldFamily | 'unknown' {
-  if (typeof rawType === 'string') {
-    if (rawType === 'pubkey') return 'pubkey';
-    if (rawType === 'bool') return 'bool';
-    if (rawType === 'i64') return 'i64';
-    if (rawType === 'u8') return 'u8';
-    if (rawType === 'u16') return 'u16';
-    if (rawType === 'u32') return 'u32';
-    if (rawType === 'u64') return 'u64';
-    return 'unknown';
+function deriveFamily(rawType: unknown): FieldFamily | "unknown" {
+  if (typeof rawType === "string") {
+    if (rawType === "pubkey") return "pubkey";
+    if (rawType === "bool") return "bool";
+    if (rawType === "i64") return "i64";
+    if (rawType === "u8") return "u8";
+    if (rawType === "u16") return "u16";
+    if (rawType === "u32") return "u32";
+    if (rawType === "u64") return "u64";
+    return "unknown";
   }
 
-  if (typeof rawType === 'object' && rawType !== null) {
-    if ('array' in rawType && Array.isArray((rawType as { array: unknown }).array)) {
+  if (typeof rawType === "object" && rawType !== null) {
+    if (
+      "array" in rawType &&
+      Array.isArray((rawType as { array: unknown }).array)
+    ) {
       const [baseType, size] = (rawType as { array: unknown[] }).array;
-      if (baseType === 'u8' && Number.isInteger(size)) {
-        if (size === 32) return 'bytes<32>';
-        if (size === 64) return 'bytes<64>';
-        return 'bytes<variable>';
+      if (baseType === "u8" && Number.isInteger(size)) {
+        if (size === 32) return "bytes<32>";
+        if (size === 64) return "bytes<64>";
+        return "bytes<variable>";
       }
-      return 'unknown';
+      return "unknown";
     }
 
-    if ('option' in rawType && typeof (rawType as { option: unknown }).option === 'string') {
+    if (
+      "option" in rawType &&
+      typeof (rawType as { option: unknown }).option === "string"
+    ) {
       const inner = (rawType as { option: string }).option;
-      if (inner === 'pubkey') return 'option<pubkey>';
+      if (inner === "pubkey") return "option<pubkey>";
       return `unknown`;
     }
   }
 
-  return 'unknown';
+  return "unknown";
 }
 
 function normalizeAndMatchField(raw: IdlField): EventFieldContract {
@@ -122,10 +138,14 @@ function normalizeAndMatchField(raw: IdlField): EventFieldContract {
   };
 }
 
-function getLineForContractContractField(eventName: string, fieldName: string, sourceText: string): number | undefined {
-  const lines = sourceText.split('\n');
-  const eventMarker = `eventName: '${eventName}',`;
-  const fieldMarker = `name: '${fieldName}',`;
+function getLineForContractContractField(
+  eventName: string,
+  fieldName: string,
+  sourceText: string,
+): number | undefined {
+  const lines = sourceText.split("\n");
+  const eventMarker = `eventName: "${eventName}",`;
+  const fieldMarker = `name: "${fieldName}",`;
   const eventLine = lines.findIndex((line) => line.includes(eventMarker));
   if (eventLine < 0) return undefined;
 
@@ -141,31 +161,42 @@ function getLineForContractContractField(eventName: string, fieldName: string, s
 }
 
 function nonAgentEventNamesFromIdl(idl: IdlRoot): string[] {
-  return (idl.events ?? []).map((event) => event.name).filter((name) => !AGENT_EVENT_NAMES.has(name));
+  return (idl.events ?? [])
+    .map((event) => event.name)
+    .filter((name) => !AGENT_EVENT_NAMES.has(name));
 }
 
 /**
  * Dynamic fields that should be ignored intentionally during drift checks.
  * Kept as an explicit allowlist for schema evolution.
  */
-export const IDL_DRIFT_FIELD_OVERRIDES = Object.freeze<ReadonlyArray<IdlDriftFieldOverride>>([]);
+export const IDL_DRIFT_FIELD_OVERRIDES = Object.freeze<
+  ReadonlyArray<IdlDriftFieldOverride>
+>([]);
 
 function isOverrideMatch(
   eventName: string,
   fieldName: string,
   overrides: ReadonlyArray<IdlDriftFieldOverride>,
 ): boolean {
-  return IDL_DRIFT_FIELD_OVERRIDES.some(
-    (override) => override.eventName === eventName && override.fieldName === fieldName,
-  ) || overrides.some(
-    (override) => override.eventName === eventName && override.fieldName === fieldName,
+  return (
+    IDL_DRIFT_FIELD_OVERRIDES.some(
+      (override) =>
+        override.eventName === eventName && override.fieldName === fieldName,
+    ) ||
+    overrides.some(
+      (override) =>
+        override.eventName === eventName && override.fieldName === fieldName,
+    )
   );
 }
 
 /**
  * Runs deterministic contract checks against a provided IDL and event contract.
  */
-export async function checkIdlDrift(options: IdlDriftCheckerOptions = {}): Promise<IdlDriftCheckResult> {
+export async function checkIdlDrift(
+  options: IdlDriftCheckerOptions = {},
+): Promise<IdlDriftCheckResult> {
   const contract = options.contract ?? RUNTIME_EVENT_CONTRACT;
   const idl = options.idl ?? (idlJson as unknown as IdlRoot);
   const overrides = options.overrides ?? [];
@@ -174,18 +205,28 @@ export async function checkIdlDrift(options: IdlDriftCheckerOptions = {}): Promi
   const idlEvents = nonAgentEventNamesFromIdl(idl);
 
   const idlEventSet = new Set(idlEvents);
-  const contractEventSet = new Set(contract.map((event) => normalizeEventNameToPascalCase(event.eventName)));
+  const contractEventSet = new Set(
+    contract.map((event) => normalizeEventNameToPascalCase(event.eventName)),
+  );
 
   for (const contractEvent of contract) {
-    const pascalEventName = normalizeEventNameToPascalCase(contractEvent.eventName);
+    const pascalEventName = normalizeEventNameToPascalCase(
+      contractEvent.eventName,
+    );
     if (!idlEventSet.has(pascalEventName)) {
       return {
         passed: false,
-        mismatches: [{
-          path: contractFileForOutput,
-          line: getLineForContractContractField(contractEvent.eventName, contractEvent.fields[0]?.name ?? '', sourceText),
-          message: `IDL does not contain non-agent event "${pascalEventName}" required by runtime contract`,
-        }],
+        mismatches: [
+          {
+            path: contractFileForOutput,
+            line: getLineForContractContractField(
+              contractEvent.eventName,
+              contractEvent.fields[0]?.name ?? "",
+              sourceText,
+            ),
+            message: `IDL does not contain non-agent event "${pascalEventName}" required by runtime contract`,
+          },
+        ],
       };
     }
 
@@ -193,24 +234,38 @@ export async function checkIdlDrift(options: IdlDriftCheckerOptions = {}): Promi
     if (!idlType) {
       return {
         passed: false,
-        mismatches: [{
-          path: contractFileForOutput,
-          line: getLineForContractContractField(contractEvent.eventName, contractEvent.fields[0]?.name ?? '', sourceText),
-          message: `IDL struct type for event "${pascalEventName}" is missing`,
-        }],
+        mismatches: [
+          {
+            path: contractFileForOutput,
+            line: getLineForContractContractField(
+              contractEvent.eventName,
+              contractEvent.fields[0]?.name ?? "",
+              sourceText,
+            ),
+            message: `IDL struct type for event "${pascalEventName}" is missing`,
+          },
+        ],
       };
     }
 
-    const normalizedIdlFields = (idlType.type?.fields ?? []).map(normalizeAndMatchField);
+    const normalizedIdlFields = (idlType.type?.fields ?? []).map(
+      normalizeAndMatchField,
+    );
 
     if (normalizedIdlFields.length !== contractEvent.fields.length) {
       return {
         passed: false,
-        mismatches: [{
-          path: contractFileForOutput,
-          line: getLineForContractContractField(contractEvent.eventName, contractEvent.fields[0]?.name ?? '', sourceText),
-          message: `Event "${contractEvent.eventName}" field count mismatch: contract=${contractEvent.fields.length}, idl=${normalizedIdlFields.length}`,
-        }],
+        mismatches: [
+          {
+            path: contractFileForOutput,
+            line: getLineForContractContractField(
+              contractEvent.eventName,
+              contractEvent.fields[0]?.name ?? "",
+              sourceText,
+            ),
+            message: `Event "${contractEvent.eventName}" field count mismatch: contract=${contractEvent.fields.length}, idl=${normalizedIdlFields.length}`,
+          },
+        ],
       };
     }
 
@@ -218,29 +273,45 @@ export async function checkIdlDrift(options: IdlDriftCheckerOptions = {}): Promi
       const contractField = contractEvent.fields[i];
       const idlField = normalizedIdlFields[i];
       if (!idlField || contractField.name !== idlField.name) {
-        const line = getLineForContractContractField(contractEvent.eventName, contractField.name, sourceText);
-        const idlFieldName = idlField?.name ?? '<missing>';
+        const line = getLineForContractContractField(
+          contractEvent.eventName,
+          contractField.name,
+          sourceText,
+        );
+        const idlFieldName = idlField?.name ?? "<missing>";
         return {
           passed: false,
-          mismatches: [{
-            path: contractFileForOutput,
-            line,
-            message: `Event ${contractEvent.eventName} field mismatch at position ${i}: contract name=${contractField.name}, idl name=${idlFieldName}`,
-          }],
+          mismatches: [
+            {
+              path: contractFileForOutput,
+              line,
+              message: `Event ${contractEvent.eventName} field mismatch at position ${i}: contract name=${contractField.name}, idl name=${idlFieldName}`,
+            },
+          ],
         };
       }
       if (
-        !isOverrideMatch(contractEvent.eventName, contractField.name, overrides)
-        && contractField.family !== idlField.family
+        !isOverrideMatch(
+          contractEvent.eventName,
+          contractField.name,
+          overrides,
+        ) &&
+        contractField.family !== idlField.family
       ) {
-        const line = getLineForContractContractField(contractEvent.eventName, contractField.name, sourceText);
+        const line = getLineForContractContractField(
+          contractEvent.eventName,
+          contractField.name,
+          sourceText,
+        );
         return {
           passed: false,
-          mismatches: [{
-            path: contractFileForOutput,
-            line,
-            message: `Event ${contractEvent.eventName} field ${contractField.name} family mismatch: contract=${contractField.family}, idl=${idlField.family}`,
-          }],
+          mismatches: [
+            {
+              path: contractFileForOutput,
+              line,
+              message: `Event ${contractEvent.eventName} field ${contractField.name} family mismatch: contract=${contractField.family}, idl=${idlField.family}`,
+            },
+          ],
         };
       }
     }
@@ -250,10 +321,12 @@ export async function checkIdlDrift(options: IdlDriftCheckerOptions = {}): Promi
     if (!contractEventSet.has(eventName)) {
       return {
         passed: false,
-        mismatches: [{
-          path: contractFileForOutput,
-          message: `Runtime contract is missing non-agent event "${eventName}" from IDL`,
-        }],
+        mismatches: [
+          {
+            path: contractFileForOutput,
+            message: `Runtime contract is missing non-agent event "${eventName}" from IDL`,
+          },
+        ],
       };
     }
   }
@@ -272,10 +345,12 @@ export interface DriftCheckOutput {
 /**
  * Formats a deterministic mismatch report for CLI output.
  */
-export function formatDriftCheckOutput(result: IdlDriftCheckResult): DriftCheckOutput {
+export function formatDriftCheckOutput(
+  result: IdlDriftCheckResult,
+): DriftCheckOutput {
   if (result.passed) {
     return {
-      header: 'IDL contract drift check passed.',
+      header: "IDL contract drift check passed.",
       details: [],
     };
   }
@@ -286,7 +361,7 @@ export function formatDriftCheckOutput(result: IdlDriftCheckResult): DriftCheckO
   });
 
   return {
-    header: 'IDL contract drift check failed.',
+    header: "IDL contract drift check failed.",
     details: lines,
   };
 }

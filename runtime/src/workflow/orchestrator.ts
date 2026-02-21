@@ -7,25 +7,29 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import type {
   DAGOrchestratorConfig,
   WorkflowDefinition,
   WorkflowState,
   WorkflowStats,
   WorkflowCallbacks,
-} from './types.js';
-import type { GoalCompileRequest, GoalCompileResult, GoalCompiler } from './compiler.js';
+} from "./types.js";
+import type {
+  GoalCompileRequest,
+  GoalCompileResult,
+  GoalCompiler,
+} from "./compiler.js";
 import {
   WorkflowStatus,
   WorkflowNodeStatus,
   OnChainDependencyType,
-} from './types.js';
-import { WorkflowStateError } from './errors.js';
-import { validateWorkflow } from './validation.js';
-import { DAGSubmitter } from './submitter.js';
-import { DAGMonitor } from './monitor.js';
+} from "./types.js";
+import { WorkflowStateError } from "./errors.js";
+import { validateWorkflow } from "./validation.js";
+import { DAGSubmitter } from "./submitter.js";
+import { DAGMonitor } from "./monitor.js";
 
 /**
  * Orchestrates multi-step task workflows on the AgenC protocol.
@@ -118,7 +122,7 @@ export class DAGOrchestrator {
   async submit(definition: WorkflowDefinition): Promise<WorkflowState> {
     if (this.workflows.has(definition.id)) {
       throw new WorkflowStateError(
-        `Workflow "${definition.id}" already exists. Use a unique ID.`
+        `Workflow "${definition.id}" already exists. Use a unique ID.`,
       );
     }
 
@@ -152,7 +156,11 @@ export class DAGOrchestrator {
     }
 
     // Start monitoring for completions
-    this.monitor.startMonitoring(state, this.callbacks, this.cancelOnParentFailure);
+    this.monitor.startMonitoring(
+      state,
+      this.callbacks,
+      this.cancelOnParentFailure,
+    );
 
     return state;
   }
@@ -183,11 +191,19 @@ export class DAGOrchestrator {
 
     return {
       totalNodes: nodes.length,
-      pending: nodes.filter((n) => n.status === WorkflowNodeStatus.Pending || n.status === WorkflowNodeStatus.Creating).length,
-      created: nodes.filter((n) => n.status === WorkflowNodeStatus.Created).length,
-      completed: nodes.filter((n) => n.status === WorkflowNodeStatus.Completed).length,
-      failed: nodes.filter((n) => n.status === WorkflowNodeStatus.Failed).length,
-      cancelled: nodes.filter((n) => n.status === WorkflowNodeStatus.Cancelled).length,
+      pending: nodes.filter(
+        (n) =>
+          n.status === WorkflowNodeStatus.Pending ||
+          n.status === WorkflowNodeStatus.Creating,
+      ).length,
+      created: nodes.filter((n) => n.status === WorkflowNodeStatus.Created)
+        .length,
+      completed: nodes.filter((n) => n.status === WorkflowNodeStatus.Completed)
+        .length,
+      failed: nodes.filter((n) => n.status === WorkflowNodeStatus.Failed)
+        .length,
+      cancelled: nodes.filter((n) => n.status === WorkflowNodeStatus.Cancelled)
+        .length,
       elapsedMs: (state.completedAt ?? now) - startedAt,
       totalReward: nodes.reduce((sum, n) => sum + n.template.rewardAmount, 0n),
     };
@@ -201,7 +217,10 @@ export class DAGOrchestrator {
    * @returns Final workflow state
    * @throws WorkflowStateError if workflow not found or on timeout
    */
-  async waitForCompletion(workflowId: string, timeoutMs?: number): Promise<WorkflowState> {
+  async waitForCompletion(
+    workflowId: string,
+    timeoutMs?: number,
+  ): Promise<WorkflowState> {
     const state = this.workflows.get(workflowId);
     if (!state) {
       throw new WorkflowStateError(`Workflow "${workflowId}" not found`);
@@ -220,7 +239,7 @@ export class DAGOrchestrator {
    */
   async shutdown(): Promise<void> {
     await this.monitor.shutdown();
-    this.logger.info('DAGOrchestrator shut down');
+    this.logger.info("DAGOrchestrator shut down");
   }
 
   // ===========================================================================
@@ -229,12 +248,18 @@ export class DAGOrchestrator {
 
   private buildInitialState(definition: WorkflowDefinition): WorkflowState {
     // Build edge map (child -> parent edge) for assigning parentName/dependencyType
-    const edgeByChild = new Map<string, { from: string; dependencyType: OnChainDependencyType }>();
+    const edgeByChild = new Map<
+      string,
+      { from: string; dependencyType: OnChainDependencyType }
+    >();
     for (const edge of definition.edges) {
-      edgeByChild.set(edge.to, { from: edge.from, dependencyType: edge.dependencyType });
+      edgeByChild.set(edge.to, {
+        from: edge.from,
+        dependencyType: edge.dependencyType,
+      });
     }
 
-    const nodes = new Map<string, import('./types.js').WorkflowNode>();
+    const nodes = new Map<string, import("./types.js").WorkflowNode>();
 
     for (const template of definition.tasks) {
       const parentEdge = edgeByChild.get(template.name);
@@ -245,7 +270,8 @@ export class DAGOrchestrator {
         taskPda: null,
         parentName: parentEdge?.from ?? null,
         parentPda: null,
-        dependencyType: parentEdge?.dependencyType ?? OnChainDependencyType.None,
+        dependencyType:
+          parentEdge?.dependencyType ?? OnChainDependencyType.None,
         status: WorkflowNodeStatus.Pending,
         transactionSignature: null,
         error: null,

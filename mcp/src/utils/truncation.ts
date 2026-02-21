@@ -1,6 +1,9 @@
-import { clone, safeStringify } from './json.js';
+import { clone, safeStringify } from "./json.js";
 
-export type TruncationReason = 'trimmed_to_minimum' | 'payload_limit_exceeded' | null;
+export type TruncationReason =
+  | "trimmed_to_minimum"
+  | "payload_limit_exceeded"
+  | null;
 
 export interface TruncationResult<T> {
   payload: T;
@@ -16,7 +19,7 @@ export function truncateOutput<T extends Record<string, unknown>>(
   trimFn: (value: T) => T,
 ): TruncationResult<T> {
   const originalJson = safeStringify(payload);
-  const originalBytes = Buffer.byteLength(originalJson, 'utf8');
+  const originalBytes = Buffer.byteLength(originalJson, "utf8");
 
   if (originalBytes <= maxBytes) {
     return {
@@ -30,13 +33,13 @@ export function truncateOutput<T extends Record<string, unknown>>(
 
   const trimmed = clone(trimFn(payload));
   const trimmedJson = safeStringify(trimmed);
-  const trimmedBytes = Buffer.byteLength(trimmedJson, 'utf8');
+  const trimmedBytes = Buffer.byteLength(trimmedJson, "utf8");
 
   if (trimmedBytes <= maxBytes) {
     return {
       payload: trimmed,
       truncated: true,
-      reason: 'trimmed_to_minimum',
+      reason: "trimmed_to_minimum",
       originalBytes,
       finalBytes: trimmedBytes,
     };
@@ -45,7 +48,7 @@ export function truncateOutput<T extends Record<string, unknown>>(
   return {
     payload: trimmed,
     truncated: true,
-    reason: 'payload_limit_exceeded',
+    reason: "payload_limit_exceeded",
     originalBytes,
     finalBytes: trimmedBytes,
   };

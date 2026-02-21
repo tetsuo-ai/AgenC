@@ -1,12 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-import type { PluginManifest } from './manifest.js';
-import { isRecord } from '../utils/type-guards.js';
+import type { PluginManifest } from "./manifest.js";
+import { isRecord } from "../utils/type-guards.js";
 
-export type PluginPrecedence = 'workspace' | 'user' | 'builtin';
+export type PluginPrecedence = "workspace" | "user" | "builtin";
 
-export type PluginSlot = 'memory' | 'llm' | 'proof' | 'telemetry' | 'custom';
+export type PluginSlot = "memory" | "llm" | "proof" | "telemetry" | "custom";
 
 export interface CatalogEntry {
   manifest: PluginManifest;
@@ -28,7 +28,7 @@ export interface CatalogState {
 export interface CatalogOperationResult {
   success: boolean;
   pluginId: string;
-  operation: 'install' | 'enable' | 'disable' | 'reload' | 'uninstall';
+  operation: "install" | "enable" | "disable" | "reload" | "uninstall";
   message: string;
   previousState?: Partial<CatalogEntry>;
   newState?: Partial<CatalogEntry>;
@@ -47,12 +47,12 @@ export class PluginCatalogError extends Error {
 
   constructor(message: string, pluginId?: string) {
     super(message);
-    this.name = 'PluginCatalogError';
+    this.name = "PluginCatalogError";
     this.pluginId = pluginId;
   }
 }
 
-const DEFAULT_CATALOG_PATH = '.agenc/plugins.json';
+const DEFAULT_CATALOG_PATH = ".agenc/plugins.json";
 const DEFAULT_SCHEMA_VERSION = 1;
 const PRECEDENCE_ORDER: Record<PluginPrecedence, number> = {
   workspace: 0,
@@ -64,7 +64,9 @@ function toDateNow(): number {
   return Date.now();
 }
 
-function normalizePluginPrecedence(precedence: PluginPrecedence): PluginPrecedence {
+function normalizePluginPrecedence(
+  precedence: PluginPrecedence,
+): PluginPrecedence {
   return precedence;
 }
 
@@ -102,7 +104,9 @@ export class PluginCatalog {
     return Object.values(this.state.entries)
       .map(cloneEntry)
       .sort((left, right) => {
-        const precedenceDelta = PRECEDENCE_ORDER[left.precedence] - PRECEDENCE_ORDER[right.precedence];
+        const precedenceDelta =
+          PRECEDENCE_ORDER[left.precedence] -
+          PRECEDENCE_ORDER[right.precedence];
         if (precedenceDelta !== 0) {
           return precedenceDelta;
         }
@@ -121,7 +125,7 @@ export class PluginCatalog {
       return {
         success: false,
         pluginId: id,
-        operation: 'install',
+        operation: "install",
         message: `Plugin "${id}" is already installed`,
       };
     }
@@ -133,7 +137,7 @@ export class PluginCatalog {
         return {
           success: false,
           pluginId: id,
-          operation: 'install',
+          operation: "install",
           message: `Slot "${collision.slot}" is occupied by "${collision.incumbent}"`,
         };
       }
@@ -161,7 +165,7 @@ export class PluginCatalog {
     return {
       success: true,
       pluginId: id,
-      operation: 'install',
+      operation: "install",
       message: `Plugin "${id}" installed`,
       newState: {
         enabled: true,
@@ -177,7 +181,7 @@ export class PluginCatalog {
       return {
         success: false,
         pluginId,
-        operation: 'disable',
+        operation: "disable",
         message: `Plugin "${pluginId}" not found`,
       };
     }
@@ -186,7 +190,7 @@ export class PluginCatalog {
       return {
         success: true,
         pluginId,
-        operation: 'disable',
+        operation: "disable",
         message: `Plugin "${pluginId}" is already disabled`,
       };
     }
@@ -204,7 +208,7 @@ export class PluginCatalog {
     return {
       success: true,
       pluginId,
-      operation: 'disable',
+      operation: "disable",
       message: `Plugin "${pluginId}" disabled`,
       previousState: previous,
       newState: {
@@ -220,7 +224,7 @@ export class PluginCatalog {
       return {
         success: false,
         pluginId,
-        operation: 'enable',
+        operation: "enable",
         message: `Plugin "${pluginId}" not found`,
       };
     }
@@ -229,7 +233,7 @@ export class PluginCatalog {
       return {
         success: true,
         pluginId,
-        operation: 'enable',
+        operation: "enable",
         message: `Plugin "${pluginId}" is already enabled`,
         newState: {
           enabled: true,
@@ -248,7 +252,7 @@ export class PluginCatalog {
         return {
           success: false,
           pluginId,
-          operation: 'enable',
+          operation: "enable",
           message: `Slot "${entry.slot}" is occupied by "${currentOccupant}"`,
           previousState: previous,
         };
@@ -266,7 +270,7 @@ export class PluginCatalog {
     return {
       success: true,
       pluginId,
-      operation: 'enable',
+      operation: "enable",
       message: `Plugin "${pluginId}" enabled`,
       previousState: previous,
       newState: {
@@ -282,7 +286,7 @@ export class PluginCatalog {
       return {
         success: false,
         pluginId,
-        operation: 'reload',
+        operation: "reload",
         message: `Plugin "${pluginId}" not found`,
       };
     }
@@ -301,7 +305,7 @@ export class PluginCatalog {
     return {
       success: true,
       pluginId,
-      operation: 'reload',
+      operation: "reload",
       message: `Plugin "${pluginId}" reloaded`,
       previousState: previous,
       newState: {
@@ -316,35 +320,46 @@ export class PluginCatalog {
       return emptyState();
     }
 
-    const raw = readFileSync(this.statePath, 'utf8');
+    const raw = readFileSync(this.statePath, "utf8");
     const parsed = JSON.parse(raw) as Partial<CatalogState>;
     const entries = isRecord(parsed.entries) ? parsed.entries : {};
     const slotAssignments = isRecord(parsed.slotAssignments)
       ? parsed.slotAssignments
       : {};
-    const normalizedEntries = Object.entries(entries).reduce<Record<string, CatalogEntry>>(
-      (accumulator, [id, candidate]) => {
-        if (isRecord(candidate) && typeof candidate.manifest === 'object' && candidate.manifest !== null) {
-          accumulator[id] = {
-            ...(candidate as CatalogEntry),
-            manifest: candidate.manifest as PluginManifest,
-          };
-        }
-        return accumulator;
-      },
-      {},
-    );
+    const normalizedEntries = Object.entries(entries).reduce<
+      Record<string, CatalogEntry>
+    >((accumulator, [id, candidate]) => {
+      if (
+        isRecord(candidate) &&
+        typeof candidate.manifest === "object" &&
+        candidate.manifest !== null
+      ) {
+        accumulator[id] = {
+          ...(candidate as CatalogEntry),
+          manifest: candidate.manifest as PluginManifest,
+        };
+      }
+      return accumulator;
+    }, {});
 
     return {
-      schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : DEFAULT_SCHEMA_VERSION,
+      schemaVersion:
+        typeof parsed.schemaVersion === "number"
+          ? parsed.schemaVersion
+          : DEFAULT_SCHEMA_VERSION,
       entries: normalizedEntries,
-      slotAssignments: Object.entries(slotAssignments).reduce<Record<string, string>>((accumulator, [slot, pluginId]) => {
-        if (typeof pluginId === 'string') {
+      slotAssignments: Object.entries(slotAssignments).reduce<
+        Record<string, string>
+      >((accumulator, [slot, pluginId]) => {
+        if (typeof pluginId === "string") {
           accumulator[slot] = pluginId;
         }
         return accumulator;
       }, {}),
-      lastModifiedMs: typeof parsed.lastModifiedMs === 'number' ? parsed.lastModifiedMs : toDateNow(),
+      lastModifiedMs:
+        typeof parsed.lastModifiedMs === "number"
+          ? parsed.lastModifiedMs
+          : toDateNow(),
     };
   }
 

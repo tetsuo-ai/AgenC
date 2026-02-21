@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { TeamAuditEvent } from './types.js';
+import type { TeamAuditEvent } from "./types.js";
 
 export interface TeamAuditStore {
   append(event: TeamAuditEvent): void;

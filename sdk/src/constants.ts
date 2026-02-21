@@ -2,30 +2,36 @@
  * AgenC SDK Constants
  */
 
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey } from "@solana/web3.js";
 
 // ============================================================================
 // Program IDs
 // ============================================================================
 
 /** AgenC Coordination Program ID */
-export const PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
+export const PROGRAM_ID = new PublicKey(
+  "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
+);
 
 /** Privacy Cash Program ID */
-export const PRIVACY_CASH_PROGRAM_ID = new PublicKey('9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD');
+export const PRIVACY_CASH_PROGRAM_ID = new PublicKey(
+  "9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD",
+);
 
 /** AgenC verifier program ID — must match TRUSTED_RISC0_VERIFIER_PROGRAM_ID on-chain */
-export const VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
+export const VERIFIER_PROGRAM_ID = new PublicKey(
+  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+);
 
 // ============================================================================
 // RPC Endpoints
 // ============================================================================
 
 /** Default Devnet RPC endpoint */
-export const DEVNET_RPC = 'https://api.devnet.solana.com';
+export const DEVNET_RPC = "https://api.devnet.solana.com";
 
 /** Default Mainnet RPC (Helius recommended) */
-export const MAINNET_RPC = 'https://api.mainnet-beta.solana.com';
+export const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
 
 // ============================================================================
 // Size Constants
@@ -78,10 +84,9 @@ export const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
  * This value MUST match TRUSTED_RISC0_IMAGE_ID in complete_task_private.rs exactly.
  */
 export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
-  202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245,
-  211, 97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
+  202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245, 211,
+  97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
 ]);
-
 
 // ============================================================================
 // Recommended Compute Unit Budgets (issue #40)
@@ -176,10 +181,10 @@ export const MAX_PROTOCOL_FEE_BPS = 1000;
 
 /** Fee tier: [minCompletedTasks, discountBps] */
 export const FEE_TIERS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],       // Base tier: no discount
-  [50, 10],     // Bronze: 10 bps discount
-  [200, 25],    // Silver: 25 bps discount
-  [1000, 40],   // Gold: 40 bps discount
+  [0, 0], // Base tier: no discount
+  [50, 10], // Bronze: 10 bps discount
+  [200, 25], // Silver: 25 bps discount
+  [1000, 40], // Gold: 40 bps discount
 ] as const;
 
 /**
@@ -203,21 +208,21 @@ export enum TaskState {
 
 /** PDA seeds */
 export const SEEDS = {
-  PROTOCOL: Buffer.from('protocol'),
-  TASK: Buffer.from('task'),
-  CLAIM: Buffer.from('claim'),
-  AGENT: Buffer.from('agent'),
-  ESCROW: Buffer.from('escrow'),
-  DISPUTE: Buffer.from('dispute'),
-  VOTE: Buffer.from('vote'),
-  AUTHORITY_VOTE: Buffer.from('authority_vote'),
-  NULLIFIER: Buffer.from('nullifier'),
-  PROPOSAL: Buffer.from('proposal'),
-  GOVERNANCE_VOTE: Buffer.from('governance_vote'),
-  GOVERNANCE: Buffer.from('governance'),
-  SKILL: Buffer.from('skill'),
-  SKILL_RATING: Buffer.from('skill_rating'),
-  SKILL_PURCHASE: Buffer.from('skill_purchase'),
-  REPUTATION_STAKE: Buffer.from('reputation_stake'),
-  REPUTATION_DELEGATION: Buffer.from('reputation_delegation'),
+  PROTOCOL: Buffer.from("protocol"),
+  TASK: Buffer.from("task"),
+  CLAIM: Buffer.from("claim"),
+  AGENT: Buffer.from("agent"),
+  ESCROW: Buffer.from("escrow"),
+  DISPUTE: Buffer.from("dispute"),
+  VOTE: Buffer.from("vote"),
+  AUTHORITY_VOTE: Buffer.from("authority_vote"),
+  NULLIFIER: Buffer.from("nullifier"),
+  PROPOSAL: Buffer.from("proposal"),
+  GOVERNANCE_VOTE: Buffer.from("governance_vote"),
+  GOVERNANCE: Buffer.from("governance"),
+  SKILL: Buffer.from("skill"),
+  SKILL_RATING: Buffer.from("skill_rating"),
+  SKILL_PURCHASE: Buffer.from("skill_purchase"),
+  REPUTATION_STAKE: Buffer.from("reputation_stake"),
+  REPUTATION_DELEGATION: Buffer.from("reputation_delegation"),
 } as const;

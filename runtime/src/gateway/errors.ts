@@ -4,15 +4,18 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 export class GatewayValidationError extends RuntimeError {
   public readonly field: string;
   public readonly reason: string;
 
   constructor(field: string, reason: string) {
-    super(`Gateway config validation failed: ${field} — ${reason}`, RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR);
-    this.name = 'GatewayValidationError';
+    super(
+      `Gateway config validation failed: ${field} — ${reason}`,
+      RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
+    );
+    this.name = "GatewayValidationError";
     this.field = field;
     this.reason = reason;
   }
@@ -21,21 +24,21 @@ export class GatewayValidationError extends RuntimeError {
 export class GatewayConnectionError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.GATEWAY_CONNECTION_ERROR);
-    this.name = 'GatewayConnectionError';
+    this.name = "GatewayConnectionError";
   }
 }
 
 export class GatewayStateError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.GATEWAY_STATE_ERROR);
-    this.name = 'GatewayStateError';
+    this.name = "GatewayStateError";
   }
 }
 
 export class GatewayLifecycleError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.GATEWAY_LIFECYCLE_ERROR);
-    this.name = 'GatewayLifecycleError';
+    this.name = "GatewayLifecycleError";
   }
 }
 
@@ -48,7 +51,7 @@ export class WorkspaceValidationError extends RuntimeError {
       `Workspace validation failed: ${field} — ${reason}`,
       RuntimeErrorCodes.WORKSPACE_VALIDATION_ERROR,
     );
-    this.name = 'WorkspaceValidationError';
+    this.name = "WorkspaceValidationError";
     this.field = field;
     this.reason = reason;
   }
@@ -62,7 +65,7 @@ export class SubAgentSpawnError extends RuntimeError {
       `Failed to spawn sub-agent for session "${parentSessionId}": ${reason}`,
       RuntimeErrorCodes.SUB_AGENT_SPAWN_ERROR,
     );
-    this.name = 'SubAgentSpawnError';
+    this.name = "SubAgentSpawnError";
     this.parentSessionId = parentSessionId;
   }
 }
@@ -76,7 +79,7 @@ export class SubAgentTimeoutError extends RuntimeError {
       `Sub-agent "${sessionId}" timed out after ${timeoutMs}ms`,
       RuntimeErrorCodes.SUB_AGENT_TIMEOUT,
     );
-    this.name = 'SubAgentTimeoutError';
+    this.name = "SubAgentTimeoutError";
     this.sessionId = sessionId;
     this.timeoutMs = timeoutMs;
   }
@@ -90,7 +93,7 @@ export class SubAgentNotFoundError extends RuntimeError {
       `Sub-agent "${sessionId}" not found`,
       RuntimeErrorCodes.SUB_AGENT_NOT_FOUND,
     );
-    this.name = 'SubAgentNotFoundError';
+    this.name = "SubAgentNotFoundError";
     this.sessionId = sessionId;
   }
 }
@@ -98,6 +101,6 @@ export class SubAgentNotFoundError extends RuntimeError {
 export class GatewayAuthError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.REMOTE_AUTH_ERROR);
-    this.name = 'GatewayAuthError';
+    this.name = "GatewayAuthError";
   }
 }

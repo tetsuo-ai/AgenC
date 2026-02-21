@@ -9,15 +9,15 @@
  * @module
  */
 
-import type { MetricsSnapshot, HistogramEntry } from '../task/metrics.js';
+import type { MetricsSnapshot, HistogramEntry } from "../task/metrics.js";
 import type {
   TelemetryCollector,
   TelemetrySnapshot,
   TelemetrySink,
   TelemetryConfig,
-} from './types.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+} from "./types.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 const DEFAULT_MAX_HISTOGRAM_ENTRIES = 10_000;
 
@@ -29,11 +29,14 @@ const DEFAULT_MAX_HISTOGRAM_ENTRIES = 10_000;
  *   buildKey("a.b") → "a.b"
  *   buildKey("a.b", { method: "get", status: "ok" }) → "a.b|method=get|status=ok"
  */
-export function buildKey(name: string, labels?: Record<string, string>): string {
+export function buildKey(
+  name: string,
+  labels?: Record<string, string>,
+): string {
   if (!labels || Object.keys(labels).length === 0) return name;
   const sorted = Object.keys(labels).sort();
   const parts = sorted.map((k) => `${k}=${labels[k]}`);
-  return `${name}|${parts.join('|')}`;
+  return `${name}|${parts.join("|")}`;
 }
 
 /**
@@ -52,7 +55,8 @@ export class UnifiedTelemetryCollector implements TelemetryCollector {
 
   constructor(config?: TelemetryConfig, logger?: Logger) {
     this.logger = logger ?? silentLogger;
-    this.maxHistogramEntries = config?.maxHistogramEntries ?? DEFAULT_MAX_HISTOGRAM_ENTRIES;
+    this.maxHistogramEntries =
+      config?.maxHistogramEntries ?? DEFAULT_MAX_HISTOGRAM_ENTRIES;
 
     if (config?.sinks) {
       for (const sink of config.sinks) {
@@ -74,7 +78,11 @@ export class UnifiedTelemetryCollector implements TelemetryCollector {
     this.counters.set(key, current + value);
   }
 
-  histogram(name: string, value: number, labels?: Record<string, string>): void {
+  histogram(
+    name: string,
+    value: number,
+    labels?: Record<string, string>,
+  ): void {
     const key = buildKey(name, labels);
     let entries = this.histograms_.get(key);
     if (!entries) {
@@ -95,21 +103,37 @@ export class UnifiedTelemetryCollector implements TelemetryCollector {
 
   // ====== MetricsCollector interface (additional methods) ======
 
-  recordTaskDuration(stage: string, durationMs: number, labels?: Record<string, string>): void {
+  recordTaskDuration(
+    stage: string,
+    durationMs: number,
+    labels?: Record<string, string>,
+  ): void {
     this.histogram(`agenc.task.${stage}.duration_ms`, durationMs, labels);
   }
 
-  incrementCounter(name: string, value = 1, labels?: Record<string, string>): void {
+  incrementCounter(
+    name: string,
+    value = 1,
+    labels?: Record<string, string>,
+  ): void {
     this.counter(name, value, labels);
   }
 
-  recordHistogram(name: string, value: number, labels?: Record<string, string>): void {
+  recordHistogram(
+    name: string,
+    value: number,
+    labels?: Record<string, string>,
+  ): void {
     this.histogram(name, value, labels);
   }
 
   // ====== TelemetryCollector extensions ======
 
-  bigintGauge(name: string, value: bigint, labels?: Record<string, string>): void {
+  bigintGauge(
+    name: string,
+    value: bigint,
+    labels?: Record<string, string>,
+  ): void {
     const key = buildKey(name, labels);
     this.bigintGauges_.set(key, value);
   }

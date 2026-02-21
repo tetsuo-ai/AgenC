@@ -7,14 +7,14 @@
  * @module
  */
 
-import type { GatewayAuthConfig } from './remote-types.js';
+import type { GatewayAuthConfig } from "./remote-types.js";
 
 // ============================================================================
 // Gateway Configuration
 // ============================================================================
 
 export interface GatewayLLMConfig {
-  provider: 'grok' | 'anthropic' | 'ollama';
+  provider: "grok" | "anthropic" | "ollama";
   apiKey?: string;
   model?: string;
   baseUrl?: string;
@@ -27,7 +27,7 @@ export interface GatewayLLMConfig {
 }
 
 export interface GatewayMemoryConfig {
-  backend: 'memory' | 'sqlite' | 'redis';
+  backend: "memory" | "sqlite" | "redis";
   /** SQLite: database file path. Default: ~/.agenc/memory.db */
   dbPath?: string;
   /** Redis: connection URL (e.g. 'redis://localhost:6379') */
@@ -63,7 +63,7 @@ export interface GatewayConnectionConfig {
 }
 
 export interface GatewayLoggingConfig {
-  level?: 'debug' | 'info' | 'warn' | 'error';
+  level?: "debug" | "info" | "warn" | "error";
 }
 
 export interface GatewayBindConfig {
@@ -73,8 +73,8 @@ export interface GatewayBindConfig {
 
 export interface GatewayVoiceConfig {
   enabled?: boolean;
-  voice?: 'Ara' | 'Rex' | 'Sal' | 'Eve' | 'Leo';
-  mode?: 'vad' | 'push-to-talk';
+  voice?: "Ara" | "Rex" | "Sal" | "Eve" | "Leo";
+  mode?: "vad" | "push-to-talk";
   /** Separate API key for voice. Falls back to llm.apiKey when not set. */
   apiKey?: string;
 }
@@ -103,7 +103,7 @@ export interface GatewayConfig {
 // Gateway State
 // ============================================================================
 
-export type GatewayState = 'stopped' | 'starting' | 'running' | 'stopping';
+export type GatewayState = "stopped" | "starting" | "running" | "stopping";
 
 // ============================================================================
 // Gateway Status Snapshot
@@ -122,13 +122,13 @@ export interface GatewayStatus {
 // ============================================================================
 
 export type GatewayEvent =
-  | 'started'
-  | 'stopped'
-  | 'configReloaded'
-  | 'configError'
-  | 'channelConnected'
-  | 'channelDisconnected'
-  | 'error';
+  | "started"
+  | "stopped"
+  | "configReloaded"
+  | "configError"
+  | "channelConnected"
+  | "channelDisconnected"
+  | "error";
 
 export type GatewayEventHandler = (...args: unknown[]) => void;
 
@@ -140,7 +140,19 @@ export interface GatewayEventSubscription {
 // Control Plane Messages
 // ============================================================================
 
-export type ControlMessageType = 'ping' | 'status' | 'reload' | 'channels' | 'sessions' | 'sessions.kill' | 'auth' | 'config.get' | 'config.set' | 'wallet.info' | 'wallet.airdrop' | 'ollama.models';
+export type ControlMessageType =
+  | "ping"
+  | "status"
+  | "reload"
+  | "channels"
+  | "sessions"
+  | "sessions.kill"
+  | "auth"
+  | "config.get"
+  | "config.set"
+  | "wallet.info"
+  | "wallet.airdrop"
+  | "ollama.models";
 
 export interface ControlMessage {
   type: ControlMessageType;

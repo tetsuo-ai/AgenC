@@ -7,12 +7,12 @@
  * @module
  */
 
-import { PublicKey, SystemProgram, type AccountMeta } from '@solana/web3.js';
-import { toAnchorBytes } from '../utils/encoding.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import { PublicKey, SystemProgram, type AccountMeta } from "@solana/web3.js";
+import { toAnchorBytes } from "../utils/encoding.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import type {
   OnChainDispute,
   OnChainDisputeVote,
@@ -23,38 +23,42 @@ import type {
   ApplySlashParams,
   DisputeResult,
   VoteResult,
-} from './types.js';
+} from "./types.js";
 import {
   parseOnChainDispute,
   parseOnChainDisputeVote,
   OnChainDisputeStatus,
   DISPUTE_STATUS_OFFSET,
   DISPUTE_TASK_OFFSET,
-} from './types.js';
-import { deriveDisputePda, deriveVotePda } from './pda.js';
-import { findAgentPda, findProtocolPda, deriveAuthorityVotePda } from '../agent/pda.js';
-import { fetchTreasury } from '../utils/treasury.js';
-import { deriveClaimPda, deriveEscrowPda } from '../task/pda.js';
+} from "./types.js";
+import { deriveDisputePda, deriveVotePda } from "./pda.js";
+import {
+  findAgentPda,
+  findProtocolPda,
+  deriveAuthorityVotePda,
+} from "../agent/pda.js";
+import { fetchTreasury } from "../utils/treasury.js";
+import { deriveClaimPda, deriveEscrowPda } from "../task/pda.js";
 import {
   buildResolveDisputeTokenAccounts,
   buildExpireDisputeTokenAccounts,
   buildApplyDisputeSlashTokenAccounts,
-} from '../utils/token.js';
+} from "../utils/token.js";
 import {
   isAnchorError,
   AnchorErrorCodes,
   validateByteLength,
   validateNonZeroBytes,
   ValidationError,
-} from '../types/errors.js';
+} from "../types/errors.js";
 import {
   DisputeVoteError,
   DisputeResolutionError,
   DisputeSlashError,
-} from './errors.js';
-import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
-import type { MetricsProvider } from '../task/types.js';
-import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
+} from "./errors.js";
+import { encodeStatusByte, queryWithFallback } from "../utils/query.js";
+import type { MetricsProvider } from "../task/types.js";
+import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 
 // ============================================================================
 // Configuration
@@ -138,7 +142,9 @@ export class DisputeOperations {
         parseOnChainDispute(raw as Record<string, unknown>),
       );
     } catch (err) {
-      this.logger.error(`Failed to fetch dispute ${disputePda.toBase58()}: ${err}`);
+      this.logger.error(
+        `Failed to fetch dispute ${disputePda.toBase58()}: ${err}`,
+      );
       throw err;
     }
   }
@@ -152,7 +158,10 @@ export class DisputeOperations {
   async fetchDisputeByIds(
     disputeId: Uint8Array,
   ): Promise<{ dispute: OnChainDispute; disputePda: PublicKey } | null> {
-    const { address: disputePda } = deriveDisputePda(disputeId, this.program.programId);
+    const { address: disputePda } = deriveDisputePda(
+      disputeId,
+      this.program.programId,
+    );
     const dispute = await this.fetchDispute(disputePda);
     if (!dispute) return null;
     return { dispute, disputePda };
@@ -163,7 +172,9 @@ export class DisputeOperations {
    *
    * @returns Array of all disputes with their PDAs
    */
-  async fetchAllDisputes(): Promise<Array<{ dispute: OnChainDispute; disputePda: PublicKey }>> {
+  async fetchAllDisputes(): Promise<
+    Array<{ dispute: OnChainDispute; disputePda: PublicKey }>
+  > {
     const accounts = await this.program.account.dispute.all();
     const parsed = await Promise.all(
       accounts.map(async (acc) => ({
@@ -181,7 +192,9 @@ export class DisputeOperations {
    *
    * @returns Array of active disputes with their PDAs
    */
-  async fetchActiveDisputes(): Promise<Array<{ dispute: OnChainDispute; disputePda: PublicKey }>> {
+  async fetchActiveDisputes(): Promise<
+    Array<{ dispute: OnChainDispute; disputePda: PublicKey }>
+  > {
     return queryWithFallback(
       async () => {
         const accounts = await this.program.account.dispute.all([
@@ -203,10 +216,12 @@ export class DisputeOperations {
       },
       async () => {
         const all = await this.fetchAllDisputes();
-        return all.filter(({ dispute }) => dispute.status === OnChainDisputeStatus.Active);
+        return all.filter(
+          ({ dispute }) => dispute.status === OnChainDisputeStatus.Active,
+        );
       },
       this.logger,
-      'fetchActiveDisputes',
+      "fetchActiveDisputes",
     );
   }
 
@@ -243,7 +258,7 @@ export class DisputeOperations {
         return all.filter(({ dispute }) => dispute.task.equals(taskPda));
       },
       this.logger,
-      'fetchDisputesForTask',
+      "fetchDisputesForTask",
     );
   }
 
@@ -276,28 +291,44 @@ export class DisputeOperations {
    */
   async initiateDispute(params: InitiateDisputeParams): Promise<DisputeResult> {
     // Input validation (#963)
-    validateByteLength(params.disputeId, 32, 'disputeId');
-    validateByteLength(params.taskId, 32, 'taskId');
-    validateByteLength(params.evidenceHash, 32, 'evidenceHash');
-    validateNonZeroBytes(params.evidenceHash, 'evidenceHash');
+    validateByteLength(params.disputeId, 32, "disputeId");
+    validateByteLength(params.taskId, 32, "taskId");
+    validateByteLength(params.evidenceHash, 32, "evidenceHash");
+    validateNonZeroBytes(params.evidenceHash, "evidenceHash");
     if (!params.evidence || params.evidence.length === 0) {
-      throw new ValidationError('Invalid evidence: cannot be empty');
+      throw new ValidationError("Invalid evidence: cannot be empty");
     }
     if (params.evidence.length > 256) {
-      throw new ValidationError('Invalid evidence: exceeds maximum length (256 characters)');
+      throw new ValidationError(
+        "Invalid evidence: exceeds maximum length (256 characters)",
+      );
     }
     if (params.resolutionType < 0 || params.resolutionType > 2) {
-      throw new ValidationError('Invalid resolution type: must be 0 (Refund), 1 (Complete), or 2 (Split)');
+      throw new ValidationError(
+        "Invalid resolution type: must be 0 (Refund), 1 (Complete), or 2 (Split)",
+      );
     }
 
     const start = Date.now();
-    const { address: disputePda } = deriveDisputePda(params.disputeId, this.program.programId);
-    const { address: claimPda } = deriveClaimPda(params.taskPda, this.agentPda, this.program.programId);
+    const { address: disputePda } = deriveDisputePda(
+      params.disputeId,
+      this.program.programId,
+    );
+    const { address: claimPda } = deriveClaimPda(
+      params.taskPda,
+      this.agentPda,
+      this.program.programId,
+    );
 
-    this.logger.info(`Initiating dispute for task ${params.taskPda.toBase58()}`);
+    this.logger.info(
+      `Initiating dispute for task ${params.taskPda.toBase58()}`,
+    );
 
     try {
-      const remainingAccounts = this.buildRemainingAccounts(undefined, params.defendantWorkers);
+      const remainingAccounts = this.buildRemainingAccounts(
+        undefined,
+        params.defendantWorkers,
+      );
 
       const builder = this.program.methods
         .initiateDispute(
@@ -326,19 +357,25 @@ export class DisputeOperations {
       const signature = await builder.rpc();
 
       this.logger.info(`Dispute initiated: ${signature}`);
-      this.recordDisputeMetrics('initiate', Date.now() - start);
+      this.recordDisputeMetrics("initiate", Date.now() - start);
 
       return { disputePda, transactionSignature: signature };
     } catch (err) {
       const pda = disputePda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.InsufficientEvidence)) {
-        throw new DisputeResolutionError(pda, 'Insufficient evidence provided');
+        throw new DisputeResolutionError(pda, "Insufficient evidence provided");
       }
       if (isAnchorError(err, AnchorErrorCodes.EvidenceTooLong)) {
-        throw new DisputeResolutionError(pda, 'Evidence exceeds maximum allowed length');
+        throw new DisputeResolutionError(
+          pda,
+          "Evidence exceeds maximum allowed length",
+        );
       }
       if (isAnchorError(err, AnchorErrorCodes.InsufficientStakeForDispute)) {
-        throw new DisputeResolutionError(pda, 'Insufficient stake to initiate dispute');
+        throw new DisputeResolutionError(
+          pda,
+          "Insufficient stake to initiate dispute",
+        );
       }
       this.logger.error(`Failed to initiate dispute: ${err}`);
       throw err;
@@ -365,7 +402,7 @@ export class DisputeOperations {
     );
 
     this.logger.info(
-      `Voting ${params.approve ? 'for' : 'against'} dispute ${params.disputePda.toBase58()}`
+      `Voting ${params.approve ? "for" : "against"} dispute ${params.disputePda.toBase58()}`,
     );
 
     try {
@@ -385,22 +422,25 @@ export class DisputeOperations {
         .rpc();
 
       this.logger.info(`Vote cast: ${signature}`);
-      this.recordDisputeMetrics('vote', Date.now() - start);
+      this.recordDisputeMetrics("vote", Date.now() - start);
 
       return { votePda, transactionSignature: signature };
     } catch (err) {
       const pda = params.disputePda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.DisputeNotActive)) {
-        throw new DisputeVoteError(pda, 'Dispute is not active');
+        throw new DisputeVoteError(pda, "Dispute is not active");
       }
       if (isAnchorError(err, AnchorErrorCodes.VotingEnded)) {
-        throw new DisputeVoteError(pda, 'Voting period has ended');
+        throw new DisputeVoteError(pda, "Voting period has ended");
       }
       if (isAnchorError(err, AnchorErrorCodes.AlreadyVoted)) {
-        throw new DisputeVoteError(pda, 'Already voted on this dispute');
+        throw new DisputeVoteError(pda, "Already voted on this dispute");
       }
       if (isAnchorError(err, AnchorErrorCodes.NotArbiter)) {
-        throw new DisputeVoteError(pda, 'Not authorized to vote (not an arbiter)');
+        throw new DisputeVoteError(
+          pda,
+          "Not authorized to vote (not an arbiter)",
+        );
       }
       this.logger.error(`Failed to vote on dispute: ${err}`);
       throw err;
@@ -415,13 +455,18 @@ export class DisputeOperations {
    */
   async resolveDispute(params: ResolveDisputeParams): Promise<DisputeResult> {
     const start = Date.now();
-    const { address: escrowPda } = deriveEscrowPda(params.taskPda, this.program.programId);
+    const { address: escrowPda } = deriveEscrowPda(
+      params.taskPda,
+      this.program.programId,
+    );
 
     this.logger.info(`Resolving dispute ${params.disputePda.toBase58()}`);
 
     try {
       // Fetch task to determine if it's a token task (only need rewardMint)
-      const rawTask = await this.program.account.task.fetch(params.taskPda) as { rewardMint: PublicKey | null };
+      const rawTask = (await this.program.account.task.fetch(
+        params.taskPda,
+      )) as { rewardMint: PublicKey | null };
       const treasury = await this.getTreasury();
       const tokenAccounts = buildResolveDisputeTokenAccounts(
         rawTask.rewardMint ?? null,
@@ -436,21 +481,19 @@ export class DisputeOperations {
         params.extraWorkers,
       );
 
-      const builder = this.program.methods
-        .resolveDispute()
-        .accountsPartial({
-          dispute: params.disputePda,
-          task: params.taskPda,
-          escrow: escrowPda,
-          protocolConfig: this.protocolPda,
-          resolver: this.program.provider.publicKey,
-          creator: params.creatorPubkey,
-          workerClaim: params.workerClaimPda ?? null,
-          worker: params.workerAgentPda ?? null,
-          workerAuthority: params.workerAuthority ?? null,
-          systemProgram: SystemProgram.programId,
-          ...tokenAccounts,
-        });
+      const builder = this.program.methods.resolveDispute().accountsPartial({
+        dispute: params.disputePda,
+        task: params.taskPda,
+        escrow: escrowPda,
+        protocolConfig: this.protocolPda,
+        resolver: this.program.provider.publicKey,
+        creator: params.creatorPubkey,
+        workerClaim: params.workerClaimPda ?? null,
+        worker: params.workerAgentPda ?? null,
+        workerAuthority: params.workerAuthority ?? null,
+        systemProgram: SystemProgram.programId,
+        ...tokenAccounts,
+      });
 
       if (remainingAccounts.length > 0) {
         builder.remainingAccounts(remainingAccounts);
@@ -459,25 +502,31 @@ export class DisputeOperations {
       const signature = await builder.rpc();
 
       this.logger.info(`Dispute resolved: ${signature}`);
-      this.recordDisputeMetrics('resolve', Date.now() - start);
+      this.recordDisputeMetrics("resolve", Date.now() - start);
 
       return { disputePda: params.disputePda, transactionSignature: signature };
     } catch (err) {
       const pda = params.disputePda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.DisputeNotActive)) {
-        throw new DisputeResolutionError(pda, 'Dispute is not active');
+        throw new DisputeResolutionError(pda, "Dispute is not active");
       }
       if (isAnchorError(err, AnchorErrorCodes.VotingNotEnded)) {
-        throw new DisputeResolutionError(pda, 'Voting period has not ended');
+        throw new DisputeResolutionError(pda, "Voting period has not ended");
       }
       if (isAnchorError(err, AnchorErrorCodes.InsufficientVotes)) {
-        throw new DisputeResolutionError(pda, 'Insufficient votes to resolve');
+        throw new DisputeResolutionError(pda, "Insufficient votes to resolve");
       }
       if (isAnchorError(err, AnchorErrorCodes.UnauthorizedResolver)) {
-        throw new DisputeResolutionError(pda, 'Not authorized to resolve this dispute');
+        throw new DisputeResolutionError(
+          pda,
+          "Not authorized to resolve this dispute",
+        );
       }
       if (isAnchorError(err, AnchorErrorCodes.DisputeAlreadyResolved)) {
-        throw new DisputeResolutionError(pda, 'Dispute has already been resolved');
+        throw new DisputeResolutionError(
+          pda,
+          "Dispute has already been resolved",
+        );
       }
       this.logger.error(`Failed to resolve dispute: ${err}`);
       throw err;
@@ -503,7 +552,7 @@ export class DisputeOperations {
       if (!dispute) {
         throw new DisputeResolutionError(
           disputePda.toBase58(),
-          'Dispute not found',
+          "Dispute not found",
         );
       }
 
@@ -520,16 +569,19 @@ export class DisputeOperations {
         .rpc();
 
       this.logger.info(`Dispute cancelled: ${signature}`);
-      this.recordDisputeMetrics('cancel', Date.now() - start);
+      this.recordDisputeMetrics("cancel", Date.now() - start);
 
       return { disputePda, transactionSignature: signature };
     } catch (err) {
       const pda = disputePda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.DisputeNotActive)) {
-        throw new DisputeResolutionError(pda, 'Dispute is not active');
+        throw new DisputeResolutionError(pda, "Dispute is not active");
       }
       if (isAnchorError(err, AnchorErrorCodes.UnauthorizedResolver)) {
-        throw new DisputeResolutionError(pda, 'Only the dispute initiator can cancel');
+        throw new DisputeResolutionError(
+          pda,
+          "Only the dispute initiator can cancel",
+        );
       }
       this.logger.error(`Failed to cancel dispute: ${err}`);
       throw err;
@@ -545,13 +597,18 @@ export class DisputeOperations {
    */
   async expireDispute(params: ExpireDisputeParams): Promise<DisputeResult> {
     const start = Date.now();
-    const { address: escrowPda } = deriveEscrowPda(params.taskPda, this.program.programId);
+    const { address: escrowPda } = deriveEscrowPda(
+      params.taskPda,
+      this.program.programId,
+    );
 
     this.logger.info(`Expiring dispute ${params.disputePda.toBase58()}`);
 
     try {
       // Fetch task to determine if it's a token task (only need rewardMint)
-      const rawTask = await this.program.account.task.fetch(params.taskPda) as { rewardMint: PublicKey | null };
+      const rawTask = (await this.program.account.task.fetch(
+        params.taskPda,
+      )) as { rewardMint: PublicKey | null };
       const tokenAccounts = buildExpireDisputeTokenAccounts(
         rawTask.rewardMint ?? null,
         escrowPda,
@@ -564,19 +621,17 @@ export class DisputeOperations {
         params.extraWorkers,
       );
 
-      const builder = this.program.methods
-        .expireDispute()
-        .accountsPartial({
-          dispute: params.disputePda,
-          task: params.taskPda,
-          escrow: escrowPda,
-          protocolConfig: this.protocolPda,
-          creator: params.creatorPubkey,
-          workerClaim: params.workerClaimPda ?? null,
-          worker: params.workerAgentPda ?? null,
-          workerAuthority: params.workerAuthority ?? null,
-          ...tokenAccounts,
-        });
+      const builder = this.program.methods.expireDispute().accountsPartial({
+        dispute: params.disputePda,
+        task: params.taskPda,
+        escrow: escrowPda,
+        protocolConfig: this.protocolPda,
+        creator: params.creatorPubkey,
+        workerClaim: params.workerClaimPda ?? null,
+        worker: params.workerAgentPda ?? null,
+        workerAuthority: params.workerAuthority ?? null,
+        ...tokenAccounts,
+      });
 
       if (remainingAccounts.length > 0) {
         builder.remainingAccounts(remainingAccounts);
@@ -585,16 +640,16 @@ export class DisputeOperations {
       const signature = await builder.rpc();
 
       this.logger.info(`Dispute expired: ${signature}`);
-      this.recordDisputeMetrics('expire', Date.now() - start);
+      this.recordDisputeMetrics("expire", Date.now() - start);
 
       return { disputePda: params.disputePda, transactionSignature: signature };
     } catch (err) {
       const pda = params.disputePda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.DisputeNotExpired)) {
-        throw new DisputeResolutionError(pda, 'Dispute has not expired yet');
+        throw new DisputeResolutionError(pda, "Dispute has not expired yet");
       }
       if (isAnchorError(err, AnchorErrorCodes.DisputeNotActive)) {
-        throw new DisputeResolutionError(pda, 'Dispute is not active');
+        throw new DisputeResolutionError(pda, "Dispute is not active");
       }
       this.logger.error(`Failed to expire dispute: ${err}`);
       throw err;
@@ -611,12 +666,19 @@ export class DisputeOperations {
   async applySlash(params: ApplySlashParams): Promise<DisputeResult> {
     const start = Date.now();
     const treasury = await this.getTreasury();
-    const { address: escrowPda } = deriveEscrowPda(params.taskPda, this.program.programId);
+    const { address: escrowPda } = deriveEscrowPda(
+      params.taskPda,
+      this.program.programId,
+    );
 
-    this.logger.info(`Applying slash for dispute ${params.disputePda.toBase58()}`);
+    this.logger.info(
+      `Applying slash for dispute ${params.disputePda.toBase58()}`,
+    );
 
     try {
-      const rawTask = await this.program.account.task.fetch(params.taskPda) as { rewardMint: PublicKey | null };
+      const rawTask = (await this.program.account.task.fetch(
+        params.taskPda,
+      )) as { rewardMint: PublicKey | null };
       const tokenAccounts = buildApplyDisputeSlashTokenAccounts(
         rawTask.rewardMint ?? null,
         escrowPda,
@@ -637,16 +699,16 @@ export class DisputeOperations {
         .rpc();
 
       this.logger.info(`Slash applied: ${signature}`);
-      this.recordDisputeMetrics('applySlash', Date.now() - start);
+      this.recordDisputeMetrics("applySlash", Date.now() - start);
 
       return { disputePda: params.disputePda, transactionSignature: signature };
     } catch (err) {
       const pda = params.disputePda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.SlashAlreadyApplied)) {
-        throw new DisputeSlashError(pda, 'Slash has already been applied');
+        throw new DisputeSlashError(pda, "Slash has already been applied");
       }
       if (isAnchorError(err, AnchorErrorCodes.DisputeNotResolved)) {
-        throw new DisputeSlashError(pda, 'Dispute has not been resolved');
+        throw new DisputeSlashError(pda, "Dispute has not been resolved");
       }
       this.logger.error(`Failed to apply slash: ${err}`);
       throw err;
@@ -661,7 +723,11 @@ export class DisputeOperations {
     if (!this.metrics) return;
     const labels = { operation };
     this.metrics.counter(TELEMETRY_METRIC_NAMES.DISPUTE_OPS_TOTAL, 1, labels);
-    this.metrics.histogram(TELEMETRY_METRIC_NAMES.DISPUTE_OP_DURATION, durationMs, labels);
+    this.metrics.histogram(
+      TELEMETRY_METRIC_NAMES.DISPUTE_OP_DURATION,
+      durationMs,
+      labels,
+    );
   }
 
   /**
@@ -669,7 +735,10 @@ export class DisputeOperations {
    */
   private async getTreasury(): Promise<PublicKey> {
     if (this.cachedTreasury) return this.cachedTreasury;
-    this.cachedTreasury = await fetchTreasury(this.program, this.program.programId);
+    this.cachedTreasury = await fetchTreasury(
+      this.program,
+      this.program.programId,
+    );
     return this.cachedTreasury;
   }
 
@@ -686,7 +755,11 @@ export class DisputeOperations {
     const accounts: AccountMeta[] = [];
     for (const { votePda, arbiterAgentPda } of arbiterVotes ?? []) {
       accounts.push({ pubkey: votePda, isSigner: false, isWritable: true });
-      accounts.push({ pubkey: arbiterAgentPda, isSigner: false, isWritable: true });
+      accounts.push({
+        pubkey: arbiterAgentPda,
+        isSigner: false,
+        isWritable: true,
+      });
     }
     for (const { claimPda, workerPda } of workers ?? []) {
       accounts.push({ pubkey: claimPda, isSigner: false, isWritable: true });
@@ -699,12 +772,18 @@ export class DisputeOperations {
    * Attach the disputed task's reward mint to a parsed dispute.
    * Falls back to null if the task cannot be fetched.
    */
-  private async enrichDisputeWithRewardMint(dispute: OnChainDispute): Promise<OnChainDispute> {
+  private async enrichDisputeWithRewardMint(
+    dispute: OnChainDispute,
+  ): Promise<OnChainDispute> {
     try {
-      const rawTask = await this.program.account.task.fetch(dispute.task) as { rewardMint: PublicKey | null };
+      const rawTask = (await this.program.account.task.fetch(dispute.task)) as {
+        rewardMint: PublicKey | null;
+      };
       return { ...dispute, rewardMint: rawTask.rewardMint ?? null };
     } catch (err) {
-      this.logger.warn(`Failed to fetch reward mint for dispute task ${dispute.task.toBase58()}: ${String(err)}`);
+      this.logger.warn(
+        `Failed to fetch reward mint for dispute task ${dispute.task.toBase58()}: ${String(err)}`,
+      );
       return { ...dispute, rewardMint: null };
     }
   }

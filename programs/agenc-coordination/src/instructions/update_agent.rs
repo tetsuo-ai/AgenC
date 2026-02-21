@@ -27,6 +27,9 @@ pub struct UpdateAgent<'info> {
 /// Cooldown period between agent updates (1 minute)
 const UPDATE_COOLDOWN: i64 = 60;
 
+/// Maximum length for agent metadata URI
+const MAX_METADATA_URI_LEN: usize = 128;
+
 pub fn handler(
     ctx: Context<UpdateAgent>,
     capabilities: Option<u64>,
@@ -55,20 +58,23 @@ pub fn handler(
     }
 
     if let Some(uri) = metadata_uri {
-        require!(uri.len() <= 128, CoordinationError::StringTooLong);
+        require!(
+            uri.len() <= MAX_METADATA_URI_LEN,
+            CoordinationError::StringTooLong
+        );
         require!(validate_string_input(&uri), CoordinationError::InvalidInput);
         agent.metadata_uri = uri;
     }
 
     if let Some(s) = status {
         // Prevent suspended agents from changing their own status (only protocol authority can unsuspend)
-        if s != 3 && agent.status == AgentStatus::Suspended {
+        if s != AgentStatus::Suspended as u8 && agent.status == AgentStatus::Suspended {
             return Err(CoordinationError::AgentSuspended.into());
         }
 
         // Prevent setting status to Active while agent has active tasks
         // Agents with pending work should remain Busy, not advertise as available
-        if s == 1 && agent.active_tasks > 0 {
+        if s == AgentStatus::Active as u8 && agent.active_tasks > 0 {
             return Err(CoordinationError::AgentBusyWithTasks.into());
         }
 

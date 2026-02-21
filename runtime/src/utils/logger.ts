@@ -9,11 +9,11 @@ import {
   createLogger as sdkCreateLogger,
   type LogLevel,
   type Logger,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 
 // Re-export types and silentLogger directly — identical to SDK
-export { silentLogger } from '@agenc/sdk';
-export type { LogLevel, Logger } from '@agenc/sdk';
+export { silentLogger } from "@agenc/sdk";
+export type { LogLevel, Logger } from "@agenc/sdk";
 
 /**
  * Create a logger instance with the specified minimum level
@@ -29,6 +29,9 @@ export type { LogLevel, Logger } from '@agenc/sdk';
  * logger.debug('Debug info');   // 2026-01-21T12:00:00.001Z DEBUG [MyAgent] Debug info
  * ```
  */
-export function createLogger(minLevel: LogLevel = 'info', prefix = '[AgenC Runtime]'): Logger {
+export function createLogger(
+  minLevel: LogLevel = "info",
+  prefix = "[AgenC Runtime]",
+): Logger {
   return sdkCreateLogger(minLevel, prefix);
 }

@@ -8,8 +8,8 @@
  * 4. Salt generation produces valid field elements
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
+import { describe, it, expect, vi } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
 import {
   pubkeyToField,
   computeBinding,
@@ -19,29 +19,28 @@ import {
   computeNullifierFromAgentSecret,
   generateSalt,
   generateProof,
-  generateProofWithProver,
   FIELD_MODULUS,
-} from '../proofs';
+} from "../proofs";
 import {
   OUTPUT_FIELD_COUNT,
   RISC0_SEAL_BORSH_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   RISC0_SELECTOR_LEN,
-} from '../constants';
+} from "../constants";
 
-describe('proofs', () => {
-  describe('pubkeyToField', () => {
-    it('converts a pubkey to a field element', () => {
+describe("proofs", () => {
+  describe("pubkeyToField", () => {
+    it("converts a pubkey to a field element", () => {
       const keypair = Keypair.generate();
       const field = pubkeyToField(keypair.publicKey);
 
-      expect(typeof field).toBe('bigint');
+      expect(typeof field).toBe("bigint");
       expect(field).toBeGreaterThanOrEqual(0n);
       expect(field).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('produces deterministic results', () => {
+    it("produces deterministic results", () => {
       const keypair = Keypair.generate();
       const field1 = pubkeyToField(keypair.publicKey);
       const field2 = pubkeyToField(keypair.publicKey);
@@ -49,7 +48,7 @@ describe('proofs', () => {
       expect(field1).toBe(field2);
     });
 
-    it('produces different results for different pubkeys', () => {
+    it("produces different results for different pubkeys", () => {
       const keypair1 = Keypair.generate();
       const keypair2 = Keypair.generate();
       const field1 = pubkeyToField(keypair1.publicKey);
@@ -58,14 +57,14 @@ describe('proofs', () => {
       expect(field1).not.toBe(field2);
     });
 
-    it('handles zero pubkey', () => {
+    it("handles zero pubkey", () => {
       const zeroPubkey = new PublicKey(Buffer.alloc(32, 0));
       const field = pubkeyToField(zeroPubkey);
 
       expect(field).toBe(0n);
     });
 
-    it('handles max byte pubkey', () => {
+    it("handles max byte pubkey", () => {
       const maxPubkey = new PublicKey(Buffer.alloc(32, 0xff));
       const field = pubkeyToField(maxPubkey);
 
@@ -74,17 +73,17 @@ describe('proofs', () => {
     });
   });
 
-  describe('computeConstraintHash', () => {
-    it('hashes 4 field elements to a single field', () => {
+  describe("computeConstraintHash", () => {
+    it("hashes 4 field elements to a single field", () => {
       const output = [1n, 2n, 3n, 4n];
       const hash = computeConstraintHash(output);
 
-      expect(typeof hash).toBe('bigint');
+      expect(typeof hash).toBe("bigint");
       expect(hash).toBeGreaterThanOrEqual(0n);
       expect(hash).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('produces deterministic results', () => {
+    it("produces deterministic results", () => {
       const output = [1n, 2n, 3n, 4n];
       const hash1 = computeConstraintHash(output);
       const hash2 = computeConstraintHash(output);
@@ -92,7 +91,7 @@ describe('proofs', () => {
       expect(hash1).toBe(hash2);
     });
 
-    it('produces different results for different inputs', () => {
+    it("produces different results for different inputs", () => {
       const output1 = [1n, 2n, 3n, 4n];
       const output2 = [5n, 6n, 7n, 8n];
       const hash1 = computeConstraintHash(output1);
@@ -101,12 +100,12 @@ describe('proofs', () => {
       expect(hash1).not.toBe(hash2);
     });
 
-    it('rejects wrong number of elements', () => {
+    it("rejects wrong number of elements", () => {
       expect(() => computeConstraintHash([1n, 2n, 3n])).toThrow();
       expect(() => computeConstraintHash([1n, 2n, 3n, 4n, 5n])).toThrow();
     });
 
-    it('handles large field elements', () => {
+    it("handles large field elements", () => {
       const output = [
         FIELD_MODULUS - 1n,
         FIELD_MODULUS - 2n,
@@ -120,20 +119,20 @@ describe('proofs', () => {
     });
   });
 
-  describe('computeBinding', () => {
-    it('computes binding from task, agent, and commitment', () => {
+  describe("computeBinding", () => {
+    it("computes binding from task, agent, and commitment", () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       const outputCommitment = 12345n;
 
       const binding = computeBinding(taskPda, agentPubkey, outputCommitment);
 
-      expect(typeof binding).toBe('bigint');
+      expect(typeof binding).toBe("bigint");
       expect(binding).toBeGreaterThanOrEqual(0n);
       expect(binding).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('produces deterministic results', () => {
+    it("produces deterministic results", () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       const outputCommitment = 12345n;
@@ -144,7 +143,7 @@ describe('proofs', () => {
       expect(binding1).toBe(binding2);
     });
 
-    it('produces different results for different tasks', () => {
+    it("produces different results for different tasks", () => {
       const task1 = Keypair.generate().publicKey;
       const task2 = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
@@ -156,7 +155,7 @@ describe('proofs', () => {
       expect(binding1).not.toBe(binding2);
     });
 
-    it('produces different results for different agents', () => {
+    it("produces different results for different agents", () => {
       const taskPda = Keypair.generate().publicKey;
       const agent1 = Keypair.generate().publicKey;
       const agent2 = Keypair.generate().publicKey;
@@ -168,7 +167,7 @@ describe('proofs', () => {
       expect(binding1).not.toBe(binding2);
     });
 
-    it('produces different results for different commitments', () => {
+    it("produces different results for different commitments", () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
 
@@ -179,16 +178,16 @@ describe('proofs', () => {
     });
   });
 
-  describe('generateSalt', () => {
-    it('generates a valid field element', () => {
+  describe("generateSalt", () => {
+    it("generates a valid field element", () => {
       const salt = generateSalt();
 
-      expect(typeof salt).toBe('bigint');
+      expect(typeof salt).toBe("bigint");
       expect(salt).toBeGreaterThanOrEqual(0n);
       expect(salt).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('generates unique values', () => {
+    it("generates unique values", () => {
       const salts = new Set<bigint>();
       const iterations = 100;
 
@@ -200,7 +199,7 @@ describe('proofs', () => {
       expect(salts.size).toBe(iterations);
     });
 
-    it('generates non-zero values (with overwhelming probability)', () => {
+    it("generates non-zero values (with overwhelming probability)", () => {
       const iterations = 100;
       let hasNonZero = false;
 
@@ -215,8 +214,8 @@ describe('proofs', () => {
     });
   });
 
-  describe('computeHashes', () => {
-    it('computes all hashes in one call', () => {
+  describe("computeHashes", () => {
+    it("computes all hashes in one call", () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       const output = [1n, 2n, 3n, 4n];
@@ -234,7 +233,7 @@ describe('proofs', () => {
       expect(result.nullifier.toString(16).length).toBeLessThanOrEqual(64);
     });
 
-    it('produces consistent results with individual functions', () => {
+    it("produces consistent results with individual functions", () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       const output = [1n, 2n, 3n, 4n];
@@ -257,13 +256,13 @@ describe('proofs', () => {
           constraintHash,
           outputCommitment,
           pubkeyToField(agentPubkey),
-        )
+        ),
       );
     });
   });
 
-  describe('computeNullifierFromAgentSecret', () => {
-    it('produces different nullifier when output_commitment changes', () => {
+  describe("computeNullifierFromAgentSecret", () => {
+    it("produces different nullifier when output_commitment changes", () => {
       const constraintHash = 123n;
       const agentSecret = 456n;
       const outputCommitmentA = 10n;
@@ -283,7 +282,7 @@ describe('proofs', () => {
       expect(nullifierA).not.toBe(nullifierB);
     });
 
-    it('produces identical nullifier for identical inputs', () => {
+    it("produces identical nullifier for identical inputs", () => {
       const constraintHash = 999n;
       const outputCommitment = 123456n;
       const agentSecret = 789n;
@@ -304,8 +303,8 @@ describe('proofs', () => {
     });
   });
 
-  describe('end-to-end proof parameter generation', () => {
-    it('generates consistent parameters for proof creation', () => {
+  describe("end-to-end proof parameter generation", () => {
+    it("generates consistent parameters for proof creation", () => {
       // Simulate the full proof parameter generation flow
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
@@ -336,7 +335,7 @@ describe('proofs', () => {
       expect(binding2).toBe(binding);
     });
 
-    it('matches RISC Zero computation for known values', () => {
+    it("matches RISC Zero computation for known values", () => {
       // These test values should match the RISC Zero guest test fixtures
       // Task ID: 42 (0x2a) as 32-byte big-endian
       const taskIdBytes = Buffer.alloc(32, 0);
@@ -365,8 +364,8 @@ describe('proofs', () => {
     });
   });
 
-  describe('security edge cases', () => {
-    it('handles values exceeding field modulus (overflow wrapping)', () => {
+  describe("security edge cases", () => {
+    it("handles values exceeding field modulus (overflow wrapping)", () => {
       // Values exceeding FIELD_MODULUS should be reduced via modular arithmetic
       // This is handled internally by the hash functions
       const overflowOutput = [
@@ -384,7 +383,7 @@ describe('proofs', () => {
       expect(overflowHash).toBe(normalHash);
     });
 
-    it('demonstrates salt reuse vulnerability - same salt produces same commitment', () => {
+    it("demonstrates salt reuse vulnerability - same salt produces same commitment", () => {
       // SECURITY: This test demonstrates why salt reuse is dangerous
       // If an attacker can observe multiple commitments with the same salt,
       // they may be able to deduce information about the outputs
@@ -405,14 +404,20 @@ describe('proofs', () => {
       // CORRECT: Use unique salt for each proof
       const uniqueSalt1 = generateSalt();
       const uniqueSalt2 = generateSalt();
-      const secureCommitment1 = computeCommitmentFromOutput(output1, uniqueSalt1);
-      const secureCommitment2 = computeCommitmentFromOutput(output1, uniqueSalt2);
+      const secureCommitment1 = computeCommitmentFromOutput(
+        output1,
+        uniqueSalt1,
+      );
+      const secureCommitment2 = computeCommitmentFromOutput(
+        output1,
+        uniqueSalt2,
+      );
 
       // Same output with different salts produces different commitments
       expect(secureCommitment1).not.toBe(secureCommitment2);
     });
 
-    it('handles zero output safely', () => {
+    it("handles zero output safely", () => {
       // Edge case: zero output values should still produce valid commitment
       const zeroOutput = [0n, 0n, 0n, 0n];
       const salt = generateSalt();
@@ -422,7 +427,7 @@ describe('proofs', () => {
       expect(commitment).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('handles zero salt (should be avoided in practice)', () => {
+    it("handles zero salt (should be avoided in practice)", () => {
       // While technically valid, zero salt should be avoided
       const output = [1n, 2n, 3n, 4n];
       const zeroSalt = 0n;
@@ -433,7 +438,7 @@ describe('proofs', () => {
       expect(commitment).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('binding uniquely identifies task-agent-commitment tuple', () => {
+    it("binding uniquely identifies task-agent-commitment tuple", () => {
       // Security property: any change to task, agent, or commitment
       // must produce a different binding
       const taskPda = Keypair.generate().publicKey;
@@ -447,12 +452,18 @@ describe('proofs', () => {
       const altAgent = Keypair.generate().publicKey;
       const altCommitment = 67890n;
 
-      expect(computeBinding(altTask, agentPubkey, commitment)).not.toBe(originalBinding);
-      expect(computeBinding(taskPda, altAgent, commitment)).not.toBe(originalBinding);
-      expect(computeBinding(taskPda, agentPubkey, altCommitment)).not.toBe(originalBinding);
+      expect(computeBinding(altTask, agentPubkey, commitment)).not.toBe(
+        originalBinding,
+      );
+      expect(computeBinding(taskPda, altAgent, commitment)).not.toBe(
+        originalBinding,
+      );
+      expect(computeBinding(taskPda, agentPubkey, altCommitment)).not.toBe(
+        originalBinding,
+      );
     });
 
-    it('handles negative bigint values via modular reduction', () => {
+    it("handles negative bigint values via modular reduction", () => {
       // SECURITY: Negative bigints could cause undefined behavior if not handled
       // JavaScript allows negative bigints, but field arithmetic should reduce them
       // properly. Test that negative values are handled consistently.
@@ -476,12 +487,15 @@ describe('proofs', () => {
 
       // Test negative salt handling
       const negativeSalt = -12345n;
-      const commitment = computeCommitmentFromOutput([1n, 2n, 3n, 4n], negativeSalt);
+      const commitment = computeCommitmentFromOutput(
+        [1n, 2n, 3n, 4n],
+        negativeSalt,
+      );
       expect(commitment).toBeGreaterThanOrEqual(0n);
       expect(commitment).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('handles negative commitment in binding computation', () => {
+    it("handles negative commitment in binding computation", () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       const negativeCommitment = -12345n;
@@ -492,7 +506,7 @@ describe('proofs', () => {
       expect(binding).toBeLessThan(FIELD_MODULUS);
     });
 
-    it('pubkeyToField produces consistent results for edge case pubkeys', () => {
+    it("pubkeyToField produces consistent results for edge case pubkeys", () => {
       // Test pubkey with specific bit patterns that could cause issues
       // All high bits set
       const highBitsPubkey = new PublicKey(Buffer.alloc(32, 0x80));
@@ -515,7 +529,7 @@ describe('proofs', () => {
       expect(pubkeyToField(alternatingPubkey)).toBe(alternatingField);
     });
 
-    it('large output values are reduced correctly', () => {
+    it("large output values are reduced correctly", () => {
       // SECURITY: Very large values (much larger than FIELD_MODULUS) should be reduced
       const veryLargeOutput = [
         FIELD_MODULUS * 1000n + 1n,
@@ -533,36 +547,74 @@ describe('proofs', () => {
     });
   });
 
-  describe('generateProof salt validation', () => {
-    it('rejects zero salt', async () => {
+  describe("generateProof salt validation", () => {
+    it("rejects zero salt", async () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       await expect(
-        generateProof({
-          taskPda,
-          agentPubkey,
-          output: [1n, 2n, 3n, 4n],
-          salt: 0n,
-        })
-      ).rejects.toThrow('non-zero');
+        generateProof(
+          {
+            taskPda,
+            agentPubkey,
+            output: [1n, 2n, 3n, 4n],
+            salt: 0n,
+          },
+          { kind: "local-binary", binaryPath: "/test" },
+        ),
+      ).rejects.toThrow("non-zero");
     });
 
-    it('accepts non-zero salt', async () => {
-      const taskPda = Keypair.generate().publicKey;
-      const agentPubkey = Keypair.generate().publicKey;
-      const result = await generateProof({
-        taskPda,
-        agentPubkey,
-        output: [1n, 2n, 3n, 4n],
+    it("accepts non-zero salt", async () => {
+      const params = {
+        taskPda: Keypair.generate().publicKey,
+        agentPubkey: Keypair.generate().publicKey,
+        output: [1n, 2n, 3n, 4n] as bigint[],
         salt: 42n,
         agentSecret: 12345n,
+      };
+
+      const agentSecret = params.agentSecret;
+      const hashes = computeHashes(
+        params.taskPda,
+        params.agentPubkey,
+        params.output,
+        params.salt,
+        agentSecret,
+      );
+      const toBytes32 = (v: bigint): Buffer => {
+        const hex = v.toString(16).padStart(64, "0");
+        return Buffer.from(hex, "hex");
+      };
+      const expectedJournal = Buffer.concat([
+        Buffer.from(params.taskPda.toBytes()),
+        Buffer.from(params.agentPubkey.toBytes()),
+        toBytes32(hashes.constraintHash),
+        toBytes32(hashes.outputCommitment),
+        toBytes32(hashes.binding),
+        toBytes32(hashes.nullifier),
+      ]);
+
+      vi.doMock("../prover", () => ({
+        prove: vi.fn().mockResolvedValue({
+          sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN, 0xab),
+          journal: expectedJournal,
+          imageId: Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xcd),
+        }),
+      }));
+
+      const { generateProof: fn } = await import("../proofs");
+      const result = await fn(params, {
+        kind: "local-binary",
+        binaryPath: "/test",
       });
       expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
       expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
+
+      vi.doUnmock("../prover");
     });
   });
 
-  describe('generateProofWithProver', () => {
+  describe("generateProof", () => {
     /**
      * Helper: given proof params, compute the expected journal so the mock
      * prover can return matching bytes.
@@ -574,7 +626,8 @@ describe('proofs', () => {
       salt: bigint;
       agentSecret?: bigint;
     }): Buffer {
-      const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
+      const agentSecret =
+        params.agentSecret ?? pubkeyToField(params.agentPubkey);
       const hashes = computeHashes(
         params.taskPda,
         params.agentPubkey,
@@ -585,9 +638,9 @@ describe('proofs', () => {
 
       const toBytes32 = (v: bigint): Buffer => {
         const MAX_U256 = (1n << 256n) - 1n;
-        if (v < 0n || v > MAX_U256) throw new Error('out of range');
-        const hex = v.toString(16).padStart(64, '0');
-        return Buffer.from(hex, 'hex');
+        if (v < 0n || v > MAX_U256) throw new Error("out of range");
+        const hex = v.toString(16).padStart(64, "0");
+        return Buffer.from(hex, "hex");
       };
 
       return Buffer.concat([
@@ -612,13 +665,13 @@ describe('proofs', () => {
       };
     }
 
-    it('returns all ProofResult fields with correct lengths', async () => {
+    it("returns all ProofResult fields with correct lengths", async () => {
       const params = makeProofParams();
       const expectedJournal = buildExpectedJournal(params);
       const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BORSH_LEN, 0xab);
       const fakeImageId = Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xcd);
 
-      vi.doMock('../prover', () => ({
+      vi.doMock("../prover", () => ({
         prove: vi.fn().mockResolvedValue({
           sealBytes: fakeSealBytes,
           journal: expectedJournal,
@@ -626,15 +679,20 @@ describe('proofs', () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import('../proofs');
-      const result = await fn(params, { kind: 'local-binary', binaryPath: '/test' });
+      const { generateProof: fn } = await import("../proofs");
+      const result = await fn(params, {
+        kind: "local-binary",
+        binaryPath: "/test",
+      });
 
       expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
       expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
       expect(result.imageId.length).toBe(RISC0_IMAGE_ID_LEN);
       expect(result.bindingSeed.length).toBe(32);
       expect(result.nullifierSeed.length).toBe(32);
-      expect(result.proof.length).toBe(RISC0_SEAL_BORSH_LEN - RISC0_SELECTOR_LEN);
+      expect(result.proof.length).toBe(
+        RISC0_SEAL_BORSH_LEN - RISC0_SELECTOR_LEN,
+      );
       expect(result.constraintHash.length).toBe(32);
       expect(result.outputCommitment.length).toBe(32);
       expect(result.binding.length).toBe(32);
@@ -642,19 +700,22 @@ describe('proofs', () => {
       expect(result.proofSize).toBe(RISC0_SEAL_BORSH_LEN - RISC0_SELECTOR_LEN);
       expect(result.generationTime).toBeGreaterThanOrEqual(0);
 
-      vi.doUnmock('../prover');
+      vi.doUnmock("../prover");
     });
 
-    it('proof is sealBytes minus the 4-byte selector', async () => {
+    it("proof is sealBytes minus the 4-byte selector", async () => {
       const params = makeProofParams();
       const expectedJournal = buildExpectedJournal(params);
       const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BORSH_LEN);
       // Write recognizable pattern in selector and body
-      fakeSealBytes[0] = 0x52; fakeSealBytes[1] = 0x5a;
-      fakeSealBytes[2] = 0x56; fakeSealBytes[3] = 0x4d;
-      for (let i = 4; i < RISC0_SEAL_BORSH_LEN; i++) fakeSealBytes[i] = i & 0xff;
+      fakeSealBytes[0] = 0x52;
+      fakeSealBytes[1] = 0x5a;
+      fakeSealBytes[2] = 0x56;
+      fakeSealBytes[3] = 0x4d;
+      for (let i = 4; i < RISC0_SEAL_BORSH_LEN; i++)
+        fakeSealBytes[i] = i & 0xff;
 
-      vi.doMock('../prover', () => ({
+      vi.doMock("../prover", () => ({
         prove: vi.fn().mockResolvedValue({
           sealBytes: fakeSealBytes,
           journal: expectedJournal,
@@ -662,21 +723,24 @@ describe('proofs', () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import('../proofs');
-      const result = await fn(params, { kind: 'local-binary', binaryPath: '/test' });
+      const { generateProof: fn } = await import("../proofs");
+      const result = await fn(params, {
+        kind: "local-binary",
+        binaryPath: "/test",
+      });
 
       // proof should be bytes [4..260] of sealBytes
       expect(result.proof.length).toBe(256);
       expect(result.proof[0]).toBe(4 & 0xff);
 
-      vi.doUnmock('../prover');
+      vi.doUnmock("../prover");
     });
 
-    it('rejects journal mismatch from prover', async () => {
+    it("rejects journal mismatch from prover", async () => {
       const params = makeProofParams();
       const tamperedJournal = Buffer.alloc(RISC0_JOURNAL_LEN, 0xff); // all 0xff — won't match
 
-      vi.doMock('../prover', () => ({
+      vi.doMock("../prover", () => ({
         prove: vi.fn().mockResolvedValue({
           sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN),
           journal: tamperedJournal,
@@ -684,36 +748,38 @@ describe('proofs', () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import('../proofs');
-      await expect(fn(params, { kind: 'local-binary', binaryPath: '/test' }))
-        .rejects.toThrow('does not match computed fields');
+      const { generateProof: fn } = await import("../proofs");
+      await expect(
+        fn(params, { kind: "local-binary", binaryPath: "/test" }),
+      ).rejects.toThrow("does not match computed fields");
 
-      vi.doUnmock('../prover');
+      vi.doUnmock("../prover");
     });
 
-    it('propagates ProverError from backend', async () => {
+    it("propagates ProverError from backend", async () => {
       const params = makeProofParams();
-      const { ProverError: PE } = await import('../prover');
+      const { ProverError: PE } = await import("../prover");
 
-      vi.doMock('../prover', () => ({
-        prove: vi.fn().mockRejectedValue(
-          new PE('binary crashed', 'local-binary'),
-        ),
+      vi.doMock("../prover", () => ({
+        prove: vi
+          .fn()
+          .mockRejectedValue(new PE("binary crashed", "local-binary")),
       }));
 
-      const { generateProofWithProver: fn } = await import('../proofs');
-      await expect(fn(params, { kind: 'local-binary', binaryPath: '/test' }))
-        .rejects.toThrow('binary crashed');
+      const { generateProof: fn } = await import("../proofs");
+      await expect(
+        fn(params, { kind: "local-binary", binaryPath: "/test" }),
+      ).rejects.toThrow("binary crashed");
 
-      vi.doUnmock('../prover');
+      vi.doUnmock("../prover");
     });
 
-    it('locally computed hashes match individual function results', async () => {
+    it("locally computed hashes match individual function results", async () => {
       const params = makeProofParams();
       const expectedJournal = buildExpectedJournal(params);
       const fakeImageId = Buffer.alloc(RISC0_IMAGE_ID_LEN, 0x11);
 
-      vi.doMock('../prover', () => ({
+      vi.doMock("../prover", () => ({
         prove: vi.fn().mockResolvedValue({
           sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN),
           journal: expectedJournal,
@@ -721,8 +787,11 @@ describe('proofs', () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import('../proofs');
-      const result = await fn(params, { kind: 'remote', endpoint: 'https://test.com' });
+      const { generateProof: fn } = await import("../proofs");
+      const result = await fn(params, {
+        kind: "remote",
+        endpoint: "https://test.com",
+      });
 
       // Verify hash buffers match what computeHashes would produce
       const hashes = computeHashes(
@@ -734,16 +803,22 @@ describe('proofs', () => {
       );
 
       const toBytes32 = (v: bigint): Buffer => {
-        const hex = v.toString(16).padStart(64, '0');
-        return Buffer.from(hex, 'hex');
+        const hex = v.toString(16).padStart(64, "0");
+        return Buffer.from(hex, "hex");
       };
 
-      expect(result.constraintHash.equals(toBytes32(hashes.constraintHash))).toBe(true);
-      expect(result.outputCommitment.equals(toBytes32(hashes.outputCommitment))).toBe(true);
+      expect(
+        result.constraintHash.equals(toBytes32(hashes.constraintHash)),
+      ).toBe(true);
+      expect(
+        result.outputCommitment.equals(toBytes32(hashes.outputCommitment)),
+      ).toBe(true);
       expect(result.bindingSeed.equals(toBytes32(hashes.binding))).toBe(true);
-      expect(result.nullifierSeed.equals(toBytes32(hashes.nullifier))).toBe(true);
+      expect(result.nullifierSeed.equals(toBytes32(hashes.nullifier))).toBe(
+        true,
+      );
 
-      vi.doUnmock('../prover');
+      vi.doUnmock("../prover");
     });
   });
 });

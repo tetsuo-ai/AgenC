@@ -4,17 +4,21 @@
  * Focuses on the critical invariant: proofs only submit when ALL ancestors are confirmed.
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
 import {
   ProofDeferralManager,
   type ProofDeferralConfig,
   type ProofDeferralEvents,
-} from './proof-deferral.js';
-import { CommitmentLedger } from './commitment-ledger.js';
-import { DependencyGraph } from './dependency-graph.js';
-import type { ProofPipeline, ProofGenerationJob } from './proof-pipeline.js';
-import type { TaskExecutionResult, OnChainTask, PrivateTaskExecutionResult } from './types.js';
+} from "./proof-deferral.js";
+import { CommitmentLedger } from "./commitment-ledger.js";
+import { DependencyGraph } from "./dependency-graph.js";
+import type { ProofPipeline, ProofGenerationJob } from "./proof-pipeline.js";
+import type {
+  TaskExecutionResult,
+  OnChainTask,
+  PrivateTaskExecutionResult,
+} from "./types.js";
 
 // ============================================================================
 // Test Utilities
@@ -62,7 +66,8 @@ function createMockExecutionResult(taskPda: PublicKey): TaskExecutionResult {
 class MockProofPipeline {
   private jobs: Map<string, ProofGenerationJob> = new Map();
   private jobIdCounter = 0;
-  private waitResolvers: Map<string, Array<(job: ProofGenerationJob) => void>> = new Map();
+  private waitResolvers: Map<string, Array<(job: ProofGenerationJob) => void>> =
+    new Map();
   private waitRejecters: Map<string, Array<(err: Error) => void>> = new Map();
 
   public shouldAutoConfirm = false;
@@ -73,7 +78,7 @@ class MockProofPipeline {
   enqueue(
     taskPda: PublicKey,
     taskId: Uint8Array,
-    result: TaskExecutionResult | PrivateTaskExecutionResult
+    result: TaskExecutionResult | PrivateTaskExecutionResult,
   ): ProofGenerationJob {
     const pdaKey = taskPda.toBase58();
 
@@ -82,10 +87,10 @@ class MockProofPipeline {
       taskPda,
       taskId: new Uint8Array(taskId),
       executionResult: result,
-      status: 'queued',
+      status: "queued",
       createdAt: Date.now(),
       retryCount: 0,
-      isPrivate: 'proof' in result,
+      isPrivate: "proof" in result,
     };
 
     this.jobs.set(pdaKey, job);
@@ -93,11 +98,11 @@ class MockProofPipeline {
     // Auto-generate proof immediately
     setTimeout(() => {
       const currentJob = this.jobs.get(pdaKey);
-      if (currentJob && currentJob.status === 'queued') {
-        currentJob.status = 'generating';
+      if (currentJob && currentJob.status === "queued") {
+        currentJob.status = "generating";
         setTimeout(() => {
-          if (currentJob.status === 'generating') {
-            currentJob.status = 'generated';
+          if (currentJob.status === "generating") {
+            currentJob.status = "generated";
             currentJob.proofBytes = new Uint8Array(388);
 
             if (this.shouldAutoConfirm) {
@@ -119,7 +124,7 @@ class MockProofPipeline {
 
   async waitForConfirmation(
     taskPda: PublicKey,
-    timeoutMs?: number
+    timeoutMs?: number,
   ): Promise<ProofGenerationJob> {
     const pdaKey = taskPda.toBase58();
     const job = this.jobs.get(pdaKey);
@@ -128,12 +133,12 @@ class MockProofPipeline {
       throw new Error(`No job found for task ${pdaKey}`);
     }
 
-    if (job.status === 'confirmed') {
+    if (job.status === "confirmed") {
       return job;
     }
 
-    if (job.status === 'failed') {
-      throw job.error ?? new Error('Job failed');
+    if (job.status === "failed") {
+      throw job.error ?? new Error("Job failed");
     }
 
     // Use short timeout for tests to trigger catch block quickly
@@ -150,8 +155,8 @@ class MockProofPipeline {
       setTimeout(() => {
         // Check if job was confirmed before timeout
         const currentJob = this.jobs.get(pdaKey);
-        if (currentJob?.status !== 'confirmed') {
-          reject(new Error('Timeout waiting for confirmation'));
+        if (currentJob?.status !== "confirmed") {
+          reject(new Error("Timeout waiting for confirmation"));
         }
       }, effectiveTimeout);
     });
@@ -160,7 +165,7 @@ class MockProofPipeline {
   confirmJob(pdaKey: string): void {
     const job = this.jobs.get(pdaKey);
     if (job) {
-      job.status = 'confirmed';
+      job.status = "confirmed";
       job.transactionSignature = `sig-${pdaKey.slice(0, 8)}`;
       job.completedAt = Date.now();
 
@@ -176,9 +181,9 @@ class MockProofPipeline {
   cancel(taskPda: PublicKey): boolean {
     const pdaKey = taskPda.toBase58();
     const job = this.jobs.get(pdaKey);
-    if (job && (job.status === 'queued' || job.status === 'generating')) {
-      job.status = 'failed';
-      job.error = new Error('Cancelled');
+    if (job && (job.status === "queued" || job.status === "generating")) {
+      job.status = "failed";
+      job.error = new Error("Cancelled");
       return true;
     }
     return false;
@@ -210,14 +215,14 @@ class MockProofPipeline {
 async function waitForProofGenerated(
   manager: ProofDeferralManager,
   taskPda: PublicKey,
-  maxWaitMs = 500
+  maxWaitMs = 500,
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
     const status = manager.getStatus(taskPda)?.status;
     // Wait for proof to move past generating/queued state
     // and reach generated, awaiting_ancestors, submitting, confirmed, or failed
-    if (status !== 'generating' && status !== 'queued') {
+    if (status !== "generating" && status !== "queued") {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -230,7 +235,7 @@ async function waitForProofGenerated(
 // Test Setup
 // ============================================================================
 
-describe('ProofDeferralManager', () => {
+describe("ProofDeferralManager", () => {
   let commitmentLedger: CommitmentLedger;
   let dependencyGraph: DependencyGraph;
   let mockPipeline: MockProofPipeline;
@@ -274,7 +279,7 @@ describe('ProofDeferralManager', () => {
       events,
       commitmentLedger,
       dependencyGraph,
-      mockPipeline as unknown as ProofPipeline
+      mockPipeline as unknown as ProofPipeline,
     );
   });
 
@@ -287,8 +292,8 @@ describe('ProofDeferralManager', () => {
   // Basic Functionality Tests
   // ==========================================================================
 
-  describe('Basic Functionality', () => {
-    it('should queue a proof for a root task', () => {
+  describe("Basic Functionality", () => {
+    it("should queue a proof for a root task", () => {
       const taskPda = createTaskPda();
       const taskId = createTaskId();
       const task = createOnChainTask(taskId);
@@ -306,10 +311,10 @@ describe('ProofDeferralManager', () => {
       // Check status
       const status = manager.getStatus(taskPda);
       expect(status).toBeDefined();
-      expect(status?.status).toBe('generating');
+      expect(status?.status).toBe("generating");
     });
 
-    it('should reject duplicate proof queue requests', () => {
+    it("should reject duplicate proof queue requests", () => {
       const taskPda = createTaskPda();
       const taskId = createTaskId();
       const task = createOnChainTask(taskId);
@@ -320,11 +325,11 @@ describe('ProofDeferralManager', () => {
       manager.queueProof(taskPda, result);
 
       expect(() => manager.queueProof(taskPda, result)).toThrow(
-        /Proof already queued/
+        /Proof already queued/,
       );
     });
 
-    it('should track proof generation lifecycle', () => {
+    it("should track proof generation lifecycle", () => {
       const taskPda = createTaskPda();
       const taskId = createTaskId();
       const task = createOnChainTask(taskId);
@@ -335,7 +340,7 @@ describe('ProofDeferralManager', () => {
         taskId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
       commitmentLedger.markConfirmed(taskPda);
 
@@ -348,7 +353,7 @@ describe('ProofDeferralManager', () => {
       expect(events.onProofGenerating).toHaveBeenCalled();
     });
 
-    it('should return correct stats', () => {
+    it("should return correct stats", () => {
       const stats = manager.getStats();
       expect(stats.total).toBe(0);
       expect(stats.queued).toBe(0);
@@ -360,8 +365,8 @@ describe('ProofDeferralManager', () => {
   // CRITICAL: Submission Ordering Invariant Tests
   // ==========================================================================
 
-  describe('Submission Ordering Invariant', () => {
-    it('should block submission when ancestor is not confirmed', async () => {
+  describe("Submission Ordering Invariant", () => {
+    it("should block submission when ancestor is not confirmed", async () => {
       // Create ancestor and child tasks
       const ancestorPda = createTaskPda();
       const ancestorId = createTaskId();
@@ -381,7 +386,7 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
       // Note: NOT marking confirmed!
 
@@ -398,14 +403,14 @@ describe('ProofDeferralManager', () => {
 
       // Check status is awaiting ancestors
       const status = manager.getStatus(childPda);
-      expect(status?.status).toBe('awaiting_ancestors');
+      expect(status?.status).toBe("awaiting_ancestors");
       expect(status?.pendingAncestors.length).toBeGreaterThan(0);
 
       // Check events
       expect(events.onProofAwaitingAncestors).toHaveBeenCalled();
     });
 
-    it('should block submission when any ancestor in chain is not confirmed', async () => {
+    it("should block submission when any ancestor in chain is not confirmed", async () => {
       // Create a 3-level chain: grandparent -> parent -> child
       const grandparentPda = createTaskPda();
       const grandparentId = createTaskId();
@@ -430,7 +435,7 @@ describe('ProofDeferralManager', () => {
         grandparentId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
       commitmentLedger.markConfirmed(grandparentPda);
 
@@ -440,7 +445,7 @@ describe('ProofDeferralManager', () => {
         parentId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
       // Not confirmed!
 
@@ -456,10 +461,10 @@ describe('ProofDeferralManager', () => {
       expect(submitted).toBe(false);
 
       const status = manager.getStatus(childPda);
-      expect(status?.status).toBe('awaiting_ancestors');
+      expect(status?.status).toBe("awaiting_ancestors");
     });
 
-    it('should allow submission when all ancestors are confirmed', async () => {
+    it("should allow submission when all ancestors are confirmed", async () => {
       // Create ancestor and child
       const ancestorPda = createTaskPda();
       const ancestorId = createTaskId();
@@ -479,7 +484,7 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
       commitmentLedger.markConfirmed(ancestorPda);
 
@@ -489,7 +494,7 @@ describe('ProofDeferralManager', () => {
         childId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
 
       mockPipeline.shouldAutoConfirm = true;
@@ -507,10 +512,12 @@ describe('ProofDeferralManager', () => {
 
       // Should proceed with submission (or already submitted)
       const status = manager.getStatus(childPda);
-      expect(['submitting', 'confirmed', 'generated']).toContain(status?.status);
+      expect(["submitting", "confirmed", "generated"]).toContain(
+        status?.status,
+      );
     });
 
-    it('should allow root tasks to submit immediately', async () => {
+    it("should allow root tasks to submit immediately", async () => {
       const taskPda = createTaskPda();
       const taskId = createTaskId();
       const task = createOnChainTask(taskId);
@@ -524,7 +531,7 @@ describe('ProofDeferralManager', () => {
         taskId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
       commitmentLedger.markConfirmed(taskPda);
 
@@ -539,8 +546,8 @@ describe('ProofDeferralManager', () => {
 
       const status = manager.getStatus(taskPda);
       // Should be confirmed or submitting (no ancestors to wait for)
-      expect(['submitting', 'confirmed', 'generating', 'generated']).toContain(
-        status?.status
+      expect(["submitting", "confirmed", "generating", "generated"]).toContain(
+        status?.status,
       );
     });
   });
@@ -549,8 +556,8 @@ describe('ProofDeferralManager', () => {
   // Ancestor Confirmation Unblocking Tests
   // ==========================================================================
 
-  describe('Ancestor Confirmation Unblocking', () => {
-    it('should unblock proof when ancestor is confirmed', async () => {
+  describe("Ancestor Confirmation Unblocking", () => {
+    it("should unblock proof when ancestor is confirmed", async () => {
       // Create ancestor and child
       const ancestorPda = createTaskPda();
       const ancestorId = createTaskId();
@@ -569,7 +576,7 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
 
       // Queue child proof
@@ -581,7 +588,7 @@ describe('ProofDeferralManager', () => {
 
       // Attempt submission - should be blocked
       await manager.trySubmit(childPda);
-      expect(manager.getStatus(childPda)?.status).toBe('awaiting_ancestors');
+      expect(manager.getStatus(childPda)?.status).toBe("awaiting_ancestors");
 
       // Check blocked proofs list
       const blocked = manager.getBlockedProofs();
@@ -603,7 +610,7 @@ describe('ProofDeferralManager', () => {
       expect(status?.pendingAncestors.length).toBe(0);
     });
 
-    it('should handle multiple children waiting on same ancestor', async () => {
+    it("should handle multiple children waiting on same ancestor", async () => {
       const ancestorPda = createTaskPda();
       const ancestorId = createTaskId();
       const ancestorTask = createOnChainTask(ancestorId);
@@ -627,7 +634,7 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
 
       // Queue both children
@@ -657,7 +664,7 @@ describe('ProofDeferralManager', () => {
       expect(blockedAfter.length).toBe(0);
     });
 
-    it('should handle chain of ancestors confirming in order', async () => {
+    it("should handle chain of ancestors confirming in order", async () => {
       // Chain: A -> B -> C
       const aPda = createTaskPda();
       const aId = createTaskId();
@@ -676,8 +683,20 @@ describe('ProofDeferralManager', () => {
       dependencyGraph.addTaskWithParent(cTask, cPda, bPda);
 
       // None confirmed initially
-      commitmentLedger.createCommitment(aPda, aId, new Uint8Array(32), createTaskPda(), BigInt(1000));
-      commitmentLedger.createCommitment(bPda, bId, new Uint8Array(32), createTaskPda(), BigInt(1000));
+      commitmentLedger.createCommitment(
+        aPda,
+        aId,
+        new Uint8Array(32),
+        createTaskPda(),
+        BigInt(1000),
+      );
+      commitmentLedger.createCommitment(
+        bPda,
+        bId,
+        new Uint8Array(32),
+        createTaskPda(),
+        BigInt(1000),
+      );
 
       // Queue C's proof
       manager.queueProof(cPda, createMockExecutionResult(cPda));
@@ -687,7 +706,7 @@ describe('ProofDeferralManager', () => {
       await manager.trySubmit(cPda);
 
       // C should be blocked (both A and B unconfirmed)
-      expect(manager.getStatus(cPda)?.status).toBe('awaiting_ancestors');
+      expect(manager.getStatus(cPda)?.status).toBe("awaiting_ancestors");
       expect(manager.getStatus(cPda)?.pendingAncestors.length).toBe(2);
 
       // Confirm A
@@ -697,7 +716,7 @@ describe('ProofDeferralManager', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // C should still be blocked (B unconfirmed)
-      expect(manager.getStatus(cPda)?.status).toBe('awaiting_ancestors');
+      expect(manager.getStatus(cPda)?.status).toBe("awaiting_ancestors");
       expect(manager.getStatus(cPda)?.pendingAncestors.length).toBe(1);
 
       // Confirm B
@@ -708,8 +727,8 @@ describe('ProofDeferralManager', () => {
 
       // C should now be unblocked
       expect(manager.getStatus(cPda)?.pendingAncestors.length).toBe(0);
-      expect(['generated', 'submitting', 'confirmed']).toContain(
-        manager.getStatus(cPda)?.status
+      expect(["generated", "submitting", "confirmed"]).toContain(
+        manager.getStatus(cPda)?.status,
       );
     });
   });
@@ -718,8 +737,8 @@ describe('ProofDeferralManager', () => {
   // Ancestor Failure Cascade Tests
   // ==========================================================================
 
-  describe('Ancestor Failure Cascades', () => {
-    it('should cancel child proof when ancestor fails', async () => {
+  describe("Ancestor Failure Cascades", () => {
+    it("should cancel child proof when ancestor fails", async () => {
       const ancestorPda = createTaskPda();
       const ancestorId = createTaskId();
       const ancestorTask = createOnChainTask(ancestorId);
@@ -736,7 +755,7 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
 
       // Queue child
@@ -746,20 +765,23 @@ describe('ProofDeferralManager', () => {
       await waitForProofGenerated(manager, childPda);
       await manager.trySubmit(childPda);
 
-      expect(manager.getStatus(childPda)?.status).toBe('awaiting_ancestors');
+      expect(manager.getStatus(childPda)?.status).toBe("awaiting_ancestors");
 
       // Ancestor fails
       manager.onAncestorFailed(ancestorPda);
 
       // Child should be cancelled
       const status = manager.getStatus(childPda);
-      expect(status?.status).toBe('cancelled');
-      expect(status?.error?.message).toContain('Ancestor');
+      expect(status?.status).toBe("cancelled");
+      expect(status?.error?.message).toContain("Ancestor");
 
-      expect(events.onProofCancelled).toHaveBeenCalledWith(childPda, ancestorPda);
+      expect(events.onProofCancelled).toHaveBeenCalledWith(
+        childPda,
+        ancestorPda,
+      );
     });
 
-    it('should cascade failure through multiple levels', async () => {
+    it("should cascade failure through multiple levels", async () => {
       // Chain: A -> B -> C -> D
       const aPda = createTaskPda();
       const aId = createTaskId();
@@ -782,7 +804,13 @@ describe('ProofDeferralManager', () => {
       dependencyGraph.addTaskWithParent(cTask, cPda, bPda);
       dependencyGraph.addTaskWithParent(dTask, dPda, cPda);
 
-      commitmentLedger.createCommitment(aPda, aId, new Uint8Array(32), createTaskPda(), BigInt(1000));
+      commitmentLedger.createCommitment(
+        aPda,
+        aId,
+        new Uint8Array(32),
+        createTaskPda(),
+        BigInt(1000),
+      );
 
       // Queue proofs for B, C, D
       manager.queueProof(bPda, createMockExecutionResult(bPda));
@@ -802,12 +830,12 @@ describe('ProofDeferralManager', () => {
       manager.onAncestorFailed(aPda);
 
       // All descendants should be cancelled
-      expect(manager.getStatus(bPda)?.status).toBe('cancelled');
-      expect(manager.getStatus(cPda)?.status).toBe('cancelled');
-      expect(manager.getStatus(dPda)?.status).toBe('cancelled');
+      expect(manager.getStatus(bPda)?.status).toBe("cancelled");
+      expect(manager.getStatus(cPda)?.status).toBe("cancelled");
+      expect(manager.getStatus(dPda)?.status).toBe("cancelled");
     });
 
-    it('should not affect siblings when one branch fails', async () => {
+    it("should not affect siblings when one branch fails", async () => {
       // Tree:      A
       //          /   \
       //         B     C
@@ -828,11 +856,23 @@ describe('ProofDeferralManager', () => {
       dependencyGraph.addTaskWithParent(cTask, cPda, aPda);
 
       // A is confirmed
-      commitmentLedger.createCommitment(aPda, aId, new Uint8Array(32), createTaskPda(), BigInt(1000));
+      commitmentLedger.createCommitment(
+        aPda,
+        aId,
+        new Uint8Array(32),
+        createTaskPda(),
+        BigInt(1000),
+      );
       commitmentLedger.markConfirmed(aPda);
 
       // B is not confirmed
-      commitmentLedger.createCommitment(bPda, bId, new Uint8Array(32), createTaskPda(), BigInt(1000));
+      commitmentLedger.createCommitment(
+        bPda,
+        bId,
+        new Uint8Array(32),
+        createTaskPda(),
+        BigInt(1000),
+      );
 
       // Queue C
       manager.queueProof(cPda, createMockExecutionResult(cPda));
@@ -844,7 +884,7 @@ describe('ProofDeferralManager', () => {
 
       // C should still be able to proceed
       const cStatus = manager.getStatus(cPda);
-      expect(cStatus?.status).not.toBe('cancelled');
+      expect(cStatus?.status).not.toBe("cancelled");
     });
   });
 
@@ -852,15 +892,15 @@ describe('ProofDeferralManager', () => {
   // Timeout Handling Tests
   // ==========================================================================
 
-  describe('Timeout Handling', () => {
-    it('should void proofs that exceed ancestor timeout', async () => {
+  describe("Timeout Handling", () => {
+    it("should void proofs that exceed ancestor timeout", async () => {
       // Use a very short timeout for testing
       const shortTimeoutManager = new ProofDeferralManager(
         { ...config, ancestorTimeoutMs: 50 }, // 50ms timeout
         events,
         commitmentLedger,
         dependencyGraph,
-        mockPipeline as unknown as ProofPipeline
+        mockPipeline as unknown as ProofPipeline,
       );
 
       const ancestorPda = createTaskPda();
@@ -879,16 +919,21 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
 
-      shortTimeoutManager.queueProof(childPda, createMockExecutionResult(childPda));
+      shortTimeoutManager.queueProof(
+        childPda,
+        createMockExecutionResult(childPda),
+      );
 
       // Wait for proof generation to complete
       await waitForProofGenerated(shortTimeoutManager, childPda);
       await shortTimeoutManager.trySubmit(childPda);
 
-      expect(shortTimeoutManager.getStatus(childPda)?.status).toBe('awaiting_ancestors');
+      expect(shortTimeoutManager.getStatus(childPda)?.status).toBe(
+        "awaiting_ancestors",
+      );
 
       // Wait for timeout to expire
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -897,14 +942,17 @@ describe('ProofDeferralManager', () => {
       const voided = shortTimeoutManager.voidTimedOutProofs();
 
       expect(voided.length).toBe(1);
-      expect(voided[0].status).toBe('timed_out');
+      expect(voided[0].status).toBe("timed_out");
 
-      expect(events.onProofTimedOut).toHaveBeenCalledWith(childPda, 'awaiting_ancestors');
+      expect(events.onProofTimedOut).toHaveBeenCalledWith(
+        childPda,
+        "awaiting_ancestors",
+      );
 
       await shortTimeoutManager.shutdown();
     });
 
-    it('should not void proofs within timeout window', async () => {
+    it("should not void proofs within timeout window", async () => {
       const ancestorPda = createTaskPda();
       const ancestorId = createTaskId();
       const ancestorTask = createOnChainTask(ancestorId);
@@ -921,7 +969,7 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
 
       manager.queueProof(childPda, createMockExecutionResult(childPda));
@@ -940,8 +988,8 @@ describe('ProofDeferralManager', () => {
   // Cancellation Tests
   // ==========================================================================
 
-  describe('Cancellation', () => {
-    it('should cancel a queued proof', () => {
+  describe("Cancellation", () => {
+    it("should cancel a queued proof", () => {
       const taskPda = createTaskPda();
       const taskId = createTaskId();
       const task = createOnChainTask(taskId);
@@ -954,10 +1002,10 @@ describe('ProofDeferralManager', () => {
       expect(cancelled).toBe(true);
 
       const status = manager.getStatus(taskPda);
-      expect(status?.status).toBe('cancelled');
+      expect(status?.status).toBe("cancelled");
     });
 
-    it('should cancel a proof awaiting ancestors', async () => {
+    it("should cancel a proof awaiting ancestors", async () => {
       const ancestorPda = createTaskPda();
       const ancestorId = createTaskId();
       const ancestorTask = createOnChainTask(ancestorId);
@@ -974,7 +1022,7 @@ describe('ProofDeferralManager', () => {
         ancestorId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
 
       manager.queueProof(childPda, createMockExecutionResult(childPda));
@@ -983,7 +1031,7 @@ describe('ProofDeferralManager', () => {
       await waitForProofGenerated(manager, childPda);
       await manager.trySubmit(childPda);
 
-      expect(manager.getStatus(childPda)?.status).toBe('awaiting_ancestors');
+      expect(manager.getStatus(childPda)?.status).toBe("awaiting_ancestors");
 
       const cancelled = manager.cancel(childPda);
       expect(cancelled).toBe(true);
@@ -993,7 +1041,7 @@ describe('ProofDeferralManager', () => {
       expect(blocked.length).toBe(0);
     });
 
-    it('should not cancel a confirmed proof', async () => {
+    it("should not cancel a confirmed proof", async () => {
       const taskPda = createTaskPda();
       const taskId = createTaskId();
       const task = createOnChainTask(taskId);
@@ -1004,7 +1052,7 @@ describe('ProofDeferralManager', () => {
         taskId,
         new Uint8Array(32),
         createTaskPda(),
-        BigInt(1000)
+        BigInt(1000),
       );
       commitmentLedger.markConfirmed(taskPda);
 
@@ -1022,7 +1070,7 @@ describe('ProofDeferralManager', () => {
 
       // Now try to cancel
       const status = manager.getStatus(taskPda);
-      if (status?.status === 'confirmed') {
+      if (status?.status === "confirmed") {
         const cancelled = manager.cancel(taskPda);
         expect(cancelled).toBe(false);
       }
@@ -1033,8 +1081,8 @@ describe('ProofDeferralManager', () => {
   // Edge Cases
   // ==========================================================================
 
-  describe('Edge Cases', () => {
-    it('should handle task not in dependency graph', () => {
+  describe("Edge Cases", () => {
+    it("should handle task not in dependency graph", () => {
       const taskPda = createTaskPda();
 
       // Queue without adding to dependency graph
@@ -1046,34 +1094,34 @@ describe('ProofDeferralManager', () => {
       expect(status?.pendingAncestors.length).toBe(0);
     });
 
-    it('should handle ancestor confirmation for unknown ancestor', async () => {
+    it("should handle ancestor confirmation for unknown ancestor", async () => {
       const unknownPda = createTaskPda();
 
       // Should not throw
       await manager.onAncestorConfirmed(unknownPda);
     });
 
-    it('should handle ancestor failure for unknown ancestor', () => {
+    it("should handle ancestor failure for unknown ancestor", () => {
       const unknownPda = createTaskPda();
 
       // Should not throw
       manager.onAncestorFailed(unknownPda);
     });
 
-    it('should handle trySubmit for unknown task', async () => {
+    it("should handle trySubmit for unknown task", async () => {
       const unknownPda = createTaskPda();
 
       const result = await manager.trySubmit(unknownPda);
       expect(result).toBe(false);
     });
 
-    it('should reject queueing during shutdown', async () => {
+    it("should reject queueing during shutdown", async () => {
       const taskPda = createTaskPda();
 
       await manager.shutdown();
 
       expect(() =>
-        manager.queueProof(taskPda, createMockExecutionResult(taskPda))
+        manager.queueProof(taskPda, createMockExecutionResult(taskPda)),
       ).toThrow(/shutting down/);
     });
   });

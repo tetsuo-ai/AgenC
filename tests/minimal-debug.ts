@@ -5,7 +5,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import { deriveProgramDataPda } from "./test-utils";
 
@@ -13,11 +18,12 @@ describe("minimal-debug", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   it("should connect to provider", async () => {
@@ -27,7 +33,9 @@ describe("minimal-debug", () => {
     const slot = await provider.connection.getSlot();
     console.log("Current slot:", slot);
 
-    const balance = await provider.connection.getBalance(provider.wallet.publicKey);
+    const balance = await provider.connection.getBalance(
+      provider.wallet.publicKey,
+    );
     console.log("Wallet balance:", balance / LAMPORTS_PER_SOL, "SOL");
 
     console.log("Protocol PDA:", protocolPda.toBase58());
@@ -45,8 +53,14 @@ describe("minimal-debug", () => {
     console.log("SecondSigner:", secondSigner.publicKey.toBase58());
 
     // Airdrop to treasury and secondSigner
-    const airdropSig1 = await provider.connection.requestAirdrop(treasury.publicKey, LAMPORTS_PER_SOL);
-    const airdropSig2 = await provider.connection.requestAirdrop(secondSigner.publicKey, LAMPORTS_PER_SOL);
+    const airdropSig1 = await provider.connection.requestAirdrop(
+      treasury.publicKey,
+      LAMPORTS_PER_SOL,
+    );
+    const airdropSig2 = await provider.connection.requestAirdrop(
+      secondSigner.publicKey,
+      LAMPORTS_PER_SOL,
+    );
     await provider.connection.confirmTransaction(airdropSig1, "confirmed");
     await provider.connection.confirmTransaction(airdropSig2, "confirmed");
     console.log("Treasury and secondSigner funded");
@@ -59,26 +73,32 @@ describe("minimal-debug", () => {
       // - second_signer different from authority
       // - both authority and second_signer in multisig_owners
       // - threshold < multisig_owners.length
-      const minStake = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL
-      const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL
+      const minStake = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
+      const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
       const programDataPda = deriveProgramDataPda(program.programId);
       const tx = await program.methods
         .initializeProtocol(
-          51,                // dispute_threshold
-          100,               // protocol_fee_bps
-          minStake,          // min_stake
+          51, // dispute_threshold
+          100, // protocol_fee_bps
+          minStake, // min_stake
           minStakeForDispute, // min_stake_for_dispute (new arg)
-          1,                 // multisig_threshold (must be < owners.length)
-          [provider.wallet.publicKey, secondSigner.publicKey]  // multisig_owners (need at least 2)
+          1, // multisig_threshold (must be < owners.length)
+          [provider.wallet.publicKey, secondSigner.publicKey], // multisig_owners (need at least 2)
         )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
-          secondSigner: secondSigner.publicKey,  // new account (fix #556)
+          secondSigner: secondSigner.publicKey, // new account (fix #556)
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([secondSigner])
         .rpc();
       console.log("Transaction signature:", tx);
@@ -94,7 +114,9 @@ describe("minimal-debug", () => {
         e?.message?.includes("already in use") ||
         e?.message?.includes("ProtocolAlreadyInitialized")
       ) {
-        console.log("Protocol already initialized, continuing with existing config");
+        console.log(
+          "Protocol already initialized, continuing with existing config",
+        );
       } else {
         throw e;
       }

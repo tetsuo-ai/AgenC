@@ -9,10 +9,10 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
-import { globMatch } from './approvals.js';
-import { WORKSPACE_ID_PATTERN, MAX_WORKSPACE_ID_LENGTH } from './workspace.js';
-import type { GatewayMessage } from './message.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
+import { globMatch } from "./approvals.js";
+import { WORKSPACE_ID_PATTERN, MAX_WORKSPACE_ID_LENGTH } from "./workspace.js";
+import type { GatewayMessage } from "./message.js";
 
 // ============================================================================
 // Constants
@@ -31,7 +31,7 @@ const SPECIFICITY_WEIGHTS: Readonly<Record<keyof RoutingMatch, number>> = {
   contentPattern: 1,
 };
 
-const VALID_SCOPES: ReadonlySet<string> = new Set(['dm', 'group', 'thread']);
+const VALID_SCOPES: ReadonlySet<string> = new Set(["dm", "group", "thread"]);
 
 // ============================================================================
 // Types
@@ -48,7 +48,7 @@ export interface RoutingMatch {
   /** Glob pattern matched against message channel name. */
   readonly channel?: string;
   /** Exact match against message scope. */
-  readonly scope?: 'dm' | 'group' | 'thread';
+  readonly scope?: "dm" | "group" | "thread";
   /** Regex pattern matched against message content. */
   readonly contentPattern?: string;
 }
@@ -79,7 +79,7 @@ export class RoutingValidationError extends RuntimeError {
       `Routing rule validation failed: ${field} — ${reason}`,
       RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
     );
-    this.name = 'RoutingValidationError';
+    this.name = "RoutingValidationError";
     this.field = field;
     this.reason = reason;
   }
@@ -124,7 +124,7 @@ function matchesRule(
 
   if (m.guildId !== undefined) {
     const guildId = message.metadata?.guildId;
-    if (typeof guildId !== 'string') return false;
+    if (typeof guildId !== "string") return false;
     if (!globMatch(m.guildId, guildId)) return false;
   }
 
@@ -151,32 +151,56 @@ function matchesRule(
 
 function validateWorkspaceId(id: string, field: string): void {
   if (!WORKSPACE_ID_PATTERN.test(id)) {
-    throw new RoutingValidationError(field, `Invalid workspace ID "${id}" — must match ${WORKSPACE_ID_PATTERN}`);
+    throw new RoutingValidationError(
+      field,
+      `Invalid workspace ID "${id}" — must match ${WORKSPACE_ID_PATTERN}`,
+    );
   }
   if (id.length > MAX_WORKSPACE_ID_LENGTH) {
-    throw new RoutingValidationError(field, `Workspace ID exceeds maximum length of ${MAX_WORKSPACE_ID_LENGTH} characters`);
+    throw new RoutingValidationError(
+      field,
+      `Workspace ID exceeds maximum length of ${MAX_WORKSPACE_ID_LENGTH} characters`,
+    );
   }
 }
 
-function validateRule(rule: RoutingRule, existingNames: ReadonlySet<string>): void {
-  if (typeof rule.name !== 'string' || rule.name.length === 0) {
-    throw new RoutingValidationError('name', 'Rule name must be a non-empty string');
+function validateRule(
+  rule: RoutingRule,
+  existingNames: ReadonlySet<string>,
+): void {
+  if (typeof rule.name !== "string" || rule.name.length === 0) {
+    throw new RoutingValidationError(
+      "name",
+      "Rule name must be a non-empty string",
+    );
   }
   if (existingNames.has(rule.name)) {
-    throw new RoutingValidationError('name', `Duplicate rule name "${rule.name}"`);
+    throw new RoutingValidationError(
+      "name",
+      `Duplicate rule name "${rule.name}"`,
+    );
   }
-  validateWorkspaceId(rule.workspace, 'workspace');
-  if (typeof rule.priority !== 'number' || !Number.isFinite(rule.priority)) {
-    throw new RoutingValidationError('priority', 'Priority must be a finite number');
+  validateWorkspaceId(rule.workspace, "workspace");
+  if (typeof rule.priority !== "number" || !Number.isFinite(rule.priority)) {
+    throw new RoutingValidationError(
+      "priority",
+      "Priority must be a finite number",
+    );
   }
   if (rule.match.scope !== undefined && !VALID_SCOPES.has(rule.match.scope)) {
-    throw new RoutingValidationError('match.scope', `Invalid scope "${rule.match.scope}" — must be one of: dm, group, thread`);
+    throw new RoutingValidationError(
+      "match.scope",
+      `Invalid scope "${rule.match.scope}" — must be one of: dm, group, thread`,
+    );
   }
   if (rule.match.contentPattern !== undefined) {
     try {
       new RegExp(rule.match.contentPattern);
     } catch {
-      throw new RoutingValidationError('match.contentPattern', `Invalid regex: "${rule.match.contentPattern}"`);
+      throw new RoutingValidationError(
+        "match.contentPattern",
+        `Invalid regex: "${rule.match.contentPattern}"`,
+      );
     }
   }
 }
@@ -201,7 +225,7 @@ export class MessageRouter {
   private regexCache = new Map<string, RegExp>();
 
   constructor(rules: readonly RoutingRule[], defaultWorkspace: string) {
-    validateWorkspaceId(defaultWorkspace, 'defaultWorkspace');
+    validateWorkspaceId(defaultWorkspace, "defaultWorkspace");
     this.defaultWorkspace = defaultWorkspace;
 
     for (const rule of rules) {

@@ -7,14 +7,14 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import type { LLMMessage } from '../llm/types.js';
-import type { MetricsProvider } from '../task/types.js';
+import type { Logger } from "../utils/logger.js";
+import type { LLMMessage } from "../llm/types.js";
+import type { MetricsProvider } from "../task/types.js";
 
 /**
  * Message role in a memory entry
  */
-export type MemoryRole = 'system' | 'user' | 'assistant' | 'tool';
+export type MemoryRole = "system" | "user" | "assistant" | "tool";
 
 /**
  * A stored memory entry representing a single message in a conversation thread
@@ -42,7 +42,7 @@ export interface MemoryQuery {
   role?: MemoryRole;
   limit?: number;
   /** Sort order by timestamp. Default: 'asc' */
-  order?: 'asc' | 'desc';
+  order?: "asc" | "desc";
 }
 
 /**
@@ -67,7 +67,7 @@ export interface AddEntryOptions {
  * - `'async'` — data is persisted asynchronously (Redis with default AOF)
  * - `'sync'`  — data is persisted synchronously per write (SQLite WAL)
  */
-export type DurabilityLevel = 'none' | 'async' | 'sync';
+export type DurabilityLevel = "none" | "async" | "sync";
 
 /**
  * Describes the durability guarantees of a memory backend.
@@ -165,11 +165,15 @@ export function entryToMessage(entry: MemoryEntry): LLMMessage {
 export function messageToEntryOptions(
   msg: LLMMessage,
   sessionId: string,
-): Omit<AddEntryOptions, 'taskPda' | 'metadata' | 'ttlMs'> {
-  const content = typeof msg.content === 'string'
-    ? msg.content
-    : msg.content.filter((p) => p.type === 'text').map((p) => (p as { type: 'text'; text: string }).text).join('\n');
-  const opts: Omit<AddEntryOptions, 'taskPda' | 'metadata' | 'ttlMs'> = {
+): Omit<AddEntryOptions, "taskPda" | "metadata" | "ttlMs"> {
+  const content =
+    typeof msg.content === "string"
+      ? msg.content
+      : msg.content
+          .filter((p) => p.type === "text")
+          .map((p) => (p as { type: "text"; text: string }).text)
+          .join("\n");
+  const opts: Omit<AddEntryOptions, "taskPda" | "metadata" | "ttlMs"> = {
     sessionId,
     role: msg.role,
     content,

@@ -7,7 +7,7 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey } from "@solana/web3.js";
 
 // ============================================================================
 // Shared Types
@@ -17,7 +17,11 @@ import { PublicKey } from '@solana/web3.js';
  * Generic event callback type.
  * @typeParam T - The parsed event type
  */
-export type EventCallback<T> = (event: T, slot: number, signature: string) => void;
+export type EventCallback<T> = (
+  event: T,
+  slot: number,
+  signature: string,
+) => void;
 
 /**
  * Subscription handle for unsubscribing from events.
@@ -82,35 +86,35 @@ export interface RawTaskCreatedEvent {
   taskId: number[] | Uint8Array;
   creator: PublicKey;
   requiredCapabilities: { toString: () => string }; // u64 -> BN
-  rewardAmount: { toString: () => string };          // u64 -> BN
-  taskType: number;                                   // u8
-  deadline: { toNumber: () => number };               // i64 -> BN
-  minReputation: number;                              // u16
-  rewardMint: PublicKey | null;                       // Option<Pubkey>
-  timestamp: { toNumber: () => number };              // i64 -> BN
+  rewardAmount: { toString: () => string }; // u64 -> BN
+  taskType: number; // u8
+  deadline: { toNumber: () => number }; // i64 -> BN
+  minReputation: number; // u16
+  rewardMint: PublicKey | null; // Option<Pubkey>
+  timestamp: { toNumber: () => number }; // i64 -> BN
 }
 
 export interface RawTaskClaimedEvent {
   taskId: number[] | Uint8Array;
   worker: PublicKey;
-  currentWorkers: number;                             // u8
-  maxWorkers: number;                                 // u8
+  currentWorkers: number; // u8
+  maxWorkers: number; // u8
   timestamp: { toNumber: () => number };
 }
 
 export interface RawTaskCompletedEvent {
   taskId: number[] | Uint8Array;
   worker: PublicKey;
-  proofHash: number[] | Uint8Array;                   // [u8;32]
-  resultData: number[] | Uint8Array;                  // [u8;64]
-  rewardPaid: { toString: () => string };             // u64 -> BN
+  proofHash: number[] | Uint8Array; // [u8;32]
+  resultData: number[] | Uint8Array; // [u8;64]
+  rewardPaid: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawTaskCancelledEvent {
   taskId: number[] | Uint8Array;
   creator: PublicKey;
-  refundAmount: { toString: () => string };           // u64 -> BN
+  refundAmount: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
@@ -118,7 +122,7 @@ export interface RawDependentTaskCreatedEvent {
   taskId: number[] | Uint8Array;
   creator: PublicKey;
   dependsOn: PublicKey;
-  dependencyType: number;                              // u8
+  dependencyType: number; // u8
   rewardMint: PublicKey | null;
   timestamp: { toNumber: () => number };
 }
@@ -130,8 +134,8 @@ export interface RawDisputeInitiatedEvent {
   taskId: number[] | Uint8Array;
   initiator: PublicKey;
   defendant: PublicKey;
-  resolutionType: number;                             // u8 enum
-  votingDeadline: { toNumber: () => number };         // i64 -> BN
+  resolutionType: number; // u8 enum
+  votingDeadline: { toNumber: () => number }; // i64 -> BN
   timestamp: { toNumber: () => number };
 }
 
@@ -139,26 +143,26 @@ export interface RawDisputeVoteCastEvent {
   disputeId: number[] | Uint8Array;
   voter: PublicKey;
   approved: boolean;
-  votesFor: { toString: () => string };               // u64 -> BN
-  votesAgainst: { toString: () => string };           // u64 -> BN
+  votesFor: { toString: () => string }; // u64 -> BN
+  votesAgainst: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawDisputeResolvedEvent {
   disputeId: number[] | Uint8Array;
-  resolutionType: number;                             // u8 enum
-  outcome: number;                                    // u8
-  votesFor: { toString: () => string };               // u64 -> BN
-  votesAgainst: { toString: () => string };           // u64 -> BN
+  resolutionType: number; // u8 enum
+  outcome: number; // u8
+  votesFor: { toString: () => string }; // u64 -> BN
+  votesAgainst: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawDisputeExpiredEvent {
   disputeId: number[] | Uint8Array;
   taskId: number[] | Uint8Array;
-  refundAmount: { toString: () => string };           // u64 -> BN
-  creatorAmount: { toString: () => string };          // u64 -> BN
-  workerAmount: { toString: () => string };           // u64 -> BN
+  refundAmount: { toString: () => string }; // u64 -> BN
+  creatorAmount: { toString: () => string }; // u64 -> BN
+  workerAmount: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
@@ -191,113 +195,113 @@ export interface RawAgentUnsuspendedEvent {
 // --- Protocol Raw Events ---
 
 export interface RawStateUpdatedEvent {
-  stateKey: number[] | Uint8Array;                    // [u8;32]
-  stateValue: number[] | Uint8Array;                  // [u8;64]
+  stateKey: number[] | Uint8Array; // [u8;32]
+  stateValue: number[] | Uint8Array; // [u8;64]
   updater: PublicKey;
-  version: { toString: () => string };                // u64 -> BN
+  version: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawProtocolInitializedEvent {
   authority: PublicKey;
   treasury: PublicKey;
-  disputeThreshold: number;                           // u8
-  protocolFeeBps: number;                             // u16
+  disputeThreshold: number; // u8
+  protocolFeeBps: number; // u16
   timestamp: { toNumber: () => number };
 }
 
 export interface RawRewardDistributedEvent {
   taskId: number[] | Uint8Array;
   recipient: PublicKey;
-  amount: { toString: () => string };                 // u64 -> BN
-  protocolFee: { toString: () => string };            // u64 -> BN
+  amount: { toString: () => string }; // u64 -> BN
+  protocolFee: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawRateLimitHitEvent {
-  agentId: number[] | Uint8Array;                     // [u8;32]
-  actionType: number;                                 // u8
-  limitType: number;                                  // u8
-  currentCount: number;                               // u8
-  maxCount: number;                                   // u8
-  cooldownRemaining: { toNumber: () => number };      // i64 -> BN
+  agentId: number[] | Uint8Array; // [u8;32]
+  actionType: number; // u8
+  limitType: number; // u8
+  currentCount: number; // u8
+  maxCount: number; // u8
+  cooldownRemaining: { toNumber: () => number }; // i64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawMigrationCompletedEvent {
-  fromVersion: number;                                // u8
-  toVersion: number;                                  // u8
+  fromVersion: number; // u8
+  toVersion: number; // u8
   authority: PublicKey;
   timestamp: { toNumber: () => number };
 }
 
 export interface RawProtocolVersionUpdatedEvent {
-  oldVersion: number;                                 // u8
-  newVersion: number;                                 // u8
-  minSupportedVersion: number;                        // u8
+  oldVersion: number; // u8
+  newVersion: number; // u8
+  minSupportedVersion: number; // u8
   timestamp: { toNumber: () => number };
 }
 
 export interface RawRateLimitsUpdatedEvent {
-  taskCreationCooldown: { toNumber: () => number };   // i64 -> BN
-  maxTasksPer24h: number;                            // u8
+  taskCreationCooldown: { toNumber: () => number }; // i64 -> BN
+  maxTasksPer24h: number; // u8
   disputeInitiationCooldown: { toNumber: () => number }; // i64 -> BN
-  maxDisputesPer24h: number;                         // u8
-  minStakeForDispute: { toString: () => string };     // u64 -> BN
+  maxDisputesPer24h: number; // u8
+  minStakeForDispute: { toString: () => string }; // u64 -> BN
   updatedBy: PublicKey;
   timestamp: { toNumber: () => number };
 }
 
 export interface RawProtocolFeeUpdatedEvent {
-  oldFeeBps: number;                                 // u16
-  newFeeBps: number;                                 // u16
+  oldFeeBps: number; // u16
+  newFeeBps: number; // u16
   updatedBy: PublicKey;
   timestamp: { toNumber: () => number };
 }
 
 export interface RawReputationChangedEvent {
   agentId: number[] | Uint8Array;
-  oldReputation: number;                             // u16
-  newReputation: number;                             // u16
-  reason: number;                                    // u8
+  oldReputation: number; // u16
+  newReputation: number; // u16
+  reason: number; // u8
   timestamp: { toNumber: () => number };
 }
 
 export interface RawBondDepositedEvent {
   agent: PublicKey;
-  amount: { toString: () => string };                // u64 -> BN
-  newTotal: { toString: () => string };              // u64 -> BN
+  amount: { toString: () => string }; // u64 -> BN
+  newTotal: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawBondLockedEvent {
   agent: PublicKey;
   commitment: PublicKey;
-  amount: { toString: () => string };                // u64 -> BN
+  amount: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawBondReleasedEvent {
   agent: PublicKey;
   commitment: PublicKey;
-  amount: { toString: () => string };                // u64 -> BN
+  amount: { toString: () => string }; // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
 export interface RawBondSlashedEvent {
   agent: PublicKey;
   commitment: PublicKey;
-  amount: { toString: () => string };                // u64 -> BN
-  reason: number;                                    // u8
+  amount: { toString: () => string }; // u64 -> BN
+  reason: number; // u8
   timestamp: { toNumber: () => number };
 }
 
 export interface RawSpeculativeCommitmentCreatedEvent {
   task: PublicKey;
   producer: PublicKey;
-  resultHash: number[] | Uint8Array;                 // [u8; 32]
-  bondedStake: { toString: () => string };            // u64 -> BN
-  expiresAt: { toNumber: () => number };             // i64 -> BN
+  resultHash: number[] | Uint8Array; // [u8; 32]
+  bondedStake: { toString: () => string }; // u64 -> BN
+  expiresAt: { toNumber: () => number }; // i64 -> BN
   timestamp: { toNumber: () => number };
 }
 

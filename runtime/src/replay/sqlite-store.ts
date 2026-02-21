@@ -4,9 +4,9 @@
  * @module
  */
 
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { ensureLazyBackend } from '../memory/lazy-import.js';
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { ensureLazyBackend } from "../memory/lazy-import.js";
 import {
   ReplayEventCursor,
   ReplayTimelineCompactionPolicy,
@@ -16,7 +16,7 @@ import {
   ReplayTimelineStore,
   ReplayStorageWriteResult,
   type ReplayTimelineStoreConfig,
-} from './types.js';
+} from "./types.js";
 
 interface ReplayTimelineRow {
   id: number;
@@ -60,7 +60,9 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
     this.compaction = config.compaction;
   }
 
-  async save(records: readonly ReplayTimelineRecord[]): Promise<ReplayStorageWriteResult> {
+  async save(
+    records: readonly ReplayTimelineRecord[],
+  ): Promise<ReplayStorageWriteResult> {
     const db = await this.getDb();
     const insert = db.prepare(`
       INSERT OR IGNORE INTO replay_timeline_events (
@@ -139,49 +141,50 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
     };
   }
 
-  async query(filter: ReplayTimelineQuery = {}): Promise<ReadonlyArray<ReplayTimelineRecord>> {
+  async query(
+    filter: ReplayTimelineQuery = {},
+  ): Promise<ReadonlyArray<ReplayTimelineRecord>> {
     const db = await this.getDb();
 
-    const queryParts = ['1 = 1'];
+    const queryParts = ["1 = 1"];
     const params: Record<string, string | number | null> = {};
 
     if (filter.taskPda !== undefined) {
-      queryParts.push('task_pda = @taskPda');
+      queryParts.push("task_pda = @taskPda");
       params.taskPda = filter.taskPda;
     }
 
     if (filter.disputePda !== undefined) {
-      queryParts.push('dispute_pda = @disputePda');
+      queryParts.push("dispute_pda = @disputePda");
       params.disputePda = filter.disputePda;
     }
 
     if (filter.fromSlot !== undefined) {
-      queryParts.push('slot >= @fromSlot');
+      queryParts.push("slot >= @fromSlot");
       params.fromSlot = filter.fromSlot;
     }
 
     if (filter.toSlot !== undefined) {
-      queryParts.push('slot <= @toSlot');
+      queryParts.push("slot <= @toSlot");
       params.toSlot = filter.toSlot;
     }
 
     if (filter.fromTimestampMs !== undefined) {
-      queryParts.push('timestamp_ms >= @fromTimestampMs');
+      queryParts.push("timestamp_ms >= @fromTimestampMs");
       params.fromTimestampMs = filter.fromTimestampMs;
     }
 
     if (filter.toTimestampMs !== undefined) {
-      queryParts.push('timestamp_ms <= @toTimestampMs');
+      queryParts.push("timestamp_ms <= @toTimestampMs");
       params.toTimestampMs = filter.toTimestampMs;
     }
 
-    const orderBy =
-      'slot ASC, signature ASC, seq ASC, source_event_type ASC';
+    const orderBy = "slot ASC, signature ASC, seq ASC, source_event_type ASC";
 
     const limitClause =
       filter.limit !== undefined && filter.limit > 0
-        ? ' LIMIT @limit OFFSET @offset'
-        : '';
+        ? " LIMIT @limit OFFSET @offset"
+        : "";
 
     if (filter.limit === undefined || filter.limit > 0) {
       params.offset = filter.offset ?? 0;
@@ -193,7 +196,7 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
     const sql = `
       SELECT *
       FROM replay_timeline_events
-      WHERE ${queryParts.join(' AND ')}
+      WHERE ${queryParts.join(" AND ")}
       ORDER BY ${orderBy}${limitClause}
     `;
 
@@ -205,7 +208,9 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
   async getCursor(): Promise<ReplayEventCursor | null> {
     const db = await this.getDb();
     const cursor = db
-      .prepare('SELECT slot, signature, event_name, trace_id, trace_span_id FROM replay_timeline_cursor WHERE id = 1')
+      .prepare(
+        "SELECT slot, signature, event_name, trace_id, trace_span_id FROM replay_timeline_cursor WHERE id = 1",
+      )
       .get() as ReplayTimelineCursorRow | undefined;
 
     if (!cursor || cursor.slot === null || cursor.signature === null) {
@@ -254,21 +259,22 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
 
   async clear(): Promise<void> {
     const db = await this.getDb();
-    db.prepare('DELETE FROM replay_timeline_events').run();
+    db.prepare("DELETE FROM replay_timeline_events").run();
     await this.saveCursor(null);
   }
 
-  getDurability(): import('../memory/types.js').DurabilityInfo {
+  getDurability(): import("../memory/types.js").DurabilityInfo {
     return {
-      level: 'sync',
+      level: "sync",
       supportsFlush: true,
-      description: 'Data is persisted synchronously to disk via SQLite WAL. flush() forces a WAL checkpoint.',
+      description:
+        "Data is persisted synchronously to disk via SQLite WAL. flush() forces a WAL checkpoint.",
     };
   }
 
   async flush(): Promise<void> {
     const db = await this.getDb();
-    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.pragma("wal_checkpoint(TRUNCATE)");
   }
 
   private async getDb(): Promise<any> {
@@ -276,17 +282,17 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
       return this.db;
     }
 
-    if (this.dbPath !== ':memory:') {
+    if (this.dbPath !== ":memory:") {
       await mkdir(dirname(this.dbPath), { recursive: true });
     }
 
-    this.db = await ensureLazyBackend('better-sqlite3', 'sqlite', (mod) => {
+    this.db = await ensureLazyBackend("better-sqlite3", "sqlite", (mod) => {
       const Database = (mod.default ?? mod) as new (...args: unknown[]) => any;
       return new Database(this.dbPath);
     });
 
-    if (this.dbPath !== ':memory:') {
-      this.db.pragma('journal_mode = WAL');
+    if (this.dbPath !== ":memory:") {
+      this.db.pragma("journal_mode = WAL");
     }
 
     await this.ensureSchema(this.db);
@@ -294,13 +300,17 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
   }
 
   private ensureSchema(db: any): void {
-    const versionRow = db.pragma('user_version', { simple: true }) as number;
+    const versionRow = db.pragma("user_version", { simple: true }) as number;
     if (versionRow > SQL_SCHEMA_VERSION) {
-      throw new Error(`Replay timeline schema version ${versionRow} is newer than supported ${SQL_SCHEMA_VERSION}`);
+      throw new Error(
+        `Replay timeline schema version ${versionRow} is newer than supported ${SQL_SCHEMA_VERSION}`,
+      );
     }
 
     if (versionRow > 0 && versionRow !== SQL_SCHEMA_VERSION) {
-      throw new Error(`Unsupported replay timeline schema version: ${versionRow}`);
+      throw new Error(
+        `Unsupported replay timeline schema version: ${versionRow}`,
+      );
     }
 
     if (versionRow === SQL_SCHEMA_VERSION) {
@@ -350,7 +360,7 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
     `);
 
     db.prepare(
-      'INSERT OR IGNORE INTO replay_timeline_cursor (id, slot, signature, event_name, trace_id, trace_span_id) VALUES (1, NULL, NULL, NULL, NULL, NULL)',
+      "INSERT OR IGNORE INTO replay_timeline_cursor (id, slot, signature, event_name, trace_id, trace_span_id) VALUES (1, NULL, NULL, NULL, NULL, NULL)",
     ).run();
 
     db.pragma(`user_version = ${SQL_SCHEMA_VERSION}`);
@@ -386,10 +396,15 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
 
     if (this.retention.ttlMs !== undefined && this.retention.ttlMs > 0) {
       const cutoff = now - this.retention.ttlMs;
-      db.prepare('DELETE FROM replay_timeline_events WHERE timestamp_ms < ?').run(cutoff);
+      db.prepare(
+        "DELETE FROM replay_timeline_events WHERE timestamp_ms < ?",
+      ).run(cutoff);
     }
 
-    if (this.retention.maxEventsPerTask !== undefined && this.retention.maxEventsPerTask > 0) {
+    if (
+      this.retention.maxEventsPerTask !== undefined &&
+      this.retention.maxEventsPerTask > 0
+    ) {
       const limit = this.retention.maxEventsPerTask;
       db.exec(`
         DELETE FROM replay_timeline_events
@@ -408,7 +423,10 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
       `);
     }
 
-    if (this.retention.maxEventsPerDispute !== undefined && this.retention.maxEventsPerDispute > 0) {
+    if (
+      this.retention.maxEventsPerDispute !== undefined &&
+      this.retention.maxEventsPerDispute > 0
+    ) {
       const limit = this.retention.maxEventsPerDispute;
       db.exec(`
         DELETE FROM replay_timeline_events
@@ -427,7 +445,10 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
       `);
     }
 
-    if (this.retention.maxEventsTotal !== undefined && this.retention.maxEventsTotal > 0) {
+    if (
+      this.retention.maxEventsTotal !== undefined &&
+      this.retention.maxEventsTotal > 0
+    ) {
       const limit = this.retention.maxEventsTotal;
       db.exec(`
         DELETE FROM replay_timeline_events
@@ -459,6 +480,6 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
       return;
     }
 
-    db.exec('VACUUM');
+    db.exec("VACUUM");
   }
 }

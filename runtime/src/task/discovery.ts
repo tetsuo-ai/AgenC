@@ -10,18 +10,18 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { EventSubscription, TaskCreatedEvent } from '../events/types.js';
-import { subscribeToTaskCreated } from '../events/task.js';
-import type { TaskOperations } from './operations.js';
-import type { OnChainTask } from './types.js';
-import { matchesFilter } from './filters.js';
-import type { TaskFilterConfig } from './types.js';
-import { deriveTaskPda } from './pda.js';
+import { PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { EventSubscription, TaskCreatedEvent } from "../events/types.js";
+import { subscribeToTaskCreated } from "../events/task.js";
+import type { TaskOperations } from "./operations.js";
+import type { OnChainTask } from "./types.js";
+import { matchesFilter } from "./filters.js";
+import type { TaskFilterConfig } from "./types.js";
+import { deriveTaskPda } from "./pda.js";
 
 // ============================================================================
 // Configuration & Interfaces
@@ -30,7 +30,7 @@ import { deriveTaskPda } from './pda.js';
 /**
  * Discovery mode: how tasks are found.
  */
-export type TaskDiscoveryMode = 'poll' | 'event' | 'hybrid';
+export type TaskDiscoveryMode = "poll" | "event" | "hybrid";
 
 /**
  * Configuration for TaskDiscovery.
@@ -61,7 +61,7 @@ export interface TaskDiscoveryResult {
   /** Timestamp when the task was discovered */
   discoveredAt: number;
   /** Which discovery source found it */
-  source: 'poll' | 'event';
+  source: "poll" | "event";
 }
 
 /**
@@ -148,7 +148,7 @@ export class TaskDiscovery {
     this.running = true;
     this.agentCapabilities = agentCapabilities;
 
-    if (this.mode === 'poll' || this.mode === 'hybrid') {
+    if (this.mode === "poll" || this.mode === "hybrid") {
       // Run an initial poll immediately, then set up the interval
       void this.executePollCycle();
       this.pollTimer = setInterval(
@@ -157,7 +157,7 @@ export class TaskDiscovery {
       );
     }
 
-    if (this.mode === 'event' || this.mode === 'hybrid') {
+    if (this.mode === "event" || this.mode === "hybrid") {
       this.setupEventDiscovery();
     }
 
@@ -186,7 +186,7 @@ export class TaskDiscovery {
       this.eventSubscription = null;
     }
 
-    this.logger.info('TaskDiscovery stopped');
+    this.logger.info("TaskDiscovery stopped");
   }
 
   /**
@@ -209,7 +209,7 @@ export class TaskDiscovery {
       return;
     }
     this.paused = true;
-    this.logger.info('TaskDiscovery paused');
+    this.logger.info("TaskDiscovery paused");
   }
 
   /**
@@ -221,7 +221,7 @@ export class TaskDiscovery {
       return;
     }
     this.paused = false;
-    this.logger.info('TaskDiscovery resumed');
+    this.logger.info("TaskDiscovery resumed");
   }
 
   /**
@@ -257,7 +257,7 @@ export class TaskDiscovery {
           pda: taskPda,
           task,
           discoveredAt: Date.now(),
-          source: 'poll',
+          source: "poll",
         };
 
         this.seenTaskPdas.add(taskPda.toBase58());
@@ -316,7 +316,7 @@ export class TaskDiscovery {
           pda: taskPda,
           task,
           discoveredAt: Date.now(),
-          source: 'poll',
+          source: "poll",
         };
 
         this.seenTaskPdas.add(taskPda.toBase58());
@@ -353,7 +353,9 @@ export class TaskDiscovery {
           .fetchTask(taskPda)
           .then((task: OnChainTask | null) => {
             if (!task) {
-              this.logger.warn(`Event-discovered task not found on-chain: ${taskPda.toBase58()}`);
+              this.logger.warn(
+                `Event-discovered task not found on-chain: ${taskPda.toBase58()}`,
+              );
               return;
             }
 
@@ -365,7 +367,7 @@ export class TaskDiscovery {
               pda: taskPda,
               task,
               discoveredAt: Date.now(),
-              source: 'event',
+              source: "event",
             };
 
             this.seenTaskPdas.add(taskPda.toBase58());

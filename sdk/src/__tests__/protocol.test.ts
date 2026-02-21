@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { Connection, Keypair } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import { initializeProtocol } from '../protocol';
-import { PROGRAM_ID } from '../constants';
+import { describe, expect, it, vi } from "vitest";
+import { Connection, Keypair } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import { initializeProtocol } from "../protocol";
+import { PROGRAM_ID } from "../constants";
 
-describe('protocol wrappers', () => {
-  it('initializeProtocol validates multisig threshold against owner count', async () => {
+describe("protocol wrappers", () => {
+  it("initializeProtocol validates multisig threshold against owner count", async () => {
     const authority = Keypair.generate();
     const secondSigner = Keypair.generate();
 
@@ -36,19 +36,21 @@ describe('protocol wrappers', () => {
           multisigOwners: [authority.publicKey, secondSigner.publicKey],
         },
       ),
-    ).rejects.toThrow('multisigThreshold cannot exceed multisigOwners length');
+    ).rejects.toThrow("multisigThreshold cannot exceed multisigOwners length");
   });
 
-  it('initializeProtocol submits expected args and confirms transaction', async () => {
+  it("initializeProtocol submits expected args and confirms transaction", async () => {
     const authority = Keypair.generate();
     const secondSigner = Keypair.generate();
     const treasury = Keypair.generate().publicKey;
 
-    const rpc = vi.fn().mockResolvedValue('protocol-init-sig');
+    const rpc = vi.fn().mockResolvedValue("protocol-init-sig");
     const signers = vi.fn().mockReturnValue({ rpc });
     const remainingAccounts = vi.fn().mockReturnValue({ signers });
     const accountsPartial = vi.fn().mockReturnValue({ remainingAccounts });
-    const initializeProtocolMethod = vi.fn().mockReturnValue({ accountsPartial });
+    const initializeProtocolMethod = vi
+      .fn()
+      .mockReturnValue({ accountsPartial });
 
     const program = {
       programId: PROGRAM_ID,
@@ -68,7 +70,11 @@ describe('protocol wrappers', () => {
       minStake: 1_000_000,
       minStakeForDispute: 500_000,
       multisigThreshold: 2,
-      multisigOwners: [authority.publicKey, secondSigner.publicKey, Keypair.generate().publicKey],
+      multisigOwners: [
+        authority.publicKey,
+        secondSigner.publicKey,
+        Keypair.generate().publicKey,
+      ],
     };
 
     const result = await initializeProtocol(
@@ -84,11 +90,14 @@ describe('protocol wrappers', () => {
     const args = initializeProtocolMethod.mock.calls[0];
     expect(args[0]).toBe(51);
     expect(args[1]).toBe(100);
-    expect(args[2].toString()).toBe('1000000');
-    expect(args[3].toString()).toBe('500000');
+    expect(args[2].toString()).toBe("1000000");
+    expect(args[3].toString()).toBe("500000");
     expect(args[4]).toBe(2);
 
-    expect(confirmTransaction).toHaveBeenCalledWith('protocol-init-sig', 'confirmed');
-    expect(result.txSignature).toBe('protocol-init-sig');
+    expect(confirmTransaction).toHaveBeenCalledWith(
+      "protocol-init-sig",
+      "confirmed",
+    );
+    expect(result.txSignature).toBe("protocol-init-sig");
   });
 });

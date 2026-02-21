@@ -106,7 +106,7 @@ RISC Zero integration must be completed before mainnet.
 | HIGH-8 | `state.rs` | `reputation` u16 with no enforced max | Reputation overflow |
 | HIGH-9 | `state.rs` | `slash_percentage` u8, no max of 100 enforced | Slash > 100% |
 | HIGH-10 | `sdk/proofs.ts` | Default nullifier is `pubkeyToField(agentPubkey)` — predictable | Nullifier collision/prediction |
-| HIGH-11 | `sdk/proofs.ts` | `verifyProofLocally()` validates against fake simulation | False positive verification |
+| HIGH-11 | `sdk/proofs.ts` | ~~`verifyProofLocally()` validates against fake simulation~~ | ~~False positive verification~~ **RESOLVED** — function removed entirely; verification is on-chain only via Verifier Router CPI |
 | HIGH-12 | `sdk/proofs.ts` | Legacy `buildJournalFromPublicSignals()` from Noir era | Confusion, wrong proof format |
 | HIGH-13 | `sdk/tasks.ts` | No ComputeBudgetProgram prepended to transactions | TX failure on mainnet |
 | HIGH-14 | `sdk/validation.ts` | DANGEROUS_CHARS missing null byte `\x00` and newline | Path traversal bypass |
@@ -179,7 +179,7 @@ RISC Zero integration must be completed before mainnet.
 | INFO-3 | `state.rs` | `Discriminator` trait manually implemented — could use derive |
 | INFO-4 | `constants.rs` | FEE_TIERS threshold values not governance-configurable |
 | INFO-5 | `sdk/index.ts` | Large barrel export file (~100 items) |
-| INFO-6 | `tests/` | LiteSVM tests don't cover CPI paths (no verifier program) |
+| INFO-6 | `tests/` | ~~LiteSVM tests don't cover CPI paths (no verifier program)~~ **RESOLVED** — mock Verifier Router loaded into LiteSVM; `complete_task_private` positive-path tests exercise full CPI path |
 
 ---
 

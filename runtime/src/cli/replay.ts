@@ -1,29 +1,34 @@
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
-import { EventParser } from '@coral-xyz/anchor';
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import { EventParser } from "@coral-xyz/anchor";
 import {
   type Finality,
   Connection,
   type ConfirmedSignatureInfo,
   type SignaturesForAddressOptions,
   PublicKey,
-} from '@solana/web3.js';
-import { PROGRAM_ID } from '@agenc/sdk';
-import { parseTrajectoryTrace, stableStringifyJson, type JsonValue, type TrajectoryTrace } from '../eval/types.js';
-import { createReadOnlyProgram } from '../idl.js';
-import { extractDisputePdaFromPayload } from '../replay/pda-utils.js';
+} from "@solana/web3.js";
+import { PROGRAM_ID } from "@agenc/sdk";
+import {
+  parseTrajectoryTrace,
+  stableStringifyJson,
+  type JsonValue,
+  type TrajectoryTrace,
+} from "../eval/types.js";
+import { createReadOnlyProgram } from "../idl.js";
+import { extractDisputePdaFromPayload } from "../replay/pda-utils.js";
 import {
   type ReplayEventCursor,
   type BackfillFetcher,
   type ProjectedTimelineInput,
   type ReplayTimelineRecord,
   type ReplayTimelineStore,
-} from '../replay/types.js';
+} from "../replay/types.js";
 import {
   InMemoryReplayTimelineStore,
   SqliteReplayTimelineStore,
-} from '../replay/index.js';
+} from "../replay/index.js";
 
 interface ParsedAnchorEvent {
   name: string;
@@ -31,7 +36,7 @@ interface ParsedAnchorEvent {
 }
 
 export interface CliReplayStoreOptions {
-  storeType: 'memory' | 'sqlite';
+  storeType: "memory" | "sqlite";
   sqlitePath?: string;
 }
 
@@ -77,11 +82,14 @@ interface SignedEvent {
   slot: number;
 }
 
-export const DEFAULT_SQLITE_REPLAY_PATH = '.agenc/replay-events.sqlite';
+export const DEFAULT_SQLITE_REPLAY_PATH = ".agenc/replay-events.sqlite";
 const MAX_SIGNATURES_PER_PAGE = 1_000;
 const DEFAULT_FETCH_PAGE_SIZE = 100;
 
-function compareProjectedInputs(left: ProjectedTimelineInput, right: ProjectedTimelineInput): number {
+function compareProjectedInputs(
+  left: ProjectedTimelineInput,
+  right: ProjectedTimelineInput,
+): number {
   if (left.slot !== right.slot) {
     return left.slot - right.slot;
   }
@@ -108,41 +116,55 @@ function clampPageSize(pageSize: number | undefined): number {
   return Math.min(Math.max(resolved, 1), MAX_SIGNATURES_PER_PAGE);
 }
 
-const RPC_FINALITY: Finality = 'confirmed';
+const RPC_FINALITY: Finality = "confirmed";
 
-export async function parseLocalTrajectoryFile(path: string): Promise<TrajectoryTrace> {
+export async function parseLocalTrajectoryFile(
+  path: string,
+): Promise<TrajectoryTrace> {
   const absolutePath = resolvePath(path);
   let raw: string;
 
   try {
-    raw = readFileSync(absolutePath, 'utf8');
+    raw = readFileSync(absolutePath, "utf8");
   } catch (error) {
-    throw new Error(`failed to read local trace path ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `failed to read local trace path ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new Error(`failed to parse local trace JSON at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `failed to parse local trace JSON at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   try {
     return parseTrajectoryTrace(parsed);
   } catch (error) {
-    throw new Error(`invalid local trajectory trace at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `invalid local trajectory trace at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
-export function createReplayStore(options: CliReplayStoreOptions): ReplayTimelineStore {
-  if (options.storeType === 'sqlite') {
-    return new SqliteReplayTimelineStore(resolvePath(options.sqlitePath ?? DEFAULT_SQLITE_REPLAY_PATH));
+export function createReplayStore(
+  options: CliReplayStoreOptions,
+): ReplayTimelineStore {
+  if (options.storeType === "sqlite") {
+    return new SqliteReplayTimelineStore(
+      resolvePath(options.sqlitePath ?? DEFAULT_SQLITE_REPLAY_PATH),
+    );
   }
 
   return new InMemoryReplayTimelineStore();
 }
 
-export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConfig): BackfillFetcher {
+export function createOnChainReplayBackfillFetcher(
+  config: CliReplayBackfillConfig,
+): BackfillFetcher {
   const { rpcUrl } = config;
   const programIdValue = config.programId ?? PROGRAM_ID.toBase58();
   const programId = new PublicKey(programIdValue);
@@ -155,9 +177,9 @@ export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConf
 
     for (const event of parser.parseLogs(logs, false)) {
       if (
-        typeof event !== 'object'
-        || event === null
-        || typeof event.name !== 'string'
+        typeof event !== "object" ||
+        event === null ||
+        typeof event.name !== "string"
       ) {
         continue;
       }
@@ -169,7 +191,7 @@ export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConf
   };
 
   return {
-  async fetchPage(
+    async fetchPage(
       cursor: ReplayEventCursor | null,
       toSlot: number,
       pageSize: number,
@@ -179,10 +201,10 @@ export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConf
         before: cursor?.signature,
         limit,
       };
-      const rawSignatures = await connection.getSignaturesForAddress(
+      const rawSignatures = (await connection.getSignaturesForAddress(
         programId,
         options,
-      ) as ConfirmedSignatureInfo[];
+      )) as ConfirmedSignatureInfo[];
 
       if (rawSignatures.length === 0) {
         return {
@@ -217,9 +239,10 @@ export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConf
           continue;
         }
 
-        const timestampMs = tx.blockTime && Number.isInteger(tx.blockTime)
-          ? tx.blockTime * 1_000
-          : undefined;
+        const timestampMs =
+          tx.blockTime && Number.isInteger(tx.blockTime)
+            ? tx.blockTime * 1_000
+            : undefined;
         let parsedEvents: ParsedAnchorEvent[];
         try {
           parsedEvents = parseLogs(logs);
@@ -252,13 +275,16 @@ export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConf
       const lastEvent = sorted[sorted.length - 1];
       const cursorSignature = lastSignature?.signature;
 
-      const nextCursor = cursorSignature === undefined
-        ? null
-        : {
-          slot: includedSignatures.get(cursorSignature)?.slot ?? lastSignature.slot,
-          signature: cursorSignature,
-          eventName: lastEvent?.eventName,
-        };
+      const nextCursor =
+        cursorSignature === undefined
+          ? null
+          : {
+              slot:
+                includedSignatures.get(cursorSignature)?.slot ??
+                lastSignature.slot,
+              signature: cursorSignature,
+              eventName: lastEvent?.eventName,
+            };
 
       return {
         events: sorted,
@@ -269,7 +295,9 @@ export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConf
   };
 }
 
-function sortRecordByKey(record: Record<string, number>): Record<string, number> {
+function sortRecordByKey(
+  record: Record<string, number>,
+): Record<string, number> {
   const sorted: Record<string, number> = {};
   for (const key of Object.keys(record).sort()) {
     sorted[key] = record[key]!;
@@ -293,12 +321,20 @@ export function deriveIncidentTraceId(filters: {
     fromSlot: filters.fromSlot ?? null,
     toSlot: filters.toSlot ?? null,
   } as JsonValue);
-  return createHash('sha256').update(`incident:${key}`).digest('hex').slice(0, 32);
+  return createHash("sha256")
+    .update(`incident:${key}`)
+    .digest("hex")
+    .slice(0, 32);
 }
 
 export function summarizeReplayIncidentRecords(
   records: readonly ReplayTimelineRecord[],
-  filters: { taskPda?: string; disputePda?: string; fromSlot?: number; toSlot?: number },
+  filters: {
+    taskPda?: string;
+    disputePda?: string;
+    fromSlot?: number;
+    toSlot?: number;
+  },
 ): CliReplayIncidentSummary {
   const sourceEventTypeCounts: Record<string, number> = {};
   const sourceEventNameCounts: Record<string, number> = {};
@@ -317,10 +353,13 @@ export function summarizeReplayIncidentRecords(
   });
 
   const events = sorted.map((record) => {
-    const disputePda = record.disputePda ?? extractDisputePdaFromPayload(record.payload);
+    const disputePda =
+      record.disputePda ?? extractDisputePdaFromPayload(record.payload);
 
-    sourceEventTypeCounts[record.sourceEventType] = (sourceEventTypeCounts[record.sourceEventType] ?? 0) + 1;
-    sourceEventNameCounts[record.sourceEventName] = (sourceEventNameCounts[record.sourceEventName] ?? 0) + 1;
+    sourceEventTypeCounts[record.sourceEventType] =
+      (sourceEventTypeCounts[record.sourceEventType] ?? 0) + 1;
+    sourceEventNameCounts[record.sourceEventName] =
+      (sourceEventNameCounts[record.sourceEventName] ?? 0) + 1;
     if (record.traceId) {
       traceIdCounts[record.traceId] = (traceIdCounts[record.traceId] ?? 0) + 1;
     }
@@ -370,9 +409,9 @@ export function summarizeReplayIncidentRecords(
     events,
   };
 
-  const deterministicHash = createHash('sha256')
+  const deterministicHash = createHash("sha256")
     .update(stableStringifyJson(summary as unknown as JsonValue))
-    .digest('hex');
+    .digest("hex");
 
   return {
     ...summary,

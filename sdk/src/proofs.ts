@@ -8,35 +8,39 @@
  * - binding_seed / nullifier_seed (32 bytes each)
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { createHash } from 'node:crypto';
-import type { ProverConfig } from './prover.js';
+import { PublicKey } from "@solana/web3.js";
+import { createHash } from "node:crypto";
+import type { ProverConfig } from "./prover.js";
 import {
   HASH_SIZE,
   OUTPUT_FIELD_COUNT,
-  PROOF_SIZE_BYTES,
-  RISC0_GROTH16_SEAL_LEN,
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_SEAL_BORSH_LEN,
   RISC0_SELECTOR_LEN,
   TRUSTED_RISC0_IMAGE_ID,
   TRUSTED_RISC0_SELECTOR,
-} from './constants';
+} from "./constants";
 
 /** BN254 scalar field modulus */
-export const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+export const FIELD_MODULUS =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
 /** Bits per byte for bit shifting */
 const BITS_PER_BYTE = 8n;
 
-const PROOF_XOR_MULTIPLIER = 13;
 const JOURNAL_FIELDS = 6;
-const NULLIFIER_DOMAIN_TAG = Buffer.from('AGENC_V2_NULLIFIER', 'utf8');
-const CONSTRAINT_HASH_DOMAIN_TAG = Buffer.from('AGENC_V2_CONSTRAINT_HASH', 'utf8');
-const OUTPUT_COMMITMENT_DOMAIN_TAG = Buffer.from('AGENC_V2_OUTPUT_COMMITMENT', 'utf8');
-const BINDING_BASE_DOMAIN_TAG = Buffer.from('AGENC_V2_BINDING_BASE', 'utf8');
-const BINDING_DOMAIN_TAG = Buffer.from('AGENC_V2_BINDING', 'utf8');
+const NULLIFIER_DOMAIN_TAG = Buffer.from("AGENC_V2_NULLIFIER", "utf8");
+const CONSTRAINT_HASH_DOMAIN_TAG = Buffer.from(
+  "AGENC_V2_CONSTRAINT_HASH",
+  "utf8",
+);
+const OUTPUT_COMMITMENT_DOMAIN_TAG = Buffer.from(
+  "AGENC_V2_OUTPUT_COMMITMENT",
+  "utf8",
+);
+const BINDING_BASE_DOMAIN_TAG = Buffer.from("AGENC_V2_BINDING_BASE", "utf8");
+const BINDING_DOMAIN_TAG = Buffer.from("AGENC_V2_BINDING", "utf8");
 const MAX_U256 = (1n << 256n) - 1n;
 
 /**
@@ -142,7 +146,9 @@ export function pubkeyToField(pubkey: PublicKey): bigint {
  */
 export function computeConstraintHash(output: bigint[]): bigint {
   if (output.length !== OUTPUT_FIELD_COUNT) {
-    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
+    throw new Error(
+      `Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`,
+    );
   }
   const reduced = output.map(normalizeFieldElement);
   return hashFieldElements(CONSTRAINT_HASH_DOMAIN_TAG, reduced);
@@ -154,7 +160,9 @@ function normalizeFieldElement(value: bigint): bigint {
 
 function normalizeOutput(output: bigint[]): bigint[] {
   if (output.length !== OUTPUT_FIELD_COUNT) {
-    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
+    throw new Error(
+      `Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`,
+    );
   }
   return output.map(normalizeFieldElement);
 }
@@ -166,7 +174,10 @@ function normalizeOutput(output: bigint[]): bigint[] {
  * @param salt - Random salt
  * @returns The output commitment
  */
-export function computeCommitmentFromOutput(output: bigint[], salt: bigint): bigint {
+export function computeCommitmentFromOutput(
+  output: bigint[],
+  salt: bigint,
+): bigint {
   const normalizedOutput = normalizeOutput(output);
   const s = normalizeFieldElement(salt);
   return hashFieldElements(OUTPUT_COMMITMENT_DOMAIN_TAG, [
@@ -190,11 +201,14 @@ export function computeCommitmentFromOutput(output: bigint[], salt: bigint): big
 export function computeBinding(
   taskPda: PublicKey,
   agentPubkey: PublicKey,
-  outputCommitment: bigint
+  outputCommitment: bigint,
 ): bigint {
   const taskField = pubkeyToField(taskPda);
   const agentField = pubkeyToField(agentPubkey);
-  const bindingBase = hashFieldElements(BINDING_BASE_DOMAIN_TAG, [taskField, agentField]);
+  const bindingBase = hashFieldElements(BINDING_BASE_DOMAIN_TAG, [
+    taskField,
+    agentField,
+  ]);
   const commitment = normalizeFieldElement(outputCommitment);
   return hashFieldElements(BINDING_DOMAIN_TAG, [bindingBase, commitment]);
 }
@@ -202,20 +216,20 @@ export function computeBinding(
 export function computeNullifierFromAgentSecret(
   constraintHash: bigint,
   outputCommitment: bigint,
-  agentSecret: bigint
+  agentSecret: bigint,
 ): bigint {
   const ch = normalizeFieldElement(constraintHash);
   const oc = normalizeFieldElement(outputCommitment);
   const secret = normalizeFieldElement(agentSecret);
 
-  const digest = createHash('sha256')
+  const digest = createHash("sha256")
     .update(NULLIFIER_DOMAIN_TAG)
     .update(bigintToBytes32(ch))
     .update(bigintToBytes32(oc))
     .update(bigintToBytes32(secret))
     .digest();
 
-  return BigInt(`0x${digest.toString('hex')}`);
+  return BigInt(`0x${digest.toString("hex")}`);
 }
 
 /**
@@ -226,23 +240,23 @@ export function computeHashes(
   agentPubkey: PublicKey,
   output: bigint[],
   salt: bigint,
-  agentSecret?: bigint
+  agentSecret?: bigint,
 ): HashResult {
   const constraintHash = computeConstraintHash(output);
   const outputCommitment = computeCommitmentFromOutput(output, salt);
   const binding = computeBinding(taskPda, agentPubkey, outputCommitment);
   if (agentSecret === undefined) {
     console.warn(
-      'SECURITY WARNING: agentSecret not provided to computeHashes(). Falling back to ' +
-      'pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. ' +
-      'Pass an explicit agentSecret for production use.'
+      "SECURITY WARNING: agentSecret not provided to computeHashes(). Falling back to " +
+        "pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. " +
+        "Pass an explicit agentSecret for production use.",
     );
   }
   const effectiveAgentSecret = agentSecret ?? pubkeyToField(agentPubkey);
   const nullifier = computeNullifierFromAgentSecret(
     constraintHash,
     outputCommitment,
-    effectiveAgentSecret
+    effectiveAgentSecret,
   );
 
   return {
@@ -253,31 +267,39 @@ export function computeHashes(
   };
 }
 
-function bigintToBytes32(value: bigint): Buffer {
+export function bigintToBytes32(value: bigint): Buffer {
   if (value < 0n || value > MAX_U256) {
-    throw new Error('value must be in [0, 2^256 - 1]');
+    throw new Error("value must be in [0, 2^256 - 1]");
   }
-  const hex = value.toString(16).padStart(HASH_SIZE * 2, '0');
-  return Buffer.from(hex, 'hex');
+  const hex = value.toString(16).padStart(HASH_SIZE * 2, "0");
+  return Buffer.from(hex, "hex");
 }
 
 function hashFieldElements(domainTag: Buffer, values: bigint[]): bigint {
-  const hasher = createHash('sha256');
+  const hasher = createHash("sha256");
   hasher.update(domainTag);
   for (const value of values) {
     hasher.update(bigintToBytes32(normalizeFieldElement(value)));
   }
   const digest = hasher.digest();
-  return BigInt(`0x${digest.toString('hex')}`) % FIELD_MODULUS;
+  return BigInt(`0x${digest.toString("hex")}`) % FIELD_MODULUS;
 }
 
-function assertByteLength(value: Uint8Array | Buffer, expected: number, label: string): void {
+function assertByteLength(
+  value: Uint8Array | Buffer,
+  expected: number,
+  label: string,
+): void {
   if (value.length !== expected) {
     throw new Error(`${label} must be ${expected} bytes, got ${value.length}`);
   }
 }
 
-function copyFixedBytes(value: Uint8Array | Buffer, expected: number, label: string): Buffer {
+function copyFixedBytes(
+  value: Uint8Array | Buffer,
+  expected: number,
+  label: string,
+): Buffer {
   const out = Buffer.from(value);
   assertByteLength(out, expected, label);
   return out;
@@ -285,12 +307,12 @@ function copyFixedBytes(value: Uint8Array | Buffer, expected: number, label: str
 
 function validateSelector(selector: Buffer): Buffer {
   if (!selector.equals(Buffer.from(TRUSTED_RISC0_SELECTOR))) {
-    throw new Error('sealSelector must match TRUSTED_RISC0_SELECTOR');
+    throw new Error("sealSelector must match TRUSTED_RISC0_SELECTOR");
   }
   return selector;
 }
 
-function buildJournalBytes(fields: {
+export function buildJournalBytes(fields: {
   taskPda: Uint8Array | Buffer;
   agentAuthority: Uint8Array | Buffer;
   constraintHash: Uint8Array | Buffer;
@@ -299,163 +321,26 @@ function buildJournalBytes(fields: {
   nullifierSeed: Uint8Array | Buffer;
 }): Buffer {
   const pieces = [
-    copyFixedBytes(fields.taskPda, HASH_SIZE, 'taskPda'),
-    copyFixedBytes(fields.agentAuthority, HASH_SIZE, 'agentAuthority'),
-    copyFixedBytes(fields.constraintHash, HASH_SIZE, 'constraintHash'),
-    copyFixedBytes(fields.outputCommitment, HASH_SIZE, 'outputCommitment'),
-    copyFixedBytes(fields.bindingSeed, HASH_SIZE, 'bindingSeed'),
-    copyFixedBytes(fields.nullifierSeed, HASH_SIZE, 'nullifierSeed'),
+    copyFixedBytes(fields.taskPda, HASH_SIZE, "taskPda"),
+    copyFixedBytes(fields.agentAuthority, HASH_SIZE, "agentAuthority"),
+    copyFixedBytes(fields.constraintHash, HASH_SIZE, "constraintHash"),
+    copyFixedBytes(fields.outputCommitment, HASH_SIZE, "outputCommitment"),
+    copyFixedBytes(fields.bindingSeed, HASH_SIZE, "bindingSeed"),
+    copyFixedBytes(fields.nullifierSeed, HASH_SIZE, "nullifierSeed"),
   ];
   const journal = Buffer.concat(pieces);
   const expectedLength = HASH_SIZE * JOURNAL_FIELDS;
-  if (journal.length !== expectedLength || journal.length !== RISC0_JOURNAL_LEN) {
+  if (
+    journal.length !== expectedLength ||
+    journal.length !== RISC0_JOURNAL_LEN
+  ) {
     throw new Error(`journal must be exactly ${RISC0_JOURNAL_LEN} bytes`);
   }
   return journal;
 }
 
-function simulateSealProofBytes(journal: Buffer, imageId: Buffer): Buffer {
-  assertByteLength(journal, RISC0_JOURNAL_LEN, 'journal');
-  assertByteLength(imageId, RISC0_IMAGE_ID_LEN, 'imageId');
-
-  const proof = Buffer.alloc(RISC0_GROTH16_SEAL_LEN);
-  for (let i = 0; i < proof.length; i++) {
-    proof[i] = journal[i % journal.length] ^ imageId[i % imageId.length] ^ ((i * PROOF_XOR_MULTIPLIER) & 0xff);
-  }
-  return proof;
-}
-
 /**
- * Generate a deterministic local RISC0-shaped payload.
- *
- * Emits the router payload shape for downstream submission.
- */
-export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
-  const startTime = Date.now();
-
-  // Validate salt is non-zero (zero salt makes commitments deterministic, defeating privacy)
-  if (params.salt === 0n) {
-    throw new Error('Invalid salt: must be non-zero for privacy preservation');
-  }
-
-  if (params.agentSecret === undefined) {
-    console.warn(
-      'SECURITY WARNING: agentSecret not provided to generateProof(). Falling back to ' +
-      'pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. ' +
-      'Pass an explicit agentSecret for production use.'
-    );
-  }
-  const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
-  const hashes = computeHashes(
-    params.taskPda,
-    params.agentPubkey,
-    params.output,
-    params.salt,
-    agentSecret
-  );
-
-  // Validate computed hashes are non-zero (on-chain rejects zero values)
-  if (hashes.constraintHash === 0n) {
-    throw new Error('Computed constraint hash is zero — task may not be configured for private completion');
-  }
-  if (hashes.outputCommitment === 0n) {
-    throw new Error('Computed output commitment is zero');
-  }
-
-  const constraintHash = bigintToBytes32(hashes.constraintHash);
-  const outputCommitment = bigintToBytes32(hashes.outputCommitment);
-  const bindingSeed = bigintToBytes32(hashes.binding);
-  const nullifierSeed = bigintToBytes32(hashes.nullifier);
-
-  const journal = buildJournalBytes({
-    taskPda: params.taskPda.toBytes(),
-    agentAuthority: params.agentPubkey.toBytes(),
-    constraintHash,
-    outputCommitment,
-    bindingSeed,
-    nullifierSeed,
-  });
-
-  const imageId = copyFixedBytes(
-    params.imageId ?? TRUSTED_RISC0_IMAGE_ID,
-    RISC0_IMAGE_ID_LEN,
-    'imageId'
-  );
-  const selector = validateSelector(
-    copyFixedBytes(
-      params.sealSelector ?? TRUSTED_RISC0_SELECTOR,
-      RISC0_SELECTOR_LEN,
-      'sealSelector'
-    )
-  );
-
-  const proof = simulateSealProofBytes(journal, imageId);
-  assertByteLength(proof, PROOF_SIZE_BYTES, 'proof');
-  const sealBytes = Buffer.concat([selector, proof]);
-  assertByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
-
-  return {
-    sealBytes,
-    journal,
-    imageId,
-    bindingSeed,
-    nullifierSeed,
-    proof,
-    constraintHash,
-    outputCommitment,
-    binding: Buffer.from(bindingSeed),
-    nullifier: Buffer.from(nullifierSeed),
-    proofSize: proof.length,
-    generationTime: Date.now() - startTime,
-  };
-}
-
-/**
- * Verify locally that seal bytes match the deterministic SDK proving transform.
- *
- * Accepts either:
- * - 256-byte `proof` (legacy alias, selector assumed trusted), or
- * - 260-byte `sealBytes` (selector + proof).
- *
- * NOTE: This only verifies the simulated SDK transform. Real RISC Zero proofs
- * produced by `generateProofWithProver()` will return `false` — that is expected.
- * On-chain verification via the Verifier Router is the authoritative check.
- *
- * @param proof - Seal bytes (260) or proof body (256)
- * @param journal - The 192-byte RISC Zero journal
- */
-export async function verifyProofLocally(
-  proof: Buffer,
-  journal: Buffer
-): Promise<boolean> {
-  try {
-    const raw = Buffer.from(proof);
-    let selector: Buffer;
-    let proofBody: Buffer;
-
-    if (raw.length === RISC0_SEAL_BORSH_LEN) {
-      selector = raw.subarray(0, RISC0_SELECTOR_LEN);
-      proofBody = raw.subarray(RISC0_SELECTOR_LEN);
-    } else if (raw.length === RISC0_GROTH16_SEAL_LEN) {
-      selector = Buffer.from(TRUSTED_RISC0_SELECTOR);
-      proofBody = raw;
-    } else {
-      return false;
-    }
-
-    validateSelector(selector);
-    assertByteLength(proofBody, RISC0_GROTH16_SEAL_LEN, 'proof');
-    const journalBuf = Buffer.from(journal);
-    assertByteLength(journalBuf, RISC0_JOURNAL_LEN, 'journal');
-    const expected = simulateSealProofBytes(journalBuf, Buffer.from(TRUSTED_RISC0_IMAGE_ID));
-    return proofBody.equals(expected);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Generate a real RISC Zero Groth16 proof via an external prover backend.
+ * Generate a RISC Zero Groth16 proof via an external prover backend.
  *
  * This function computes all hashes locally (same as the simulated path), then
  * delegates proof generation to a local binary or remote prover. The returned
@@ -467,17 +352,23 @@ export async function verifyProofLocally(
  * @param params - Same proof generation parameters as `generateProof()`
  * @param proverConfig - Backend configuration (local-binary or remote)
  */
-export async function generateProofWithProver(
+export async function generateProof(
   params: ProofGenerationParams,
   proverConfig: ProverConfig,
 ): Promise<ProofResult> {
   const startTime = Date.now();
 
+  if (params.salt === 0n) {
+    throw new Error(
+      "salt must be non-zero for privacy preservation",
+    );
+  }
+
   if (params.agentSecret === undefined) {
     console.warn(
-      'SECURITY WARNING: agentSecret not provided to generateProofWithProver(). Falling back to ' +
-      'pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. ' +
-      'Pass an explicit agentSecret for production use.'
+      "SECURITY WARNING: agentSecret not provided to generateProof(). Falling back to " +
+        "pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. " +
+        "Pass an explicit agentSecret for production use.",
     );
   }
   const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
@@ -503,8 +394,11 @@ export async function generateProofWithProver(
     nullifier: new Uint8Array(nullifierSeedBuf),
   };
 
-  const { prove } = await import('./prover.js');
-  const { sealBytes, journal, imageId } = await prove(proverInput, proverConfig);
+  const { prove } = await import("./prover.js");
+  const { sealBytes, journal, imageId } = await prove(
+    proverInput,
+    proverConfig,
+  );
 
   // Validate returned journal matches locally computed fields
   const expectedJournal = buildJournalBytes({
@@ -516,7 +410,9 @@ export async function generateProofWithProver(
     nullifierSeed: nullifierSeedBuf,
   });
   if (!expectedJournal.equals(journal)) {
-    throw new Error('Prover returned journal that does not match computed fields');
+    throw new Error(
+      "Prover returned journal that does not match computed fields",
+    );
   }
 
   const proof = Buffer.from(sealBytes.subarray(RISC0_SELECTOR_LEN));

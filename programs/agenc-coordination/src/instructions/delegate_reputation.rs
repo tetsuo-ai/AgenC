@@ -53,7 +53,7 @@ pub fn handler(ctx: Context<DelegateReputation>, amount: u16, expires_at: i64) -
 
     // Validate amount
     require!(
-        amount > 0 && amount <= MAX_REPUTATION && amount >= MIN_DELEGATION_AMOUNT,
+        amount > 0 && (MIN_DELEGATION_AMOUNT..=MAX_REPUTATION).contains(&amount),
         CoordinationError::ReputationDelegationAmountInvalid
     );
     require!(

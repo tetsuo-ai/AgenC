@@ -1,146 +1,170 @@
-import { describe, it, expect } from 'vitest';
-import { ToolPolicyEvaluator, type ToolPermissionPolicy, type ToolPolicyContext } from './tool-policy.js';
+import { describe, it, expect } from "vitest";
+import {
+  ToolPolicyEvaluator,
+  type ToolPermissionPolicy,
+  type ToolPolicyContext,
+} from "./tool-policy.js";
 
 function ctx(overrides: Partial<ToolPolicyContext> = {}): ToolPolicyContext {
   return {
-    toolName: 'system.bash',
-    sessionId: 'sess-1',
-    channel: 'telegram',
+    toolName: "system.bash",
+    sessionId: "sess-1",
+    channel: "telegram",
     isHeartbeat: false,
     isSandboxed: false,
     ...overrides,
   };
 }
 
-describe('ToolPolicyEvaluator', () => {
+describe("ToolPolicyEvaluator", () => {
   // -------------------------------------------------------------------
   // Basic allow / deny
   // -------------------------------------------------------------------
 
-  it('denies when a deny rule matches', () => {
+  it("denies when a deny rule matches", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'deny' },
+      { tool: "system.bash", effect: "deny" },
     ]);
     const decision = evaluator.evaluate(ctx());
     expect(decision.allowed).toBe(false);
-    expect(decision.matchedRule?.tool).toBe('system.bash');
+    expect(decision.matchedRule?.tool).toBe("system.bash");
   });
 
-  it('allows when an allow rule matches', () => {
+  it("allows when an allow rule matches", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow' },
+      { tool: "system.bash", effect: "allow" },
     ]);
     const decision = evaluator.evaluate(ctx());
     expect(decision.allowed).toBe(true);
-    expect(decision.matchedRule?.tool).toBe('system.bash');
+    expect(decision.matchedRule?.tool).toBe("system.bash");
   });
 
-  it('deny takes precedence over allow when deny comes first', () => {
+  it("deny takes precedence over allow when deny comes first", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'deny' },
-      { tool: 'system.bash', effect: 'allow' },
+      { tool: "system.bash", effect: "deny" },
+      { tool: "system.bash", effect: "allow" },
     ]);
     const decision = evaluator.evaluate(ctx());
     expect(decision.allowed).toBe(false);
   });
 
-  it('deny takes precedence over allow even when allow comes first', () => {
+  it("deny takes precedence over allow even when allow comes first", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow' },
-      { tool: 'system.bash', effect: 'deny' },
+      { tool: "system.bash", effect: "allow" },
+      { tool: "system.bash", effect: "deny" },
     ]);
     const decision = evaluator.evaluate(ctx());
     expect(decision.allowed).toBe(false);
   });
 
-  it('defaults to deny when no rule matches', () => {
+  it("defaults to deny when no rule matches", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'agenc.listTasks', effect: 'allow' },
+      { tool: "agenc.listTasks", effect: "allow" },
     ]);
     const decision = evaluator.evaluate(ctx());
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toBe('No matching allow rule');
+    expect(decision.reason).toBe("No matching allow rule");
   });
 
   // -------------------------------------------------------------------
   // Glob pattern matching
   // -------------------------------------------------------------------
 
-  it('glob pattern system.* matches system.bash', () => {
+  it("glob pattern system.* matches system.bash", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.*', effect: 'allow' },
+      { tool: "system.*", effect: "allow" },
     ]);
-    const decision = evaluator.evaluate(ctx({ toolName: 'system.bash' }));
+    const decision = evaluator.evaluate(ctx({ toolName: "system.bash" }));
     expect(decision.allowed).toBe(true);
   });
 
-  it('glob pattern system.* matches system.http', () => {
+  it("glob pattern system.* matches system.http", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.*', effect: 'allow' },
+      { tool: "system.*", effect: "allow" },
     ]);
-    const decision = evaluator.evaluate(ctx({ toolName: 'system.http' }));
+    const decision = evaluator.evaluate(ctx({ toolName: "system.http" }));
     expect(decision.allowed).toBe(true);
   });
 
-  it('glob pattern system.* does NOT match systemd', () => {
+  it("glob pattern system.* does NOT match systemd", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.*', effect: 'allow' },
+      { tool: "system.*", effect: "allow" },
     ]);
-    const decision = evaluator.evaluate(ctx({ toolName: 'systemd' }));
+    const decision = evaluator.evaluate(ctx({ toolName: "systemd" }));
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toBe('No matching allow rule');
+    expect(decision.reason).toBe("No matching allow rule");
   });
 
-  it('wildcard * matches everything', () => {
+  it("wildcard * matches everything", () => {
+    const evaluator = new ToolPolicyEvaluator([{ tool: "*", effect: "allow" }]);
+    expect(evaluator.evaluate(ctx({ toolName: "anything" })).allowed).toBe(
+      true,
+    );
+    expect(evaluator.evaluate(ctx({ toolName: "system.bash" })).allowed).toBe(
+      true,
+    );
+  });
+
+  it("exact name matches exactly", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: '*', effect: 'allow' },
+      { tool: "agenc.listTasks", effect: "allow" },
     ]);
-    expect(evaluator.evaluate(ctx({ toolName: 'anything' })).allowed).toBe(true);
-    expect(evaluator.evaluate(ctx({ toolName: 'system.bash' })).allowed).toBe(true);
+    expect(
+      evaluator.evaluate(ctx({ toolName: "agenc.listTasks" })).allowed,
+    ).toBe(true);
+    expect(evaluator.evaluate(ctx({ toolName: "agenc.getTask" })).allowed).toBe(
+      false,
+    );
   });
 
-  it('exact name matches exactly', () => {
+  it("glob pattern works with deny rules", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'agenc.listTasks', effect: 'allow' },
-    ]);
-    expect(evaluator.evaluate(ctx({ toolName: 'agenc.listTasks' })).allowed).toBe(true);
-    expect(evaluator.evaluate(ctx({ toolName: 'agenc.getTask' })).allowed).toBe(false);
-  });
-
-  it('glob pattern works with deny rules', () => {
-    const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.*', effect: 'deny' },
-      { tool: '*', effect: 'allow' },
+      { tool: "system.*", effect: "deny" },
+      { tool: "*", effect: "allow" },
     ]);
     // system.bash denied by glob deny
-    expect(evaluator.evaluate(ctx({ toolName: 'system.bash' })).allowed).toBe(false);
+    expect(evaluator.evaluate(ctx({ toolName: "system.bash" })).allowed).toBe(
+      false,
+    );
     // agenc.listTasks allowed by wildcard allow (no deny match)
-    expect(evaluator.evaluate(ctx({ toolName: 'agenc.listTasks' })).allowed).toBe(true);
+    expect(
+      evaluator.evaluate(ctx({ toolName: "agenc.listTasks" })).allowed,
+    ).toBe(true);
   });
 
-  it('glob does not match across dot segments', () => {
+  it("glob does not match across dot segments", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.*', effect: 'allow' },
+      { tool: "system.*", effect: "allow" },
     ]);
     // Two segments deep — should not match single * glob
-    expect(evaluator.evaluate(ctx({ toolName: 'system.bash.sub' })).allowed).toBe(false);
+    expect(
+      evaluator.evaluate(ctx({ toolName: "system.bash.sub" })).allowed,
+    ).toBe(false);
   });
 
   // -------------------------------------------------------------------
   // heartbeatOnly condition
   // -------------------------------------------------------------------
 
-  it('heartbeatOnly blocks user-initiated calls', () => {
+  it("heartbeatOnly blocks user-initiated calls", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { heartbeatOnly: true } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { heartbeatOnly: true },
+      },
     ]);
     const decision = evaluator.evaluate(ctx({ isHeartbeat: false }));
     expect(decision.allowed).toBe(false);
   });
 
-  it('heartbeatOnly allows heartbeat-initiated calls', () => {
+  it("heartbeatOnly allows heartbeat-initiated calls", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { heartbeatOnly: true } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { heartbeatOnly: true },
+      },
     ]);
     const decision = evaluator.evaluate(ctx({ isHeartbeat: true }));
     expect(decision.allowed).toBe(true);
@@ -150,19 +174,27 @@ describe('ToolPolicyEvaluator', () => {
   // sessionIds condition
   // -------------------------------------------------------------------
 
-  it('sessionIds restriction blocks non-matching sessions', () => {
+  it("sessionIds restriction blocks non-matching sessions", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { sessionIds: ['sess-admin'] } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { sessionIds: ["sess-admin"] },
+      },
     ]);
-    const decision = evaluator.evaluate(ctx({ sessionId: 'sess-user' }));
+    const decision = evaluator.evaluate(ctx({ sessionId: "sess-user" }));
     expect(decision.allowed).toBe(false);
   });
 
-  it('sessionIds allows matching sessions', () => {
+  it("sessionIds allows matching sessions", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { sessionIds: ['sess-admin'] } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { sessionIds: ["sess-admin"] },
+      },
     ]);
-    const decision = evaluator.evaluate(ctx({ sessionId: 'sess-admin' }));
+    const decision = evaluator.evaluate(ctx({ sessionId: "sess-admin" }));
     expect(decision.allowed).toBe(true);
   });
 
@@ -170,19 +202,27 @@ describe('ToolPolicyEvaluator', () => {
   // channels condition
   // -------------------------------------------------------------------
 
-  it('channels restriction blocks non-matching channels', () => {
+  it("channels restriction blocks non-matching channels", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { channels: ['discord'] } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { channels: ["discord"] },
+      },
     ]);
-    const decision = evaluator.evaluate(ctx({ channel: 'telegram' }));
+    const decision = evaluator.evaluate(ctx({ channel: "telegram" }));
     expect(decision.allowed).toBe(false);
   });
 
-  it('channels allows matching channels', () => {
+  it("channels allows matching channels", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { channels: ['telegram'] } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { channels: ["telegram"] },
+      },
     ]);
-    const decision = evaluator.evaluate(ctx({ channel: 'telegram' }));
+    const decision = evaluator.evaluate(ctx({ channel: "telegram" }));
     expect(decision.allowed).toBe(true);
   });
 
@@ -190,17 +230,25 @@ describe('ToolPolicyEvaluator', () => {
   // sandboxOnly condition
   // -------------------------------------------------------------------
 
-  it('sandboxOnly blocks non-sandboxed calls', () => {
+  it("sandboxOnly blocks non-sandboxed calls", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { sandboxOnly: true } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { sandboxOnly: true },
+      },
     ]);
     const decision = evaluator.evaluate(ctx({ isSandboxed: false }));
     expect(decision.allowed).toBe(false);
   });
 
-  it('sandboxOnly allows sandboxed calls', () => {
+  it("sandboxOnly allows sandboxed calls", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { sandboxOnly: true } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { sandboxOnly: true },
+      },
     ]);
     const decision = evaluator.evaluate(ctx({ isSandboxed: true }));
     expect(decision.allowed).toBe(true);
@@ -210,10 +258,10 @@ describe('ToolPolicyEvaluator', () => {
   // Rate limiting
   // -------------------------------------------------------------------
 
-  it('allows calls within rate limit', () => {
+  it("allows calls within rate limit", () => {
     let nowMs = 1_000;
     const evaluator = new ToolPolicyEvaluator(
-      [{ tool: 'system.bash', effect: 'allow', conditions: { rateLimit: 3 } }],
+      [{ tool: "system.bash", effect: "allow", conditions: { rateLimit: 3 } }],
       () => nowMs,
     );
     expect(evaluator.evaluate(ctx()).allowed).toBe(true);
@@ -223,10 +271,10 @@ describe('ToolPolicyEvaluator', () => {
     expect(evaluator.evaluate(ctx()).allowed).toBe(true);
   });
 
-  it('blocks calls exceeding rate limit', () => {
+  it("blocks calls exceeding rate limit", () => {
     let nowMs = 1_000;
     const evaluator = new ToolPolicyEvaluator(
-      [{ tool: 'system.bash', effect: 'allow', conditions: { rateLimit: 2 } }],
+      [{ tool: "system.bash", effect: "allow", conditions: { rateLimit: 2 } }],
       () => nowMs,
     );
     expect(evaluator.evaluate(ctx()).allowed).toBe(true);
@@ -235,13 +283,13 @@ describe('ToolPolicyEvaluator', () => {
     nowMs += 100;
     const decision = evaluator.evaluate(ctx());
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain('Rate limit exceeded');
+    expect(decision.reason).toContain("Rate limit exceeded");
   });
 
-  it('rate limit window resets after expiry', () => {
+  it("rate limit window resets after expiry", () => {
     let nowMs = 1_000;
     const evaluator = new ToolPolicyEvaluator(
-      [{ tool: 'system.bash', effect: 'allow', conditions: { rateLimit: 1 } }],
+      [{ tool: "system.bash", effect: "allow", conditions: { rateLimit: 1 } }],
       () => nowMs,
     );
     expect(evaluator.evaluate(ctx()).allowed).toBe(true);
@@ -257,14 +305,14 @@ describe('ToolPolicyEvaluator', () => {
   // Multiple conditions (AND logic)
   // -------------------------------------------------------------------
 
-  it('all conditions must be met (AND logic)', () => {
+  it("all conditions must be met (AND logic)", () => {
     const policies: ToolPermissionPolicy[] = [
       {
-        tool: 'system.bash',
-        effect: 'allow',
+        tool: "system.bash",
+        effect: "allow",
         conditions: {
           heartbeatOnly: true,
-          channels: ['telegram'],
+          channels: ["telegram"],
           sandboxOnly: true,
         },
       },
@@ -272,59 +320,81 @@ describe('ToolPolicyEvaluator', () => {
     const evaluator = new ToolPolicyEvaluator(policies);
 
     // All conditions met
-    expect(evaluator.evaluate(ctx({
-      isHeartbeat: true,
-      channel: 'telegram',
-      isSandboxed: true,
-    })).allowed).toBe(true);
+    expect(
+      evaluator.evaluate(
+        ctx({
+          isHeartbeat: true,
+          channel: "telegram",
+          isSandboxed: true,
+        }),
+      ).allowed,
+    ).toBe(true);
 
     // heartbeat missing
-    expect(evaluator.evaluate(ctx({
-      isHeartbeat: false,
-      channel: 'telegram',
-      isSandboxed: true,
-    })).allowed).toBe(false);
+    expect(
+      evaluator.evaluate(
+        ctx({
+          isHeartbeat: false,
+          channel: "telegram",
+          isSandboxed: true,
+        }),
+      ).allowed,
+    ).toBe(false);
 
     // wrong channel
-    expect(evaluator.evaluate(ctx({
-      isHeartbeat: true,
-      channel: 'discord',
-      isSandboxed: true,
-    })).allowed).toBe(false);
+    expect(
+      evaluator.evaluate(
+        ctx({
+          isHeartbeat: true,
+          channel: "discord",
+          isSandboxed: true,
+        }),
+      ).allowed,
+    ).toBe(false);
 
     // not sandboxed
-    expect(evaluator.evaluate(ctx({
-      isHeartbeat: true,
-      channel: 'telegram',
-      isSandboxed: false,
-    })).allowed).toBe(false);
+    expect(
+      evaluator.evaluate(
+        ctx({
+          isHeartbeat: true,
+          channel: "telegram",
+          isSandboxed: false,
+        }),
+      ).allowed,
+    ).toBe(false);
   });
 
-  it('rate limit combined with channel condition', () => {
+  it("rate limit combined with channel condition", () => {
     let nowMs = 1_000;
     const evaluator = new ToolPolicyEvaluator(
-      [{ tool: 'system.bash', effect: 'allow', conditions: { channels: ['telegram'], rateLimit: 1 } }],
+      [
+        {
+          tool: "system.bash",
+          effect: "allow",
+          conditions: { channels: ["telegram"], rateLimit: 1 },
+        },
+      ],
       () => nowMs,
     );
     // Wrong channel — no allow rule matches
-    expect(evaluator.evaluate(ctx({ channel: 'discord' })).allowed).toBe(false);
+    expect(evaluator.evaluate(ctx({ channel: "discord" })).allowed).toBe(false);
     // Right channel — allowed
-    expect(evaluator.evaluate(ctx({ channel: 'telegram' })).allowed).toBe(true);
+    expect(evaluator.evaluate(ctx({ channel: "telegram" })).allowed).toBe(true);
     nowMs += 100;
     // Right channel but rate limited
-    const decision = evaluator.evaluate(ctx({ channel: 'telegram' }));
+    const decision = evaluator.evaluate(ctx({ channel: "telegram" }));
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain('Rate limit exceeded');
+    expect(decision.reason).toContain("Rate limit exceeded");
   });
 
   // -------------------------------------------------------------------
   // updatePolicies
   // -------------------------------------------------------------------
 
-  it('updatePolicies replaces policy set and clears rate counters', () => {
+  it("updatePolicies replaces policy set and clears rate counters", () => {
     let nowMs = 1_000;
     const evaluator = new ToolPolicyEvaluator(
-      [{ tool: 'system.bash', effect: 'allow', conditions: { rateLimit: 1 } }],
+      [{ tool: "system.bash", effect: "allow", conditions: { rateLimit: 1 } }],
       () => nowMs,
     );
 
@@ -335,21 +405,19 @@ describe('ToolPolicyEvaluator', () => {
 
     // Update policies — rate counters reset
     evaluator.updatePolicies([
-      { tool: 'system.bash', effect: 'allow', conditions: { rateLimit: 1 } },
+      { tool: "system.bash", effect: "allow", conditions: { rateLimit: 1 } },
     ]);
     nowMs += 100;
     expect(evaluator.evaluate(ctx()).allowed).toBe(true);
   });
 
-  it('updatePolicies changes which tools are allowed', () => {
+  it("updatePolicies changes which tools are allowed", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow' },
+      { tool: "system.bash", effect: "allow" },
     ]);
     expect(evaluator.evaluate(ctx()).allowed).toBe(true);
 
-    evaluator.updatePolicies([
-      { tool: 'system.bash', effect: 'deny' },
-    ]);
+    evaluator.updatePolicies([{ tool: "system.bash", effect: "deny" }]);
     expect(evaluator.evaluate(ctx()).allowed).toBe(false);
   });
 
@@ -357,15 +425,15 @@ describe('ToolPolicyEvaluator', () => {
   // recordCall
   // -------------------------------------------------------------------
 
-  it('recordCall tracks calls for rate limit externally', () => {
+  it("recordCall tracks calls for rate limit externally", () => {
     let nowMs = 1_000;
     const evaluator = new ToolPolicyEvaluator(
-      [{ tool: 'system.bash', effect: 'allow', conditions: { rateLimit: 2 } }],
+      [{ tool: "system.bash", effect: "allow", conditions: { rateLimit: 2 } }],
       () => nowMs,
     );
 
     // Record one call externally
-    evaluator.recordCall('system.bash');
+    evaluator.recordCall("system.bash");
     nowMs += 100;
 
     // Only one more allowed via evaluate
@@ -378,30 +446,42 @@ describe('ToolPolicyEvaluator', () => {
   // Edge cases
   // -------------------------------------------------------------------
 
-  it('empty policies list defaults to deny', () => {
+  it("empty policies list defaults to deny", () => {
     const evaluator = new ToolPolicyEvaluator([]);
     const decision = evaluator.evaluate(ctx());
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toBe('No matching allow rule');
+    expect(decision.reason).toBe("No matching allow rule");
   });
 
-  it('deny rule with unmet conditions does not block', () => {
+  it("deny rule with unmet conditions does not block", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'deny', conditions: { channels: ['discord'] } },
-      { tool: 'system.bash', effect: 'allow' },
+      {
+        tool: "system.bash",
+        effect: "deny",
+        conditions: { channels: ["discord"] },
+      },
+      { tool: "system.bash", effect: "allow" },
     ]);
     // Deny rule targets discord only; we're on telegram → deny doesn't fire
-    const decision = evaluator.evaluate(ctx({ channel: 'telegram' }));
+    const decision = evaluator.evaluate(ctx({ channel: "telegram" }));
     expect(decision.allowed).toBe(true);
   });
 
-  it('first matching allow rule wins', () => {
+  it("first matching allow rule wins", () => {
     const evaluator = new ToolPolicyEvaluator([
-      { tool: 'system.bash', effect: 'allow', conditions: { channels: ['telegram'] } },
-      { tool: 'system.bash', effect: 'allow', conditions: { channels: ['discord'] } },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { channels: ["telegram"] },
+      },
+      {
+        tool: "system.bash",
+        effect: "allow",
+        conditions: { channels: ["discord"] },
+      },
     ]);
-    const decision = evaluator.evaluate(ctx({ channel: 'telegram' }));
+    const decision = evaluator.evaluate(ctx({ channel: "telegram" }));
     expect(decision.allowed).toBe(true);
-    expect(decision.matchedRule?.conditions?.channels).toEqual(['telegram']);
+    expect(decision.matchedRule?.conditions?.channels).toEqual(["telegram"]);
   });
 });

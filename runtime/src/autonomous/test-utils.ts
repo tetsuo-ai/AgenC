@@ -1,9 +1,5 @@
-import { Keypair } from '@solana/web3.js';
-import {
-  TaskStatus,
-  type Task,
-  type VerifierLaneConfig,
-} from './types.js';
+import { Keypair } from "@solana/web3.js";
+import { TaskStatus, type Task, type VerifierLaneConfig } from "./types.js";
 
 export function createTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -29,9 +25,9 @@ export function createVerifierConfig(
   return {
     verifier: {
       verify: async () => ({
-        verdict: 'pass',
+        verdict: "pass",
         confidence: 0.9,
-        reasons: [{ code: 'ok', message: 'ok' }],
+        reasons: [{ code: "ok", message: "ok" }],
       }),
     },
     minConfidence: 0.75,

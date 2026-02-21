@@ -14,9 +14,12 @@ import type {
   MemoryQuery,
   AddEntryOptions,
   DurabilityInfo,
-} from './types.js';
-import { InMemoryBackend, type InMemoryBackendConfig } from './in-memory/index.js';
-import { MemoryBackendError } from './errors.js';
+} from "./types.js";
+import {
+  InMemoryBackend,
+  type InMemoryBackendConfig,
+} from "./in-memory/index.js";
+import { MemoryBackendError } from "./errors.js";
 
 // ============================================================================
 // Interfaces
@@ -59,11 +62,21 @@ export interface ScoredMemoryEntry {
 /** Memory backend extended with vector storage and semantic search. */
 export interface VectorMemoryBackend extends MemoryBackend {
   /** Store an entry with its embedding vector. */
-  storeWithEmbedding(options: AddEntryOptions, embedding: number[]): Promise<MemoryEntry>;
+  storeWithEmbedding(
+    options: AddEntryOptions,
+    embedding: number[],
+  ): Promise<MemoryEntry>;
   /** Search by cosine similarity to a query embedding. */
-  searchSimilar(queryEmbedding: number[], options?: VectorSearchOptions): Promise<ScoredMemoryEntry[]>;
+  searchSimilar(
+    queryEmbedding: number[],
+    options?: VectorSearchOptions,
+  ): Promise<ScoredMemoryEntry[]>;
   /** Hybrid search combining vector similarity and BM25 keyword scoring. */
-  searchHybrid(queryText: string, queryEmbedding: number[], options?: HybridSearchOptions): Promise<ScoredMemoryEntry[]>;
+  searchHybrid(
+    queryText: string,
+    queryEmbedding: number[],
+    options?: HybridSearchOptions,
+  ): Promise<ScoredMemoryEntry[]>;
   /** Get the embedding dimension (0 if not yet inferred). */
   getVectorDimension(): number;
 }
@@ -89,7 +102,7 @@ const BM25_B = 0.75;
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
+    .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 0);
 }
@@ -129,7 +142,11 @@ function bm25Score(
   docTerms: string[],
   stats: CorpusStats,
 ): number {
-  if (queryTerms.length === 0 || docTerms.length === 0 || stats.docCount === 0) {
+  if (
+    queryTerms.length === 0 ||
+    docTerms.length === 0 ||
+    stats.docCount === 0
+  ) {
     return 0;
   }
 
@@ -147,8 +164,10 @@ function bm25Score(
     // IDF: log((N - df + 0.5) / (df + 0.5) + 1)
     const idf = Math.log((stats.docCount - df + 0.5) / (df + 0.5) + 1);
     // TF component with length normalization
-    const tfNorm = (tf * (BM25_K1 + 1)) /
-      (tf + BM25_K1 * (1 - BM25_B + BM25_B * (docTerms.length / stats.avgDocLen)));
+    const tfNorm =
+      (tf * (BM25_K1 + 1)) /
+      (tf +
+        BM25_K1 * (1 - BM25_B + BM25_B * (docTerms.length / stats.avgDocLen)));
     score += idf * tfNorm;
   }
 
@@ -206,7 +225,8 @@ function mergeSearchResults(
     const existing = merged.get(r.entry.id);
     if (existing) {
       existing.keywordScore = r.score;
-      existing.score = (existing.vectorScore ?? 0) * vectorWeight + r.score * keywordWeight;
+      existing.score =
+        (existing.vectorScore ?? 0) * vectorWeight + r.score * keywordWeight;
     } else {
       merged.set(r.entry.id, {
         entry: r.entry,
@@ -227,7 +247,7 @@ function mergeSearchResults(
 // ============================================================================
 
 export class InMemoryVectorStore implements VectorMemoryBackend {
-  readonly name = 'in-memory-vector';
+  readonly name = "in-memory-vector";
 
   private readonly backend: InMemoryBackend;
   private readonly embeddings = new Map<string, number[]>();
@@ -246,11 +266,14 @@ export class InMemoryVectorStore implements VectorMemoryBackend {
 
   // ---------- Vector Operations ----------
 
-  async storeWithEmbedding(options: AddEntryOptions, embedding: number[]): Promise<MemoryEntry> {
+  async storeWithEmbedding(
+    options: AddEntryOptions,
+    embedding: number[],
+  ): Promise<MemoryEntry> {
     // Validate / infer dimension
     if (this.dimension === 0) {
       if (embedding.length === 0) {
-        throw new MemoryBackendError(this.name, 'Embedding must not be empty');
+        throw new MemoryBackendError(this.name, "Embedding must not be empty");
       }
       this.dimension = embedding.length;
     } else if (embedding.length !== this.dimension) {
@@ -307,7 +330,12 @@ export class InMemoryVectorStore implements VectorMemoryBackend {
       if (!embedding) continue;
 
       const entryNorm = this.vectorNorms.get(entry.id) ?? 0;
-      const score = fastCosineSimilarity(queryEmbedding, embedding, queryNorm, entryNorm);
+      const score = fastCosineSimilarity(
+        queryEmbedding,
+        embedding,
+        queryNorm,
+        entryNorm,
+      );
 
       if (score >= threshold) {
         scored.push({ entry, score, vectorScore: score });
@@ -343,7 +371,12 @@ export class InMemoryVectorStore implements VectorMemoryBackend {
     normalizeScores(keywordResults);
 
     // Merge with weights
-    const merged = mergeSearchResults(vectorResults, keywordResults, vectorWeight, keywordWeight);
+    const merged = mergeSearchResults(
+      vectorResults,
+      keywordResults,
+      vectorWeight,
+      keywordWeight,
+    );
 
     // Apply threshold and limit
     return merged.filter((r) => r.score >= threshold).slice(0, limit);
@@ -447,8 +480,10 @@ export class InMemoryVectorStore implements VectorMemoryBackend {
       if (options.sessionId && entry.sessionId !== options.sessionId) continue;
 
       // Time range filters
-      if (options.after !== undefined && entry.timestamp <= options.after) continue;
-      if (options.before !== undefined && entry.timestamp >= options.before) continue;
+      if (options.after !== undefined && entry.timestamp <= options.after)
+        continue;
+      if (options.before !== undefined && entry.timestamp >= options.before)
+        continue;
 
       // Channel filter (metadata.channel)
       if (options.channel) {
@@ -470,7 +505,10 @@ export class InMemoryVectorStore implements VectorMemoryBackend {
     return entries;
   }
 
-  private searchBM25(queryText: string, options: VectorSearchOptions): ScoredMemoryEntry[] {
+  private searchBM25(
+    queryText: string,
+    options: VectorSearchOptions,
+  ): ScoredMemoryEntry[] {
     const queryTerms = tokenize(queryText);
     if (queryTerms.length === 0) return [];
 

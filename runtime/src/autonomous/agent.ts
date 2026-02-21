@@ -4,11 +4,11 @@
  * @module
  */
 
-import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import anchor, { Program, AnchorProvider } from '@coral-xyz/anchor';
-import { generateProof, generateSalt } from '@agenc/sdk';
-import { AgentRuntime } from '../runtime.js';
-import { TaskScanner, TaskEventSubscription } from './scanner.js';
+import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import anchor, { Program, AnchorProvider } from "@coral-xyz/anchor";
+// SDK proof functions removed — proof generation requires ProofEngine
+import { AgentRuntime } from "../runtime.js";
+import { TaskScanner, TaskEventSubscription } from "./scanner.js";
 import {
   Task,
   AutonomousTaskExecutor,
@@ -23,43 +23,50 @@ import {
   VerifierExecutionResult,
   VerifierVerdictPayload,
   type SpeculationConfig,
-} from './types.js';
-import { Logger, createLogger, silentLogger } from '../utils/logger.js';
-import { sleep as sleepUtil } from '../utils/async.js';
-import { createProgram } from '../idl.js';
-import { findClaimPda, findEscrowPda } from '../task/pda.js';
-import { findProtocolPda } from '../agent/pda.js';
-import { fetchTreasury } from '../utils/treasury.js';
-import { bigintsToProofHash, toAnchorBytes } from '../utils/encoding.js';
-import { buildCompleteTaskTokenAccounts } from '../utils/token.js';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Wallet } from '../types/wallet.js';
-import { ensureWallet } from '../types/wallet.js';
-import type { AgentState } from '../agent/types.js';
-import type { ProofEngine } from '../proof/engine.js';
-import type { MemoryBackend } from '../memory/types.js';
-import { MemoryGraph } from '../memory/graph.js';
-import { SpeculativeExecutor } from '../task/speculative-executor.js';
-import { TaskOperations } from '../task/operations.js';
-import { DependencyType } from '../task/dependency-graph.js';
+} from "./types.js";
+import { Logger, createLogger, silentLogger } from "../utils/logger.js";
+import { sleep as sleepUtil } from "../utils/async.js";
+import { createProgram } from "../idl.js";
+import { findClaimPda, findEscrowPda } from "../task/pda.js";
+import { findProtocolPda } from "../agent/pda.js";
+import { fetchTreasury } from "../utils/treasury.js";
+import { bigintsToProofHash, toAnchorBytes } from "../utils/encoding.js";
+import { buildCompleteTaskTokenAccounts } from "../utils/token.js";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Wallet } from "../types/wallet.js";
+import { ensureWallet } from "../types/wallet.js";
+import type { AgentState } from "../agent/types.js";
+import type { ProofEngine } from "../proof/engine.js";
+import type { MemoryBackend } from "../memory/types.js";
+import { MemoryGraph } from "../memory/graph.js";
+import { SpeculativeExecutor } from "../task/speculative-executor.js";
+import { TaskOperations } from "../task/operations.js";
+import { DependencyType } from "../task/dependency-graph.js";
 import {
   autonomousTaskToOnChainTask,
   executorToTaskHandler,
-} from './speculation-adapter.js';
-import type { OnChainTask } from '../task/types.js';
-import type { MetricsProvider } from '../task/types.js';
-import { VerifierExecutor, VerifierLaneEscalationError } from './verifier.js';
+} from "./speculation-adapter.js";
+import type { OnChainTask } from "../task/types.js";
+import type { MetricsProvider } from "../task/types.js";
+import { VerifierExecutor, VerifierLaneEscalationError } from "./verifier.js";
 import {
   generateExecutionCandidates,
   type CandidateGenerationResult,
-} from './candidate-generator.js';
-import { detectCandidateInconsistencies } from './inconsistency-detector.js';
-import { arbitrateCandidates } from './arbitration.js';
-import type { PolicyEngine } from '../policy/engine.js';
-import { PolicyViolationError } from '../policy/types.js';
-import type { PolicyAction, PolicyDecision, PolicyViolation } from '../policy/types.js';
-import type { TrajectoryEventType, TrajectoryRecorderSink } from '../eval/types.js';
-import type { WorkflowOptimizerRuntimeConfig } from '../workflow/optimizer.js';
+} from "./candidate-generator.js";
+import { detectCandidateInconsistencies } from "./inconsistency-detector.js";
+import { arbitrateCandidates } from "./arbitration.js";
+import type { PolicyEngine } from "../policy/engine.js";
+import { PolicyViolationError } from "../policy/types.js";
+import type {
+  PolicyAction,
+  PolicyDecision,
+  PolicyViolation,
+} from "../policy/types.js";
+import type {
+  TrajectoryEventType,
+  TrajectoryRecorderSink,
+} from "../eval/types.js";
+import type { WorkflowOptimizerRuntimeConfig } from "../workflow/optimizer.js";
 
 /**
  * Create a minimal placeholder OnChainTask for dependency graph registration.
@@ -92,37 +99,22 @@ function createPlaceholderOnChainTask(): OnChainTask {
 // Default configuration constants
 const DEFAULT_SCAN_INTERVAL_MS = 5000;
 const DEFAULT_MAX_CONCURRENT_TASKS = 1;
-const DEFAULT_DISCOVERY_MODE: DiscoveryMode = 'hybrid';
+const DEFAULT_DISCOVERY_MODE: DiscoveryMode = "hybrid";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 const DEFAULT_MEMORY_TTL_MS = 86_400_000; // 24h
 const SHUTDOWN_TIMEOUT_MS = 30000;
-const BINDING_SPEND_SEED = Buffer.from('binding_spend');
-const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
-const ROUTER_SEED = Buffer.from('router');
-const VERIFIER_SEED = Buffer.from('verifier');
+const BINDING_SPEND_SEED = Buffer.from("binding_spend");
+const NULLIFIER_SPEND_SEED = Buffer.from("nullifier_spend");
+const ROUTER_SEED = Buffer.from("router");
+const VERIFIER_SEED = Buffer.from("verifier");
 const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
-  '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7',
+  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
 );
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
-  'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge',
+  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
 );
-const LEGACY_BINDING_VALUE_KEY = `binding${'Value'}`;
-
-type GeneratedProofLike = {
-  bindingSeed?: Uint8Array | Buffer;
-  bindingValue?: Uint8Array | Buffer;
-};
-
-function extractBindingSeed(proof: GeneratedProofLike): Uint8Array {
-  const bindingSeed = proof.bindingSeed ?? proof[LEGACY_BINDING_VALUE_KEY as keyof GeneratedProofLike];
-  if (!bindingSeed) {
-    throw new Error('generateProof() response is missing binding seed bytes');
-  }
-  return new Uint8Array(bindingSeed);
-}
-
 /**
  * Internal task tracking
  */
@@ -191,8 +183,8 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
   private readonly speculationConfig?: SpeculationConfig;
-  private readonly verifierConfig?: AutonomousAgentConfig['verifier'];
-  private readonly multiCandidateConfig?: AutonomousAgentConfig['multiCandidate'];
+  private readonly verifierConfig?: AutonomousAgentConfig["verifier"];
+  private readonly multiCandidateConfig?: AutonomousAgentConfig["multiCandidate"];
   private readonly metricsProvider?: MetricsProvider;
   private readonly policyEngine?: PolicyEngine;
   private readonly workflowOptimizerConfig?: WorkflowOptimizerRuntimeConfig;
@@ -250,10 +242,24 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly onTaskExecuted?: (task: Task, output: bigint[]) => void;
   private readonly onTaskCompleted?: (task: Task, txSignature: string) => void;
   private readonly onTaskFailed?: (task: Task, error: Error) => void;
-  private readonly onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
-  private readonly onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
-  private readonly onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
-  private readonly onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
+  private readonly onEarnings?: (
+    amount: bigint,
+    task: Task,
+    mint?: PublicKey | null,
+  ) => void;
+  private readonly onProofGenerated?: (
+    task: Task,
+    proofSizeBytes: number,
+    durationMs: number,
+  ) => void;
+  private readonly onVerifierVerdict?: (
+    task: Task,
+    verdict: VerifierVerdictPayload,
+  ) => void;
+  private readonly onTaskEscalated?: (
+    task: Task,
+    metadata: VerifierEscalationMetadata,
+  ) => void;
   private readonly onPolicyViolation?: (violation: PolicyViolation) => void;
   private readonly trajectoryRecorder?: TrajectoryRecorderSink;
 
@@ -263,7 +269,8 @@ export class AutonomousAgent extends AgentRuntime {
     this.executor = config.executor;
     this.claimStrategy = config.claimStrategy ?? DefaultClaimStrategy;
     this.scanIntervalMs = config.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS;
-    this.maxConcurrentTasks = config.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS;
+    this.maxConcurrentTasks =
+      config.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS;
     this.generateProofs = config.generateProofs ?? true;
     this.proofEngine = config.proofEngine;
     this.memory = config.memory;
@@ -284,7 +291,7 @@ export class AutonomousAgent extends AgentRuntime {
 
     // Setup logger
     this.autonomousLogger = config.logLevel
-      ? createLogger(config.logLevel, '[AutonomousAgent]')
+      ? createLogger(config.logLevel, "[AutonomousAgent]")
       : silentLogger;
 
     // Callbacks
@@ -310,7 +317,7 @@ export class AutonomousAgent extends AgentRuntime {
    * the autonomous task scanning and execution loop.
    */
   override async start(): Promise<AgentState> {
-    this.autonomousLogger.info('Starting AutonomousAgent...');
+    this.autonomousLogger.info("Starting AutonomousAgent...");
 
     // Start the base runtime (register agent, set active)
     const state = await super.start();
@@ -320,7 +327,9 @@ export class AutonomousAgent extends AgentRuntime {
     const connection = manager.getConnection();
     const programId = manager.getProgramId();
 
-    const provider = new AnchorProvider(connection, this.agentWallet, { commitment: 'confirmed' });
+    const provider = new AnchorProvider(connection, this.agentWallet, {
+      commitment: "confirmed",
+    });
     this.program = createProgram(provider, programId);
 
     // Initialize scanner
@@ -338,10 +347,14 @@ export class AutonomousAgent extends AgentRuntime {
     this.startTime = Date.now();
 
     if (this.workflowOptimizerConfig?.enabled) {
-      this.autonomousLogger.debug('Workflow optimizer runtime config is enabled');
+      this.autonomousLogger.debug(
+        "Workflow optimizer runtime config is enabled",
+      );
     }
 
-    this.autonomousLogger.info(`AutonomousAgent started (discovery: ${this.discoveryMode})`);
+    this.autonomousLogger.info(
+      `AutonomousAgent started (discovery: ${this.discoveryMode})`,
+    );
     return state;
   }
 
@@ -352,14 +365,16 @@ export class AutonomousAgent extends AgentRuntime {
    * calling the parent AgentRuntime.stop().
    */
   override async stop(): Promise<void> {
-    this.autonomousLogger.info('Stopping AutonomousAgent...');
+    this.autonomousLogger.info("Stopping AutonomousAgent...");
 
     // Stop discovery
     this.stopDiscovery();
 
     // Drain pending fire-and-forget operations
     if (this.pendingOperations.size > 0) {
-      this.autonomousLogger.debug(`Waiting for ${this.pendingOperations.size} pending operations...`);
+      this.autonomousLogger.debug(
+        `Waiting for ${this.pendingOperations.size} pending operations...`,
+      );
       await Promise.allSettled([...this.pendingOperations]);
     }
 
@@ -371,20 +386,24 @@ export class AutonomousAgent extends AgentRuntime {
 
     // Wait for active tasks to complete (with timeout)
     if (this.activeTasks.size > 0) {
-      this.autonomousLogger.info(`Waiting for ${this.activeTasks.size} active tasks to complete...`);
+      this.autonomousLogger.info(
+        `Waiting for ${this.activeTasks.size} active tasks to complete...`,
+      );
       const timeout = Date.now() + SHUTDOWN_TIMEOUT_MS;
       while (this.activeTasks.size > 0 && Date.now() < timeout) {
         await sleepUtil(1000);
       }
       if (this.activeTasks.size > 0) {
-        this.autonomousLogger.warn(`${this.activeTasks.size} tasks did not complete in time`);
+        this.autonomousLogger.warn(
+          `${this.activeTasks.size} tasks did not complete in time`,
+        );
       }
     }
 
     // Stop the base runtime
     await super.stop();
 
-    this.autonomousLogger.info('AutonomousAgent stopped');
+    this.autonomousLogger.info("AutonomousAgent stopped");
   }
 
   /**
@@ -415,9 +434,11 @@ export class AutonomousAgent extends AgentRuntime {
       agentPda,
       logger: this.autonomousLogger,
       enableSpeculation: true,
-      maxSpeculativeTasksPerParent: this.speculationConfig.maxSpeculativeTasksPerParent,
+      maxSpeculativeTasksPerParent:
+        this.speculationConfig.maxSpeculativeTasksPerParent,
       maxSpeculationDepth: this.speculationConfig.maxSpeculationDepth,
-      speculatableDependencyTypes: this.speculationConfig.speculatableDependencyTypes,
+      speculatableDependencyTypes:
+        this.speculationConfig.speculatableDependencyTypes,
       abortOnParentFailure: this.speculationConfig.abortOnParentFailure,
       proofPipelineConfig: this.speculationConfig.proofPipelineConfig,
       metrics: this.metricsProvider,
@@ -426,17 +447,17 @@ export class AutonomousAgent extends AgentRuntime {
     // Wire proof pipeline events for async proof confirmation
     this.specExecutor.on({
       onSpeculativeExecutionStarted: (taskPda, parentPda) => {
-        this.recordTrajectoryByPda(taskPda, 'speculation_started', {
+        this.recordTrajectoryByPda(taskPda, "speculation_started", {
           parentPda: parentPda.toBase58(),
         });
         this.speculationConfig?.onSpeculativeStarted?.(taskPda, parentPda);
       },
       onSpeculativeExecutionConfirmed: (taskPda) => {
-        this.recordTrajectoryByPda(taskPda, 'speculation_confirmed', {});
+        this.recordTrajectoryByPda(taskPda, "speculation_confirmed", {});
         this.speculationConfig?.onSpeculativeConfirmed?.(taskPda);
       },
       onSpeculativeExecutionAborted: (taskPda, reason) => {
-        this.recordTrajectoryByPda(taskPda, 'speculation_aborted', { reason });
+        this.recordTrajectoryByPda(taskPda, "speculation_aborted", { reason });
         this.speculationConfig?.onSpeculativeAborted?.(taskPda, reason);
       },
       onParentProofConfirmed: (parentPda) => {
@@ -447,7 +468,7 @@ export class AutonomousAgent extends AgentRuntime {
       },
     });
 
-    this.autonomousLogger.info('Speculative execution enabled');
+    this.autonomousLogger.info("Speculative execution enabled");
   }
 
   /**
@@ -456,13 +477,16 @@ export class AutonomousAgent extends AgentRuntime {
   private initVerifierLane(): void {
     if (!this.verifierConfig) return;
 
-    const revisionExecutor = this.executor as Partial<RevisionCapableTaskExecutor>;
-    const reviseTask = typeof revisionExecutor.revise === 'function'
-      ? (input: RevisionInput) => this.executeRevisionWithRetry(
-        revisionExecutor as RevisionCapableTaskExecutor,
-        input,
-      )
-      : undefined;
+    const revisionExecutor = this
+      .executor as Partial<RevisionCapableTaskExecutor>;
+    const reviseTask =
+      typeof revisionExecutor.revise === "function"
+        ? (input: RevisionInput) =>
+            this.executeRevisionWithRetry(
+              revisionExecutor as RevisionCapableTaskExecutor,
+              input,
+            )
+        : undefined;
 
     this.verifierExecutor = new VerifierExecutor({
       verifierConfig: this.verifierConfig,
@@ -471,18 +495,23 @@ export class AutonomousAgent extends AgentRuntime {
       metrics: this.metricsProvider,
       onVerdict: (task, verdict, attempt) => {
         this.onVerifierVerdict?.(task, verdict);
-        this.trackOperation(this.journalEvent(task, 'verifier_verdict', {
-          attempt,
-          verdict: verdict.verdict,
-          confidence: verdict.confidence,
-          reasons: verdict.reasons,
-          metadata: verdict.metadata,
-        }));
+        this.trackOperation(
+          this.journalEvent(task, "verifier_verdict", {
+            attempt,
+            verdict: verdict.verdict,
+            confidence: verdict.confidence,
+            reasons: verdict.reasons,
+            metadata: verdict.metadata,
+          }),
+        );
       },
     });
   }
 
-  private evaluatePolicyAction(action: PolicyAction, task?: Task): PolicyDecision | null {
+  private evaluatePolicyAction(
+    action: PolicyAction,
+    task?: Task,
+  ): PolicyDecision | null {
     if (!this.policyEngine) return null;
 
     const decision = this.policyEngine.evaluate(action);
@@ -497,11 +526,13 @@ export class AutonomousAgent extends AgentRuntime {
         `Policy blocked ${action.type}:${action.name} (${violation.code})`,
       );
       if (task) {
-        this.trackOperation(this.journalEvent(task, 'policy_violation', {
-          action,
-          violation,
-          mode: decision.mode,
-        }));
+        this.trackOperation(
+          this.journalEvent(task, "policy_violation", {
+            action,
+            violation,
+            mode: decision.mode,
+          }),
+        );
       }
     }
 
@@ -555,7 +586,8 @@ export class AutonomousAgent extends AgentRuntime {
       stats.verifierEscalations = m.escalations;
       stats.verifierAddedLatencyMs = m.addedLatencyMs;
       stats.verifierPassRate = m.checks > 0 ? m.passes / m.checks : 0;
-      stats.verifierDisagreementRate = m.checks > 0 ? m.disagreements / m.checks : 0;
+      stats.verifierDisagreementRate =
+        m.checks > 0 ? m.disagreements / m.checks : 0;
     }
 
     return stats;
@@ -606,10 +638,12 @@ export class AutonomousAgent extends AgentRuntime {
     type: DependencyType = DependencyType.Data,
   ): void {
     if (!this.specExecutor) {
-      throw new Error('Speculation not enabled — set speculation.enabled in config');
+      throw new Error(
+        "Speculation not enabled — set speculation.enabled in config",
+      );
     }
     if (!this.isStarted()) {
-      throw new Error('Agent not started — call start() first');
+      throw new Error("Agent not started — call start() first");
     }
 
     const graph = this.specExecutor.getDependencyGraph();
@@ -641,13 +675,13 @@ export class AutonomousAgent extends AgentRuntime {
     if (!this.scanner) return;
 
     switch (this.discoveryMode) {
-      case 'polling':
+      case "polling":
         this.startPolling();
         break;
-      case 'events':
+      case "events":
         this.startEventSubscription();
         break;
-      case 'hybrid':
+      case "hybrid":
         this.startPolling();
         this.startEventSubscription();
         break;
@@ -669,7 +703,9 @@ export class AutonomousAgent extends AgentRuntime {
     if (this.scanLoopRunning) return;
 
     this.scanLoopRunning = true;
-    this.autonomousLogger.debug(`Starting poll loop (interval: ${this.scanIntervalMs}ms)`);
+    this.autonomousLogger.debug(
+      `Starting poll loop (interval: ${this.scanIntervalMs}ms)`,
+    );
 
     // Run immediately, then on interval
     void this.pollAndProcess();
@@ -690,7 +726,7 @@ export class AutonomousAgent extends AgentRuntime {
       this.scanLoopInterval = null;
     }
 
-    this.autonomousLogger.debug('Poll loop stopped');
+    this.autonomousLogger.debug("Poll loop stopped");
   }
 
   /**
@@ -699,12 +735,16 @@ export class AutonomousAgent extends AgentRuntime {
   private startEventSubscription(): void {
     if (!this.scanner || this.taskEventSubscription) return;
 
-    this.autonomousLogger.debug('Starting event subscription...');
+    this.autonomousLogger.debug("Starting event subscription...");
 
-    this.taskEventSubscription = this.scanner.subscribeToNewTasks((task, slot, _signature) => {
-      this.autonomousLogger.debug(`New task event: ${task.pda.toBase58().slice(0, 8)} (slot: ${slot})`);
-      this.handleDiscoveredTask(task);
-    });
+    this.taskEventSubscription = this.scanner.subscribeToNewTasks(
+      (task, slot, _signature) => {
+        this.autonomousLogger.debug(
+          `New task event: ${task.pda.toBase58().slice(0, 8)} (slot: ${slot})`,
+        );
+        this.handleDiscoveredTask(task);
+      },
+    );
   }
 
   /**
@@ -714,7 +754,7 @@ export class AutonomousAgent extends AgentRuntime {
     if (this.taskEventSubscription) {
       void this.taskEventSubscription.unsubscribe();
       this.taskEventSubscription = null;
-      this.autonomousLogger.debug('Event subscription stopped');
+      this.autonomousLogger.debug("Event subscription stopped");
     }
   }
 
@@ -726,9 +766,9 @@ export class AutonomousAgent extends AgentRuntime {
 
     try {
       const canDiscover = this.isPolicyAllowed({
-        type: 'task_discovery',
-        name: 'poll_discovery',
-        access: 'read',
+        type: "task_discovery",
+        name: "poll_discovery",
+        access: "read",
       });
       if (!canDiscover) {
         return;
@@ -752,7 +792,9 @@ export class AutonomousAgent extends AgentRuntime {
       );
 
       if (this.consecutivePollFailures >= this.maxConsecutiveFailures) {
-        this.autonomousLogger.error('Max consecutive poll failures reached, pausing discovery');
+        this.autonomousLogger.error(
+          "Max consecutive poll failures reached, pausing discovery",
+        );
         this.stopPolling();
         // Auto-resume after 60s cooldown (only if agent is still running)
         setTimeout(() => {
@@ -769,12 +811,15 @@ export class AutonomousAgent extends AgentRuntime {
    * Handle a newly discovered task
    */
   private handleDiscoveredTask(task: Task): void {
-    const allowed = this.isPolicyAllowed({
-      type: 'task_discovery',
-      name: 'event_discovery',
-      access: 'read',
-      metadata: { taskPda: task.pda.toBase58() },
-    }, task);
+    const allowed = this.isPolicyAllowed(
+      {
+        type: "task_discovery",
+        name: "event_discovery",
+        access: "read",
+        metadata: { taskPda: task.pda.toBase58() },
+      },
+      task,
+    );
     if (!allowed) return;
 
     const taskKey = task.pda.toBase58();
@@ -793,14 +838,20 @@ export class AutonomousAgent extends AgentRuntime {
     this.pendingTasks.set(taskKey, task);
     this.stats.tasksDiscovered++;
     this.onTaskDiscovered?.(task);
-    this.recordTrajectoryEvent('discovered', {
-      rewardLamports: task.reward.toString(),
-      currentClaims: task.currentClaims,
-      maxWorkers: task.maxWorkers,
-      taskType: task.taskType ?? null,
-    }, task.pda);
+    this.recordTrajectoryEvent(
+      "discovered",
+      {
+        rewardLamports: task.reward.toString(),
+        currentClaims: task.currentClaims,
+        maxWorkers: task.maxWorkers,
+        taskType: task.taskType ?? null,
+      },
+      task.pda,
+    );
 
-    this.autonomousLogger.debug(`Discovered task: ${taskKey.slice(0, 8)} (reward: ${Number(task.reward) / LAMPORTS_PER_SOL} SOL)`);
+    this.autonomousLogger.debug(
+      `Discovered task: ${taskKey.slice(0, 8)} (reward: ${Number(task.reward) / LAMPORTS_PER_SOL} SOL)`,
+    );
 
     // Trigger processing if not already running
     if (!this.processingLock) {
@@ -819,7 +870,8 @@ export class AutonomousAgent extends AgentRuntime {
     try {
       // Sort pending tasks by priority
       const sortedTasks = Array.from(this.pendingTasks.values()).sort(
-        (a, b) => this.claimStrategy.priority(b) - this.claimStrategy.priority(a)
+        (a, b) =>
+          this.claimStrategy.priority(b) - this.claimStrategy.priority(a),
       );
 
       for (const task of sortedTasks) {
@@ -857,18 +909,28 @@ export class AutonomousAgent extends AgentRuntime {
       if (this.scanner) {
         const available = await this.scanner.isTaskAvailable(task);
         if (!available) {
-          this.autonomousLogger.debug(`Task ${taskKey.slice(0, 8)} no longer available`);
-          return { success: false, task, error: new Error('Task no longer available'), durationMs: Date.now() - startTime };
+          this.autonomousLogger.debug(
+            `Task ${taskKey.slice(0, 8)} no longer available`,
+          );
+          return {
+            success: false,
+            task,
+            error: new Error("Task no longer available"),
+            durationMs: Date.now() - startTime,
+          };
         }
       }
 
       // Claim the task with retry
-      this.requirePolicyAllowed({
-        type: 'task_claim',
-        name: 'claim_task',
-        access: 'write',
-        metadata: { taskPda: taskKey },
-      }, task);
+      this.requirePolicyAllowed(
+        {
+          type: "task_claim",
+          name: "claim_task",
+          access: "write",
+          metadata: { taskPda: taskKey },
+        },
+        task,
+      );
 
       this.autonomousLogger.info(`Claiming task ${taskKey.slice(0, 8)}...`);
       const claimTx = await this.claimTaskWithRetry(task);
@@ -884,8 +946,10 @@ export class AutonomousAgent extends AgentRuntime {
       this.stats.tasksClaimed++;
 
       this.onTaskClaimed?.(task, claimTx);
-      await this.journalEvent(task, 'claimed', { claimTx });
-      this.autonomousLogger.info(`Claimed task ${taskKey.slice(0, 8)}: ${claimTx}`);
+      await this.journalEvent(task, "claimed", { claimTx });
+      this.autonomousLogger.info(
+        `Claimed task ${taskKey.slice(0, 8)}: ${claimTx}`,
+      );
 
       // Delegate to the appropriate execution path
       const verifierGated = this.verifierExecutor?.shouldVerify(task) ?? false;
@@ -894,8 +958,8 @@ export class AutonomousAgent extends AgentRuntime {
         return await this.executeSpeculative(task, taskKey, startTime);
       }
       if (this.specExecutor && (verifierGated || policyManaged)) {
-        await this.journalEvent(task, 'sequential_enforcement_bypass', {
-          reason: verifierGated ? 'verifier_gated_task' : 'policy_managed_task',
+        await this.journalEvent(task, "sequential_enforcement_bypass", {
+          reason: verifierGated ? "verifier_gated_task" : "policy_managed_task",
         });
       }
       return await this.executeSequential(task, activeTask, taskKey);
@@ -906,16 +970,24 @@ export class AutonomousAgent extends AgentRuntime {
       const err = error instanceof Error ? error : new Error(String(error));
       if (err instanceof VerifierLaneEscalationError) {
         this.onTaskEscalated?.(task, err.metadata);
-        await this.journalEvent(task, 'escalated', {
+        await this.journalEvent(task, "escalated", {
           escalation: err.metadata,
           verifierHistory: err.history,
         });
       }
       this.onTaskFailed?.(task, err);
-      await this.journalEvent(task, 'failed', { error: err.message });
-      this.autonomousLogger.error(`Task ${taskKey.slice(0, 8)} failed:`, err.message);
+      await this.journalEvent(task, "failed", { error: err.message });
+      this.autonomousLogger.error(
+        `Task ${taskKey.slice(0, 8)} failed:`,
+        err.message,
+      );
 
-      return { success: false, task, error: err, durationMs: Date.now() - startTime };
+      return {
+        success: false,
+        task,
+        error: err,
+        durationMs: Date.now() - startTime,
+      };
     }
   }
 
@@ -926,18 +998,26 @@ export class AutonomousAgent extends AgentRuntime {
    * task to awaitingProof (freeing the concurrency slot), and returns immediately.
    * ProofPipeline events drive async completion tracking and callbacks.
    */
-  private async executeSpeculative(task: Task, taskKey: string, startTime: number): Promise<TaskResult> {
+  private async executeSpeculative(
+    task: Task,
+    taskKey: string,
+    startTime: number,
+  ): Promise<TaskResult> {
     const adaptedTask = autonomousTaskToOnChainTask(task);
     this.specExecutor!.addTaskToGraph(adaptedTask, task.pda);
 
-    this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)} (speculative)...`);
+    this.autonomousLogger.info(
+      `Executing task ${taskKey.slice(0, 8)} (speculative)...`,
+    );
     await this.specExecutor!.executeWithSpeculation(task.pda);
 
     // Move from activeTasks → awaitingProof (frees concurrency slot)
     this.activeTasks.delete(taskKey);
     this.awaitingProof.set(taskKey, task);
-    await this.journalEvent(task, 'executed_speculative', {});
-    this.autonomousLogger.info(`Task ${taskKey.slice(0, 8)} executed, proof queued (speculative)`);
+    await this.journalEvent(task, "executed_speculative", {});
+    this.autonomousLogger.info(
+      `Task ${taskKey.slice(0, 8)} executed, proof queued (speculative)`,
+    );
 
     return { success: true, task, durationMs: Date.now() - startTime };
   }
@@ -953,12 +1033,15 @@ export class AutonomousAgent extends AgentRuntime {
     activeTask: ActiveTask,
     taskKey: string,
   ): Promise<TaskResult> {
-    this.requirePolicyAllowed({
-      type: 'task_execution',
-      name: 'execute_task',
-      access: 'write',
-      metadata: { taskPda: taskKey },
-    }, task);
+    this.requirePolicyAllowed(
+      {
+        type: "task_execution",
+        name: "execute_task",
+        access: "write",
+        metadata: { taskPda: taskKey },
+      },
+      task,
+    );
 
     this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)}...`);
     const verifierGated = this.verifierExecutor?.shouldVerify(task) ?? false;
@@ -967,10 +1050,17 @@ export class AutonomousAgent extends AgentRuntime {
     let multiCandidateResult: MultiCandidateSelectionResult | null = null;
 
     if (this.multiCandidateConfig?.enabled) {
-      multiCandidateResult = await this.selectCandidateOutput(task, taskKey, verifierGated);
+      multiCandidateResult = await this.selectCandidateOutput(
+        task,
+        taskKey,
+        verifierGated,
+      );
       output = multiCandidateResult.output;
       if (verifierGated) {
-        verifierResult = await this.verifierExecutor!.executeWithOutput(task, output);
+        verifierResult = await this.verifierExecutor!.executeWithOutput(
+          task,
+          output,
+        );
         output = verifierResult.output;
       }
     } else if (verifierGated) {
@@ -981,33 +1071,40 @@ export class AutonomousAgent extends AgentRuntime {
     }
 
     this.onTaskExecuted?.(task, output);
-    await this.journalEvent(task, 'executed', {
+    await this.journalEvent(task, "executed", {
       outputLength: output.length,
-      verifier: verifierResult ? {
-        attempts: verifierResult.attempts,
-        revisions: verifierResult.revisions,
-        addedLatencyMs: verifierResult.durationMs,
-        adaptiveRisk: verifierResult.adaptiveRisk
-          ? {
-              score: verifierResult.adaptiveRisk.score,
-              tier: verifierResult.adaptiveRisk.tier,
-              budget: verifierResult.adaptiveRisk.budget,
-            }
-          : null,
-      } : null,
+      verifier: verifierResult
+        ? {
+            attempts: verifierResult.attempts,
+            revisions: verifierResult.revisions,
+            addedLatencyMs: verifierResult.durationMs,
+            adaptiveRisk: verifierResult.adaptiveRisk
+              ? {
+                  score: verifierResult.adaptiveRisk.score,
+                  tier: verifierResult.adaptiveRisk.tier,
+                  budget: verifierResult.adaptiveRisk.budget,
+                }
+              : null,
+          }
+        : null,
       multiCandidate: multiCandidateResult
         ? {
             generated: multiCandidateResult.generation.candidates.length,
             attempts: multiCandidateResult.generation.budget.attempts,
-            consumedCostLamports: multiCandidateResult.generation.budget.consumedCostLamports.toString(),
-            consumedTokenUnits: multiCandidateResult.generation.budget.consumedTokenUnits,
+            consumedCostLamports:
+              multiCandidateResult.generation.budget.consumedCostLamports.toString(),
+            consumedTokenUnits:
+              multiCandidateResult.generation.budget.consumedTokenUnits,
             arbitrationOutcome: multiCandidateResult.arbitration.outcome,
-            disagreementRate: multiCandidateResult.arbitration.metadata.disagreementRate,
-            disagreementCount: multiCandidateResult.arbitration.metadata.totalDisagreements,
+            disagreementRate:
+              multiCandidateResult.arbitration.metadata.disagreementRate,
+            disagreementCount:
+              multiCandidateResult.arbitration.metadata.totalDisagreements,
             reasonCodes: multiCandidateResult.arbitration.metadata.reasonCodes,
-            provenanceLinkIds: multiCandidateResult.arbitration.metadata.provenanceLinkIds,
+            provenanceLinkIds:
+              multiCandidateResult.arbitration.metadata.provenanceLinkIds,
             selectedCandidateId:
-              multiCandidateResult.arbitration.outcome === 'selected'
+              multiCandidateResult.arbitration.outcome === "selected"
                 ? multiCandidateResult.arbitration.selected.id
                 : null,
           }
@@ -1016,13 +1113,16 @@ export class AutonomousAgent extends AgentRuntime {
     this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
 
     // Complete the task with retry
-    this.requirePolicyAllowed({
-      type: 'tx_submission',
-      name: 'complete_task_submission',
-      access: 'write',
-      spendLamports: task.reward,
-      metadata: { taskPda: taskKey },
-    }, task);
+    this.requirePolicyAllowed(
+      {
+        type: "tx_submission",
+        name: "complete_task_submission",
+        access: "write",
+        spendLamports: task.reward,
+        metadata: { taskPda: taskKey },
+      },
+      task,
+    );
     const completeTx = await this.completeTaskWithRetry(task, output);
 
     const durationMs = Date.now() - activeTask.claimedAt;
@@ -1031,15 +1131,20 @@ export class AutonomousAgent extends AgentRuntime {
     this.activeTasks.delete(taskKey);
     this.stats.tasksCompleted++;
     this.stats.totalEarnings += task.reward;
-    const mintKey = task.rewardMint?.toBase58() ?? 'SOL';
-    this.stats.earningsByMint[mintKey] = (this.stats.earningsByMint[mintKey] ?? 0n) + task.reward;
+    const mintKey = task.rewardMint?.toBase58() ?? "SOL";
+    this.stats.earningsByMint[mintKey] =
+      (this.stats.earningsByMint[mintKey] ?? 0n) + task.reward;
 
     this.onTaskCompleted?.(task, completeTx);
     this.onEarnings?.(task.reward, task, task.rewardMint ?? null);
-    await this.journalEvent(task, 'completed', { completionTx: completeTx, durationMs, reward: task.reward.toString() });
+    await this.journalEvent(task, "completed", {
+      completionTx: completeTx,
+      durationMs,
+      reward: task.reward.toString(),
+    });
 
     this.autonomousLogger.info(
-      `Completed task ${taskKey.slice(0, 8)} in ${durationMs}ms, earned ${Number(task.reward) / LAMPORTS_PER_SOL} SOL`
+      `Completed task ${taskKey.slice(0, 8)} in ${durationMs}ms, earned ${Number(task.reward) / LAMPORTS_PER_SOL} SOL`,
     );
 
     return { success: true, task, completionTx: completeTx, durationMs };
@@ -1054,20 +1159,24 @@ export class AutonomousAgent extends AgentRuntime {
     const generation = await generateExecutionCandidates({
       task,
       config: this.multiCandidateConfig,
-      executeCandidate: async (candidateTask) => await this.executeWithRetry(candidateTask),
+      executeCandidate: async (candidateTask) =>
+        await this.executeWithRetry(candidateTask),
       onBeforeAttempt: (context) => {
-        this.requirePolicyAllowed({
-          type: 'task_execution',
-          name: 'execute_candidate_variant',
-          access: 'write',
-          spendLamports: task.reward,
-          metadata: {
-            taskPda: taskKey,
-            candidateAttempt: context.attempt,
-            projectedCostLamports: context.projectedCostLamports.toString(),
-            projectedTokenUnits: context.projectedTokenUnits,
+        this.requirePolicyAllowed(
+          {
+            type: "task_execution",
+            name: "execute_candidate_variant",
+            access: "write",
+            spendLamports: task.reward,
+            metadata: {
+              taskPda: taskKey,
+              candidateAttempt: context.attempt,
+              projectedCostLamports: context.projectedCostLamports.toString(),
+              projectedTokenUnits: context.projectedTokenUnits,
+            },
           },
-        }, task);
+          task,
+        );
       },
     });
 
@@ -1085,12 +1194,15 @@ export class AutonomousAgent extends AgentRuntime {
       config: this.multiCandidateConfig,
     });
 
-    if (arbitration.outcome === 'escalate') {
-      if (arbitration.reason === 'disagreement_threshold' && escalateOnDisagreement) {
+    if (arbitration.outcome === "escalate") {
+      if (
+        arbitration.reason === "disagreement_threshold" &&
+        escalateOnDisagreement
+      ) {
         throw new VerifierLaneEscalationError(
           task,
           {
-            reason: 'verifier_disagreement',
+            reason: "verifier_disagreement",
             attempts: generation.candidates.length,
             revisions: 0,
             durationMs: Date.now() - startedAt,
@@ -1111,7 +1223,9 @@ export class AutonomousAgent extends AgentRuntime {
         ? generation.candidates.find((candidate) => candidate.id === fallbackId)
         : generation.candidates[0];
       if (!fallback) {
-        throw new Error('No execution candidates generated within configured multi-candidate budgets');
+        throw new Error(
+          "No execution candidates generated within configured multi-candidate budgets",
+        );
       }
 
       return {
@@ -1132,14 +1246,14 @@ export class AutonomousAgent extends AgentRuntime {
    * Claim a task with retry logic
    */
   private async claimTaskWithRetry(task: Task): Promise<string> {
-    return this.withRetry(() => this.claimTask(task), 'claim task');
+    return this.withRetry(() => this.claimTask(task), "claim task");
   }
 
   /**
    * Execute a task with retry logic
    */
   private async executeWithRetry(task: Task): Promise<bigint[]> {
-    return this.withRetry(() => this.executor.execute(task), 'execute task');
+    return this.withRetry(() => this.executor.execute(task), "execute task");
   }
 
   /**
@@ -1149,20 +1263,29 @@ export class AutonomousAgent extends AgentRuntime {
     executor: RevisionCapableTaskExecutor,
     input: RevisionInput,
   ): Promise<bigint[]> {
-    return this.withRetry(() => executor.revise(input), 'revise task');
+    return this.withRetry(() => executor.revise(input), "revise task");
   }
 
   /**
    * Complete a task with retry logic
    */
-  private async completeTaskWithRetry(task: Task, output: bigint[]): Promise<string> {
-    return this.withRetry(() => this.completeTask(task, output), 'complete task');
+  private async completeTaskWithRetry(
+    task: Task,
+    output: bigint[],
+  ): Promise<string> {
+    return this.withRetry(
+      () => this.completeTask(task, output),
+      "complete task",
+    );
   }
 
   /**
    * Generic retry wrapper
    */
-  private async withRetry<T>(fn: () => Promise<T>, operation: string): Promise<T> {
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    operation: string,
+  ): Promise<T> {
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
@@ -1173,13 +1296,18 @@ export class AutonomousAgent extends AgentRuntime {
 
         if (attempt < this.maxRetries) {
           const delay = this.retryDelayMs * Math.pow(2, attempt - 1); // Exponential backoff
-          this.autonomousLogger.warn(`${operation} failed (attempt ${attempt}/${this.maxRetries}), retrying in ${delay}ms...`);
+          this.autonomousLogger.warn(
+            `${operation} failed (attempt ${attempt}/${this.maxRetries}), retrying in ${delay}ms...`,
+          );
           await sleepUtil(delay);
         }
       }
     }
 
-    throw lastError ?? new Error(`${operation} failed after ${this.maxRetries} attempts`);
+    throw (
+      lastError ??
+      new Error(`${operation} failed after ${this.maxRetries} attempts`)
+    );
   }
 
   /**
@@ -1187,12 +1315,12 @@ export class AutonomousAgent extends AgentRuntime {
    */
   private async claimTask(task: Task): Promise<string> {
     if (!this.program) {
-      throw new Error('Agent not started');
+      throw new Error("Agent not started");
     }
 
     const agentPda = this.getAgentPda();
     if (!agentPda) {
-      throw new Error('Agent not registered');
+      throw new Error("Agent not registered");
     }
 
     const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
@@ -1218,12 +1346,12 @@ export class AutonomousAgent extends AgentRuntime {
    */
   private async completeTask(task: Task, output: bigint[]): Promise<string> {
     if (!this.program) {
-      throw new Error('Agent not started');
+      throw new Error("Agent not started");
     }
 
     const agentPda = this.getAgentPda();
     if (!agentPda) {
-      throw new Error('Agent not registered');
+      throw new Error("Agent not registered");
     }
 
     const isPrivate = !this.isZeroHash(task.constraintHash);
@@ -1240,21 +1368,27 @@ export class AutonomousAgent extends AgentRuntime {
    */
   private async getTreasury(): Promise<PublicKey> {
     if (this.cachedTreasury) return this.cachedTreasury;
-    if (!this.program) throw new Error('Agent not started');
-    this.cachedTreasury = await fetchTreasury(this.program, this.program.programId);
+    if (!this.program) throw new Error("Agent not started");
+    this.cachedTreasury = await fetchTreasury(
+      this.program,
+      this.program.programId,
+    );
     return this.cachedTreasury;
   }
 
   /**
    * Complete a public task
    */
-  private async completeTaskPublic(task: Task, output: bigint[]): Promise<string> {
+  private async completeTaskPublic(
+    task: Task,
+    output: bigint[],
+  ): Promise<string> {
     if (!this.program) {
-      throw new Error('Agent not started');
+      throw new Error("Agent not started");
     }
 
     const agentPda = this.getAgentPda();
-    if (!agentPda) throw new Error('Agent not registered');
+    if (!agentPda) throw new Error("Agent not registered");
 
     const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
@@ -1291,16 +1425,19 @@ export class AutonomousAgent extends AgentRuntime {
   /**
    * Complete a private task with ZK proof
    */
-  private async completeTaskPrivate(task: Task, output: bigint[]): Promise<string> {
+  private async completeTaskPrivate(
+    task: Task,
+    output: bigint[],
+  ): Promise<string> {
     if (!this.program) {
-      throw new Error('Agent not started');
+      throw new Error("Agent not started");
     }
 
     const agentPda = this.getAgentPda();
-    if (!agentPda) throw new Error('Agent not registered');
+    if (!agentPda) throw new Error("Agent not registered");
 
     // Generate proof — delegate to ProofEngine when available for caching + stats
-    this.autonomousLogger.info('Generating ZK proof...');
+    this.autonomousLogger.info("Generating ZK proof...");
     const proofStartTime = Date.now();
 
     let proofResult: {
@@ -1320,30 +1457,24 @@ export class AutonomousAgent extends AgentRuntime {
         salt,
       });
     } else {
-      const salt = generateSalt();
-      const generated = await generateProof({
-        taskPda: task.pda,
-        agentPubkey: this.agentWallet.publicKey,
-        output,
-        salt,
-      });
-      proofResult = {
-        sealBytes: new Uint8Array(generated.sealBytes),
-        journal: new Uint8Array(generated.journal),
-        imageId: new Uint8Array(generated.imageId),
-        bindingSeed: extractBindingSeed(generated),
-        nullifierSeed: new Uint8Array(generated.nullifierSeed),
-        proofSize: generated.proofSize,
-      };
+      throw new Error(
+        "Private task completion requires a ProofEngine. Configure one via AutonomousAgent options.",
+      );
     }
 
     const proofDuration = Date.now() - proofStartTime;
     this.onProofGenerated?.(task, proofResult.proofSize, proofDuration);
-    this.recordTrajectoryEvent('proof_generated', {
-      proofSizeBytes: proofResult.proofSize,
-      durationMs: proofDuration,
-    }, task.pda);
-    this.autonomousLogger.info(`Proof generated in ${proofDuration}ms (${proofResult.proofSize} bytes)`);
+    this.recordTrajectoryEvent(
+      "proof_generated",
+      {
+        proofSizeBytes: proofResult.proofSize,
+        durationMs: proofDuration,
+      },
+      task.pda,
+    );
+    this.autonomousLogger.info(
+      `Proof generated in ${proofDuration}ms (${proofResult.proofSize} bytes)`,
+    );
 
     const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
@@ -1372,7 +1503,7 @@ export class AutonomousAgent extends AgentRuntime {
       treasury,
     );
 
-    const taskIdU64 = new anchor.BN(task.taskId.slice(0, 8), 'le');
+    const taskIdU64 = new anchor.BN(task.taskId.slice(0, 8), "le");
     const completeTaskPrivateMethod = this.program.methods as unknown as {
       completeTaskPrivate: (
         taskId: anchor.BN,
@@ -1384,9 +1515,9 @@ export class AutonomousAgent extends AgentRuntime {
           nullifierSeed: number[];
         },
       ) => {
-        accountsPartial: (
-          accounts: Record<string, unknown>,
-        ) => { rpc: () => Promise<string> };
+        accountsPartial: (accounts: Record<string, unknown>) => {
+          rpc: () => Promise<string>;
+        };
       };
     };
 
@@ -1432,10 +1563,10 @@ export class AutonomousAgent extends AgentRuntime {
     try {
       await this.memory.addEntry({
         sessionId,
-        role: 'system',
+        role: "system",
         content: JSON.stringify({ event, timestamp: Date.now(), ...data }),
         taskPda: task.pda.toBase58(),
-        metadata: { type: 'lifecycle', event },
+        metadata: { type: "lifecycle", event },
         ttlMs: this.memoryTtlMs,
       });
     } catch (err) {
@@ -1464,7 +1595,10 @@ export class AutonomousAgent extends AgentRuntime {
         payload,
       });
     } catch (err) {
-      this.autonomousLogger.warn(`Failed to record trajectory event ${event}:`, err);
+      this.autonomousLogger.warn(
+        `Failed to record trajectory event ${event}:`,
+        err,
+      );
     }
   }
 
@@ -1480,9 +1614,11 @@ export class AutonomousAgent extends AgentRuntime {
    * Check if a task is already tracked in any map.
    */
   private isTaskTracked(taskKey: string): boolean {
-    return this.activeTasks.has(taskKey)
-      || this.pendingTasks.has(taskKey)
-      || this.awaitingProof.has(taskKey);
+    return (
+      this.activeTasks.has(taskKey) ||
+      this.pendingTasks.has(taskKey) ||
+      this.awaitingProof.has(taskKey)
+    );
   }
 
   private isZeroHash(hash: Uint8Array): boolean {
@@ -1521,12 +1657,12 @@ export class AutonomousAgent extends AgentRuntime {
 
     // Get the transaction signature from the proof pipeline job
     const job = this.specExecutor?.getProofPipeline().getJob(taskPda);
-    const txSig = job?.transactionSignature ?? '';
+    const txSig = job?.transactionSignature ?? "";
 
     this.onTaskCompleted?.(task, txSig);
     this.onEarnings?.(task.reward, task);
 
-    void this.journalEvent(task, 'completed_speculative', {
+    void this.journalEvent(task, "completed_speculative", {
       completionTx: txSig,
     });
 
@@ -1549,7 +1685,7 @@ export class AutonomousAgent extends AgentRuntime {
 
     this.onTaskFailed?.(task, error);
 
-    void this.journalEvent(task, 'proof_failed', {
+    void this.journalEvent(task, "proof_failed", {
       error: error.message,
     });
 

@@ -3,14 +3,14 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
-import { AGENT_ID_LENGTH } from './types.js';
-import { derivePda, validateIdLength } from '../utils/pda.js';
+import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { AGENT_ID_LENGTH } from "./types.js";
+import { derivePda, validateIdLength } from "../utils/pda.js";
 
 // Re-export PdaWithBump from utils — existing consumers import from here
-export type { PdaWithBump } from '../utils/pda.js';
-import type { PdaWithBump } from '../utils/pda.js';
+export type { PdaWithBump } from "../utils/pda.js";
+import type { PdaWithBump } from "../utils/pda.js";
 
 /**
  * Derives the agent PDA and bump seed from an agent ID.
@@ -29,9 +29,9 @@ import type { PdaWithBump } from '../utils/pda.js';
  */
 export function deriveAgentPda(
   agentId: Uint8Array,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
-  validateIdLength(agentId, AGENT_ID_LENGTH, 'agentId');
+  validateIdLength(agentId, AGENT_ID_LENGTH, "agentId");
   return derivePda([SEEDS.AGENT, Buffer.from(agentId)], programId);
 }
 
@@ -48,7 +48,9 @@ export function deriveAgentPda(
  * console.log(`Protocol PDA: ${address.toBase58()}, bump: ${bump}`);
  * ```
  */
-export function deriveProtocolPda(programId: PublicKey = PROGRAM_ID): PdaWithBump {
+export function deriveProtocolPda(
+  programId: PublicKey = PROGRAM_ID,
+): PdaWithBump {
   return derivePda([SEEDS.PROTOCOL], programId);
 }
 
@@ -69,7 +71,7 @@ export function deriveProtocolPda(programId: PublicKey = PROGRAM_ID): PdaWithBum
  */
 export function findAgentPda(
   agentId: Uint8Array,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveAgentPda(agentId, programId).address;
 }
@@ -110,9 +112,12 @@ export function findProtocolPda(programId: PublicKey = PROGRAM_ID): PublicKey {
 export function deriveAuthorityVotePda(
   disputePda: PublicKey,
   authority: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
-  return derivePda([SEEDS.AUTHORITY_VOTE, disputePda.toBuffer(), authority.toBuffer()], programId);
+  return derivePda(
+    [SEEDS.AUTHORITY_VOTE, disputePda.toBuffer(), authority.toBuffer()],
+    programId,
+  );
 }
 
 /**
@@ -133,7 +138,7 @@ export function deriveAuthorityVotePda(
 export function findAuthorityVotePda(
   disputePda: PublicKey,
   authority: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveAuthorityVotePda(disputePda, authority, programId).address;
 }
