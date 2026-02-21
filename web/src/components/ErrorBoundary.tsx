@@ -1,12 +1,12 @@
-import React from 'react';
+import { Component, type ReactNode } from 'react';
 
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
+export class ErrorBoundary extends Component<
+  { children: ReactNode },
   ErrorBoundaryState
 > {
   state: ErrorBoundaryState = { hasError: false, error: null };

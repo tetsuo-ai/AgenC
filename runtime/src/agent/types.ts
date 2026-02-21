@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey } from '@solana/web3.js';
 import {
   Capability,
   ALL_CAPABILITY_NAMES,
@@ -6,8 +6,8 @@ import {
   getCapabilityNames,
   parseCapabilities,
   type CapabilityName,
-} from "./capabilities.js";
-import { toUint8Array } from "../utils/encoding.js";
+} from './capabilities.js';
+import { toUint8Array } from '../utils/encoding.js';
 
 // Re-export capability functions from canonical source
 export { hasCapability, getCapabilityNames, type CapabilityName };
@@ -58,8 +58,7 @@ export const MAX_U8 = 255;
 export const AgentCapabilities = Capability;
 
 /** Type for individual capability values */
-export type AgentCapability =
-  (typeof AgentCapabilities)[keyof typeof AgentCapabilities];
+export type AgentCapability = (typeof AgentCapabilities)[keyof typeof AgentCapabilities];
 
 /**
  * All capability names for iteration.
@@ -101,13 +100,13 @@ export enum AgentStatus {
 export function agentStatusToString(status: AgentStatus): string {
   switch (status) {
     case AgentStatus.Inactive:
-      return "Inactive";
+      return 'Inactive';
     case AgentStatus.Active:
-      return "Active";
+      return 'Active';
     case AgentStatus.Busy:
-      return "Busy";
+      return 'Busy';
     case AgentStatus.Suspended:
-      return "Suspended";
+      return 'Suspended';
     default:
       return `Unknown (${status})`;
   }
@@ -374,21 +373,18 @@ export interface AgentUnsuspendedEvent {
  */
 function isBNLike(value: unknown): value is { toString: () => string } {
   return (
-    typeof value === "object" &&
+    typeof value === 'object' &&
     value !== null &&
-    typeof (value as Record<string, unknown>).toString === "function"
+    typeof (value as Record<string, unknown>).toString === 'function'
   );
 }
 
 /**
  * Checks if a value is a BN-like object with toNumber method (for i64 fields).
  */
-function isBNLikeWithToNumber(
-  value: unknown,
-): value is { toNumber: () => number } {
+function isBNLikeWithToNumber(value: unknown): value is { toNumber: () => number } {
   return (
-    isBNLike(value) &&
-    typeof (value as Record<string, unknown>).toNumber === "function"
+    isBNLike(value) && typeof (value as Record<string, unknown>).toNumber === 'function'
   );
 }
 
@@ -400,9 +396,7 @@ interface RawAgentRegistrationData {
   agentId: number[] | Uint8Array;
   authority: unknown;
   capabilities: { toString: () => string };
-  status:
-    | { inactive?: object; active?: object; busy?: object; suspended?: object }
-    | number;
+  status: { inactive?: object; active?: object; busy?: object; suspended?: object } | number;
   endpoint: string;
   metadataUri: string;
   registeredAt: { toNumber: () => number };
@@ -423,14 +417,35 @@ interface RawAgentRegistrationData {
   activeDisputeVotes: number;
   lastVoteTimestamp: { toNumber: () => number };
   lastStateUpdate: { toNumber: () => number };
-  disputesAsDefendant: number;
+  disputesAsDefendant?: number;
+}
+
+/**
+ * Legacy AgentRegistration account shape used by older protocol versions.
+ * This variant predates rate-limit/dispute tracking fields.
+ */
+interface LegacyRawAgentRegistrationData {
+  agentId: number[] | Uint8Array;
+  authority: unknown;
+  capabilities: { toString: () => string };
+  status: { inactive?: object; active?: object; busy?: object; suspended?: object } | number;
+  endpoint: string;
+  metadataUri: string;
+  registeredAt: { toNumber: () => number };
+  lastActive: { toNumber: () => number };
+  tasksCompleted: { toString: () => string };
+  totalEarned: { toString: () => string };
+  reputation: number;
+  activeTasks: number;
+  stake: { toString: () => string };
+  bump: number;
 }
 
 function isPublicKeyLike(value: unknown): boolean {
   if (value instanceof PublicKey) {
     return true;
   }
-  if (typeof value === "string") {
+  if (typeof value === 'string') {
     try {
       // Reject invalid base58 strings so parse errors stay in validation path.
       new PublicKey(value);
@@ -439,13 +454,13 @@ function isPublicKeyLike(value: unknown): boolean {
       return false;
     }
   }
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== 'object' || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate.toBase58 === "function" ||
-    typeof candidate.toBytes === "function"
+    typeof candidate.toBase58 === 'function' ||
+    typeof candidate.toBytes === 'function'
   );
 }
 
@@ -453,32 +468,27 @@ function toPublicKey(value: unknown): PublicKey {
   if (value instanceof PublicKey) {
     return value;
   }
-  if (typeof value === "string") {
+  if (typeof value === 'string') {
     return new PublicKey(value);
   }
-  if (typeof value === "object" && value !== null) {
-    const candidate = value as {
-      toBytes?: () => Uint8Array;
-      toBase58?: () => string;
-    };
-    if (typeof candidate.toBytes === "function") {
+  if (typeof value === 'object' && value !== null) {
+    const candidate = value as { toBytes?: () => Uint8Array; toBase58?: () => string };
+    if (typeof candidate.toBytes === 'function') {
       return new PublicKey(candidate.toBytes());
     }
-    if (typeof candidate.toBase58 === "function") {
+    if (typeof candidate.toBase58 === 'function') {
       return new PublicKey(candidate.toBase58());
     }
   }
-  throw new Error("Invalid authority public key");
+  throw new Error('Invalid authority public key');
 }
 
 /**
  * Type guard to check if a value has the shape of raw agent registration data.
  * Validates all 22 required fields.
  */
-function isRawAgentRegistrationData(
-  data: unknown,
-): data is RawAgentRegistrationData {
-  if (typeof data !== "object" || data === null) {
+function isRawAgentRegistrationData(data: unknown): data is RawAgentRegistrationData {
+  if (typeof data !== 'object' || data === null) {
     return false;
   }
   const obj = data as Record<string, unknown>;
@@ -509,27 +519,85 @@ function isRawAgentRegistrationData(
   if (!isBNLikeWithToNumber(obj.lastStateUpdate)) return false;
 
   // Validate string fields
-  if (typeof obj.endpoint !== "string") return false;
-  if (typeof obj.metadataUri !== "string") return false;
+  if (typeof obj.endpoint !== 'string') return false;
+  if (typeof obj.metadataUri !== 'string') return false;
 
   // Validate number fields (u8, u16)
-  if (typeof obj.reputation !== "number") return false;
-  if (typeof obj.activeTasks !== "number") return false;
-  if (typeof obj.bump !== "number") return false;
+  if (typeof obj.reputation !== 'number') return false;
+  if (typeof obj.activeTasks !== 'number') return false;
+  if (typeof obj.bump !== 'number') return false;
   const hasTaskCount24h =
-    typeof obj.taskCount24h === "number" ||
-    typeof obj.taskCount24H === "number";
+    typeof obj.taskCount24h === 'number' || typeof obj.taskCount24H === 'number';
   if (!hasTaskCount24h) return false;
   const hasDisputeCount24h =
-    typeof obj.disputeCount24h === "number" ||
-    typeof obj.disputeCount24H === "number";
+    typeof obj.disputeCount24h === 'number' || typeof obj.disputeCount24H === 'number';
   if (!hasDisputeCount24h) return false;
-  if (typeof obj.disputesAsDefendant !== "number") return false;
-  if (typeof obj.activeDisputeVotes !== "number") return false;
+  if (
+    obj.disputesAsDefendant !== undefined &&
+    typeof obj.disputesAsDefendant !== 'number'
+  ) {
+    return false;
+  }
+  if (typeof obj.activeDisputeVotes !== 'number') return false;
 
   // Status can be object (Anchor enum) or number
-  if (typeof obj.status !== "object" && typeof obj.status !== "number")
+  if (typeof obj.status !== 'object' && typeof obj.status !== 'number') return false;
+
+  return true;
+}
+
+/**
+ * Type guard for legacy AgentRegistration account shape.
+ */
+function isLegacyRawAgentRegistrationData(data: unknown): data is LegacyRawAgentRegistrationData {
+  if (typeof data !== 'object' || data === null) {
     return false;
+  }
+  const obj = data as Record<string, unknown>;
+
+  // Only treat this as legacy when extended modern fields are absent.
+  // This prevents malformed modern payloads from passing through fallback.
+  if (obj.lastTaskCreated !== undefined) return false;
+  if (obj.lastDisputeInitiated !== undefined) return false;
+  if (obj.taskCount24h !== undefined || obj.taskCount24H !== undefined) return false;
+  if (obj.disputeCount24h !== undefined || obj.disputeCount24H !== undefined) return false;
+  if (obj.rateLimitWindowStart !== undefined) return false;
+  if (obj.activeDisputeVotes !== undefined) return false;
+  if (obj.lastVoteTimestamp !== undefined) return false;
+  if (obj.lastStateUpdate !== undefined) return false;
+  if (obj.disputesAsDefendant !== undefined) return false;
+
+  // Validate agentId (array or Uint8Array)
+  if (!Array.isArray(obj.agentId) && !(obj.agentId instanceof Uint8Array)) {
+    return false;
+  }
+
+  // Validate PublicKey field
+  if (!isPublicKeyLike(obj.authority)) {
+    return false;
+  }
+
+  // Validate BN-like fields (u64 - need toString for bigint conversion)
+  if (!isBNLike(obj.capabilities)) return false;
+  if (!isBNLike(obj.tasksCompleted)) return false;
+  if (!isBNLike(obj.totalEarned)) return false;
+  if (!isBNLike(obj.stake)) return false;
+
+  // Validate BN-like fields (i64 - need toNumber for timestamp conversion)
+  if (!isBNLikeWithToNumber(obj.registeredAt)) return false;
+  if (!isBNLikeWithToNumber(obj.lastActive)) return false;
+
+  // Validate string fields
+  if (typeof obj.endpoint !== 'string') return false;
+  if (typeof obj.metadataUri !== 'string') return false;
+
+  // Validate number fields (u8, u16)
+  if (typeof obj.reputation !== 'number') return false;
+  if (typeof obj.activeTasks !== 'number') return false;
+  if (typeof obj.bump !== 'number') return false;
+
+  // Status can be object (Anchor enum) or number
+  if (typeof obj.status !== 'object' && typeof obj.status !== 'number') return false;
 
   return true;
 }
@@ -539,12 +607,10 @@ function isRawAgentRegistrationData(
  * Anchor enums can come as objects like { active: {} } or numbers.
  */
 function parseAgentStatus(
-  status:
-    | { inactive?: object; active?: object; busy?: object; suspended?: object }
-    | number,
+  status: { inactive?: object; active?: object; busy?: object; suspended?: object } | number
 ): AgentStatus {
   // Handle numeric status (already parsed)
-  if (typeof status === "number") {
+  if (typeof status === 'number') {
     if (!isValidAgentStatus(status)) {
       throw new Error(`Invalid agent status value: ${status}`);
     }
@@ -552,12 +618,12 @@ function parseAgentStatus(
   }
 
   // Handle Anchor enum object format
-  if ("inactive" in status) return AgentStatus.Inactive;
-  if ("active" in status) return AgentStatus.Active;
-  if ("busy" in status) return AgentStatus.Busy;
-  if ("suspended" in status) return AgentStatus.Suspended;
+  if ('inactive' in status) return AgentStatus.Inactive;
+  if ('active' in status) return AgentStatus.Active;
+  if ('busy' in status) return AgentStatus.Busy;
+  if ('suspended' in status) return AgentStatus.Suspended;
 
-  throw new Error("Invalid agent status format");
+  throw new Error('Invalid agent status format');
 }
 
 /**
@@ -587,64 +653,133 @@ function toBigInt(value: { toString: () => string }): bigint {
  * ```
  */
 export function parseAgentState(data: unknown): AgentState {
-  // 1. Validate with type guard
+  // Legacy compatibility path (older on-chain AgentRegistration layout).
+  if (isLegacyRawAgentRegistrationData(data)) {
+    const agentId = toUint8Array(data.agentId);
+    if (agentId.length !== AGENT_ID_LENGTH) {
+      throw new Error(
+        `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`
+      );
+    }
+
+    if (data.reputation > MAX_REPUTATION) {
+      throw new Error(
+        `Invalid reputation: ${data.reputation} (must be 0-${MAX_REPUTATION})`
+      );
+    }
+
+    if (data.activeTasks > MAX_U8) {
+      throw new Error(`Invalid activeTasks: ${data.activeTasks} (must be 0-${MAX_U8})`);
+    }
+    if (data.bump > MAX_U8) {
+      throw new Error(`Invalid bump: ${data.bump} (must be 0-${MAX_U8})`);
+    }
+
+    if (data.endpoint.length > MAX_ENDPOINT_LENGTH) {
+      throw new Error(
+        `Invalid endpoint length: ${data.endpoint.length} (must be <= ${MAX_ENDPOINT_LENGTH})`
+      );
+    }
+    if (data.metadataUri.length > MAX_METADATA_URI_LENGTH) {
+      throw new Error(
+        `Invalid metadataUri length: ${data.metadataUri.length} (must be <= ${MAX_METADATA_URI_LENGTH})`
+      );
+    }
+
+    const status = parseAgentStatus(data.status);
+    const registeredAt = data.registeredAt.toNumber();
+
+    return {
+      // Identity
+      agentId,
+      authority: toPublicKey(data.authority),
+      bump: data.bump,
+
+      // Capabilities & Status
+      capabilities: toBigInt(data.capabilities),
+      status,
+
+      // Registration & Activity
+      registeredAt,
+      lastActive: data.lastActive.toNumber(),
+      endpoint: data.endpoint,
+      metadataUri: data.metadataUri,
+
+      // Performance Metrics
+      tasksCompleted: toBigInt(data.tasksCompleted),
+      totalEarned: toBigInt(data.totalEarned),
+      reputation: data.reputation,
+      activeTasks: data.activeTasks,
+      stake: toBigInt(data.stake),
+
+      // Rate Limiting (legacy defaults)
+      lastTaskCreated: 0,
+      lastDisputeInitiated: 0,
+      taskCount24h: 0,
+      disputeCount24h: 0,
+      rateLimitWindowStart: registeredAt,
+
+      // Dispute Activity (legacy defaults)
+      activeDisputeVotes: 0,
+      lastVoteTimestamp: 0,
+
+      // State Sync (legacy defaults)
+      lastStateUpdate: 0,
+
+      // Defendant Tracking (legacy defaults)
+      disputesAsDefendant: 0,
+    };
+  }
+
+  // 1. Validate modern shape with type guard
   if (!isRawAgentRegistrationData(data)) {
-    throw new Error("Invalid agent registration data: missing required fields");
+    throw new Error('Invalid agent registration data: missing required fields');
   }
 
   // 2. Convert and validate agentId
   const agentId = toUint8Array(data.agentId);
   if (agentId.length !== AGENT_ID_LENGTH) {
     throw new Error(
-      `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`,
+      `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`
     );
   }
 
   const taskCount24h =
-    typeof data.taskCount24h === "number"
-      ? data.taskCount24h
-      : data.taskCount24H;
+    typeof data.taskCount24h === 'number' ? data.taskCount24h : data.taskCount24H;
   const disputeCount24h =
-    typeof data.disputeCount24h === "number"
-      ? data.disputeCount24h
-      : data.disputeCount24H;
+    typeof data.disputeCount24h === 'number' ? data.disputeCount24h : data.disputeCount24H;
   if (taskCount24h === undefined || disputeCount24h === undefined) {
-    throw new Error(
-      "Invalid agent registration data: missing rate-limit counters",
-    );
+    throw new Error('Invalid agent registration data: missing rate-limit counters');
   }
 
   // 3. Range validation for u16 field
   if (data.reputation > MAX_REPUTATION) {
     throw new Error(
-      `Invalid reputation: ${data.reputation} (must be 0-${MAX_REPUTATION})`,
+      `Invalid reputation: ${data.reputation} (must be 0-${MAX_REPUTATION})`
     );
   }
 
   // 4. Range validation for u8 fields
   if (data.activeTasks > MAX_U8) {
-    throw new Error(
-      `Invalid activeTasks: ${data.activeTasks} (must be 0-${MAX_U8})`,
-    );
+    throw new Error(`Invalid activeTasks: ${data.activeTasks} (must be 0-${MAX_U8})`);
   }
   if (taskCount24h > MAX_U8) {
-    throw new Error(
-      `Invalid taskCount24h: ${taskCount24h} (must be 0-${MAX_U8})`,
-    );
+    throw new Error(`Invalid taskCount24h: ${taskCount24h} (must be 0-${MAX_U8})`);
   }
   if (disputeCount24h > MAX_U8) {
-    throw new Error(
-      `Invalid disputeCount24h: ${disputeCount24h} (must be 0-${MAX_U8})`,
-    );
+    throw new Error(`Invalid disputeCount24h: ${disputeCount24h} (must be 0-${MAX_U8})`);
   }
-  if (data.disputesAsDefendant > MAX_U8) {
+  const disputesAsDefendant =
+    typeof data.disputesAsDefendant === 'number' ? data.disputesAsDefendant : 0;
+
+  if (disputesAsDefendant > MAX_U8) {
     throw new Error(
-      `Invalid disputesAsDefendant: ${data.disputesAsDefendant} (must be 0-${MAX_U8})`,
+      `Invalid disputesAsDefendant: ${disputesAsDefendant} (must be 0-${MAX_U8})`
     );
   }
   if (data.activeDisputeVotes > MAX_U8) {
     throw new Error(
-      `Invalid activeDisputeVotes: ${data.activeDisputeVotes} (must be 0-${MAX_U8})`,
+      `Invalid activeDisputeVotes: ${data.activeDisputeVotes} (must be 0-${MAX_U8})`
     );
   }
   if (data.bump > MAX_U8) {
@@ -654,12 +789,12 @@ export function parseAgentState(data: unknown): AgentState {
   // 5. String length validation
   if (data.endpoint.length > MAX_ENDPOINT_LENGTH) {
     throw new Error(
-      `Invalid endpoint length: ${data.endpoint.length} (must be <= ${MAX_ENDPOINT_LENGTH})`,
+      `Invalid endpoint length: ${data.endpoint.length} (must be <= ${MAX_ENDPOINT_LENGTH})`
     );
   }
   if (data.metadataUri.length > MAX_METADATA_URI_LENGTH) {
     throw new Error(
-      `Invalid metadataUri length: ${data.metadataUri.length} (must be <= ${MAX_METADATA_URI_LENGTH})`,
+      `Invalid metadataUri length: ${data.metadataUri.length} (must be <= ${MAX_METADATA_URI_LENGTH})`
     );
   }
 
@@ -705,7 +840,7 @@ export function parseAgentState(data: unknown): AgentState {
     lastStateUpdate: data.lastStateUpdate.toNumber(),
 
     // Defendant Tracking
-    disputesAsDefendant: data.disputesAsDefendant,
+    disputesAsDefendant: disputesAsDefendant,
   };
 }
 
@@ -738,11 +873,11 @@ export function parseAgentState(data: unknown): AgentState {
 export function computeRateLimitState(
   agent: Pick<
     AgentState,
-    | "lastTaskCreated"
-    | "lastDisputeInitiated"
-    | "taskCount24h"
-    | "disputeCount24h"
-    | "rateLimitWindowStart"
+    | 'lastTaskCreated'
+    | 'lastDisputeInitiated'
+    | 'taskCount24h'
+    | 'disputeCount24h'
+    | 'rateLimitWindowStart'
   >,
   config: {
     taskCreationCooldown: number;
@@ -750,7 +885,7 @@ export function computeRateLimitState(
     disputeInitiationCooldown: number;
     maxDisputesPer24h: number;
   },
-  nowUnix: number,
+  nowUnix: number
 ): RateLimitState {
   const SECONDS_PER_24H = 86400;
 

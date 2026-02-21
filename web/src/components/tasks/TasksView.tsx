@@ -1,7 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { TaskInfo } from '../../types';
 import { TaskCard } from './TaskCard';
 import { CreateTaskForm } from './CreateTaskForm';
+
+const FILTERS = [
+  { label: 'All', value: '' },
+  { label: 'Open', value: 'open' },
+  { label: 'In Progress', value: 'in_progress' },
+  { label: 'Completed', value: 'completed' },
+  { label: 'Cancelled', value: 'cancelled' },
+] as const;
 
 interface TasksViewProps {
   tasks: TaskInfo[];
@@ -11,9 +19,28 @@ interface TasksViewProps {
 }
 
 export function TasksView({ tasks, onRefresh, onCreate, onCancel }: TasksViewProps) {
+  const [filter, setFilter] = useState('');
+
   useEffect(() => {
     onRefresh();
   }, [onRefresh]);
+
+  // Reverse order (newest first) and apply status filter
+  const filtered = useMemo(() => {
+    const reversed = [...tasks].reverse();
+    if (!filter) return reversed;
+    return reversed.filter((t) => t.status.toLowerCase() === filter);
+  }, [tasks, filter]);
+
+  // Count per status for filter badges
+  const counts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const t of tasks) {
+      const key = t.status.toLowerCase();
+      m[key] = (m[key] ?? 0) + 1;
+    }
+    return m;
+  }, [tasks]);
 
   return (
     <div className="flex flex-col h-full">
@@ -45,22 +72,52 @@ export function TasksView({ tasks, onRefresh, onCreate, onCancel }: TasksViewPro
         </button>
       </div>
 
+      {/* Filter chips */}
+      {tasks.length > 0 && (
+        <div className="flex items-center gap-1.5 px-6 py-2.5 border-b border-tetsuo-200 overflow-x-auto">
+          {FILTERS.map((f) => {
+            const count = f.value ? (counts[f.value] ?? 0) : tasks.length;
+            const active = filter === f.value;
+            return (
+              <button
+                key={f.value}
+                onClick={() => setFilter(f.value)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
+                  active
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'bg-tetsuo-100 text-tetsuo-500 hover:bg-tetsuo-200 hover:text-tetsuo-700'
+                }`}
+              >
+                {f.label}
+                {count > 0 && (
+                  <span className={`text-[10px] ${active ? 'text-white/70' : 'text-tetsuo-400'}`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6"><div className="max-w-2xl mx-auto space-y-3">
         <div className="animate-list-item" style={{ animationDelay: '0ms' }}>
           <CreateTaskForm onCreate={onCreate} />
         </div>
 
-        {tasks.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-12">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-200" strokeWidth="1.5" strokeLinecap="round">
               <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
               <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
             </svg>
-            <span className="text-sm text-tetsuo-400">No tasks found</span>
+            <span className="text-sm text-tetsuo-400">
+              {filter ? `No ${FILTERS.find((f) => f.value === filter)?.label.toLowerCase()} tasks` : 'No tasks found'}
+            </span>
           </div>
         ) : (
-          tasks.map((task, i) => (
+          filtered.map((task, i) => (
             <div key={task.id} className="animate-list-item" style={{ animationDelay: `${(i + 1) * 50}ms` }}>
               <TaskCard task={task} onCancel={onCancel} />
             </div>
