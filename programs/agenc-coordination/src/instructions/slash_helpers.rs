@@ -6,7 +6,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{reputation_reason, ReputationChanged};
-use crate::instructions::constants::{MIN_REPUTATION, PERCENT_BASE, REPUTATION_SLASH_LOSS};
+use crate::instructions::constants::{PERCENT_BASE, REPUTATION_SLASH_LOSS};
 use crate::state::AgentRegistration;
 use anchor_lang::prelude::*;
 
@@ -66,8 +66,7 @@ pub fn apply_reputation_penalty(agent: &mut AgentRegistration, clock: &Clock) ->
     let old_rep = agent.reputation;
     agent.reputation = agent
         .reputation
-        .saturating_sub(REPUTATION_SLASH_LOSS)
-        .max(MIN_REPUTATION);
+        .saturating_sub(REPUTATION_SLASH_LOSS);
     if agent.reputation != old_rep {
         emit!(ReputationChanged {
             agent_id: agent.agent_id,

@@ -25,7 +25,6 @@ import {
   loadKeypairFromFile,
   getDefaultKeypairPath,
 } from "../../types/wallet.js";
-import { fetchTreasury } from "../../utils/treasury.js";
 import { IDL } from "../../idl.js";
 import { AgentStatus, agentStatusToString } from "../../agent/types.js";
 import { getCapabilityNames } from "../../agent/capabilities.js";
@@ -413,7 +412,6 @@ export async function handleTasksCancel(
 
     const escrowPda = findEscrowPda(taskPda, program.programId);
     const protocolPda = findProtocolPda(program.programId);
-    const treasury = await fetchTreasury(program, program.programId);
 
     await program.methods
       .cancelTask()
@@ -422,7 +420,6 @@ export async function handleTasksCancel(
         task: taskPda,
         escrow: escrowPda,
         protocolConfig: protocolPda,
-        treasury,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
