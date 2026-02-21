@@ -23,6 +23,9 @@ export {
   toUint8Array,
   uint8ToBase64,
   base64ToUint8,
+  fnv1aHash,
+  fnv1aHashUnit,
+  fnv1aHashHex,
 } from "./encoding.js";
 
 export { PdaWithBump, derivePda, validateIdLength } from "./pda.js";
@@ -40,6 +43,15 @@ export {
 } from "./process.js";
 
 export { isRecord, isStringArray } from "./type-guards.js";
+
+export { groupBy } from "./collections.js";
+
+export {
+  clamp01,
+  clampRatio,
+  clampInteger,
+  nonNegative,
+} from "./numeric.js";
 
 export type { ValidationResult } from "./validation.js";
 

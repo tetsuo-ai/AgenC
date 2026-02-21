@@ -10,7 +10,7 @@
  */
 
 import { readFile, readdir, mkdir, writeFile, access } from "node:fs/promises";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { constants } from "node:fs";
 
@@ -76,9 +76,15 @@ async function readSafe(filePath: string): Promise<string | undefined> {
     ) {
       return undefined;
     }
-    // Non-ENOENT errors (permission denied, etc.) — log warning and skip
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[workspace] Failed to read ${filePath}: ${msg}`);
+    // Non-ENOENT errors (permission denied, etc.) — log warning and skip.
+    // Use basename only to avoid leaking full filesystem paths in logs.
+    const code =
+      err instanceof Error && "code" in err
+        ? (err as NodeJS.ErrnoException).code
+        : "UNKNOWN";
+    console.warn(
+      `[workspace] Failed to read ${basename(filePath)}: ${code}`,
+    );
     return undefined;
   }
 }

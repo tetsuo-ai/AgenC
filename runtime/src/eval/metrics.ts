@@ -6,6 +6,8 @@
 
 import type { MetricsProvider } from "../task/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
+import { clamp01 } from "../utils/numeric.js";
+import { groupBy } from "../utils/collections.js";
 import type { TrajectoryReplayResult } from "./replay.js";
 
 export type RewardTier = "low" | "medium" | "high" | "unknown";
@@ -49,13 +51,6 @@ export interface ScorecardSerializeResult {
   summary: string;
 }
 
-function clamp01(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
-
 function safeNumber(value: number | undefined, fallback = 0): number {
   if (value === undefined || !Number.isFinite(value)) return fallback;
   return value;
@@ -88,7 +83,9 @@ export function getRewardTier(
 ): RewardTier {
   const lamports = toLamportsNumber(rewardLamports);
   if (lamports === undefined) return "unknown";
+  // 0.001 SOL threshold — below this is "low" reward
   if (lamports < 1_000_000) return "low";
+  // 0.1 SOL threshold — below this is "medium" reward
   if (lamports < 100_000_000) return "medium";
   return "high";
 }
@@ -224,24 +221,6 @@ function computeAggregate(
   };
 }
 
-function groupBy<T>(
-  records: EvalRunRecord[],
-  selector: (record: EvalRunRecord) => T,
-): Map<T, EvalRunRecord[]> {
-  const groups = new Map<T, EvalRunRecord[]>();
-
-  for (const record of records) {
-    const key = selector(record);
-    const current = groups.get(key);
-    if (current) {
-      current.push(record);
-      continue;
-    }
-    groups.set(key, [record]);
-  }
-
-  return groups;
-}
 
 function extractDurationFromReplay(
   replay: TrajectoryReplayResult,

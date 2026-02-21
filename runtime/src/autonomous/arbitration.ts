@@ -6,10 +6,12 @@
 
 import type { MultiCandidateConfig } from "./types.js";
 import type { GeneratedExecutionCandidate } from "./candidate-generator.js";
+import { fnv1aHashUnit as hashStringToUnit } from "../utils/encoding.js";
 import type {
   CandidateDisagreementReasonCode,
   InconsistencyDetectionResult,
 } from "./inconsistency-detector.js";
+import { clampRatio } from "../utils/numeric.js";
 
 export interface CandidateArbitrationScore {
   candidateId: string;
@@ -59,21 +61,6 @@ interface ResolvedWeights {
   recency: number;
 }
 
-function clampRatio(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
-
-function hashStringToUnit(input: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) / 0xffff_ffff;
-}
 
 function resolveWeights(
   config: MultiCandidateConfig | undefined,

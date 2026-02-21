@@ -395,17 +395,23 @@ export function registerProtocolTools(server: McpServer): void {
           };
         }
 
-        // Determine category
-        let category: string;
-        if (error_code <= 6007) category = "Agent";
-        else if (error_code <= 6023) category = "Task";
-        else if (error_code <= 6032) category = "Claim";
-        else if (error_code <= 6047) category = "Dispute";
-        else if (error_code <= 6050) category = "State";
-        else if (error_code <= 6061) category = "Protocol";
-        else if (error_code <= 6068) category = "General";
-        else if (error_code <= 6071) category = "Rate Limiting";
-        else category = "Version/Upgrade";
+        // Determine category based on error enum ordering in errors.rs.
+        // Boundaries are the LAST code in each category range (6000 + enum index).
+        const ERROR_CATEGORY_BOUNDARIES: ReadonlyArray<
+          readonly [number, string]
+        > = [
+          [6007, "Agent"],
+          [6023, "Task"],
+          [6032, "Claim"],
+          [6047, "Dispute"],
+          [6050, "State"],
+          [6061, "Protocol"],
+          [6068, "General"],
+          [6071, "Rate Limiting"],
+        ];
+        const category =
+          ERROR_CATEGORY_BOUNDARIES.find(([max]) => error_code <= max)?.[1] ??
+          "Version/Upgrade";
 
         return {
           content: [

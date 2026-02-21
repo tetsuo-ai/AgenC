@@ -431,6 +431,76 @@ export async function getRootTasks(
   );
 }
 
+async function fetchDisputesByRole(
+  connection: Connection,
+  programId: PublicKey,
+  actorPubkey: PublicKey,
+  fieldOffset: number,
+  role: ActorDisputeSummary["actorRole"],
+  summaries: Map<string, ActorDisputeSummary>,
+): Promise<void> {
+  const accounts = await connection.getProgramAccounts(programId, {
+    filters: [
+      { dataSize: DISPUTE_ACCOUNT_SIZE },
+      {
+        memcmp: {
+          offset: fieldOffset,
+          bytes: actorPubkey.toBase58(),
+        },
+      },
+    ],
+  });
+
+  for (const { pubkey, account } of accounts) {
+    const key = pubkey.toBase58();
+    if (summaries.has(key)) continue;
+    summaries.set(
+      key,
+      deserializeDispute(pubkey, account.data as Buffer, role),
+    );
+  }
+}
+
+async function fetchDisputesByArbiterVotes(
+  connection: Connection,
+  programId: PublicKey,
+  actorPubkey: PublicKey,
+  summaries: Map<string, ActorDisputeSummary>,
+): Promise<void> {
+  const voteAccounts = await connection.getProgramAccounts(programId, {
+    filters: [
+      { dataSize: DISPUTE_VOTE_ACCOUNT_SIZE },
+      {
+        memcmp: {
+          offset: DISPUTE_VOTE_FIELD_OFFSETS.VOTER,
+          bytes: actorPubkey.toBase58(),
+        },
+      },
+    ],
+    dataSlice: {
+      offset: DISPUTE_VOTE_FIELD_OFFSETS.DISPUTE,
+      length: 32,
+    },
+  });
+
+  for (const voteAccount of voteAccounts) {
+    const disputePda = new PublicKey(voteAccount.account.data as Buffer);
+    const key = disputePda.toBase58();
+    if (summaries.has(key)) continue;
+
+    const disputeInfo = await connection.getAccountInfo(disputePda);
+    if (!disputeInfo?.data) continue;
+
+    const summary = deserializeDispute(
+      disputePda,
+      disputeInfo.data as Buffer,
+      "arbiter",
+    );
+    summary.hasVoted = true;
+    summaries.set(key, summary);
+  }
+}
+
 /**
  * Query disputes where an actor participates as initiator, defendant, or arbiter.
  *
@@ -447,87 +517,17 @@ export async function getDisputesByActor(
 ): Promise<ActorDisputeSummary[]> {
   const summaries = new Map<string, ActorDisputeSummary>();
 
-  const asInitiator = await connection.getProgramAccounts(programId, {
-    filters: [
-      { dataSize: DISPUTE_ACCOUNT_SIZE },
-      {
-        memcmp: {
-          offset: DISPUTE_FIELD_OFFSETS.INITIATOR,
-          bytes: actorPubkey.toBase58(),
-        },
-      },
-    ],
-  });
-
-  for (const { pubkey, account } of asInitiator) {
-    const summary = deserializeDispute(
-      pubkey,
-      account.data as Buffer,
-      "initiator",
-    );
-    summaries.set(pubkey.toBase58(), summary);
-  }
-
-  const asDefendant = await connection.getProgramAccounts(programId, {
-    filters: [
-      { dataSize: DISPUTE_ACCOUNT_SIZE },
-      {
-        memcmp: {
-          offset: DISPUTE_FIELD_OFFSETS.DEFENDANT,
-          bytes: actorPubkey.toBase58(),
-        },
-      },
-    ],
-  });
-
-  for (const { pubkey, account } of asDefendant) {
-    const key = pubkey.toBase58();
-    if (summaries.has(key)) continue;
-    const summary = deserializeDispute(
-      pubkey,
-      account.data as Buffer,
-      "defendant",
-    );
-    summaries.set(key, summary);
-  }
-
-  const asArbiterVotes = await connection.getProgramAccounts(programId, {
-    filters: [
-      { dataSize: DISPUTE_VOTE_ACCOUNT_SIZE },
-      {
-        memcmp: {
-          offset: DISPUTE_VOTE_FIELD_OFFSETS.VOTER,
-          bytes: actorPubkey.toBase58(),
-        },
-      },
-    ],
-    dataSlice: {
-      offset: DISPUTE_VOTE_FIELD_OFFSETS.DISPUTE,
-      length: 32,
-    },
-  });
-
-  for (const voteAccount of asArbiterVotes) {
-    const disputePda = new PublicKey(voteAccount.account.data as Buffer);
-    const key = disputePda.toBase58();
-
-    if (summaries.has(key)) {
-      continue;
-    }
-
-    const disputeInfo = await connection.getAccountInfo(disputePda);
-    if (!disputeInfo?.data) {
-      continue;
-    }
-
-    const summary = deserializeDispute(
-      disputePda,
-      disputeInfo.data as Buffer,
-      "arbiter",
-    );
-    summary.hasVoted = true;
-    summaries.set(key, summary);
-  }
+  await fetchDisputesByRole(
+    connection, programId, actorPubkey,
+    DISPUTE_FIELD_OFFSETS.INITIATOR, "initiator", summaries,
+  );
+  await fetchDisputesByRole(
+    connection, programId, actorPubkey,
+    DISPUTE_FIELD_OFFSETS.DEFENDANT, "defendant", summaries,
+  );
+  await fetchDisputesByArbiterVotes(
+    connection, programId, actorPubkey, summaries,
+  );
 
   return [...summaries.values()];
 }

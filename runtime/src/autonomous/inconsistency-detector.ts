@@ -7,6 +7,7 @@
 import type { MemoryGraph } from "../memory/graph.js";
 import type { Task } from "./types.js";
 import type { GeneratedExecutionCandidate } from "./candidate-generator.js";
+import { clampRatio } from "../utils/numeric.js";
 
 export type CandidateDisagreementReasonCode =
   | "length_mismatch"
@@ -50,13 +51,6 @@ export interface InconsistencyDetectorInput {
   semanticDistanceThreshold?: number;
   memoryGraph?: MemoryGraph;
   sessionId?: string;
-}
-
-function clampRatio(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
 }
 
 function computeMismatchStats(
