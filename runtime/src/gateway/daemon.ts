@@ -212,6 +212,7 @@ export class DaemonManager {
   private _llmProviders: LLMProvider[] = [];
   private _baseToolHandler: ToolHandler | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
+  private _goalManager: import('../autonomous/goal-manager.js').GoalManager | null = null;
   private shutdownInProgress = false;
   private startedAt = 0;
   private signalHandlersRegistered = false;
@@ -786,6 +787,7 @@ export class DaemonManager {
       heartbeatScheduler.registerAction(proactiveCommsAction);
 
       // Desktop awareness: register if Peekaboo MCP tools are available
+      let setBridgeCallback: ((cb: (text: string) => Promise<unknown>) => void) | null = null;
       if (this._mcpManager) {
         const screenshotTool = this._mcpManager
           .getToolsByServer("peekaboo")
@@ -794,13 +796,30 @@ export class DaemonManager {
           const { createDesktopAwarenessAction } = await import(
             "../autonomous/desktop-awareness.js"
           );
-          heartbeatScheduler.registerAction(
-            createDesktopAwarenessAction({
-              screenshotTool,
-              llm,
-              memory: this._memoryBackend!,
-            }),
-          );
+          const awarenessAction = createDesktopAwarenessAction({
+            screenshotTool,
+            llm,
+            memory: this._memoryBackend!,
+          });
+
+          // Wrap awareness to pipe noteworthy output through goal bridge (attached below)
+          let awarenessBridgeCallback: ((text: string) => Promise<unknown>) | null = null;
+          const originalAwarenessExecute = awarenessAction.execute.bind(awarenessAction);
+          const wrappedAwareness: typeof awarenessAction = {
+            name: awarenessAction.name,
+            enabled: awarenessAction.enabled,
+            async execute(ctx) {
+              const result = await originalAwarenessExecute(ctx);
+              if (result.hasOutput && result.output && awarenessBridgeCallback) {
+                await awarenessBridgeCallback(result.output).catch(() => {});
+              }
+              return result;
+            },
+          };
+          // Store setter in closure-accessible variable for GoalManager to connect
+          setBridgeCallback = (cb) => { awarenessBridgeCallback = cb; };
+
+          heartbeatScheduler.registerAction(wrappedAwareness);
           this.logger.info("Desktop awareness action registered (Peekaboo available)");
         }
 
@@ -832,45 +851,66 @@ export class DaemonManager {
         }
       }
 
-      // Goal executor: check meta-planner goals and execute desktop ones
-      if (this._desktopExecutor) {
-        const desktopExecutor = this._desktopExecutor;
+      // GoalManager — central goal lifecycle
+      const { GoalManager } = await import("../autonomous/goal-manager.js");
+      this._goalManager = new GoalManager({ memory: this._memoryBackend! });
+
+      // Wire awareness → goal bridge
+      if (this._goalManager && setBridgeCallback) {
+        const { createAwarenessGoalBridge } = await import(
+          "../autonomous/awareness-goal-bridge.js"
+        );
+        setBridgeCallback(createAwarenessGoalBridge({
+          goalManager: this._goalManager,
+        }));
+        this.logger.info("Awareness → goal bridge connected");
+      }
+
+      // Bridge meta-planner goals into GoalManager
+      {
+        const goalManager = this._goalManager;
         const memory = this._memoryBackend!;
-        heartbeatScheduler.registerAction({
-          name: "desktop-goal-executor",
-          enabled: true,
-          async execute() {
-            if (desktopExecutor.isRunning)
-              return { hasOutput: false, quiet: true };
-
-            const goalsRaw = await memory.get?.("goal:active");
-            if (!goalsRaw) return { hasOutput: false, quiet: true };
-
-            let goals: Array<{ description: string }>;
+        const originalMetaPlannerExecute = metaPlannerAction.execute.bind(metaPlannerAction);
+        (metaPlannerAction as { execute: typeof metaPlannerAction.execute }).execute = async function (ctx) {
+          const result = await originalMetaPlannerExecute(ctx);
+          if (result.hasOutput) {
             try {
-              goals = JSON.parse(goalsRaw);
+              const goals = await memory.get<Array<{ description: string; title: string; priority: "critical" | "high" | "medium" | "low"; rationale: string; status: string }>>("goal:active");
+              if (goals) {
+                for (const g of goals.filter((g) => g.status === "proposed")) {
+                  const active = await goalManager.getActiveGoals();
+                  if (!goalManager.isDuplicate(g.description, active)) {
+                    await goalManager.addGoal({
+                      title: g.title,
+                      description: g.description,
+                      priority: g.priority,
+                      source: "meta-planner",
+                      maxAttempts: 2,
+                      rationale: g.rationale,
+                    });
+                  }
+                }
+              }
             } catch {
-              return { hasOutput: false, quiet: true };
+              // Silently ignore sync errors — meta-planner result still valid
             }
+          }
+          return result;
+        };
+      }
 
-            const desktopGoal = goals.find((g) =>
-              /\b(open|click|type|navigate|launch|browse|search|download)\b/i.test(
-                g.description,
-              ),
-            );
-            if (!desktopGoal) return { hasOutput: false, quiet: true };
-
-            const result = await desktopExecutor.executeGoal(
-              desktopGoal.description,
-              "meta-planner",
-            );
-            return {
-              hasOutput: true,
-              output: `Desktop goal ${result.success ? "completed" : "failed"}: ${result.summary}`,
-              quiet: false,
-            };
-          },
-        });
+      // Goal executor: dequeue from GoalManager and execute via DesktopExecutor
+      if (this._desktopExecutor && this._goalManager) {
+        const { createGoalExecutorAction } = await import(
+          "../autonomous/goal-executor-action.js"
+        );
+        heartbeatScheduler.registerAction(
+          createGoalExecutorAction({
+            goalManager: this._goalManager,
+            desktopExecutor: this._desktopExecutor,
+            memory: this._memoryBackend!,
+          }),
+        );
       }
 
       heartbeatScheduler.start();
@@ -1743,6 +1783,8 @@ export class DaemonManager {
         this._desktopExecutor.cancel();
         this._desktopExecutor = null;
       }
+      // Clear goal manager
+      this._goalManager = null;
       // Clear proactive communicator
       this._proactiveCommunicator = null;
       // Stop external channels (reverse order of wiring)
@@ -1795,6 +1837,10 @@ export class DaemonManager {
 
   get desktopExecutor(): import('../autonomous/desktop-executor.js').DesktopExecutor | null {
     return this._desktopExecutor;
+  }
+
+  get goalManager(): import('../autonomous/goal-manager.js').GoalManager | null {
+    return this._goalManager;
   }
 
   getStatus(): DaemonStatus {

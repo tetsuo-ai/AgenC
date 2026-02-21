@@ -1814,3 +1814,23 @@ export {
   type GoalStatus,
   type ExecutionStep,
 } from "./autonomous/desktop-executor.js";
+
+// Goal Manager (Autonomous goal lifecycle)
+export {
+  GoalManager,
+  type GoalManagerConfig,
+  type ManagedGoal,
+} from "./autonomous/goal-manager.js";
+
+// Awareness Goal Bridge (Desktop awareness → goal generation)
+export {
+  createAwarenessGoalBridge,
+  type AwarenessPattern,
+  type AwarenessGoalBridgeConfig,
+} from "./autonomous/awareness-goal-bridge.js";
+
+// Goal Executor Action (Heartbeat-driven goal execution)
+export {
+  createGoalExecutorAction,
+  type GoalExecutorActionConfig,
+} from "./autonomous/goal-executor-action.js";
