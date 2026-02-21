@@ -245,10 +245,10 @@ describe('PumpTracksClient', () => {
     });
   });
 
-  // ── submitMint ──
+  // ── registerTrack ──
 
-  describe('submitMint', () => {
-    it('sends signed transactions and returns result', async () => {
+  describe('registerTrack', () => {
+    it('sends mint + txIds + trackInfo and returns result', async () => {
       const mockResult = {
         mint: 'mintAddress',
         txIds: ['txSig1'],
@@ -260,9 +260,9 @@ describe('PumpTracksClient', () => {
         json: () => Promise.resolve({ success: true, data: mockResult }),
       });
 
-      const result = await client.submitMint(
-        ['signedTx1'],
+      const result = await client.registerTrack(
         'mintAddress',
+        ['txSig1'],
         {
           title: 'Test',
           artist: 'Artist',
@@ -279,7 +279,7 @@ describe('PumpTracksClient', () => {
       expect(result.txIds).toHaveLength(1);
     });
 
-    it('sends JSON body with correct content type', async () => {
+    it('sends JSON body to /tracks/register with correct content type', async () => {
       (globalThis.fetch as any).mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({
@@ -288,14 +288,55 @@ describe('PumpTracksClient', () => {
         }),
       });
 
-      await client.submitMint(['tx'], 'mint', {
+      await client.registerTrack('mint', ['txSig1'], {
+        title: 'T', artist: 'A', genre: 'G', symbol: 'S',
+        metadataUri: 'ipfs://x', artUri: 'https://a', trackUri: 'https://t', wallet: 'w',
+      });
+
+      const calledUrl = (globalThis.fetch as any).mock.calls[0][0];
+      const calledInit = (globalThis.fetch as any).mock.calls[0][1];
+      expect(calledUrl).toContain('/tracks/register');
+      expect(calledInit.headers['Content-Type']).toBe('application/json');
+      expect(calledInit.method).toBe('POST');
+    });
+
+    it('does NOT send signed transactions in the request body', async () => {
+      (globalThis.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { mint: 'x', txIds: ['t'], playUrl: 'u' },
+        }),
+      });
+
+      await client.registerTrack('mint', ['txSig1'], {
         title: 'T', artist: 'A', genre: 'G', symbol: 'S',
         metadataUri: 'ipfs://x', artUri: 'https://a', trackUri: 'https://t', wallet: 'w',
       });
 
       const calledInit = (globalThis.fetch as any).mock.calls[0][1];
-      expect(calledInit.headers['Content-Type']).toBe('application/json');
-      expect(calledInit.method).toBe('POST');
+      const body = JSON.parse(calledInit.body);
+      // Body should contain mint, txIds, trackInfo — but NOT signedTransactions
+      expect(body.mint).toBe('mint');
+      expect(body.txIds).toEqual(['txSig1']);
+      expect(body.trackInfo).toBeDefined();
+      expect(body.signedTransactions).toBeUndefined();
+      expect(body.transactions).toBeUndefined();
+    });
+
+    it('throws on register failure', async () => {
+      (globalThis.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('Mint not found on-chain'),
+      });
+
+      await expect(
+        client.registerTrack('badMint', ['txSig'], {
+          title: 'T', artist: 'A', genre: 'G', symbol: 'S',
+          metadataUri: 'ipfs://x', artUri: 'https://a', trackUri: 'https://t', wallet: 'w',
+        }),
+      ).rejects.toThrow(PumpTracksApiError);
     });
   });
 });

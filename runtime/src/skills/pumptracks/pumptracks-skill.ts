@@ -58,7 +58,7 @@ const VERSION: SemanticVersion = '0.1.0';
  * - `getTrack`     — Get a single track by mint address
  * - `searchTracks` — Search tracks by title, artist, or symbol
  * - `getArtist`    — Get artist profile and their tracks
- * - `mintTrack`    — Full end-to-end mint: upload files, sign transaction, submit
+ * - `mintTrack`    — Full end-to-end mint: upload files, sign, broadcast to Solana, register
  *
  * @example
  * ```typescript
@@ -138,7 +138,7 @@ export class PumpTracksSkill implements Skill {
       },
       {
         name: 'mintTrack',
-        description: 'Mint a new music token on PumpTracks. Uploads audio + artwork, validates the returned transaction against a program allowlist, simulates it, signs it, and submits. The wallet used by this agent becomes the on-chain creator. Requires ~0.07 SOL.',
+        description: 'Mint a new music token on PumpTracks. Uploads audio + artwork, validates the returned transaction against a program allowlist, simulates it, signs it, and broadcasts directly to Solana. Signed transactions never leave the agent. Requires ~0.07 SOL.',
         execute: (params: unknown) => this.mintTrack(params as MintTrackParams),
       },
     ];
@@ -225,18 +225,24 @@ export class PumpTracksSkill implements Skill {
    *
    * 1. Validate file paths (no traversal, no sensitive files)
    * 2. Check SOL balance (must have >= 0.07 SOL)
-   * 3. Upload audio + artwork to PumpTracks API
+   * 3. Upload audio + artwork to PumpTracks API (prepare step)
    * 4. Receive unsigned Raydium LaunchLab transaction
    * 5. Validate every instruction's program ID against allowlist
    * 6. Simulate transaction before signing
    * 7. Sign with the agent's wallet
-   * 8. Submit signed transaction back to PumpTracks
+   * 8. Broadcast directly to Solana RPC (NOT back to PumpTracks)
+   * 9. Wait for on-chain confirmation
+   * 10. Register track on PumpTracks (mint address + tx IDs only, no signed txs)
+   *
+   * The agent NEVER sends signed transactions to any external server.
+   * Signed transactions go directly to the Solana network.
    *
    * @returns Mint address, tx IDs, and play URL
    * @throws Error if transaction contains disallowed programs
    * @throws Error if simulation fails
    * @throws Error if insufficient SOL balance
    * @throws Error if file path is blocked or invalid
+   * @throws Error if on-chain broadcast or confirmation fails
    */
   async mintTrack(params: MintTrackParams): Promise<MintResult> {
     this.ensureReady();
@@ -271,7 +277,7 @@ export class PumpTracksSkill implements Skill {
 
     // ── Step 3: Validate, simulate, and sign each transaction ──
     this.logger!.info('PumpTracks: validating and signing transactions...');
-    const signedTransactions: string[] = [];
+    const signedTransactions: VersionedTransaction[] = [];
 
     for (let i = 0; i < prepared.transactions.length; i++) {
       const txBytes = Buffer.from(prepared.transactions[i], 'base64');
@@ -285,20 +291,57 @@ export class PumpTracksSkill implements Skill {
 
       // Sign
       const signedTx = await this.wallet!.signTransaction(tx);
-      signedTransactions.push(Buffer.from(signedTx.serialize()).toString('base64'));
+      signedTransactions.push(signedTx);
       this.logger!.debug(`PumpTracks: signed transaction ${i + 1}/${prepared.transactions.length}`);
     }
 
-    // ── Step 4: Submit signed transactions ──
-    this.logger!.info('PumpTracks: submitting to Solana...');
-    const result = await this.client!.submitMint(
-      signedTransactions,
+    // ── Step 4: Broadcast directly to Solana (NOT to PumpTracks) ──
+    // Signed transactions NEVER leave the agent — they go straight to
+    // the Solana network via the agent's own RPC connection.
+    this.logger!.info('PumpTracks: broadcasting directly to Solana...');
+    const txIds: string[] = [];
+
+    for (let i = 0; i < signedTransactions.length; i++) {
+      const signedTx = signedTransactions[i];
+      const rawTx = signedTx.serialize();
+
+      const txId = await this.connection!.sendRawTransaction(rawTx, {
+        skipPreflight: false,
+        maxRetries: 3,
+      });
+      this.logger!.debug(`PumpTracks: broadcast transaction ${i + 1}: ${txId}`);
+      txIds.push(txId);
+
+      // Wait for confirmation
+      const { blockhash, lastValidBlockHeight } =
+        await this.connection!.getLatestBlockhash();
+      const confirmation = await this.connection!.confirmTransaction(
+        { signature: txId, blockhash, lastValidBlockHeight },
+        'confirmed',
+      );
+
+      if (confirmation.value.err) {
+        throw new Error(
+          `Transaction ${i + 1} failed on-chain: ${JSON.stringify(confirmation.value.err)}`,
+        );
+      }
+
+      this.logger!.debug(`PumpTracks: transaction ${i + 1} confirmed on-chain`);
+    }
+
+    // ── Step 5: Register track on PumpTracks ──
+    // Only sends mint address + tx IDs + track metadata.
+    // PumpTracks verifies the mint exists on-chain before saving.
+    // NO signed transactions are sent to PumpTracks.
+    this.logger!.info('PumpTracks: registering track on PumpTracks...');
+    const result = await this.client!.registerTrack(
       prepared.mint,
+      txIds,
       prepared.trackInfo,
     );
 
     this.logger!.info(`PumpTracks: track live at ${result.playUrl}`);
-    this.logger!.info(`PumpTracks: tx(s): ${result.txIds.join(', ')}`);
+    this.logger!.info(`PumpTracks: tx(s): ${txIds.join(', ')}`);
 
     return result;
   }

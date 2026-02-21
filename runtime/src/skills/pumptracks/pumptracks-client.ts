@@ -159,34 +159,39 @@ export class PumpTracksClient {
   }
 
   /**
-   * Submit signed transactions to finalize the mint.
+   * Register a track on PumpTracks after the caller has already broadcast
+   * the transaction directly to Solana.
    *
-   * @param transactions - Base64-encoded signed VersionedTransaction(s)
+   * This endpoint NEVER receives signed transactions — only the mint
+   * address, confirmed tx signatures, and track metadata. PumpTracks
+   * verifies the mint exists on-chain before saving.
+   *
    * @param mint - Token mint address
+   * @param txIds - Confirmed Solana transaction signature(s)
    * @param trackInfo - Track info from prepare step
-   * @returns Confirmed tx IDs + play URL
+   * @returns Play URL + confirmation
    */
-  async submitMint(
-    transactions: string[],
+  async registerTrack(
     mint: string,
+    txIds: string[],
     trackInfo: PrepareResult['trackInfo'],
   ): Promise<MintResult> {
-    this.logger.debug('PumpTracks: submitting signed transactions...');
+    this.logger.debug('PumpTracks: registering track...');
 
-    const response = await this.fetchWithTimeout(`${this.apiBaseUrl}/tracks/submit`, {
+    const response = await this.fetchWithTimeout(`${this.apiBaseUrl}/tracks/register`, {
       method: 'POST',
       headers: {
         'X-API-Key': this.apiKey,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ transactions, mint, trackInfo }),
+      body: JSON.stringify({ mint, txIds, trackInfo }),
     });
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown');
       throw new PumpTracksApiError(
-        `Submit mint failed (${response.status}): ${body}`,
-        '/tracks/submit',
+        `Register track failed (${response.status}): ${body}`,
+        '/tracks/register',
         response.status,
       );
     }
@@ -194,8 +199,8 @@ export class PumpTracksClient {
     const result = await response.json() as ApiResponse<MintResult>;
     if (!result.success || !result.data) {
       throw new PumpTracksApiError(
-        result.error || 'Submit mint returned no data',
-        '/tracks/submit',
+        result.error || 'Register track returned no data',
+        '/tracks/register',
       );
     }
 
