@@ -21,6 +21,7 @@ import {
   getDefaultConfigPath,
 } from "../gateway/config-watcher.js";
 import { sleep, toErrorMessage } from "../utils/async.js";
+import { createLogger } from "../utils/logger.js";
 import type { CliRuntimeContext, CliStatusCode } from "./types.js";
 import type {
   DaemonStartOptions,
@@ -95,6 +96,7 @@ async function runForeground(
   const dm = new DaemonManager({
     configPath,
     pidPath: options.pidPath,
+    logger: createLogger("debug"),
   });
 
   try {

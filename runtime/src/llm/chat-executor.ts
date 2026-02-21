@@ -276,6 +276,10 @@ export class ChatExecutor {
 
     // Tool call loop
     let rounds = 0;
+    // Deduplicate system.open calls across ALL rounds: opening multiple URLs
+    // is never desired (e.g. model opens 3 YouTube tabs across 3 rounds).
+    const DEDUP_TOOLS = new Set(["system.open"]);
+    const seenDedupTools = new Set<string>();
     while (
       response.finishReason === "tool_calls" &&
       response.toolCalls.length > 0 &&
@@ -286,8 +290,28 @@ export class ChatExecutor {
 
       // Append the assistant message with tool calls
       messages.push({ role: "assistant", content: response.content });
-
       for (const toolCall of response.toolCalls) {
+        if (DEDUP_TOOLS.has(toolCall.name) && seenDedupTools.has(toolCall.name)) {
+          const skipResult = JSON.stringify({
+            error: `Skipped duplicate "${toolCall.name}" — only one open per request`,
+          });
+          messages.push({
+            role: "tool",
+            content: skipResult,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+          });
+          allToolCalls.push({
+            name: toolCall.name,
+            args: {},
+            result: skipResult,
+            isError: true,
+            durationMs: 0,
+          });
+          continue;
+        }
+        if (DEDUP_TOOLS.has(toolCall.name)) seenDedupTools.add(toolCall.name);
+
         // Allowlist check
         if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
           const errorResult = JSON.stringify({
@@ -407,7 +431,9 @@ export class ChatExecutor {
     // summary from the last successful tool result.
     let finalContent = response.content;
     if (!finalContent && allToolCalls.length > 0) {
-      const lastSuccess = [...allToolCalls].reverse().find((tc) => !tc.isError);
+      // Try to build a descriptive summary from the tool calls themselves
+      const successes = allToolCalls.filter((tc) => !tc.isError);
+      const lastSuccess = successes[successes.length - 1];
       if (lastSuccess) {
         try {
           const parsed = JSON.parse(lastSuccess.result);
@@ -415,6 +441,40 @@ export class ChatExecutor {
             finalContent = `Task created successfully.\n\n**Task PDA:** ${parsed.taskPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
           } else if (parsed.agentPda) {
             finalContent = `Agent registered successfully.\n\n**Agent PDA:** ${parsed.agentPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
+          } else if (parsed.success === true || parsed.exitCode === 0) {
+            // System tool succeeded — build a descriptive message from tool name + args
+            const output = parsed.stdout || parsed.output || "";
+            if (output.trim()) {
+              finalContent = output.trim();
+            } else {
+              // Generate context-aware summary from tool calls
+              const summaries: string[] = [];
+              for (const tc of successes) {
+                if (tc.name === "system.open") {
+                  const target = String(tc.args?.target ?? "");
+                  if (target.includes("youtube.com/watch")) {
+                    summaries.push(`Opened YouTube video`);
+                  } else if (target.includes("youtube.com")) {
+                    summaries.push(`Opened YouTube`);
+                  } else if (target) {
+                    summaries.push(`Opened ${target.slice(0, 80)}`);
+                  }
+                } else if (tc.name === "system.bash") {
+                  const cmd = String(tc.args?.command ?? "").slice(0, 60);
+                  if (cmd) summaries.push(`Ran: ${cmd}`);
+                } else if (tc.name === "system.applescript") {
+                  summaries.push(`Ran AppleScript`);
+                }
+              }
+              finalContent = summaries.length > 0 ? summaries.join("\n") : "Done!";
+            }
+          } else if (parsed.error) {
+            finalContent = `Something went wrong: ${String(parsed.error).slice(0, 300)}`;
+          } else if (parsed.exitCode != null && parsed.exitCode !== 0) {
+            const errOutput = parsed.stderr || parsed.stdout || "";
+            finalContent = errOutput.trim()
+              ? `Command failed: ${String(errOutput).slice(0, 300)}`
+              : "The command failed. Let me try a different approach.";
           } else {
             finalContent = `Operation completed. Result:\n\`\`\`json\n${lastSuccess.result.slice(0, 500)}\n\`\`\``;
           }
