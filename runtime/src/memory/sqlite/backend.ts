@@ -167,8 +167,9 @@ export class SqliteBackend implements MemoryBackend {
       params.push(query.role);
     }
 
-    const order = query.order ?? "asc";
-    let sql = `SELECT * FROM memory_entries WHERE ${conditions.join(" AND ")} ORDER BY timestamp ${order.toUpperCase()}`;
+    const validOrders = { asc: "ASC", desc: "DESC" } as const;
+    const direction = validOrders[query.order ?? "asc"] ?? "ASC";
+    let sql = `SELECT * FROM memory_entries WHERE ${conditions.join(" AND ")} ORDER BY timestamp ${direction}`;
 
     if (query.limit !== undefined && query.limit > 0) {
       sql += " LIMIT ?";
