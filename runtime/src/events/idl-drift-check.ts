@@ -144,8 +144,8 @@ function getLineForContractContractField(
   sourceText: string,
 ): number | undefined {
   const lines = sourceText.split("\n");
-  const eventMarker = `eventName: '${eventName}',`;
-  const fieldMarker = `name: '${fieldName}',`;
+  const eventMarker = `eventName: "${eventName}",`;
+  const fieldMarker = `name: "${fieldName}",`;
   const eventLine = lines.findIndex((line) => line.includes(eventMarker));
   if (eventLine < 0) return undefined;
 
