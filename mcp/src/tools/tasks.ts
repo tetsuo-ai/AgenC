@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { SEEDS } from "@agenc/sdk";
+import { deriveTaskPda, deriveEscrowPda } from "@agenc/sdk";
 import { getCapabilityNames, hexToBytes } from "@agenc/runtime";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -19,25 +19,6 @@ import {
 } from "../utils/formatting.js";
 import { toolTextResponse, withToolErrorResponse } from "./response.js";
 
-function deriveTaskPda(
-  creator: PublicKey,
-  taskId: Uint8Array,
-  programId: PublicKey,
-): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [SEEDS.TASK, creator.toBuffer(), Buffer.from(taskId)],
-    programId,
-  );
-  return pda;
-}
-
-function deriveEscrowPda(taskPda: PublicKey, programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [SEEDS.ESCROW, taskPda.toBuffer()],
-    programId,
-  );
-  return pda;
-}
 
 function formatTaskAccount(
   account: Record<string, unknown>,

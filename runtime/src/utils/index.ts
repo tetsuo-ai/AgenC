@@ -23,6 +23,9 @@ export {
   toUint8Array,
   uint8ToBase64,
   base64ToUint8,
+  fnv1aHash,
+  fnv1aHashUnit,
+  fnv1aHashHex,
 } from "./encoding.js";
 
 export { PdaWithBump, derivePda, validateIdLength } from "./pda.js";

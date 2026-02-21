@@ -348,6 +348,43 @@ export function base64ToUint8(base64: string): Uint8Array {
 }
 
 // ============================================================================
+// FNV-1a 32-bit hash (deterministic, non-cryptographic)
+// ============================================================================
+
+/** FNV-1a 32-bit offset basis */
+const FNV_OFFSET_BASIS = 2166136261;
+
+/** FNV-1a 32-bit prime */
+const FNV_PRIME = 16777619;
+
+/**
+ * FNV-1a 32-bit hash of a string. Returns an unsigned 32-bit integer.
+ * Used for deterministic bucketing/sharding where cryptographic strength is unnecessary.
+ */
+export function fnv1aHash(input: string): number {
+  let hash = FNV_OFFSET_BASIS;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, FNV_PRIME);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * FNV-1a hash normalised to the unit interval [0, 1).
+ */
+export function fnv1aHashUnit(input: string): number {
+  return fnv1aHash(input) / 0xffff_ffff;
+}
+
+/**
+ * FNV-1a hash formatted as an 8-char zero-padded hex string.
+ */
+export function fnv1aHashHex(input: string): string {
+  return fnv1aHash(input).toString(16).padStart(8, "0");
+}
+
+// ============================================================================
 // Array → Uint8Array conversion
 // ============================================================================
 

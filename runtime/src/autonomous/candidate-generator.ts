@@ -5,6 +5,7 @@
  */
 
 import type { MultiCandidateConfig, Task } from "./types.js";
+import { fnv1aHashHex as hashString } from "../utils/encoding.js";
 
 export interface GeneratedExecutionCandidate {
   id: string;
@@ -77,14 +78,6 @@ function clampRatio(value: number | undefined, fallback: number): number {
   return value;
 }
 
-function hashString(input: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
 
 function fingerprintOutput(output: readonly bigint[]): string {
   return hashString(output.map((value) => value.toString(16)).join("|"));

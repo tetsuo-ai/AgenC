@@ -6,6 +6,7 @@
 
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
+import { fnv1aHash as hashString } from "../utils/encoding.js";
 import type { WorkflowDefinition } from "./types.js";
 import { validateWorkflow } from "./validation.js";
 import {
@@ -110,15 +111,6 @@ function clamp01(value: number): number {
 function nonNegative(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return value < 0 ? 0 : value;
-}
-
-function hashString(input: string): number {
-  let hash = 2166136261; // FNV-1a 32-bit offset basis
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619); // FNV-1a 32-bit prime
-  }
-  return hash >>> 0;
 }
 
 function jitterFromSeed(
