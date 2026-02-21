@@ -20,6 +20,7 @@ import type { GatewayConfig, GatewayLLMConfig, GatewayStatus, ConfigDiff } from 
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import { WebChatChannel } from '../channels/webchat/plugin.js';
+import { TelegramChannel } from '../channels/telegram/plugin.js';
 import type { LLMProvider, LLMTool, ToolHandler, StreamProgressCallback } from '../llm/types.js';
 import type { GatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
@@ -42,6 +43,14 @@ import { loadPersonalityTemplate, mergePersonality } from './personality.js';
 import { SlashCommandRegistry, createDefaultCommands } from './commands.js';
 import { HookDispatcher, createBuiltinHooks } from './hooks.js';
 import { ConnectionManager } from '../connection/manager.js';
+import { DiscordChannel } from '../channels/discord/plugin.js';
+import { SlackChannel } from '../channels/slack/plugin.js';
+import { WhatsAppChannel } from '../channels/whatsapp/plugin.js';
+import { SignalChannel } from '../channels/signal/plugin.js';
+import { MatrixChannel } from '../channels/matrix/plugin.js';
+import { formatForChannel } from './format.js';
+import type { ChannelPlugin } from './channel.js';
+import type { ProactiveCommunicator } from './proactive.js';
 
 // ============================================================================
 // Constants
@@ -180,6 +189,18 @@ export interface DaemonStatus {
 export class DaemonManager {
   private gateway: Gateway | null = null;
   private _webChatChannel: WebChatChannel | null = null;
+  private _telegramChannel: TelegramChannel | null = null;
+  private _discordChannel: DiscordChannel | null = null;
+  private _slackChannel: SlackChannel | null = null;
+  private _whatsAppChannel: WhatsAppChannel | null = null;
+  private _signalChannel: SignalChannel | null = null;
+  private _matrixChannel: MatrixChannel | null = null;
+  private _imessageChannel: ChannelPlugin | null = null;
+  private _proactiveCommunicator: ProactiveCommunicator | null = null;
+  private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private _heartbeatScheduler: import('./heartbeat.js').HeartbeatScheduler | null = null;
+  private _cronScheduler: import('./scheduler.js').CronScheduler | null = null;
+  private _mcpManager: import('../mcp-client/manager.js').MCPManager | null = null;
   private _voiceBridge: VoiceBridge | null = null;
   private _memoryBackend: MemoryBackend | null = null;
   private _approvalEngine: ApprovalEngine | null = null;
@@ -188,10 +209,13 @@ export class DaemonManager {
   private _connectionManager: ConnectionManager | null = null;
   private _chatExecutor: ChatExecutor | null = null;
   private _llmTools: LLMTool[] = [];
+  private _llmProviders: LLMProvider[] = [];
   private _baseToolHandler: ToolHandler | null = null;
   private _desktopManager: import('../desktop/manager.js').DesktopSandboxManager | null = null;
   private _desktopBridges: Map<string, import('../desktop/rest-bridge.js').DesktopRESTBridge> = new Map();
   private _desktopRouterFactory: ((sessionId: string) => ToolHandler) | null = null;
+  private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
+  private _goalManager: import('../autonomous/goal-manager.js').GoalManager | null = null;
   private shutdownInProgress = false;
   private startedAt = 0;
   private signalHandlersRegistered = false;
@@ -211,7 +235,32 @@ export class DaemonManager {
       throw new GatewayStateError('Daemon is already running');
     }
 
-    const gatewayConfig = await loadGatewayConfig(this.configPath);
+    const loadedConfig = await loadGatewayConfig(this.configPath);
+
+    // Shallow-copy so we don't mutate the loaded config object
+    const gatewayConfig = { ...loadedConfig };
+
+    // Auto-configure default MCP servers on macOS when none are specified
+    if (process.platform === 'darwin' && !gatewayConfig.mcp?.servers?.length) {
+      gatewayConfig.mcp = {
+        servers: [
+          {
+            name: 'peekaboo',
+            command: 'npx',
+            args: ['-y', '@steipete/peekaboo@latest'],
+            enabled: true,
+          },
+          {
+            name: 'macos-automator',
+            command: 'npx',
+            args: ['-y', '@steipete/macos-automator-mcp@latest'],
+            enabled: true,
+          },
+        ],
+      };
+      this.logger.info('Auto-configured default macOS MCP servers (Peekaboo + macos-automator)');
+    }
+
     const gateway = new Gateway(gatewayConfig, {
       logger: this.logger,
       configPath: this.configPath,
@@ -235,6 +284,17 @@ export class DaemonManager {
 
     // Wire up WebChat channel with LLM pipeline
     await this.wireWebChat(gateway, gatewayConfig);
+
+    // Wire up Telegram channel if configured
+    if (gatewayConfig.channels?.telegram) {
+      await this.wireTelegram(gatewayConfig);
+    }
+
+    // Wire up all other external channels (Discord, Slack, WhatsApp, Signal, Matrix, iMessage)
+    await this.wireExternalChannels(gatewayConfig);
+
+    // Wire up autonomous features (curiosity, self-learning, meta-planner, proactive comms)
+    await this.wireAutonomousFeatures(gatewayConfig);
 
     try {
       await writePidFile(
@@ -334,6 +394,7 @@ export class DaemonManager {
     this._llmTools = llmTools;
     this._baseToolHandler = baseToolHandler;
     const providers = await this.createLLMProviders(config, llmTools);
+    this._llmProviders = providers;
     const skillInjector = this.createSkillInjector(availableSkills);
     const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
     this._memoryBackend = memoryBackend;
@@ -430,6 +491,544 @@ export class DaemonManager {
   }
 
   /**
+   * Wire the Telegram channel plugin.
+   *
+   * Creates a TelegramChannel instance, initializes it with an onMessage
+   * handler that routes messages through the shared ChatExecutor pipeline,
+   * then starts long-polling (or webhook if configured).
+   */
+  private async wireTelegram(config: GatewayConfig): Promise<void> {
+    const telegramConfig = config.channels?.telegram;
+    if (!telegramConfig) return;
+
+    const escapeHtml = (text: string): string =>
+      text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    const agentName = config.agent?.name ?? "AgenC";
+
+    const welcomeMessage =
+      `\u{1F916} <b>${agentName}</b>\n` +
+      `\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\n\n` +
+      `Privacy-preserving AI agent coordinating tasks on <b>Solana</b> via the AgenC protocol.\n\n` +
+      `\u{2699}\uFE0F  <b>Capabilities</b>\n` +
+      `\u{251C} \u{1F4CB} On-chain task coordination\n` +
+      `\u{251C} \u{1F50D} Agent &amp; protocol queries\n` +
+      `\u{251C} \u{1F4BB} Local shell &amp; file operations\n` +
+      `\u{2514} \u{1F310} Web search &amp; lookups\n\n` +
+      `\u{26A1} <b>Quick Commands</b>\n` +
+      `\u{2022} <code>List open tasks</code>\n` +
+      `\u{2022} <code>Create a task for ...</code>\n` +
+      `\u{2022} <code>Show my agent status</code>\n` +
+      `\u{2022} <code>Run git status</code>\n\n` +
+      `<i>Send any message to get started.</i>`;
+
+    const telegram = new TelegramChannel();
+    const sessionMgr = new SessionManager({ maxSessions: 100 });
+    const systemPrompt = await this.buildSystemPrompt(config);
+
+    const onMessage = async (msg: GatewayMessage): Promise<void> => {
+      if (!msg.content.trim()) return;
+
+      // Handle /start command with curated welcome
+      if (msg.content.trim() === "/start") {
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: welcomeMessage,
+        });
+        return;
+      }
+
+      const chatExecutor = this._chatExecutor;
+      if (!chatExecutor) {
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: "\u{26A0}\uFE0F No LLM provider configured.",
+        });
+        return;
+      }
+
+      const session = sessionMgr.getOrCreate({
+        channel: "telegram",
+        senderId: msg.senderId,
+        scope: msg.scope,
+        workspaceId: "default",
+      });
+
+      try {
+        const result = await chatExecutor.execute({
+          message: msg,
+          history: session.history,
+          systemPrompt,
+          sessionId: msg.sessionId,
+          toolHandler: this._baseToolHandler!,
+        });
+
+        sessionMgr.appendMessage(session.id, {
+          role: "user",
+          content: msg.content,
+        });
+        sessionMgr.appendMessage(session.id, {
+          role: "assistant",
+          content: result.content,
+        });
+
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: escapeHtml(result.content || "(no response)"),
+        });
+
+        // Persist to memory
+        if (this._memoryBackend) {
+          try {
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "user",
+              content: msg.content,
+            });
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "assistant",
+              content: result.content,
+            });
+          } catch {
+            // non-critical
+          }
+        }
+      } catch (error) {
+        this.logger.error("Telegram LLM error:", error);
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: `\u{274C} Error: ${escapeHtml((error as Error).message)}`,
+        });
+      }
+    };
+
+    await telegram.initialize({
+      onMessage,
+      logger: this.logger,
+      config: telegramConfig as unknown as Record<string, unknown>,
+    });
+    await telegram.start();
+    this._telegramChannel = telegram;
+    this.logger.info("Telegram channel wired");
+  }
+
+  /**
+   * Wire a generic external channel plugin to the ChatExecutor pipeline.
+   *
+   * Creates a per-channel SessionManager, routes incoming messages through
+   * the shared ChatExecutor, formats output per channel, and persists to memory.
+   */
+  private async wireExternalChannel(
+    channel: ChannelPlugin,
+    channelName: string,
+    config: GatewayConfig,
+    channelConfig: Record<string, unknown>,
+  ): Promise<void> {
+    const sessionMgr = new SessionManager({ maxSessions: 100 });
+    const systemPrompt = await this.buildSystemPrompt(config);
+
+    const onMessage = async (msg: GatewayMessage): Promise<void> => {
+      if (!msg.content.trim()) return;
+
+      const chatExecutor = this._chatExecutor;
+      if (!chatExecutor) {
+        await channel.send({
+          sessionId: msg.sessionId,
+          content: "No LLM provider configured.",
+        });
+        return;
+      }
+
+      const session = sessionMgr.getOrCreate({
+        channel: channelName,
+        senderId: msg.senderId,
+        scope: msg.scope,
+        workspaceId: "default",
+      });
+
+      try {
+        const result = await chatExecutor.execute({
+          message: msg,
+          history: session.history,
+          systemPrompt,
+          sessionId: msg.sessionId,
+          toolHandler: this._baseToolHandler!,
+        });
+
+        sessionMgr.appendMessage(session.id, { role: "user", content: msg.content });
+        sessionMgr.appendMessage(session.id, { role: "assistant", content: result.content });
+
+        const formatted = formatForChannel(result.content || "(no response)", channelName);
+        await channel.send({ sessionId: msg.sessionId, content: formatted });
+
+        if (this._memoryBackend) {
+          try {
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "user",
+              content: msg.content,
+            });
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "assistant",
+              content: result.content,
+            });
+          } catch { /* non-critical */ }
+        }
+      } catch (error) {
+        this.logger.error(`${channelName} LLM error:`, error);
+        const errMsg = formatForChannel(
+          `Error: ${(error as Error).message}`,
+          channelName,
+        );
+        await channel.send({ sessionId: msg.sessionId, content: errMsg });
+      }
+    };
+
+    await channel.initialize({ onMessage, logger: this.logger, config: channelConfig });
+    await channel.start();
+    this.logger.info(`${channelName} channel wired`);
+  }
+
+  /**
+   * Wire all configured external channels (Discord, Slack, WhatsApp, Signal, Matrix, iMessage).
+   * Each channel is wrapped in try/catch so one failure doesn't block the others.
+   */
+  private async wireExternalChannels(config: GatewayConfig): Promise<void> {
+    const channels = config.channels ?? {};
+
+    if (channels.discord) {
+      try {
+        const discord = new DiscordChannel();
+        await this.wireExternalChannel(discord, "discord", config, channels.discord as unknown as Record<string, unknown>);
+        this._discordChannel = discord;
+      } catch (err) { this.logger.error("Failed to wire Discord channel:", err); }
+    }
+
+    if (channels.slack) {
+      try {
+        const slack = new SlackChannel();
+        await this.wireExternalChannel(slack, "slack", config, channels.slack as unknown as Record<string, unknown>);
+        this._slackChannel = slack;
+      } catch (err) { this.logger.error("Failed to wire Slack channel:", err); }
+    }
+
+    if (channels.whatsapp) {
+      try {
+        const whatsapp = new WhatsAppChannel();
+        await this.wireExternalChannel(whatsapp, "whatsapp", config, channels.whatsapp as unknown as Record<string, unknown>);
+        this._whatsAppChannel = whatsapp;
+      } catch (err) { this.logger.error("Failed to wire WhatsApp channel:", err); }
+    }
+
+    if (channels.signal) {
+      try {
+        const signal = new SignalChannel();
+        await this.wireExternalChannel(signal, "signal", config, channels.signal as unknown as Record<string, unknown>);
+        this._signalChannel = signal;
+      } catch (err) { this.logger.error("Failed to wire Signal channel:", err); }
+    }
+
+    if (channels.matrix) {
+      try {
+        const matrix = new MatrixChannel();
+        await this.wireExternalChannel(matrix, "matrix", config, channels.matrix as unknown as Record<string, unknown>);
+        this._matrixChannel = matrix;
+      } catch (err) { this.logger.error("Failed to wire Matrix channel:", err); }
+    }
+
+    // iMessage: macOS only, lazy-loaded
+    if (channels.imessage && process.platform === "darwin") {
+      try {
+        const { IMessageChannel } = await import("../channels/imessage/plugin.js");
+        const imessage = new IMessageChannel();
+        await this.wireExternalChannel(imessage, "imessage", config, channels.imessage as unknown as Record<string, unknown>);
+        this._imessageChannel = imessage;
+      } catch (err) { this.logger.error("Failed to wire iMessage channel:", err); }
+    }
+  }
+
+  /**
+   * Wire autonomous features: curiosity, self-learning, meta-planner, proactive comms, desktop awareness.
+   *
+   * Uses HeartbeatScheduler for short-cycle actions (meta-planner, proactive comms, desktop awareness)
+   * and CronScheduler for long-running research tasks (curiosity every 2h, self-learning every 6h).
+   */
+  private async wireAutonomousFeatures(config: GatewayConfig): Promise<void> {
+    const heartbeatConfig = (config as Record<string, unknown>).heartbeat as
+      | { enabled?: boolean; intervalMs?: number }
+      | undefined;
+    if (heartbeatConfig?.enabled === false) return;
+    if (!this._chatExecutor || !this._memoryBackend) return;
+
+    const intervalMs = heartbeatConfig?.intervalMs ?? 300_000; // default 5 min
+
+    // Build active channels map for ProactiveCommunicator
+    const activeChannels = new Map<string, ChannelPlugin>();
+    if (this._telegramChannel) activeChannels.set("telegram", this._telegramChannel as unknown as ChannelPlugin);
+    if (this._discordChannel) activeChannels.set("discord", this._discordChannel as unknown as ChannelPlugin);
+    if (this._slackChannel) activeChannels.set("slack", this._slackChannel as unknown as ChannelPlugin);
+    if (this._whatsAppChannel) activeChannels.set("whatsapp", this._whatsAppChannel as unknown as ChannelPlugin);
+    if (this._signalChannel) activeChannels.set("signal", this._signalChannel as unknown as ChannelPlugin);
+    if (this._matrixChannel) activeChannels.set("matrix", this._matrixChannel as unknown as ChannelPlugin);
+    if (this._imessageChannel) activeChannels.set("imessage", this._imessageChannel);
+
+    // ProactiveCommunicator works fine with no channels — it just won't broadcast.
+    // Don't block autonomous features for channel-less configurations.
+
+    try {
+      const { ProactiveCommunicator: ProactiveComm } = await import("./proactive.js");
+      const communicator = new ProactiveComm({
+        channels: activeChannels,
+        logger: this.logger,
+        defaultTargets: {},
+      });
+      this._proactiveCommunicator = communicator;
+
+      // Import autonomous action factories
+      const [
+        { createCuriosityAction },
+        { createSelfLearningAction },
+        { createMetaPlannerAction },
+        { createProactiveCommsAction },
+      ] = await Promise.all([
+        import("../autonomous/curiosity.js"),
+        import("../autonomous/self-learning.js"),
+        import("../autonomous/meta-planner.js"),
+        import("./heartbeat-actions.js"),
+      ]);
+
+      // Get a provider for actions that need direct LLM access
+      const llm = this._llmProviders[0];
+      if (!llm) {
+        this.logger.warn("No LLM provider — skipping autonomous features");
+        return;
+      }
+
+      // Create GoalManager early so actions can reference it
+      const { GoalManager } = await import("../autonomous/goal-manager.js");
+      this._goalManager = new GoalManager({ memory: this._memoryBackend! });
+
+      const curiosityAction = createCuriosityAction({
+        interests: ["Solana ecosystem", "DeFi protocols", "AI agents"],
+        chatExecutor: this._chatExecutor!,
+        toolHandler: this._baseToolHandler!,
+        memory: this._memoryBackend!,
+        systemPrompt: "You are an autonomous AI research agent.",
+        communicator,
+        goalManager: this._goalManager,
+      });
+      const selfLearningAction = createSelfLearningAction({
+        llm,
+        memory: this._memoryBackend!,
+      });
+      const metaPlannerAction = createMetaPlannerAction({
+        llm,
+        memory: this._memoryBackend!,
+      });
+      const proactiveCommsAction = createProactiveCommsAction({
+        llm,
+        memory: this._memoryBackend!,
+        communicator,
+      });
+
+      // --- HeartbeatScheduler for short-cycle actions ---
+      const { HeartbeatScheduler } = await import("./heartbeat.js");
+      const heartbeatScheduler = new HeartbeatScheduler(
+        { enabled: true, intervalMs, timeoutMs: 60_000 },
+        { logger: this.logger },
+      );
+      heartbeatScheduler.registerAction(metaPlannerAction);
+      heartbeatScheduler.registerAction(proactiveCommsAction);
+
+      // Desktop awareness: register if Peekaboo MCP tools are available
+      let setBridgeCallback: ((cb: (text: string) => Promise<unknown>) => void) | null = null;
+      if (this._mcpManager) {
+        const screenshotTool = this._mcpManager
+          .getToolsByServer("peekaboo")
+          .find((t) => t.name.includes("takeScreenshot"));
+        if (screenshotTool) {
+          const { createDesktopAwarenessAction } = await import(
+            "../autonomous/desktop-awareness.js"
+          );
+          const awarenessAction = createDesktopAwarenessAction({
+            screenshotTool,
+            llm,
+            memory: this._memoryBackend!,
+          });
+
+          // Wrap awareness to pipe noteworthy output through goal bridge (attached below)
+          let awarenessBridgeCallback: ((text: string) => Promise<unknown>) | null = null;
+          const originalAwarenessExecute = awarenessAction.execute.bind(awarenessAction);
+          const wrappedAwareness: typeof awarenessAction = {
+            name: awarenessAction.name,
+            enabled: awarenessAction.enabled,
+            async execute(ctx) {
+              const result = await originalAwarenessExecute(ctx);
+              if (result.hasOutput && result.output && awarenessBridgeCallback) {
+                await awarenessBridgeCallback(result.output).catch(() => {});
+              }
+              return result;
+            },
+          };
+          // Store setter in closure-accessible variable for GoalManager to connect
+          setBridgeCallback = (cb) => { awarenessBridgeCallback = cb; };
+
+          heartbeatScheduler.registerAction(wrappedAwareness);
+          this.logger.info("Desktop awareness action registered (Peekaboo available)");
+        }
+
+        // Desktop executor: instantiate if Peekaboo + action tools available
+        const peekabooTools = this._mcpManager.getToolsByServer("peekaboo");
+        const screenshotToolForExec = peekabooTools.find((t) =>
+          t.name.includes("takeScreenshot"),
+        );
+        const hasActionTools = peekabooTools.some(
+          (t) => t.name.includes("click") || t.name.includes("type"),
+        );
+
+        if (screenshotToolForExec && hasActionTools) {
+          const { DesktopExecutor } = await import(
+            "../autonomous/desktop-executor.js"
+          );
+          this._desktopExecutor = new DesktopExecutor({
+            chatExecutor: this._chatExecutor!,
+            toolHandler: this._baseToolHandler!,
+            screenshotTool: screenshotToolForExec,
+            llm,
+            memory: this._memoryBackend!,
+            approvalEngine: this._approvalEngine ?? undefined,
+            communicator,
+          });
+          this.logger.info(
+            "Desktop executor ready (Peekaboo action tools available)",
+          );
+        }
+      }
+
+      // Wire awareness → goal bridge
+      if (this._goalManager && setBridgeCallback) {
+        const { createAwarenessGoalBridge } = await import(
+          "../autonomous/awareness-goal-bridge.js"
+        );
+        setBridgeCallback(createAwarenessGoalBridge({
+          goalManager: this._goalManager,
+        }));
+        this.logger.info("Awareness → goal bridge connected");
+      }
+
+      // Bridge meta-planner goals into GoalManager
+      {
+        const goalManager = this._goalManager;
+        const memory = this._memoryBackend!;
+        const originalMetaPlannerExecute = metaPlannerAction.execute.bind(metaPlannerAction);
+        (metaPlannerAction as { execute: typeof metaPlannerAction.execute }).execute = async function (ctx) {
+          const result = await originalMetaPlannerExecute(ctx);
+          if (result.hasOutput) {
+            try {
+              const goals = await memory.get<Array<{ description: string; title: string; priority: "critical" | "high" | "medium" | "low"; rationale: string; status: string }>>("goal:active");
+              if (goals) {
+                for (const g of goals.filter((g) => g.status === "proposed")) {
+                  const active = await goalManager.getActiveGoals();
+                  if (!goalManager.isDuplicate(g.description, active)) {
+                    await goalManager.addGoal({
+                      title: g.title,
+                      description: g.description,
+                      priority: g.priority,
+                      source: "meta-planner",
+                      maxAttempts: 2,
+                      rationale: g.rationale,
+                    });
+                  }
+                }
+              }
+            } catch {
+              // Silently ignore sync errors — meta-planner result still valid
+            }
+          }
+          // Sync GoalManager state to a key meta-planner can see next cycle
+          try {
+            const managedActive = await goalManager.getActiveGoals();
+            if (managedActive.length > 0) {
+              await memory.set("goal:managed-active", managedActive.map(g => ({
+                title: g.title,
+                description: g.description,
+                priority: g.priority,
+                status: g.status,
+                source: g.source,
+              })));
+            }
+          } catch {
+            // non-critical
+          }
+          return result;
+        };
+      }
+
+      // Goal executor: dequeue from GoalManager and execute via DesktopExecutor
+      if (this._desktopExecutor && this._goalManager) {
+        const { createGoalExecutorAction } = await import(
+          "../autonomous/goal-executor-action.js"
+        );
+        heartbeatScheduler.registerAction(
+          createGoalExecutorAction({
+            goalManager: this._goalManager,
+            desktopExecutor: this._desktopExecutor,
+            memory: this._memoryBackend!,
+          }),
+        );
+      }
+
+      heartbeatScheduler.start();
+      this._heartbeatScheduler = heartbeatScheduler;
+
+      // --- CronScheduler for long-running research tasks ---
+      const { CronScheduler } = await import("./scheduler.js");
+      const cronScheduler = new CronScheduler({ logger: this.logger });
+
+      // Curiosity research every 2 hours
+      cronScheduler.addJob("curiosity", "0 */2 * * *", {
+        name: curiosityAction.name,
+        execute: async (ctx) => {
+          if (!curiosityAction.enabled) return;
+          const result = await curiosityAction.execute({
+            logger: ctx.logger,
+            sendToChannels: async () => {},
+          });
+          if (result.hasOutput && !result.quiet) {
+            ctx.logger.info(`[cron:curiosity] ${result.output}`);
+          }
+        },
+      });
+
+      // Self-learning analysis every 6 hours
+      cronScheduler.addJob("self-learning", "0 */6 * * *", {
+        name: selfLearningAction.name,
+        execute: async (ctx) => {
+          if (!selfLearningAction.enabled) return;
+          const result = await selfLearningAction.execute({
+            logger: ctx.logger,
+            sendToChannels: async () => {},
+          });
+          if (result.hasOutput && !result.quiet) {
+            ctx.logger.info(`[cron:self-learning] ${result.output}`);
+          }
+        },
+      });
+
+      cronScheduler.start();
+      this._cronScheduler = cronScheduler;
+
+      this.logger.info(
+        `Autonomous features wired: heartbeat (interval=${intervalMs}ms) + cron (curiosity @2h, self-learning @6h)`,
+      );
+    } catch (err) {
+      this.logger.error("Failed to wire autonomous features:", err);
+    }
+  }
+
+  /**
    * Hot-swap the LLM provider when config.set changes llm.* fields.
    * Re-creates the provider chain and ChatExecutor without restarting the gateway.
    */
@@ -498,6 +1097,28 @@ export class DaemonManager {
       allowDelete: false,
     }));
     registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
+
+    // macOS native automation tools (AppleScript, JXA, open, notifications)
+    if (process.platform === 'darwin') {
+      try {
+        const { createMacOSTools } = await import('../tools/system/macos.js');
+        registry.registerAll(createMacOSTools({ logger: this.logger }));
+      } catch (err) {
+        this.logger.warn?.('macOS tools unavailable:', err);
+      }
+    }
+
+    // External MCP server tools (Peekaboo, macos-automator, etc.)
+    if (config.mcp?.servers?.length) {
+      try {
+        const { MCPManager } = await import('../mcp-client/index.js');
+        this._mcpManager = new MCPManager(config.mcp.servers, this.logger);
+        await this._mcpManager.start();
+        registry.registerAll(this._mcpManager.getTools());
+      } catch (err) {
+        this.logger.error('Failed to initialize MCP servers:', err);
+      }
+    }
 
     if (config.connection?.rpcUrl) {
       try {
@@ -784,6 +1405,42 @@ export class DaemonManager {
         },
       });
     }
+
+    // /goal — create or list goals (lazy access to goalManager via getter)
+    const daemon = this;
+    commandRegistry.register({
+      name: 'goal',
+      description: 'Create or list goals',
+      args: '[description]',
+      global: true,
+      handler: async (ctx) => {
+        const gm = daemon.goalManager;
+        if (!gm) {
+          await ctx.reply('Goal manager not available. Autonomous features may be disabled.');
+          return;
+        }
+        if (ctx.args) {
+          const goal = await gm.addGoal({
+            title: ctx.args.slice(0, 60),
+            description: ctx.args,
+            priority: "medium",
+            source: "user",
+            maxAttempts: 2,
+          });
+          await ctx.reply(`Goal created [${goal.id.slice(0, 8)}]: ${goal.title}`);
+        } else {
+          const active = await gm.getActiveGoals();
+          if (active.length === 0) {
+            await ctx.reply('No active goals. Use /goal <description> to create one.');
+            return;
+          }
+          const lines = active.map(g =>
+            `  [${g.priority}/${g.status}] ${g.title}`,
+          );
+          await ctx.reply(`Active goals (${active.length}):\n${lines.join('\n')}`);
+        }
+      },
+    });
 
     return commandRegistry;
   }
@@ -1179,14 +1836,15 @@ export class DaemonManager {
 
   /**
    * Create a memory backend based on gateway config.
-   * Defaults to InMemoryBackend when no config or backend='memory'.
+   * Defaults to SqliteBackend for persistence across restarts.
+   * Use backend='memory' to explicitly opt into InMemoryBackend.
    */
   private async createMemoryBackend(
     config: GatewayConfig,
     metrics?: UnifiedTelemetryCollector,
   ): Promise<MemoryBackend> {
     const memConfig = config.memory;
-    const backend = memConfig?.backend ?? 'memory';
+    const backend = memConfig?.backend ?? 'sqlite';
     const encryption = memConfig?.encryptionKey
       ? { key: memConfig.encryptionKey }
       : undefined;
@@ -1212,6 +1870,8 @@ export class DaemonManager {
           metrics,
         });
       }
+      case 'memory':
+        return new InMemoryBackend({ logger: this.logger, metrics });
       default:
         return new InMemoryBackend({ logger: this.logger, metrics });
     }
@@ -1283,6 +1943,64 @@ export class DaemonManager {
         await this._memoryBackend.close();
         this._memoryBackend = null;
       }
+      // Stop MCP server connections
+      if (this._mcpManager !== null) {
+        await this._mcpManager.stop();
+        this._mcpManager = null;
+      }
+      // Stop autonomous schedulers
+      if (this._heartbeatScheduler !== null) {
+        this._heartbeatScheduler.stop();
+        this._heartbeatScheduler = null;
+      }
+      if (this._cronScheduler !== null) {
+        this._cronScheduler.stop();
+        this._cronScheduler = null;
+      }
+      // Stop legacy heartbeat timer (if still in use)
+      if (this._heartbeatTimer !== null) {
+        clearInterval(this._heartbeatTimer);
+        this._heartbeatTimer = null;
+      }
+      // Stop desktop executor
+      if (this._desktopExecutor !== null) {
+        this._desktopExecutor.cancel();
+        this._desktopExecutor = null;
+      }
+      // Clear goal manager
+      this._goalManager = null;
+      // Clear proactive communicator
+      this._proactiveCommunicator = null;
+      // Stop external channels (reverse order of wiring)
+      if (this._imessageChannel !== null) {
+        await this._imessageChannel.stop();
+        this._imessageChannel = null;
+      }
+      if (this._matrixChannel !== null) {
+        await this._matrixChannel.stop();
+        this._matrixChannel = null;
+      }
+      if (this._signalChannel !== null) {
+        await this._signalChannel.stop();
+        this._signalChannel = null;
+      }
+      if (this._whatsAppChannel !== null) {
+        await this._whatsAppChannel.stop();
+        this._whatsAppChannel = null;
+      }
+      if (this._slackChannel !== null) {
+        await this._slackChannel.stop();
+        this._slackChannel = null;
+      }
+      if (this._discordChannel !== null) {
+        await this._discordChannel.stop();
+        this._discordChannel = null;
+      }
+      // Stop Telegram channel
+      if (this._telegramChannel !== null) {
+        await this._telegramChannel.stop();
+        this._telegramChannel = null;
+      }
       // Stop WebChat channel before gateway
       if (this._webChatChannel !== null) {
         await this._webChatChannel.stop();
@@ -1299,6 +2017,14 @@ export class DaemonManager {
     } finally {
       this.shutdownInProgress = false;
     }
+  }
+
+  get desktopExecutor(): import('../autonomous/desktop-executor.js').DesktopExecutor | null {
+    return this._desktopExecutor;
+  }
+
+  get goalManager(): import('../autonomous/goal-manager.js').GoalManager | null {
+    return this._goalManager;
   }
 
   getStatus(): DaemonStatus {

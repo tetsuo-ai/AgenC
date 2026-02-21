@@ -340,7 +340,7 @@ describe("TelegramChannel", () => {
 
     await plugin.send({ sessionId, content: "reply text" });
 
-    expect(mockApi.sendMessage).toHaveBeenCalledWith(789, "reply text");
+    expect(mockApi.sendMessage).toHaveBeenCalledWith(789, "reply text", { parse_mode: "HTML" });
 
     await plugin.stop();
   });
@@ -616,7 +616,7 @@ describe("TelegramChannel", () => {
       ],
     });
 
-    expect(mockApi.sendMessage).toHaveBeenCalledWith(789, "check this out");
+    expect(mockApi.sendMessage).toHaveBeenCalledWith(789, "check this out", { parse_mode: "HTML" });
     expect(mockApi.sendPhoto).toHaveBeenCalledWith(
       789,
       "https://example.com/img.png",

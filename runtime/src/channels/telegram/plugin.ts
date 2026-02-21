@@ -200,7 +200,11 @@ export class TelegramChannel extends BaseChannelPlugin {
     const calls: Array<() => Promise<unknown>> = [];
 
     if (message.content.length > 0) {
-      calls.push(() => this.api.sendMessage(chatId, message.content));
+      calls.push(() =>
+        this.api.sendMessage(chatId, message.content, {
+          parse_mode: "HTML",
+        }),
+      );
     }
 
     if (message.attachments) {
