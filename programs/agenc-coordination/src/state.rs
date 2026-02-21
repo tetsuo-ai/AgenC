@@ -1,5 +1,9 @@
 //! Account state structures for the AgenC Coordination Protocol
 
+use crate::instructions::constants::{
+    DEFAULT_DISPUTE_INITIATION_COOLDOWN, DEFAULT_MAX_DISPUTES_PER_24H,
+    DEFAULT_MAX_TASKS_PER_24H, DEFAULT_TASK_CREATION_COOLDOWN,
+};
 use anchor_lang::prelude::*;
 
 // ============================================================================
@@ -286,10 +290,10 @@ impl Default for ProtocolConfig {
             multisig_threshold: 0,
             multisig_owners_len: 0,
             // Default rate limits (can be configured post-deployment)
-            task_creation_cooldown: 60, // 60 seconds between task creations
-            max_tasks_per_24h: 50,      // 50 tasks per 24h window
-            dispute_initiation_cooldown: 300, // 5 minutes between disputes
-            max_disputes_per_24h: 10,   // 10 disputes per 24h window
+            task_creation_cooldown: DEFAULT_TASK_CREATION_COOLDOWN,
+            max_tasks_per_24h: DEFAULT_MAX_TASKS_PER_24H,
+            dispute_initiation_cooldown: DEFAULT_DISPUTE_INITIATION_COOLDOWN,
+            max_disputes_per_24h: DEFAULT_MAX_DISPUTES_PER_24H,
             min_stake_for_dispute: 100_000_000, // 0.1 SOL default for anti-griefing
             slash_percentage: ProtocolConfig::DEFAULT_SLASH_PERCENTAGE,
             state_update_cooldown: 60, // 60 seconds between state updates (fix #415)
@@ -341,15 +345,6 @@ impl ProtocolConfig {
         1 +  // min_supported_version
         2 +  // padding
         (32 * Self::MAX_MULTISIG_OWNERS); // multisig owners
-
-    /// Check if the protocol version is compatible
-    pub fn is_version_compatible(&self) -> bool {
-        // Config's min_supported should be within reasonable bounds
-        self.min_supported_version <= self.protocol_version
-            && self.protocol_version <= CURRENT_PROTOCOL_VERSION
-            // Program can read configs at or above program's min
-            && self.protocol_version >= MIN_SUPPORTED_VERSION
-    }
 
     /// Validates that padding bytes are zeroed.
     /// Called during migration to ensure no data corruption.

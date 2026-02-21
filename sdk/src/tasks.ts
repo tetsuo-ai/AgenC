@@ -1037,10 +1037,7 @@ export async function getTask(
     ) {
       return null;
     }
-    getSdkLogger().warn(
-      `getTask encountered unexpected error: ${errorMessage}`,
-    );
-    return null;
+    throw error;
   }
 }
 

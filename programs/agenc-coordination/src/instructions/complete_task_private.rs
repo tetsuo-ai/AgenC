@@ -33,7 +33,10 @@ const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE; // 128
 const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE; // 160
 const ROUTER_VERIFY_IX_DISCRIMINATOR: [u8; 8] = [133, 161, 141, 48, 120, 198, 88, 150];
 const VERIFIER_ENTRY_DISCRIMINATOR: [u8; 8] = [102, 247, 148, 158, 33, 153, 100, 93];
-const VERIFIER_ENTRY_ACCOUNT_LEN: usize = 8 + RISC0_SELECTOR_LEN + 32 + 1;
+const PUBKEY_BYTES: usize = 32;
+const ESTOPPED_FLAG_BYTES: usize = 1;
+const VERIFIER_ENTRY_ACCOUNT_LEN: usize =
+    8 + RISC0_SELECTOR_LEN + PUBKEY_BYTES + ESTOPPED_FLAG_BYTES;
 
 // Byte offsets within the VerifierEntry account data:
 // [0..8]   discriminator
