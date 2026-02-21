@@ -51,6 +51,7 @@ describe("coordination-security", () => {
   const runId = generateRunId();
 
   let treasury: Keypair;
+  let thirdSigner: Keypair;
   let treasuryPubkey: PublicKey; // Actual treasury from protocol config
   let creator: Keypair;
   let worker1: Keypair;
@@ -99,6 +100,7 @@ describe("coordination-security", () => {
 
   before(async () => {
     treasury = Keypair.generate();
+    thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker1 = Keypair.generate();
     worker2 = Keypair.generate();
@@ -124,6 +126,7 @@ describe("coordination-security", () => {
     const airdropAmount = 10 * LAMPORTS_PER_SOL;
     const wallets = [
       treasury,
+      thirdSigner,
       creator,
       worker1,
       worker2,
@@ -152,8 +155,8 @@ describe("coordination-security", () => {
           100,
           new BN(1 * LAMPORTS_PER_SOL),
           new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [provider.wallet.publicKey, treasury.publicKey],
+          2,
+          [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -168,8 +171,13 @@ describe("coordination-security", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([treasury])
+        .signers([treasury, thirdSigner])
         .rpc();
       treasuryPubkey = treasury.publicKey;
       console.log(
@@ -199,6 +207,7 @@ describe("coordination-security", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [treasury],
     });
 
     creatorAgentPda = deriveAgentPda(creatorAgentId, program.programId);

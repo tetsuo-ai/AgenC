@@ -39,6 +39,7 @@ describe("audit-high-severity", () => {
   const runId = generateRunId();
 
   let treasury: Keypair;
+  let thirdSigner: Keypair;
   let treasuryPubkey: PublicKey;
   let creator: Keypair;
   let worker1: Keypair;
@@ -125,8 +126,8 @@ describe("audit-high-severity", () => {
           100,
           new BN(LAMPORTS_PER_SOL / 100),
           new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [provider.wallet.publicKey, treasury.publicKey],
+          2,
+          [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -141,8 +142,13 @@ describe("audit-high-severity", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([treasury])
+        .signers([treasury, thirdSigner])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     }
@@ -152,6 +158,7 @@ describe("audit-high-severity", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [treasury],
     });
   };
 
@@ -185,6 +192,7 @@ describe("audit-high-severity", () => {
 
   before(async () => {
     treasury = Keypair.generate();
+    thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker1 = Keypair.generate();
     worker2 = Keypair.generate();
@@ -202,6 +210,7 @@ describe("audit-high-severity", () => {
     // Increase airdrop to prevent lamport depletion
     for (const wallet of [
       treasury,
+      thirdSigner,
       creator,
       worker1,
       worker2,

@@ -167,7 +167,7 @@ export class PrivacyClient {
     taskPda: PublicKey;
     output: bigint[];
     salt?: bigint;
-    agentSecret?: bigint;
+    agentSecret: bigint;
   }): Promise<{ txSignature: string }> {
     if (!this.wallet) {
       throw new Error("Client not initialized. Call init() first.");
@@ -246,7 +246,9 @@ export class PrivacyClient {
    * Format lamports as SOL string
    */
   static formatSol(lamports: number): string {
-    return (lamports / LAMPORTS_PER_SOL).toFixed(9) + " SOL";
+    const wholeSol = Math.trunc(lamports / LAMPORTS_PER_SOL);
+    const remainder = Math.abs(lamports % LAMPORTS_PER_SOL);
+    return `${wholeSol}.${remainder.toString().padStart(9, "0")} SOL`;
   }
 
   /**

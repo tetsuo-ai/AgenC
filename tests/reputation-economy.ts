@@ -134,7 +134,9 @@ describe("reputation economy (issue #1110)", () => {
     const treasury = Keypair.generate();
     fundAccount(svm, treasury.publicKey, LAMPORTS_PER_SOL);
     const secondSigner = Keypair.generate();
+    const thirdSigner = Keypair.generate();
     fundAccount(svm, secondSigner.publicKey, LAMPORTS_PER_SOL);
+    fundAccount(svm, thirdSigner.publicKey, LAMPORTS_PER_SOL);
 
     try {
       await program.account.protocolConfig.fetch(protocolPda);
@@ -145,8 +147,8 @@ describe("reputation economy (issue #1110)", () => {
           100,
           new BN(LAMPORTS_PER_SOL / 100),
           new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [payer.publicKey, secondSigner.publicKey],
+          2,
+          [payer.publicKey, secondSigner.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -161,8 +163,13 @@ describe("reputation economy (issue #1110)", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
     }
 

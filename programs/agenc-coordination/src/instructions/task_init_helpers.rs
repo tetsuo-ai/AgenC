@@ -1,7 +1,7 @@
 //! Shared helpers for task initialization (create_task + create_dependent_task)
 
 use crate::errors::CoordinationError;
-use crate::instructions::constants::MAX_REPUTATION;
+use crate::instructions::constants::{MAX_DEADLINE_SECONDS, MAX_REPUTATION};
 use crate::state::{DependencyType, ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
 use anchor_lang::prelude::*;
 
@@ -54,6 +54,10 @@ pub fn validate_deadline(deadline: i64, clock: &Clock, required: bool) -> Result
         require!(
             deadline > clock.unix_timestamp,
             CoordinationError::InvalidInput
+        );
+        require!(
+            deadline <= clock.unix_timestamp.saturating_add(MAX_DEADLINE_SECONDS),
+            CoordinationError::InvalidDeadline
         );
     }
     Ok(())

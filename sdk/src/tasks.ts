@@ -30,8 +30,17 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   TRUSTED_RISC0_SELECTOR,
+  RECOMMENDED_CU_CREATE_TASK,
+  RECOMMENDED_CU_CREATE_TASK_TOKEN,
+  RECOMMENDED_CU_CREATE_DEPENDENT_TASK,
+  RECOMMENDED_CU_CLAIM_TASK,
+  RECOMMENDED_CU_EXPIRE_CLAIM,
+  RECOMMENDED_CU_COMPLETE_TASK,
+  RECOMMENDED_CU_COMPLETE_TASK_TOKEN,
   RECOMMENDED_CU_COMPLETE_TASK_PRIVATE,
   RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN,
+  RECOMMENDED_CU_CANCEL_TASK,
+  RECOMMENDED_CU_CANCEL_TASK_TOKEN,
 } from "./constants";
 import { getAccount } from "./anchor-utils";
 import { getSdkLogger } from "./logger";
@@ -402,6 +411,10 @@ export async function createTask(
     params,
   );
 
+  const cuLimit = context.mint
+    ? RECOMMENDED_CU_CREATE_TASK_TOKEN
+    : RECOMMENDED_CU_CREATE_TASK;
+
   const tx = await submitTaskCreationTransaction(connection, "createTask", () =>
     program.methods
       .createTask(
@@ -426,6 +439,9 @@ export async function createTask(
         systemProgram: SystemProgram.programId,
         ...context.tokenAccounts,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
+      ])
       .signers([creator])
       .rpc(),
   );
@@ -480,6 +496,11 @@ export async function createDependentTask(
           systemProgram: SystemProgram.programId,
           ...context.tokenAccounts,
         })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({
+            units: RECOMMENDED_CU_CREATE_DEPENDENT_TASK,
+          }),
+        ])
         .signers([creator])
         .rpc(),
   );
@@ -512,6 +533,11 @@ export async function claimTask(
       authority: worker.publicKey,
       systemProgram: SystemProgram.programId,
     })
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: RECOMMENDED_CU_CLAIM_TASK,
+      }),
+    ])
     .signers([worker])
     .rpc();
 
@@ -549,6 +575,11 @@ export async function expireClaim(
       rentRecipient,
       systemProgram: SystemProgram.programId,
     })
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: RECOMMENDED_CU_EXPIRE_CLAIM,
+      }),
+    ])
     .signers([caller])
     .rpc();
 
@@ -619,6 +650,10 @@ export async function completeTask(
   const proofHashArr = Array.from(proofHash);
   const resultDataBuf = resultData ? Buffer.from(resultData) : null;
 
+  const cuLimit = mint
+    ? RECOMMENDED_CU_COMPLETE_TASK_TOKEN
+    : RECOMMENDED_CU_COMPLETE_TASK;
+
   const tx = await program.methods
     .completeTask(proofHashArr, resultDataBuf)
     .accountsPartial({
@@ -633,6 +668,9 @@ export async function completeTask(
       systemProgram: SystemProgram.programId,
       ...tokenAccounts,
     })
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
+    ])
     .signers([worker])
     .rpc();
 
@@ -840,6 +878,9 @@ export async function completeTaskPrivateWithPreflight(
       proof,
     );
 
+    // Confirm nullifier usage after successful on-chain transaction
+    options.nullifierCache?.confirmUsed(proof.nullifierSeed);
+
     return {
       ...result,
       preflightResult,
@@ -948,6 +989,10 @@ export async function cancelTask(
     { pubkey: pair.workerAgentPda, isSigner: false, isWritable: true },
   ]);
 
+  const cuLimit = mint
+    ? RECOMMENDED_CU_CANCEL_TASK_TOKEN
+    : RECOMMENDED_CU_CANCEL_TASK;
+
   const builder = program.methods
     .cancelTask()
     .accountsPartial({
@@ -958,6 +1003,9 @@ export async function cancelTask(
       systemProgram: SystemProgram.programId,
       ...tokenAccounts,
     })
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
+    ])
     .signers([creator]);
 
   if (remainingAccounts.length > 0) {

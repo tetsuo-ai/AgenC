@@ -31,6 +31,7 @@ describe("upgrades", () => {
   let treasury: Keypair;
   let creator: Keypair;
   let multisigSigner: Keypair;
+  let thirdSigner: Keypair;
   let initialProtocolVersion: number | null = null;
   let creatorAgentPda: PublicKey;
 
@@ -58,9 +59,10 @@ describe("upgrades", () => {
     treasury = Keypair.generate();
     creator = Keypair.generate();
     multisigSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
 
     const airdropAmount = 5 * LAMPORTS_PER_SOL;
-    const wallets = [treasury, creator, multisigSigner];
+    const wallets = [treasury, creator, multisigSigner, thirdSigner];
 
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
@@ -78,13 +80,14 @@ describe("upgrades", () => {
           51, // dispute_threshold
           100, // protocol_fee_bps
           new BN(LAMPORTS_PER_SOL), // min_arbiter_stake
-          2, // multisig_threshold
-          [provider.wallet.publicKey, multisigSigner.publicKey],
+          2, // multisig_threshold (must be >= 2 and < owners.length)
+          [provider.wallet.publicKey, multisigSigner.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
+          secondSigner: multisigSigner.publicKey,
         })
         .remainingAccounts([
           {
@@ -92,8 +95,13 @@ describe("upgrades", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([multisigSigner])
+        .signers([multisigSigner, thirdSigner])
         .rpc();
     } catch (e) {
       // Protocol may already be initialized
@@ -104,6 +112,7 @@ describe("upgrades", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [multisigSigner],
     });
 
     const config = await program.account.protocolConfig.fetch(protocolPda);
