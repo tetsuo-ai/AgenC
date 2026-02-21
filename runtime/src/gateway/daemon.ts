@@ -774,7 +774,17 @@ export class DaemonManager {
         });
       };
 
+      // Detect greeting messages — block tool execution for casual conversation
+      const GREETING_RE = /^(h(i|ello|ey|ola|owdy)|yo|sup|what'?s\s*up|greetings?|good\s*(morning|afternoon|evening)|gm|gn)\s*[!?.,:;\-)*]*$/i;
+      const isGreeting = GREETING_RE.test(msg.content.trim());
+
       const sessionToolHandler: ToolHandler = async (name, args) => {
+        if (isGreeting) {
+          return JSON.stringify({
+            error: 'This is a greeting message. Respond conversationally without using any tools.',
+          });
+        }
+
         const toolBeforeResult = await hooks.dispatch('tool:before', {
           sessionId: msg.sessionId,
           toolName: name,

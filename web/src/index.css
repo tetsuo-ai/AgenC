@@ -166,12 +166,12 @@
 
 /* Right panel tab content transitions */
 @keyframes panel-enter {
-  0% { opacity: 0; transform: translateY(8px); }
-  100% { opacity: 1; transform: translateY(0); }
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 .animate-panel-enter {
-  animation: panel-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: panel-enter 0.15s ease-out both;
 }
 
 /* Staggered list item entrance */
