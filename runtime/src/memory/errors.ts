@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a memory backend operation fails.
@@ -17,7 +17,7 @@ export class MemoryBackendError extends RuntimeError {
       `${backendName} error: ${message}`,
       RuntimeErrorCodes.MEMORY_BACKEND_ERROR,
     );
-    this.name = 'MemoryBackendError';
+    this.name = "MemoryBackendError";
     this.backendName = backendName;
   }
 }
@@ -33,7 +33,7 @@ export class MemoryConnectionError extends RuntimeError {
       `${backendName} connection error: ${message}`,
       RuntimeErrorCodes.MEMORY_CONNECTION_ERROR,
     );
-    this.name = 'MemoryConnectionError';
+    this.name = "MemoryConnectionError";
     this.backendName = backendName;
   }
 }
@@ -49,7 +49,7 @@ export class MemorySerializationError extends RuntimeError {
       `${backendName} serialization error: ${message}`,
       RuntimeErrorCodes.MEMORY_SERIALIZATION_ERROR,
     );
-    this.name = 'MemorySerializationError';
+    this.name = "MemorySerializationError";
     this.backendName = backendName;
   }
 }
@@ -65,7 +65,7 @@ export class MemoryEncryptionError extends RuntimeError {
       `${backendName} encryption error: ${message}`,
       RuntimeErrorCodes.MEMORY_BACKEND_ERROR,
     );
-    this.name = 'MemoryEncryptionError';
+    this.name = "MemoryEncryptionError";
     this.backendName = backendName;
   }
 }

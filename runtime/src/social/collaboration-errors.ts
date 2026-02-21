@@ -6,7 +6,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a collaboration request operation fails.
@@ -20,7 +20,7 @@ export class CollaborationRequestError extends RuntimeError {
       `Collaboration request failed: ${reason}`,
       RuntimeErrorCodes.COLLABORATION_REQUEST_ERROR,
     );
-    this.name = 'CollaborationRequestError';
+    this.name = "CollaborationRequestError";
     this.reason = reason;
   }
 }
@@ -39,7 +39,7 @@ export class CollaborationResponseError extends RuntimeError {
       `Collaboration response failed for request ${requestId}: ${reason}`,
       RuntimeErrorCodes.COLLABORATION_RESPONSE_ERROR,
     );
-    this.name = 'CollaborationResponseError';
+    this.name = "CollaborationResponseError";
     this.requestId = requestId;
     this.reason = reason;
   }
@@ -59,7 +59,7 @@ export class CollaborationFormationError extends RuntimeError {
       `Collaboration formation failed for request ${requestId}: ${reason}`,
       RuntimeErrorCodes.COLLABORATION_FORMATION_ERROR,
     );
-    this.name = 'CollaborationFormationError';
+    this.name = "CollaborationFormationError";
     this.requestId = requestId;
     this.reason = reason;
   }

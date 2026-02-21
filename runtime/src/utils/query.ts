@@ -3,8 +3,8 @@
  * @module
  */
 
-import { utils } from '@coral-xyz/anchor';
-import type { Logger } from './logger.js';
+import { utils } from "@coral-xyz/anchor";
+import type { Logger } from "./logger.js";
 
 /**
  * Encode a single status byte as base58 for memcmp filter.
@@ -34,7 +34,9 @@ export async function queryWithFallback<T>(
   try {
     return await query();
   } catch (err) {
-    logger.warn(`${label} memcmp-filtered fetch failed, falling back to full scan: ${err}`);
+    logger.warn(
+      `${label} memcmp-filtered fetch failed, falling back to full scan: ${err}`,
+    );
     return fallback();
   }
 }

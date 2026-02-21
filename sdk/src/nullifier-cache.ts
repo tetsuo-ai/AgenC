@@ -7,13 +7,13 @@ export class NullifierCache {
 
   constructor(maxSize: number = 10_000) {
     if (!Number.isInteger(maxSize) || maxSize <= 0) {
-      throw new Error('maxSize must be a positive integer');
+      throw new Error("maxSize must be a positive integer");
     }
     this.maxSize = maxSize;
   }
 
   private toKey(nullifier: Uint8Array | Buffer): string {
-    return Buffer.from(nullifier).toString('hex');
+    return Buffer.from(nullifier).toString("hex");
   }
 
   isUsed(nullifier: Uint8Array | Buffer): boolean {

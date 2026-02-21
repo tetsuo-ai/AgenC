@@ -1,22 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { PROGRAM_ID } from '@agenc/sdk';
-import { ReputationEconomyOperations } from './economy.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { PROGRAM_ID } from "@agenc/sdk";
+import { ReputationEconomyOperations } from "./economy.js";
 import {
   parseOnChainReputationStake,
   parseOnChainReputationDelegation,
   REPUTATION_MAX,
   MIN_DELEGATION_AMOUNT,
   REPUTATION_STAKING_COOLDOWN_SECONDS,
-} from './types.js';
+} from "./types.js";
 import {
   ReputationStakeError,
   ReputationDelegationError,
   ReputationWithdrawError,
   ReputationPortabilityError,
-} from './errors.js';
-import { RuntimeErrorCodes } from '../types/errors.js';
-import BN from 'bn.js';
+} from "./errors.js";
+import { RuntimeErrorCodes } from "../types/errors.js";
+import BN from "bn.js";
 
 // ============================================================================
 // Mock program factory
@@ -33,46 +33,50 @@ function createMockProgram(overrides: Record<string, any> = {}) {
     get(_target, prop) {
       return (..._args: any[]) => ({
         accountsPartial: () => ({
-          rpc: vi.fn().mockResolvedValue('mock-tx-signature'),
+          rpc: vi.fn().mockResolvedValue("mock-tx-signature"),
         }),
       });
     },
   });
 
-  const defaultAgent = 'agentRegistration' in overrides
-    ? overrides.agentRegistration
-    : {
-        agentId: new Uint8Array(32).fill(1),
-        reputation: 5000,
-        tasksCompleted: new BN(10),
-        totalEarned: new BN(1_000_000_000),
-      };
+  const defaultAgent =
+    "agentRegistration" in overrides
+      ? overrides.agentRegistration
+      : {
+          agentId: new Uint8Array(32).fill(1),
+          reputation: 5000,
+          tasksCompleted: new BN(10),
+          totalEarned: new BN(1_000_000_000),
+        };
 
   const accountProxy = new Proxy(
     {},
     {
       get(_target, prop) {
-        if (prop === 'agentRegistration') {
+        if (prop === "agentRegistration") {
           return {
             fetchNullable: vi.fn().mockResolvedValue(defaultAgent),
           };
         }
-        if (prop === 'reputationStake') {
+        if (prop === "reputationStake") {
           return {
-            fetchNullable: vi.fn().mockResolvedValue(
-              overrides.reputationStake ?? null,
-            ),
+            fetchNullable: vi
+              .fn()
+              .mockResolvedValue(overrides.reputationStake ?? null),
           };
         }
-        if (prop === 'reputationDelegation') {
+        if (prop === "reputationDelegation") {
           return {
-            fetchNullable: vi.fn().mockResolvedValue(
-              overrides.reputationDelegation ?? null,
-            ),
+            fetchNullable: vi
+              .fn()
+              .mockResolvedValue(overrides.reputationDelegation ?? null),
             all: vi.fn().mockResolvedValue(overrides.delegationAccounts ?? []),
           };
         }
-        return { fetchNullable: vi.fn().mockResolvedValue(null), all: vi.fn().mockResolvedValue([]) };
+        return {
+          fetchNullable: vi.fn().mockResolvedValue(null),
+          all: vi.fn().mockResolvedValue([]),
+        };
       },
     },
   );
@@ -104,11 +108,17 @@ function createFailingMockProgram(errorMsg: string) {
 
   return {
     methods: methodProxy,
-    account: new Proxy({}, {
-      get() {
-        return { fetchNullable: vi.fn().mockResolvedValue(null), all: vi.fn().mockResolvedValue([]) };
+    account: new Proxy(
+      {},
+      {
+        get() {
+          return {
+            fetchNullable: vi.fn().mockResolvedValue(null),
+            all: vi.fn().mockResolvedValue([]),
+          };
+        },
       },
-    }),
+    ),
     provider,
     programId: PROGRAM_ID,
   } as any;
@@ -122,12 +132,12 @@ function createAgentId(): Uint8Array {
 // parseOnChainReputationStake
 // ============================================================================
 
-describe('parseOnChainReputationStake', () => {
-  it('parses raw Anchor account data correctly', () => {
+describe("parseOnChainReputationStake", () => {
+  it("parses raw Anchor account data correctly", () => {
     const agent = Keypair.generate().publicKey;
     const raw = {
       agent,
-      stakedAmount: new BN('1000000000'),
+      stakedAmount: new BN("1000000000"),
       lockedUntil: new BN(1700000000),
       slashCount: 2,
       createdAt: new BN(1690000000),
@@ -144,7 +154,7 @@ describe('parseOnChainReputationStake', () => {
     expect(parsed.bump).toBe(254);
   });
 
-  it('handles zero values', () => {
+  it("handles zero values", () => {
     const agent = Keypair.generate().publicKey;
     const raw = {
       agent,
@@ -166,8 +176,8 @@ describe('parseOnChainReputationStake', () => {
 // parseOnChainReputationDelegation
 // ============================================================================
 
-describe('parseOnChainReputationDelegation', () => {
-  it('parses raw Anchor account data correctly', () => {
+describe("parseOnChainReputationDelegation", () => {
+  it("parses raw Anchor account data correctly", () => {
     const delegator = Keypair.generate().publicKey;
     const delegatee = Keypair.generate().publicKey;
     const raw = {
@@ -189,7 +199,7 @@ describe('parseOnChainReputationDelegation', () => {
     expect(parsed.bump).toBe(253);
   });
 
-  it('handles no expiry (0)', () => {
+  it("handles no expiry (0)", () => {
     const raw = {
       delegator: Keypair.generate().publicKey,
       delegatee: Keypair.generate().publicKey,
@@ -208,8 +218,8 @@ describe('parseOnChainReputationDelegation', () => {
 // ReputationEconomyOperations - Staking
 // ============================================================================
 
-describe('ReputationEconomyOperations - staking', () => {
-  it('stakeReputation returns StakeResult', async () => {
+describe("ReputationEconomyOperations - staking", () => {
+  it("stakeReputation returns StakeResult", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -217,11 +227,11 @@ describe('ReputationEconomyOperations - staking', () => {
     });
 
     const result = await ops.stakeReputation({ amount: 1_000_000_000n });
-    expect(result.transactionSignature).toBe('mock-tx-signature');
+    expect(result.transactionSignature).toBe("mock-tx-signature");
     expect(result.stakePda).toBeInstanceOf(PublicKey);
   });
 
-  it('getStake returns null when no stake exists', async () => {
+  it("getStake returns null when no stake exists", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -232,12 +242,12 @@ describe('ReputationEconomyOperations - staking', () => {
     expect(result).toBeNull();
   });
 
-  it('getStake returns parsed stake when it exists', async () => {
+  it("getStake returns parsed stake when it exists", async () => {
     const agentPda = Keypair.generate().publicKey;
     const program = createMockProgram({
       reputationStake: {
         agent: agentPda,
-        stakedAmount: new BN('2000000000'),
+        stakedAmount: new BN("2000000000"),
         lockedUntil: new BN(1800000000),
         slashCount: 0,
         createdAt: new BN(1700000000),
@@ -254,7 +264,7 @@ describe('ReputationEconomyOperations - staking', () => {
     expect(result!.stakedAmount).toBe(2_000_000_000n);
   });
 
-  it('withdrawStake returns WithdrawResult', async () => {
+  it("withdrawStake returns WithdrawResult", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -262,11 +272,11 @@ describe('ReputationEconomyOperations - staking', () => {
     });
 
     const result = await ops.withdrawStake({ amount: 500_000_000n });
-    expect(result.transactionSignature).toBe('mock-tx-signature');
+    expect(result.transactionSignature).toBe("mock-tx-signature");
   });
 
-  it('stakeReputation wraps RPC errors in ReputationStakeError', async () => {
-    const program = createFailingMockProgram('StakeAmountTooLow');
+  it("stakeReputation wraps RPC errors in ReputationStakeError", async () => {
+    const program = createFailingMockProgram("StakeAmountTooLow");
     const ops = new ReputationEconomyOperations({
       program,
       agentId: createAgentId(),
@@ -277,8 +287,8 @@ describe('ReputationEconomyOperations - staking', () => {
     );
   });
 
-  it('withdrawStake wraps RPC errors in ReputationWithdrawError', async () => {
-    const program = createFailingMockProgram('StakeLocked');
+  it("withdrawStake wraps RPC errors in ReputationWithdrawError", async () => {
+    const program = createFailingMockProgram("StakeLocked");
     const ops = new ReputationEconomyOperations({
       program,
       agentId: createAgentId(),
@@ -294,8 +304,8 @@ describe('ReputationEconomyOperations - staking', () => {
 // ReputationEconomyOperations - Delegation
 // ============================================================================
 
-describe('ReputationEconomyOperations - delegation', () => {
-  it('delegateReputation returns DelegationResult', async () => {
+describe("ReputationEconomyOperations - delegation", () => {
+  it("delegateReputation returns DelegationResult", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -306,11 +316,11 @@ describe('ReputationEconomyOperations - delegation', () => {
       delegateeId: new Uint8Array(32).fill(2),
       amount: 1000,
     });
-    expect(result.transactionSignature).toBe('mock-tx-signature');
+    expect(result.transactionSignature).toBe("mock-tx-signature");
     expect(result.delegationPda).toBeInstanceOf(PublicKey);
   });
 
-  it('delegateReputation with expiresAt', async () => {
+  it("delegateReputation with expiresAt", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -322,10 +332,10 @@ describe('ReputationEconomyOperations - delegation', () => {
       amount: 500,
       expiresAt: 1900000000,
     });
-    expect(result.transactionSignature).toBe('mock-tx-signature');
+    expect(result.transactionSignature).toBe("mock-tx-signature");
   });
 
-  it('getDelegation returns null when not found', async () => {
+  it("getDelegation returns null when not found", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -339,7 +349,7 @@ describe('ReputationEconomyOperations - delegation', () => {
     expect(result).toBeNull();
   });
 
-  it('getDelegation returns parsed delegation when found', async () => {
+  it("getDelegation returns parsed delegation when found", async () => {
     const delegator = Keypair.generate().publicKey;
     const delegatee = Keypair.generate().publicKey;
     const program = createMockProgram({
@@ -365,7 +375,7 @@ describe('ReputationEconomyOperations - delegation', () => {
     expect(result!.expiresAt).toBe(0);
   });
 
-  it('getDelegationsFrom returns parsed delegations', async () => {
+  it("getDelegationsFrom returns parsed delegations", async () => {
     const delegator = Keypair.generate().publicKey;
     const delegatee = Keypair.generate().publicKey;
     const program = createMockProgram({
@@ -393,7 +403,7 @@ describe('ReputationEconomyOperations - delegation', () => {
     expect(result[0].amount).toBe(1000);
   });
 
-  it('getDelegationsTo returns parsed delegations', async () => {
+  it("getDelegationsTo returns parsed delegations", async () => {
     const delegator = Keypair.generate().publicKey;
     const delegatee = Keypair.generate().publicKey;
     const program = createMockProgram({
@@ -421,7 +431,7 @@ describe('ReputationEconomyOperations - delegation', () => {
     expect(result[0].amount).toBe(2000);
   });
 
-  it('revokeDelegation returns RevokeResult', async () => {
+  it("revokeDelegation returns RevokeResult", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -429,23 +439,26 @@ describe('ReputationEconomyOperations - delegation', () => {
     });
 
     const result = await ops.revokeDelegation(Keypair.generate().publicKey);
-    expect(result.transactionSignature).toBe('mock-tx-signature');
+    expect(result.transactionSignature).toBe("mock-tx-signature");
   });
 
-  it('delegateReputation wraps RPC errors in ReputationDelegationError', async () => {
-    const program = createFailingMockProgram('CannotDelegateSelf');
+  it("delegateReputation wraps RPC errors in ReputationDelegationError", async () => {
+    const program = createFailingMockProgram("CannotDelegateSelf");
     const ops = new ReputationEconomyOperations({
       program,
       agentId: createAgentId(),
     });
 
     await expect(
-      ops.delegateReputation({ delegateeId: new Uint8Array(32).fill(2), amount: 1000 }),
+      ops.delegateReputation({
+        delegateeId: new Uint8Array(32).fill(2),
+        amount: 1000,
+      }),
     ).rejects.toThrow(ReputationDelegationError);
   });
 
-  it('revokeDelegation wraps RPC errors in ReputationDelegationError', async () => {
-    const program = createFailingMockProgram('DelegationNotFound');
+  it("revokeDelegation wraps RPC errors in ReputationDelegationError", async () => {
+    const program = createFailingMockProgram("DelegationNotFound");
     const ops = new ReputationEconomyOperations({
       program,
       agentId: createAgentId(),
@@ -461,8 +474,8 @@ describe('ReputationEconomyOperations - delegation', () => {
 // ReputationEconomyOperations - Effective Reputation
 // ============================================================================
 
-describe('ReputationEconomyOperations - effective reputation', () => {
-  it('returns base reputation when no delegations', async () => {
+describe("ReputationEconomyOperations - effective reputation", () => {
+  it("returns base reputation when no delegations", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -475,7 +488,7 @@ describe('ReputationEconomyOperations - effective reputation', () => {
     expect(result).toBe(5000);
   });
 
-  it('adds non-expired delegation amounts', async () => {
+  it("adds non-expired delegation amounts", async () => {
     const futureExpiry = Math.floor(Date.now() / 1000) + 86400; // 1 day ahead
     const program = createMockProgram({
       delegationAccounts: [
@@ -508,12 +521,14 @@ describe('ReputationEconomyOperations - effective reputation', () => {
       agentId: createAgentId(),
     });
 
-    const result = await ops.getEffectiveReputation(Keypair.generate().publicKey);
+    const result = await ops.getEffectiveReputation(
+      Keypair.generate().publicKey,
+    );
     // 5000 base + 2000 + 1000 = 8000
     expect(result).toBe(8000);
   });
 
-  it('filters out expired delegations', async () => {
+  it("filters out expired delegations", async () => {
     const pastExpiry = Math.floor(Date.now() / 1000) - 86400; // 1 day ago
     const program = createMockProgram({
       delegationAccounts: [
@@ -535,12 +550,14 @@ describe('ReputationEconomyOperations - effective reputation', () => {
       agentId: createAgentId(),
     });
 
-    const result = await ops.getEffectiveReputation(Keypair.generate().publicKey);
+    const result = await ops.getEffectiveReputation(
+      Keypair.generate().publicKey,
+    );
     // 5000 base + 0 (expired) = 5000
     expect(result).toBe(5000);
   });
 
-  it('caps at REPUTATION_MAX', async () => {
+  it("caps at REPUTATION_MAX", async () => {
     const program = createMockProgram({
       delegationAccounts: [
         {
@@ -561,19 +578,23 @@ describe('ReputationEconomyOperations - effective reputation', () => {
       agentId: createAgentId(),
     });
 
-    const result = await ops.getEffectiveReputation(Keypair.generate().publicKey);
+    const result = await ops.getEffectiveReputation(
+      Keypair.generate().publicKey,
+    );
     // 5000 + 8000 = 13000 but capped at 10000
     expect(result).toBe(REPUTATION_MAX);
   });
 
-  it('returns 0 when agent not found', async () => {
+  it("returns 0 when agent not found", async () => {
     const program = createMockProgram({ agentRegistration: null });
     const ops = new ReputationEconomyOperations({
       program,
       agentId: createAgentId(),
     });
 
-    const result = await ops.getEffectiveReputation(Keypair.generate().publicKey);
+    const result = await ops.getEffectiveReputation(
+      Keypair.generate().publicKey,
+    );
     expect(result).toBe(0);
   });
 });
@@ -582,8 +603,8 @@ describe('ReputationEconomyOperations - effective reputation', () => {
 // ReputationEconomyOperations - Portability
 // ============================================================================
 
-describe('ReputationEconomyOperations - portability', () => {
-  it('generates a portable reputation proof with valid structure', async () => {
+describe("ReputationEconomyOperations - portability", () => {
+  it("generates a portable reputation proof with valid structure", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
@@ -595,20 +616,20 @@ describe('ReputationEconomyOperations - portability', () => {
 
     expect(proof.agentPda).toBeTruthy();
     expect(proof.reputation).toBe(5000);
-    expect(proof.stakedAmount).toBe('0');
-    expect(proof.tasksCompleted).toBe('10');
-    expect(proof.totalEarned).toBe('1000000000');
+    expect(proof.stakedAmount).toBe("0");
+    expect(proof.tasksCompleted).toBe("10");
+    expect(proof.totalEarned).toBe("1000000000");
     expect(proof.nonce).toHaveLength(32); // 16 bytes hex
-    expect(proof.chainId).toBe('solana-devnet');
+    expect(proof.chainId).toBe("solana-devnet");
     expect(proof.signature.length).toBe(64); // ed25519 signature
     expect(proof.programId).toBe(PROGRAM_ID.toBase58());
   });
 
-  it('includes stake amount when stake exists', async () => {
+  it("includes stake amount when stake exists", async () => {
     const program = createMockProgram({
       reputationStake: {
         agent: Keypair.generate().publicKey,
-        stakedAmount: new BN('5000000000'),
+        stakedAmount: new BN("5000000000"),
         lockedUntil: new BN(1800000000),
         slashCount: 0,
         createdAt: new BN(1700000000),
@@ -623,23 +644,23 @@ describe('ReputationEconomyOperations - portability', () => {
     const keypair = Keypair.generate();
     const proof = await ops.getPortableReputationProof(keypair);
 
-    expect(proof.stakedAmount).toBe('5000000000');
+    expect(proof.stakedAmount).toBe("5000000000");
   });
 
-  it('uses configurable chainId', async () => {
+  it("uses configurable chainId", async () => {
     const program = createMockProgram();
     const ops = new ReputationEconomyOperations({
       program,
       agentId: createAgentId(),
-      chainId: 'solana-mainnet-beta',
+      chainId: "solana-mainnet-beta",
     });
 
     const keypair = Keypair.generate();
     const proof = await ops.getPortableReputationProof(keypair);
-    expect(proof.chainId).toBe('solana-mainnet-beta');
+    expect(proof.chainId).toBe("solana-mainnet-beta");
   });
 
-  it('throws ReputationPortabilityError when agent not registered', async () => {
+  it("throws ReputationPortabilityError when agent not registered", async () => {
     const program = createMockProgram({ agentRegistration: null });
     const ops = new ReputationEconomyOperations({
       program,
@@ -657,30 +678,30 @@ describe('ReputationEconomyOperations - portability', () => {
 // Error classes
 // ============================================================================
 
-describe('Reputation error classes', () => {
-  it('ReputationStakeError has correct code', () => {
-    const err = new ReputationStakeError('test reason');
+describe("Reputation error classes", () => {
+  it("ReputationStakeError has correct code", () => {
+    const err = new ReputationStakeError("test reason");
     expect(err.code).toBe(RuntimeErrorCodes.REPUTATION_STAKE_ERROR);
-    expect(err.reason).toBe('test reason');
-    expect(err.name).toBe('ReputationStakeError');
+    expect(err.reason).toBe("test reason");
+    expect(err.name).toBe("ReputationStakeError");
   });
 
-  it('ReputationDelegationError has correct code', () => {
-    const err = new ReputationDelegationError('test reason');
+  it("ReputationDelegationError has correct code", () => {
+    const err = new ReputationDelegationError("test reason");
     expect(err.code).toBe(RuntimeErrorCodes.REPUTATION_DELEGATION_ERROR);
-    expect(err.reason).toBe('test reason');
+    expect(err.reason).toBe("test reason");
   });
 
-  it('ReputationWithdrawError has correct code', () => {
-    const err = new ReputationWithdrawError('test reason');
+  it("ReputationWithdrawError has correct code", () => {
+    const err = new ReputationWithdrawError("test reason");
     expect(err.code).toBe(RuntimeErrorCodes.REPUTATION_WITHDRAW_ERROR);
-    expect(err.reason).toBe('test reason');
+    expect(err.reason).toBe("test reason");
   });
 
-  it('ReputationPortabilityError has correct code', () => {
-    const err = new ReputationPortabilityError('test reason');
+  it("ReputationPortabilityError has correct code", () => {
+    const err = new ReputationPortabilityError("test reason");
     expect(err.code).toBe(RuntimeErrorCodes.REPUTATION_PORTABILITY_ERROR);
-    expect(err.reason).toBe('test reason');
+    expect(err.reason).toBe("test reason");
   });
 });
 
@@ -688,16 +709,16 @@ describe('Reputation error classes', () => {
 // Constants
 // ============================================================================
 
-describe('Reputation constants', () => {
-  it('REPUTATION_MAX is 10000', () => {
+describe("Reputation constants", () => {
+  it("REPUTATION_MAX is 10000", () => {
     expect(REPUTATION_MAX).toBe(10_000);
   });
 
-  it('MIN_DELEGATION_AMOUNT is 100', () => {
+  it("MIN_DELEGATION_AMOUNT is 100", () => {
     expect(MIN_DELEGATION_AMOUNT).toBe(100);
   });
 
-  it('REPUTATION_STAKING_COOLDOWN_SECONDS is 7 days', () => {
+  it("REPUTATION_STAKING_COOLDOWN_SECONDS is 7 days", () => {
     expect(REPUTATION_STAKING_COOLDOWN_SECONDS).toBe(7 * 24 * 60 * 60);
   });
 });

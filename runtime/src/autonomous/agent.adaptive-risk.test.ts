@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { Keypair } from '@solana/web3.js';
-import type { TaskExecutor, VerifierVerdictPayload } from './types.js';
-import { AutonomousAgent } from './agent.js';
-import { createTask as makeTask } from './test-utils.js';
+import { describe, expect, it, vi } from "vitest";
+import { Keypair } from "@solana/web3.js";
+import type { TaskExecutor, VerifierVerdictPayload } from "./types.js";
+import { AutonomousAgent } from "./agent.js";
+import { createTask as makeTask } from "./test-utils.js";
 
-function createAgent(executor: TaskExecutor, verify: (input: unknown) => Promise<VerifierVerdictPayload>): AutonomousAgent {
+function createAgent(
+  executor: TaskExecutor,
+  verify: (input: unknown) => Promise<VerifierVerdictPayload>,
+): AutonomousAgent {
   return new AutonomousAgent({
     connection: {} as any,
     wallet: Keypair.generate(),
@@ -45,21 +48,23 @@ function createAgent(executor: TaskExecutor, verify: (input: unknown) => Promise
   });
 }
 
-describe('AutonomousAgent adaptive risk integration', () => {
-  it('skips verifier lane for low-risk tasks when adaptive threshold is not met', async () => {
+describe("AutonomousAgent adaptive risk integration", () => {
+  it("skips verifier lane for low-risk tasks when adaptive threshold is not met", async () => {
     const executor = {
       execute: vi.fn(async () => [1n, 2n]),
     };
 
-    const verify = vi.fn(async (): Promise<VerifierVerdictPayload> => ({
-      verdict: 'pass',
-      confidence: 0.95,
-      reasons: [{ code: 'ok', message: 'ok' }],
-    }));
+    const verify = vi.fn(
+      async (): Promise<VerifierVerdictPayload> => ({
+        verdict: "pass",
+        confidence: 0.95,
+        reasons: [{ code: "ok", message: "ok" }],
+      }),
+    );
 
     const agent = createAgent(executor, verify);
     const agentAny = agent as any;
-    agentAny.completeTaskWithRetry = vi.fn(async () => 'tx-low-risk');
+    agentAny.completeTaskWithRetry = vi.fn(async () => "tx-low-risk");
 
     const lowRiskTask = makeTask({
       reward: 10n,
@@ -74,7 +79,7 @@ describe('AutonomousAgent adaptive risk integration', () => {
       {
         task: lowRiskTask,
         claimedAt: Date.now(),
-        claimTx: 'claim-low',
+        claimTx: "claim-low",
         retryCount: 0,
       },
       lowRiskTask.pda.toBase58(),
@@ -85,26 +90,27 @@ describe('AutonomousAgent adaptive risk integration', () => {
     expect(verify).not.toHaveBeenCalled();
   });
 
-  it('allocates larger verifier budget for high-risk tasks', async () => {
+  it("allocates larger verifier budget for high-risk tasks", async () => {
     const executor = {
       execute: vi.fn(async () => [5n, 6n]),
     };
 
-    const verify = vi.fn()
+    const verify = vi
+      .fn()
       .mockResolvedValueOnce({
-        verdict: 'fail',
+        verdict: "fail",
         confidence: 0.4,
-        reasons: [{ code: 'first_fail', message: 'first fail' }],
+        reasons: [{ code: "first_fail", message: "first fail" }],
       } satisfies VerifierVerdictPayload)
       .mockResolvedValueOnce({
-        verdict: 'pass',
+        verdict: "pass",
         confidence: 0.95,
-        reasons: [{ code: 'ok', message: 'pass' }],
+        reasons: [{ code: "ok", message: "pass" }],
       } satisfies VerifierVerdictPayload);
 
     const agent = createAgent(executor, verify);
     const agentAny = agent as any;
-    agentAny.completeTaskWithRetry = vi.fn(async () => 'tx-high-risk');
+    agentAny.completeTaskWithRetry = vi.fn(async () => "tx-high-risk");
 
     const nowSeconds = Math.floor(Date.now() / 1000);
     const highRiskTask = makeTask({
@@ -120,7 +126,7 @@ describe('AutonomousAgent adaptive risk integration', () => {
       {
         task: highRiskTask,
         claimedAt: Date.now(),
-        claimTx: 'claim-high',
+        claimTx: "claim-high",
         retryCount: 0,
       },
       highRiskTask.pda.toBase58(),

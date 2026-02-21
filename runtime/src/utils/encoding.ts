@@ -19,7 +19,7 @@ export function generateAgentId(): Uint8Array {
   const bytes = new Uint8Array(32);
 
   // Use Web Crypto API (works in browser and Node.js 19+)
-  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
     globalThis.crypto.getRandomValues(bytes);
     return bytes;
   }
@@ -28,12 +28,12 @@ export function generateAgentId(): Uint8Array {
   try {
     // Dynamic import to avoid bundler issues in browser
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { randomBytes } = require('crypto');
+    const { randomBytes } = require("crypto");
     return new Uint8Array(randomBytes(32));
   } catch {
     throw new Error(
-      'No secure random number generator available. ' +
-        'Use a modern browser or Node.js 19+.',
+      "No secure random number generator available. " +
+        "Use a modern browser or Node.js 19+.",
     );
   }
 }
@@ -51,12 +51,12 @@ export function generateAgentId(): Uint8Array {
  * ```
  */
 export function hexToBytes(hex: string): Uint8Array {
-  const cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex;
+  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
   if (cleanHex.length % 2 !== 0) {
-    throw new Error('Invalid hex string length');
+    throw new Error("Invalid hex string length");
   }
   if (cleanHex.length > 0 && !/^[0-9a-fA-F]+$/.test(cleanHex)) {
-    throw new Error('Invalid hex string: contains non-hexadecimal characters');
+    throw new Error("Invalid hex string: contains non-hexadecimal characters");
   }
   const bytes = new Uint8Array(cleanHex.length / 2);
   for (let i = 0; i < cleanHex.length; i += 2) {
@@ -78,8 +78,8 @@ export function hexToBytes(hex: string): Uint8Array {
  */
 export function bytesToHex(bytes: Uint8Array, prefix = false): string {
   const hex = Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   return prefix ? `0x${hex}` : hex;
 }
 
@@ -110,8 +110,8 @@ export function agentIdFromString(str: string): Uint8Array {
   // Try Node's crypto.createHash (sync)
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createHash } = require('crypto');
-    const hash = createHash('sha256').update(encoded).digest();
+    const { createHash } = require("crypto");
+    const hash = createHash("sha256").update(encoded).digest();
     return new Uint8Array(hash);
   } catch {
     // Fallback: FNV-1a style mixing algorithm for browser environments
@@ -217,7 +217,7 @@ export function agentIdsEqual(a: Uint8Array, b: Uint8Array): boolean {
  */
 export function lamportsToSol(lamports: bigint): string {
   const sol = Number(lamports) / 1e9;
-  return sol.toFixed(9).replace(/\.?0+$/, '');
+  return sol.toFixed(9).replace(/\.?0+$/, "");
 }
 
 /**
@@ -233,9 +233,9 @@ export function lamportsToSol(lamports: bigint): string {
  * ```
  */
 export function solToLamports(sol: number | string): bigint {
-  const solNum = typeof sol === 'string' ? parseFloat(sol) : sol;
+  const solNum = typeof sol === "string" ? parseFloat(sol) : sol;
   if (!Number.isFinite(solNum) || solNum < 0) {
-    throw new Error('Invalid SOL amount: must be a non-negative finite number');
+    throw new Error("Invalid SOL amount: must be a non-negative finite number");
   }
   return BigInt(Math.round(solNum * 1e9));
 }
@@ -321,10 +321,10 @@ export function toAnchorBytes(bytes: Uint8Array): number[] {
  * Uses Node.js Buffer when available, falls back to btoa for browsers.
  */
 export function uint8ToBase64(data: Uint8Array): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(data).toString('base64');
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(data).toString("base64");
   }
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < data.length; i++) {
     binary += String.fromCharCode(data[i]);
   }
@@ -336,8 +336,8 @@ export function uint8ToBase64(data: Uint8Array): string {
  * Uses Node.js Buffer when available, falls back to atob for browsers.
  */
 export function base64ToUint8(base64: string): Uint8Array {
-  if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(base64, 'base64'));
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(base64, "base64"));
   }
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);

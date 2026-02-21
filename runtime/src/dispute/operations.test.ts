@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { PublicKey, Keypair, SystemProgram } from '@solana/web3.js';
-import { DisputeOperations, type DisputeOpsConfig } from './operations.js';
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
+import { DisputeOperations, type DisputeOpsConfig } from "./operations.js";
 import {
   parseOnChainDispute,
   parseOnChainDisputeVote,
@@ -8,19 +8,29 @@ import {
   OnChainDisputeStatus,
   DISPUTE_STATUS_OFFSET,
   DISPUTE_TASK_OFFSET,
-} from './types.js';
-import { ResolutionType } from '../events/types.js';
-import { deriveDisputePda, deriveVotePda, findDisputePda, findVotePda } from './pda.js';
+} from "./types.js";
+import { ResolutionType } from "../events/types.js";
+import {
+  deriveDisputePda,
+  deriveVotePda,
+  findDisputePda,
+  findVotePda,
+} from "./pda.js";
 import {
   DisputeNotFoundError,
   DisputeVoteError,
   DisputeResolutionError,
   DisputeSlashError,
-} from './errors.js';
-import { RuntimeError, RuntimeErrorCodes, AnchorErrorCodes, ValidationError } from '../types/errors.js';
-import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
-import { silentLogger } from '../utils/logger.js';
-import { generateAgentId } from '../utils/encoding.js';
+} from "./errors.js";
+import {
+  RuntimeError,
+  RuntimeErrorCodes,
+  AnchorErrorCodes,
+  ValidationError,
+} from "../types/errors.js";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { silentLogger } from "../utils/logger.js";
+import { generateAgentId } from "../utils/encoding.js";
 
 // ============================================================================
 // Test Helpers
@@ -31,7 +41,9 @@ function randomPubkey(): PublicKey {
 }
 
 function randomBytes(len: number): Uint8Array {
-  return new Uint8Array(Array.from({ length: len }, () => Math.floor(Math.random() * 256)));
+  return new Uint8Array(
+    Array.from({ length: len }, () => Math.floor(Math.random() * 256)),
+  );
 }
 
 /** Create an Anchor-like error with code */
@@ -40,7 +52,9 @@ function anchorError(code: number) {
 }
 
 /** Create a mock raw dispute account */
-function mockRawDispute(overrides: Record<string, any> = {}): Record<string, any> {
+function mockRawDispute(
+  overrides: Record<string, any> = {},
+): Record<string, any> {
   return {
     disputeId: Array.from(randomBytes(32)),
     task: randomPubkey(),
@@ -51,14 +65,14 @@ function mockRawDispute(overrides: Record<string, any> = {}): Record<string, any
     status: { active: {} },
     createdAt: { toNumber: () => 1700000000 },
     resolvedAt: { toNumber: () => 0 },
-    votesFor: { toString: () => '100' },
-    votesAgainst: { toString: () => '50' },
+    votesFor: { toString: () => "100" },
+    votesAgainst: { toString: () => "50" },
     totalVoters: 3,
     votingDeadline: { toNumber: () => 1700086400 },
     expiresAt: { toNumber: () => 1700172800 },
     slashApplied: false,
     initiatorSlashApplied: false,
-    workerStakeAtDispute: { toString: () => '1000000000' },
+    workerStakeAtDispute: { toString: () => "1000000000" },
     initiatedByCreator: false,
     bump: 255,
     defendant: randomPubkey(),
@@ -73,7 +87,7 @@ function mockRawVote(overrides: Record<string, any> = {}): Record<string, any> {
     voter: randomPubkey(),
     approved: true,
     votedAt: { toNumber: () => 1700001000 },
-    stakeAtVote: { toString: () => '500000000' },
+    stakeAtVote: { toString: () => "500000000" },
     bump: 254,
     ...overrides,
   };
@@ -84,7 +98,7 @@ function mockRawVote(overrides: Record<string, any> = {}): Record<string, any> {
 // ============================================================================
 
 function createMockProgram(overrides: Record<string, any> = {}) {
-  const rpcMock = vi.fn().mockResolvedValue('mock-signature');
+  const rpcMock = vi.fn().mockResolvedValue("mock-signature");
 
   const methodBuilder = {
     accountsPartial: vi.fn().mockReturnThis(),
@@ -132,8 +146,8 @@ function createMockProgram(overrides: Record<string, any> = {}) {
 // Parse Function Tests
 // ============================================================================
 
-describe('parseOnChainDispute', () => {
-  it('parses BN fields to correct types', () => {
+describe("parseOnChainDispute", () => {
+  it("parses BN fields to correct types", () => {
     const raw = mockRawDispute();
     const parsed = parseOnChainDispute(raw);
 
@@ -151,7 +165,7 @@ describe('parseOnChainDispute', () => {
     expect(parsed.rewardMint).toBeNull();
   });
 
-  it('parses enum objects correctly', () => {
+  it("parses enum objects correctly", () => {
     const raw = mockRawDispute({
       resolutionType: { complete: {} },
       status: { resolved: {} },
@@ -162,7 +176,7 @@ describe('parseOnChainDispute', () => {
     expect(parsed.status).toBe(OnChainDisputeStatus.Resolved);
   });
 
-  it('parses boolean fields', () => {
+  it("parses boolean fields", () => {
     const raw = mockRawDispute({
       slashApplied: true,
       initiatorSlashApplied: true,
@@ -175,22 +189,39 @@ describe('parseOnChainDispute', () => {
     expect(parsed.initiatedByCreator).toBe(true);
   });
 
-  it('handles all resolution types', () => {
-    expect(parseOnChainDispute(mockRawDispute({ resolutionType: { refund: {} } })).resolutionType).toBe(ResolutionType.Refund);
-    expect(parseOnChainDispute(mockRawDispute({ resolutionType: { complete: {} } })).resolutionType).toBe(ResolutionType.Complete);
-    expect(parseOnChainDispute(mockRawDispute({ resolutionType: { split: {} } })).resolutionType).toBe(ResolutionType.Split);
+  it("handles all resolution types", () => {
+    expect(
+      parseOnChainDispute(mockRawDispute({ resolutionType: { refund: {} } }))
+        .resolutionType,
+    ).toBe(ResolutionType.Refund);
+    expect(
+      parseOnChainDispute(mockRawDispute({ resolutionType: { complete: {} } }))
+        .resolutionType,
+    ).toBe(ResolutionType.Complete);
+    expect(
+      parseOnChainDispute(mockRawDispute({ resolutionType: { split: {} } }))
+        .resolutionType,
+    ).toBe(ResolutionType.Split);
   });
 
-  it('handles all dispute statuses', () => {
-    expect(parseOnChainDispute(mockRawDispute({ status: { active: {} } })).status).toBe(OnChainDisputeStatus.Active);
-    expect(parseOnChainDispute(mockRawDispute({ status: { resolved: {} } })).status).toBe(OnChainDisputeStatus.Resolved);
-    expect(parseOnChainDispute(mockRawDispute({ status: { expired: {} } })).status).toBe(OnChainDisputeStatus.Expired);
-    expect(parseOnChainDispute(mockRawDispute({ status: { cancelled: {} } })).status).toBe(OnChainDisputeStatus.Cancelled);
+  it("handles all dispute statuses", () => {
+    expect(
+      parseOnChainDispute(mockRawDispute({ status: { active: {} } })).status,
+    ).toBe(OnChainDisputeStatus.Active);
+    expect(
+      parseOnChainDispute(mockRawDispute({ status: { resolved: {} } })).status,
+    ).toBe(OnChainDisputeStatus.Resolved);
+    expect(
+      parseOnChainDispute(mockRawDispute({ status: { expired: {} } })).status,
+    ).toBe(OnChainDisputeStatus.Expired);
+    expect(
+      parseOnChainDispute(mockRawDispute({ status: { cancelled: {} } })).status,
+    ).toBe(OnChainDisputeStatus.Cancelled);
   });
 });
 
-describe('parseOnChainDisputeVote', () => {
-  it('parses raw vote data correctly', () => {
+describe("parseOnChainDisputeVote", () => {
+  it("parses raw vote data correctly", () => {
     const raw = mockRawVote();
     const parsed = parseOnChainDisputeVote(raw);
 
@@ -200,22 +231,28 @@ describe('parseOnChainDisputeVote', () => {
     expect(parsed.bump).toBe(254);
   });
 
-  it('parses rejected vote', () => {
+  it("parses rejected vote", () => {
     const parsed = parseOnChainDisputeVote(mockRawVote({ approved: false }));
     expect(parsed.approved).toBe(false);
   });
 });
 
-describe('disputeStatusToString', () => {
-  it('converts all statuses', () => {
-    expect(disputeStatusToString(OnChainDisputeStatus.Active)).toBe('Active');
-    expect(disputeStatusToString(OnChainDisputeStatus.Resolved)).toBe('Resolved');
-    expect(disputeStatusToString(OnChainDisputeStatus.Expired)).toBe('Expired');
-    expect(disputeStatusToString(OnChainDisputeStatus.Cancelled)).toBe('Cancelled');
+describe("disputeStatusToString", () => {
+  it("converts all statuses", () => {
+    expect(disputeStatusToString(OnChainDisputeStatus.Active)).toBe("Active");
+    expect(disputeStatusToString(OnChainDisputeStatus.Resolved)).toBe(
+      "Resolved",
+    );
+    expect(disputeStatusToString(OnChainDisputeStatus.Expired)).toBe("Expired");
+    expect(disputeStatusToString(OnChainDisputeStatus.Cancelled)).toBe(
+      "Cancelled",
+    );
   });
 
-  it('returns Unknown for invalid status', () => {
-    expect(disputeStatusToString(99 as OnChainDisputeStatus)).toBe('Unknown(99)');
+  it("returns Unknown for invalid status", () => {
+    expect(disputeStatusToString(99 as OnChainDisputeStatus)).toBe(
+      "Unknown(99)",
+    );
   });
 });
 
@@ -223,8 +260,8 @@ describe('disputeStatusToString', () => {
 // PDA Derivation Tests
 // ============================================================================
 
-describe('deriveDisputePda', () => {
-  it('derives deterministic PDA', () => {
+describe("deriveDisputePda", () => {
+  it("derives deterministic PDA", () => {
     const disputeId = randomBytes(32);
     const { address: pda1, bump: bump1 } = deriveDisputePda(disputeId);
     const { address: pda2, bump: bump2 } = deriveDisputePda(disputeId);
@@ -233,11 +270,13 @@ describe('deriveDisputePda', () => {
     expect(bump1).toBe(bump2);
   });
 
-  it('throws on invalid length', () => {
-    expect(() => deriveDisputePda(new Uint8Array(16))).toThrow('Invalid disputeId length');
+  it("throws on invalid length", () => {
+    expect(() => deriveDisputePda(new Uint8Array(16))).toThrow(
+      "Invalid disputeId length",
+    );
   });
 
-  it('findDisputePda returns same address', () => {
+  it("findDisputePda returns same address", () => {
     const disputeId = randomBytes(32);
     const { address } = deriveDisputePda(disputeId);
     const pda = findDisputePda(disputeId);
@@ -245,18 +284,24 @@ describe('deriveDisputePda', () => {
   });
 });
 
-describe('deriveVotePda', () => {
-  it('derives deterministic PDA', () => {
+describe("deriveVotePda", () => {
+  it("derives deterministic PDA", () => {
     const disputePda = randomPubkey();
     const arbiterPda = randomPubkey();
-    const { address: pda1, bump: bump1 } = deriveVotePda(disputePda, arbiterPda);
-    const { address: pda2, bump: bump2 } = deriveVotePda(disputePda, arbiterPda);
+    const { address: pda1, bump: bump1 } = deriveVotePda(
+      disputePda,
+      arbiterPda,
+    );
+    const { address: pda2, bump: bump2 } = deriveVotePda(
+      disputePda,
+      arbiterPda,
+    );
 
     expect(pda1.equals(pda2)).toBe(true);
     expect(bump1).toBe(bump2);
   });
 
-  it('findVotePda returns same address', () => {
+  it("findVotePda returns same address", () => {
     const disputePda = randomPubkey();
     const arbiterPda = randomPubkey();
     const { address } = deriveVotePda(disputePda, arbiterPda);
@@ -269,55 +314,55 @@ describe('deriveVotePda', () => {
 // Error Class Tests
 // ============================================================================
 
-describe('DisputeNotFoundError', () => {
-  it('has correct properties', () => {
+describe("DisputeNotFoundError", () => {
+  it("has correct properties", () => {
     const pda = randomPubkey().toBase58();
     const err = new DisputeNotFoundError(pda);
 
     expect(err).toBeInstanceOf(RuntimeError);
-    expect(err.name).toBe('DisputeNotFoundError');
+    expect(err.name).toBe("DisputeNotFoundError");
     expect(err.code).toBe(RuntimeErrorCodes.DISPUTE_NOT_FOUND);
     expect(err.disputePda).toBe(pda);
     expect(err.message).toContain(pda);
   });
 });
 
-describe('DisputeVoteError', () => {
-  it('has correct properties', () => {
+describe("DisputeVoteError", () => {
+  it("has correct properties", () => {
     const pda = randomPubkey().toBase58();
-    const err = new DisputeVoteError(pda, 'Voting ended');
+    const err = new DisputeVoteError(pda, "Voting ended");
 
     expect(err).toBeInstanceOf(RuntimeError);
-    expect(err.name).toBe('DisputeVoteError');
+    expect(err.name).toBe("DisputeVoteError");
     expect(err.code).toBe(RuntimeErrorCodes.DISPUTE_VOTE_ERROR);
     expect(err.disputePda).toBe(pda);
-    expect(err.reason).toBe('Voting ended');
+    expect(err.reason).toBe("Voting ended");
   });
 });
 
-describe('DisputeResolutionError', () => {
-  it('has correct properties', () => {
+describe("DisputeResolutionError", () => {
+  it("has correct properties", () => {
     const pda = randomPubkey().toBase58();
-    const err = new DisputeResolutionError(pda, 'Not authorized');
+    const err = new DisputeResolutionError(pda, "Not authorized");
 
     expect(err).toBeInstanceOf(RuntimeError);
-    expect(err.name).toBe('DisputeResolutionError');
+    expect(err.name).toBe("DisputeResolutionError");
     expect(err.code).toBe(RuntimeErrorCodes.DISPUTE_RESOLUTION_ERROR);
     expect(err.disputePda).toBe(pda);
-    expect(err.reason).toBe('Not authorized');
+    expect(err.reason).toBe("Not authorized");
   });
 });
 
-describe('DisputeSlashError', () => {
-  it('has correct properties', () => {
+describe("DisputeSlashError", () => {
+  it("has correct properties", () => {
     const pda = randomPubkey().toBase58();
-    const err = new DisputeSlashError(pda, 'Already applied');
+    const err = new DisputeSlashError(pda, "Already applied");
 
     expect(err).toBeInstanceOf(RuntimeError);
-    expect(err.name).toBe('DisputeSlashError');
+    expect(err.name).toBe("DisputeSlashError");
     expect(err.code).toBe(RuntimeErrorCodes.DISPUTE_SLASH_ERROR);
     expect(err.disputePda).toBe(pda);
-    expect(err.reason).toBe('Already applied');
+    expect(err.reason).toBe("Already applied");
   });
 });
 
@@ -325,7 +370,7 @@ describe('DisputeSlashError', () => {
 // DisputeOperations - Query Tests
 // ============================================================================
 
-describe('DisputeOperations', () => {
+describe("DisputeOperations", () => {
   let program: ReturnType<typeof createMockProgram>;
   let ops: DisputeOperations;
   const agentId = generateAgentId();
@@ -339,8 +384,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('fetchDispute', () => {
-    it('returns parsed dispute when found', async () => {
+  describe("fetchDispute", () => {
+    it("returns parsed dispute when found", async () => {
       const disputePda = randomPubkey();
       const raw = mockRawDispute();
       program.account.dispute.fetchNullable.mockResolvedValue(raw);
@@ -353,7 +398,7 @@ describe('DisputeOperations', () => {
       expect(result!.rewardMint).toBeNull();
     });
 
-    it('enriches dispute with task rewardMint', async () => {
+    it("enriches dispute with task rewardMint", async () => {
       const disputePda = randomPubkey();
       const raw = mockRawDispute();
       const mint = randomPubkey();
@@ -366,7 +411,7 @@ describe('DisputeOperations', () => {
       expect(result!.rewardMint?.equals(mint)).toBe(true);
     });
 
-    it('returns null when not found', async () => {
+    it("returns null when not found", async () => {
       const disputePda = randomPubkey();
       program.account.dispute.fetchNullable.mockResolvedValue(null);
 
@@ -376,8 +421,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('fetchDisputeByIds', () => {
-    it('returns dispute and PDA when found', async () => {
+  describe("fetchDisputeByIds", () => {
+    it("returns dispute and PDA when found", async () => {
       const disputeId = randomBytes(32);
       const raw = mockRawDispute();
       program.account.dispute.fetchNullable.mockResolvedValue(raw);
@@ -389,7 +434,7 @@ describe('DisputeOperations', () => {
       expect(result!.dispute.createdAt).toBe(1700000000);
     });
 
-    it('returns null when not found', async () => {
+    it("returns null when not found", async () => {
       const disputeId = randomBytes(32);
       program.account.dispute.fetchNullable.mockResolvedValue(null);
 
@@ -399,8 +444,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('fetchAllDisputes', () => {
-    it('returns all disputes', async () => {
+  describe("fetchAllDisputes", () => {
+    it("returns all disputes", async () => {
       program.account.dispute.all.mockResolvedValue([
         { publicKey: randomPubkey(), account: mockRawDispute() },
         { publicKey: randomPubkey(), account: mockRawDispute() },
@@ -412,8 +457,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('fetchActiveDisputes', () => {
-    it('uses memcmp filter', async () => {
+  describe("fetchActiveDisputes", () => {
+    it("uses memcmp filter", async () => {
       program.account.dispute.all.mockResolvedValue([
         { publicKey: randomPubkey(), account: mockRawDispute() },
       ]);
@@ -430,13 +475,19 @@ describe('DisputeOperations', () => {
       ]);
     });
 
-    it('falls back to full scan on memcmp failure', async () => {
+    it("falls back to full scan on memcmp failure", async () => {
       // First call (memcmp) fails, second call (fallback) succeeds
       program.account.dispute.all
-        .mockRejectedValueOnce(new Error('memcmp not supported'))
+        .mockRejectedValueOnce(new Error("memcmp not supported"))
         .mockResolvedValueOnce([
-          { publicKey: randomPubkey(), account: mockRawDispute({ status: { active: {} } }) },
-          { publicKey: randomPubkey(), account: mockRawDispute({ status: { resolved: {} } }) },
+          {
+            publicKey: randomPubkey(),
+            account: mockRawDispute({ status: { active: {} } }),
+          },
+          {
+            publicKey: randomPubkey(),
+            account: mockRawDispute({ status: { resolved: {} } }),
+          },
         ]);
 
       const results = await ops.fetchActiveDisputes();
@@ -447,11 +498,14 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('fetchDisputesForTask', () => {
-    it('uses memcmp filter on task field', async () => {
+  describe("fetchDisputesForTask", () => {
+    it("uses memcmp filter on task field", async () => {
       const taskPda = randomPubkey();
       program.account.dispute.all.mockResolvedValue([
-        { publicKey: randomPubkey(), account: mockRawDispute({ task: taskPda }) },
+        {
+          publicKey: randomPubkey(),
+          account: mockRawDispute({ task: taskPda }),
+        },
       ]);
 
       const results = await ops.fetchDisputesForTask(taskPda);
@@ -468,10 +522,12 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('fetchVote', () => {
-    it('returns parsed vote when found', async () => {
+  describe("fetchVote", () => {
+    it("returns parsed vote when found", async () => {
       const votePda = randomPubkey();
-      program.account.disputeVote.fetchNullable.mockResolvedValue(mockRawVote());
+      program.account.disputeVote.fetchNullable.mockResolvedValue(
+        mockRawVote(),
+      );
 
       const result = await ops.fetchVote(votePda);
 
@@ -480,7 +536,7 @@ describe('DisputeOperations', () => {
       expect(result!.stakeAtVote).toBe(500000000n);
     });
 
-    it('returns null when not found', async () => {
+    it("returns null when not found", async () => {
       const votePda = randomPubkey();
       program.account.disputeVote.fetchNullable.mockResolvedValue(null);
 
@@ -494,24 +550,25 @@ describe('DisputeOperations', () => {
   // Transaction Tests
   // ==========================================================================
 
-  describe('initiateDispute', () => {
-    it('initiates dispute as worker', async () => {
+  describe("initiateDispute", () => {
+    it("initiates dispute as worker", async () => {
       const result = await ops.initiateDispute({
         disputeId: randomBytes(32),
         taskPda: randomPubkey(),
         taskId: randomBytes(32),
         evidenceHash: randomBytes(32),
         resolutionType: 0,
-        evidence: 'Worker did not complete the task properly. Detailed explanation of the issue.',
+        evidence:
+          "Worker did not complete the task properly. Detailed explanation of the issue.",
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.disputePda).toBeDefined();
       expect(program.methods.initiateDispute).toHaveBeenCalled();
       expect(program._methodBuilder.accountsPartial).toHaveBeenCalled();
     });
 
-    it('initiates dispute as creator with defendant workers', async () => {
+    it("initiates dispute as creator with defendant workers", async () => {
       const workers = [
         { claimPda: randomPubkey(), workerPda: randomPubkey() },
         { claimPda: randomPubkey(), workerPda: randomPubkey() },
@@ -523,23 +580,34 @@ describe('DisputeOperations', () => {
         taskId: randomBytes(32),
         evidenceHash: randomBytes(32),
         resolutionType: 1,
-        evidence: 'Task was not completed according to specifications. Need resolution.',
+        evidence:
+          "Task was not completed according to specifications. Need resolution.",
         workerAgentPda: randomPubkey(),
         workerClaimPda: randomPubkey(),
         defendantWorkers: workers,
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(program._methodBuilder.remainingAccounts).toHaveBeenCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ pubkey: workers[0].claimPda, isWritable: true, isSigner: false }),
-          expect.objectContaining({ pubkey: workers[0].workerPda, isWritable: true, isSigner: false }),
+          expect.objectContaining({
+            pubkey: workers[0].claimPda,
+            isWritable: true,
+            isSigner: false,
+          }),
+          expect.objectContaining({
+            pubkey: workers[0].workerPda,
+            isWritable: true,
+            isSigner: false,
+          }),
         ]),
       );
     });
 
-    it('maps InsufficientEvidence error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.InsufficientEvidence));
+    it("maps InsufficientEvidence error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.InsufficientEvidence),
+      );
 
       await expect(
         ops.initiateDispute({
@@ -548,13 +616,15 @@ describe('DisputeOperations', () => {
           taskId: randomBytes(32),
           evidenceHash: randomBytes(32),
           resolutionType: 0,
-          evidence: 'short',
+          evidence: "short",
         }),
       ).rejects.toThrow(DisputeResolutionError);
     });
 
-    it('maps EvidenceTooLong error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.EvidenceTooLong));
+    it("maps EvidenceTooLong error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.EvidenceTooLong),
+      );
 
       // Evidence >256 chars is now caught by local validation (#963)
       // so we test with a valid-length evidence that triggers the Anchor error
@@ -565,38 +635,40 @@ describe('DisputeOperations', () => {
           taskId: randomBytes(32),
           evidenceHash: randomBytes(32),
           resolutionType: 0,
-          evidence: 'valid evidence',
+          evidence: "valid evidence",
         }),
       ).rejects.toThrow(DisputeResolutionError);
     });
   });
 
-  describe('voteOnDispute', () => {
-    it('casts approval vote', async () => {
+  describe("voteOnDispute", () => {
+    it("casts approval vote", async () => {
       const result = await ops.voteOnDispute({
         disputePda: randomPubkey(),
         taskPda: randomPubkey(),
         approve: true,
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.votePda).toBeDefined();
       expect(program.methods.voteDispute).toHaveBeenCalledWith(true);
     });
 
-    it('casts rejection vote', async () => {
+    it("casts rejection vote", async () => {
       const result = await ops.voteOnDispute({
         disputePda: randomPubkey(),
         taskPda: randomPubkey(),
         approve: false,
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(program.methods.voteDispute).toHaveBeenCalledWith(false);
     });
 
-    it('maps NotArbiter error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.NotArbiter));
+    it("maps NotArbiter error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.NotArbiter),
+      );
 
       await expect(
         ops.voteOnDispute({
@@ -607,8 +679,10 @@ describe('DisputeOperations', () => {
       ).rejects.toThrow(DisputeVoteError);
     });
 
-    it('maps VotingEnded error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.VotingEnded));
+    it("maps VotingEnded error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.VotingEnded),
+      );
 
       await expect(
         ops.voteOnDispute({
@@ -619,8 +693,10 @@ describe('DisputeOperations', () => {
       ).rejects.toThrow(DisputeVoteError);
     });
 
-    it('maps AlreadyVoted error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.AlreadyVoted));
+    it("maps AlreadyVoted error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.AlreadyVoted),
+      );
 
       await expect(
         ops.voteOnDispute({
@@ -631,8 +707,10 @@ describe('DisputeOperations', () => {
       ).rejects.toThrow(DisputeVoteError);
     });
 
-    it('maps DisputeNotActive error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.DisputeNotActive));
+    it("maps DisputeNotActive error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.DisputeNotActive),
+      );
 
       await expect(
         ops.voteOnDispute({
@@ -644,8 +722,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('resolveDispute', () => {
-    it('resolves with refund (no worker accounts)', async () => {
+  describe("resolveDispute", () => {
+    it("resolves with refund (no worker accounts)", async () => {
       const result = await ops.resolveDispute({
         disputePda: randomPubkey(),
         taskPda: randomPubkey(),
@@ -653,11 +731,11 @@ describe('DisputeOperations', () => {
         arbiterVotes: [],
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(program.methods.resolveDispute).toHaveBeenCalled();
     });
 
-    it('resolves with worker accounts and arbiter remaining_accounts', async () => {
+    it("resolves with worker accounts and arbiter remaining_accounts", async () => {
       const arbiterVotes = [
         { votePda: randomPubkey(), arbiterAgentPda: randomPubkey() },
         { votePda: randomPubkey(), arbiterAgentPda: randomPubkey() },
@@ -673,7 +751,7 @@ describe('DisputeOperations', () => {
         arbiterVotes,
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(program._methodBuilder.remainingAccounts).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({ pubkey: arbiterVotes[0].votePda }),
@@ -684,7 +762,7 @@ describe('DisputeOperations', () => {
       );
     });
 
-    it('resolves with extra workers for collaborative tasks', async () => {
+    it("resolves with extra workers for collaborative tasks", async () => {
       const extraWorkers = [
         { claimPda: randomPubkey(), workerPda: randomPubkey() },
       ];
@@ -701,12 +779,15 @@ describe('DisputeOperations', () => {
       });
 
       // remaining_accounts should have 2 (arbiter pair) + 2 (worker pair) = 4
-      const remainingCall = program._methodBuilder.remainingAccounts.mock.calls[0][0];
+      const remainingCall =
+        program._methodBuilder.remainingAccounts.mock.calls[0][0];
       expect(remainingCall).toHaveLength(4);
     });
 
-    it('maps VotingNotEnded error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.VotingNotEnded));
+    it("maps VotingNotEnded error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.VotingNotEnded),
+      );
 
       await expect(
         ops.resolveDispute({
@@ -718,8 +799,10 @@ describe('DisputeOperations', () => {
       ).rejects.toThrow(DisputeResolutionError);
     });
 
-    it('maps InsufficientVotes error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.InsufficientVotes));
+    it("maps InsufficientVotes error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.InsufficientVotes),
+      );
 
       await expect(
         ops.resolveDispute({
@@ -731,8 +814,10 @@ describe('DisputeOperations', () => {
       ).rejects.toThrow(DisputeResolutionError);
     });
 
-    it('maps UnauthorizedResolver error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.UnauthorizedResolver));
+    it("maps UnauthorizedResolver error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.UnauthorizedResolver),
+      );
 
       await expect(
         ops.resolveDispute({
@@ -744,8 +829,10 @@ describe('DisputeOperations', () => {
       ).rejects.toThrow(DisputeResolutionError);
     });
 
-    it('maps DisputeAlreadyResolved error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.DisputeAlreadyResolved));
+    it("maps DisputeAlreadyResolved error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.DisputeAlreadyResolved),
+      );
 
       await expect(
         ops.resolveDispute({
@@ -758,8 +845,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('cancelDispute', () => {
-    it('cancels dispute successfully', async () => {
+  describe("cancelDispute", () => {
+    it("cancels dispute successfully", async () => {
       const disputePda = randomPubkey();
       const taskPda = randomPubkey();
       const defendant = randomPubkey();
@@ -769,7 +856,7 @@ describe('DisputeOperations', () => {
 
       const result = await ops.cancelDispute(disputePda, taskPda);
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.disputePda.equals(disputePda)).toBe(true);
       expect(program.methods.cancelDispute).toHaveBeenCalled();
       expect(program._methodBuilder.remainingAccounts).toHaveBeenCalledWith([
@@ -777,18 +864,22 @@ describe('DisputeOperations', () => {
       ]);
     });
 
-    it('maps DisputeNotActive error', async () => {
+    it("maps DisputeNotActive error", async () => {
       program.account.dispute.fetchNullable.mockResolvedValue(mockRawDispute());
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.DisputeNotActive));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.DisputeNotActive),
+      );
 
       await expect(
         ops.cancelDispute(randomPubkey(), randomPubkey()),
       ).rejects.toThrow(DisputeResolutionError);
     });
 
-    it('maps UnauthorizedResolver error', async () => {
+    it("maps UnauthorizedResolver error", async () => {
       program.account.dispute.fetchNullable.mockResolvedValue(mockRawDispute());
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.UnauthorizedResolver));
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.UnauthorizedResolver),
+      );
 
       await expect(
         ops.cancelDispute(randomPubkey(), randomPubkey()),
@@ -796,8 +887,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('expireDispute', () => {
-    it('expires dispute with remaining_accounts', async () => {
+  describe("expireDispute", () => {
+    it("expires dispute with remaining_accounts", async () => {
       const arbiterVotes = [
         { votePda: randomPubkey(), arbiterAgentPda: randomPubkey() },
       ];
@@ -809,13 +900,15 @@ describe('DisputeOperations', () => {
         arbiterVotes,
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(program.methods.expireDispute).toHaveBeenCalled();
       expect(program._methodBuilder.remainingAccounts).toHaveBeenCalled();
     });
 
-    it('maps DisputeNotExpired error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.DisputeNotExpired));
+    it("maps DisputeNotExpired error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.DisputeNotExpired),
+      );
 
       await expect(
         ops.expireDispute({
@@ -828,8 +921,8 @@ describe('DisputeOperations', () => {
     });
   });
 
-  describe('applySlash', () => {
-    it('applies slash with treasury fetch', async () => {
+  describe("applySlash", () => {
+    it("applies slash with treasury fetch", async () => {
       const result = await ops.applySlash({
         disputePda: randomPubkey(),
         taskPda: randomPubkey(),
@@ -837,7 +930,7 @@ describe('DisputeOperations', () => {
         workerAgentPda: randomPubkey(),
       });
 
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(program.methods.applyDisputeSlash).toHaveBeenCalled();
       // Treasury fetched from protocol config
       expect(program.account.protocolConfig.fetch).toHaveBeenCalled();
@@ -845,7 +938,7 @@ describe('DisputeOperations', () => {
       expect(program.account.task.fetch).toHaveBeenCalled();
     });
 
-    it('wires token slash accounts for token-denominated task', async () => {
+    it("wires token slash accounts for token-denominated task", async () => {
       const mint = randomPubkey();
       const taskPda = randomPubkey();
       program.account.task.fetch.mockResolvedValueOnce({ rewardMint: mint });
@@ -865,7 +958,7 @@ describe('DisputeOperations', () => {
       expect(accounts.tokenProgram).toBeInstanceOf(PublicKey);
     });
 
-    it('caches treasury across calls', async () => {
+    it("caches treasury across calls", async () => {
       await ops.applySlash({
         disputePda: randomPubkey(),
         taskPda: randomPubkey(),
@@ -884,8 +977,10 @@ describe('DisputeOperations', () => {
       expect(program.account.protocolConfig.fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('maps SlashAlreadyApplied error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.SlashAlreadyApplied));
+    it("maps SlashAlreadyApplied error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.SlashAlreadyApplied),
+      );
 
       await expect(
         ops.applySlash({
@@ -897,8 +992,10 @@ describe('DisputeOperations', () => {
       ).rejects.toThrow(DisputeSlashError);
     });
 
-    it('maps DisputeNotResolved error', async () => {
-      program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.DisputeNotResolved));
+    it("maps DisputeNotResolved error", async () => {
+      program._rpcMock.mockRejectedValueOnce(
+        anchorError(AnchorErrorCodes.DisputeNotResolved),
+      );
 
       await expect(
         ops.applySlash({
@@ -915,8 +1012,8 @@ describe('DisputeOperations', () => {
   // buildRemainingAccounts Tests (tested via transaction methods)
   // ==========================================================================
 
-  describe('buildRemainingAccounts (integration)', () => {
-    it('handles arbiter-only remaining accounts', async () => {
+  describe("buildRemainingAccounts (integration)", () => {
+    it("handles arbiter-only remaining accounts", async () => {
       const arbiterVotes = [
         { votePda: randomPubkey(), arbiterAgentPda: randomPubkey() },
       ];
@@ -928,13 +1025,18 @@ describe('DisputeOperations', () => {
         arbiterVotes,
       });
 
-      const remainingCall = program._methodBuilder.remainingAccounts.mock.calls[0][0];
+      const remainingCall =
+        program._methodBuilder.remainingAccounts.mock.calls[0][0];
       expect(remainingCall).toHaveLength(2); // 1 pair = 2 accounts
-      expect(remainingCall[0].pubkey.equals(arbiterVotes[0].votePda)).toBe(true);
-      expect(remainingCall[1].pubkey.equals(arbiterVotes[0].arbiterAgentPda)).toBe(true);
+      expect(remainingCall[0].pubkey.equals(arbiterVotes[0].votePda)).toBe(
+        true,
+      );
+      expect(
+        remainingCall[1].pubkey.equals(arbiterVotes[0].arbiterAgentPda),
+      ).toBe(true);
     });
 
-    it('handles arbiter + worker remaining accounts in correct order', async () => {
+    it("handles arbiter + worker remaining accounts in correct order", async () => {
       const arbiterVotes = [
         { votePda: randomPubkey(), arbiterAgentPda: randomPubkey() },
       ];
@@ -950,14 +1052,23 @@ describe('DisputeOperations', () => {
         extraWorkers,
       });
 
-      const remainingCall = program._methodBuilder.remainingAccounts.mock.calls[0][0];
+      const remainingCall =
+        program._methodBuilder.remainingAccounts.mock.calls[0][0];
       expect(remainingCall).toHaveLength(4);
       // Arbiter pair first
-      expect(remainingCall[0].pubkey.equals(arbiterVotes[0].votePda)).toBe(true);
-      expect(remainingCall[1].pubkey.equals(arbiterVotes[0].arbiterAgentPda)).toBe(true);
+      expect(remainingCall[0].pubkey.equals(arbiterVotes[0].votePda)).toBe(
+        true,
+      );
+      expect(
+        remainingCall[1].pubkey.equals(arbiterVotes[0].arbiterAgentPda),
+      ).toBe(true);
       // Worker pair second
-      expect(remainingCall[2].pubkey.equals(extraWorkers[0].claimPda)).toBe(true);
-      expect(remainingCall[3].pubkey.equals(extraWorkers[0].workerPda)).toBe(true);
+      expect(remainingCall[2].pubkey.equals(extraWorkers[0].claimPda)).toBe(
+        true,
+      );
+      expect(remainingCall[3].pubkey.equals(extraWorkers[0].workerPda)).toBe(
+        true,
+      );
     });
   });
 
@@ -965,67 +1076,67 @@ describe('DisputeOperations', () => {
   // Input Validation Tests (#963)
   // ==========================================================================
 
-  describe('initiateDispute input validation (#963)', () => {
-    it('rejects disputeId with wrong length', async () => {
+  describe("initiateDispute input validation (#963)", () => {
+    it("rejects disputeId with wrong length", async () => {
       await expect(
         ops.initiateDispute({
           disputeId: new Uint8Array(16),
           taskId: randomBytes(32),
           taskPda: randomPubkey(),
           evidenceHash: randomBytes(32),
-          evidence: 'test evidence',
+          evidence: "test evidence",
           resolutionType: 0,
         }),
       ).rejects.toThrow(ValidationError);
     });
 
-    it('rejects all-zero evidenceHash', async () => {
+    it("rejects all-zero evidenceHash", async () => {
       await expect(
         ops.initiateDispute({
           disputeId: randomBytes(32),
           taskId: randomBytes(32),
           taskPda: randomPubkey(),
           evidenceHash: new Uint8Array(32),
-          evidence: 'test evidence',
+          evidence: "test evidence",
           resolutionType: 0,
         }),
       ).rejects.toThrow(ValidationError);
     });
 
-    it('rejects empty evidence string', async () => {
+    it("rejects empty evidence string", async () => {
       await expect(
         ops.initiateDispute({
           disputeId: randomBytes(32),
           taskId: randomBytes(32),
           taskPda: randomPubkey(),
           evidenceHash: randomBytes(32),
-          evidence: '',
+          evidence: "",
           resolutionType: 0,
         }),
       ).rejects.toThrow(ValidationError);
     });
 
-    it('rejects evidence exceeding 256 characters', async () => {
+    it("rejects evidence exceeding 256 characters", async () => {
       await expect(
         ops.initiateDispute({
           disputeId: randomBytes(32),
           taskId: randomBytes(32),
           taskPda: randomPubkey(),
           evidenceHash: randomBytes(32),
-          evidence: 'x'.repeat(257),
+          evidence: "x".repeat(257),
           resolutionType: 0,
         }),
       ).rejects.toThrow(ValidationError);
     });
 
-    it('rejects invalid resolution type', async () => {
+    it("rejects invalid resolution type", async () => {
       await expect(
         ops.initiateDispute({
           disputeId: randomBytes(32),
           taskId: randomBytes(32),
           taskPda: randomPubkey(),
           evidenceHash: randomBytes(32),
-          evidence: 'test evidence',
+          evidence: "test evidence",
           resolutionType: 5,
         }),
       ).rejects.toThrow(ValidationError);

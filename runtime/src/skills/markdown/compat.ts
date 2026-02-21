@@ -9,15 +9,15 @@
  * @module
  */
 
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { isSkillMarkdown, parseSkillContent } from './parser.js';
+import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { isSkillMarkdown, parseSkillContent } from "./parser.js";
 import type {
   MarkdownSkillMetadata,
   SkillInstallStep,
   SkillRequirements,
-} from './types.js';
-import { ValidationError } from '../../types/errors.js';
+} from "./types.js";
+import { ValidationError } from "../../types/errors.js";
 
 /** Maximum file size accepted by {@link importSkill} (1 MB). */
 const MAX_IMPORT_SIZE = 1_048_576;
@@ -30,7 +30,10 @@ const FETCH_TIMEOUT_MS = 30_000;
 // coupling to parser internals)
 // ---------------------------------------------------------------------------
 
-function getString(obj: Record<string, unknown>, key: string): string | undefined {
+function getString(
+  obj: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const val = obj[key];
   return val !== undefined && val !== null ? String(val) : undefined;
 }
@@ -40,7 +43,7 @@ function getObject(
   key: string,
 ): Record<string, unknown> | undefined {
   const val = obj[key];
-  if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+  if (typeof val === "object" && val !== null && !Array.isArray(val)) {
     return val as Record<string, unknown>;
   }
   return undefined;
@@ -69,15 +72,18 @@ function getStringArray(obj: Record<string, unknown>, key: string): string[] {
  * precedence at `parser.ts:136`. Returns `'unknown'` for non-SKILL.md
  * content or when neither namespace is found.
  */
-export function detectNamespace(content: string): 'openclaw' | 'agenc' | 'unknown' {
-  if (!isSkillMarkdown(content)) return 'unknown';
+export function detectNamespace(
+  content: string,
+): "openclaw" | "agenc" | "unknown" {
+  if (!isSkillMarkdown(content)) return "unknown";
 
   // Extract frontmatter between the two --- delimiters
-  const afterOpening = content.indexOf('\n') + 1;
-  const closingIndex = content.indexOf('\n---', afterOpening);
-  const frontmatter = closingIndex === -1
-    ? content.slice(afterOpening)
-    : content.slice(afterOpening, closingIndex);
+  const afterOpening = content.indexOf("\n") + 1;
+  const closingIndex = content.indexOf("\n---", afterOpening);
+  const frontmatter =
+    closingIndex === -1
+      ? content.slice(afterOpening)
+      : content.slice(afterOpening, closingIndex);
 
   let hasAgenc = false;
   let hasOpenclaw = false;
@@ -87,9 +93,9 @@ export function detectNamespace(content: string): 'openclaw' | 'agenc' | 'unknow
     if (/^\s+openclaw:\s*$/.test(line)) hasOpenclaw = true;
   }
 
-  if (hasAgenc) return 'agenc';
-  if (hasOpenclaw) return 'openclaw';
-  return 'unknown';
+  if (hasAgenc) return "agenc";
+  if (hasOpenclaw) return "openclaw";
+  return "unknown";
 }
 
 // ---------------------------------------------------------------------------
@@ -109,23 +115,25 @@ export function detectNamespace(content: string): 'openclaw' | 'agenc' | 'unknow
 export function mapOpenClawMetadata(
   openclawMeta: Record<string, unknown>,
 ): MarkdownSkillMetadata {
-  const requiresObj = getObject(openclawMeta, 'requires') ?? {};
+  const requiresObj = getObject(openclawMeta, "requires") ?? {};
   const requires: SkillRequirements = {
-    binaries: getStringArray(requiresObj, 'binaries'),
-    env: getStringArray(requiresObj, 'env'),
-    channels: getStringArray(requiresObj, 'channels'),
-    os: getStringArray(requiresObj, 'os'),
+    binaries: getStringArray(requiresObj, "binaries"),
+    env: getStringArray(requiresObj, "env"),
+    channels: getStringArray(requiresObj, "channels"),
+    os: getStringArray(requiresObj, "os"),
   };
 
-  const rawInstall = getArray(openclawMeta, 'install');
+  const rawInstall = getArray(openclawMeta, "install");
   const install: SkillInstallStep[] = [];
   for (const item of rawInstall) {
-    if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+    if (typeof item === "object" && item !== null && !Array.isArray(item)) {
       const stepObj = item as Record<string, unknown>;
-      const type = getString(stepObj, 'type') ?? '';
+      const type = getString(stepObj, "type") ?? "";
       install.push({
-        type: type as SkillInstallStep['type'],
-        ...(stepObj.package !== undefined ? { package: String(stepObj.package) } : {}),
+        type: type as SkillInstallStep["type"],
+        ...(stepObj.package !== undefined
+          ? { package: String(stepObj.package) }
+          : {}),
         ...(stepObj.url !== undefined ? { url: String(stepObj.url) } : {}),
         ...(stepObj.path !== undefined ? { path: String(stepObj.path) } : {}),
       });
@@ -133,13 +141,15 @@ export function mapOpenClawMetadata(
   }
 
   return {
-    ...(openclawMeta.emoji !== undefined ? { emoji: String(openclawMeta.emoji) } : {}),
+    ...(openclawMeta.emoji !== undefined
+      ? { emoji: String(openclawMeta.emoji) }
+      : {}),
     requires,
     ...(openclawMeta.primaryEnv !== undefined
       ? { primaryEnv: String(openclawMeta.primaryEnv) }
       : {}),
     install,
-    tags: getStringArray(openclawMeta, 'tags'),
+    tags: getStringArray(openclawMeta, "tags"),
     ...(openclawMeta.requiredCapabilities !== undefined
       ? { requiredCapabilities: String(openclawMeta.requiredCapabilities) }
       : {}),
@@ -169,27 +179,27 @@ export function mapOpenClawMetadata(
  */
 export function convertOpenClawSkill(content: string): string {
   if (!isSkillMarkdown(content)) return content;
-  if (detectNamespace(content) !== 'openclaw') return content;
+  if (detectNamespace(content) !== "openclaw") return content;
 
   // Find frontmatter boundaries
-  const afterOpening = content.indexOf('\n') + 1;
-  const closingIndex = content.indexOf('\n---', afterOpening);
+  const afterOpening = content.indexOf("\n") + 1;
+  const closingIndex = content.indexOf("\n---", afterOpening);
 
-  const frontmatter = closingIndex === -1
-    ? content.slice(afterOpening)
-    : content.slice(afterOpening, closingIndex);
+  const frontmatter =
+    closingIndex === -1
+      ? content.slice(afterOpening)
+      : content.slice(afterOpening, closingIndex);
 
   // Replace only within frontmatter, preserving indentation
-  const converted = frontmatter.replace(
-    /^(\s+)openclaw:(\s*)$/m,
-    '$1agenc:$2',
-  );
+  const converted = frontmatter.replace(/^(\s+)openclaw:(\s*)$/m, "$1agenc:$2");
 
   if (closingIndex === -1) {
     return content.slice(0, afterOpening) + converted;
   }
 
-  return content.slice(0, afterOpening) + converted + content.slice(closingIndex);
+  return (
+    content.slice(0, afterOpening) + converted + content.slice(closingIndex)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -219,38 +229,44 @@ export async function importSkill(
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new ValidationError(`Failed to fetch skill: HTTP ${response.status}`);
+      throw new ValidationError(
+        `Failed to fetch skill: HTTP ${response.status}`,
+      );
     }
-    const contentLength = response.headers.get('content-length');
+    const contentLength = response.headers.get("content-length");
     if (contentLength && Number(contentLength) > MAX_IMPORT_SIZE) {
-      throw new ValidationError('Skill file exceeds 1MB size limit');
+      throw new ValidationError("Skill file exceeds 1MB size limit");
     }
     content = await response.text();
   } else {
-    content = await readFile(source, 'utf-8');
+    content = await readFile(source, "utf-8");
   }
 
-  if (Buffer.byteLength(content, 'utf-8') > MAX_IMPORT_SIZE) {
-    throw new ValidationError('Skill file exceeds 1MB size limit');
+  if (Buffer.byteLength(content, "utf-8") > MAX_IMPORT_SIZE) {
+    throw new ValidationError("Skill file exceeds 1MB size limit");
   }
 
   const ns = detectNamespace(content);
   let converted = false;
 
-  if (ns === 'openclaw') {
+  if (ns === "openclaw") {
     content = convertOpenClawSkill(content);
     converted = true;
   }
 
   // Parse to extract skill name for the output filename
   const skill = parseSkillContent(content);
-  const rawName = skill.name || 'unnamed-skill';
+  const rawName = skill.name || "unnamed-skill";
 
   // Sanitize filename: reject path separators and traversal
-  if (rawName.includes('/') || rawName.includes('\\') || rawName.includes('..')) {
+  if (
+    rawName.includes("/") ||
+    rawName.includes("\\") ||
+    rawName.includes("..")
+  ) {
     throw new ValidationError(`Invalid skill name: "${rawName}"`);
   }
-  const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '-');
+  const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, "-");
   if (!safeName) {
     throw new ValidationError(`Invalid skill name: "${rawName}"`);
   }
@@ -258,7 +274,7 @@ export async function importSkill(
   await mkdir(targetDir, { recursive: true });
 
   const outPath = join(targetDir, `${safeName}.md`);
-  await writeFile(outPath, content, 'utf-8');
+  await writeFile(outPath, content, "utf-8");
 
   return { path: outPath, converted };
 }

@@ -9,17 +9,15 @@ export {
   MarketplaceStateError,
   MarketplaceAuthorizationError,
   MarketplaceMatchingError,
-} from './errors.js';
+} from "./errors.js";
 
 export {
   selectWinningBid,
   rankTaskBids,
   computeWeightedScore,
-} from './scoring.js';
+} from "./scoring.js";
 
-export {
-  TaskBidMarketplace,
-} from './engine.js';
+export { TaskBidMarketplace } from "./engine.js";
 
 export {
   ConservativeBidStrategy,
@@ -31,7 +29,7 @@ export {
   type BalancedBidStrategyConfig,
   type AutonomousBidderConfig,
   type PlaceBidOptions,
-} from './strategy.js';
+} from "./strategy.js";
 
 export type {
   MarketplaceMutationInput,
@@ -47,7 +45,7 @@ export type {
   TaskBidBookSnapshot,
   AcceptTaskBidResult,
   RankedTaskBid,
-} from './types.js';
+} from "./types.js";
 
 export type {
   BidStatus,
@@ -62,11 +60,9 @@ export type {
   TaskBidBookState,
   WeightedScoringBreakdown,
   TaskBidSelection,
-} from './types.js';
+} from "./types.js";
 
-export {
-  ServiceMarketplace,
-} from './service-marketplace.js';
+export { ServiceMarketplace } from "./service-marketplace.js";
 
 export type {
   ServiceRequestStatus,
@@ -84,4 +80,4 @@ export type {
   ResolveServiceDisputeInput,
   ListServiceRequestsInput,
   ServiceMarketplaceConfig,
-} from './types.js';
+} from "./types.js";

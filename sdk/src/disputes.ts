@@ -4,16 +4,16 @@ import {
   PublicKey,
   SystemProgram,
   type AccountMeta,
-} from '@solana/web3.js';
-import { type Program } from '@coral-xyz/anchor';
+} from "@solana/web3.js";
+import { type Program } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
-} from '@solana/spl-token';
-import { PROGRAM_ID, SEEDS } from './constants';
-import { getAccount } from './anchor-utils';
-import { deriveClaimPda, deriveEscrowPda } from './tasks';
-import { toBigInt, toNumber } from './utils/numeric';
+} from "@solana/spl-token";
+import { PROGRAM_ID, SEEDS } from "./constants";
+import { getAccount } from "./anchor-utils";
+import { deriveClaimPda, deriveEscrowPda } from "./tasks";
+import { toBigInt, toNumber } from "./utils/numeric";
 
 export enum DisputeStatus {
   Active = 0,
@@ -107,33 +107,39 @@ export interface DisputeState {
   defendant: PublicKey;
 }
 
-function toFixedBytes(value: Uint8Array | number[], length: number, fieldName: string): Uint8Array {
+function toFixedBytes(
+  value: Uint8Array | number[],
+  length: number,
+  fieldName: string,
+): Uint8Array {
   const bytes = value instanceof Uint8Array ? value : Uint8Array.from(value);
   if (bytes.length !== length) {
-    throw new Error(`Invalid ${fieldName} length: ${bytes.length}. Expected ${length} bytes.`);
+    throw new Error(
+      `Invalid ${fieldName} length: ${bytes.length}. Expected ${length} bytes.`,
+    );
   }
   return bytes;
 }
 
 function parseResolutionType(raw: unknown): ResolutionType {
-  if (typeof raw === 'number') return raw as ResolutionType;
-  if (raw && typeof raw === 'object') {
+  if (typeof raw === "number") return raw as ResolutionType;
+  if (raw && typeof raw === "object") {
     const enumObj = raw as Record<string, unknown>;
-    if ('refund' in enumObj) return ResolutionType.Refund;
-    if ('complete' in enumObj) return ResolutionType.Complete;
-    if ('split' in enumObj) return ResolutionType.Split;
+    if ("refund" in enumObj) return ResolutionType.Refund;
+    if ("complete" in enumObj) return ResolutionType.Complete;
+    if ("split" in enumObj) return ResolutionType.Split;
   }
   return ResolutionType.Refund;
 }
 
 function parseDisputeStatus(raw: unknown): DisputeStatus {
-  if (typeof raw === 'number') return raw as DisputeStatus;
-  if (raw && typeof raw === 'object') {
+  if (typeof raw === "number") return raw as DisputeStatus;
+  if (raw && typeof raw === "object") {
     const enumObj = raw as Record<string, unknown>;
-    if ('active' in enumObj) return DisputeStatus.Active;
-    if ('resolved' in enumObj) return DisputeStatus.Resolved;
-    if ('expired' in enumObj) return DisputeStatus.Expired;
-    if ('cancelled' in enumObj) return DisputeStatus.Cancelled;
+    if ("active" in enumObj) return DisputeStatus.Active;
+    if ("resolved" in enumObj) return DisputeStatus.Resolved;
+    if ("expired" in enumObj) return DisputeStatus.Expired;
+    if ("cancelled" in enumObj) return DisputeStatus.Cancelled;
   }
   return DisputeStatus.Active;
 }
@@ -143,9 +149,15 @@ function deriveProtocolPda(programId: PublicKey): PublicKey {
   return pda;
 }
 
-function deriveAgentPda(agentId: Uint8Array | number[], programId: PublicKey): PublicKey {
-  const idBytes = toFixedBytes(agentId, 32, 'agentId');
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.AGENT, idBytes], programId);
+function deriveAgentPda(
+  agentId: Uint8Array | number[],
+  programId: PublicKey,
+): PublicKey {
+  const idBytes = toFixedBytes(agentId, 32, "agentId");
+  const [pda] = PublicKey.findProgramAddressSync(
+    [SEEDS.AGENT, idBytes],
+    programId,
+  );
   return pda;
 }
 
@@ -262,8 +274,11 @@ export function deriveDisputePda(
   disputeId: Uint8Array | number[],
   programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
-  const idBytes = toFixedBytes(disputeId, 32, 'disputeId');
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.DISPUTE, idBytes], programId);
+  const idBytes = toFixedBytes(disputeId, 32, "disputeId");
+  const [pda] = PublicKey.findProgramAddressSync(
+    [SEEDS.DISPUTE, idBytes],
+    programId,
+  );
   return pda;
 }
 
@@ -287,14 +302,18 @@ export async function initiateDispute(
   params: InitiateDisputeParams,
 ): Promise<{ disputePda: PublicKey; txSignature: string }> {
   const programId = program.programId;
-  const disputeId = toFixedBytes(params.disputeId, 32, 'disputeId');
-  const taskId = toFixedBytes(params.taskId, 32, 'taskId');
-  const evidenceHash = toFixedBytes(params.evidenceHash, 32, 'evidenceHash');
+  const disputeId = toFixedBytes(params.disputeId, 32, "disputeId");
+  const taskId = toFixedBytes(params.taskId, 32, "taskId");
+  const evidenceHash = toFixedBytes(params.evidenceHash, 32, "evidenceHash");
 
   const disputePda = deriveDisputePda(disputeId, programId);
   const protocolPda = deriveProtocolPda(programId);
   const initiatorAgentPda = deriveAgentPda(initiatorAgentId, programId);
-  const derivedClaimPda = deriveClaimPda(params.taskPda, initiatorAgentPda, programId);
+  const derivedClaimPda = deriveClaimPda(
+    params.taskPda,
+    initiatorAgentPda,
+    programId,
+  );
 
   const builder = program.methods
     .initiateDispute(
@@ -312,7 +331,7 @@ export async function initiateDispute(
       initiatorClaim:
         params.initiatorClaimPda === undefined
           ? derivedClaimPda
-          : params.initiatorClaimPda ?? undefined,
+          : (params.initiatorClaimPda ?? undefined),
       workerAgent: params.workerAgentPda ?? undefined,
       workerClaim: params.workerClaimPda ?? undefined,
       authority: initiator.publicKey,
@@ -322,7 +341,10 @@ export async function initiateDispute(
 
   const remainingAccounts = buildRemainingAccounts(
     undefined,
-    params.defendantWorkers?.map((pair) => ({ claimPda: pair.claimPda, agentPda: pair.workerPda })),
+    params.defendantWorkers?.map((pair) => ({
+      claimPda: pair.claimPda,
+      agentPda: pair.workerPda,
+    })),
   );
 
   if (remainingAccounts.length > 0) {
@@ -330,7 +352,7 @@ export async function initiateDispute(
   }
 
   const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { disputePda, txSignature: tx };
 }
@@ -346,7 +368,11 @@ export async function voteDispute(
   const protocolPda = deriveProtocolPda(programId);
   const voterAgentPda = deriveAgentPda(voterAgentId, programId);
   const votePda = deriveVotePda(params.disputePda, voterAgentPda, programId);
-  const authorityVotePda = deriveAuthorityVotePda(params.disputePda, voter.publicKey, programId);
+  const authorityVotePda = deriveAuthorityVotePda(
+    params.disputePda,
+    voter.publicKey,
+    programId,
+  );
 
   const tx = await program.methods
     .voteDispute(params.approve)
@@ -365,7 +391,7 @@ export async function voteDispute(
     .signers([voter])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { votePda, txSignature: tx };
 }
@@ -380,8 +406,12 @@ export async function resolveDispute(
   const protocolPda = deriveProtocolPda(programId);
   const escrowPda = deriveEscrowPda(params.taskPda, programId);
 
-  const task = (await getAccount(program, 'task').fetch(params.taskPda)) as { rewardMint: PublicKey | null };
-  const protocolConfig = (await getAccount(program, 'protocolConfig').fetch(protocolPda)) as {
+  const task = (await getAccount(program, "task").fetch(params.taskPda)) as {
+    rewardMint: PublicKey | null;
+  };
+  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
     treasury: PublicKey;
   };
 
@@ -410,13 +440,16 @@ export async function resolveDispute(
     })
     .signers([resolver]);
 
-  const remainingAccounts = buildRemainingAccounts(params.arbiterPairs, params.workerPairs);
+  const remainingAccounts = buildRemainingAccounts(
+    params.arbiterPairs,
+    params.workerPairs,
+  );
   if (remainingAccounts.length > 0) {
     builder.remainingAccounts(remainingAccounts);
   }
 
   const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { txSignature: tx };
 }
@@ -431,8 +464,12 @@ export async function applyDisputeSlash(
   const protocolPda = deriveProtocolPda(programId);
   const escrowPda = deriveEscrowPda(params.taskPda, programId);
 
-  const task = (await getAccount(program, 'task').fetch(params.taskPda)) as { rewardMint: PublicKey | null };
-  const protocolConfig = (await getAccount(program, 'protocolConfig').fetch(protocolPda)) as {
+  const task = (await getAccount(program, "task").fetch(params.taskPda)) as {
+    rewardMint: PublicKey | null;
+  };
+  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
     treasury: PublicKey;
   };
 
@@ -456,7 +493,7 @@ export async function applyDisputeSlash(
     .signers([payer])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -467,7 +504,9 @@ export async function applyInitiatorSlash(
   params: ApplyInitiatorSlashParams,
 ): Promise<{ txSignature: string }> {
   const protocolPda = deriveProtocolPda(program.programId);
-  const protocolConfig = (await getAccount(program, 'protocolConfig').fetch(protocolPda)) as {
+  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
     treasury: PublicKey;
   };
 
@@ -483,7 +522,7 @@ export async function applyInitiatorSlash(
     .signers([payer])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -515,7 +554,7 @@ export async function cancelDispute(
   }
 
   const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -528,7 +567,9 @@ export async function expireDispute(
   const protocolPda = deriveProtocolPda(program.programId);
   const escrowPda = deriveEscrowPda(params.taskPda, program.programId);
 
-  const task = (await getAccount(program, 'task').fetch(params.taskPda)) as { rewardMint: PublicKey | null };
+  const task = (await getAccount(program, "task").fetch(params.taskPda)) as {
+    rewardMint: PublicKey | null;
+  };
   const tokenAccounts = buildExpireTokenAccounts(
     task.rewardMint ?? null,
     escrowPda,
@@ -551,13 +592,16 @@ export async function expireDispute(
     })
     .signers([caller]);
 
-  const remainingAccounts = buildRemainingAccounts(params.arbiterPairs, params.workerPairs);
+  const remainingAccounts = buildRemainingAccounts(
+    params.arbiterPairs,
+    params.workerPairs,
+  );
   if (remainingAccounts.length > 0) {
     builder.remainingAccounts(remainingAccounts);
   }
 
   const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -566,15 +610,24 @@ export async function getDispute(
   disputePda: PublicKey,
 ): Promise<DisputeState | null> {
   try {
-    const raw = (await getAccount(program, 'dispute').fetch(disputePda)) as Record<string, unknown>;
+    const raw = (await getAccount(program, "dispute").fetch(
+      disputePda,
+    )) as Record<string, unknown>;
 
     return {
-      disputeId: new Uint8Array((raw.disputeId ?? raw.dispute_id ?? []) as number[]),
+      disputeId: new Uint8Array(
+        (raw.disputeId ?? raw.dispute_id ?? []) as number[],
+      ),
       task: raw.task as PublicKey,
       initiator: raw.initiator as PublicKey,
-      initiatorAuthority: (raw.initiatorAuthority ?? raw.initiator_authority) as PublicKey,
-      evidenceHash: new Uint8Array((raw.evidenceHash ?? raw.evidence_hash ?? []) as number[]),
-      resolutionType: parseResolutionType(raw.resolutionType ?? raw.resolution_type),
+      initiatorAuthority: (raw.initiatorAuthority ??
+        raw.initiator_authority) as PublicKey,
+      evidenceHash: new Uint8Array(
+        (raw.evidenceHash ?? raw.evidence_hash ?? []) as number[],
+      ),
+      resolutionType: parseResolutionType(
+        raw.resolutionType ?? raw.resolution_type,
+      ),
       status: parseDisputeStatus(raw.status),
       createdAt: toNumber(raw.createdAt ?? raw.created_at),
       resolvedAt: toNumber(raw.resolvedAt ?? raw.resolved_at),
@@ -584,15 +637,24 @@ export async function getDispute(
       votingDeadline: toNumber(raw.votingDeadline ?? raw.voting_deadline),
       expiresAt: toNumber(raw.expiresAt ?? raw.expires_at),
       slashApplied: Boolean(raw.slashApplied ?? raw.slash_applied),
-      initiatorSlashApplied: Boolean(raw.initiatorSlashApplied ?? raw.initiator_slash_applied),
-      workerStakeAtDispute: toBigInt(raw.workerStakeAtDispute ?? raw.worker_stake_at_dispute),
-      initiatedByCreator: Boolean(raw.initiatedByCreator ?? raw.initiated_by_creator),
+      initiatorSlashApplied: Boolean(
+        raw.initiatorSlashApplied ?? raw.initiator_slash_applied,
+      ),
+      workerStakeAtDispute: toBigInt(
+        raw.workerStakeAtDispute ?? raw.worker_stake_at_dispute,
+      ),
+      initiatedByCreator: Boolean(
+        raw.initiatedByCreator ?? raw.initiated_by_creator,
+      ),
       bump: toNumber(raw.bump),
       defendant: raw.defendant as PublicKey,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('Account does not exist') || message.includes('could not find account')) {
+    if (
+      message.includes("Account does not exist") ||
+      message.includes("could not find account")
+    ) {
       return null;
     }
     throw error;

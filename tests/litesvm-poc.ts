@@ -17,7 +17,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import {
   createMint,
   createAssociatedTokenAccount,
@@ -44,11 +49,13 @@ import {
 } from "./test-utils";
 
 describe("litesvm-poc", () => {
-  const { svm, provider, program, payer } = createLiteSVMContext({ splTokens: true });
+  const { svm, provider, program, payer } = createLiteSVMContext({
+    splTokens: true,
+  });
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   let treasury: Keypair;
@@ -81,14 +88,10 @@ describe("litesvm-poc", () => {
       const programDataPda = deriveProgramDataPda(program.programId);
 
       await program.methods
-        .initializeProtocol(
-          51,
-          100,
-          minStake,
-          minStakeForDispute,
-          1,
-          [provider.wallet.publicKey, secondSigner.publicKey]
-        )
+        .initializeProtocol(51, 100, minStake, minStakeForDispute, 1, [
+          provider.wallet.publicKey,
+          secondSigner.publicKey,
+        ])
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: secondSigner.publicKey,
@@ -104,7 +107,9 @@ describe("litesvm-poc", () => {
 
       // Verify protocol was initialized
       const config = await program.account.protocolConfig.fetch(protocolPda);
-      expect(config.treasury.toBase58()).to.equal(secondSigner.publicKey.toBase58());
+      expect(config.treasury.toBase58()).to.equal(
+        secondSigner.publicKey.toBase58(),
+      );
       expect(config.protocolFeeBps).to.equal(100);
     });
 
@@ -115,11 +120,15 @@ describe("litesvm-poc", () => {
           0,
           new BN(0),
           0,
-          new BN(MIN_DISPUTE_STAKE_LAMPORTS)
+          new BN(MIN_DISPUTE_STAKE_LAMPORTS),
         )
         .accountsPartial({ protocolConfig: protocolPda })
         .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+          {
+            pubkey: provider.wallet.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
         .rpc();
     });
@@ -128,7 +137,7 @@ describe("litesvm-poc", () => {
       const agentId = Buffer.from("poc-agent-creator".padEnd(32, "\0"));
       const [agentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), agentId],
-        program.programId
+        program.programId,
       );
 
       await program.methods
@@ -137,7 +146,7 @@ describe("litesvm-poc", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://creator.example.com",
           null,
-          new BN(LAMPORTS_PER_SOL / 100)
+          new BN(LAMPORTS_PER_SOL / 100),
         )
         .accountsPartial({
           agent: agentPda,
@@ -156,7 +165,7 @@ describe("litesvm-poc", () => {
       const workerAgentId = Buffer.from("poc-agent-worker".padEnd(32, "\0"));
       const [workerAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), workerAgentId],
-        program.programId
+        program.programId,
       );
 
       await program.methods
@@ -165,7 +174,7 @@ describe("litesvm-poc", () => {
           new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
           "https://worker.example.com",
           null,
-          new BN(LAMPORTS_PER_SOL / 100)
+          new BN(LAMPORTS_PER_SOL / 100),
         )
         .accountsPartial({
           agent: workerAgentPda,
@@ -179,16 +188,16 @@ describe("litesvm-poc", () => {
       const creatorAgentId = Buffer.from("poc-agent-creator".padEnd(32, "\0"));
       const [creatorAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), creatorAgentId],
-        program.programId
+        program.programId,
       );
       const taskId = Buffer.from("poc-task-001".padEnd(32, "\0"));
       const [taskPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), creator.publicKey.toBuffer(), taskId],
-        program.programId
+        program.programId,
       );
       const [escrowPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       const reward = LAMPORTS_PER_SOL;
@@ -230,7 +239,7 @@ describe("litesvm-poc", () => {
       // Claim task
       const [claimPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), taskPda.toBuffer(), workerAgentPda.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       await program.methods
@@ -249,7 +258,9 @@ describe("litesvm-poc", () => {
       // Complete task
       const proofHash = Array.from(Buffer.from("proof".padEnd(32, "\0")));
 
-      const balanceBefore = await provider.connection.getBalance(worker.publicKey);
+      const balanceBefore = await provider.connection.getBalance(
+        worker.publicKey,
+      );
 
       await program.methods
         .completeTask(proofHash, null)
@@ -276,7 +287,9 @@ describe("litesvm-poc", () => {
       expect(completedTask.completions).to.equal(1);
 
       // Verify worker received reward
-      const balanceAfter = await provider.connection.getBalance(worker.publicKey);
+      const balanceAfter = await provider.connection.getBalance(
+        worker.publicKey,
+      );
       expect(balanceAfter).to.be.greaterThan(balanceBefore);
     });
 
@@ -326,7 +339,7 @@ describe("litesvm-poc", () => {
         payerKp,
         payerKp.publicKey,
         null,
-        6
+        6,
       );
       expect(mint).to.be.instanceOf(PublicKey);
     });
@@ -337,7 +350,7 @@ describe("litesvm-poc", () => {
         provider.connection,
         payerKp,
         mint,
-        payerKp.publicKey
+        payerKp.publicKey,
       );
       expect(payerAta).to.be.instanceOf(PublicKey);
     });
@@ -350,7 +363,7 @@ describe("litesvm-poc", () => {
         mint,
         payerAta,
         payerKp,
-        1_000_000_000 // 1000 tokens with 6 decimals
+        1_000_000_000, // 1000 tokens with 6 decimals
       );
 
       const account = await getAccount(provider.connection, payerAta);

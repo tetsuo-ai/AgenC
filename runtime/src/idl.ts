@@ -11,14 +11,14 @@
  * Anchor handles the snake_case to camelCase mapping internally.
  */
 
-import { Program, AnchorProvider, Idl } from '@coral-xyz/anchor';
-import { Connection, PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID } from '@agenc/sdk';
+import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { PROGRAM_ID } from "@agenc/sdk";
 
 // Import IDL type from Anchor-generated TypeScript file (for Program<T> generic)
-import type { AgencCoordination } from './types/agenc_coordination';
+import type { AgencCoordination } from "./types/agenc_coordination";
 // Import IDL JSON data (tsconfig has resolveJsonModule: true)
-import idlJson from '../idl/agenc_coordination.json';
+import idlJson from "../idl/agenc_coordination.json";
 
 /** Re-export the IDL type for Program<T> generics */
 export type { AgencCoordination };
@@ -53,14 +53,14 @@ const READ_ONLY_PLACEHOLDER_PUBKEY = new PublicKey(new Uint8Array(32).fill(1));
 export function validateIdl(idl: Idl = IDL): void {
   if (!idl.address) {
     throw new Error(
-      'IDL is missing program address. The IDL file may be corrupted or from an older Anchor version. ' +
-      'Run "anchor build" to regenerate the IDL.'
+      "IDL is missing program address. The IDL file may be corrupted or from an older Anchor version. " +
+        'Run "anchor build" to regenerate the IDL.',
     );
   }
   if (!idl.instructions || idl.instructions.length === 0) {
     throw new Error(
-      'IDL has no instructions. The IDL file may be corrupted. ' +
-      'Run "anchor build" to regenerate the IDL.'
+      "IDL has no instructions. The IDL file may be corrupted. " +
+        'Run "anchor build" to regenerate the IDL.',
     );
   }
 }
@@ -92,13 +92,17 @@ function createReadOnlyProvider(connection: Connection): AnchorProvider {
     {
       publicKey: READ_ONLY_PLACEHOLDER_PUBKEY,
       signTransaction: async () => {
-        throw new Error('Cannot sign with read-only program. Use createProgram() instead.');
+        throw new Error(
+          "Cannot sign with read-only program. Use createProgram() instead.",
+        );
       },
       signAllTransactions: async () => {
-        throw new Error('Cannot sign with read-only program. Use createProgram() instead.');
+        throw new Error(
+          "Cannot sign with read-only program. Use createProgram() instead.",
+        );
       },
     },
-    { commitment: 'confirmed' }
+    { commitment: "confirmed" },
   );
 }
 
@@ -118,12 +122,15 @@ function createReadOnlyProvider(connection: Connection): AnchorProvider {
  */
 export function createProgram(
   provider: AnchorProvider,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): Program<AgencCoordination> {
   validateIdl();
   // Cast to AgencCoordination for type-safe Program access
   // Anchor's Program class handles snake_case ↔ camelCase mapping internally
-  return new Program<AgencCoordination>(getIdlForProgram(programId) as AgencCoordination, provider);
+  return new Program<AgencCoordination>(
+    getIdlForProgram(programId) as AgencCoordination,
+    provider,
+  );
 }
 
 /**
@@ -143,10 +150,13 @@ export function createProgram(
  */
 export function createReadOnlyProgram(
   connection: Connection,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): Program<AgencCoordination> {
   validateIdl();
   // Cast to AgencCoordination for type-safe Program access
   // Anchor's Program class handles snake_case ↔ camelCase mapping internally
-  return new Program<AgencCoordination>(getIdlForProgram(programId) as AgencCoordination, createReadOnlyProvider(connection));
+  return new Program<AgencCoordination>(
+    getIdlForProgram(programId) as AgencCoordination,
+    createReadOnlyProvider(connection),
+  );
 }

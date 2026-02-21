@@ -1,14 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import type { MatchingPolicyConfig } from '@agenc/sdk';
+import { describe, expect, it } from "vitest";
+import type { MatchingPolicyConfig } from "@agenc/sdk";
 import {
   MarketplaceMatchingError,
   MarketplaceAuthorizationError,
   MarketplaceStateError,
   MarketplaceValidationError,
-} from './errors.js';
-import { TaskBidMarketplace } from './engine.js';
+} from "./errors.js";
+import { TaskBidMarketplace } from "./engine.js";
 
-function makeMarketplace(config: ConstructorParameters<typeof TaskBidMarketplace>[0] = {}) {
+function makeMarketplace(
+  config: ConstructorParameters<typeof TaskBidMarketplace>[0] = {},
+) {
   let nowMs = 1_000;
   const marketplace = new TaskBidMarketplace({
     now: () => nowMs,
@@ -24,16 +26,16 @@ function makeMarketplace(config: ConstructorParameters<typeof TaskBidMarketplace
   };
 }
 
-describe('TaskBidMarketplace', () => {
-  it('enforces create/update/cancel authorization', () => {
+describe("TaskBidMarketplace", () => {
+  it("enforces create/update/cancel authorization", () => {
     const { marketplace } = makeMarketplace();
 
     expect(() =>
       marketplace.createBid({
-        actorId: 'intruder',
+        actorId: "intruder",
         bid: {
-          taskId: 'task-1',
-          bidderId: 'bidder-1',
+          taskId: "task-1",
+          bidderId: "bidder-1",
           rewardLamports: 100n,
           etaSeconds: 60,
           confidenceBps: 7_000,
@@ -43,10 +45,10 @@ describe('TaskBidMarketplace', () => {
     ).toThrow(MarketplaceAuthorizationError);
 
     const created = marketplace.createBid({
-      actorId: 'bidder-1',
+      actorId: "bidder-1",
       bid: {
-        taskId: 'task-1',
-        bidderId: 'bidder-1',
+        taskId: "task-1",
+        bidderId: "bidder-1",
         rewardLamports: 100n,
         etaSeconds: 60,
         confidenceBps: 7_000,
@@ -56,8 +58,8 @@ describe('TaskBidMarketplace', () => {
 
     expect(() =>
       marketplace.updateBid({
-        actorId: 'someone-else',
-        taskId: 'task-1',
+        actorId: "someone-else",
+        taskId: "task-1",
         bidId: created.bidId,
         patch: { rewardLamports: 90n },
       }),
@@ -65,21 +67,21 @@ describe('TaskBidMarketplace', () => {
 
     expect(() =>
       marketplace.cancelBid({
-        actorId: 'someone-else',
-        taskId: 'task-1',
+        actorId: "someone-else",
+        taskId: "task-1",
         bidId: created.bidId,
       }),
     ).toThrow(MarketplaceAuthorizationError);
   });
 
-  it('supports lifecycle transitions and idempotent cancel', () => {
+  it("supports lifecycle transitions and idempotent cancel", () => {
     const { marketplace } = makeMarketplace();
 
     const bid = marketplace.createBid({
-      actorId: 'b1',
+      actorId: "b1",
       bid: {
-        taskId: 'task-2',
-        bidderId: 'b1',
+        taskId: "task-2",
+        bidderId: "b1",
         rewardLamports: 100n,
         etaSeconds: 40,
         confidenceBps: 8_000,
@@ -88,8 +90,8 @@ describe('TaskBidMarketplace', () => {
     });
 
     const updated = marketplace.updateBid({
-      actorId: 'b1',
-      taskId: 'task-2',
+      actorId: "b1",
+      taskId: "task-2",
       bidId: bid.bidId,
       patch: {
         rewardLamports: 95n,
@@ -101,40 +103,40 @@ describe('TaskBidMarketplace', () => {
     expect(updated.etaSeconds).toBe(35);
 
     const cancelled = marketplace.cancelBid({
-      actorId: 'b1',
-      taskId: 'task-2',
+      actorId: "b1",
+      taskId: "task-2",
       bidId: bid.bidId,
     });
-    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.status).toBe("cancelled");
 
     const cancelledAgain = marketplace.cancelBid({
-      actorId: 'b1',
-      taskId: 'task-2',
+      actorId: "b1",
+      taskId: "task-2",
       bidId: bid.bidId,
     });
-    expect(cancelledAgain.status).toBe('cancelled');
+    expect(cancelledAgain.status).toBe("cancelled");
 
     expect(() =>
       marketplace.updateBid({
-        actorId: 'b1',
-        taskId: 'task-2',
+        actorId: "b1",
+        taskId: "task-2",
         bidId: bid.bidId,
         patch: { rewardLamports: 80n },
       }),
     ).toThrow(MarketplaceStateError);
   });
 
-  it('enforces selection authorization and atomic acceptance', () => {
+  it("enforces selection authorization and atomic acceptance", () => {
     const { marketplace } = makeMarketplace();
 
-    marketplace.setTaskOwner({ taskId: 'task-3', ownerId: 'creator-1' });
+    marketplace.setTaskOwner({ taskId: "task-3", ownerId: "creator-1" });
 
     const a = marketplace.createBid({
-      actorId: 'b1',
-      taskOwnerId: 'creator-1',
+      actorId: "b1",
+      taskOwnerId: "creator-1",
       bid: {
-        taskId: 'task-3',
-        bidderId: 'b1',
+        taskId: "task-3",
+        bidderId: "b1",
         rewardLamports: 100n,
         etaSeconds: 50,
         confidenceBps: 7_000,
@@ -142,11 +144,11 @@ describe('TaskBidMarketplace', () => {
       },
     });
     const b = marketplace.createBid({
-      actorId: 'b2',
-      taskOwnerId: 'creator-1',
+      actorId: "b2",
+      taskOwnerId: "creator-1",
       bid: {
-        taskId: 'task-3',
-        bidderId: 'b2',
+        taskId: "task-3",
+        bidderId: "b2",
         rewardLamports: 90n,
         etaSeconds: 60,
         confidenceBps: 7_100,
@@ -156,39 +158,39 @@ describe('TaskBidMarketplace', () => {
 
     expect(() =>
       marketplace.acceptBid({
-        actorId: 'unauthorized',
-        taskId: 'task-3',
+        actorId: "unauthorized",
+        taskId: "task-3",
         bidId: a.bidId,
       }),
     ).toThrow(MarketplaceAuthorizationError);
 
     const accepted = marketplace.acceptBid({
-      actorId: 'creator-1',
-      taskId: 'task-3',
+      actorId: "creator-1",
+      taskId: "task-3",
       bidId: b.bidId,
     });
 
     expect(accepted.acceptedBid.bidId).toBe(b.bidId);
     expect(accepted.rejectedBidIds).toEqual([a.bidId]);
 
-    const allBids = marketplace.listBids({ taskId: 'task-3' });
+    const allBids = marketplace.listBids({ taskId: "task-3" });
     const bidA = allBids.find((item) => item.bidId === a.bidId)!;
     const bidB = allBids.find((item) => item.bidId === b.bidId)!;
-    expect(bidA.status).toBe('rejected');
-    expect(bidB.status).toBe('accepted');
+    expect(bidA.status).toBe("rejected");
+    expect(bidB.status).toBe("accepted");
   });
 
-  it('enforces OCC race protection on accept', () => {
+  it("enforces OCC race protection on accept", () => {
     const { marketplace } = makeMarketplace();
 
-    marketplace.setTaskOwner({ taskId: 'task-4', ownerId: 'creator' });
+    marketplace.setTaskOwner({ taskId: "task-4", ownerId: "creator" });
 
     const a = marketplace.createBid({
-      actorId: 'b1',
-      taskOwnerId: 'creator',
+      actorId: "b1",
+      taskOwnerId: "creator",
       bid: {
-        taskId: 'task-4',
-        bidderId: 'b1',
+        taskId: "task-4",
+        bidderId: "b1",
         rewardLamports: 100n,
         etaSeconds: 60,
         confidenceBps: 7_000,
@@ -196,11 +198,11 @@ describe('TaskBidMarketplace', () => {
       },
     });
     const b = marketplace.createBid({
-      actorId: 'b2',
-      taskOwnerId: 'creator',
+      actorId: "b2",
+      taskOwnerId: "creator",
       bid: {
-        taskId: 'task-4',
-        bidderId: 'b2',
+        taskId: "task-4",
+        bidderId: "b2",
         rewardLamports: 120n,
         etaSeconds: 50,
         confidenceBps: 8_000,
@@ -208,11 +210,11 @@ describe('TaskBidMarketplace', () => {
       },
     });
 
-    const state = marketplace.getTaskState('task-4')!;
+    const state = marketplace.getTaskState("task-4")!;
 
     const first = marketplace.acceptBid({
-      actorId: 'creator',
-      taskId: 'task-4',
+      actorId: "creator",
+      taskId: "task-4",
       bidId: a.bidId,
       expectedVersion: state.taskVersion,
     });
@@ -221,22 +223,22 @@ describe('TaskBidMarketplace', () => {
 
     expect(() =>
       marketplace.acceptBid({
-        actorId: 'creator',
-        taskId: 'task-4',
+        actorId: "creator",
+        taskId: "task-4",
         bidId: b.bidId,
         expectedVersion: state.taskVersion,
       }),
-    ).toThrow('version mismatch');
+    ).toThrow("version mismatch");
   });
 
-  it('handles lazy expiry projection and expiry boundary deterministically', () => {
+  it("handles lazy expiry projection and expiry boundary deterministically", () => {
     const { marketplace, setNow } = makeMarketplace();
 
     const created = marketplace.createBid({
-      actorId: 'bidder',
+      actorId: "bidder",
       bid: {
-        taskId: 'task-5',
-        bidderId: 'bidder',
+        taskId: "task-5",
+        bidderId: "bidder",
         rewardLamports: 100n,
         etaSeconds: 30,
         confidenceBps: 8_000,
@@ -244,31 +246,34 @@ describe('TaskBidMarketplace', () => {
       },
     });
 
-    const stateBefore = marketplace.getTaskState('task-5')!;
+    const stateBefore = marketplace.getTaskState("task-5")!;
     setNow(1_001);
 
-    const projected = marketplace.listBids({ taskId: 'task-5', includeExpiredProjection: true });
-    expect(projected[0].status).toBe('expired');
+    const projected = marketplace.listBids({
+      taskId: "task-5",
+      includeExpiredProjection: true,
+    });
+    expect(projected[0].status).toBe("expired");
 
-    const stateAfterRead = marketplace.getTaskState('task-5')!;
+    const stateAfterRead = marketplace.getTaskState("task-5")!;
     expect(stateAfterRead.taskVersion).toBe(stateBefore.taskVersion);
 
     expect(() =>
       marketplace.updateBid({
-        actorId: 'bidder',
-        taskId: 'task-5',
+        actorId: "bidder",
+        taskId: "task-5",
         bidId: created.bidId,
         patch: { etaSeconds: 20 },
       }),
-    ).toThrow('cannot update bid');
+    ).toThrow("cannot update bid");
 
-    const persisted = marketplace.listBids({ taskId: 'task-5' })[0];
-    expect(persisted.status).toBe('expired');
+    const persisted = marketplace.listBids({ taskId: "task-5" })[0];
+    expect(persisted.status).toBe("expired");
   });
 
-  it('supports deterministic policies and insertion-order invariance', () => {
+  it("supports deterministic policies and insertion-order invariance", () => {
     const policyWeighted: MatchingPolicyConfig = {
-      policy: 'weighted_score',
+      policy: "weighted_score",
       weights: {
         priceWeightBps: 4_000,
         etaWeightBps: 3_000,
@@ -285,16 +290,34 @@ describe('TaskBidMarketplace', () => {
     }).marketplace;
 
     const bids = [
-      { bidderId: 'a', rewardLamports: 95n, etaSeconds: 80, confidenceBps: 8_300, reliabilityBps: 8_100 },
-      { bidderId: 'b', rewardLamports: 90n, etaSeconds: 100, confidenceBps: 9_200, reliabilityBps: 8_600 },
-      { bidderId: 'c', rewardLamports: 100n, etaSeconds: 60, confidenceBps: 7_500, reliabilityBps: 8_500 },
+      {
+        bidderId: "a",
+        rewardLamports: 95n,
+        etaSeconds: 80,
+        confidenceBps: 8_300,
+        reliabilityBps: 8_100,
+      },
+      {
+        bidderId: "b",
+        rewardLamports: 90n,
+        etaSeconds: 100,
+        confidenceBps: 9_200,
+        reliabilityBps: 8_600,
+      },
+      {
+        bidderId: "c",
+        rewardLamports: 100n,
+        etaSeconds: 60,
+        confidenceBps: 7_500,
+        reliabilityBps: 8_500,
+      },
     ] as const;
 
     for (const bid of bids) {
       m1.createBid({
         actorId: bid.bidderId,
         bid: {
-          taskId: 'task-6',
+          taskId: "task-6",
           bidderId: bid.bidderId,
           rewardLamports: bid.rewardLamports,
           etaSeconds: bid.etaSeconds,
@@ -309,7 +332,7 @@ describe('TaskBidMarketplace', () => {
       m2.createBid({
         actorId: bid.bidderId,
         bid: {
-          taskId: 'task-6',
+          taskId: "task-6",
           bidderId: bid.bidderId,
           rewardLamports: bid.rewardLamports,
           etaSeconds: bid.etaSeconds,
@@ -320,19 +343,23 @@ describe('TaskBidMarketplace', () => {
       });
     }
 
-    expect(m1.selectWinner({ taskId: 'task-6', policy: { policy: 'best_price' } })?.bid.bidderId)
-      .toBe('b');
-    expect(m1.selectWinner({ taskId: 'task-6', policy: { policy: 'best_eta' } })?.bid.bidderId)
-      .toBe('c');
+    expect(
+      m1.selectWinner({ taskId: "task-6", policy: { policy: "best_price" } })
+        ?.bid.bidderId,
+    ).toBe("b");
+    expect(
+      m1.selectWinner({ taskId: "task-6", policy: { policy: "best_eta" } })?.bid
+        .bidderId,
+    ).toBe("c");
 
-    const w1 = m1.selectWinner({ taskId: 'task-6', policy: policyWeighted });
-    const w2 = m2.selectWinner({ taskId: 'task-6', policy: policyWeighted });
+    const w1 = m1.selectWinner({ taskId: "task-6", policy: policyWeighted });
+    const w2 = m2.selectWinner({ taskId: "task-6", policy: policyWeighted });
 
     expect(w1?.bid.bidderId).toBe(w2?.bid.bidderId);
     expect(w1?.weightedBreakdown?.totalScore).toBeDefined();
   });
 
-  it('enforces anti-spam limits and bounded rate tracking', () => {
+  it("enforces anti-spam limits and bounded rate tracking", () => {
     const { marketplace, setNow } = makeMarketplace({
       antiSpam: {
         maxActiveBidsPerBidderPerTask: 1,
@@ -342,10 +369,10 @@ describe('TaskBidMarketplace', () => {
     });
 
     marketplace.createBid({
-      actorId: 'b1',
+      actorId: "b1",
       bid: {
-        taskId: 'task-7',
-        bidderId: 'b1',
+        taskId: "task-7",
+        bidderId: "b1",
         rewardLamports: 100n,
         etaSeconds: 50,
         confidenceBps: 8_000,
@@ -355,42 +382,42 @@ describe('TaskBidMarketplace', () => {
 
     expect(() =>
       marketplace.createBid({
-        actorId: 'b1',
+        actorId: "b1",
         bid: {
-          taskId: 'task-7',
-          bidderId: 'b1',
+          taskId: "task-7",
+          bidderId: "b1",
           rewardLamports: 99n,
           etaSeconds: 40,
           confidenceBps: 8_000,
           expiresAtMs: 2_000,
         },
       }),
-    ).toThrow('max active bids per task');
+    ).toThrow("max active bids per task");
 
     setNow(1_050);
 
     expect(() =>
       marketplace.createBid({
-        actorId: 'b1',
+        actorId: "b1",
         bid: {
-          taskId: 'task-7',
-          bidderId: 'b1',
+          taskId: "task-7",
+          bidderId: "b1",
           rewardLamports: 99n,
           etaSeconds: 40,
           confidenceBps: 8_000,
           expiresAtMs: 3_000,
         },
       }),
-    ).toThrow('rate limit');
+    ).toThrow("rate limit");
 
     setNow(2_200);
 
     expect(() =>
       marketplace.createBid({
-        actorId: 'b2',
+        actorId: "b2",
         bid: {
-          taskId: 'task-7',
-          bidderId: 'b2',
+          taskId: "task-7",
+          bidderId: "b2",
           rewardLamports: 90n,
           etaSeconds: 30,
           confidenceBps: 9_000,
@@ -400,16 +427,16 @@ describe('TaskBidMarketplace', () => {
     ).not.toThrow();
   });
 
-  it('rejects generated bid id collisions and invalid weighted configs', () => {
+  it("rejects generated bid id collisions and invalid weighted configs", () => {
     const { marketplace } = makeMarketplace({
-      bidIdGenerator: () => 'duplicate-bid-id',
+      bidIdGenerator: () => "duplicate-bid-id",
     });
 
     marketplace.createBid({
-      actorId: 'b1',
+      actorId: "b1",
       bid: {
-        taskId: 'task-8',
-        bidderId: 'b1',
+        taskId: "task-8",
+        bidderId: "b1",
         rewardLamports: 100n,
         etaSeconds: 10,
         confidenceBps: 8_000,
@@ -419,23 +446,23 @@ describe('TaskBidMarketplace', () => {
 
     expect(() =>
       marketplace.createBid({
-        actorId: 'b2',
+        actorId: "b2",
         bid: {
-          taskId: 'task-8',
-          bidderId: 'b2',
+          taskId: "task-8",
+          bidderId: "b2",
           rewardLamports: 90n,
           etaSeconds: 12,
           confidenceBps: 8_100,
           expiresAtMs: 5_000,
         },
       }),
-    ).toThrow('collision');
+    ).toThrow("collision");
 
     expect(() =>
       marketplace.selectWinner({
-        taskId: 'task-8',
+        taskId: "task-8",
         policy: {
-          policy: 'weighted_score',
+          policy: "weighted_score",
           weights: {
             priceWeightBps: 5_000,
             etaWeightBps: 5_000,
@@ -447,14 +474,14 @@ describe('TaskBidMarketplace', () => {
     ).toThrow(MarketplaceMatchingError);
   });
 
-  it('handles bigint values in best-price comparisons', () => {
+  it("handles bigint values in best-price comparisons", () => {
     const { marketplace } = makeMarketplace();
 
     marketplace.createBid({
-      actorId: 'large-a',
+      actorId: "large-a",
       bid: {
-        taskId: 'task-9',
-        bidderId: 'large-a',
+        taskId: "task-9",
+        bidderId: "large-a",
         rewardLamports: 9_223_372_036_854_775_807n,
         etaSeconds: 10,
         confidenceBps: 7_000,
@@ -463,10 +490,10 @@ describe('TaskBidMarketplace', () => {
     });
 
     marketplace.createBid({
-      actorId: 'large-b',
+      actorId: "large-b",
       bid: {
-        taskId: 'task-9',
-        bidderId: 'large-b',
+        taskId: "task-9",
+        bidderId: "large-b",
         rewardLamports: 9_223_372_036_854_775_000n,
         etaSeconds: 10,
         confidenceBps: 7_000,
@@ -475,24 +502,24 @@ describe('TaskBidMarketplace', () => {
     });
 
     const winner = marketplace.selectWinner({
-      taskId: 'task-9',
-      policy: { policy: 'best_price' },
+      taskId: "task-9",
+      policy: { policy: "best_price" },
     });
 
-    expect(winner?.bid.bidderId).toBe('large-b');
+    expect(winner?.bid.bidderId).toBe("large-b");
   });
 
-  it('validates bond minimum and non-negative fields', () => {
+  it("validates bond minimum and non-negative fields", () => {
     const { marketplace } = makeMarketplace({
       antiSpam: { minBondLamports: 10n },
     });
 
     expect(() =>
       marketplace.createBid({
-        actorId: 'bidder',
+        actorId: "bidder",
         bid: {
-          taskId: 'task-10',
-          bidderId: 'bidder',
+          taskId: "task-10",
+          bidderId: "bidder",
           rewardLamports: -1n,
           etaSeconds: 10,
           confidenceBps: 8_000,
@@ -503,10 +530,10 @@ describe('TaskBidMarketplace', () => {
 
     expect(() =>
       marketplace.createBid({
-        actorId: 'bidder',
+        actorId: "bidder",
         bid: {
-          taskId: 'task-10',
-          bidderId: 'bidder',
+          taskId: "task-10",
+          bidderId: "bidder",
           rewardLamports: 100n,
           etaSeconds: 10,
           confidenceBps: 8_000,
@@ -514,6 +541,6 @@ describe('TaskBidMarketplace', () => {
           expiresAtMs: 2_000,
         },
       }),
-    ).toThrow('below minimum');
+    ).toThrow("below minimum");
   });
 });

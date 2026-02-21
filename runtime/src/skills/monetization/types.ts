@@ -5,9 +5,9 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Logger } from '../../utils/logger.js';
-import type { SkillPurchaseManager } from '../registry/payment.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Logger } from "../../utils/logger.js";
+import type { SkillPurchaseManager } from "../registry/payment.js";
 
 // ============================================================================
 // Constants
@@ -41,9 +41,9 @@ export const MAX_ANALYTICS_ENTRIES_PER_SKILL = 10_000;
 // Subscription Types
 // ============================================================================
 
-export type SubscriptionPeriod = 'monthly' | 'yearly';
+export type SubscriptionPeriod = "monthly" | "yearly";
 
-export type SubscriptionStatus = 'trial' | 'active' | 'expired' | 'cancelled';
+export type SubscriptionStatus = "trial" | "active" | "expired" | "cancelled";
 
 /**
  * Pricing configuration for a skill's subscription model.

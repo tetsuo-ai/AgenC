@@ -3,12 +3,12 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
-import { derivePda } from '../utils/pda.js';
-import type { PdaWithBump } from '../utils/pda.js';
+import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { derivePda } from "../utils/pda.js";
+import type { PdaWithBump } from "../utils/pda.js";
 
-export type { PdaWithBump } from '../utils/pda.js';
+export type { PdaWithBump } from "../utils/pda.js";
 
 /**
  * Derives the governance config PDA and bump seed.
@@ -40,7 +40,10 @@ export function deriveProposalPda(
 ): PdaWithBump {
   const nonceBuffer = Buffer.alloc(8);
   nonceBuffer.writeBigUInt64LE(nonce);
-  return derivePda([SEEDS.PROPOSAL, proposerPda.toBuffer(), nonceBuffer], programId);
+  return derivePda(
+    [SEEDS.PROPOSAL, proposerPda.toBuffer(), nonceBuffer],
+    programId,
+  );
 }
 
 /**
@@ -64,7 +67,11 @@ export function deriveGovernanceVotePda(
   programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
   return derivePda(
-    [SEEDS.GOVERNANCE_VOTE, proposalPda.toBuffer(), voterAuthorityPubkey.toBuffer()],
+    [
+      SEEDS.GOVERNANCE_VOTE,
+      proposalPda.toBuffer(),
+      voterAuthorityPubkey.toBuffer(),
+    ],
     programId,
   );
 }
@@ -77,5 +84,6 @@ export function findGovernanceVotePda(
   voterAuthorityPubkey: PublicKey,
   programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
-  return deriveGovernanceVotePda(proposalPda, voterAuthorityPubkey, programId).address;
+  return deriveGovernanceVotePda(proposalPda, voterAuthorityPubkey, programId)
+    .address;
 }

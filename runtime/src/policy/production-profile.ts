@@ -13,7 +13,7 @@ import type {
   ProductionRedactionPolicy,
   RuntimePolicyConfig,
   SpendBudgetRule,
-} from './types.js';
+} from "./types.js";
 
 export interface ProductionReadinessCheck {
   /** Unique identifier for the readiness check. */
@@ -23,7 +23,7 @@ export interface ProductionReadinessCheck {
   /** Human-readable status message. */
   message: string;
   /** Check severity. */
-  severity: 'critical' | 'high' | 'medium';
+  severity: "critical" | "high" | "medium";
 }
 
 export interface ProductionProfileConfig {
@@ -40,15 +40,15 @@ export interface ProductionProfileConfig {
 }
 
 const PRODUCTION_ACTION_BUDGETS: Record<string, PolicyBudgetRule> = {
-  'tx_submission:*': {
+  "tx_submission:*": {
     limit: 100,
     windowMs: 60_000,
   },
-  'task_claim:*': {
+  "task_claim:*": {
     limit: 50,
     windowMs: 60_000,
   },
-  'tool_call:*': {
+  "tool_call:*": {
     limit: 200,
     windowMs: 60_000,
   },
@@ -63,7 +63,7 @@ const PRODUCTION_CIRCUIT_BREAKER: CircuitBreakerConfig = {
   enabled: true,
   threshold: 10,
   windowMs: 300_000,
-  mode: 'safe_mode',
+  mode: "safe_mode",
 };
 
 /** Default production policy configuration. */
@@ -99,11 +99,11 @@ export const PRODUCTION_EVIDENCE_RETENTION: EvidenceRetentionPolicy = {
 export const PRODUCTION_REDACTION: ProductionRedactionPolicy = {
   redactActors: true,
   alwaysStripFields: [
-    'payload.onchain.trace',
-    'payload.secretKey',
-    'payload.privateKey',
+    "payload.onchain.trace",
+    "payload.secretKey",
+    "payload.privateKey",
   ],
-  redactPatterns: ['[1-9A-HJ-NP-Za-km-z]{44,}'],
+  redactPatterns: ["[1-9A-HJ-NP-Za-km-z]{44,}"],
 };
 
 /** Default deletion defaults for production. */
@@ -171,58 +171,60 @@ export function validateProductionReadiness(
 ): ProductionReadinessCheck[] {
   return [
     {
-      id: 'policy.enabled',
+      id: "policy.enabled",
       passed: config.policy.enabled === true,
       message:
         config.policy.enabled === true
-          ? 'Policy engine is enabled'
-          : 'Policy engine must be enabled in production',
-      severity: 'critical',
+          ? "Policy engine is enabled"
+          : "Policy engine must be enabled in production",
+      severity: "critical",
     },
     {
-      id: 'policy.max_risk_score',
-      passed: typeof config.policy.maxRiskScore === 'number' && config.policy.maxRiskScore <= 0.8,
+      id: "policy.max_risk_score",
+      passed:
+        typeof config.policy.maxRiskScore === "number" &&
+        config.policy.maxRiskScore <= 0.8,
       message:
         config.policy.maxRiskScore === undefined
-          ? 'Max risk score is unset'
+          ? "Max risk score is unset"
           : `Max risk score: ${config.policy.maxRiskScore}`,
-      severity: 'high',
+      severity: "high",
     },
     {
-      id: 'policy.circuit_breaker',
+      id: "policy.circuit_breaker",
       passed: config.policy.circuitBreaker?.enabled === true,
       message:
         config.policy.circuitBreaker?.enabled === true
-          ? 'Circuit breaker is enabled'
-          : 'Circuit breaker should be enabled',
-      severity: 'high',
+          ? "Circuit breaker is enabled"
+          : "Circuit breaker should be enabled",
+      severity: "high",
     },
     {
-      id: 'endpoint.require_https',
+      id: "endpoint.require_https",
       passed: config.endpointExposure.requireHttps === true,
       message:
         config.endpointExposure.requireHttps === true
-          ? 'HTTPS required'
-          : 'HTTPS is not required',
-      severity: 'critical',
+          ? "HTTPS required"
+          : "HTTPS is not required",
+      severity: "critical",
     },
     {
-      id: 'evidence.sealed_export',
+      id: "evidence.sealed_export",
       passed: config.evidenceRetention.requireSealedExport === true,
       message:
         config.evidenceRetention.requireSealedExport === true
-          ? 'Sealed evidence export required'
-          : 'Sealed evidence export is not required',
-      severity: 'medium',
+          ? "Sealed evidence export required"
+          : "Sealed evidence export is not required",
+      severity: "medium",
     },
     {
-      id: 'redaction.actors',
+      id: "redaction.actors",
       passed: config.redaction.redactActors === true,
       message:
         config.redaction.redactActors === true
-          ? 'Actor redaction enabled'
-          : 'Actor redaction disabled',
-      severity: 'medium',
+          ? "Actor redaction enabled"
+          : "Actor redaction disabled",
+      severity: "medium",
     },
   ];
 }

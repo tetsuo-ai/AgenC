@@ -6,8 +6,8 @@
  * type level when using the generic Idl.
  */
 
-import { PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
+import { PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
 
 /**
  * Dynamic account accessor returned by Anchor's `program.account[name]`.
@@ -15,7 +15,7 @@ import type { Program } from '@coral-xyz/anchor';
 export type AccountFetcher = {
   fetch: (key: PublicKey) => Promise<unknown>;
   all: (
-    filters?: Array<{ memcmp: { offset: number; bytes: string } }>
+    filters?: Array<{ memcmp: { offset: number; bytes: string } }>,
   ) => Promise<Array<{ account: unknown; publicKey: PublicKey }>>;
 };
 
@@ -24,12 +24,15 @@ export type AccountFetcher = {
  * Throws with a helpful message listing available accounts if the name is invalid.
  */
 export function getAccount(program: Program, name: string): AccountFetcher {
-  const accounts = program.account as Record<string, AccountFetcher | undefined>;
+  const accounts = program.account as Record<
+    string,
+    AccountFetcher | undefined
+  >;
   const account = accounts[name];
   if (!account) {
     throw new Error(
       `Account "${name}" not found in program. ` +
-      `Available accounts: ${Object.keys(accounts).join(', ') || 'none'}`
+        `Available accounts: ${Object.keys(accounts).join(", ") || "none"}`,
     );
   }
   return account;

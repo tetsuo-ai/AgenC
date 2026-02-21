@@ -11,7 +11,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -31,7 +36,12 @@ import {
   disableRateLimitsForTests,
   ensureAgentRegistered,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount, getClockTimestamp, advanceClock } from "./litesvm-helpers";
+import {
+  createLiteSVMContext,
+  fundAccount,
+  getClockTimestamp,
+  advanceClock,
+} from "./litesvm-helpers";
 
 describe("governance (issue #1106)", () => {
   const { svm, provider, program, payer } = createLiteSVMContext();
@@ -39,7 +49,8 @@ describe("governance (issue #1106)", () => {
   const protocolPda = deriveProtocolPda(program.programId);
   const governanceConfigPda = deriveGovernanceConfigPda(program.programId);
 
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const runId =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   let secondSigner: Keypair;
   let treasury: Keypair;
@@ -62,9 +73,9 @@ describe("governance (issue #1106)", () => {
   let nonProposerAgentPda: PublicKey;
 
   // Governance parameters
-  const VOTING_PERIOD = 300;     // 5 minutes (short for tests)
-  const EXECUTION_DELAY = 60;    // 1 minute
-  const QUORUM_BPS = 1000;       // 10%
+  const VOTING_PERIOD = 300; // 5 minutes (short for tests)
+  const EXECUTION_DELAY = 60; // 1 minute
+  const QUORUM_BPS = 1000; // 10%
   const APPROVAL_THRESHOLD_BPS = 5001; // >50%
   // Vote weight = min(stake, 10*min_arbiter_stake) * reputation / MAX_REPUTATION
   // With min_arbiter_stake=0.01SOL and reputation=5000, weight = 0.1SOL * 0.5 = 50M lamports
@@ -78,7 +89,10 @@ describe("governance (issue #1106)", () => {
     return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
   }
 
-  const airdrop = (wallets: Keypair[], amount: number = 100 * LAMPORTS_PER_SOL) => {
+  const airdrop = (
+    wallets: Keypair[],
+    amount: number = 100 * LAMPORTS_PER_SOL,
+  ) => {
     for (const wallet of wallets) {
       fundAccount(svm, wallet.publicKey, amount);
     }
@@ -186,7 +200,15 @@ describe("governance (issue #1106)", () => {
     voter3AgentId = makeId("gvot3");
     nonProposerAgentId = makeId("gnonp");
 
-    airdrop([secondSigner, treasury, proposer, voter1, voter2, voter3, nonProposer]);
+    airdrop([
+      secondSigner,
+      treasury,
+      proposer,
+      voter1,
+      voter2,
+      voter3,
+      nonProposer,
+    ]);
 
     // Initialize protocol
     try {
@@ -196,10 +218,10 @@ describe("governance (issue #1106)", () => {
         .initializeProtocol(
           51,
           100,
-          new BN(LAMPORTS_PER_SOL / 100),  // min_stake
-          new BN(LAMPORTS_PER_SOL / 100),   // min_stake_for_dispute
+          new BN(LAMPORTS_PER_SOL / 100), // min_stake
+          new BN(LAMPORTS_PER_SOL / 100), // min_stake_for_dispute
           1,
-          [provider.wallet.publicKey, secondSigner.publicKey]
+          [provider.wallet.publicKey, secondSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -208,7 +230,13 @@ describe("governance (issue #1106)", () => {
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([secondSigner])
         .rpc();
     }
@@ -296,8 +324,11 @@ describe("governance (issue #1106)", () => {
         })
         .rpc();
 
-      const config = await program.account.governanceConfig.fetch(governanceConfigPda);
-      expect(config.authority.toBase58()).to.equal(provider.wallet.publicKey.toBase58());
+      const config =
+        await program.account.governanceConfig.fetch(governanceConfigPda);
+      expect(config.authority.toBase58()).to.equal(
+        provider.wallet.publicKey.toBase58(),
+      );
       expect(config.votingPeriod.toNumber()).to.equal(VOTING_PERIOD);
       expect(config.executionDelay.toNumber()).to.equal(EXECUTION_DELAY);
       expect(config.quorumBps).to.equal(QUORUM_BPS);
@@ -372,11 +403,19 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(200, 0); // 200 bps = 2%
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
       const proposal = await program.account.proposal.fetch(proposalPda);
 
-      expect(proposal.proposer.toBase58()).to.equal(proposerAgentPda.toBase58());
-      expect(proposal.proposerAuthority.toBase58()).to.equal(proposer.publicKey.toBase58());
+      expect(proposal.proposer.toBase58()).to.equal(
+        proposerAgentPda.toBase58(),
+      );
+      expect(proposal.proposerAuthority.toBase58()).to.equal(
+        proposer.publicKey.toBase58(),
+      );
       expect(proposal.nonce.toNumber()).to.equal(nonce);
       expect(proposal.proposalType).to.deep.include({ feeChange: {} });
       expect(proposal.status).to.deep.include({ active: {} });
@@ -384,7 +423,9 @@ describe("governance (issue #1106)", () => {
       expect(proposal.votesAgainst.toNumber()).to.equal(0);
       expect(proposal.totalVoters).to.equal(0);
       expect(proposal.quorum.toNumber()).to.be.greaterThan(0);
-      expect(proposal.executionAfter.toNumber()).to.be.greaterThan(proposal.votingDeadline.toNumber());
+      expect(proposal.executionAfter.toNumber()).to.be.greaterThan(
+        proposal.votingDeadline.toNumber(),
+      );
     });
 
     it("should create a RateLimitChange proposal", async () => {
@@ -399,7 +440,11 @@ describe("governance (issue #1106)", () => {
       // max_disputes_per_24h = 5 (u8 at offset 17)
       payload.writeUInt8(5, 17);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_RATE_LIMIT_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_RATE_LIMIT_CHANGE,
+        payload,
+      );
       const proposal = await program.account.proposal.fetch(proposalPda);
       expect(proposal.proposalType).to.deep.include({ rateLimitChange: {} });
     });
@@ -408,7 +453,11 @@ describe("governance (issue #1106)", () => {
       const nonce = proposalNonce++;
       const payload = Buffer.alloc(64);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_PROTOCOL_UPGRADE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_PROTOCOL_UPGRADE,
+        payload,
+      );
       const proposal = await program.account.proposal.fetch(proposalPda);
       expect(proposal.proposalType).to.deep.include({ protocolUpgrade: {} });
     });
@@ -459,14 +508,16 @@ describe("governance (issue #1106)", () => {
     });
 
     it("should increment governance total_proposals counter", async () => {
-      const configBefore = await program.account.governanceConfig.fetch(governanceConfigPda);
+      const configBefore =
+        await program.account.governanceConfig.fetch(governanceConfigPda);
       const countBefore = configBefore.totalProposals.toNumber();
 
       const nonce = proposalNonce++;
       const payload = Buffer.alloc(64);
       await createProposal(nonce, PROPOSAL_TYPE_PROTOCOL_UPGRADE, payload);
 
-      const configAfter = await program.account.governanceConfig.fetch(governanceConfigPda);
+      const configAfter =
+        await program.account.governanceConfig.fetch(governanceConfigPda);
       expect(configAfter.totalProposals.toNumber()).to.equal(countBefore + 1);
     });
   });
@@ -483,11 +534,20 @@ describe("governance (issue #1106)", () => {
       const nonce = votingProposalNonce++;
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(150, 0); // 1.5% fee change
-      votingProposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      votingProposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
     });
 
     it("should cast an approval vote", async () => {
-      const votePda = await voteOnProposal(votingProposalPda, voter1, voter1AgentPda, true);
+      const votePda = await voteOnProposal(
+        votingProposalPda,
+        voter1,
+        voter1AgentPda,
+        true,
+      );
       const vote = await program.account.governanceVote.fetch(votePda);
 
       expect(vote.proposal.toBase58()).to.equal(votingProposalPda.toBase58());
@@ -497,7 +557,12 @@ describe("governance (issue #1106)", () => {
     });
 
     it("should cast a rejection vote", async () => {
-      const votePda = await voteOnProposal(votingProposalPda, voter2, voter2AgentPda, false);
+      const votePda = await voteOnProposal(
+        votingProposalPda,
+        voter2,
+        voter2AgentPda,
+        false,
+      );
       const vote = await program.account.governanceVote.fetch(votePda);
 
       expect(vote.approved).to.be.false;
@@ -527,7 +592,11 @@ describe("governance (issue #1106)", () => {
       const nonce = votingProposalNonce++;
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(150, 0);
-      const freshPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const freshPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
 
       // Advance past voting period
       advanceClock(svm, VOTING_PERIOD + 10);
@@ -558,7 +627,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(NEW_FEE_BPS, 0);
 
-      feeProposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      feeProposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
 
       // Vote to approve
       await voteOnProposal(feeProposalPda, voter1, voter1AgentPda, true);
@@ -567,7 +640,8 @@ describe("governance (issue #1106)", () => {
       advanceClock(svm, VOTING_PERIOD + EXECUTION_DELAY + 10);
 
       // Fetch protocol config before
-      const configBefore = await program.account.protocolConfig.fetch(protocolPda);
+      const configBefore =
+        await program.account.protocolConfig.fetch(protocolPda);
       const feeBefore = configBefore.protocolFeeBps;
 
       await executeProposal(feeProposalPda);
@@ -578,7 +652,8 @@ describe("governance (issue #1106)", () => {
       expect(proposal.executedAt.toNumber()).to.be.greaterThan(0);
 
       // Verify protocol fee was updated
-      const configAfter = await program.account.protocolConfig.fetch(protocolPda);
+      const configAfter =
+        await program.account.protocolConfig.fetch(protocolPda);
       expect(configAfter.protocolFeeBps).to.equal(NEW_FEE_BPS);
     });
   });
@@ -604,7 +679,11 @@ describe("governance (issue #1106)", () => {
       // min_stake_for_dispute = 0.5 SOL
       payload.writeBigUInt64LE(BigInt(LAMPORTS_PER_SOL / 2), 18);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_RATE_LIMIT_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_RATE_LIMIT_CHANGE,
+        payload,
+      );
 
       // Vote to approve
       await voteOnProposal(proposalPda, voter2, voter2AgentPda, true);
@@ -616,27 +695,44 @@ describe("governance (issue #1106)", () => {
 
       // Verify proposal executed
       const proposal = await program.account.proposal.fetch(proposalPda);
-      expect(JSON.stringify(proposal.status), "RateLimitChange proposal should be executed").to.equal(
-        JSON.stringify({ executed: {} }),
-      );
+      expect(
+        JSON.stringify(proposal.status),
+        "RateLimitChange proposal should be executed",
+      ).to.equal(JSON.stringify({ executed: {} }));
 
       // Verify rate limits were updated on protocol config
       // Note: Anchor camelCase converts "max_tasks_per_24h" → "maxTasksPer24H" (capital H)
-      const config = await program.account.protocolConfig.fetch(protocolPda) as any;
+      const config = (await program.account.protocolConfig.fetch(
+        protocolPda,
+      )) as any;
       expect(config.taskCreationCooldown.toNumber()).to.equal(30);
       expect(config.maxTasksPer24H).to.equal(20);
       expect(config.disputeInitiationCooldown.toNumber()).to.equal(60);
       expect(config.maxDisputesPer24H).to.equal(10);
-      expect(config.minStakeForDispute.toNumber()).to.equal(LAMPORTS_PER_SOL / 2);
+      expect(config.minStakeForDispute.toNumber()).to.equal(
+        LAMPORTS_PER_SOL / 2,
+      );
     });
 
     after(async () => {
       // Reset rate limits so subsequent tests aren't affected
       try {
         await program.methods
-          .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(LAMPORTS_PER_SOL / 100))
+          .updateRateLimits(
+            new BN(0),
+            0,
+            new BN(0),
+            0,
+            new BN(LAMPORTS_PER_SOL / 100),
+          )
           .accountsPartial({ protocolConfig: protocolPda })
-          .remainingAccounts([{ pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false }])
+          .remainingAccounts([
+            {
+              pubkey: provider.wallet.publicKey,
+              isSigner: true,
+              isWritable: false,
+            },
+          ])
           .rpc();
       } catch {
         // Best effort
@@ -656,7 +752,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(300, 0); // 3% fee
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
 
       // Vote against
       await voteOnProposal(proposalPda, voter1, voter1AgentPda, false);
@@ -676,7 +776,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(100, 0);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
 
       // Advance past voting + timelock — no votes cast
       advanceClock(svm, VOTING_PERIOD + EXECUTION_DELAY + 10);
@@ -701,7 +805,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(100, 0);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
       await voteOnProposal(proposalPda, voter2, voter2AgentPda, true);
 
       const propBefore = await program.account.proposal.fetch(proposalPda);
@@ -721,7 +829,9 @@ describe("governance (issue #1106)", () => {
         await executeProposal(proposalPda);
         expect.fail("Should have thrown — timelock not elapsed");
       } catch (err: any) {
-        expect(err.message || err.toString()).to.not.equal("Should have thrown — timelock not elapsed");
+        expect(err.message || err.toString()).to.not.equal(
+          "Should have thrown — timelock not elapsed",
+        );
       }
 
       // Proposal should still be Active
@@ -735,7 +845,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(100, 0);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
       await voteOnProposal(proposalPda, voter2, voter2AgentPda, true);
 
       const propBefore = await program.account.proposal.fetch(proposalPda);
@@ -765,7 +879,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(100, 0);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
 
       await program.methods
         .cancelProposal()
@@ -785,7 +903,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(100, 0);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
 
       try {
         await program.methods
@@ -798,7 +920,13 @@ describe("governance (issue #1106)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err: any) {
-        expect(errorContainsAny(err, ["ProposalUnauthorizedCancel", "ConstraintRaw", "Unauthorized"])).to.be.true;
+        expect(
+          errorContainsAny(err, [
+            "ProposalUnauthorizedCancel",
+            "ConstraintRaw",
+            "Unauthorized",
+          ]),
+        ).to.be.true;
       }
     });
 
@@ -807,7 +935,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       payload.writeUInt16LE(100, 0);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_FEE_CHANGE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_FEE_CHANGE,
+        payload,
+      );
 
       // Cast a vote
       await voteOnProposal(proposalPda, voter3, voter3AgentPda, true);
@@ -823,7 +955,8 @@ describe("governance (issue #1106)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err: any) {
-        expect(errorContainsAny(err, ["ProposalVotingEnded", "VotingEnded"])).to.be.true;
+        expect(errorContainsAny(err, ["ProposalVotingEnded", "VotingEnded"])).to
+          .be.true;
       }
     });
   });
@@ -840,7 +973,11 @@ describe("governance (issue #1106)", () => {
       const payload = Buffer.alloc(64);
       // Payload is informational for upgrades — just needs to exist
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_PROTOCOL_UPGRADE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_PROTOCOL_UPGRADE,
+        payload,
+      );
 
       // Vote to approve
       await voteOnProposal(proposalPda, voter1, voter1AgentPda, true);
@@ -866,7 +1003,11 @@ describe("governance (issue #1106)", () => {
       const nonce = edgeNonce++;
       const payload = Buffer.alloc(64);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_PROTOCOL_UPGRADE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_PROTOCOL_UPGRADE,
+        payload,
+      );
       await voteOnProposal(proposalPda, voter2, voter2AgentPda, true);
 
       advanceClock(svm, VOTING_PERIOD + EXECUTION_DELAY + 10);
@@ -878,7 +1019,9 @@ describe("governance (issue #1106)", () => {
         expect.fail("Should have thrown");
       } catch (err: any) {
         // In LiteSVM, errors may be raw SendTransactionError
-        expect(err.message || err.toString()).to.not.equal("Should have thrown");
+        expect(err.message || err.toString()).to.not.equal(
+          "Should have thrown",
+        );
       }
     });
 
@@ -886,7 +1029,11 @@ describe("governance (issue #1106)", () => {
       const nonce = edgeNonce++;
       const payload = Buffer.alloc(64);
 
-      const proposalPda = await createProposal(nonce, PROPOSAL_TYPE_PROTOCOL_UPGRADE, payload);
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_PROTOCOL_UPGRADE,
+        payload,
+      );
 
       // Cancel it
       await program.methods
@@ -924,7 +1071,11 @@ describe("governance (issue #1106)", () => {
             new BN(VOTING_PERIOD),
           )
           .accountsPartial({
-            proposal: deriveProposalPda(proposerAgentPda, nonce, program.programId),
+            proposal: deriveProposalPda(
+              proposerAgentPda,
+              nonce,
+              program.programId,
+            ),
             proposer: proposerAgentPda,
             protocolConfig: protocolPda,
             governanceConfig: governanceConfigPda,

@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { describe, it, expect } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import {
   isTokenTask,
   buildCompleteTaskTokenAccounts,
@@ -8,7 +12,7 @@ import {
   buildExpireDisputeTokenAccounts,
   buildApplyDisputeSlashTokenAccounts,
   buildCreateTaskTokenAccounts,
-} from './token.js';
+} from "./token.js";
 
 // ============================================================================
 // Fixtures
@@ -28,16 +32,16 @@ const TREASURY = Keypair.generate().publicKey;
 // isTokenTask
 // ============================================================================
 
-describe('isTokenTask', () => {
-  it('returns false for null', () => {
+describe("isTokenTask", () => {
+  it("returns false for null", () => {
     expect(isTokenTask(null)).toBe(false);
   });
 
-  it('returns false for undefined', () => {
+  it("returns false for undefined", () => {
     expect(isTokenTask(undefined)).toBe(false);
   });
 
-  it('returns true for a PublicKey', () => {
+  it("returns true for a PublicKey", () => {
     expect(isTokenTask(MINT)).toBe(true);
   });
 });
@@ -46,9 +50,14 @@ describe('isTokenTask', () => {
 // buildCompleteTaskTokenAccounts
 // ============================================================================
 
-describe('buildCompleteTaskTokenAccounts', () => {
-  it('returns all nulls for SOL task (null mint)', () => {
-    const result = buildCompleteTaskTokenAccounts(null, ESCROW_PDA, WORKER, TREASURY);
+describe("buildCompleteTaskTokenAccounts", () => {
+  it("returns all nulls for SOL task (null mint)", () => {
+    const result = buildCompleteTaskTokenAccounts(
+      null,
+      ESCROW_PDA,
+      WORKER,
+      TREASURY,
+    );
 
     expect(result.tokenEscrowAta).toBeNull();
     expect(result.workerTokenAccount).toBeNull();
@@ -57,15 +66,25 @@ describe('buildCompleteTaskTokenAccounts', () => {
     expect(result.tokenProgram).toBeNull();
   });
 
-  it('returns all nulls for SOL task (undefined mint)', () => {
-    const result = buildCompleteTaskTokenAccounts(undefined, ESCROW_PDA, WORKER, TREASURY);
+  it("returns all nulls for SOL task (undefined mint)", () => {
+    const result = buildCompleteTaskTokenAccounts(
+      undefined,
+      ESCROW_PDA,
+      WORKER,
+      TREASURY,
+    );
 
     expect(result.tokenEscrowAta).toBeNull();
     expect(result.rewardMint).toBeNull();
   });
 
-  it('returns correct ATAs for token task', () => {
-    const result = buildCompleteTaskTokenAccounts(MINT, ESCROW_PDA, WORKER, TREASURY);
+  it("returns correct ATAs for token task", () => {
+    const result = buildCompleteTaskTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      WORKER,
+      TREASURY,
+    );
 
     expect(result.tokenEscrowAta).toEqual(
       getAssociatedTokenAddressSync(MINT, ESCROW_PDA, true),
@@ -80,8 +99,13 @@ describe('buildCompleteTaskTokenAccounts', () => {
     expect(result.tokenProgram).toEqual(TOKEN_PROGRAM_ID);
   });
 
-  it('escrow ATA uses allowOwnerOffCurve', () => {
-    const result = buildCompleteTaskTokenAccounts(MINT, ESCROW_PDA, WORKER, TREASURY);
+  it("escrow ATA uses allowOwnerOffCurve", () => {
+    const result = buildCompleteTaskTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      WORKER,
+      TREASURY,
+    );
     // PDA-owned ATAs require allowOwnerOffCurve=true
     const expected = getAssociatedTokenAddressSync(MINT, ESCROW_PDA, true);
     expect(result.tokenEscrowAta).toEqual(expected);
@@ -92,9 +116,15 @@ describe('buildCompleteTaskTokenAccounts', () => {
 // buildResolveDisputeTokenAccounts
 // ============================================================================
 
-describe('buildResolveDisputeTokenAccounts', () => {
-  it('returns all nulls for SOL task', () => {
-    const result = buildResolveDisputeTokenAccounts(null, ESCROW_PDA, CREATOR, WORKER, TREASURY);
+describe("buildResolveDisputeTokenAccounts", () => {
+  it("returns all nulls for SOL task", () => {
+    const result = buildResolveDisputeTokenAccounts(
+      null,
+      ESCROW_PDA,
+      CREATOR,
+      WORKER,
+      TREASURY,
+    );
 
     expect(result.tokenEscrowAta).toBeNull();
     expect(result.creatorTokenAccount).toBeNull();
@@ -104,8 +134,14 @@ describe('buildResolveDisputeTokenAccounts', () => {
     expect(result.tokenProgram).toBeNull();
   });
 
-  it('returns correct ATAs for token task with worker', () => {
-    const result = buildResolveDisputeTokenAccounts(MINT, ESCROW_PDA, CREATOR, WORKER, TREASURY);
+  it("returns correct ATAs for token task with worker", () => {
+    const result = buildResolveDisputeTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      CREATOR,
+      WORKER,
+      TREASURY,
+    );
 
     expect(result.tokenEscrowAta).toEqual(
       getAssociatedTokenAddressSync(MINT, ESCROW_PDA, true),
@@ -123,8 +159,14 @@ describe('buildResolveDisputeTokenAccounts', () => {
     expect(result.tokenProgram).toEqual(TOKEN_PROGRAM_ID);
   });
 
-  it('returns null workerTokenAccountAta when worker is null', () => {
-    const result = buildResolveDisputeTokenAccounts(MINT, ESCROW_PDA, CREATOR, null, TREASURY);
+  it("returns null workerTokenAccountAta when worker is null", () => {
+    const result = buildResolveDisputeTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      CREATOR,
+      null,
+      TREASURY,
+    );
 
     expect(result.workerTokenAccountAta).toBeNull();
     // Other fields should still be set
@@ -138,9 +180,14 @@ describe('buildResolveDisputeTokenAccounts', () => {
 // buildExpireDisputeTokenAccounts
 // ============================================================================
 
-describe('buildExpireDisputeTokenAccounts', () => {
-  it('returns all nulls for SOL task', () => {
-    const result = buildExpireDisputeTokenAccounts(null, ESCROW_PDA, CREATOR, WORKER);
+describe("buildExpireDisputeTokenAccounts", () => {
+  it("returns all nulls for SOL task", () => {
+    const result = buildExpireDisputeTokenAccounts(
+      null,
+      ESCROW_PDA,
+      CREATOR,
+      WORKER,
+    );
 
     expect(result.tokenEscrowAta).toBeNull();
     expect(result.creatorTokenAccount).toBeNull();
@@ -149,14 +196,24 @@ describe('buildExpireDisputeTokenAccounts', () => {
     expect(result.tokenProgram).toBeNull();
   });
 
-  it('does NOT include treasuryTokenAccount', () => {
-    const result = buildExpireDisputeTokenAccounts(MINT, ESCROW_PDA, CREATOR, WORKER);
+  it("does NOT include treasuryTokenAccount", () => {
+    const result = buildExpireDisputeTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      CREATOR,
+      WORKER,
+    );
 
-    expect(result).not.toHaveProperty('treasuryTokenAccount');
+    expect(result).not.toHaveProperty("treasuryTokenAccount");
   });
 
-  it('returns correct ATAs for token task', () => {
-    const result = buildExpireDisputeTokenAccounts(MINT, ESCROW_PDA, CREATOR, WORKER);
+  it("returns correct ATAs for token task", () => {
+    const result = buildExpireDisputeTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      CREATOR,
+      WORKER,
+    );
 
     expect(result.tokenEscrowAta).toEqual(
       getAssociatedTokenAddressSync(MINT, ESCROW_PDA, true),
@@ -171,8 +228,13 @@ describe('buildExpireDisputeTokenAccounts', () => {
     expect(result.tokenProgram).toEqual(TOKEN_PROGRAM_ID);
   });
 
-  it('returns null workerTokenAccountAta when worker is null', () => {
-    const result = buildExpireDisputeTokenAccounts(MINT, ESCROW_PDA, CREATOR, null);
+  it("returns null workerTokenAccountAta when worker is null", () => {
+    const result = buildExpireDisputeTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      CREATOR,
+      null,
+    );
 
     expect(result.workerTokenAccountAta).toBeNull();
     expect(result.tokenEscrowAta).not.toBeNull();
@@ -183,9 +245,13 @@ describe('buildExpireDisputeTokenAccounts', () => {
 // buildApplyDisputeSlashTokenAccounts
 // ============================================================================
 
-describe('buildApplyDisputeSlashTokenAccounts', () => {
-  it('returns all nulls for SOL task', () => {
-    const result = buildApplyDisputeSlashTokenAccounts(null, ESCROW_PDA, TREASURY);
+describe("buildApplyDisputeSlashTokenAccounts", () => {
+  it("returns all nulls for SOL task", () => {
+    const result = buildApplyDisputeSlashTokenAccounts(
+      null,
+      ESCROW_PDA,
+      TREASURY,
+    );
 
     expect(result.escrow).toBeNull();
     expect(result.tokenEscrowAta).toBeNull();
@@ -194,8 +260,12 @@ describe('buildApplyDisputeSlashTokenAccounts', () => {
     expect(result.tokenProgram).toBeNull();
   });
 
-  it('returns escrow + ATAs for token task', () => {
-    const result = buildApplyDisputeSlashTokenAccounts(MINT, ESCROW_PDA, TREASURY);
+  it("returns escrow + ATAs for token task", () => {
+    const result = buildApplyDisputeSlashTokenAccounts(
+      MINT,
+      ESCROW_PDA,
+      TREASURY,
+    );
 
     expect(result.escrow).toEqual(ESCROW_PDA);
     expect(result.tokenEscrowAta).toEqual(
@@ -213,8 +283,8 @@ describe('buildApplyDisputeSlashTokenAccounts', () => {
 // buildCreateTaskTokenAccounts
 // ============================================================================
 
-describe('buildCreateTaskTokenAccounts', () => {
-  it('returns all nulls for SOL task', () => {
+describe("buildCreateTaskTokenAccounts", () => {
+  it("returns all nulls for SOL task", () => {
     const result = buildCreateTaskTokenAccounts(null, ESCROW_PDA, CREATOR);
 
     expect(result.rewardMint).toBeNull();
@@ -224,7 +294,7 @@ describe('buildCreateTaskTokenAccounts', () => {
     expect(result.associatedTokenProgram).toBeNull();
   });
 
-  it('returns correct ATAs and programs for token task', () => {
+  it("returns correct ATAs and programs for token task", () => {
     const result = buildCreateTaskTokenAccounts(MINT, ESCROW_PDA, CREATOR);
 
     expect(result.rewardMint).toEqual(MINT);
@@ -238,7 +308,7 @@ describe('buildCreateTaskTokenAccounts', () => {
     expect(result.associatedTokenProgram).toEqual(ASSOCIATED_TOKEN_PROGRAM_ID);
   });
 
-  it('includes associatedTokenProgram (unlike other builders)', () => {
+  it("includes associatedTokenProgram (unlike other builders)", () => {
     const result = buildCreateTaskTokenAccounts(MINT, ESCROW_PDA, CREATOR);
     expect(result.associatedTokenProgram).toEqual(ASSOCIATED_TOKEN_PROGRAM_ID);
   });

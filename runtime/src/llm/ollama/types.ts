@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { LLMProviderConfig } from '../types.js';
+import type { LLMProviderConfig } from "../types.js";
 
 /**
  * Configuration specific to the Ollama local inference provider.

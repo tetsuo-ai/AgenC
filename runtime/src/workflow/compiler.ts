@@ -7,16 +7,16 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import { Capability } from '../agent/capabilities.js';
-import { stableStringifyJson, type JsonValue } from '../eval/types.js';
-import { bytesToHex, hexToBytes } from '../utils/encoding.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { WorkflowValidationError } from './errors.js';
-import type { WorkflowDefinition, TaskTemplate } from './types.js';
-import { OnChainDependencyType } from './types.js';
-import { topologicalSort, validateWorkflow } from './validation.js';
+import { createHash } from "node:crypto";
+import { Capability } from "../agent/capabilities.js";
+import { stableStringifyJson, type JsonValue } from "../eval/types.js";
+import { bytesToHex, hexToBytes } from "../utils/encoding.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { WorkflowValidationError } from "./errors.js";
+import type { WorkflowDefinition, TaskTemplate } from "./types.js";
+import { OnChainDependencyType } from "./types.js";
+import { topologicalSort, validateWorkflow } from "./validation.js";
 
 const DESCRIPTION_BYTES = 64;
 const CONSTRAINT_HASH_BYTES = 32;
@@ -54,7 +54,7 @@ export interface PlannerTaskDraft {
   name?: string;
   description?: string;
   dependsOn?: string | null;
-  dependencyType?: OnChainDependencyType | 'data' | 'ordering' | 'proof' | null;
+  dependencyType?: OnChainDependencyType | "data" | "ordering" | "proof" | null;
   requiredCapabilities?: CapabilityInput;
   rewardAmount?: LamportsInput;
   maxWorkers?: number;
@@ -107,11 +107,11 @@ export interface GoalCompileRequest {
  */
 export interface GoalCompileWarning {
   code:
-    | 'task_name_generated'
-    | 'task_name_sanitized'
-    | 'task_name_deduped'
-    | 'confidence_normalized'
-    | 'confidence_out_of_range';
+    | "task_name_generated"
+    | "task_name_sanitized"
+    | "task_name_deduped"
+    | "confidence_normalized"
+    | "confidence_out_of_range";
   message: string;
   taskName?: string;
 }
@@ -228,11 +228,11 @@ export class GoalCompiler {
 
     const normalizedTasks = normalizeTaskNames(planned.tasks, warnings);
     if (normalizedTasks.length === 0) {
-      throw new WorkflowValidationError('Planner returned no tasks');
+      throw new WorkflowValidationError("Planner returned no tasks");
     }
     if (normalizedTasks.length > options.maxTasks) {
       throw new WorkflowValidationError(
-        `Planner returned ${normalizedTasks.length} tasks, exceeding maxTasks=${options.maxTasks}`
+        `Planner returned ${normalizedTasks.length} tasks, exceeding maxTasks=${options.maxTasks}`,
       );
     }
 
@@ -252,14 +252,14 @@ export class GoalCompiler {
       dryRun.totalRewardLamports > options.budgetLamports
     ) {
       throw new WorkflowValidationError(
-        `Compiled reward total ${dryRun.totalRewardLamports} exceeds budget ${options.budgetLamports}`
+        `Compiled reward total ${dryRun.totalRewardLamports} exceeds budget ${options.budgetLamports}`,
       );
     }
 
     const plannerConfidence = normalizeConfidence(planned.confidence, warnings);
 
     this.logger.info(
-      `Compiled goal "${request.objective.slice(0, 80)}" to workflow ${workflowId} (${dryRun.taskCount} tasks)`
+      `Compiled goal "${request.objective.slice(0, 80)}" to workflow ${workflowId} (${dryRun.taskCount} tasks)`,
     );
 
     return {
@@ -275,41 +275,42 @@ export class GoalCompiler {
   private resolveOptions(request: GoalCompileRequest): ResolvedCompileOptions {
     const maxTasks = parsePositiveInt(
       request.maxTasks ?? this.defaults.maxTasks,
-      'maxTasks'
+      "maxTasks",
     );
     const defaultMaxWorkers = parsePositiveInt(
       request.defaultMaxWorkers ?? this.defaults.defaultMaxWorkers,
-      'defaultMaxWorkers'
+      "defaultMaxWorkers",
     );
     const defaultTaskType = parseTaskType(
       request.defaultTaskType ?? this.defaults.defaultTaskType,
-      'defaultTaskType'
+      "defaultTaskType",
     );
     const defaultMinReputation = parseMinReputation(
       request.defaultMinReputation ?? this.defaults.defaultMinReputation,
-      'defaultMinReputation'
+      "defaultMinReputation",
     );
     const defaultDependencyType = parseDependencyType(
       request.defaultDependencyType ?? this.defaults.defaultDependencyType,
-      'defaultDependencyType'
+      "defaultDependencyType",
     );
     const defaultDeadlineSeconds = parseNonNegativeInt(
       request.defaultDeadlineSeconds ?? this.defaults.defaultDeadlineSeconds,
-      'defaultDeadlineSeconds'
+      "defaultDeadlineSeconds",
     );
     const defaultRewardLamports = parseLamports(
       request.defaultRewardLamports ?? this.defaults.defaultRewardLamports,
-      'defaultRewardLamports'
+      "defaultRewardLamports",
     );
     const defaultRequiredCapabilities = parseCapabilities(
-      request.defaultRequiredCapabilities ?? this.defaults.defaultRequiredCapabilities,
-      'defaultRequiredCapabilities'
+      request.defaultRequiredCapabilities ??
+        this.defaults.defaultRequiredCapabilities,
+      "defaultRequiredCapabilities",
     );
     const allowProofDependencies =
       request.allowProofDependencies ?? this.defaults.allowProofDependencies;
     const budgetLamports =
       request.budgetLamports !== undefined
-        ? parseLamports(request.budgetLamports, 'budgetLamports')
+        ? parseLamports(request.budgetLamports, "budgetLamports")
         : undefined;
 
     return {
@@ -328,8 +329,15 @@ export class GoalCompiler {
 
   private compileTasks(
     normalizedTasks: readonly NormalizedTaskInput[],
-    options: ResolvedCompileOptions
-  ): { tasks: TaskTemplate[]; edges: { from: string; to: string; dependencyType: OnChainDependencyType }[] } {
+    options: ResolvedCompileOptions,
+  ): {
+    tasks: TaskTemplate[];
+    edges: {
+      from: string;
+      to: string;
+      dependencyType: OnChainDependencyType;
+    }[];
+  } {
     const nameLookup = new Map<string, string>();
     for (const task of normalizedTasks) {
       nameLookup.set(task.name, task.name);
@@ -341,46 +349,56 @@ export class GoalCompiler {
 
     const nowSeconds = Math.floor(this.now() / 1000);
     const tasks: TaskTemplate[] = [];
-    const edges: Array<{ from: string; to: string; dependencyType: OnChainDependencyType }> = [];
+    const edges: Array<{
+      from: string;
+      to: string;
+      dependencyType: OnChainDependencyType;
+    }> = [];
 
     for (const taskInput of normalizedTasks) {
       const draft = taskInput.draft;
-      const description = encodeTaskDescription(draft.description, taskInput.name);
+      const description = encodeTaskDescription(
+        draft.description,
+        taskInput.name,
+      );
       const requiredCapabilities = parseCapabilities(
         draft.requiredCapabilities ?? options.defaultRequiredCapabilities,
-        `requiredCapabilities for "${taskInput.name}"`
+        `requiredCapabilities for "${taskInput.name}"`,
       );
       const rewardAmount = parseLamports(
         draft.rewardAmount ?? options.defaultRewardLamports,
-        `rewardAmount for "${taskInput.name}"`
+        `rewardAmount for "${taskInput.name}"`,
       );
       const maxWorkers = parsePositiveInt(
         draft.maxWorkers ?? options.defaultMaxWorkers,
-        `maxWorkers for "${taskInput.name}"`
+        `maxWorkers for "${taskInput.name}"`,
       );
       const taskType = parseTaskType(
         draft.taskType ?? options.defaultTaskType,
-        `taskType for "${taskInput.name}"`
+        `taskType for "${taskInput.name}"`,
       );
       const minReputation = parseMinReputation(
         draft.minReputation ?? options.defaultMinReputation,
-        `minReputation for "${taskInput.name}"`
+        `minReputation for "${taskInput.name}"`,
       );
 
       const deadline =
         draft.deadline !== undefined
-          ? parseNonNegativeInt(draft.deadline, `deadline for "${taskInput.name}"`)
+          ? parseNonNegativeInt(
+              draft.deadline,
+              `deadline for "${taskInput.name}"`,
+            )
           : nowSeconds +
             (draft.deadlineSecondsFromNow !== undefined
               ? parseNonNegativeInt(
                   draft.deadlineSecondsFromNow,
-                  `deadlineSecondsFromNow for "${taskInput.name}"`
+                  `deadlineSecondsFromNow for "${taskInput.name}"`,
                 )
               : options.defaultDeadlineSeconds);
 
       const constraintHash = parseConstraintHash(
         draft.constraintHashHex,
-        `constraintHashHex for "${taskInput.name}"`
+        `constraintHashHex for "${taskInput.name}"`,
       );
 
       const taskTemplate: TaskTemplate = {
@@ -397,17 +415,21 @@ export class GoalCompiler {
       tasks.push(taskTemplate);
 
       if (draft.dependsOn) {
-        const parentName = resolveParentName(draft.dependsOn, nameLookup, taskInput.name);
+        const parentName = resolveParentName(
+          draft.dependsOn,
+          nameLookup,
+          taskInput.name,
+        );
         const dependencyType = parseDependencyType(
           draft.dependencyType ?? options.defaultDependencyType,
-          `dependencyType for "${taskInput.name}"`
+          `dependencyType for "${taskInput.name}"`,
         );
         if (
           dependencyType === OnChainDependencyType.Proof &&
           !options.allowProofDependencies
         ) {
           throw new WorkflowValidationError(
-            `Proof dependency is disabled for "${taskInput.name}"`
+            `Proof dependency is disabled for "${taskInput.name}"`,
           );
         }
         edges.push({
@@ -425,7 +447,9 @@ export class GoalCompiler {
 /**
  * Estimate workflow stats for dry-run reporting.
  */
-export function estimateWorkflow(definition: WorkflowDefinition): WorkflowDryRunEstimate {
+export function estimateWorkflow(
+  definition: WorkflowDefinition,
+): WorkflowDryRunEstimate {
   const parentByChild = new Map<string, string>();
   for (const edge of definition.edges) {
     parentByChild.set(edge.to, edge.from);
@@ -473,7 +497,9 @@ export function estimateWorkflow(definition: WorkflowDefinition): WorkflowDryRun
 /**
  * Compute a deterministic hash of a compiled workflow plan.
  */
-export function computeWorkflowPlanHash(definition: WorkflowDefinition): string {
+export function computeWorkflowPlanHash(
+  definition: WorkflowDefinition,
+): string {
   const sortedTasks = [...definition.tasks]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((task) => ({
@@ -485,7 +511,9 @@ export function computeWorkflowPlanHash(definition: WorkflowDefinition): string 
       taskType: task.taskType,
       minReputation: task.minReputation ?? 0,
       description: bytesToHex(task.description),
-      constraintHash: task.constraintHash ? bytesToHex(task.constraintHash) : null,
+      constraintHash: task.constraintHash
+        ? bytesToHex(task.constraintHash)
+        : null,
       rewardMint: task.rewardMint ? task.rewardMint.toBase58() : null,
     }));
 
@@ -513,17 +541,17 @@ export function computeWorkflowPlanHash(definition: WorkflowDefinition): string 
     topologicalOrder: topologicalSort(definition),
   };
 
-  return createHash('sha256')
+  return createHash("sha256")
     .update(stableStringifyJson(payload as unknown as JsonValue))
-    .digest('hex');
+    .digest("hex");
 }
 
 function normalizeTaskNames(
   drafts: ReadonlyArray<PlannerTaskDraft>,
-  warnings: GoalCompileWarning[]
+  warnings: GoalCompileWarning[],
 ): NormalizedTaskInput[] {
   if (!Array.isArray(drafts)) {
-    throw new WorkflowValidationError('Planner returned invalid tasks array');
+    throw new WorkflowValidationError("Planner returned invalid tasks array");
   }
 
   const used = new Set<string>();
@@ -532,14 +560,14 @@ function normalizeTaskNames(
   for (let i = 0; i < drafts.length; i++) {
     const draft = drafts[i];
     const originalName =
-      typeof draft.name === 'string' && draft.name.trim().length > 0
+      typeof draft.name === "string" && draft.name.trim().length > 0
         ? draft.name.trim()
         : undefined;
 
     let baseName = originalName ?? `task_${i + 1}`;
     if (!originalName) {
       warnings.push({
-        code: 'task_name_generated',
+        code: "task_name_generated",
         message: `Task ${i + 1} had no name; generated "${baseName}"`,
       });
     }
@@ -547,7 +575,7 @@ function normalizeTaskNames(
     const sanitized = normalizeName(baseName);
     if (sanitized !== baseName) {
       warnings.push({
-        code: 'task_name_sanitized',
+        code: "task_name_sanitized",
         message: `Task name "${baseName}" normalized to "${sanitized}"`,
         taskName: sanitized,
       });
@@ -562,7 +590,7 @@ function normalizeTaskNames(
     }
     if (name !== baseName) {
       warnings.push({
-        code: 'task_name_deduped',
+        code: "task_name_deduped",
         message: `Duplicate task name "${baseName}" renamed to "${name}"`,
         taskName: name,
       });
@@ -575,51 +603,55 @@ function normalizeTaskNames(
 }
 
 function validateObjective(objective: string): void {
-  if (typeof objective !== 'string' || objective.trim().length === 0) {
-    throw new WorkflowValidationError('objective must be a non-empty string');
+  if (typeof objective !== "string" || objective.trim().length === 0) {
+    throw new WorkflowValidationError("objective must be a non-empty string");
   }
 }
 
 function normalizeName(input: string): string {
   const trimmed = input.trim();
   const normalized = trimmed
-    .replace(/\s+/g, '_')
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
     .slice(0, 64);
-  return normalized.length > 0 ? normalized : 'task';
+  return normalized.length > 0 ? normalized : "task";
 }
 
 function resolveParentName(
   value: string,
   lookup: ReadonlyMap<string, string>,
-  childName: string
+  childName: string,
 ): string {
   const direct = lookup.get(value.trim());
   const normalized = lookup.get(normalizeName(value));
   const parent = direct ?? normalized;
   if (!parent) {
     throw new WorkflowValidationError(
-      `Task "${childName}" depends on unknown parent "${value}"`
+      `Task "${childName}" depends on unknown parent "${value}"`,
     );
   }
   if (parent === childName) {
-    throw new WorkflowValidationError(`Task "${childName}" cannot depend on itself`);
+    throw new WorkflowValidationError(
+      `Task "${childName}" cannot depend on itself`,
+    );
   }
   return parent;
 }
 
 function parseLamports(value: LamportsInput, field: string): bigint {
-  if (typeof value === 'bigint') {
+  if (typeof value === "bigint") {
     if (value < 0n) throw new WorkflowValidationError(`${field} must be >= 0`);
     return value;
   }
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (!Number.isInteger(value) || value < 0) {
-      throw new WorkflowValidationError(`${field} must be a non-negative integer`);
+      throw new WorkflowValidationError(
+        `${field} must be a non-negative integer`,
+      );
     }
     return BigInt(value);
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const trimmed = value.trim();
     if (!/^\d+$/.test(trimmed)) {
       throw new WorkflowValidationError(`${field} must be an integer string`);
@@ -638,7 +670,9 @@ function parsePositiveInt(value: number, field: string): number {
 
 function parseNonNegativeInt(value: number, field: string): number {
   if (!Number.isInteger(value) || value < 0) {
-    throw new WorkflowValidationError(`${field} must be a non-negative integer`);
+    throw new WorkflowValidationError(
+      `${field} must be a non-negative integer`,
+    );
   }
   return value;
 }
@@ -658,19 +692,21 @@ function parseMinReputation(value: number, field: string): number {
 }
 
 function parseCapabilities(value: CapabilityInput, field: string): bigint {
-  if (typeof value === 'bigint') {
+  if (typeof value === "bigint") {
     if (value < 0n) {
       throw new WorkflowValidationError(`${field} must be >= 0`);
     }
     return value;
   }
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (!Number.isSafeInteger(value) || value < 0) {
-      throw new WorkflowValidationError(`${field} must be a non-negative integer`);
+      throw new WorkflowValidationError(
+        `${field} must be a non-negative integer`,
+      );
     }
     return BigInt(value);
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const trimmed = value.trim();
     if (/^\d+$/.test(trimmed)) {
       return BigInt(trimmed);
@@ -693,14 +729,17 @@ function parseCapabilities(value: CapabilityInput, field: string): bigint {
   throw new WorkflowValidationError(`${field} has invalid value`);
 }
 
-function parseCapabilityTokens(tokens: readonly string[], field: string): bigint {
+function parseCapabilityTokens(
+  tokens: readonly string[],
+  field: string,
+): bigint {
   let mask = 0n;
   for (const token of tokens) {
     const normalized = token.toUpperCase();
     const capability = CAPABILITY_BY_NAME[normalized];
     if (capability === undefined) {
       throw new WorkflowValidationError(
-        `${field} contains unknown capability "${token}"`
+        `${field} contains unknown capability "${token}"`,
       );
     }
     mask |= capability;
@@ -709,10 +748,10 @@ function parseCapabilityTokens(tokens: readonly string[], field: string): bigint
 }
 
 function parseDependencyType(
-  value: PlannerTaskDraft['dependencyType'],
-  field: string
+  value: PlannerTaskDraft["dependencyType"],
+  field: string,
 ): OnChainDependencyType {
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (
       value === OnChainDependencyType.Data ||
       value === OnChainDependencyType.Ordering ||
@@ -721,18 +760,18 @@ function parseDependencyType(
       return value;
     }
     throw new WorkflowValidationError(
-      `${field} must be Data (1), Ordering (2), or Proof (3)`
+      `${field} must be Data (1), Ordering (2), or Proof (3)`,
     );
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    if (normalized === 'data') return OnChainDependencyType.Data;
-    if (normalized === 'ordering' || normalized === 'order') {
+    if (normalized === "data") return OnChainDependencyType.Data;
+    if (normalized === "ordering" || normalized === "order") {
       return OnChainDependencyType.Ordering;
     }
-    if (normalized === 'proof') return OnChainDependencyType.Proof;
+    if (normalized === "proof") return OnChainDependencyType.Proof;
     throw new WorkflowValidationError(
-      `${field} must be "data", "ordering", or "proof"`
+      `${field} must be "data", "ordering", or "proof"`,
     );
   }
   throw new WorkflowValidationError(`${field} has invalid value`);
@@ -740,7 +779,7 @@ function parseDependencyType(
 
 function parseConstraintHash(
   value: string | null | undefined,
-  field: string
+  field: string,
 ): Uint8Array | undefined {
   if (value === undefined || value === null) return undefined;
   let bytes: Uint8Array;
@@ -751,7 +790,7 @@ function parseConstraintHash(
   }
   if (bytes.length !== CONSTRAINT_HASH_BYTES) {
     throw new WorkflowValidationError(
-      `${field} must be ${CONSTRAINT_HASH_BYTES} bytes (64 hex chars)`
+      `${field} must be ${CONSTRAINT_HASH_BYTES} bytes (64 hex chars)`,
     );
   }
   return bytes;
@@ -759,17 +798,17 @@ function parseConstraintHash(
 
 function encodeTaskDescription(
   value: string | undefined,
-  taskName: string
+  taskName: string,
 ): Uint8Array {
-  if (typeof value !== 'string' || value.trim().length === 0) {
+  if (typeof value !== "string" || value.trim().length === 0) {
     throw new WorkflowValidationError(
-      `Task "${taskName}" description must be a non-empty string`
+      `Task "${taskName}" description must be a non-empty string`,
     );
   }
   const encoded = new TextEncoder().encode(value.trim());
   if (encoded.length > DESCRIPTION_BYTES) {
     throw new WorkflowValidationError(
-      `Task "${taskName}" description exceeds ${DESCRIPTION_BYTES} bytes`
+      `Task "${taskName}" description exceeds ${DESCRIPTION_BYTES} bytes`,
     );
   }
   const out = new Uint8Array(DESCRIPTION_BYTES);
@@ -779,12 +818,12 @@ function encodeTaskDescription(
 
 function normalizeConfidence(
   value: number | undefined,
-  warnings: GoalCompileWarning[]
+  warnings: GoalCompileWarning[],
 ): number | null {
   if (value === undefined) return null;
   if (!Number.isFinite(value) || value < 0) {
     warnings.push({
-      code: 'confidence_out_of_range',
+      code: "confidence_out_of_range",
       message: `Planner confidence "${value}" ignored (expected 0..1 or 0..100)`,
     });
     return null;
@@ -792,13 +831,13 @@ function normalizeConfidence(
   if (value <= 1) return value;
   if (value <= 100) {
     warnings.push({
-      code: 'confidence_normalized',
+      code: "confidence_normalized",
       message: `Planner confidence ${value} normalized to ${value / 100}`,
     });
     return value / 100;
   }
   warnings.push({
-    code: 'confidence_out_of_range',
+    code: "confidence_out_of_range",
     message: `Planner confidence "${value}" ignored (expected 0..1 or 0..100)`,
   });
   return null;
@@ -807,9 +846,9 @@ function normalizeConfidence(
 function generateWorkflowId(objective: string, nowMs: number): string {
   const base = objective
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, 36);
-  const prefix = base.length > 0 ? base : 'workflow';
+  const prefix = base.length > 0 ? base : "workflow";
   return `${prefix}-${Math.floor(nowMs / 1000)}`;
 }

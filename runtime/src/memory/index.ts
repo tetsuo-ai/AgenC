@@ -17,10 +17,14 @@ export type {
   AddEntryOptions,
   DurabilityLevel,
   DurabilityInfo,
-} from './types.js';
+} from "./types.js";
 
 // LLM interop helpers + operational limits
-export { entryToMessage, messageToEntryOptions, MEMORY_OPERATIONAL_LIMITS } from './types.js';
+export {
+  entryToMessage,
+  messageToEntryOptions,
+  MEMORY_OPERATIONAL_LIMITS,
+} from "./types.js";
 
 // Error classes
 export {
@@ -28,20 +32,23 @@ export {
   MemoryConnectionError,
   MemorySerializationError,
   MemoryEncryptionError,
-} from './errors.js';
+} from "./errors.js";
 
 // Encryption
-export type { EncryptionConfig, EncryptionProvider } from './encryption.js';
-export { createAES256GCMProvider } from './encryption.js';
+export type { EncryptionConfig, EncryptionProvider } from "./encryption.js";
+export { createAES256GCMProvider } from "./encryption.js";
 
 // In-memory backend (zero deps)
-export { InMemoryBackend, type InMemoryBackendConfig } from './in-memory/index.js';
+export {
+  InMemoryBackend,
+  type InMemoryBackendConfig,
+} from "./in-memory/index.js";
 
 // SQLite backend (optional better-sqlite3)
-export { SqliteBackend, type SqliteBackendConfig } from './sqlite/index.js';
+export { SqliteBackend, type SqliteBackendConfig } from "./sqlite/index.js";
 
 // Redis backend (optional ioredis)
-export { RedisBackend, type RedisBackendConfig } from './redis/index.js';
+export { RedisBackend, type RedisBackendConfig } from "./redis/index.js";
 
 // Embeddings (Phase 5.1)
 export {
@@ -52,7 +59,7 @@ export {
   createEmbeddingProvider,
   cosineSimilarity,
   normalizeVector,
-} from './embeddings.js';
+} from "./embeddings.js";
 
 // Provenance-aware graph layer
 export {
@@ -68,7 +75,7 @@ export {
   type MemoryGraphResult,
   type MemoryGraphConfig,
   type CompactOptions,
-} from './graph.js';
+} from "./graph.js";
 
 // Vector store (Phase 5.2)
 export {
@@ -78,7 +85,7 @@ export {
   type VectorSearchOptions,
   type HybridSearchOptions,
   type ScoredMemoryEntry,
-} from './vector-store.js';
+} from "./vector-store.js";
 
 // Structured memory (daily logs, curated facts, entity extraction)
 export {
@@ -88,7 +95,7 @@ export {
   NoopEntityExtractor,
   type StructuredMemoryEntry,
   type EntityExtractor,
-} from './structured.js';
+} from "./structured.js";
 
 // Memory ingestion (Phase 5.4)
 export {
@@ -96,7 +103,7 @@ export {
   createIngestionHooks,
   type IngestionConfig,
   type SessionEndResult,
-} from './ingestion.js';
+} from "./ingestion.js";
 
 // Semantic memory retriever (Phase 5.5)
 export {
@@ -106,4 +113,4 @@ export {
   type SemanticMemoryRetrieverConfig,
   type RetrievalResult,
   type ScoredRetrievalEntry,
-} from './retriever.js';
+} from "./retriever.js";

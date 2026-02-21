@@ -11,14 +11,18 @@
  * @module
  */
 
-import type { WorkspaceFiles } from './workspace-files.js';
+import type { WorkspaceFiles } from "./workspace-files.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /** Personality template names. */
-export type PersonalityTemplate = 'default' | 'defi-analyst' | 'developer' | 'minimal';
+export type PersonalityTemplate =
+  | "default"
+  | "defi-analyst"
+  | "developer"
+  | "minimal";
 
 // ============================================================================
 // Default template content (mirrors templates/*.md)
@@ -362,7 +366,12 @@ Concise.
 // Public API
 // ============================================================================
 
-const ALL_TEMPLATES: readonly PersonalityTemplate[] = ['default', 'defi-analyst', 'developer', 'minimal'];
+const ALL_TEMPLATES: readonly PersonalityTemplate[] = [
+  "default",
+  "defi-analyst",
+  "developer",
+  "minimal",
+];
 
 /** Get the list of available personality templates. */
 export function listPersonalityTemplates(): readonly PersonalityTemplate[] {
@@ -370,15 +379,17 @@ export function listPersonalityTemplates(): readonly PersonalityTemplate[] {
 }
 
 /** Load a personality template set. */
-export function loadPersonalityTemplate(template: PersonalityTemplate): WorkspaceFiles {
+export function loadPersonalityTemplate(
+  template: PersonalityTemplate,
+): WorkspaceFiles {
   switch (template) {
-    case 'default':
+    case "default":
       return { ...DEFAULT_TEMPLATES };
-    case 'defi-analyst':
+    case "defi-analyst":
       return mergePersonality(DEFAULT_TEMPLATES, DEFI_ANALYST_OVERRIDES);
-    case 'developer':
+    case "developer":
       return mergePersonality(DEFAULT_TEMPLATES, DEVELOPER_OVERRIDES);
-    case 'minimal':
+    case "minimal":
       return { ...MINIMAL_TEMPLATES };
   }
 }

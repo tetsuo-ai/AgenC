@@ -4,9 +4,9 @@
  * @module
  */
 
-import type { Commitment } from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import type { MetricsProvider } from '../task/types.js';
+import type { Commitment } from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import type { MetricsProvider } from "../task/types.js";
 
 // ============================================================================
 // Configuration

@@ -7,28 +7,31 @@
  * @module
  */
 
-import { BaseChannelPlugin } from '../../gateway/channel.js';
-import type { OutboundMessage, MessageAttachment } from '../../gateway/message.js';
-import { createGatewayMessage } from '../../gateway/message.js';
-import type { MessageScope } from '../../gateway/message.js';
-import { GatewayConnectionError } from '../../gateway/errors.js';
-import { DEFAULT_MAX_ATTACHMENT_BYTES } from '../../gateway/media.js';
-import { ensureLazyModule } from '../../utils/lazy-import.js';
-import type { DiscordChannelConfig, DiscordIntentName } from './types.js';
+import { BaseChannelPlugin } from "../../gateway/channel.js";
+import type {
+  OutboundMessage,
+  MessageAttachment,
+} from "../../gateway/message.js";
+import { createGatewayMessage } from "../../gateway/message.js";
+import type { MessageScope } from "../../gateway/message.js";
+import { GatewayConnectionError } from "../../gateway/errors.js";
+import { DEFAULT_MAX_ATTACHMENT_BYTES } from "../../gateway/media.js";
+import { ensureLazyModule } from "../../utils/lazy-import.js";
+import type { DiscordChannelConfig, DiscordIntentName } from "./types.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
-const SESSION_PREFIX = 'discord';
+const SESSION_PREFIX = "discord";
 const SESSION_DM_PREFIX = `${SESSION_PREFIX}:dm:`;
 const DEFAULT_INTENTS: readonly DiscordIntentName[] = [
-  'Guilds',
-  'GuildMessages',
-  'GuildMessageReactions',
-  'MessageContent',
-  'DirectMessages',
+  "Guilds",
+  "GuildMessages",
+  "GuildMessageReactions",
+  "MessageContent",
+  "DirectMessages",
 ];
 
 /** Discord channel type values for thread detection (10=AnnouncementThread, 11=PublicThread, 12=PrivateThread). */
@@ -52,7 +55,11 @@ interface DiscordMessage {
   author: { id: string; username: string; bot: boolean };
   channelId: string;
   guildId: string | null;
-  channel: { type: number; id: string; send: (opts: unknown) => Promise<unknown> };
+  channel: {
+    type: number;
+    id: string;
+    send: (opts: unknown) => Promise<unknown>;
+  };
   attachments: Map<string, DiscordAttachment>;
 }
 
@@ -111,7 +118,9 @@ interface DiscordJsModule {
   SlashCommandBuilder: new () => {
     setName: (name: string) => unknown;
     setDescription: (desc: string) => unknown;
-    addStringOption: (fn: (opt: SlashCommandOption) => SlashCommandOption) => unknown;
+    addStringOption: (
+      fn: (opt: SlashCommandOption) => SlashCommandOption,
+    ) => unknown;
     toJSON: () => unknown;
   };
 }
@@ -139,7 +148,7 @@ export class DiscordChannel extends BaseChannelPlugin {
 
   async start(): Promise<void> {
     const mod = await ensureLazyModule<DiscordJsModule>(
-      'discord.js',
+      "discord.js",
       (msg) => new GatewayConnectionError(msg),
       (m) => m as unknown as DiscordJsModule,
     );
@@ -177,13 +186,17 @@ export class DiscordChannel extends BaseChannelPlugin {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.client) {
-      this.context.logger.warn(`Cannot send message: Discord client is not connected`);
+      this.context.logger.warn(
+        `Cannot send message: Discord client is not connected`,
+      );
       return;
     }
 
     const channel = await this.resolveChannel(message.sessionId);
     if (!channel) {
-      this.context.logger.warn(`Cannot resolve channel for session: ${message.sessionId}`);
+      this.context.logger.warn(
+        `Cannot resolve channel for session: ${message.sessionId}`,
+      );
       return;
     }
 
@@ -192,7 +205,9 @@ export class DiscordChannel extends BaseChannelPlugin {
       try {
         await channel.send({ content: chunk });
       } catch (err) {
-        this.context.logger.error(`Failed to send message to ${message.sessionId}: ${errorMessage(err)}`);
+        this.context.logger.error(
+          `Failed to send message to ${message.sessionId}: ${errorMessage(err)}`,
+        );
         return;
       }
     }
@@ -214,9 +229,9 @@ export class DiscordChannel extends BaseChannelPlugin {
   }
 
   private wireEventHandlers(client: DiscordClient, mod: DiscordJsModule): void {
-    client.on('ready', () => {
+    client.on("ready", () => {
       this.healthy = true;
-      this.context.logger.info('Discord bot connected');
+      this.context.logger.info("Discord bot connected");
       // Register slash commands once the client is ready and guild cache is populated
       this.registerSlashCommands(mod).catch((err) => {
         this.context.logger.error(
@@ -225,46 +240,62 @@ export class DiscordChannel extends BaseChannelPlugin {
       });
     });
 
-    client.on('error', (err: unknown) => {
+    client.on("error", (err: unknown) => {
       this.context.logger.error(`Discord client error: ${errorMessage(err)}`);
     });
 
-    client.on('shardDisconnect', () => {
+    client.on("shardDisconnect", () => {
       this.healthy = false;
-      this.context.logger.warn('Discord shard disconnected');
+      this.context.logger.warn("Discord shard disconnected");
     });
 
-    client.on('shardReconnecting', () => {
+    client.on("shardReconnecting", () => {
       this.healthy = false;
-      this.context.logger.info('Discord shard reconnecting');
+      this.context.logger.info("Discord shard reconnecting");
     });
 
-    client.on('shardReady', () => {
+    client.on("shardReady", () => {
       this.healthy = true;
-      this.context.logger.info('Discord shard ready');
+      this.context.logger.info("Discord shard ready");
     });
 
-    client.on('messageCreate', (msg: unknown) => {
+    client.on("messageCreate", (msg: unknown) => {
       this.handleMessageCreate(msg as DiscordMessage, mod).catch((err) => {
-        this.context.logger.error(`Error handling messageCreate: ${errorMessage(err)}`);
+        this.context.logger.error(
+          `Error handling messageCreate: ${errorMessage(err)}`,
+        );
       });
     });
 
-    client.on('messageReactionAdd', (reaction: unknown, user: unknown) => {
-      this.handleReactionEvent(reaction as DiscordReaction, user as DiscordUser, true).catch((err) => {
-        this.context.logger.error(`Error handling messageReactionAdd: ${errorMessage(err)}`);
+    client.on("messageReactionAdd", (reaction: unknown, user: unknown) => {
+      this.handleReactionEvent(
+        reaction as DiscordReaction,
+        user as DiscordUser,
+        true,
+      ).catch((err) => {
+        this.context.logger.error(
+          `Error handling messageReactionAdd: ${errorMessage(err)}`,
+        );
       });
     });
 
-    client.on('messageReactionRemove', (reaction: unknown, user: unknown) => {
-      this.handleReactionEvent(reaction as DiscordReaction, user as DiscordUser, false).catch((err) => {
-        this.context.logger.error(`Error handling messageReactionRemove: ${errorMessage(err)}`);
+    client.on("messageReactionRemove", (reaction: unknown, user: unknown) => {
+      this.handleReactionEvent(
+        reaction as DiscordReaction,
+        user as DiscordUser,
+        false,
+      ).catch((err) => {
+        this.context.logger.error(
+          `Error handling messageReactionRemove: ${errorMessage(err)}`,
+        );
       });
     });
 
-    client.on('interactionCreate', (interaction: unknown) => {
+    client.on("interactionCreate", (interaction: unknown) => {
       this.handleInteraction(interaction as DiscordInteraction).catch((err) => {
-        this.context.logger.error(`Error handling interactionCreate: ${errorMessage(err)}`);
+        this.context.logger.error(
+          `Error handling interactionCreate: ${errorMessage(err)}`,
+        );
       });
     });
   }
@@ -273,7 +304,10 @@ export class DiscordChannel extends BaseChannelPlugin {
   // Inbound: messages
   // --------------------------------------------------------------------------
 
-  private async handleMessageCreate(msg: DiscordMessage, mod: DiscordJsModule): Promise<void> {
+  private async handleMessageCreate(
+    msg: DiscordMessage,
+    mod: DiscordJsModule,
+  ): Promise<void> {
     if (msg.author.bot) return;
 
     const isDM = msg.channel.type === mod.ChannelType.DM;
@@ -282,8 +316,13 @@ export class DiscordChannel extends BaseChannelPlugin {
     if (isDM && this.config.allowDMs === false) return;
     if (!isDM && !this.isAllowed(msg.guildId, msg.channelId)) return;
 
-    const sessionId = buildSessionId(isDM, msg.author.id, msg.guildId, msg.channelId);
-    const scope: MessageScope = isDM ? 'dm' : isThread ? 'thread' : 'group';
+    const sessionId = buildSessionId(
+      isDM,
+      msg.author.id,
+      msg.guildId,
+      msg.channelId,
+    );
+    const scope: MessageScope = isDM ? "dm" : isThread ? "thread" : "group";
 
     // Store DM channel mapping for send()
     if (isDM) {
@@ -319,25 +358,28 @@ export class DiscordChannel extends BaseChannelPlugin {
     user: DiscordUser,
     added: boolean,
   ): Promise<void> {
-    const emoji = reaction.emoji.name ?? reaction.emoji.id ?? 'unknown';
+    const emoji = reaction.emoji.name ?? reaction.emoji.id ?? "unknown";
     const isDM = reaction.message.guildId === null;
     const sessionId = buildSessionId(
-      isDM, user.id, reaction.message.guildId, reaction.message.channelId,
+      isDM,
+      user.id,
+      reaction.message.guildId,
+      reaction.message.channelId,
     );
 
     const gateway = createGatewayMessage({
       channel: this.name,
       senderId: user.id,
-      senderName: user.username ?? 'unknown',
+      senderName: user.username ?? "unknown",
       sessionId,
-      content: '',
+      content: "",
       metadata: {
         isReaction: true,
         emoji,
         reactionAdded: added,
         targetMessageId: reaction.message.id,
       },
-      scope: isDM ? 'dm' : 'group',
+      scope: isDM ? "dm" : "group",
     });
 
     await this.context.onMessage(gateway);
@@ -347,21 +389,23 @@ export class DiscordChannel extends BaseChannelPlugin {
   // Inbound: slash commands (interactions)
   // --------------------------------------------------------------------------
 
-  private async handleInteraction(interaction: DiscordInteraction): Promise<void> {
+  private async handleInteraction(
+    interaction: DiscordInteraction,
+  ): Promise<void> {
     if (!interaction.isCommand()) return;
 
     const { commandName, user, guildId, channelId } = interaction;
     const isDM = guildId === null;
     const sessionId = buildSessionId(isDM, user.id, guildId, channelId);
-    const scope: MessageScope = isDM ? 'dm' : 'group';
+    const scope: MessageScope = isDM ? "dm" : "group";
 
-    const content = commandName === 'ask'
-      ? (interaction.options.getString('input') ?? '')
-      : `/${commandName}`;
+    const content =
+      commandName === "ask"
+        ? (interaction.options.getString("input") ?? "")
+        : `/${commandName}`;
 
-    const replyText = commandName === 'ask'
-      ? 'Processing...'
-      : `Running /${commandName}...`;
+    const replyText =
+      commandName === "ask" ? "Processing..." : `Running /${commandName}...`;
 
     await interaction.reply({ content: replyText });
 
@@ -382,30 +426,33 @@ export class DiscordChannel extends BaseChannelPlugin {
   // --------------------------------------------------------------------------
 
   private async registerSlashCommands(mod: DiscordJsModule): Promise<void> {
-    const rest = new mod.REST({ version: '10' });
+    const rest = new mod.REST({ version: "10" });
     rest.setToken(this.config.botToken);
 
     const commands: unknown[] = [];
 
     // /ask command
     const askCmd = new mod.SlashCommandBuilder();
-    askCmd.setName('ask');
-    askCmd.setDescription('Ask the agent a question');
+    askCmd.setName("ask");
+    askCmd.setDescription("Ask the agent a question");
     askCmd.addStringOption((opt: SlashCommandOption) =>
-      opt.setName('input').setDescription('Your question or message').setRequired(true),
+      opt
+        .setName("input")
+        .setDescription("Your question or message")
+        .setRequired(true),
     );
     commands.push(askCmd.toJSON());
 
     // /status command
     const statusCmd = new mod.SlashCommandBuilder();
-    statusCmd.setName('status');
-    statusCmd.setDescription('Show agent status');
+    statusCmd.setName("status");
+    statusCmd.setDescription("Show agent status");
     commands.push(statusCmd.toJSON());
 
     // /task command
     const taskCmd = new mod.SlashCommandBuilder();
-    taskCmd.setName('task');
-    taskCmd.setDescription('Show current task status');
+    taskCmd.setName("task");
+    taskCmd.setDescription("Show current task status");
     commands.push(taskCmd.toJSON());
 
     // Register guild-scoped for each cached guild (instant propagation)
@@ -414,7 +461,10 @@ export class DiscordChannel extends BaseChannelPlugin {
       for (const [guildId] of guilds) {
         try {
           await rest.put(
-            mod.Routes.applicationGuildCommands(this.config.applicationId, guildId),
+            mod.Routes.applicationGuildCommands(
+              this.config.applicationId,
+              guildId,
+            ),
             { body: commands },
           );
         } catch (err) {
@@ -459,17 +509,18 @@ export class DiscordChannel extends BaseChannelPlugin {
   private normalizeAttachments(
     discordAttachments: Map<string, DiscordAttachment>,
   ): MessageAttachment[] {
-    const maxBytes = this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
+    const maxBytes =
+      this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
     const result: MessageAttachment[] = [];
 
     for (const [, att] of discordAttachments) {
       if (att.size > maxBytes) continue;
 
-      const mimeType = att.contentType ?? 'application/octet-stream';
-      let type = 'file';
-      if (mimeType.startsWith('image/')) type = 'image';
-      else if (mimeType.startsWith('audio/')) type = 'audio';
-      else if (mimeType.startsWith('video/')) type = 'video';
+      const mimeType = att.contentType ?? "application/octet-stream";
+      let type = "file";
+      if (mimeType.startsWith("image/")) type = "image";
+      else if (mimeType.startsWith("audio/")) type = "audio";
+      else if (mimeType.startsWith("video/")) type = "video";
 
       result.push({
         type,
@@ -483,7 +534,9 @@ export class DiscordChannel extends BaseChannelPlugin {
     return result;
   }
 
-  private async resolveChannel(sessionId: string): Promise<DiscordTextChannel | null> {
+  private async resolveChannel(
+    sessionId: string,
+  ): Promise<DiscordTextChannel | null> {
     if (!this.client) return null;
 
     // DM session: use stored channel mapping
@@ -493,19 +546,23 @@ export class DiscordChannel extends BaseChannelPlugin {
       try {
         return await this.client.channels.fetch(channelId);
       } catch (err) {
-        this.context.logger.debug(`Failed to fetch DM channel ${channelId}: ${errorMessage(err)}`);
+        this.context.logger.debug(
+          `Failed to fetch DM channel ${channelId}: ${errorMessage(err)}`,
+        );
         return null;
       }
     }
 
     // Guild session: parse channel ID from session ID format discord:<guildId>:<channelId>:<userId>
-    const parts = sessionId.split(':');
+    const parts = sessionId.split(":");
     if (parts.length >= 3) {
       const channelId = parts[2];
       try {
         return await this.client.channels.fetch(channelId);
       } catch (err) {
-        this.context.logger.debug(`Failed to fetch guild channel ${channelId}: ${errorMessage(err)}`);
+        this.context.logger.debug(
+          `Failed to fetch guild channel ${channelId}: ${errorMessage(err)}`,
+        );
         return null;
       }
     }
@@ -564,7 +621,7 @@ function splitMessage(content: string): string[] {
 
     // Find last newline within the limit
     const slice = remaining.slice(0, DISCORD_MAX_MESSAGE_LENGTH);
-    const lastNewline = slice.lastIndexOf('\n');
+    const lastNewline = slice.lastIndexOf("\n");
 
     if (lastNewline > 0) {
       chunks.push(remaining.slice(0, lastNewline));

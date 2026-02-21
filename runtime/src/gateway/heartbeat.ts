@@ -8,9 +8,9 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 // ============================================================================
 // Error classes
@@ -19,7 +19,7 @@ import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
 export class HeartbeatStateError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.HEARTBEAT_STATE_ERROR);
-    this.name = 'HeartbeatStateError';
+    this.name = "HeartbeatStateError";
   }
 }
 
@@ -29,8 +29,11 @@ export class HeartbeatActionError extends RuntimeError {
 
   constructor(actionName: string, cause: unknown) {
     const msg = cause instanceof Error ? cause.message : String(cause);
-    super(`Heartbeat action "${actionName}" failed: ${msg}`, RuntimeErrorCodes.HEARTBEAT_ACTION_FAILED);
-    this.name = 'HeartbeatActionError';
+    super(
+      `Heartbeat action "${actionName}" failed: ${msg}`,
+      RuntimeErrorCodes.HEARTBEAT_ACTION_FAILED,
+    );
+    this.name = "HeartbeatActionError";
     this.actionName = actionName;
     this.cause = cause;
   }
@@ -45,7 +48,7 @@ export class HeartbeatTimeoutError extends RuntimeError {
       `Heartbeat action "${actionName}" timed out after ${timeoutMs}ms`,
       RuntimeErrorCodes.HEARTBEAT_TIMEOUT,
     );
-    this.name = 'HeartbeatTimeoutError';
+    this.name = "HeartbeatTimeoutError";
     this.actionName = actionName;
     this.timeoutMs = timeoutMs;
   }
@@ -105,7 +108,7 @@ export interface HeartbeatSchedulerOptions {
 // ============================================================================
 
 const DEFAULT_INTERVAL_MS = 1_800_000; // 30 minutes
-const DEFAULT_TIMEOUT_MS = 60_000;     // 1 minute
+const DEFAULT_TIMEOUT_MS = 60_000; // 1 minute
 
 export const defaultHeartbeatConfig: HeartbeatConfig = {
   enabled: true,
@@ -118,7 +121,7 @@ export const defaultHeartbeatConfig: HeartbeatConfig = {
 // ============================================================================
 
 export class HeartbeatScheduler {
-  private _state: 'stopped' | 'running' = 'stopped';
+  private _state: "stopped" | "running" = "stopped";
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
   private readonly actions: HeartbeatAction[] = [];
   private _lastRunAt: number | null = null;
@@ -138,7 +141,7 @@ export class HeartbeatScheduler {
   // --------------------------------------------------------------------------
 
   get running(): boolean {
-    return this._state === 'running';
+    return this._state === "running";
   }
 
   get lastRunAt(): number | null {
@@ -154,8 +157,10 @@ export class HeartbeatScheduler {
   // --------------------------------------------------------------------------
 
   registerAction(action: HeartbeatAction): void {
-    if (this._state === 'running') {
-      throw new HeartbeatStateError('Cannot register actions while scheduler is running');
+    if (this._state === "running") {
+      throw new HeartbeatStateError(
+        "Cannot register actions while scheduler is running",
+      );
     }
     this.actions.push(action);
   }
@@ -165,13 +170,13 @@ export class HeartbeatScheduler {
   // --------------------------------------------------------------------------
 
   start(): void {
-    if (this._state === 'running') return;
+    if (this._state === "running") return;
     if (!this.config.enabled) {
-      this.logger.info('Heartbeat scheduler is disabled — not starting');
+      this.logger.info("Heartbeat scheduler is disabled — not starting");
       return;
     }
 
-    this._state = 'running';
+    this._state = "running";
     this._nextRunAt = Date.now() + this.config.intervalMs;
 
     this.intervalHandle = setInterval(() => {
@@ -184,16 +189,16 @@ export class HeartbeatScheduler {
   }
 
   stop(): void {
-    if (this._state === 'stopped') return;
+    if (this._state === "stopped") return;
 
     if (this.intervalHandle !== null) {
       clearInterval(this.intervalHandle);
       this.intervalHandle = null;
     }
 
-    this._state = 'stopped';
+    this._state = "stopped";
     this._nextRunAt = null;
-    this.logger.info('Heartbeat scheduler stopped');
+    this.logger.info("Heartbeat scheduler stopped");
   }
 
   // --------------------------------------------------------------------------
@@ -204,7 +209,7 @@ export class HeartbeatScheduler {
     const now = Date.now();
 
     if (!this.isWithinActiveHours()) {
-      this.logger.debug('Heartbeat skipped — outside active hours');
+      this.logger.debug("Heartbeat skipped — outside active hours");
       return { ranAt: now, actionsRun: 0, actionsFailed: 0, messagesPosted: 0 };
     }
 
@@ -232,7 +237,7 @@ export class HeartbeatScheduler {
     }
 
     this._lastRunAt = now;
-    if (this._state === 'running') {
+    if (this._state === "running") {
       this._nextRunAt = now + this.config.intervalMs;
     }
 
@@ -275,7 +280,7 @@ export class HeartbeatScheduler {
     try {
       await this.runOnce();
     } catch (err) {
-      this.logger.error('Heartbeat tick failed:', err);
+      this.logger.error("Heartbeat tick failed:", err);
     }
   }
 

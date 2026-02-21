@@ -4,5 +4,5 @@
  * @module
  */
 
-export { OllamaProvider } from './adapter.js';
-export type { OllamaProviderConfig } from './types.js';
+export { OllamaProvider } from "./adapter.js";
+export type { OllamaProviderConfig } from "./types.js";

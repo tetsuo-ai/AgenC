@@ -13,22 +13,22 @@ export interface JsonObject {
 export const EVAL_TRACE_SCHEMA_VERSION = 1 as const;
 
 export type KnownTrajectoryEventType =
-  | 'discovered'
-  | 'claimed'
-  | 'executed'
-  | 'executed_speculative'
-  | 'completed'
-  | 'completed_speculative'
-  | 'failed'
-  | 'escalated'
-  | 'proof_failed'
-  | 'proof_generated'
-  | 'verifier_verdict'
-  | 'policy_violation'
-  | 'sequential_enforcement_bypass'
-  | 'speculation_started'
-  | 'speculation_confirmed'
-  | 'speculation_aborted';
+  | "discovered"
+  | "claimed"
+  | "executed"
+  | "executed_speculative"
+  | "completed"
+  | "completed_speculative"
+  | "failed"
+  | "escalated"
+  | "proof_failed"
+  | "proof_generated"
+  | "verifier_verdict"
+  | "policy_violation"
+  | "sequential_enforcement_bypass"
+  | "speculation_started"
+  | "speculation_confirmed"
+  | "speculation_aborted";
 
 export type TrajectoryEventType = KnownTrajectoryEventType | (string & {});
 
@@ -82,16 +82,16 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isJsonValue(value: unknown): value is JsonValue {
   if (value === null) return true;
 
   const valueType = typeof value;
-  if (valueType === 'string' || valueType === 'boolean') return true;
+  if (valueType === "string" || valueType === "boolean") return true;
 
-  if (valueType === 'number') {
+  if (valueType === "number") {
     return Number.isFinite(value as number);
   }
 
@@ -122,12 +122,24 @@ function parseTrajectoryEvent(value: unknown, index: number): TrajectoryEvent {
   const timestampMs = value.timestampMs;
   const payload = value.payload;
 
-  assert(Number.isInteger(seq) && (seq as number) > 0, `${path}.seq must be a positive integer`);
-  assert(typeof type === 'string' && type.length > 0, `${path}.type must be a non-empty string`);
+  assert(
+    Number.isInteger(seq) && (seq as number) > 0,
+    `${path}.seq must be a positive integer`,
+  );
+  assert(
+    typeof type === "string" && type.length > 0,
+    `${path}.type must be a non-empty string`,
+  );
   if (taskPda !== undefined) {
-    assert(typeof taskPda === 'string' && taskPda.length > 0, `${path}.taskPda must be a non-empty string`);
+    assert(
+      typeof taskPda === "string" && taskPda.length > 0,
+      `${path}.taskPda must be a non-empty string`,
+    );
   }
-  assert(Number.isInteger(timestampMs) && (timestampMs as number) >= 0, `${path}.timestampMs must be a non-negative integer`);
+  assert(
+    Number.isInteger(timestampMs) && (timestampMs as number) >= 0,
+    `${path}.timestampMs must be a non-negative integer`,
+  );
 
   return {
     seq: seq as number,
@@ -139,7 +151,7 @@ function parseTrajectoryEvent(value: unknown, index: number): TrajectoryEvent {
 }
 
 function parseV1Trace(value: unknown): TrajectoryTrace {
-  assert(isPlainObject(value), 'trace must be an object');
+  assert(isPlainObject(value), "trace must be an object");
 
   const schemaVersion = value.schemaVersion;
   const traceId = value.traceId;
@@ -148,16 +160,26 @@ function parseV1Trace(value: unknown): TrajectoryTrace {
   const metadata = value.metadata;
   const events = value.events;
 
-  assert(schemaVersion === EVAL_TRACE_SCHEMA_VERSION, `unsupported schemaVersion: ${String(schemaVersion)}`);
-  assert(typeof traceId === 'string' && traceId.length > 0, 'traceId must be a non-empty string');
-  assert(Number.isInteger(seed), 'seed must be an integer');
-  assert(Number.isInteger(createdAtMs) && (createdAtMs as number) >= 0, 'createdAtMs must be a non-negative integer');
-  assert(Array.isArray(events), 'events must be an array');
+  assert(
+    schemaVersion === EVAL_TRACE_SCHEMA_VERSION,
+    `unsupported schemaVersion: ${String(schemaVersion)}`,
+  );
+  assert(
+    typeof traceId === "string" && traceId.length > 0,
+    "traceId must be a non-empty string",
+  );
+  assert(Number.isInteger(seed), "seed must be an integer");
+  assert(
+    Number.isInteger(createdAtMs) && (createdAtMs as number) >= 0,
+    "createdAtMs must be a non-negative integer",
+  );
+  assert(Array.isArray(events), "events must be an array");
 
-  const parsedEvents = events.map((event, idx) => parseTrajectoryEvent(event, idx));
-  const parsedMetadata = metadata !== undefined
-    ? parseJsonObject(metadata, 'metadata')
-    : undefined;
+  const parsedEvents = events.map((event, idx) =>
+    parseTrajectoryEvent(event, idx),
+  );
+  const parsedMetadata =
+    metadata !== undefined ? parseJsonObject(metadata, "metadata") : undefined;
 
   return {
     schemaVersion: EVAL_TRACE_SCHEMA_VERSION,
@@ -170,7 +192,7 @@ function parseV1Trace(value: unknown): TrajectoryTrace {
 }
 
 function parseLegacyV0Trace(value: unknown): TrajectoryTrace {
-  assert(isPlainObject(value), 'legacy trace must be an object');
+  assert(isPlainObject(value), "legacy trace must be an object");
 
   const traceId = value.traceId;
   const seed = value.seed;
@@ -178,10 +200,19 @@ function parseLegacyV0Trace(value: unknown): TrajectoryTrace {
   const metadata = value.metadata;
   const events = value.events;
 
-  assert(typeof traceId === 'string' && traceId.length > 0, 'legacy traceId must be a non-empty string');
-  assert(seed === undefined || Number.isInteger(seed), 'legacy seed must be an integer when provided');
-  assert(Number.isInteger(createdAtMs) && (createdAtMs as number) >= 0, 'legacy createdAtMs must be a non-negative integer');
-  assert(Array.isArray(events), 'legacy events must be an array');
+  assert(
+    typeof traceId === "string" && traceId.length > 0,
+    "legacy traceId must be a non-empty string",
+  );
+  assert(
+    seed === undefined || Number.isInteger(seed),
+    "legacy seed must be an integer when provided",
+  );
+  assert(
+    Number.isInteger(createdAtMs) && (createdAtMs as number) >= 0,
+    "legacy createdAtMs must be a non-negative integer",
+  );
+  assert(Array.isArray(events), "legacy events must be an array");
 
   const migratedEvents = events.map((event, idx) => {
     const path = `legacy.events[${idx}]`;
@@ -192,11 +223,20 @@ function parseLegacyV0Trace(value: unknown): TrajectoryTrace {
     const timestampMs = event.timestampMs;
     const payload = event.payload;
 
-    assert(typeof type === 'string' && type.length > 0, `${path}.type must be a non-empty string`);
+    assert(
+      typeof type === "string" && type.length > 0,
+      `${path}.type must be a non-empty string`,
+    );
     if (taskPda !== undefined) {
-      assert(typeof taskPda === 'string' && taskPda.length > 0, `${path}.taskPda must be a non-empty string`);
+      assert(
+        typeof taskPda === "string" && taskPda.length > 0,
+        `${path}.taskPda must be a non-empty string`,
+      );
     }
-    assert(Number.isInteger(timestampMs) && (timestampMs as number) >= 0, `${path}.timestampMs must be a non-negative integer`);
+    assert(
+      Number.isInteger(timestampMs) && (timestampMs as number) >= 0,
+      `${path}.timestampMs must be a non-negative integer`,
+    );
 
     return {
       seq: idx + 1,
@@ -212,7 +252,10 @@ function parseLegacyV0Trace(value: unknown): TrajectoryTrace {
     traceId,
     seed: (seed as number | undefined) ?? 0,
     createdAtMs: createdAtMs as number,
-    metadata: metadata !== undefined ? parseJsonObject(metadata, 'legacy.metadata') : undefined,
+    metadata:
+      metadata !== undefined
+        ? parseJsonObject(metadata, "legacy.metadata")
+        : undefined,
     events: migratedEvents,
   };
 }
@@ -221,7 +264,10 @@ function parseLegacyV0Trace(value: unknown): TrajectoryTrace {
  * Parse a trajectory trace, including migration from legacy v0 format.
  */
 export function parseTrajectoryTrace(value: unknown): TrajectoryTrace {
-  if (isPlainObject(value) && value.schemaVersion === EVAL_TRACE_SCHEMA_VERSION) {
+  if (
+    isPlainObject(value) &&
+    value.schemaVersion === EVAL_TRACE_SCHEMA_VERSION
+  ) {
     return parseV1Trace(value);
   }
 
@@ -257,7 +303,9 @@ function canonicalizeJson(value: JsonValue): JsonValue {
  * Canonicalize trace for deterministic hashing/serialization.
  * Event order is normalized by `seq` ascending.
  */
-export function canonicalizeTrajectoryTrace(trace: TrajectoryTrace): TrajectoryTrace {
+export function canonicalizeTrajectoryTrace(
+  trace: TrajectoryTrace,
+): TrajectoryTrace {
   const events = [...trace.events]
     .sort((a, b) => a.seq - b.seq)
     .map((event) => ({

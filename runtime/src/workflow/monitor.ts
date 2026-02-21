@@ -8,17 +8,17 @@
  * @module
  */
 
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import {
   parseTaskCompletedEvent,
   parseTaskCancelledEvent,
-} from '../events/index.js';
-import type { WorkflowCallbacks, WorkflowState } from './types.js';
-import { WorkflowNodeStatus, WorkflowStatus } from './types.js';
-import { WorkflowStateError } from './errors.js';
+} from "../events/index.js";
+import type { WorkflowCallbacks, WorkflowState } from "./types.js";
+import { WorkflowNodeStatus, WorkflowStatus } from "./types.js";
+import { WorkflowStateError } from "./errors.js";
 
 /** Default polling interval in ms */
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
@@ -85,7 +85,7 @@ export class DAGMonitor {
         pdaToName.set(pdaStr, name);
       }
       if (node.taskId) {
-        const idHex = Buffer.from(node.taskId).toString('hex');
+        const idHex = Buffer.from(node.taskId).toString("hex");
         taskIdToName.set(idHex, name);
       }
     }
@@ -133,7 +133,10 @@ export class DAGMonitor {
    * @returns Resolved workflow state
    * @throws WorkflowStateError on timeout or if workflow not found
    */
-  waitForTerminal(workflowId: string, timeoutMs?: number): Promise<WorkflowState> {
+  waitForTerminal(
+    workflowId: string,
+    timeoutMs?: number,
+  ): Promise<WorkflowState> {
     const wf = this.workflows.get(workflowId);
     if (!wf) {
       throw new WorkflowStateError(`Workflow "${workflowId}" not found`);
@@ -152,7 +155,11 @@ export class DAGMonitor {
         wf.timeoutHandle = setTimeout(() => {
           wf.resolveTerminal = undefined;
           wf.rejectTerminal = undefined;
-          reject(new WorkflowStateError(`Workflow "${workflowId}" timed out after ${timeoutMs}ms`));
+          reject(
+            new WorkflowStateError(
+              `Workflow "${workflowId}" timed out after ${timeoutMs}ms`,
+            ),
+          );
         }, timeoutMs);
       }
     });
@@ -191,11 +198,11 @@ export class DAGMonitor {
     // Subscribe to taskCompleted (unfiltered — we filter client-side)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.completedListenerId = (this.program as Program<any>).addEventListener(
-      'taskCompleted' as any,
+      "taskCompleted" as any,
       (rawEvent: any, _slot: number, _signature: string) => {
         try {
           const event = parseTaskCompletedEvent(rawEvent);
-          const idHex = Buffer.from(event.taskId).toString('hex');
+          const idHex = Buffer.from(event.taskId).toString("hex");
 
           // Check all monitored workflows
           for (const wf of this.workflows.values()) {
@@ -213,16 +220,20 @@ export class DAGMonitor {
     // Subscribe to taskCancelled (unfiltered)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.cancelledListenerId = (this.program as Program<any>).addEventListener(
-      'taskCancelled' as any,
+      "taskCancelled" as any,
       (rawEvent: any, _slot: number, _signature: string) => {
         try {
           const event = parseTaskCancelledEvent(rawEvent);
-          const idHex = Buffer.from(event.taskId).toString('hex');
+          const idHex = Buffer.from(event.taskId).toString("hex");
 
           for (const wf of this.workflows.values()) {
             const nodeName = wf.taskIdToName.get(idHex);
             if (nodeName) {
-              this.handleNodeFailed(wf, nodeName, new Error('Task cancelled on-chain'));
+              this.handleNodeFailed(
+                wf,
+                nodeName,
+                new Error("Task cancelled on-chain"),
+              );
             }
           }
         } catch (err) {
@@ -231,7 +242,7 @@ export class DAGMonitor {
       },
     );
 
-    this.logger.debug('Event listeners started for workflow monitoring');
+    this.logger.debug("Event listeners started for workflow monitoring");
   }
 
   // ===========================================================================
@@ -261,10 +272,14 @@ export class DAGMonitor {
         const status = taskAccount.status as Record<string, unknown>;
 
         // Anchor represents enums as { completed: {} } etc.
-        if ('completed' in status) {
+        if ("completed" in status) {
           this.handleNodeCompleted(wf, name);
-        } else if ('cancelled' in status || 'disputed' in status) {
-          this.handleNodeFailed(wf, name, new Error(`Task status: ${Object.keys(status)[0]}`));
+        } else if ("cancelled" in status || "disputed" in status) {
+          this.handleNodeFailed(
+            wf,
+            name,
+            new Error(`Task status: ${Object.keys(status)[0]}`),
+          );
         }
       } catch (err) {
         // Account not found or RPC error — log but don't fail
@@ -290,13 +305,24 @@ export class DAGMonitor {
     this.checkTerminalState(wf);
   }
 
-  private handleNodeFailed(wf: MonitoredWorkflow, nodeName: string, error: Error): void {
+  private handleNodeFailed(
+    wf: MonitoredWorkflow,
+    nodeName: string,
+    error: Error,
+  ): void {
     const node = wf.state.nodes.get(nodeName);
-    if (!node || node.status === WorkflowNodeStatus.Failed || node.status === WorkflowNodeStatus.Cancelled) return;
+    if (
+      !node ||
+      node.status === WorkflowNodeStatus.Failed ||
+      node.status === WorkflowNodeStatus.Cancelled
+    )
+      return;
 
     node.status = WorkflowNodeStatus.Failed;
     node.error = error;
-    this.logger.warn(`Workflow "${wf.state.id}" node "${nodeName}" failed: ${error.message}`);
+    this.logger.warn(
+      `Workflow "${wf.state.id}" node "${nodeName}" failed: ${error.message}`,
+    );
 
     wf.callbacks.onNodeFailed?.(node, error);
 
@@ -307,7 +333,10 @@ export class DAGMonitor {
     this.checkTerminalState(wf);
   }
 
-  private cascadeCancelDescendants(wf: MonitoredWorkflow, failedName: string): void {
+  private cascadeCancelDescendants(
+    wf: MonitoredWorkflow,
+    failedName: string,
+  ): void {
     // Build parent->children adjacency
     const children = new Map<string, string[]>();
     for (const edge of wf.state.definition.edges) {
@@ -333,7 +362,9 @@ export class DAGMonitor {
           kidNode.status = WorkflowNodeStatus.Cancelled;
           kidNode.error = new Error(reason);
           wf.callbacks.onNodeCancelled?.(kidNode, reason);
-          this.logger.info(`Cancelled descendant "${kid}" in workflow "${wf.state.id}"`);
+          this.logger.info(
+            `Cancelled descendant "${kid}" in workflow "${wf.state.id}"`,
+          );
         }
         queue.push(kid);
       }
@@ -342,14 +373,18 @@ export class DAGMonitor {
 
   private checkTerminalState(wf: MonitoredWorkflow): void {
     const nodes = Array.from(wf.state.nodes.values());
-    const allCompleted = nodes.every((n) => n.status === WorkflowNodeStatus.Completed);
+    const allCompleted = nodes.every(
+      (n) => n.status === WorkflowNodeStatus.Completed,
+    );
     const anyFailed = nodes.some((n) => n.status === WorkflowNodeStatus.Failed);
-    const anyCancelled = nodes.some((n) => n.status === WorkflowNodeStatus.Cancelled);
+    const anyCancelled = nodes.some(
+      (n) => n.status === WorkflowNodeStatus.Cancelled,
+    );
     const anyPending = nodes.some(
       (n) =>
         n.status === WorkflowNodeStatus.Pending ||
         n.status === WorkflowNodeStatus.Creating ||
-        n.status === WorkflowNodeStatus.Created
+        n.status === WorkflowNodeStatus.Created,
     );
 
     if (allCompleted) {
@@ -359,7 +394,9 @@ export class DAGMonitor {
       this.resolveWorkflow(wf);
     } else if ((anyFailed || anyCancelled) && !anyPending) {
       // All nodes resolved — some failed/cancelled, some completed
-      const anyCompleted = nodes.some((n) => n.status === WorkflowNodeStatus.Completed);
+      const anyCompleted = nodes.some(
+        (n) => n.status === WorkflowNodeStatus.Completed,
+      );
       if (anyCompleted && !wf.cancelOnParentFailure) {
         wf.state.status = WorkflowStatus.PartiallyCompleted;
       } else {
@@ -397,6 +434,6 @@ export class DAGMonitor {
       this.cancelledListenerId = null;
     }
     this.started = false;
-    this.logger.debug('Workflow monitoring stopped');
+    this.logger.debug("Workflow monitoring stopped");
   }
 }

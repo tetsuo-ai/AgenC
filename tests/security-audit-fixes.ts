@@ -7,7 +7,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -38,7 +43,8 @@ const HASH_SIZE = 32;
 describe("security-audit-fixes", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
   const protocolPda = deriveProtocolPda(program.programId);
   const runId = generateRunId();
 
@@ -151,13 +157,24 @@ describe("security-audit-fixes", () => {
     const treasury = Keypair.generate();
     creator = await freshKeypair();
 
-    await fundWallet(provider.connection, treasury.publicKey, 5 * LAMPORTS_PER_SOL);
+    await fundWallet(
+      provider.connection,
+      treasury.publicKey,
+      5 * LAMPORTS_PER_SOL,
+    );
 
     // Initialize protocol (idempotent)
     try {
       const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
+        .initializeProtocol(
+          51,
+          100,
+          new BN(LAMPORTS_PER_SOL),
+          new BN(LAMPORTS_PER_SOL / 100),
+          1,
+          [provider.wallet.publicKey, treasury.publicKey],
+        )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
@@ -165,7 +182,13 @@ describe("security-audit-fixes", () => {
           secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([treasury])
         .rpc();
       treasuryPubkey = treasury.publicKey;
@@ -218,7 +241,11 @@ describe("security-audit-fixes", () => {
             tokenProgram: null,
           })
           .remainingAccounts([
-            { pubkey: fakeAccount.publicKey, isSigner: false, isWritable: true },
+            {
+              pubkey: fakeAccount.publicKey,
+              isSigner: false,
+              isWritable: true,
+            },
             { pubkey: workerPda, isSigner: false, isWritable: true },
           ])
           .signers([creator])
@@ -241,7 +268,8 @@ describe("security-audit-fixes", () => {
 
       // Task A: claimed by worker1
       const taskIdA = makeTaskId("secMm1", runId);
-      const { taskPda: taskPdaA, escrowPda: escrowPdaA } = await createTask(taskIdA);
+      const { taskPda: taskPdaA, escrowPda: escrowPdaA } =
+        await createTask(taskIdA);
       await claimTask(taskPdaA, worker1Pda, worker1);
 
       // Task B: claimed by worker2
@@ -250,7 +278,11 @@ describe("security-audit-fixes", () => {
       await claimTask(taskPdaB, worker2Pda, worker2);
 
       // Try to cancel task A but pass worker2's claim from task B
-      const claim2ForTaskB = deriveClaimPda(taskPdaB, worker2Pda, program.programId);
+      const claim2ForTaskB = deriveClaimPda(
+        taskPdaB,
+        worker2Pda,
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -303,7 +335,11 @@ describe("security-audit-fixes", () => {
             tokenProgram: null,
           })
           .remainingAccounts([
-            { pubkey: deriveClaimPda(taskPda, workerPda, program.programId), isSigner: false, isWritable: true },
+            {
+              pubkey: deriveClaimPda(taskPda, workerPda, program.programId),
+              isSigner: false,
+              isWritable: true,
+            },
             // Missing worker agent PDA
           ])
           .signers([creator])
@@ -362,7 +398,8 @@ describe("security-audit-fixes", () => {
         .signers([worker1])
         .rpc();
 
-      const escrowAfterFirst = await provider.connection.getAccountInfo(escrowPda);
+      const escrowAfterFirst =
+        await provider.connection.getAccountInfo(escrowPda);
       expect(escrowAfterFirst).to.not.be.null;
 
       // Second completion — escrow should be closed
@@ -387,7 +424,8 @@ describe("security-audit-fixes", () => {
         .signers([worker2])
         .rpc();
 
-      const escrowAfterSecond = await provider.connection.getAccountInfo(escrowPda);
+      const escrowAfterSecond =
+        await provider.connection.getAccountInfo(escrowPda);
       expect(escrowAfterSecond).to.be.null;
 
       const task = await program.account.task.fetch(taskPda);
@@ -442,7 +480,9 @@ describe("security-audit-fixes", () => {
       await claimTask(taskPda, workerPda, worker);
 
       const escrowBefore = await provider.connection.getBalance(escrowPda);
-      const workerBefore = await provider.connection.getBalance(worker.publicKey);
+      const workerBefore = await provider.connection.getBalance(
+        worker.publicKey,
+      );
 
       await program.methods
         .completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null)
@@ -470,7 +510,9 @@ describe("security-audit-fixes", () => {
       expect(escrowAfter).to.be.null;
 
       // Worker should have received reward minus fee (within tolerance for tx fee + rent)
-      const workerAfter = await provider.connection.getBalance(worker.publicKey);
+      const workerAfter = await provider.connection.getBalance(
+        worker.publicKey,
+      );
       expect(workerAfter).to.be.greaterThan(workerBefore);
     });
   });
@@ -481,19 +523,27 @@ describe("security-audit-fixes", () => {
 
   describe("C. Proof pre-verification defense", () => {
     // Helper to create a test proof structure
-    function createTestProof(overrides: {
-      constraintHash?: Buffer;
-      outputCommitment?: Buffer;
-      binding?: Buffer;
-      nullifier?: Buffer;
-      sealBytes?: Buffer;
-    } = {}) {
+    function createTestProof(
+      overrides: {
+        constraintHash?: Buffer;
+        outputCommitment?: Buffer;
+        binding?: Buffer;
+        nullifier?: Buffer;
+        sealBytes?: Buffer;
+      } = {},
+    ) {
       return {
-        sealBytes: overrides.sealBytes ?? Buffer.alloc(256, 0xAA),
-        constraintHash: Array.from(overrides.constraintHash ?? Buffer.alloc(HASH_SIZE, 0x11)),
-        outputCommitment: Array.from(overrides.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x22)),
+        sealBytes: overrides.sealBytes ?? Buffer.alloc(256, 0xaa),
+        constraintHash: Array.from(
+          overrides.constraintHash ?? Buffer.alloc(HASH_SIZE, 0x11),
+        ),
+        outputCommitment: Array.from(
+          overrides.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x22),
+        ),
         binding: Array.from(overrides.binding ?? Buffer.alloc(HASH_SIZE, 0x33)),
-        nullifier: Array.from(overrides.nullifier ?? Buffer.alloc(HASH_SIZE, 0x44)),
+        nullifier: Array.from(
+          overrides.nullifier ?? Buffer.alloc(HASH_SIZE, 0x44),
+        ),
       };
     }
 
@@ -504,7 +554,11 @@ describe("security-audit-fixes", () => {
 
       const constraintHash = Buffer.alloc(HASH_SIZE, 0x11);
       const taskId = makeTaskId("secZk1", runId);
-      const taskPda = deriveTaskPda(creator.publicKey, taskId, program.programId);
+      const taskPda = deriveTaskPda(
+        creator.publicKey,
+        taskId,
+        program.programId,
+      );
       const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
       await program.methods
@@ -579,7 +633,11 @@ describe("security-audit-fixes", () => {
 
       const constraintHash = Buffer.alloc(HASH_SIZE, 0x22);
       const taskId = makeTaskId("secZk2", runId);
-      const taskPda = deriveTaskPda(creator.publicKey, taskId, program.programId);
+      const taskPda = deriveTaskPda(
+        creator.publicKey,
+        taskId,
+        program.programId,
+      );
       const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
       await program.methods

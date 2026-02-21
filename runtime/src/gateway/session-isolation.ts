@@ -8,24 +8,24 @@
  * @module
  */
 
-import type { Keypair, PublicKey } from '@solana/web3.js';
-import type { MemoryBackend } from '../memory/types.js';
-import { InMemoryBackend } from '../memory/in-memory/backend.js';
-import { PolicyEngine } from '../policy/engine.js';
-import type { RuntimePolicyConfig } from '../policy/types.js';
-import { ToolRegistry } from '../tools/registry.js';
-import type { Tool } from '../tools/types.js';
+import type { Keypair, PublicKey } from "@solana/web3.js";
+import type { MemoryBackend } from "../memory/types.js";
+import { InMemoryBackend } from "../memory/in-memory/backend.js";
+import { PolicyEngine } from "../policy/engine.js";
+import type { RuntimePolicyConfig } from "../policy/types.js";
+import { ToolRegistry } from "../tools/registry.js";
+import type { Tool } from "../tools/types.js";
 import type {
   LLMProvider,
   LLMResponse,
   LLMMessage,
   StreamProgressCallback,
-} from '../llm/types.js';
-import type { MarkdownSkill } from '../skills/markdown/types.js';
-import type { AgentWorkspace } from './workspace.js';
-import type { WorkspaceManager } from './workspace.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+} from "../llm/types.js";
+import type { MarkdownSkill } from "../skills/markdown/types.js";
+import type { AgentWorkspace } from "./workspace.js";
+import type { WorkspaceManager } from "./workspace.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 // ============================================================================
 // Types
@@ -56,7 +56,9 @@ export interface SessionIsolationManagerConfig {
   readonly defaultLLMProvider?: LLMProvider;
   readonly defaultTools?: readonly Tool[];
   readonly defaultSkills?: readonly MarkdownSkill[];
-  readonly resolveSkills?: (names: readonly string[]) => Promise<readonly MarkdownSkill[]>;
+  readonly resolveSkills?: (
+    names: readonly string[],
+  ) => Promise<readonly MarkdownSkill[]>;
   readonly resolveKeypair?: (workspaceId: string) => Keypair | undefined;
   readonly resolveAuth?: (workspace: AgentWorkspace) => AuthState;
   readonly logger?: Logger;
@@ -67,7 +69,7 @@ export interface SessionIsolationManagerConfig {
 // ============================================================================
 
 class NoopLLMProvider implements LLMProvider {
-  readonly name = 'noop';
+  readonly name = "noop";
   private readonly workspaceId: string;
 
   constructor(workspaceId: string) {
@@ -75,11 +77,18 @@ class NoopLLMProvider implements LLMProvider {
   }
 
   async chat(_messages: LLMMessage[]): Promise<LLMResponse> {
-    throw new Error(`No LLM provider configured for workspace '${this.workspaceId}'`);
+    throw new Error(
+      `No LLM provider configured for workspace '${this.workspaceId}'`,
+    );
   }
 
-  async chatStream(_messages: LLMMessage[], _onChunk: StreamProgressCallback): Promise<LLMResponse> {
-    throw new Error(`No LLM provider configured for workspace '${this.workspaceId}'`);
+  async chatStream(
+    _messages: LLMMessage[],
+    _onChunk: StreamProgressCallback,
+  ): Promise<LLMResponse> {
+    throw new Error(
+      `No LLM provider configured for workspace '${this.workspaceId}'`,
+    );
   }
 
   async healthCheck(): Promise<boolean> {
@@ -122,7 +131,9 @@ export class SessionIsolationManager {
 
     await ctx.memoryBackend.close();
     this.contexts.delete(workspaceId);
-    this.logger.info(`Session context destroyed for workspace '${workspaceId}'`);
+    this.logger.info(
+      `Session context destroyed for workspace '${workspaceId}'`,
+    );
   }
 
   listActiveContexts(): string[] {
@@ -133,7 +144,9 @@ export class SessionIsolationManager {
   // Private
   // --------------------------------------------------------------------------
 
-  private async createContext(workspaceId: string): Promise<IsolatedSessionContext> {
+  private async createContext(
+    workspaceId: string,
+  ): Promise<IsolatedSessionContext> {
     const workspace = await this.config.workspaceManager.load(workspaceId);
 
     const memoryBackend = this.createMemory(workspace);
@@ -189,16 +202,21 @@ export class SessionIsolationManager {
     return engine;
   }
 
-  private createTools(workspace: AgentWorkspace, policyEngine: PolicyEngine): ToolRegistry {
+  private createTools(
+    workspace: AgentWorkspace,
+    policyEngine: PolicyEngine,
+  ): ToolRegistry {
     const registry = new ToolRegistry({ logger: this.logger, policyEngine });
 
     if (this.config.defaultTools) {
       const denied = new Set(
         (workspace.toolPermissions ?? [])
-          .filter(p => !p.allow)
-          .map(p => p.tool),
+          .filter((p) => !p.allow)
+          .map((p) => p.tool),
       );
-      const allowed = this.config.defaultTools.filter(t => !denied.has(t.name));
+      const allowed = this.config.defaultTools.filter(
+        (t) => !denied.has(t.name),
+      );
       registry.registerAll(allowed);
     }
 
@@ -215,7 +233,9 @@ export class SessionIsolationManager {
     return new NoopLLMProvider(workspace.id);
   }
 
-  private async resolveSkills(workspace: AgentWorkspace): Promise<readonly MarkdownSkill[]> {
+  private async resolveSkills(
+    workspace: AgentWorkspace,
+  ): Promise<readonly MarkdownSkill[]> {
     if (workspace.skills.length > 0 && this.config.resolveSkills) {
       return this.config.resolveSkills(workspace.skills);
     }

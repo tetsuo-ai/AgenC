@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a skill cannot be found by name.
@@ -14,8 +14,11 @@ export class SkillNotFoundError extends RuntimeError {
   public readonly skillName: string;
 
   constructor(skillName: string) {
-    super(`Skill not found: "${skillName}"`, RuntimeErrorCodes.VALIDATION_ERROR);
-    this.name = 'SkillNotFoundError';
+    super(
+      `Skill not found: "${skillName}"`,
+      RuntimeErrorCodes.VALIDATION_ERROR,
+    );
+    this.name = "SkillNotFoundError";
     this.skillName = skillName;
   }
 }
@@ -32,7 +35,7 @@ export class SkillNotReadyError extends RuntimeError {
       `Skill "${skillName}" is not ready. Call initialize() first.`,
       RuntimeErrorCodes.EXECUTOR_STATE_ERROR,
     );
-    this.name = 'SkillNotReadyError';
+    this.name = "SkillNotReadyError";
     this.skillName = skillName;
   }
 }
@@ -51,7 +54,7 @@ export class SkillActionNotFoundError extends RuntimeError {
       `Action "${actionName}" not found on skill "${skillName}"`,
       RuntimeErrorCodes.VALIDATION_ERROR,
     );
-    this.name = 'SkillActionNotFoundError';
+    this.name = "SkillActionNotFoundError";
     this.skillName = skillName;
     this.actionName = actionName;
   }
@@ -69,7 +72,7 @@ export class SkillInitializationError extends RuntimeError {
       `Failed to initialize skill "${skillName}": ${cause}`,
       RuntimeErrorCodes.EXECUTOR_STATE_ERROR,
     );
-    this.name = 'SkillInitializationError';
+    this.name = "SkillInitializationError";
     this.skillName = skillName;
   }
 }
@@ -86,7 +89,7 @@ export class SkillAlreadyRegisteredError extends RuntimeError {
       `Skill "${skillName}" is already registered`,
       RuntimeErrorCodes.VALIDATION_ERROR,
     );
-    this.name = 'SkillAlreadyRegisteredError';
+    this.name = "SkillAlreadyRegisteredError";
     this.skillName = skillName;
   }
 }

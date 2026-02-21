@@ -2,16 +2,11 @@
  * Governance module — enums, PDA helpers, instruction wrappers, and CU budget constants.
  */
 
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-} from '@solana/web3.js';
-import anchor, { type Program } from '@coral-xyz/anchor';
-import { PROGRAM_ID, SEEDS } from './constants.js';
-import { getAccount } from './anchor-utils.js';
-import { toBigInt, toNumber } from './utils/numeric.js';
+import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import anchor, { type Program } from "@coral-xyz/anchor";
+import { PROGRAM_ID, SEEDS } from "./constants.js";
+import { getAccount } from "./anchor-utils.js";
+import { toBigInt, toNumber } from "./utils/numeric.js";
 
 // ============================================================================
 // Enums
@@ -56,25 +51,29 @@ export interface ProposalState {
 }
 
 function parseProposalType(raw: unknown): ProposalType {
-  if (typeof raw === 'number') return raw as ProposalType;
-  if (raw && typeof raw === 'object') {
+  if (typeof raw === "number") return raw as ProposalType;
+  if (raw && typeof raw === "object") {
     const obj = raw as Record<string, unknown>;
-    if ('protocolUpgrade' in obj || 'protocol_upgrade' in obj) return ProposalType.ProtocolUpgrade;
-    if ('feeChange' in obj || 'fee_change' in obj) return ProposalType.FeeChange;
-    if ('treasurySpend' in obj || 'treasury_spend' in obj) return ProposalType.TreasurySpend;
-    if ('rateLimitChange' in obj || 'rate_limit_change' in obj) return ProposalType.RateLimitChange;
+    if ("protocolUpgrade" in obj || "protocol_upgrade" in obj)
+      return ProposalType.ProtocolUpgrade;
+    if ("feeChange" in obj || "fee_change" in obj)
+      return ProposalType.FeeChange;
+    if ("treasurySpend" in obj || "treasury_spend" in obj)
+      return ProposalType.TreasurySpend;
+    if ("rateLimitChange" in obj || "rate_limit_change" in obj)
+      return ProposalType.RateLimitChange;
   }
   return ProposalType.ProtocolUpgrade;
 }
 
 function parseProposalStatus(raw: unknown): ProposalStatus {
-  if (typeof raw === 'number') return raw as ProposalStatus;
-  if (raw && typeof raw === 'object') {
+  if (typeof raw === "number") return raw as ProposalStatus;
+  if (raw && typeof raw === "object") {
     const obj = raw as Record<string, unknown>;
-    if ('active' in obj) return ProposalStatus.Active;
-    if ('executed' in obj) return ProposalStatus.Executed;
-    if ('defeated' in obj) return ProposalStatus.Defeated;
-    if ('cancelled' in obj) return ProposalStatus.Cancelled;
+    if ("active" in obj) return ProposalStatus.Active;
+    if ("executed" in obj) return ProposalStatus.Executed;
+    if ("defeated" in obj) return ProposalStatus.Defeated;
+    if ("cancelled" in obj) return ProposalStatus.Cancelled;
   }
   return ProposalStatus.Active;
 }
@@ -108,7 +107,11 @@ export function deriveGovernanceVotePda(
   programId: PublicKey = PROGRAM_ID,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.GOVERNANCE_VOTE, proposalPda.toBuffer(), voterAuthorityPubkey.toBuffer()],
+    [
+      SEEDS.GOVERNANCE_VOTE,
+      proposalPda.toBuffer(),
+      voterAuthorityPubkey.toBuffer(),
+    ],
     programId,
   );
 }
@@ -142,7 +145,10 @@ export async function initializeGovernance(
   params: InitializeGovernanceParams,
 ): Promise<{ txSignature: string; governanceConfigPda: PublicKey }> {
   const [governanceConfigPda] = deriveGovernanceConfigPda(program.programId);
-  const [protocolPda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], program.programId);
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [SEEDS.PROTOCOL],
+    program.programId,
+  );
 
   const tx = await program.methods
     .initializeGovernance(
@@ -161,7 +167,7 @@ export async function initializeGovernance(
     .signers([authority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx, governanceConfigPda };
 }
 
@@ -171,8 +177,15 @@ export async function createProposal(
   authority: Keypair,
   params: CreateProposalParams,
 ): Promise<{ txSignature: string; proposalPda: PublicKey }> {
-  const [proposalPda] = deriveProposalPda(params.proposerAgentPda, params.nonce, program.programId);
-  const [protocolPda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], program.programId);
+  const [proposalPda] = deriveProposalPda(
+    params.proposerAgentPda,
+    params.nonce,
+    program.programId,
+  );
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [SEEDS.PROTOCOL],
+    program.programId,
+  );
   const [governanceConfigPda] = deriveGovernanceConfigPda(program.programId);
 
   const tx = await program.methods
@@ -195,7 +208,7 @@ export async function createProposal(
     .signers([authority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx, proposalPda };
 }
 
@@ -207,8 +220,15 @@ export async function voteProposal(
   voterAgentPda: PublicKey,
   approve: boolean,
 ): Promise<{ txSignature: string; votePda: PublicKey }> {
-  const [votePda] = deriveGovernanceVotePda(proposalPda, authority.publicKey, program.programId);
-  const [protocolPda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], program.programId);
+  const [votePda] = deriveGovernanceVotePda(
+    proposalPda,
+    authority.publicKey,
+    program.programId,
+  );
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [SEEDS.PROTOCOL],
+    program.programId,
+  );
 
   const tx = await program.methods
     .voteProposal(approve)
@@ -223,7 +243,7 @@ export async function voteProposal(
     .signers([authority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx, votePda };
 }
 
@@ -235,7 +255,10 @@ export async function executeProposal(
   treasury?: PublicKey,
   recipient?: PublicKey,
 ): Promise<{ txSignature: string }> {
-  const [protocolPda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], program.programId);
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [SEEDS.PROTOCOL],
+    program.programId,
+  );
   const [governanceConfigPda] = deriveGovernanceConfigPda(program.programId);
 
   const accounts: Record<string, PublicKey> = {
@@ -254,7 +277,7 @@ export async function executeProposal(
     .signers([executor])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -273,7 +296,7 @@ export async function cancelProposal(
     .signers([authority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -286,15 +309,22 @@ export async function getProposal(
   proposalPda: PublicKey,
 ): Promise<ProposalState | null> {
   try {
-    const raw = (await getAccount(program, 'proposal').fetch(proposalPda)) as Record<string, unknown>;
+    const raw = (await getAccount(program, "proposal").fetch(
+      proposalPda,
+    )) as Record<string, unknown>;
 
     return {
       proposer: raw.proposer as PublicKey,
-      proposerAuthority: (raw.proposerAuthority ?? raw.proposer_authority) as PublicKey,
+      proposerAuthority: (raw.proposerAuthority ??
+        raw.proposer_authority) as PublicKey,
       nonce: toBigInt(raw.nonce),
       proposalType: parseProposalType(raw.proposalType ?? raw.proposal_type),
-      titleHash: new Uint8Array((raw.titleHash ?? raw.title_hash ?? []) as number[]),
-      descriptionHash: new Uint8Array((raw.descriptionHash ?? raw.description_hash ?? []) as number[]),
+      titleHash: new Uint8Array(
+        (raw.titleHash ?? raw.title_hash ?? []) as number[],
+      ),
+      descriptionHash: new Uint8Array(
+        (raw.descriptionHash ?? raw.description_hash ?? []) as number[],
+      ),
       payload: new Uint8Array((raw.payload ?? []) as number[]),
       status: parseProposalStatus(raw.status),
       createdAt: toNumber(raw.createdAt ?? raw.created_at),
@@ -309,7 +339,10 @@ export async function getProposal(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('Account does not exist') || message.includes('could not find account')) {
+    if (
+      message.includes("Account does not exist") ||
+      message.includes("could not find account")
+    ) {
       return null;
     }
     throw error;

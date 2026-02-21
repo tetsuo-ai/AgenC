@@ -1,11 +1,14 @@
-import { PublicKey } from '@solana/web3.js';
-import { vi } from 'vitest';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../../types/agenc_coordination';
+import { PublicKey } from "@solana/web3.js";
+import { vi } from "vitest";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../../types/agenc_coordination";
 
-export const TEST_PUBKEY = new PublicKey('11111111111111111111111111111111');
+export const TEST_PUBKEY = new PublicKey("11111111111111111111111111111111");
 
-export function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
+export function mockBN(value: bigint | number): {
+  toNumber: () => number;
+  toString: () => string;
+} {
   const bigValue = BigInt(value);
   return {
     toNumber: () => Number(bigValue),
@@ -22,7 +25,10 @@ export function createId(seed = 0): Uint8Array {
 }
 
 export function createMockProgram() {
-  const eventCallbacks = new Map<number, { eventName: string; callback: Function }>();
+  const eventCallbacks = new Map<
+    number,
+    { eventName: string; callback: Function }
+  >();
   let nextListenerId = 1;
 
   const mockProgram = {
@@ -34,7 +40,12 @@ export function createMockProgram() {
     removeEventListener: vi.fn(async (id: number) => {
       eventCallbacks.delete(id);
     }),
-    _emit: (eventName: string, rawEvent: unknown, slot: number, signature: string) => {
+    _emit: (
+      eventName: string,
+      rawEvent: unknown,
+      slot: number,
+      signature: string,
+    ) => {
       for (const { eventName: name, callback } of eventCallbacks.values()) {
         if (name === eventName) {
           callback(rawEvent, slot, signature);

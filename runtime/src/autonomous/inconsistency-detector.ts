@@ -4,14 +4,14 @@
  * @module
  */
 
-import type { MemoryGraph } from '../memory/graph.js';
-import type { Task } from './types.js';
-import type { GeneratedExecutionCandidate } from './candidate-generator.js';
+import type { MemoryGraph } from "../memory/graph.js";
+import type { Task } from "./types.js";
+import type { GeneratedExecutionCandidate } from "./candidate-generator.js";
 
 export type CandidateDisagreementReasonCode =
-  | 'length_mismatch'
-  | 'value_mismatch'
-  | 'semantic_distance';
+  | "length_mismatch"
+  | "value_mismatch"
+  | "semantic_distance";
 
 export interface CandidateDisagreementReason {
   code: CandidateDisagreementReasonCode;
@@ -98,17 +98,19 @@ async function ensureCandidateNode(
       output: candidate.output.map((value) => value.toString()),
     }),
     baseConfidence: 0.8,
-    tags: ['candidate', 'arbitration'],
+    tags: ["candidate", "arbitration"],
     metadata: {
       attempt: candidate.attempt,
       noveltyScore: candidate.noveltyScore,
       tokenEstimate: candidate.tokenEstimate,
     },
-    provenance: [{
-      type: 'materialization',
-      sourceId: `candidate:${candidate.id}`,
-      description: 'Generated execution candidate',
-    }],
+    provenance: [
+      {
+        type: "materialization",
+        sourceId: `candidate:${candidate.id}`,
+        description: "Generated execution candidate",
+      },
+    ],
   });
   return nodeId;
 }
@@ -128,7 +130,7 @@ async function linkDisagreementInGraph(
   const edge = await graph.addEdge({
     fromId: leftNodeId,
     toId: rightNodeId,
-    type: 'contradicts',
+    type: "contradicts",
     metadata: {
       reasonCodes: reasons.map((reason) => reason.code),
       semanticDistance,
@@ -151,11 +153,13 @@ async function linkDisagreementInGraph(
 export async function detectCandidateInconsistencies(
   input: InconsistencyDetectorInput,
 ): Promise<InconsistencyDetectionResult> {
-  const semanticDistanceThreshold = clampRatio(input.semanticDistanceThreshold, 0.25);
+  const semanticDistanceThreshold = clampRatio(
+    input.semanticDistanceThreshold,
+    0.25,
+  );
   const disagreements: CandidateDisagreement[] = [];
   const provenanceLinks: CandidateProvenanceLink[] = [];
-  const sessionId =
-    input.sessionId ?? `candidate:${input.task.pda.toBase58()}`;
+  const sessionId = input.sessionId ?? `candidate:${input.task.pda.toBase58()}`;
 
   let totalPairs = 0;
   for (let i = 0; i < input.candidates.length; i++) {
@@ -168,24 +172,27 @@ export async function detectCandidateInconsistencies(
 
       if (left.output.length !== right.output.length) {
         reasons.push({
-          code: 'length_mismatch',
-          message: 'Candidate output lengths differ',
-          metadata: { leftLength: left.output.length, rightLength: right.output.length },
+          code: "length_mismatch",
+          message: "Candidate output lengths differ",
+          metadata: {
+            leftLength: left.output.length,
+            rightLength: right.output.length,
+          },
         });
       }
 
       if (mismatch.mismatchCount > 0) {
         reasons.push({
-          code: 'value_mismatch',
-          message: 'Candidate field values differ',
+          code: "value_mismatch",
+          message: "Candidate field values differ",
           metadata: { mismatchCount: mismatch.mismatchCount },
         });
       }
 
       if (mismatch.distance >= semanticDistanceThreshold) {
         reasons.push({
-          code: 'semantic_distance',
-          message: 'Candidate semantic distance exceeds threshold',
+          code: "semantic_distance",
+          message: "Candidate semantic distance exceeds threshold",
           metadata: {
             semanticDistance: mismatch.distance,
             threshold: semanticDistanceThreshold,
@@ -223,7 +230,8 @@ export async function detectCandidateInconsistencies(
   }
 
   const totalDisagreements = disagreements.length;
-  const disagreementRate = totalPairs === 0 ? 0 : totalDisagreements / totalPairs;
+  const disagreementRate =
+    totalPairs === 0 ? 0 : totalDisagreements / totalPairs;
   return {
     totalPairs,
     totalDisagreements,

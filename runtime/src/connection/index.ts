@@ -11,9 +11,9 @@ export type {
   ConnectionManagerConfig,
   EndpointHealth,
   ConnectionManagerStats,
-} from './types.js';
+} from "./types.js";
 
-export { ConnectionError, AllEndpointsUnhealthyError } from './errors.js';
+export { ConnectionError, AllEndpointsUnhealthyError } from "./errors.js";
 
 export {
   isRetryableError,
@@ -21,6 +21,6 @@ export {
   isWriteMethod,
   computeBackoff,
   deriveCoalesceKey,
-} from './retry.js';
+} from "./retry.js";
 
-export { ConnectionManager } from './manager.js';
+export { ConnectionManager } from "./manager.js";

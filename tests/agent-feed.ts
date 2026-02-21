@@ -11,7 +11,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -28,14 +33,20 @@ import {
   disableRateLimitsForTests,
   ensureAgentRegistered,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount, advanceClock, getClockTimestamp } from "./litesvm-helpers";
+import {
+  createLiteSVMContext,
+  fundAccount,
+  advanceClock,
+  getClockTimestamp,
+} from "./litesvm-helpers";
 
 describe("agent-feed (issue #1103)", () => {
   const { svm, provider, program, payer } = createLiteSVMContext();
 
   const protocolPda = deriveProtocolPda(program.programId);
 
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const runId =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   let secondSigner: Keypair;
   let treasury: Keypair;
@@ -64,7 +75,10 @@ describe("agent-feed (issue #1103)", () => {
     return Buffer.from(label.slice(0, 32).padEnd(32, "\0"));
   }
 
-  const airdrop = (wallets: Keypair[], amount: number = 100 * LAMPORTS_PER_SOL) => {
+  const airdrop = (
+    wallets: Keypair[],
+    amount: number = 100 * LAMPORTS_PER_SOL,
+  ) => {
     for (const wallet of wallets) {
       fundAccount(svm, wallet.publicKey, amount);
     }
@@ -73,7 +87,9 @@ describe("agent-feed (issue #1103)", () => {
   let repTaskCounter = 0;
   const nextRepTaskId = (prefix: string): Buffer => {
     repTaskCounter += 1;
-    return Buffer.from(`${prefix}-${runId}-${repTaskCounter}`.slice(0, 32).padEnd(32, "\0"));
+    return Buffer.from(
+      `${prefix}-${runId}-${repTaskCounter}`.slice(0, 32).padEnd(32, "\0"),
+    );
   };
 
   const completeTaskForReputation = async (
@@ -82,7 +98,11 @@ describe("agent-feed (issue #1103)", () => {
     label: string,
   ): Promise<void> => {
     const taskId = nextRepTaskId(label);
-    const taskPda = deriveTaskPda(repCreator.publicKey, taskId, program.programId);
+    const taskPda = deriveTaskPda(
+      repCreator.publicKey,
+      taskId,
+      program.programId,
+    );
     const escrowPda = deriveEscrowPda(taskPda, program.programId);
     const claimPda = deriveClaimPda(taskPda, workerAgentPda, program.programId);
     const deadline = new BN(getClockTimestamp(svm) + 3600);
@@ -130,7 +150,10 @@ describe("agent-feed (issue #1103)", () => {
       .rpc();
 
     await program.methods
-      .completeTask(Array.from(Buffer.from("feed-rep-proof".padEnd(32, "\0"))), null)
+      .completeTask(
+        Array.from(Buffer.from("feed-rep-proof".padEnd(32, "\0"))),
+        null,
+      )
       .accountsPartial({
         task: taskPda,
         claim: claimPda,
@@ -157,7 +180,11 @@ describe("agent-feed (issue #1103)", () => {
     label: string,
   ): Promise<void> => {
     for (let i = 0; i < completions; i += 1) {
-      await completeTaskForReputation(workerWallet, workerAgentPda, `${label}-${i}`);
+      await completeTaskForReputation(
+        workerWallet,
+        workerAgentPda,
+        `${label}-${i}`,
+      );
     }
   };
 
@@ -187,7 +214,7 @@ describe("agent-feed (issue #1103)", () => {
           new BN(LAMPORTS_PER_SOL / 100),
           new BN(LAMPORTS_PER_SOL / 100),
           1,
-          [provider.wallet.publicKey, secondSigner.publicKey]
+          [provider.wallet.publicKey, secondSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -196,7 +223,13 @@ describe("agent-feed (issue #1103)", () => {
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([secondSigner])
         .rpc();
     }
@@ -267,7 +300,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("post-valid-001");
       const contentHash = createHash("ipfs-content-hash-1");
       const topic = createHash("general");
-      const postPda = deriveFeedPostPda(poster1AgentPda, nonce, program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        nonce,
+        program.programId,
+      );
 
       await program.methods
         .postToFeed(contentHash, Array.from(nonce), topic, null)
@@ -285,19 +322,32 @@ describe("agent-feed (issue #1103)", () => {
       expect(post.author.toBase58()).to.equal(poster1AgentPda.toBase58());
       expect(post.upvoteCount).to.equal(0);
       expect(post.parentPost).to.be.null;
-      expect(Buffer.from(post.contentHash as number[]).toString()).to.include("ipfs-content-hash-1");
-      expect(Buffer.from(post.topic as number[]).toString()).to.include("general");
+      expect(Buffer.from(post.contentHash as number[]).toString()).to.include(
+        "ipfs-content-hash-1",
+      );
+      expect(Buffer.from(post.topic as number[]).toString()).to.include(
+        "general",
+      );
     });
 
     it("should create a reply with parent_post", async () => {
       const parentNonce = makeNonce("post-parent-001");
       const parentContentHash = createHash("parent-content");
       const parentTopic = createHash("discussion");
-      const parentPda = deriveFeedPostPda(poster1AgentPda, parentNonce, program.programId);
+      const parentPda = deriveFeedPostPda(
+        poster1AgentPda,
+        parentNonce,
+        program.programId,
+      );
 
       // Create parent post
       await program.methods
-        .postToFeed(parentContentHash, Array.from(parentNonce), parentTopic, null)
+        .postToFeed(
+          parentContentHash,
+          Array.from(parentNonce),
+          parentTopic,
+          null,
+        )
         .accountsPartial({
           post: parentPda,
           author: poster1AgentPda,
@@ -311,10 +361,19 @@ describe("agent-feed (issue #1103)", () => {
       // Create reply
       const replyNonce = makeNonce("post-reply-001");
       const replyContentHash = createHash("reply-content");
-      const replyPda = deriveFeedPostPda(poster2AgentPda, replyNonce, program.programId);
+      const replyPda = deriveFeedPostPda(
+        poster2AgentPda,
+        replyNonce,
+        program.programId,
+      );
 
       await program.methods
-        .postToFeed(replyContentHash, Array.from(replyNonce), parentTopic, parentPda)
+        .postToFeed(
+          replyContentHash,
+          Array.from(replyNonce),
+          parentTopic,
+          parentPda,
+        )
         .accountsPartial({
           post: replyPda,
           author: poster2AgentPda,
@@ -334,7 +393,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("post-zero-hash-001");
       const zeroHash = new Array(32).fill(0);
       const topic = createHash("general");
-      const postPda = deriveFeedPostPda(poster1AgentPda, Buffer.from(nonce), program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        Buffer.from(nonce),
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -350,7 +413,8 @@ describe("agent-feed (issue #1103)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["FeedInvalidContentHash", "6169"])).to.be.true;
+        expect(errorContainsAny(err, ["FeedInvalidContentHash", "6169"])).to.be
+          .true;
       }
     });
 
@@ -358,7 +422,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("post-zero-topic-001");
       const contentHash = createHash("valid-content");
       const zeroTopic = new Array(32).fill(0);
-      const postPda = deriveFeedPostPda(poster1AgentPda, Buffer.from(nonce), program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        Buffer.from(nonce),
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -382,7 +450,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("post-dup-nonce-001");
       const contentHash = createHash("content-1");
       const topic = createHash("general");
-      const postPda = deriveFeedPostPda(poster1AgentPda, nonce, program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        nonce,
+        program.programId,
+      );
 
       // First post succeeds
       await program.methods
@@ -413,7 +485,9 @@ describe("agent-feed (issue #1103)", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
-        expect(errorContainsAny(err, ["already in use", "custom program error"])).to.be.true;
+        expect(
+          errorContainsAny(err, ["already in use", "custom program error"]),
+        ).to.be.true;
       }
     });
   });
@@ -430,7 +504,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("upvote-target-001");
       const contentHash = createHash("upvotable-content");
       const topic = createHash("hot-topics");
-      targetPostPda = deriveFeedPostPda(poster1AgentPda, nonce, program.programId);
+      targetPostPda = deriveFeedPostPda(
+        poster1AgentPda,
+        nonce,
+        program.programId,
+      );
 
       await program.methods
         .postToFeed(contentHash, Array.from(nonce), topic, null)
@@ -446,7 +524,11 @@ describe("agent-feed (issue #1103)", () => {
     });
 
     it("should upvote a post successfully", async () => {
-      const votePda = deriveFeedVotePda(targetPostPda, poster2AgentPda, program.programId);
+      const votePda = deriveFeedVotePda(
+        targetPostPda,
+        poster2AgentPda,
+        program.programId,
+      );
 
       await program.methods
         .upvotePost()
@@ -470,7 +552,11 @@ describe("agent-feed (issue #1103)", () => {
     });
 
     it("should reject self-upvote", async () => {
-      const votePda = deriveFeedVotePda(targetPostPda, poster1AgentPda, program.programId);
+      const votePda = deriveFeedVotePda(
+        targetPostPda,
+        poster1AgentPda,
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -493,7 +579,11 @@ describe("agent-feed (issue #1103)", () => {
 
     it("should reject duplicate upvote (PDA already exists)", async () => {
       // poster2 already upvoted in previous test
-      const votePda = deriveFeedVotePda(targetPostPda, poster2AgentPda, program.programId);
+      const votePda = deriveFeedVotePda(
+        targetPostPda,
+        poster2AgentPda,
+        program.programId,
+      );
 
       try {
         await program.methods
@@ -521,7 +611,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("multi-upvote-001");
       const contentHash = createHash("multi-upvote-content");
       const topic = createHash("popular");
-      const postPda = deriveFeedPostPda(poster1AgentPda, nonce, program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        nonce,
+        program.programId,
+      );
 
       await program.methods
         .postToFeed(contentHash, Array.from(nonce), topic, null)
@@ -536,7 +630,11 @@ describe("agent-feed (issue #1103)", () => {
         .rpc();
 
       // Poster2 upvotes → count = 1
-      const vote2Pda = deriveFeedVotePda(postPda, poster2AgentPda, program.programId);
+      const vote2Pda = deriveFeedVotePda(
+        postPda,
+        poster2AgentPda,
+        program.programId,
+      );
       await program.methods
         .upvotePost()
         .accountsPartial({
@@ -554,7 +652,11 @@ describe("agent-feed (issue #1103)", () => {
       expect(post.upvoteCount).to.equal(1);
 
       // Poster3 upvotes → count = 2
-      const vote3Pda = deriveFeedVotePda(postPda, poster3AgentPda, program.programId);
+      const vote3Pda = deriveFeedVotePda(
+        postPda,
+        poster3AgentPda,
+        program.programId,
+      );
       await program.methods
         .upvotePost()
         .accountsPartial({
@@ -585,7 +687,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("query-fetch-001");
       const contentHash = createHash("fetch-test-content");
       const topic = createHash("query-topic");
-      const postPda = deriveFeedPostPda(poster1AgentPda, nonce, program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        nonce,
+        program.programId,
+      );
 
       await program.methods
         .postToFeed(contentHash, Array.from(nonce), topic, null)
@@ -601,7 +707,9 @@ describe("agent-feed (issue #1103)", () => {
 
       const post = await program.account.feedPost.fetch(postPda);
       expect(post.author.toBase58()).to.equal(poster1AgentPda.toBase58());
-      expect(Buffer.from(post.contentHash as number[]).toString()).to.include("fetch-test-content");
+      expect(Buffer.from(post.contentHash as number[]).toString()).to.include(
+        "fetch-test-content",
+      );
     });
 
     it("should verify author field at correct offset", async () => {
@@ -609,7 +717,11 @@ describe("agent-feed (issue #1103)", () => {
       const nonce = makeNonce("query-author-001");
       const contentHash = createHash("author-check");
       const topic = createHash("offsets");
-      const postPda = deriveFeedPostPda(poster1AgentPda, nonce, program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        nonce,
+        program.programId,
+      );
 
       await program.methods
         .postToFeed(contentHash, Array.from(nonce), topic, null)
@@ -630,7 +742,9 @@ describe("agent-feed (issue #1103)", () => {
       const accountInfo = await provider.connection.getAccountInfo(postPda);
       expect(accountInfo).to.not.be.null;
       const authorBytes = accountInfo!.data.slice(8, 40);
-      expect(new PublicKey(authorBytes).toBase58()).to.equal(poster1AgentPda.toBase58());
+      expect(new PublicKey(authorBytes).toBase58()).to.equal(
+        poster1AgentPda.toBase58(),
+      );
     });
 
     it("should verify topic field at correct offset", async () => {
@@ -638,7 +752,11 @@ describe("agent-feed (issue #1103)", () => {
       const contentHash = createHash("topic-check");
       const topicStr = "offsets-topic";
       const topic = createHash(topicStr);
-      const postPda = deriveFeedPostPda(poster1AgentPda, nonce, program.programId);
+      const postPda = deriveFeedPostPda(
+        poster1AgentPda,
+        nonce,
+        program.programId,
+      );
 
       await program.methods
         .postToFeed(contentHash, Array.from(nonce), topic, null)
@@ -654,7 +772,9 @@ describe("agent-feed (issue #1103)", () => {
 
       // Verify via deserialized account
       const post = await program.account.feedPost.fetch(postPda);
-      expect(Buffer.from(post.topic as number[]).toString()).to.include(topicStr);
+      expect(Buffer.from(post.topic as number[]).toString()).to.include(
+        topicStr,
+      );
 
       // Verify raw topic at offset 72 (8 discriminator + 32 author + 32 content_hash)
       const accountInfo = await provider.connection.getAccountInfo(postPda);

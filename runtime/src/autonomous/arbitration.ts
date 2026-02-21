@@ -4,12 +4,12 @@
  * @module
  */
 
-import type { MultiCandidateConfig } from './types.js';
-import type { GeneratedExecutionCandidate } from './candidate-generator.js';
+import type { MultiCandidateConfig } from "./types.js";
+import type { GeneratedExecutionCandidate } from "./candidate-generator.js";
 import type {
   CandidateDisagreementReasonCode,
   InconsistencyDetectionResult,
-} from './inconsistency-detector.js';
+} from "./inconsistency-detector.js";
 
 export interface CandidateArbitrationScore {
   candidateId: string;
@@ -23,27 +23,27 @@ export interface CandidateArbitrationScore {
 
 export type CandidateArbitrationDecision =
   | {
-    outcome: 'selected';
-    selected: GeneratedExecutionCandidate;
-    ranked: CandidateArbitrationScore[];
-    metadata: {
-      disagreementRate: number;
-      totalDisagreements: number;
-      reasonCodes: CandidateDisagreementReasonCode[];
-      provenanceLinkIds: string[];
-    };
-  }
+      outcome: "selected";
+      selected: GeneratedExecutionCandidate;
+      ranked: CandidateArbitrationScore[];
+      metadata: {
+        disagreementRate: number;
+        totalDisagreements: number;
+        reasonCodes: CandidateDisagreementReasonCode[];
+        provenanceLinkIds: string[];
+      };
+    }
   | {
-    outcome: 'escalate';
-    reason: 'no_candidates' | 'disagreement_threshold';
-    ranked: CandidateArbitrationScore[];
-    metadata: {
-      disagreementRate: number;
-      totalDisagreements: number;
-      reasonCodes: CandidateDisagreementReasonCode[];
-      provenanceLinkIds: string[];
+      outcome: "escalate";
+      reason: "no_candidates" | "disagreement_threshold";
+      ranked: CandidateArbitrationScore[];
+      metadata: {
+        disagreementRate: number;
+        totalDisagreements: number;
+        reasonCodes: CandidateDisagreementReasonCode[];
+        provenanceLinkIds: string[];
+      };
     };
-  };
 
 export interface CandidateArbitrationInput {
   candidates: GeneratedExecutionCandidate[];
@@ -75,14 +75,17 @@ function hashStringToUnit(input: string): number {
   return (hash >>> 0) / 0xffff_ffff;
 }
 
-function resolveWeights(config: MultiCandidateConfig | undefined): ResolvedWeights {
+function resolveWeights(
+  config: MultiCandidateConfig | undefined,
+): ResolvedWeights {
   const base = {
     consistency: Math.max(0, config?.arbitrationWeights?.consistency ?? 0.55),
     diversity: Math.max(0, config?.arbitrationWeights?.diversity ?? 0.2),
     confidence: Math.max(0, config?.arbitrationWeights?.confidence ?? 0.2),
     recency: Math.max(0, config?.arbitrationWeights?.recency ?? 0.05),
   };
-  const total = base.consistency + base.diversity + base.confidence + base.recency;
+  const total =
+    base.consistency + base.diversity + base.confidence + base.recency;
   if (total <= 0) {
     return { consistency: 1, diversity: 0, confidence: 0, recency: 0 };
   }
@@ -115,12 +118,14 @@ export function arbitrateCandidates(
   const weights = resolveWeights(input.config);
   const seed = input.config?.seed ?? 17;
   const reasonCodes = collectReasonCodes(input.inconsistencies);
-  const provenanceLinkIds = input.inconsistencies.provenanceLinks.map((link) => link.edgeId);
+  const provenanceLinkIds = input.inconsistencies.provenanceLinks.map(
+    (link) => link.edgeId,
+  );
 
   if (input.candidates.length === 0) {
     return {
-      outcome: 'escalate',
-      reason: 'no_candidates',
+      outcome: "escalate",
+      reason: "no_candidates",
       ranked: [],
       metadata: {
         disagreementRate: input.inconsistencies.disagreementRate,
@@ -142,31 +147,39 @@ export function arbitrateCandidates(
     );
     disagreementCountByCandidate.set(
       disagreement.rightCandidateId,
-      (disagreementCountByCandidate.get(disagreement.rightCandidateId) ?? 0) + 1,
+      (disagreementCountByCandidate.get(disagreement.rightCandidateId) ?? 0) +
+        1,
     );
   }
 
   const maxDisagreements = input.config?.escalation?.maxPairwiseDisagreements;
   const maxDisagreementRate = input.config?.escalation?.maxDisagreementRate;
   const shouldEscalate =
-    (maxDisagreements !== undefined
-      && input.inconsistencies.totalDisagreements >= Math.max(0, Math.floor(maxDisagreements)))
-    || (maxDisagreementRate !== undefined
-      && input.inconsistencies.disagreementRate >= clampRatio(maxDisagreementRate, 1));
+    (maxDisagreements !== undefined &&
+      input.inconsistencies.totalDisagreements >=
+        Math.max(0, Math.floor(maxDisagreements))) ||
+    (maxDisagreementRate !== undefined &&
+      input.inconsistencies.disagreementRate >=
+        clampRatio(maxDisagreementRate, 1));
 
   const candidateCount = input.candidates.length;
   const ranked = input.candidates.map((candidate) => {
     const disagreements = disagreementCountByCandidate.get(candidate.id) ?? 0;
     const consistency =
-      candidateCount <= 1 ? 1 : clampRatio(1 - disagreements / (candidateCount - 1), 0);
+      candidateCount <= 1
+        ? 1
+        : clampRatio(1 - disagreements / (candidateCount - 1), 0);
     const diversity = clampRatio(candidate.noveltyScore, 0);
-    const confidence = clampRatio(input.confidenceByCandidateId?.[candidate.id], 0.5);
+    const confidence = clampRatio(
+      input.confidenceByCandidateId?.[candidate.id],
+      0.5,
+    );
     const recency = clampRatio(1 / Math.max(1, candidate.attempt), 1);
     const score =
-      (consistency * weights.consistency)
-      + (diversity * weights.diversity)
-      + (confidence * weights.confidence)
-      + (recency * weights.recency);
+      consistency * weights.consistency +
+      diversity * weights.diversity +
+      confidence * weights.confidence +
+      recency * weights.recency;
 
     return {
       candidateId: candidate.id,
@@ -190,11 +203,13 @@ export function arbitrateCandidates(
     return left.candidateId.localeCompare(right.candidateId);
   });
 
-  const rankedWithoutTie = ranked.map(({ tieBreaker: _tieBreaker, ...entry }) => entry);
+  const rankedWithoutTie = ranked.map(
+    ({ tieBreaker: _tieBreaker, ...entry }) => entry,
+  );
   if (shouldEscalate) {
     return {
-      outcome: 'escalate',
-      reason: 'disagreement_threshold',
+      outcome: "escalate",
+      reason: "disagreement_threshold",
       ranked: rankedWithoutTie,
       metadata: {
         disagreementRate: input.inconsistencies.disagreementRate,
@@ -206,9 +221,11 @@ export function arbitrateCandidates(
   }
 
   const selectedId = ranked[0]!.candidateId;
-  const selected = input.candidates.find((candidate) => candidate.id === selectedId)!;
+  const selected = input.candidates.find(
+    (candidate) => candidate.id === selectedId,
+  )!;
   return {
-    outcome: 'selected',
+    outcome: "selected",
     selected,
     ranked: rankedWithoutTie,
     metadata: {

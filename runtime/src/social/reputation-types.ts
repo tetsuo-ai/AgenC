@@ -9,12 +9,12 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import type { FeedPost } from './feed-types.js';
-import type { AgentProfile } from './types.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import type { FeedPost } from "./feed-types.js";
+import type { AgentProfile } from "./types.js";
 
 // ============================================================================
 // On-chain Reputation Constants
@@ -172,7 +172,12 @@ export interface ReputationScorerConfig {
 // ============================================================================
 
 /** Signal types emitted by social modules for reputation tracking. */
-export type ReputationSignalKind = 'upvote' | 'post' | 'message' | 'collaboration' | 'spam';
+export type ReputationSignalKind =
+  | "upvote"
+  | "post"
+  | "message"
+  | "collaboration"
+  | "spam";
 
 /** A reputation-relevant signal from a social module. */
 export interface ReputationSignal {
@@ -191,4 +196,3 @@ export interface ReputationSignal {
  * Consumers can use this to accumulate SocialSignals or trigger on-chain updates.
  */
 export type ReputationSignalCallback = (signal: ReputationSignal) => void;
-

@@ -1,14 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createHash } from 'node:crypto';
-import { PublicKey } from '@solana/web3.js';
-import { projectOnChainEvents, type OnChainProjectionInput } from './projector.js';
-import { stableStringifyJson } from './types.js';
+import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { PublicKey } from "@solana/web3.js";
+import {
+  projectOnChainEvents,
+  type OnChainProjectionInput,
+} from "./projector.js";
+import { stableStringifyJson } from "./types.js";
 import {
   INCIDENT_CASE_SCHEMA_VERSION,
   buildIncidentCase,
   computeEvidenceHash,
-} from './incident-case.js';
-import type { ReplayAnomaly } from './replay-comparison.js';
+} from "./incident-case.js";
+import type { ReplayAnomaly } from "./replay-comparison.js";
 
 function pubkey(seed: number): PublicKey {
   const bytes = new Uint8Array(32);
@@ -22,17 +25,17 @@ function bytes(seed = 0, length = 32): Uint8Array {
   return output;
 }
 
-describe('incident case model', () => {
-  it('builds a deterministic case from fixture events', () => {
+describe("incident case model", () => {
+  it("builds a deterministic case from fixture events", () => {
     const taskId = bytes(1);
     const creator = pubkey(8);
     const worker = pubkey(9);
 
     const inputs: OnChainProjectionInput[] = [
       {
-        eventName: 'taskCreated',
+        eventName: "taskCreated",
         slot: 10,
-        signature: 'AAA',
+        signature: "AAA",
         timestampMs: 1_000,
         event: {
           taskId,
@@ -47,9 +50,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'taskClaimed',
+        eventName: "taskClaimed",
         slot: 10,
-        signature: 'AAA',
+        signature: "AAA",
         timestampMs: 1_100,
         event: {
           taskId,
@@ -60,9 +63,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'taskCompleted',
+        eventName: "taskCompleted",
         slot: 100,
-        signature: 'ZZZ',
+        signature: "ZZZ",
         timestampMs: 2_000,
         event: {
           taskId,
@@ -75,7 +78,9 @@ describe('incident case model', () => {
       },
     ];
 
-    const projected = projectOnChainEvents(inputs, { traceId: 'trace-1' }).events;
+    const projected = projectOnChainEvents(inputs, {
+      traceId: "trace-1",
+    }).events;
     const incident = buildIncidentCase({ events: projected });
 
     expect(incident.schemaVersion).toBe(INCIDENT_CASE_SCHEMA_VERSION);
@@ -87,14 +92,14 @@ describe('incident case model', () => {
     });
 
     expect(incident.transitions.map((entry) => entry.toState)).toEqual([
-      'discovered',
-      'claimed',
-      'completed',
+      "discovered",
+      "claimed",
+      "completed",
     ]);
 
     expect(incident.actorMap).toEqual([
-      { pubkey: creator.toBase58(), role: 'creator', firstSeenSeq: 1 },
-      { pubkey: worker.toBase58(), role: 'worker', firstSeenSeq: 2 },
+      { pubkey: creator.toBase58(), role: "creator", firstSeenSeq: 1 },
+      { pubkey: worker.toBase58(), role: "worker", firstSeenSeq: 2 },
     ]);
 
     expect(incident.taskIds).toEqual([new PublicKey(taskId).toBase58()]);
@@ -102,10 +107,10 @@ describe('incident case model', () => {
     expect(incident.anomalies).toEqual([]);
     expect(incident.anomalyIds).toEqual([]);
     expect(incident.evidenceHashes).toEqual([]);
-    expect(incident.caseStatus).toBe('open');
+    expect(incident.caseStatus).toBe("open");
   });
 
-  it('handles empty event lists', () => {
+  it("handles empty event lists", () => {
     const incident = buildIncidentCase({ events: [] });
 
     expect(incident.traceWindow).toEqual({
@@ -122,15 +127,15 @@ describe('incident case model', () => {
     expect(incident.anomalyIds).toEqual([]);
   });
 
-  it('supports trace window override', () => {
+  it("supports trace window override", () => {
     const taskId = bytes(3);
     const worker = pubkey(4);
 
     const inputs: OnChainProjectionInput[] = [
       {
-        eventName: 'taskCreated',
+        eventName: "taskCreated",
         slot: 1,
-        signature: 'A',
+        signature: "A",
         timestampMs: 1_000,
         event: {
           taskId,
@@ -145,9 +150,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'taskClaimed',
+        eventName: "taskClaimed",
         slot: 10,
-        signature: 'B',
+        signature: "B",
         timestampMs: 1_100,
         event: {
           taskId,
@@ -158,9 +163,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'taskCompleted',
+        eventName: "taskCompleted",
         slot: 20,
-        signature: 'C',
+        signature: "C",
         timestampMs: 1_200,
         event: {
           taskId,
@@ -174,24 +179,27 @@ describe('incident case model', () => {
     ];
 
     const projected = projectOnChainEvents(inputs).events;
-    const incident = buildIncidentCase({ events: projected, window: { fromSlot: 5, toSlot: 15 } });
+    const incident = buildIncidentCase({
+      events: projected,
+      window: { fromSlot: 5, toSlot: 15 },
+    });
 
     expect(incident.traceWindow.fromSlot).toBe(5);
     expect(incident.traceWindow.toSlot).toBe(15);
     expect(incident.transitions).toHaveLength(1);
     expect(incident.transitions[0]?.slot).toBe(10);
-    expect(incident.transitions[0]?.toState).toBe('claimed');
+    expect(incident.transitions[0]?.toState).toBe("claimed");
   });
 
-  it('deduplicates actors and keeps earliest firstSeenSeq', () => {
+  it("deduplicates actors and keeps earliest firstSeenSeq", () => {
     const taskId = bytes(5);
     const worker = pubkey(7);
 
     const inputs: OnChainProjectionInput[] = [
       {
-        eventName: 'taskCreated',
+        eventName: "taskCreated",
         slot: 1,
-        signature: 'A',
+        signature: "A",
         timestampMs: 1_000,
         event: {
           taskId,
@@ -206,9 +214,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'taskClaimed',
+        eventName: "taskClaimed",
         slot: 2,
-        signature: 'B',
+        signature: "B",
         timestampMs: 1_100,
         event: {
           taskId,
@@ -219,9 +227,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'taskCompleted',
+        eventName: "taskCompleted",
         slot: 3,
-        signature: 'C',
+        signature: "C",
         timestampMs: 1_200,
         event: {
           taskId,
@@ -236,14 +244,18 @@ describe('incident case model', () => {
 
     const projected = projectOnChainEvents(inputs).events;
     const incident = buildIncidentCase({ events: projected });
-    const workerEntry = incident.actorMap.find((entry) => entry.pubkey === worker.toBase58());
+    const workerEntry = incident.actorMap.find(
+      (entry) => entry.pubkey === worker.toBase58(),
+    );
 
-    expect(incident.actorMap.filter((entry) => entry.pubkey === worker.toBase58())).toHaveLength(1);
+    expect(
+      incident.actorMap.filter((entry) => entry.pubkey === worker.toBase58()),
+    ).toHaveLength(1);
     expect(workerEntry?.firstSeenSeq).toBe(2);
-    expect(workerEntry?.role).toBe('worker');
+    expect(workerEntry?.role).toBe("worker");
   });
 
-  it('tracks dispute lifecycle transitions', () => {
+  it("tracks dispute lifecycle transitions", () => {
     const disputeId = bytes(6);
     const taskId = bytes(7);
     const initiator = pubkey(1);
@@ -252,9 +264,9 @@ describe('incident case model', () => {
 
     const inputs: OnChainProjectionInput[] = [
       {
-        eventName: 'disputeInitiated',
+        eventName: "disputeInitiated",
         slot: 30,
-        signature: 'S1',
+        signature: "S1",
         timestampMs: 3_000,
         event: {
           disputeId,
@@ -267,9 +279,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'disputeVoteCast',
+        eventName: "disputeVoteCast",
         slot: 40,
-        signature: 'S2',
+        signature: "S2",
         timestampMs: 3_500,
         event: {
           disputeId,
@@ -281,9 +293,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'disputeResolved',
+        eventName: "disputeResolved",
         slot: 50,
-        signature: 'S3',
+        signature: "S3",
         timestampMs: 4_000,
         event: {
           disputeId,
@@ -302,28 +314,30 @@ describe('incident case model', () => {
 
     expect(incident.disputeIds).toEqual([disputePda]);
 
-    const disputeTransitions = incident.transitions.filter((entry) => entry.disputePda === disputePda);
+    const disputeTransitions = incident.transitions.filter(
+      (entry) => entry.disputePda === disputePda,
+    );
     expect(disputeTransitions.map((entry) => entry.toState)).toEqual([
-      'dispute:initiated',
-      'dispute:vote_cast',
-      'dispute:resolved',
+      "dispute:initiated",
+      "dispute:vote_cast",
+      "dispute:resolved",
     ]);
 
     expect(incident.actorMap).toEqual([
-      { pubkey: initiator.toBase58(), role: 'creator', firstSeenSeq: 1 },
-      { pubkey: defendant.toBase58(), role: 'worker', firstSeenSeq: 1 },
-      { pubkey: voter.toBase58(), role: 'arbiter', firstSeenSeq: 2 },
+      { pubkey: initiator.toBase58(), role: "creator", firstSeenSeq: 1 },
+      { pubkey: defendant.toBase58(), role: "worker", firstSeenSeq: 1 },
+      { pubkey: voter.toBase58(), role: "arbiter", firstSeenSeq: 2 },
     ]);
   });
 
-  it('maps replay anomalies deterministically', () => {
+  it("maps replay anomalies deterministically", () => {
     const taskId = bytes(9);
 
     const projected = projectOnChainEvents([
       {
-        eventName: 'taskCreated',
+        eventName: "taskCreated",
         slot: 1,
-        signature: 'A',
+        signature: "A",
         timestampMs: 1_000,
         event: {
           taskId,
@@ -341,24 +355,24 @@ describe('incident case model', () => {
 
     const anomalies: ReplayAnomaly[] = [
       {
-        code: 'hash_mismatch',
-        severity: 'error',
-        message: 'hash differs',
+        code: "hash_mismatch",
+        severity: "error",
+        message: "hash differs",
         context: {
           seq: 1,
           taskPda: new PublicKey(taskId).toBase58(),
-          signature: 'A',
-          sourceEventName: 'taskCreated',
+          signature: "A",
+          sourceEventName: "taskCreated",
           sourceEventSequence: 0,
         },
       },
       {
-        code: 'missing_event',
-        severity: 'warning',
-        message: 'missing event',
+        code: "missing_event",
+        severity: "warning",
+        message: "missing event",
         context: {
           seq: 2,
-          signature: 'B',
+          signature: "B",
         },
       },
     ];
@@ -366,34 +380,39 @@ describe('incident case model', () => {
     const first = buildIncidentCase({ events: projected, anomalies });
     const second = buildIncidentCase({ events: projected, anomalies });
 
-    expect(first.anomalyIds).toEqual(first.anomalies.map((entry) => entry.anomalyId));
-    expect(first.anomalies.map((entry) => entry.code)).toEqual(['hash_mismatch', 'missing_event']);
+    expect(first.anomalyIds).toEqual(
+      first.anomalies.map((entry) => entry.anomalyId),
+    );
+    expect(first.anomalies.map((entry) => entry.code)).toEqual([
+      "hash_mismatch",
+      "missing_event",
+    ]);
     expect(first.anomalyIds).toEqual(second.anomalyIds);
   });
 
-  it('computes evidence hashes using stable JSON canonicalization', () => {
+  it("computes evidence hashes using stable JSON canonicalization", () => {
     const content = { b: 2, a: 1 };
-    const evidence = computeEvidenceHash('example', content);
+    const evidence = computeEvidenceHash("example", content);
 
-    const expected = createHash('sha256')
+    const expected = createHash("sha256")
       .update(stableStringifyJson(content))
-      .digest('hex');
+      .digest("hex");
 
-    expect(evidence).toEqual({ label: 'example', sha256: expected });
+    expect(evidence).toEqual({ label: "example", sha256: expected });
   });
 
-  it('produces deterministic case IDs for identical inputs', () => {
+  it("produces deterministic case IDs for identical inputs", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+    vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
 
     const taskId = bytes(11);
     const worker = pubkey(12);
 
     const projected = projectOnChainEvents([
       {
-        eventName: 'taskCreated',
+        eventName: "taskCreated",
         slot: 1,
-        signature: 'A',
+        signature: "A",
         timestampMs: 1_000,
         event: {
           taskId,
@@ -408,9 +427,9 @@ describe('incident case model', () => {
         },
       },
       {
-        eventName: 'taskClaimed',
+        eventName: "taskClaimed",
         slot: 2,
-        signature: 'B',
+        signature: "B",
         timestampMs: 1_100,
         event: {
           taskId,
@@ -426,16 +445,19 @@ describe('incident case model', () => {
     const second = buildIncidentCase({ events: projected });
     expect(first.caseId).toBe(second.caseId);
 
-    const narrowed = buildIncidentCase({ events: projected, window: { fromSlot: 1, toSlot: 1 } });
+    const narrowed = buildIncidentCase({
+      events: projected,
+      window: { fromSlot: 1, toSlot: 1 },
+    });
     expect(narrowed.caseId).not.toBe(first.caseId);
 
     const otherTaskId = bytes(12);
     const differentTasks = buildIncidentCase({
       events: projectOnChainEvents([
         {
-          eventName: 'taskCreated',
+          eventName: "taskCreated",
           slot: 1,
-          signature: 'A',
+          signature: "A",
           timestampMs: 1_000,
           event: {
             taskId,
@@ -450,9 +472,9 @@ describe('incident case model', () => {
           },
         },
         {
-          eventName: 'taskClaimed',
+          eventName: "taskClaimed",
           slot: 2,
-          signature: 'B',
+          signature: "B",
           timestampMs: 1_100,
           event: {
             taskId,
@@ -463,9 +485,9 @@ describe('incident case model', () => {
           },
         },
         {
-          eventName: 'taskCreated',
+          eventName: "taskCreated",
           slot: 3,
-          signature: 'C',
+          signature: "C",
           timestampMs: 1_200,
           event: {
             taskId: otherTaskId,
@@ -486,15 +508,15 @@ describe('incident case model', () => {
     vi.useRealTimers();
   });
 
-  it('round-trips through JSON serialization without loss', () => {
+  it("round-trips through JSON serialization without loss", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+    vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
 
     const projected = projectOnChainEvents([
       {
-        eventName: 'taskCreated',
+        eventName: "taskCreated",
         slot: 1,
-        signature: 'A',
+        signature: "A",
         timestampMs: 1_000,
         event: {
           taskId: bytes(13),

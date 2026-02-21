@@ -12,26 +12,29 @@
  * @module
  */
 
-import { createHash, randomBytes } from 'node:crypto';
-import type { PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { findAgentPda } from '../agent/pda.js';
-import type { AgentFeed } from './feed.js';
-import { deriveFeedPostPda } from './feed.js';
-import type { AgentMessaging } from './messaging.js';
-import type { AgentDiscovery } from './discovery.js';
-import type { AgentProfile } from './types.js';
-import type { ReputationSignalCallback } from './reputation-types.js';
-import type { TeamContractEngine } from '../team/engine.js';
-import type { TeamRoleTemplate, TeamCheckpointTemplate } from '../team/types.js';
+import { createHash, randomBytes } from "node:crypto";
+import type { PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { findAgentPda } from "../agent/pda.js";
+import type { AgentFeed } from "./feed.js";
+import { deriveFeedPostPda } from "./feed.js";
+import type { AgentMessaging } from "./messaging.js";
+import type { AgentDiscovery } from "./discovery.js";
+import type { AgentProfile } from "./types.js";
+import type { ReputationSignalCallback } from "./reputation-types.js";
+import type { TeamContractEngine } from "../team/engine.js";
+import type {
+  TeamRoleTemplate,
+  TeamCheckpointTemplate,
+} from "../team/types.js";
 import {
   CollaborationRequestError,
   CollaborationResponseError,
   CollaborationFormationError,
-} from './collaboration-errors.js';
+} from "./collaboration-errors.js";
 import {
   COLLABORATION_TOPIC,
   MAX_TITLE_LENGTH,
@@ -42,7 +45,7 @@ import {
   type CollaborationRequestState,
   type CollaborationRequestMetadata,
   type CollaborationOpsConfig,
-} from './collaboration-types.js';
+} from "./collaboration-types.js";
 
 // ============================================================================
 // CollaborationProtocol
@@ -92,7 +95,7 @@ export class CollaborationProtocol {
     this.validateRequest(request);
 
     const metadata: CollaborationRequestMetadata = {
-      type: 'collaboration_request',
+      type: "collaboration_request",
       version: 1,
       title: request.title,
       description: request.description,
@@ -102,7 +105,7 @@ export class CollaborationProtocol {
       deadline: request.deadline,
     };
 
-    const contentHash = createHash('sha256')
+    const contentHash = createHash("sha256")
       .update(JSON.stringify(metadata))
       .digest();
 
@@ -132,7 +135,7 @@ export class CollaborationProtocol {
       request,
       postPda,
       requesterPda: this.agentPda,
-      status: 'open',
+      status: "open",
       responses: [],
       teamContractId: null,
       contentHash: new Uint8Array(contentHash),
@@ -154,11 +157,11 @@ export class CollaborationProtocol {
   async respondToRequest(requestId: string, accept: boolean): Promise<void> {
     const state = this.requests.get(requestId);
     if (!state) {
-      throw new CollaborationResponseError(requestId, 'Request not found');
+      throw new CollaborationResponseError(requestId, "Request not found");
     }
 
     this.checkExpiration(state);
-    if (state.status !== 'open' && state.status !== 'forming') {
+    if (state.status !== "open" && state.status !== "forming") {
       throw new CollaborationResponseError(
         requestId,
         `Request is ${state.status}, not accepting responses`,
@@ -166,7 +169,7 @@ export class CollaborationProtocol {
     }
 
     const content = JSON.stringify({
-      type: 'collaboration_response',
+      type: "collaboration_response",
       requestId,
       accepted: accept,
     });
@@ -181,7 +184,7 @@ export class CollaborationProtocol {
     }
 
     this.logger.info(
-      `Responded to collaboration ${requestId}: ${accept ? 'accepted' : 'declined'}`,
+      `Responded to collaboration ${requestId}: ${accept ? "accepted" : "declined"}`,
     );
   }
 
@@ -202,11 +205,11 @@ export class CollaborationProtocol {
   ): void {
     const state = this.requests.get(requestId);
     if (!state) {
-      throw new CollaborationResponseError(requestId, 'Request not found');
+      throw new CollaborationResponseError(requestId, "Request not found");
     }
 
     this.checkExpiration(state);
-    if (state.status !== 'open' && state.status !== 'forming') {
+    if (state.status !== "open" && state.status !== "forming") {
       throw new CollaborationResponseError(
         requestId,
         `Request is ${state.status}, not accepting responses`,
@@ -214,9 +217,7 @@ export class CollaborationProtocol {
     }
 
     // Check for duplicate response from same agent
-    const existing = state.responses.find(
-      (r) => r.agentPda.equals(agentPda),
-    );
+    const existing = state.responses.find((r) => r.agentPda.equals(agentPda));
     if (existing) {
       throw new CollaborationResponseError(
         requestId,
@@ -235,7 +236,7 @@ export class CollaborationProtocol {
     // Transition to 'forming' when enough accepted responses
     const acceptedCount = state.responses.filter((r) => r.accepted).length;
     if (acceptedCount >= state.request.maxMembers) {
-      state.status = 'forming';
+      state.status = "forming";
       this.logger.info(
         `Collaboration ${requestId} has enough members (${acceptedCount}/${state.request.maxMembers}), ready to form team`,
       );
@@ -252,10 +253,10 @@ export class CollaborationProtocol {
   async formTeam(requestId: string, members: Uint8Array[]): Promise<string> {
     const state = this.requests.get(requestId);
     if (!state) {
-      throw new CollaborationFormationError(requestId, 'Request not found');
+      throw new CollaborationFormationError(requestId, "Request not found");
     }
 
-    if (state.status !== 'open' && state.status !== 'forming') {
+    if (state.status !== "open" && state.status !== "forming") {
       throw new CollaborationFormationError(
         requestId,
         `Request is ${state.status}, cannot form team`,
@@ -264,7 +265,7 @@ export class CollaborationProtocol {
 
     // Validate all members have accepted
     for (const memberId of members) {
-      const memberHex = Buffer.from(memberId).toString('hex');
+      const memberHex = Buffer.from(memberId).toString("hex");
       const response = this.findResponseByHex(state, memberHex);
       if (!response || !response.accepted) {
         throw new CollaborationFormationError(
@@ -275,8 +276,8 @@ export class CollaborationProtocol {
     }
 
     // Build team template — use hex-encoded contentHash prefix for team-ID-compatible strings
-    const hashHex = Buffer.from(state.contentHash).toString('hex');
-    const roleId = 'collaborator';
+    const hashHex = Buffer.from(state.contentHash).toString("hex");
+    const roleId = "collaborator";
     const role: TeamRoleTemplate = {
       id: roleId,
       requiredCapabilities: state.request.requiredCapabilities,
@@ -296,7 +297,7 @@ export class CollaborationProtocol {
       // Create the contract — the engine normalizes/validates the ID
       const snapshot = this.teamEngine.createContract({
         contractId,
-        creatorId: Buffer.from(this.agentPda.toBytes()).toString('hex'),
+        creatorId: Buffer.from(this.agentPda.toBytes()).toString("hex"),
         template: {
           id: `collab-tmpl-${hashHex.slice(0, 12)}`,
           name: state.request.title,
@@ -311,7 +312,7 @@ export class CollaborationProtocol {
 
       // Join all members
       for (const memberId of members) {
-        const memberHex = Buffer.from(memberId).toString('hex');
+        const memberHex = Buffer.from(memberId).toString("hex");
         const response = this.findResponseByHex(state, memberHex);
 
         this.teamEngine.joinContract({
@@ -324,7 +325,7 @@ export class CollaborationProtocol {
         });
       }
 
-      state.status = 'formed';
+      state.status = "formed";
       state.teamContractId = normalizedId;
 
       this.logger.info(
@@ -334,7 +335,7 @@ export class CollaborationProtocol {
       // Emit reputation signal for collaboration formation
       if (this.onReputationSignal) {
         this.onReputationSignal({
-          kind: 'collaboration',
+          kind: "collaboration",
           agent: this.agentPda,
           delta: 1,
           timestamp: Math.floor(Date.now() / 1000),
@@ -367,16 +368,16 @@ export class CollaborationProtocol {
   ): Promise<void> {
     const contract = this.teamEngine.getContract(teamId);
     if (!contract) {
-      throw new CollaborationFormationError(teamId, 'Team contract not found');
+      throw new CollaborationFormationError(teamId, "Team contract not found");
     }
 
-    const memberId = Buffer.from(assignee).toString('hex');
+    const memberId = Buffer.from(assignee).toString("hex");
 
     try {
       this.teamEngine.assignRole({
         contractId: teamId,
         memberId,
-        roleId: 'collaborator',
+        roleId: "collaborator",
       });
     } catch (err) {
       throw new CollaborationFormationError(
@@ -412,7 +413,7 @@ export class CollaborationProtocol {
     const results: CollaborationRequestState[] = [];
     for (const state of this.requests.values()) {
       this.checkExpiration(state);
-      if (state.status === 'open' || state.status === 'forming') {
+      if (state.status === "open" || state.status === "forming") {
         results.push(state);
       }
     }
@@ -427,7 +428,7 @@ export class CollaborationProtocol {
     if (!state) {
       throw new CollaborationRequestError(`Request ${requestId} not found`);
     }
-    state.status = 'cancelled';
+    state.status = "cancelled";
     this.logger.info(`Collaboration request cancelled: ${requestId}`);
   }
 
@@ -454,7 +455,7 @@ export class CollaborationProtocol {
 
   private validateRequest(request: CollaborationRequest): void {
     if (!request.title || request.title.length === 0) {
-      throw new CollaborationRequestError('Title is required');
+      throw new CollaborationRequestError("Title is required");
     }
     if (request.title.length > MAX_TITLE_LENGTH) {
       throw new CollaborationRequestError(
@@ -462,7 +463,7 @@ export class CollaborationProtocol {
       );
     }
     if (!request.description || request.description.length === 0) {
-      throw new CollaborationRequestError('Description is required');
+      throw new CollaborationRequestError("Description is required");
     }
     if (request.description.length > MAX_DESCRIPTION_LENGTH) {
       throw new CollaborationRequestError(
@@ -470,9 +471,7 @@ export class CollaborationProtocol {
       );
     }
     if (request.maxMembers < 2) {
-      throw new CollaborationRequestError(
-        'maxMembers must be at least 2',
-      );
+      throw new CollaborationRequestError("maxMembers must be at least 2");
     }
     if (request.maxMembers > MAX_COLLABORATION_MEMBERS) {
       throw new CollaborationRequestError(
@@ -481,26 +480,21 @@ export class CollaborationProtocol {
     }
     if (request.requiredCapabilities === 0n) {
       throw new CollaborationRequestError(
-        'requiredCapabilities must not be zero',
+        "requiredCapabilities must not be zero",
       );
     }
     if (!request.payoutModel || !request.payoutModel.mode) {
-      throw new CollaborationRequestError(
-        'payoutModel is required',
-      );
+      throw new CollaborationRequestError("payoutModel is required");
     }
   }
 
   private checkExpiration(state: CollaborationRequestState): void {
-    if (
-      state.status === 'open' ||
-      state.status === 'forming'
-    ) {
+    if (state.status === "open" || state.status === "forming") {
       if (
         state.request.deadline &&
         Math.floor(Date.now() / 1000) > state.request.deadline
       ) {
-        state.status = 'expired';
+        state.status = "expired";
       }
     }
   }
@@ -510,7 +504,7 @@ export class CollaborationProtocol {
     memberHex: string,
   ): CollaborationResponse | undefined {
     return state.responses.find((r) => {
-      const rHex = Buffer.from(r.agentPda.toBytes()).toString('hex');
+      const rHex = Buffer.from(r.agentPda.toBytes()).toString("hex");
       return rHex === memberHex;
     });
   }

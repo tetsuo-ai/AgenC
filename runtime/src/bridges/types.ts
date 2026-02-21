@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
+import type { Logger } from "../utils/logger.js";
 
 // ============================================================================
 // LangChain Bridge Types

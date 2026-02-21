@@ -3,15 +3,18 @@
  * @module
  */
 
-import { PublicKey, SystemProgram, type Keypair } from '@solana/web3.js';
-import { sign, createPrivateKey } from 'node:crypto';
-import { randomBytes } from 'node:crypto';
-import anchor, { type Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { findAgentPda } from '../agent/pda.js';
-import { deriveReputationStakePda, deriveReputationDelegationPda } from './pda.js';
+import { PublicKey, SystemProgram, type Keypair } from "@solana/web3.js";
+import { sign, createPrivateKey } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import anchor, { type Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { findAgentPda } from "../agent/pda.js";
+import {
+  deriveReputationStakePda,
+  deriveReputationDelegationPda,
+} from "./pda.js";
 import type {
   OnChainReputationStake,
   OnChainReputationDelegation,
@@ -23,18 +26,18 @@ import type {
   WithdrawResult,
   RevokeResult,
   PortableReputationProof,
-} from './types.js';
+} from "./types.js";
 import {
   parseOnChainReputationStake,
   parseOnChainReputationDelegation,
   REPUTATION_MAX,
-} from './types.js';
+} from "./types.js";
 import {
   ReputationStakeError,
   ReputationDelegationError,
   ReputationWithdrawError,
   ReputationPortabilityError,
-} from './errors.js';
+} from "./errors.js";
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -52,7 +55,10 @@ export interface ReputationEconomyOpsConfig {
 }
 
 /** Ed25519 DER prefix for building signing keys */
-const ED25519_DER_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+const ED25519_DER_PREFIX = Buffer.from(
+  "302e020100300506032b657004220420",
+  "hex",
+);
 
 // ============================================================================
 // ReputationEconomyOperations
@@ -72,7 +78,7 @@ export class ReputationEconomyOperations {
     this.program = config.program;
     this.agentId = new Uint8Array(config.agentId);
     this.logger = config.logger ?? silentLogger;
-    this.chainId = config.chainId ?? 'solana-devnet';
+    this.chainId = config.chainId ?? "solana-devnet";
     this.agentPda = findAgentPda(this.agentId, this.program.programId);
   }
 
@@ -106,7 +112,7 @@ export class ReputationEconomyOperations {
       return { stakePda, transactionSignature: signature };
     } catch (err) {
       throw new ReputationStakeError(
-        (err as Error).message || 'Stake transaction failed',
+        (err as Error).message || "Stake transaction failed",
       );
     }
   }
@@ -120,7 +126,9 @@ export class ReputationEconomyOperations {
       this.program.programId,
     );
 
-    this.logger.info(`Withdrawing ${params.amount} lamports from reputation stake`);
+    this.logger.info(
+      `Withdrawing ${params.amount} lamports from reputation stake`,
+    );
 
     try {
       const signature = await (this.program.methods as any)
@@ -136,7 +144,7 @@ export class ReputationEconomyOperations {
       return { transactionSignature: signature };
     } catch (err) {
       throw new ReputationWithdrawError(
-        (err as Error).message || 'Withdraw transaction failed',
+        (err as Error).message || "Withdraw transaction failed",
       );
     }
   }
@@ -152,7 +160,9 @@ export class ReputationEconomyOperations {
     );
 
     try {
-      const raw = await (this.program.account as any).reputationStake.fetchNullable(stakePda);
+      const raw = await (
+        this.program.account as any
+      ).reputationStake.fetchNullable(stakePda);
       if (!raw) return null;
       return parseOnChainReputationStake(raw);
     } catch (err) {
@@ -168,8 +178,13 @@ export class ReputationEconomyOperations {
   /**
    * Delegate reputation points to a peer agent.
    */
-  async delegateReputation(params: ReputationDelegationParams): Promise<DelegationResult> {
-    const delegateePda = findAgentPda(params.delegateeId, this.program.programId);
+  async delegateReputation(
+    params: ReputationDelegationParams,
+  ): Promise<DelegationResult> {
+    const delegateePda = findAgentPda(
+      params.delegateeId,
+      this.program.programId,
+    );
     const { address: delegationPda } = deriveReputationDelegationPda(
       this.agentPda,
       delegateePda,
@@ -195,7 +210,7 @@ export class ReputationEconomyOperations {
       return { delegationPda, transactionSignature: signature };
     } catch (err) {
       throw new ReputationDelegationError(
-        (err as Error).message || 'Delegation transaction failed',
+        (err as Error).message || "Delegation transaction failed",
       );
     }
   }
@@ -226,7 +241,7 @@ export class ReputationEconomyOperations {
       return { transactionSignature: signature };
     } catch (err) {
       throw new ReputationDelegationError(
-        (err as Error).message || 'Revoke transaction failed',
+        (err as Error).message || "Revoke transaction failed",
       );
     }
   }
@@ -245,7 +260,9 @@ export class ReputationEconomyOperations {
     );
 
     try {
-      const raw = await (this.program.account as any).reputationDelegation.fetchNullable(delegationPda);
+      const raw = await (
+        this.program.account as any
+      ).reputationDelegation.fetchNullable(delegationPda);
       if (!raw) return null;
       return parseOnChainReputationDelegation(raw);
     } catch (err) {
@@ -261,7 +278,9 @@ export class ReputationEconomyOperations {
     agentPda: PublicKey,
   ): Promise<OnChainReputationDelegation[]> {
     try {
-      const accounts = await (this.program.account as any).reputationDelegation.all([
+      const accounts = await (
+        this.program.account as any
+      ).reputationDelegation.all([
         {
           memcmp: {
             offset: 8, // discriminator
@@ -273,7 +292,9 @@ export class ReputationEconomyOperations {
         parseOnChainReputationDelegation(acc.account),
       );
     } catch (err) {
-      this.logger.error(`Failed to fetch delegations from ${agentPda.toBase58()}: ${err}`);
+      this.logger.error(
+        `Failed to fetch delegations from ${agentPda.toBase58()}: ${err}`,
+      );
       return [];
     }
   }
@@ -285,7 +306,9 @@ export class ReputationEconomyOperations {
     agentPda: PublicKey,
   ): Promise<OnChainReputationDelegation[]> {
     try {
-      const accounts = await (this.program.account as any).reputationDelegation.all([
+      const accounts = await (
+        this.program.account as any
+      ).reputationDelegation.all([
         {
           memcmp: {
             offset: 8 + 32, // discriminator + delegator pubkey
@@ -297,7 +320,9 @@ export class ReputationEconomyOperations {
         parseOnChainReputationDelegation(acc.account),
       );
     } catch (err) {
-      this.logger.error(`Failed to fetch delegations to ${agentPda.toBase58()}: ${err}`);
+      this.logger.error(
+        `Failed to fetch delegations to ${agentPda.toBase58()}: ${err}`,
+      );
       return [];
     }
   }
@@ -313,7 +338,8 @@ export class ReputationEconomyOperations {
   async getEffectiveReputation(agentPda: PublicKey): Promise<number> {
     try {
       // Fetch base reputation from agent account
-      const agent = await this.program.account.agentRegistration.fetchNullable(agentPda);
+      const agent =
+        await this.program.account.agentRegistration.fetchNullable(agentPda);
       if (!agent) return 0;
 
       const baseReputation = (agent as any).reputation as number;
@@ -350,9 +376,11 @@ export class ReputationEconomyOperations {
   ): Promise<PortableReputationProof> {
     try {
       // Fetch agent state
-      const agent = await this.program.account.agentRegistration.fetchNullable(this.agentPda);
+      const agent = await this.program.account.agentRegistration.fetchNullable(
+        this.agentPda,
+      );
       if (!agent) {
-        throw new ReputationPortabilityError('Agent not registered');
+        throw new ReputationPortabilityError("Agent not registered");
       }
 
       // Fetch stake
@@ -362,14 +390,16 @@ export class ReputationEconomyOperations {
       const delegations = await this.getDelegationsTo(this.agentPda);
 
       const now = Math.floor(Date.now() / 1000);
-      const nonce = randomBytes(16).toString('hex');
+      const nonce = randomBytes(16).toString("hex");
 
       const proof: PortableReputationProof = {
         agentId: new Uint8Array((agent as any).agentId),
         agentPda: this.agentPda.toBase58(),
         reputation: (agent as any).reputation as number,
-        stakedAmount: stake ? stake.stakedAmount.toString() : '0',
-        tasksCompleted: BigInt((agent as any).tasksCompleted.toString()).toString(),
+        stakedAmount: stake ? stake.stakedAmount.toString() : "0",
+        tasksCompleted: BigInt(
+          (agent as any).tasksCompleted.toString(),
+        ).toString(),
         totalEarned: BigInt((agent as any).totalEarned.toString()).toString(),
         delegationsReceived: delegations.length,
         timestamp: now,
@@ -384,9 +414,12 @@ export class ReputationEconomyOperations {
 
       // Sign with ed25519 using node:crypto
       const derKey = createPrivateKey({
-        key: Buffer.concat([ED25519_DER_PREFIX, keypair.secretKey.slice(0, 32)]),
-        format: 'der',
-        type: 'pkcs8',
+        key: Buffer.concat([
+          ED25519_DER_PREFIX,
+          keypair.secretKey.slice(0, 32),
+        ]),
+        format: "der",
+        type: "pkcs8",
       });
       const sig = sign(null, payload, derKey);
 
@@ -395,7 +428,7 @@ export class ReputationEconomyOperations {
     } catch (err) {
       if (err instanceof ReputationPortabilityError) throw err;
       throw new ReputationPortabilityError(
-        (err as Error).message || 'Unknown error generating proof',
+        (err as Error).message || "Unknown error generating proof",
       );
     }
   }
@@ -418,5 +451,5 @@ function buildProofPayload(proof: PortableReputationProof): Buffer {
     proof.chainId,
     proof.programId,
   ];
-  return Buffer.from(parts.join('|'), 'utf-8');
+  return Buffer.from(parts.join("|"), "utf-8");
 }

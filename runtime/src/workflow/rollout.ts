@@ -4,9 +4,9 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { PolicyEngine } from '../policy/engine.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { PolicyEngine } from "../policy/engine.js";
 
 export interface WorkflowRolloutStopLossThresholds {
   maxFailureRateDelta: number;
@@ -47,14 +47,14 @@ export interface WorkflowRolloutDeltas {
   costUnitsDelta: number;
 }
 
-export type WorkflowRolloutAction = 'continue' | 'promote' | 'rollback';
+export type WorkflowRolloutAction = "continue" | "promote" | "rollback";
 export type WorkflowRolloutReason =
-  | 'insufficient_canary_samples'
-  | 'stop_loss_exceeded'
-  | 'policy_denied'
-  | 'already_promoted'
-  | 'already_rolled_back'
-  | 'disabled';
+  | "insufficient_canary_samples"
+  | "stop_loss_exceeded"
+  | "policy_denied"
+  | "already_promoted"
+  | "already_rolled_back"
+  | "disabled";
 
 export interface WorkflowRolloutDecision {
   action: WorkflowRolloutAction;
@@ -100,7 +100,10 @@ function hashString(input: string): number {
   return hash >>> 0;
 }
 
-function toVariantStats(variantId: string, value: MutableVariantStats | undefined): WorkflowRolloutVariantStats {
+function toVariantStats(
+  variantId: string,
+  value: MutableVariantStats | undefined,
+): WorkflowRolloutVariantStats {
   const sampleCount = value?.sampleCount ?? 0;
   const successCount = value?.successCount ?? 0;
   const failureCount = value?.failureCount ?? 0;
@@ -111,8 +114,10 @@ function toVariantStats(variantId: string, value: MutableVariantStats | undefine
     successCount,
     failureCount,
     failureRate: sampleCount > 0 ? failureCount / sampleCount : 0,
-    meanLatencyMs: sampleCount > 0 ? (value?.latencySumMs ?? 0) / sampleCount : 0,
-    meanCostUnits: sampleCount > 0 ? (value?.costSumUnits ?? 0) / sampleCount : 0,
+    meanLatencyMs:
+      sampleCount > 0 ? (value?.latencySumMs ?? 0) / sampleCount : 0,
+    meanCostUnits:
+      sampleCount > 0 ? (value?.costSumUnits ?? 0) / sampleCount : 0,
   };
 }
 
@@ -126,7 +131,7 @@ export class WorkflowCanaryRollout {
   private readonly now: () => number;
   private readonly policyEngine?: PolicyEngine;
 
-  private status: 'canary' | 'promoted' | 'rolled_back' = 'canary';
+  private status: "canary" | "promoted" | "rolled_back" = "canary";
   private lastRollbackDecision: WorkflowRolloutDecision | null = null;
   private readonly stats = new Map<string, MutableVariantStats>();
 
@@ -137,7 +142,10 @@ export class WorkflowCanaryRollout {
   ) {
     this.enabled = config.enabled ?? true;
     this.canaryPercent = clamp01(config.canaryPercent ?? 0.2);
-    this.minCanarySamples = Math.max(1, Math.floor(config.minCanarySamples ?? 20));
+    this.minCanarySamples = Math.max(
+      1,
+      Math.floor(config.minCanarySamples ?? 20),
+    );
     this.stopLoss = {
       ...DEFAULT_STOP_LOSS,
       ...(config.stopLoss ?? {}),
@@ -148,17 +156,19 @@ export class WorkflowCanaryRollout {
     this.policyEngine = config.policyEngine;
   }
 
-  getStatus(): 'canary' | 'promoted' | 'rolled_back' {
+  getStatus(): "canary" | "promoted" | "rolled_back" {
     return this.status;
   }
 
   route(requestKey: string): string {
     if (!this.enabled) return this.baselineVariantId;
-    if (this.status === 'rolled_back') return this.baselineVariantId;
-    if (this.status === 'promoted') return this.canaryVariantId;
+    if (this.status === "rolled_back") return this.baselineVariantId;
+    if (this.status === "promoted") return this.canaryVariantId;
 
     const unit = hashString(`${this.seed}:${requestKey}`) / 0xffff_ffff;
-    return unit < this.canaryPercent ? this.canaryVariantId : this.baselineVariantId;
+    return unit < this.canaryPercent
+      ? this.canaryVariantId
+      : this.baselineVariantId;
   }
 
   recordSample(variantId: string, sample: WorkflowRolloutSample): void {
@@ -184,20 +194,23 @@ export class WorkflowCanaryRollout {
 
   evaluate(): WorkflowRolloutDecision {
     if (!this.enabled) {
-      return this.buildDecision('continue', 'disabled');
+      return this.buildDecision("continue", "disabled");
     }
 
-    if (this.status === 'rolled_back' && this.lastRollbackDecision) {
+    if (this.status === "rolled_back" && this.lastRollbackDecision) {
       return this.lastRollbackDecision;
     }
 
-    if (this.status === 'promoted') {
-      return this.buildDecision('promote', 'already_promoted');
+    if (this.status === "promoted") {
+      return this.buildDecision("promote", "already_promoted");
     }
 
-    const canaryStats = toVariantStats(this.canaryVariantId, this.stats.get(this.canaryVariantId));
+    const canaryStats = toVariantStats(
+      this.canaryVariantId,
+      this.stats.get(this.canaryVariantId),
+    );
     if (canaryStats.sampleCount < this.minCanarySamples) {
-      return this.buildDecision('continue', 'insufficient_canary_samples');
+      return this.buildDecision("continue", "insufficient_canary_samples");
     }
 
     const deltas = this.buildDeltas();
@@ -207,14 +220,14 @@ export class WorkflowCanaryRollout {
       deltas.costUnitsDelta > this.stopLoss.maxCostUnitsDelta;
 
     if (shouldRollback) {
-      return this.rollback('stop_loss_exceeded');
+      return this.rollback("stop_loss_exceeded");
     }
 
     if (this.policyEngine) {
       const policyDecision = this.policyEngine.evaluate({
-        type: 'custom',
-        name: 'workflow.rollout.promote',
-        access: 'write',
+        type: "custom",
+        name: "workflow.rollout.promote",
+        access: "write",
         metadata: {
           canaryVariantId: this.canaryVariantId,
           baselineVariantId: this.baselineVariantId,
@@ -223,30 +236,43 @@ export class WorkflowCanaryRollout {
       });
 
       if (!policyDecision.allowed) {
-        this.logger.warn('Workflow rollout promotion denied by policy engine');
-        return this.rollback('policy_denied');
+        this.logger.warn("Workflow rollout promotion denied by policy engine");
+        return this.rollback("policy_denied");
       }
     }
 
-    this.status = 'promoted';
-    return this.buildDecision('promote', 'already_promoted');
+    this.status = "promoted";
+    return this.buildDecision("promote", "already_promoted");
   }
 
-  rollback(reason: WorkflowRolloutReason = 'stop_loss_exceeded'): WorkflowRolloutDecision {
-    if (this.status === 'rolled_back' && this.lastRollbackDecision) {
+  rollback(
+    reason: WorkflowRolloutReason = "stop_loss_exceeded",
+  ): WorkflowRolloutDecision {
+    if (this.status === "rolled_back" && this.lastRollbackDecision) {
       return this.lastRollbackDecision;
     }
 
-    this.status = 'rolled_back';
-    const decision = this.buildDecision('rollback', reason === 'policy_denied' ? reason : 'stop_loss_exceeded');
+    this.status = "rolled_back";
+    const decision = this.buildDecision(
+      "rollback",
+      reason === "policy_denied" ? reason : "stop_loss_exceeded",
+    );
     this.lastRollbackDecision = decision;
-    this.logger.warn(`Workflow rollout rolled back to baseline (${decision.reason})`);
+    this.logger.warn(
+      `Workflow rollout rolled back to baseline (${decision.reason})`,
+    );
     return decision;
   }
 
   private buildDeltas(): WorkflowRolloutDeltas {
-    const baseline = toVariantStats(this.baselineVariantId, this.stats.get(this.baselineVariantId));
-    const canary = toVariantStats(this.canaryVariantId, this.stats.get(this.canaryVariantId));
+    const baseline = toVariantStats(
+      this.baselineVariantId,
+      this.stats.get(this.baselineVariantId),
+    );
+    const canary = toVariantStats(
+      this.canaryVariantId,
+      this.stats.get(this.canaryVariantId),
+    );
 
     return {
       failureRateDelta: canary.failureRate - baseline.failureRate,
@@ -259,8 +285,14 @@ export class WorkflowCanaryRollout {
     action: WorkflowRolloutAction,
     reason: WorkflowRolloutReason,
   ): WorkflowRolloutDecision {
-    const baseline = toVariantStats(this.baselineVariantId, this.stats.get(this.baselineVariantId));
-    const canary = toVariantStats(this.canaryVariantId, this.stats.get(this.canaryVariantId));
+    const baseline = toVariantStats(
+      this.baselineVariantId,
+      this.stats.get(this.baselineVariantId),
+    );
+    const canary = toVariantStats(
+      this.canaryVariantId,
+      this.stats.get(this.canaryVariantId),
+    );
 
     return {
       action,

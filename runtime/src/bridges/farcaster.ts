@@ -7,17 +7,17 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { ValidationError } from '../types/errors.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { ValidationError } from "../types/errors.js";
 import type {
   FarcasterPostParams,
   FarcasterPostResult,
   FarcasterBridgeConfig,
-} from './types.js';
-import { BridgeError } from './errors.js';
+} from "./types.js";
+import { BridgeError } from "./errors.js";
 
-const DEFAULT_API_BASE_URL = 'https://api.neynar.com/v2';
+const DEFAULT_API_BASE_URL = "https://api.neynar.com/v2";
 const DEFAULT_DELAY_BETWEEN_POSTS_MS = 1000;
 const MAX_CAST_LENGTH = 320;
 
@@ -42,16 +42,17 @@ export class FarcasterBridge {
 
   constructor(config: FarcasterBridgeConfig) {
     if (!config.apiKey) {
-      throw new ValidationError('Farcaster bridge requires apiKey');
+      throw new ValidationError("Farcaster bridge requires apiKey");
     }
     if (!config.signerUuid) {
-      throw new ValidationError('Farcaster bridge requires signerUuid');
+      throw new ValidationError("Farcaster bridge requires signerUuid");
     }
 
     this.apiKey = config.apiKey;
     this.signerUuid = config.signerUuid;
     this.apiBaseUrl = config.apiBaseUrl ?? DEFAULT_API_BASE_URL;
-    this.delayBetweenPostsMs = config.delayBetweenPostsMs ?? DEFAULT_DELAY_BETWEEN_POSTS_MS;
+    this.delayBetweenPostsMs =
+      config.delayBetweenPostsMs ?? DEFAULT_DELAY_BETWEEN_POSTS_MS;
     this.logger = config.logger ?? silentLogger;
   }
 
@@ -63,7 +64,7 @@ export class FarcasterBridge {
    */
   async postCast(params: FarcasterPostParams): Promise<FarcasterPostResult> {
     if (!params.text || params.text.length === 0) {
-      throw new ValidationError('Cast text cannot be empty');
+      throw new ValidationError("Cast text cannot be empty");
     }
     if (params.text.length > MAX_CAST_LENGTH) {
       throw new ValidationError(
@@ -84,22 +85,24 @@ export class FarcasterBridge {
       body.parent = params.parentUrl;
     }
 
-    this.logger.debug(`Posting cast to Farcaster (${params.text.length} chars)`);
+    this.logger.debug(
+      `Posting cast to Farcaster (${params.text.length} chars)`,
+    );
 
     let response: Response;
     try {
       response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          accept: 'application/json',
-          'x-api-key': this.apiKey,
+          "Content-Type": "application/json",
+          accept: "application/json",
+          "x-api-key": this.apiKey,
         },
         body: JSON.stringify(body),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      throw new BridgeError('farcaster', `API request failed: ${message}`);
+      throw new BridgeError("farcaster", `API request failed: ${message}`);
     }
 
     if (!response.ok) {
@@ -111,7 +114,7 @@ export class FarcasterBridge {
         errorDetail = response.statusText;
       }
       throw new BridgeError(
-        'farcaster',
+        "farcaster",
         `API returned ${response.status}: ${errorDetail}`,
       );
     }
@@ -120,7 +123,7 @@ export class FarcasterBridge {
       cast?: { hash?: string };
     };
 
-    this.logger.info(`Cast posted: ${data.cast?.hash ?? 'unknown'}`);
+    this.logger.info(`Cast posted: ${data.cast?.hash ?? "unknown"}`);
 
     return {
       success: true,
@@ -145,7 +148,9 @@ export class FarcasterBridge {
         successCount++;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Failed to post message ${i + 1}/${messages.length}: ${message}`);
+        this.logger.warn(
+          `Failed to post message ${i + 1}/${messages.length}: ${message}`,
+        );
       }
 
       // Delay between posts (skip after last)

@@ -4,11 +4,15 @@
  * Efficient on-chain queries using Solana's memcmp filters
  */
 
-import { Connection, PublicKey, GetProgramAccountsFilter } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import { PROGRAM_ID, DISCRIMINATOR_SIZE } from './constants';
-import { getAccount } from './anchor-utils';
-import { getSdkLogger } from './logger';
+import {
+  Connection,
+  PublicKey,
+  GetProgramAccountsFilter,
+} from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import { PROGRAM_ID, DISCRIMINATOR_SIZE } from "./constants";
+import { getAccount } from "./anchor-utils";
+import { getSdkLogger } from "./logger";
 
 // ============================================================================
 // Task Account Field Offsets
@@ -188,7 +192,7 @@ export interface ActorDisputeSummary {
   taskPda: PublicKey;
   status: number;
   resolutionType: number;
-  actorRole: 'initiator' | 'defendant' | 'arbiter';
+  actorRole: "initiator" | "defendant" | "arbiter";
   votingDeadline: number;
   votesFor: number;
   votesAgainst: number;
@@ -222,7 +226,7 @@ export interface ReplayHealthCheck {
   hasRecentEvents: boolean;
   latestEventTimestampMs: number | null;
   stalenessSeconds: number | null;
-  status: 'healthy' | 'stale' | 'empty' | 'unreachable';
+  status: "healthy" | "stale" | "empty" | "unreachable";
   lastError: string | null;
 }
 
@@ -230,7 +234,7 @@ function buildOptionalPubkeyBytes(pubkey: PublicKey): string {
   const filterBytes = Buffer.alloc(33);
   filterBytes[0] = 1; // Option::Some discriminator
   pubkey.toBuffer().copy(filterBytes, 1);
-  return filterBytes.toString('base64');
+  return filterBytes.toString("base64");
 }
 
 function buildOptionalPubkeyFilter(
@@ -243,14 +247,19 @@ function buildOptionalPubkeyFilter(
       memcmp: {
         offset,
         bytes,
-        encoding: 'base64',
+        encoding: "base64",
       },
     },
   ];
 }
 
-function buildDependsOnFilter(parentTaskPda: PublicKey): GetProgramAccountsFilter[] {
-  return buildOptionalPubkeyFilter(TASK_FIELD_OFFSETS.DEPENDS_ON, parentTaskPda);
+function buildDependsOnFilter(
+  parentTaskPda: PublicKey,
+): GetProgramAccountsFilter[] {
+  return buildOptionalPubkeyFilter(
+    TASK_FIELD_OFFSETS.DEPENDS_ON,
+    parentTaskPda,
+  );
 }
 
 // ============================================================================
@@ -281,7 +290,7 @@ function buildDependsOnFilter(parentTaskPda: PublicKey): GetProgramAccountsFilte
 export async function getTasksByDependency(
   connection: Connection,
   programId: PublicKey,
-  parentTaskPda: PublicKey
+  parentTaskPda: PublicKey,
 ): Promise<DependentTask[]> {
   const filters = buildDependsOnFilter(parentTaskPda);
 
@@ -290,7 +299,7 @@ export async function getTasksByDependency(
   });
 
   return accounts.map(({ pubkey, account }) =>
-    deserializeTaskAccount(pubkey, account.data as Buffer)
+    deserializeTaskAccount(pubkey, account.data as Buffer),
   );
 }
 
@@ -317,7 +326,7 @@ export async function getTasksByDependency(
 export async function getDependentTaskCount(
   connection: Connection,
   programId: PublicKey,
-  parentTaskPda: PublicKey
+  parentTaskPda: PublicKey,
 ): Promise<number> {
   const filters = buildDependsOnFilter(parentTaskPda);
 
@@ -350,7 +359,7 @@ export async function getDependentTaskCount(
 export async function hasDependents(
   connection: Connection,
   programId: PublicKey,
-  taskPda: PublicKey
+  taskPda: PublicKey,
 ): Promise<boolean> {
   const count = await getDependentTaskCount(connection, programId, taskPda);
   return count > 0;
@@ -368,10 +377,10 @@ export async function hasDependents(
  */
 export async function getTasksByDependencyWithProgram(
   program: Program,
-  parentTaskPda: PublicKey
+  parentTaskPda: PublicKey,
 ): Promise<Array<{ publicKey: PublicKey; account: unknown }>> {
   const bytes = buildOptionalPubkeyBytes(parentTaskPda);
-  const tasks = await getAccount(program, 'task').all([
+  const tasks = await getAccount(program, "task").all([
     {
       memcmp: {
         offset: TASK_FIELD_OFFSETS.DEPENDS_ON,
@@ -397,7 +406,7 @@ export async function getTasksByDependencyWithProgram(
  */
 export async function getRootTasks(
   connection: Connection,
-  programId: PublicKey
+  programId: PublicKey,
 ): Promise<DependentTask[]> {
   // For None, the Option discriminator byte is 0
   const filterBytes = Buffer.alloc(1);
@@ -407,8 +416,8 @@ export async function getRootTasks(
     {
       memcmp: {
         offset: TASK_FIELD_OFFSETS.DEPENDS_ON,
-        bytes: filterBytes.toString('base64'),
-        encoding: 'base64',
+        bytes: filterBytes.toString("base64"),
+        encoding: "base64",
       },
     },
   ];
@@ -418,7 +427,7 @@ export async function getRootTasks(
   });
 
   return accounts.map(({ pubkey, account }) =>
-    deserializeTaskAccount(pubkey, account.data as Buffer)
+    deserializeTaskAccount(pubkey, account.data as Buffer),
   );
 }
 
@@ -451,7 +460,11 @@ export async function getDisputesByActor(
   });
 
   for (const { pubkey, account } of asInitiator) {
-    const summary = deserializeDispute(pubkey, account.data as Buffer, 'initiator');
+    const summary = deserializeDispute(
+      pubkey,
+      account.data as Buffer,
+      "initiator",
+    );
     summaries.set(pubkey.toBase58(), summary);
   }
 
@@ -470,7 +483,11 @@ export async function getDisputesByActor(
   for (const { pubkey, account } of asDefendant) {
     const key = pubkey.toBase58();
     if (summaries.has(key)) continue;
-    const summary = deserializeDispute(pubkey, account.data as Buffer, 'defendant');
+    const summary = deserializeDispute(
+      pubkey,
+      account.data as Buffer,
+      "defendant",
+    );
     summaries.set(key, summary);
   }
 
@@ -503,7 +520,11 @@ export async function getDisputesByActor(
       continue;
     }
 
-    const summary = deserializeDispute(disputePda, disputeInfo.data as Buffer, 'arbiter');
+    const summary = deserializeDispute(
+      disputePda,
+      disputeInfo.data as Buffer,
+      "arbiter",
+    );
     summary.hasVoted = true;
     summaries.set(key, summary);
   }
@@ -538,22 +559,27 @@ export async function getReplayHealthCheck(
       if (record.taskPda) taskSet.add(record.taskPda);
       if (record.disputePda) disputeSet.add(record.disputePda);
 
-      if (latestEventTimestampMs === null || record.timestampMs > latestEventTimestampMs) {
+      if (
+        latestEventTimestampMs === null ||
+        record.timestampMs > latestEventTimestampMs
+      ) {
         latestEventTimestampMs = record.timestampMs;
       }
     }
 
     const now = Date.now();
-    const stalenessMs = latestEventTimestampMs === null ? null : now - latestEventTimestampMs;
-    const hasRecentEvents = stalenessMs !== null && stalenessMs < stalenessThresholdMs;
+    const stalenessMs =
+      latestEventTimestampMs === null ? null : now - latestEventTimestampMs;
+    const hasRecentEvents =
+      stalenessMs !== null && stalenessMs < stalenessThresholdMs;
 
-    let status: ReplayHealthCheck['status'];
+    let status: ReplayHealthCheck["status"];
     if (allRecords.length === 0) {
-      status = 'empty';
+      status = "empty";
     } else if (!hasRecentEvents) {
-      status = 'stale';
+      status = "stale";
     } else {
-      status = 'healthy';
+      status = "healthy";
     }
 
     return {
@@ -564,13 +590,14 @@ export async function getReplayHealthCheck(
       activeCursor,
       hasRecentEvents,
       latestEventTimestampMs,
-      stalenessSeconds: stalenessMs === null ? null : Math.floor(stalenessMs / 1000),
+      stalenessSeconds:
+        stalenessMs === null ? null : Math.floor(stalenessMs / 1000),
       status,
       lastError: null,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    getSdkLogger().warn('getReplayHealthCheck failed', { error: message });
+    getSdkLogger().warn("getReplayHealthCheck failed", { error: message });
     return {
       storeReachable: false,
       eventCount: 0,
@@ -580,7 +607,7 @@ export async function getReplayHealthCheck(
       hasRecentEvents: false,
       latestEventTimestampMs: null,
       stalenessSeconds: null,
-      status: 'unreachable',
+      status: "unreachable",
       lastError: message,
     };
   }
@@ -593,28 +620,31 @@ export async function getReplayHealthCheck(
 /**
  * Deserialize raw Task account data into a DependentTask object.
  */
-function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTask {
+function deserializeTaskAccount(
+  publicKey: PublicKey,
+  data: Buffer,
+): DependentTask {
   const taskId = data.subarray(
     TASK_FIELD_OFFSETS.TASK_ID,
-    TASK_FIELD_OFFSETS.TASK_ID + 32
+    TASK_FIELD_OFFSETS.TASK_ID + 32,
   );
 
   const creator = new PublicKey(
-    data.subarray(TASK_FIELD_OFFSETS.CREATOR, TASK_FIELD_OFFSETS.CREATOR + 32)
+    data.subarray(TASK_FIELD_OFFSETS.CREATOR, TASK_FIELD_OFFSETS.CREATOR + 32),
   );
 
   const requiredCapabilities = data.readBigUInt64LE(
-    TASK_FIELD_OFFSETS.REQUIRED_CAPABILITIES
+    TASK_FIELD_OFFSETS.REQUIRED_CAPABILITIES,
   );
 
   const description = data.subarray(
     TASK_FIELD_OFFSETS.DESCRIPTION,
-    TASK_FIELD_OFFSETS.DESCRIPTION + 64
+    TASK_FIELD_OFFSETS.DESCRIPTION + 64,
   );
 
   const constraintHash = data.subarray(
     TASK_FIELD_OFFSETS.CONSTRAINT_HASH,
-    TASK_FIELD_OFFSETS.CONSTRAINT_HASH + 32
+    TASK_FIELD_OFFSETS.CONSTRAINT_HASH + 32,
   );
 
   const rewardAmount = data.readBigUInt64LE(TASK_FIELD_OFFSETS.REWARD_AMOUNT);
@@ -626,19 +656,23 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
 
   const createdAt = Number(data.readBigInt64LE(TASK_FIELD_OFFSETS.CREATED_AT));
   const deadline = Number(data.readBigInt64LE(TASK_FIELD_OFFSETS.DEADLINE));
-  const completedAt = Number(data.readBigInt64LE(TASK_FIELD_OFFSETS.COMPLETED_AT));
+  const completedAt = Number(
+    data.readBigInt64LE(TASK_FIELD_OFFSETS.COMPLETED_AT),
+  );
 
   const escrow = new PublicKey(
-    data.subarray(TASK_FIELD_OFFSETS.ESCROW, TASK_FIELD_OFFSETS.ESCROW + 32)
+    data.subarray(TASK_FIELD_OFFSETS.ESCROW, TASK_FIELD_OFFSETS.ESCROW + 32),
   );
 
   const result = data.subarray(
     TASK_FIELD_OFFSETS.RESULT,
-    TASK_FIELD_OFFSETS.RESULT + 64
+    TASK_FIELD_OFFSETS.RESULT + 64,
   );
 
   const completions = data.readUInt8(TASK_FIELD_OFFSETS.COMPLETIONS);
-  const requiredCompletions = data.readUInt8(TASK_FIELD_OFFSETS.REQUIRED_COMPLETIONS);
+  const requiredCompletions = data.readUInt8(
+    TASK_FIELD_OFFSETS.REQUIRED_COMPLETIONS,
+  );
   const bump = data.readUInt8(TASK_FIELD_OFFSETS.BUMP);
 
   const protocolFeeBps = data.readUInt16LE(TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS);
@@ -650,8 +684,8 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
     dependsOn = new PublicKey(
       data.subarray(
         TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY,
-        TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY + 32
-      )
+        TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY + 32,
+      ),
     );
   }
 
@@ -660,14 +694,16 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
   const minReputation = data.readUInt16LE(TASK_FIELD_OFFSETS.MIN_REPUTATION);
 
   // Parse Option<Pubkey> for reward_mint
-  const rewardMintDiscriminator = data.readUInt8(TASK_FIELD_OFFSETS.REWARD_MINT);
+  const rewardMintDiscriminator = data.readUInt8(
+    TASK_FIELD_OFFSETS.REWARD_MINT,
+  );
   let rewardMint: PublicKey | null = null;
   if (rewardMintDiscriminator === 1) {
     rewardMint = new PublicKey(
       data.subarray(
         TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY,
-        TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY + 32
-      )
+        TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY + 32,
+      ),
     );
   }
 
@@ -702,10 +738,13 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
 function deserializeDispute(
   disputePda: PublicKey,
   data: Buffer,
-  role: ActorDisputeSummary['actorRole'],
+  role: ActorDisputeSummary["actorRole"],
 ): ActorDisputeSummary {
   const disputeId = new Uint8Array(
-    data.subarray(DISPUTE_FIELD_OFFSETS.DISPUTE_ID, DISPUTE_FIELD_OFFSETS.DISPUTE_ID + 32),
+    data.subarray(
+      DISPUTE_FIELD_OFFSETS.DISPUTE_ID,
+      DISPUTE_FIELD_OFFSETS.DISPUTE_ID + 32,
+    ),
   );
 
   const taskPda = new PublicKey(
@@ -714,10 +753,18 @@ function deserializeDispute(
 
   const resolutionType = data.readUInt8(DISPUTE_FIELD_OFFSETS.RESOLUTION_TYPE);
   const status = data.readUInt8(DISPUTE_FIELD_OFFSETS.STATUS);
-  const initiatedAt = Number(data.readBigInt64LE(DISPUTE_FIELD_OFFSETS.CREATED_AT));
-  const votingDeadline = Number(data.readBigInt64LE(DISPUTE_FIELD_OFFSETS.VOTING_DEADLINE));
-  const votesFor = Number(data.readBigUInt64LE(DISPUTE_FIELD_OFFSETS.VOTES_FOR));
-  const votesAgainst = Number(data.readBigUInt64LE(DISPUTE_FIELD_OFFSETS.VOTES_AGAINST));
+  const initiatedAt = Number(
+    data.readBigInt64LE(DISPUTE_FIELD_OFFSETS.CREATED_AT),
+  );
+  const votingDeadline = Number(
+    data.readBigInt64LE(DISPUTE_FIELD_OFFSETS.VOTING_DEADLINE),
+  );
+  const votesFor = Number(
+    data.readBigUInt64LE(DISPUTE_FIELD_OFFSETS.VOTES_FOR),
+  );
+  const votesAgainst = Number(
+    data.readBigUInt64LE(DISPUTE_FIELD_OFFSETS.VOTES_AGAINST),
+  );
 
   return {
     disputePda,

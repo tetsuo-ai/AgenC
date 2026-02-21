@@ -9,7 +9,7 @@ import {
   RISC0_SEAL_BORSH_LEN,
   RISC0_SELECTOR_LEN,
   TRUSTED_RISC0_SELECTOR,
-} from './constants';
+} from "./constants";
 
 const MAX_INPUT_LENGTH = 512;
 const DANGEROUS_CHARS = /[;&|`$(){}[\]<>!\\\x00\n\r]/;
@@ -19,7 +19,9 @@ function ensureReasonableInput(input: string, label: string): void {
     throw new Error(`Security: ${label} cannot be empty`);
   }
   if (input.length > MAX_INPUT_LENGTH) {
-    throw new Error(`Security: ${label} exceeds maximum length (${MAX_INPUT_LENGTH} characters)`);
+    throw new Error(
+      `Security: ${label} exceeds maximum length (${MAX_INPUT_LENGTH} characters)`,
+    );
   }
   if (DANGEROUS_CHARS.test(input)) {
     throw new Error(`Security: ${label} contains disallowed characters`);
@@ -32,7 +34,7 @@ function ensureReasonableInput(input: string, label: string): void {
  * Accepts only HTTP(S) URLs and rejects inline credentials.
  */
 export function validateProverEndpoint(proverEndpoint: string): void {
-  ensureReasonableInput(proverEndpoint, 'Prover endpoint');
+  ensureReasonableInput(proverEndpoint, "Prover endpoint");
 
   let parsed: URL;
   try {
@@ -41,11 +43,13 @@ export function validateProverEndpoint(proverEndpoint: string): void {
     throw new Error(`Security: Invalid prover endpoint URL: ${proverEndpoint}`);
   }
 
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Security: Prover endpoint must use http or https protocol');
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      "Security: Prover endpoint must use http or https protocol",
+    );
   }
   if (parsed.username || parsed.password) {
-    throw new Error('Security: Prover endpoint must not include credentials');
+    throw new Error("Security: Prover endpoint must not include credentials");
   }
 }
 
@@ -68,7 +72,9 @@ export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
   const nullifierSeed = Buffer.from(payload.nullifierSeed);
 
   if (sealBytes.length !== RISC0_SEAL_BORSH_LEN) {
-    throw new Error(`Security: sealBytes must be ${RISC0_SEAL_BORSH_LEN} bytes`);
+    throw new Error(
+      `Security: sealBytes must be ${RISC0_SEAL_BORSH_LEN} bytes`,
+    );
   }
   if (journal.length !== RISC0_JOURNAL_LEN) {
     throw new Error(`Security: journal must be ${RISC0_JOURNAL_LEN} bytes`);
@@ -85,6 +91,6 @@ export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
 
   const selector = sealBytes.subarray(0, RISC0_SELECTOR_LEN);
   if (!selector.equals(Buffer.from(TRUSTED_RISC0_SELECTOR))) {
-    throw new Error('Security: seal selector does not match trusted selector');
+    throw new Error("Security: seal selector does not match trusted selector");
   }
 }

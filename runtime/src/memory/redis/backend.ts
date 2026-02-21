@@ -7,23 +7,27 @@
  * @module
  */
 
-import { randomUUID } from 'node:crypto';
-import type { Logger } from '../../utils/logger.js';
-import { silentLogger } from '../../utils/logger.js';
+import { randomUUID } from "node:crypto";
+import type { Logger } from "../../utils/logger.js";
+import { silentLogger } from "../../utils/logger.js";
 import type {
   MemoryBackend,
   MemoryEntry,
   MemoryQuery,
   AddEntryOptions,
-} from '../types.js';
-import type { RedisBackendConfig } from './types.js';
-import { MemoryBackendError, MemoryConnectionError, MemorySerializationError } from '../errors.js';
-import { ensureLazyBackend } from '../lazy-import.js';
-import type { MetricsProvider } from '../../task/types.js';
-import { TELEMETRY_METRIC_NAMES } from '../../telemetry/metric-names.js';
+} from "../types.js";
+import type { RedisBackendConfig } from "./types.js";
+import {
+  MemoryBackendError,
+  MemoryConnectionError,
+  MemorySerializationError,
+} from "../errors.js";
+import { ensureLazyBackend } from "../lazy-import.js";
+import type { MetricsProvider } from "../../task/types.js";
+import { TELEMETRY_METRIC_NAMES } from "../../telemetry/metric-names.js";
 
 export class RedisBackend implements MemoryBackend {
-  readonly name = 'redis';
+  readonly name = "redis";
 
   private client: any = null;
   private readonly config: RedisBackendConfig;
@@ -37,7 +41,7 @@ export class RedisBackend implements MemoryBackend {
     this.config = config;
     this.logger = config.logger ?? silentLogger;
     this.defaultTtlMs = config.defaultTtlMs ?? 0;
-    this.prefix = config.keyPrefix ?? 'agenc:memory:';
+    this.prefix = config.keyPrefix ?? "agenc:memory:";
     this.metrics = config.metrics;
   }
 
@@ -80,7 +84,10 @@ export class RedisBackend implements MemoryBackend {
     try {
       json = JSON.stringify(entry);
     } catch (err) {
-      throw new MemorySerializationError(this.name, `Failed to serialize entry: ${(err as Error).message}`);
+      throw new MemorySerializationError(
+        this.name,
+        `Failed to serialize entry: ${(err as Error).message}`,
+      );
     }
 
     const key = this.threadKey(options.sessionId);
@@ -96,7 +103,7 @@ export class RedisBackend implements MemoryBackend {
     }
 
     this.logger.debug(`Added entry ${id} to session ${options.sessionId}`);
-    this.recordMemoryMetrics('addEntry', Date.now() - start);
+    this.recordMemoryMetrics("addEntry", Date.now() - start);
     return entry;
   }
 
@@ -108,36 +115,49 @@ export class RedisBackend implements MemoryBackend {
     let members: string[];
     if (limit !== undefined && limit > 0) {
       // Get the most recent `limit` entries, then reverse to chronological
-      members = await client.zrevrangebyscore(key, '+inf', '-inf', 'LIMIT', 0, limit);
+      members = await client.zrevrangebyscore(
+        key,
+        "+inf",
+        "-inf",
+        "LIMIT",
+        0,
+        limit,
+      );
       members.reverse();
     } else {
-      members = await client.zrangebyscore(key, '-inf', '+inf');
+      members = await client.zrangebyscore(key, "-inf", "+inf");
     }
 
-    const result = members.map((m: string) => this.parseEntry(m)).filter(Boolean) as MemoryEntry[];
-    this.recordMemoryMetrics('getThread', Date.now() - start);
+    const result = members
+      .map((m: string) => this.parseEntry(m))
+      .filter(Boolean) as MemoryEntry[];
+    this.recordMemoryMetrics("getThread", Date.now() - start);
     return result;
   }
 
   async query(query: MemoryQuery): Promise<MemoryEntry[]> {
     const client = await this.ensureClient();
     const start = Date.now();
-    const minScore = query.after !== undefined ? `(${query.after}` : '-inf';
-    const maxScore = query.before !== undefined ? `(${query.before}` : '+inf';
+    const minScore = query.after !== undefined ? `(${query.after}` : "-inf";
+    const maxScore = query.before !== undefined ? `(${query.before}` : "+inf";
 
     let allEntries: MemoryEntry[] = [];
 
     if (query.sessionId) {
       const key = this.threadKey(query.sessionId);
       const members = await client.zrangebyscore(key, minScore, maxScore);
-      allEntries = members.map((m: string) => this.parseEntry(m)).filter(Boolean) as MemoryEntry[];
+      allEntries = members
+        .map((m: string) => this.parseEntry(m))
+        .filter(Boolean) as MemoryEntry[];
     } else {
       // Scan all sessions
       const sessions = await client.smembers(this.sessionsKey);
       for (const sessionId of sessions) {
         const key = this.threadKey(sessionId);
         const members = await client.zrangebyscore(key, minScore, maxScore);
-        const entries = members.map((m: string) => this.parseEntry(m)).filter(Boolean) as MemoryEntry[];
+        const entries = members
+          .map((m: string) => this.parseEntry(m))
+          .filter(Boolean) as MemoryEntry[];
         allEntries.push(...entries);
       }
     }
@@ -150,9 +170,9 @@ export class RedisBackend implements MemoryBackend {
     });
 
     // Sort
-    const order = query.order ?? 'asc';
+    const order = query.order ?? "asc";
     results.sort((a, b) =>
-      order === 'asc' ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
+      order === "asc" ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
     );
 
     // Limit
@@ -160,7 +180,7 @@ export class RedisBackend implements MemoryBackend {
       results = results.slice(0, query.limit);
     }
 
-    this.recordMemoryMetrics('query', Date.now() - start);
+    this.recordMemoryMetrics("query", Date.now() - start);
     return results;
   }
 
@@ -197,11 +217,14 @@ export class RedisBackend implements MemoryBackend {
     try {
       json = JSON.stringify(value);
     } catch (err) {
-      throw new MemorySerializationError(this.name, `Failed to serialize value: ${(err as Error).message}`);
+      throw new MemorySerializationError(
+        this.name,
+        `Failed to serialize value: ${(err as Error).message}`,
+      );
     }
 
     if (ttl > 0) {
-      await client.set(redisKey, json, 'PX', ttl);
+      await client.set(redisKey, json, "PX", ttl);
     } else {
       await client.set(redisKey, json);
     }
@@ -217,7 +240,10 @@ export class RedisBackend implements MemoryBackend {
     try {
       return JSON.parse(value) as T;
     } catch (err) {
-      throw new MemorySerializationError(this.name, `Failed to deserialize value for key "${key}": ${(err as Error).message}`);
+      throw new MemorySerializationError(
+        this.name,
+        `Failed to deserialize value for key "${key}": ${(err as Error).message}`,
+      );
     }
   }
 
@@ -264,7 +290,7 @@ export class RedisBackend implements MemoryBackend {
       await client.del(...kvKeys);
     }
 
-    this.logger.debug('Cleared all memory');
+    this.logger.debug("Cleared all memory");
   }
 
   async close(): Promise<void> {
@@ -273,48 +299,53 @@ export class RedisBackend implements MemoryBackend {
       await this.client.quit();
       this.client = null;
     }
-    this.logger.debug('Redis backend closed');
+    this.logger.debug("Redis backend closed");
   }
 
   async healthCheck(): Promise<boolean> {
     if (this.closed || !this.client) return false;
     try {
       const result = await this.client.ping();
-      return result === 'PONG';
+      return result === "PONG";
     } catch {
       return false;
     }
   }
 
-  getDurability(): import('../types.js').DurabilityInfo {
+  getDurability(): import("../types.js").DurabilityInfo {
     return {
-      level: 'async',
+      level: "async",
       supportsFlush: true,
-      description: 'Data is persisted asynchronously via Redis AOF/RDB. flush() triggers BGSAVE.',
+      description:
+        "Data is persisted asynchronously via Redis AOF/RDB. flush() triggers BGSAVE.",
     };
   }
 
   async flush(): Promise<void> {
     const client = await this.ensureClient();
-    await (client as any).call('BGSAVE');
+    await (client as any).call("BGSAVE");
   }
 
   // ---------- Internals ----------
 
   private recordMemoryMetrics(operation: string, durationMs: number): void {
     if (!this.metrics) return;
-    const labels = { operation, backend: 'redis' };
+    const labels = { operation, backend: "redis" };
     this.metrics.counter(TELEMETRY_METRIC_NAMES.MEMORY_OPS_TOTAL, 1, labels);
-    this.metrics.histogram(TELEMETRY_METRIC_NAMES.MEMORY_OP_DURATION, durationMs, labels);
+    this.metrics.histogram(
+      TELEMETRY_METRIC_NAMES.MEMORY_OP_DURATION,
+      durationMs,
+      labels,
+    );
   }
 
   private async ensureClient(): Promise<any> {
     if (this.closed) {
-      throw new MemoryBackendError(this.name, 'Backend is closed');
+      throw new MemoryBackendError(this.name, "Backend is closed");
     }
     if (this.client) return this.client;
 
-    const Redis = await ensureLazyBackend('ioredis', this.name, (mod) => {
+    const Redis = await ensureLazyBackend("ioredis", this.name, (mod) => {
       return (mod.default ?? mod) as any;
     });
 
@@ -325,13 +356,14 @@ export class RedisBackend implements MemoryBackend {
 
     if (this.config.password) opts.password = this.config.password;
     if (this.config.db !== undefined) opts.db = this.config.db;
-    if (this.config.connectTimeoutMs) opts.connectTimeout = this.config.connectTimeoutMs;
+    if (this.config.connectTimeoutMs)
+      opts.connectTimeout = this.config.connectTimeoutMs;
 
     if (this.config.url) {
       this.client = new Redis(this.config.url, opts);
     } else {
       this.client = new Redis({
-        host: this.config.host ?? 'localhost',
+        host: this.config.host ?? "localhost",
         port: this.config.port ?? 6379,
         ...opts,
       });
@@ -341,7 +373,10 @@ export class RedisBackend implements MemoryBackend {
       await this.client.connect();
     } catch (err) {
       this.client = null;
-      throw new MemoryConnectionError(this.name, `Failed to connect: ${(err as Error).message}`);
+      throw new MemoryConnectionError(
+        this.name,
+        `Failed to connect: ${(err as Error).message}`,
+      );
     }
 
     return this.client;

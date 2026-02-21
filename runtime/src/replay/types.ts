@@ -4,10 +4,10 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import { stableStringifyJson, type JsonValue } from '../eval/types.js';
-import type { ProjectedTimelineEvent } from '../eval/projector.js';
-import type { ReplayTraceContext } from './trace.js';
+import { createHash } from "node:crypto";
+import { stableStringifyJson, type JsonValue } from "../eval/types.js";
+import type { ProjectedTimelineEvent } from "../eval/projector.js";
+import type { ReplayTraceContext } from "./trace.js";
 
 export interface ReplayEventCursor {
   slot: number;
@@ -17,7 +17,10 @@ export interface ReplayEventCursor {
   traceSpanId?: string;
 }
 
-export interface ReplayTimelineRecord extends Omit<ProjectedTimelineEvent, 'payload'> {
+export interface ReplayTimelineRecord extends Omit<
+  ProjectedTimelineEvent,
+  "payload"
+> {
   sourceEventName: string;
   sourceEventType: string;
   disputePda?: string;
@@ -26,7 +29,7 @@ export interface ReplayTimelineRecord extends Omit<ProjectedTimelineEvent, 'payl
   traceSpanId?: string;
   traceParentSpanId?: string;
   traceSampled?: boolean;
-  payload: ProjectedTimelineEvent['payload'];
+  payload: ProjectedTimelineEvent["payload"];
 }
 
 export interface ReplayTimelineRecordInput {
@@ -54,12 +57,16 @@ export interface ReplayStorageWriteResult {
 }
 
 export interface ReplayTimelineStore {
-  save(records: readonly ReplayTimelineRecord[]): Promise<ReplayStorageWriteResult>;
-  query(filter?: ReplayTimelineQuery): Promise<ReadonlyArray<ReplayTimelineRecord>>;
+  save(
+    records: readonly ReplayTimelineRecord[],
+  ): Promise<ReplayStorageWriteResult>;
+  query(
+    filter?: ReplayTimelineQuery,
+  ): Promise<ReadonlyArray<ReplayTimelineRecord>>;
   getCursor(): Promise<ReplayEventCursor | null>;
   saveCursor(cursor: ReplayEventCursor | null): Promise<void>;
   clear(): Promise<void>;
-  getDurability?(): import('../memory/types.js').DurabilityInfo;
+  getDurability?(): import("../memory/types.js").DurabilityInfo;
   flush?(): Promise<void>;
 }
 
@@ -102,7 +109,7 @@ export interface BackfillFetcher {
   fetchPage(
     cursor: ReplayEventCursor | null,
     toSlot: number,
-    pageSize: number
+    pageSize: number,
   ): Promise<BackfillFetcherPage>;
 }
 
@@ -149,15 +156,17 @@ export interface ReplayComparatorInput {
   traceTaskIds?: ReadonlyArray<string>;
 }
 
-export function stableReplayCursorString(cursor: ReplayEventCursor | null): string {
+export function stableReplayCursorString(
+  cursor: ReplayEventCursor | null,
+): string {
   if (!cursor) {
-    return '';
+    return "";
   }
-  const base = `${cursor.slot}:${cursor.signature}:${cursor.eventName ?? ''}`;
+  const base = `${cursor.slot}:${cursor.signature}:${cursor.eventName ?? ""}`;
   if (!cursor.traceId && !cursor.traceSpanId) {
     return base;
   }
-  return `${base}:${cursor.traceId ?? ''}:${cursor.traceSpanId ?? ''}`;
+  return `${base}:${cursor.traceId ?? ""}:${cursor.traceSpanId ?? ""}`;
 }
 
 /**
@@ -184,7 +193,9 @@ export function computeProjectionHash(event: ProjectedTimelineEvent): string {
     timestampMs: event.timestampMs,
     type: event.type,
   };
-  return createHash('sha256').update(stableStringifyJson(canonical as JsonValue)).digest('hex');
+  return createHash("sha256")
+    .update(stableStringifyJson(canonical as JsonValue))
+    .digest("hex");
 }
 
 export function buildReplayKey(

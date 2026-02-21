@@ -4,18 +4,18 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { AgentRuntimeConfig } from '../types/config.js';
-import type { ProofEngine } from '../proof/engine.js';
-import type { MemoryBackend } from '../memory/types.js';
-import type { MetricsProvider } from '../task/types.js';
-import type { DependencyType } from '../task/dependency-graph.js';
-import type { ProofPipelineConfig } from '../task/proof-pipeline.js';
-import type { PolicyEngine } from '../policy/engine.js';
-import type { PolicyViolation } from '../policy/types.js';
-import type { TrajectoryRecorderSink } from '../eval/types.js';
-import type { WorkflowOptimizerRuntimeConfig } from '../workflow/optimizer.js';
-import type { BudgetGuardrail } from './verification-budget.js';
+import { PublicKey } from "@solana/web3.js";
+import { AgentRuntimeConfig } from "../types/config.js";
+import type { ProofEngine } from "../proof/engine.js";
+import type { MemoryBackend } from "../memory/types.js";
+import type { MetricsProvider } from "../task/types.js";
+import type { DependencyType } from "../task/dependency-graph.js";
+import type { ProofPipelineConfig } from "../task/proof-pipeline.js";
+import type { PolicyEngine } from "../policy/engine.js";
+import type { PolicyViolation } from "../policy/types.js";
+import type { TrajectoryRecorderSink } from "../eval/types.js";
+import type { WorkflowOptimizerRuntimeConfig } from "../workflow/optimizer.js";
+import type { BudgetGuardrail } from "./verification-budget.js";
 
 /**
  * On-chain task data
@@ -154,13 +154,13 @@ export interface VerifierReason {
   /** Optional field/path that failed validation. */
   field?: string;
   /** Optional severity bucket from verifier implementation. */
-  severity?: 'low' | 'medium' | 'high';
+  severity?: "low" | "medium" | "high";
 }
 
 /**
  * Supported verifier verdict values.
  */
-export type VerifierVerdict = 'pass' | 'fail' | 'needs_revision';
+export type VerifierVerdict = "pass" | "fail" | "needs_revision";
 
 /**
  * Structured verifier output contract.
@@ -256,17 +256,24 @@ export interface VerifierAdaptiveRiskConfig {
   /** Optional risk feature weights override. */
   weights?: VerifierAdaptiveRiskWeights;
   /** Retry ceilings by risk tier. */
-  maxVerificationRetriesByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  maxVerificationRetriesByRisk?: Partial<
+    Record<"low" | "medium" | "high", number>
+  >;
   /** Duration ceilings by risk tier in ms. */
-  maxVerificationDurationMsByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  maxVerificationDurationMsByRisk?: Partial<
+    Record<"low" | "medium" | "high", number>
+  >;
   /** Confidence floors by risk tier. */
-  minConfidenceByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  minConfidenceByRisk?: Partial<Record<"low" | "medium" | "high", number>>;
   /** Scheduler route by risk tier. */
   routeByRisk?: Partial<
-    Record<'low' | 'medium' | 'high', 'single_pass' | 'retry_execute' | 'revision_first'>
+    Record<
+      "low" | "medium" | "high",
+      "single_pass" | "retry_execute" | "revision_first"
+    >
   >;
   /** Escalate after this many disagreements per risk tier. */
-  maxDisagreementsByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  maxDisagreementsByRisk?: Partial<Record<"low" | "medium" | "high", number>>;
   /** Hard ceilings for retries, duration, and spend. */
   hardMaxVerificationRetries?: number;
   hardMaxVerificationDurationMs?: number;
@@ -349,12 +356,12 @@ export interface VerifierPolicyConfig {
  */
 export interface VerifierEscalationMetadata {
   reason:
-    | 'verifier_failed'
-    | 'verifier_timeout'
-    | 'verifier_error'
-    | 'revision_unavailable'
-    | 'verifier_disagreement'
-    | 'verifier_budget_exhausted';
+    | "verifier_failed"
+    | "verifier_timeout"
+    | "verifier_error"
+    | "revision_unavailable"
+    | "verifier_disagreement"
+    | "verifier_budget_exhausted";
   attempts: number;
   revisions: number;
   durationMs: number;
@@ -403,7 +410,7 @@ export interface VerifierExecutionResult {
   lastVerdict: VerifierVerdictPayload | null;
   adaptiveRisk?: {
     score: number;
-    tier: 'low' | 'medium' | 'high';
+    tier: "low" | "medium" | "high";
     contributions: Array<{
       feature: string;
       value: number;
@@ -422,7 +429,7 @@ export interface VerifierExecutionResult {
 /**
  * Discovery mode for finding tasks
  */
-export type DiscoveryMode = 'polling' | 'events' | 'hybrid';
+export type DiscoveryMode = "polling" | "events" | "hybrid";
 
 /**
  * Configuration for speculative execution.
@@ -539,7 +546,11 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
   onTaskCompleted?: (task: Task, txSignature: string) => void;
   onTaskFailed?: (task: Task, error: Error) => void;
   onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
-  onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
+  onProofGenerated?: (
+    task: Task,
+    proofSizeBytes: number,
+    durationMs: number,
+  ) => void;
 
   /**
    * Speculative execution configuration.

@@ -4,10 +4,10 @@
  * @module
  */
 
-import type { Tool, ToolContext } from '../types.js';
-import { TaskOperations } from '../../task/operations.js';
-import { createProgram, createReadOnlyProgram } from '../../idl.js';
-import { AnchorProvider } from '@coral-xyz/anchor';
+import type { Tool, ToolContext } from "../types.js";
+import { TaskOperations } from "../../task/operations.js";
+import { createProgram, createReadOnlyProgram } from "../../idl.js";
+import { AnchorProvider } from "@coral-xyz/anchor";
 import {
   createListTasksTool,
   createGetTaskTool,
@@ -15,10 +15,14 @@ import {
   createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
-} from './tools.js';
+} from "./tools.js";
 
 // Re-export serialized types
-export type { SerializedTask, SerializedAgent, SerializedProtocolConfig } from './types.js';
+export type {
+  SerializedTask,
+  SerializedAgent,
+  SerializedProtocolConfig,
+} from "./types.js";
 
 // Re-export individual tool factories for advanced usage
 export {
@@ -28,7 +32,7 @@ export {
   createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
-} from './tools.js';
+} from "./tools.js";
 
 /**
  * Create all built-in AgenC protocol tools.
@@ -47,15 +51,23 @@ export {
  * ```
  */
 export function createAgencTools(context: ToolContext): Tool[] {
-  const program = context.program ?? (() => {
-    if (context.wallet) {
-      const provider = new AnchorProvider(context.connection, context.wallet, { commitment: 'confirmed' });
-      return context.programId ? createProgram(provider, context.programId) : createProgram(provider);
-    }
-    return context.programId
-      ? createReadOnlyProgram(context.connection, context.programId)
-      : createReadOnlyProgram(context.connection);
-  })();
+  const program =
+    context.program ??
+    (() => {
+      if (context.wallet) {
+        const provider = new AnchorProvider(
+          context.connection,
+          context.wallet,
+          { commitment: "confirmed" },
+        );
+        return context.programId
+          ? createProgram(provider, context.programId)
+          : createProgram(provider);
+      }
+      return context.programId
+        ? createReadOnlyProgram(context.connection, context.programId)
+        : createReadOnlyProgram(context.connection);
+    })();
 
   // Dummy agentId — built-in tools only use query methods that don't reference agentId
   const dummyAgentId = new Uint8Array(32);

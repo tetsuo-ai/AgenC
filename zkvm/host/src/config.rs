@@ -48,7 +48,9 @@ pub const TRUSTED_DEPLOYMENTS: [TrustedDeployment; 3] = [
     },
 ];
 
-pub fn require_allowlisted_deployment(cluster: &str) -> Result<&'static TrustedDeployment, ConfigError> {
+pub fn require_allowlisted_deployment(
+    cluster: &str,
+) -> Result<&'static TrustedDeployment, ConfigError> {
     TRUSTED_DEPLOYMENTS
         .iter()
         .find(|deployment| deployment.cluster == cluster)

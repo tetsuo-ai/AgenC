@@ -7,18 +7,24 @@
  * @module
  */
 
-import { sign, verify, createPublicKey, createPrivateKey } from 'node:crypto';
-import type { PublicKey, Keypair } from '@solana/web3.js';
+import { sign, verify, createPublicKey, createPrivateKey } from "node:crypto";
+import type { PublicKey, Keypair } from "@solana/web3.js";
 
 // ============================================================================
 // DER Prefix Constants
 // ============================================================================
 
 /** DER prefix for SPKI-encoded Ed25519 public key (32 raw bytes follow) */
-const ED25519_DER_PUBLIC_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const ED25519_DER_PUBLIC_PREFIX = Buffer.from(
+  "302a300506032b6570032100",
+  "hex",
+);
 
 /** DER prefix for PKCS8-encoded Ed25519 private key (32 raw bytes follow) */
-const ED25519_DER_PRIVATE_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+const ED25519_DER_PRIVATE_PREFIX = Buffer.from(
+  "302e020100300506032b657004220420",
+  "hex",
+);
 
 // ============================================================================
 // Signing Payload
@@ -47,7 +53,7 @@ export function buildSigningPayload(
   // Nonce as big-endian u64 (8 bytes)
   const view = new DataView(payload.buffer, payload.byteOffset + 64, 8);
   view.setUint32(0, Math.floor(nonce / 0x100000000) >>> 0);
-  view.setUint32(4, (nonce >>> 0));
+  view.setUint32(4, nonce >>> 0);
 
   // Content (variable length)
   payload.set(contentBytes, 72);
@@ -68,12 +74,15 @@ export function buildSigningPayload(
  * @param payload - The payload bytes to sign
  * @returns 64-byte Ed25519 signature
  */
-export function signAgentMessage(keypair: Keypair, payload: Uint8Array): Uint8Array {
+export function signAgentMessage(
+  keypair: Keypair,
+  payload: Uint8Array,
+): Uint8Array {
   const rawPrivate = keypair.secretKey.slice(0, 32);
   const derKey = createPrivateKey({
     key: Buffer.concat([ED25519_DER_PRIVATE_PREFIX, rawPrivate]),
-    format: 'der',
-    type: 'pkcs8',
+    format: "der",
+    type: "pkcs8",
   });
   const sig = sign(null, Buffer.from(payload), derKey);
   return new Uint8Array(sig);
@@ -96,8 +105,8 @@ export function verifyAgentSignature(
     const rawKey = publicKey.toBytes();
     const derKey = createPublicKey({
       key: Buffer.concat([ED25519_DER_PUBLIC_PREFIX, rawKey]),
-      format: 'der',
-      type: 'spki',
+      format: "der",
+      type: "spki",
     });
     return verify(null, Buffer.from(payload), derKey, Buffer.from(signature));
   } catch {

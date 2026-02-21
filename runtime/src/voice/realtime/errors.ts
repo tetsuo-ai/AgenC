@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../../types/errors.js";
 
 /**
  * Error thrown when a realtime voice session operation fails.
@@ -17,7 +17,7 @@ export class VoiceRealtimeError extends RuntimeError {
 
   constructor(message: string, xaiType?: string, xaiCode?: string) {
     super(message, RuntimeErrorCodes.VOICE_REALTIME_ERROR);
-    this.name = 'VoiceRealtimeError';
+    this.name = "VoiceRealtimeError";
     this.xaiType = xaiType;
     this.xaiCode = xaiCode;
   }

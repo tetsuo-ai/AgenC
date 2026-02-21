@@ -6,15 +6,15 @@
 
 /** Known Discord gateway intent names supported by the plugin. */
 export type DiscordIntentName =
-  | 'Guilds'
-  | 'GuildMessages'
-  | 'GuildMessageReactions'
-  | 'MessageContent'
-  | 'DirectMessages'
-  | 'GuildMembers'
-  | 'GuildPresences'
-  | 'GuildVoiceStates'
-  | 'DirectMessageReactions';
+  | "Guilds"
+  | "GuildMessages"
+  | "GuildMessageReactions"
+  | "MessageContent"
+  | "DirectMessages"
+  | "GuildMembers"
+  | "GuildPresences"
+  | "GuildVoiceStates"
+  | "DirectMessageReactions";
 
 export interface DiscordChannelConfig {
   /** Discord bot token for authentication. */

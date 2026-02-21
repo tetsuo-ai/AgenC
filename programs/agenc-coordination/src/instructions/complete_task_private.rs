@@ -26,11 +26,11 @@ const RISC0_SEAL_BORSH_LEN: usize = RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
 
 // Journal field offsets (each field is HASH_SIZE=32 bytes)
 const JOURNAL_TASK_PDA_OFFSET: usize = 0;
-const JOURNAL_AUTHORITY_OFFSET: usize = HASH_SIZE;       // 32
-const JOURNAL_CONSTRAINT_OFFSET: usize = 2 * HASH_SIZE;  // 64
-const JOURNAL_COMMITMENT_OFFSET: usize = 3 * HASH_SIZE;  // 96
-const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE;     // 128
-const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE;   // 160
+const JOURNAL_AUTHORITY_OFFSET: usize = HASH_SIZE; // 32
+const JOURNAL_CONSTRAINT_OFFSET: usize = 2 * HASH_SIZE; // 64
+const JOURNAL_COMMITMENT_OFFSET: usize = 3 * HASH_SIZE; // 96
+const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE; // 128
+const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE; // 160
 const ROUTER_VERIFY_IX_DISCRIMINATOR: [u8; 8] = [133, 161, 141, 48, 120, 198, 88, 150];
 const VERIFIER_ENTRY_DISCRIMINATOR: [u8; 8] = [102, 247, 148, 158, 33, 153, 100, 93];
 const VERIFIER_ENTRY_ACCOUNT_LEN: usize = 8 + RISC0_SELECTOR_LEN + 32 + 1;
@@ -44,8 +44,8 @@ const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
 // Regenerate with: cargo run -p agenc-zkvm-host --features production-prover -- image-id
 // This value MUST match TRUSTED_RISC0_IMAGE_ID in sdk/src/constants.ts exactly.
 const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
-    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245,
-    211, 97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
+    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245, 211, 97, 58, 48, 7, 14,
+    121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
 ];
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]

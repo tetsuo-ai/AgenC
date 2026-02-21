@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { setTimeout as nodeSetTimeout } from 'node:timers/promises';
-import { EventParser } from '@coral-xyz/anchor';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { setTimeout as nodeSetTimeout } from "node:timers/promises";
+import { EventParser } from "@coral-xyz/anchor";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import {
   createReadOnlyProgram,
   FileReplayTimelineStore,
@@ -25,8 +25,12 @@ import {
   type ReplayTimelineRecord,
   type ReplayTimelineStore,
   TrajectoryReplayEngine,
-} from '@agenc/runtime';
-import { type ConfirmedSignatureInfo, Connection, PublicKey } from '@solana/web3.js';
+} from "@agenc/runtime";
+import {
+  type ConfirmedSignatureInfo,
+  Connection,
+  PublicKey,
+} from "@solana/web3.js";
 import {
   ReplayBackfillInputSchema,
   ReplayCompareInputSchema,
@@ -50,20 +54,25 @@ import {
   REPLAY_COMPARE_OUTPUT_SCHEMA,
   REPLAY_INCIDENT_OUTPUT_SCHEMA,
   REPLAY_STATUS_OUTPUT_SCHEMA,
-} from './replay-types.js';
-import { truncateOutput } from '../utils/truncation.js';
-import { clone, safeStringify } from '../utils/json.js';
-import type { ReplayToolRequestExtra } from './replay-internal-types.js';
-import { checkActorPermission, resolveActor } from './replay-actor.js';
-import { emitAuditEntry } from './replay-audit.js';
-import { getToolRiskProfile, loadToolCapsFromEnv, resolveToolCaps, type ToolRiskCaps } from './replay-risk.js';
-import type { ReplayComparisonResult } from '@agenc/runtime';
-import { parseTrajectoryTrace, type TrajectoryTrace } from '@agenc/runtime';
+} from "./replay-types.js";
+import { truncateOutput } from "../utils/truncation.js";
+import { clone, safeStringify } from "../utils/json.js";
+import type { ReplayToolRequestExtra } from "./replay-internal-types.js";
+import { checkActorPermission, resolveActor } from "./replay-actor.js";
+import { emitAuditEntry } from "./replay-audit.js";
+import {
+  getToolRiskProfile,
+  loadToolCapsFromEnv,
+  resolveToolCaps,
+  type ToolRiskCaps,
+} from "./replay-risk.js";
+import type { ReplayComparisonResult } from "@agenc/runtime";
+import { parseTrajectoryTrace, type TrajectoryTrace } from "@agenc/runtime";
 
 type JsonObject = Record<string, unknown>;
 type ReplayToolOutput = {
   isError: boolean;
-  content: Array<{ type: 'text'; text: string }>;
+  content: Array<{ type: "text"; text: string }>;
   structuredContent: JsonObject;
 };
 
@@ -74,8 +83,14 @@ type ParsedAnchorEvent = {
 
 type ReplayToolResult = Promise<ReplayToolOutput>;
 type ReplayToolRuntime = {
-  createStore: (storeType: 'memory' | 'sqlite', sqlitePath?: string) => ReplayTimelineStore;
-  createBackfillFetcher: (rpcUrl: string, programId?: string) => BackfillFetcher;
+  createStore: (
+    storeType: "memory" | "sqlite",
+    sqlitePath?: string,
+  ) => ReplayTimelineStore;
+  createBackfillFetcher: (
+    rpcUrl: string,
+    programId?: string,
+  ) => BackfillFetcher;
   readLocalTrace: (path: string) => TrajectoryTrace;
   getCurrentSlot?: (rpcUrl: string) => Promise<number>;
 };
@@ -98,14 +113,16 @@ const DEFAULT_REPLAY_POLICY: ReplayPolicy = {
   maxToolRuntimeMs: 180_000,
   allowlist: new Set<string>(),
   denylist: new Set<string>(),
-  defaultRedactions: ['signature'],
+  defaultRedactions: ["signature"],
   auditEnabled: false,
 };
 
 const DEFAULT_REPLAY_RUNTIME: ReplayToolRuntime = {
   createStore(storeType, sqlitePath): ReplayTimelineStore {
-    if (storeType === 'sqlite') {
-      return new FileReplayTimelineStore(sqlitePath ?? '.agenc/replay-events.json');
+    if (storeType === "sqlite") {
+      return new FileReplayTimelineStore(
+        sqlitePath ?? ".agenc/replay-events.json",
+      );
     }
     return new InMemoryReplayTimelineStore();
   },
@@ -117,30 +134,51 @@ const DEFAULT_REPLAY_RUNTIME: ReplayToolRuntime = {
     const parser = new EventParser(program.programId, program.coder);
 
     return {
-      async fetchPage(cursor, toSlot, pageSize): Promise<{ events: ReadonlyArray<ProjectedTimelineInput>; nextCursor: { slot: number; signature: string; eventName?: string; traceId?: string; traceSpanId?: string; } | null; done: boolean; }> {
+      async fetchPage(
+        cursor,
+        toSlot,
+        pageSize,
+      ): Promise<{
+        events: ReadonlyArray<ProjectedTimelineInput>;
+        nextCursor: {
+          slot: number;
+          signature: string;
+          eventName?: string;
+          traceId?: string;
+          traceSpanId?: string;
+        } | null;
+        done: boolean;
+      }> {
         const limit = clampPageSize(pageSize);
-        const rawSignatures = await connection.getSignaturesForAddress(
+        const rawSignatures = (await connection.getSignaturesForAddress(
           parsedProgramId,
           {
             before: cursor?.signature,
             limit,
           },
-        ) as ConfirmedSignatureInfo[];
+        )) as ConfirmedSignatureInfo[];
 
         if (rawSignatures.length === 0) {
           return { events: [], nextCursor: null, done: true };
         }
 
         const projected: ProjectedTimelineInput[] = [];
-        const includedSignatures = new Map<string, { slot: number; signature: string }>();
+        const includedSignatures = new Map<
+          string,
+          { slot: number; signature: string }
+        >();
 
         for (const signatureInfo of rawSignatures) {
-          if (signatureInfo.slot > toSlot || signatureInfo.slot < 0 || !Number.isInteger(signatureInfo.slot)) {
+          if (
+            signatureInfo.slot > toSlot ||
+            signatureInfo.slot < 0 ||
+            !Number.isInteger(signatureInfo.slot)
+          ) {
             continue;
           }
 
           const tx = await connection.getTransaction(signatureInfo.signature, {
-            commitment: 'confirmed',
+            commitment: "confirmed",
             maxSupportedTransactionVersion: 0,
           });
           if (tx === null || tx.meta === null || tx.meta === undefined) {
@@ -152,11 +190,12 @@ const DEFAULT_REPLAY_RUNTIME: ReplayToolRuntime = {
             continue;
           }
 
-          const timestampMs = tx.blockTime !== null
-            && tx.blockTime !== undefined
-            && Number.isInteger(tx.blockTime)
-            ? tx.blockTime * 1_000
-            : undefined;
+          const timestampMs =
+            tx.blockTime !== null &&
+            tx.blockTime !== undefined &&
+            Number.isInteger(tx.blockTime)
+              ? tx.blockTime * 1_000
+              : undefined;
           const parsedEvents = parseAnchorLogs(parser, logs);
 
           for (let index = 0; index < parsedEvents.length; index += 1) {
@@ -178,32 +217,41 @@ const DEFAULT_REPLAY_RUNTIME: ReplayToolRuntime = {
         }
 
         const sorted = [...projected].sort(compareProjectedInputs);
-        const lastSignature = rawSignatures[rawSignatures.length - 1]?.signature;
+        const lastSignature =
+          rawSignatures[rawSignatures.length - 1]?.signature;
 
         return {
           events: sorted,
-          nextCursor: lastSignature === undefined ? null : {
-            slot: includedSignatures.get(lastSignature)?.slot ?? signatureForFallback(rawSignatures),
-            signature: lastSignature,
-            eventName: sorted.at(-1)?.eventName,
-          },
+          nextCursor:
+            lastSignature === undefined
+              ? null
+              : {
+                  slot:
+                    includedSignatures.get(lastSignature)?.slot ??
+                    signatureForFallback(rawSignatures),
+                  signature: lastSignature,
+                  eventName: sorted.at(-1)?.eventName,
+                },
           done: rawSignatures.length < limit,
         };
       },
     };
   },
   readLocalTrace(path) {
-    const raw = readFileSync(path, 'utf8');
+    const raw = readFileSync(path, "utf8");
     return parseTrajectoryTrace(JSON.parse(raw) as unknown);
   },
   async getCurrentSlot(rpcUrl) {
-    return new Connection(rpcUrl).getSlot('confirmed');
+    return new Connection(rpcUrl).getSlot("confirmed");
   },
 };
 
 let activeReplayJobs = 0;
 
-function stringFromPolicyEnv(value: string | undefined, fallback: string): string {
+function stringFromPolicyEnv(
+  value: string | undefined,
+  fallback: string,
+): string {
   if (value === undefined || value.trim().length === 0) {
     return fallback;
   }
@@ -215,10 +263,19 @@ function booleanFromEnv(value: string | undefined, fallback = false): boolean {
     return fallback;
   }
   const normalized = value.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'on' || normalized === 'yes';
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "on" ||
+    normalized === "yes"
+  );
 }
 
-function intFromEnv(value: string | undefined, fallback: number, min: number): number {
+function intFromEnv(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+): number {
   if (value === undefined) {
     return fallback;
   }
@@ -236,7 +293,7 @@ function setFromEnv(value: string | undefined): Set<string> {
 
   return new Set(
     value
-      .split(',')
+      .split(",")
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0),
   );
@@ -244,32 +301,60 @@ function setFromEnv(value: string | undefined): Set<string> {
 
 function loadReplayPolicy(): ReplayPolicy {
   return {
-    maxSlotWindow: intFromEnv(process.env.MCP_REPLAY_MAX_SLOT_WINDOW, DEFAULT_REPLAY_POLICY.maxSlotWindow, 0),
-    maxEventCount: intFromEnv(process.env.MCP_REPLAY_MAX_EVENT_COUNT, DEFAULT_REPLAY_POLICY.maxEventCount, 0),
-    maxConcurrentJobs: intFromEnv(process.env.MCP_REPLAY_MAX_CONCURRENT_JOBS, DEFAULT_REPLAY_POLICY.maxConcurrentJobs, 1),
-    maxToolRuntimeMs: intFromEnv(process.env.MCP_REPLAY_TOOL_TIMEOUT_MS, DEFAULT_REPLAY_POLICY.maxToolRuntimeMs, 1_000),
-    allowlist: setFromEnv(stringFromPolicyEnv(process.env.MCP_REPLAY_ALLOWLIST, '')),
-    denylist: setFromEnv(stringFromPolicyEnv(process.env.MCP_REPLAY_DENYLIST, '')),
-    defaultRedactions: [...new Set([
-      ...DEFAULT_REPLAY_POLICY.defaultRedactions,
-      ...Array.from(setFromEnv(process.env.MCP_REPLAY_DEFAULT_REDACTIONS)),
-    ])],
-    auditEnabled: booleanFromEnv(process.env.MCP_REPLAY_AUDIT_ENABLED, DEFAULT_REPLAY_POLICY.auditEnabled),
+    maxSlotWindow: intFromEnv(
+      process.env.MCP_REPLAY_MAX_SLOT_WINDOW,
+      DEFAULT_REPLAY_POLICY.maxSlotWindow,
+      0,
+    ),
+    maxEventCount: intFromEnv(
+      process.env.MCP_REPLAY_MAX_EVENT_COUNT,
+      DEFAULT_REPLAY_POLICY.maxEventCount,
+      0,
+    ),
+    maxConcurrentJobs: intFromEnv(
+      process.env.MCP_REPLAY_MAX_CONCURRENT_JOBS,
+      DEFAULT_REPLAY_POLICY.maxConcurrentJobs,
+      1,
+    ),
+    maxToolRuntimeMs: intFromEnv(
+      process.env.MCP_REPLAY_TOOL_TIMEOUT_MS,
+      DEFAULT_REPLAY_POLICY.maxToolRuntimeMs,
+      1_000,
+    ),
+    allowlist: setFromEnv(
+      stringFromPolicyEnv(process.env.MCP_REPLAY_ALLOWLIST, ""),
+    ),
+    denylist: setFromEnv(
+      stringFromPolicyEnv(process.env.MCP_REPLAY_DENYLIST, ""),
+    ),
+    defaultRedactions: [
+      ...new Set([
+        ...DEFAULT_REPLAY_POLICY.defaultRedactions,
+        ...Array.from(setFromEnv(process.env.MCP_REPLAY_DEFAULT_REDACTIONS)),
+      ]),
+    ],
+    auditEnabled: booleanFromEnv(
+      process.env.MCP_REPLAY_AUDIT_ENABLED,
+      DEFAULT_REPLAY_POLICY.auditEnabled,
+    ),
   };
 }
 
-function classifyControlError(error: unknown, toolName: string): { code: string; message: string } {
+function classifyControlError(
+  error: unknown,
+  toolName: string,
+): { code: string; message: string } {
   const message = error instanceof Error ? error.message : String(error);
-  if (error instanceof Error && error.name === 'AbortError') {
-    return { code: 'replay.cancelled', message };
+  if (error instanceof Error && error.name === "AbortError") {
+    return { code: "replay.cancelled", message };
   }
-  if (message.includes('was cancelled')) {
-    return { code: 'replay.cancelled', message };
+  if (message.includes("was cancelled")) {
+    return { code: "replay.cancelled", message };
   }
-  if (message.includes('timed out')) {
-    return { code: 'replay.timeout', message };
+  if (message.includes("timed out")) {
+    return { code: "replay.timeout", message };
   }
-  return { code: 'replay.tool_error', message: `${toolName}: ${message}` };
+  return { code: "replay.tool_error", message: `${toolName}: ${message}` };
 }
 
 function enforceQueryWindow(
@@ -286,7 +371,7 @@ function enforceQueryWindow(
     return createToolError(
       command,
       schema,
-      'replay.slot_window_exceeded',
+      "replay.slot_window_exceeded",
       `to_slot (${toSlot}) must be greater than or equal to from_slot (${fromSlot})`,
       false,
       { fromSlot, toSlot, maxSlotWindow },
@@ -297,7 +382,7 @@ function enforceQueryWindow(
     return createToolError(
       command,
       schema,
-      'replay.slot_window_exceeded',
+      "replay.slot_window_exceeded",
       `slot window ${windowSlots} exceeds policy limit ${maxSlotWindow}`,
       false,
       { fromSlot, toSlot, maxSlotWindow },
@@ -309,18 +394,21 @@ function enforceQueryWindow(
 function getRequestId(extra: ReplayToolRequestExtra): string {
   const id = extra?.requestId;
   if (id === undefined) {
-    return 'unknown';
+    return "unknown";
   }
   return String(id);
 }
 
-function parseAnchorLogs(parser: EventParser, logs: string[]): ParsedAnchorEvent[] {
+function parseAnchorLogs(
+  parser: EventParser,
+  logs: string[],
+): ParsedAnchorEvent[] {
   const parsedEvents = [] as ParsedAnchorEvent[];
   for (const parsed of parser.parseLogs(logs, false)) {
     if (
-      typeof parsed !== 'object'
-      || parsed === null
-      || typeof (parsed as { name?: unknown }).name !== 'string'
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as { name?: unknown }).name !== "string"
     ) {
       continue;
     }
@@ -340,12 +428,17 @@ function clampPageSize(value: number, min = 1, max = 1_000): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function signatureForFallback(signatures: ReadonlyArray<ConfirmedSignatureInfo>): number {
+function signatureForFallback(
+  signatures: ReadonlyArray<ConfirmedSignatureInfo>,
+): number {
   const last = signatures.at(-1);
   return last?.slot ?? 0;
 }
 
-function compareProjectedInputs(left: ProjectedTimelineInput, right: ProjectedTimelineInput): number {
+function compareProjectedInputs(
+  left: ProjectedTimelineInput,
+  right: ProjectedTimelineInput,
+): number {
   if (left.slot !== right.slot) {
     return left.slot - right.slot;
   }
@@ -373,7 +466,7 @@ function pickQuery(input: {
 }
 
 function asRecord(value: unknown): JsonObject | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
   return value as JsonObject;
@@ -388,7 +481,7 @@ function createToolError(
   details?: JsonObject,
 ): ReplayToolOutput {
   const payload = ReplayToolErrorSchema.parse({
-    status: 'error',
+    status: "error",
     command,
     schema,
     schema_hash: REPLAY_TOOL_ERROR_SCHEMA_HASH,
@@ -399,7 +492,7 @@ function createToolError(
   } as const);
   return {
     isError: true,
-    content: [{ type: 'text', text: safeStringify(payload) }],
+    content: [{ type: "text", text: safeStringify(payload) }],
     structuredContent: payload,
   };
 }
@@ -413,40 +506,48 @@ function createToolOutput<T extends z.ZodTypeAny>(
   if (!parsed.success) {
     return createToolError(
       command,
-      'schema-validation',
-      'replay.output_validation_failed',
-      `${command}: ${parsed.error.errors.map((error) => error.message).join('; ')}`,
+      "schema-validation",
+      "replay.output_validation_failed",
+      `${command}: ${parsed.error.errors.map((error) => error.message).join("; ")}`,
       false,
     );
   }
 
   const data = parsed.data as Record<string, unknown>;
-  const schemaName = typeof data.schema === 'string' ? data.schema : null;
+  const schemaName = typeof data.schema === "string" ? data.schema : null;
   if (schemaName && schemaName in REPLAY_SCHEMA_HASHES) {
-    data.schema_hash = REPLAY_SCHEMA_HASHES[schemaName as keyof typeof REPLAY_SCHEMA_HASHES];
+    data.schema_hash =
+      REPLAY_SCHEMA_HASHES[schemaName as keyof typeof REPLAY_SCHEMA_HASHES];
   }
 
   return {
     isError: false,
-    content: [{ type: 'text', text: safeStringify(data) }],
+    content: [{ type: "text", text: safeStringify(data) }],
     structuredContent: data as JsonObject,
   };
 }
 
-function parseSections(sections: unknown, allowed: readonly string[]): string[] {
+function parseSections(
+  sections: unknown,
+  allowed: readonly string[],
+): string[] {
   if (!Array.isArray(sections) || sections.length === 0) {
     return [...allowed];
   }
   const values = new Set<string>();
   for (const section of sections) {
-    if (typeof section === 'string' && allowed.includes(section)) {
+    if (typeof section === "string" && allowed.includes(section)) {
       values.add(section);
     }
   }
   return values.size > 0 ? [...values] : [...allowed];
 }
 
-function applySectionSelection<T extends JsonObject>(payload: T, allowedSections: readonly string[], selectedSections: string[]): T {
+function applySectionSelection<T extends JsonObject>(
+  payload: T,
+  allowedSections: readonly string[],
+  selectedSections: string[],
+): T {
   const selected = new Set(selectedSections);
   const output = clone(payload) as Record<string, unknown>;
   for (const section of allowedSections) {
@@ -464,7 +565,7 @@ function applyRedaction<T>(value: T, fields: readonly string[]): T {
   const fieldSet = new Set(fields);
 
   const transform = (input: unknown): unknown => {
-    if (input === null || input === undefined || typeof input !== 'object') {
+    if (input === null || input === undefined || typeof input !== "object") {
       return input;
     }
 
@@ -477,7 +578,7 @@ function applyRedaction<T>(value: T, fields: readonly string[]): T {
 
     for (const [key, value] of Object.entries(record)) {
       if (fieldSet.has(key)) {
-        output[key] = '[REDACTED]';
+        output[key] = "[REDACTED]";
       } else {
         output[key] = transform(value);
       }
@@ -491,7 +592,11 @@ function applyRedaction<T>(value: T, fields: readonly string[]): T {
 
 function trimBackfillPayload(payload: JsonObject): JsonObject {
   const output = clone(payload);
-  if (output.result && typeof output.result === 'object' && output.result !== null) {
+  if (
+    output.result &&
+    typeof output.result === "object" &&
+    output.result !== null
+  ) {
     const result = output.result as JsonObject;
     result.cursor = null;
   }
@@ -500,7 +605,11 @@ function trimBackfillPayload(payload: JsonObject): JsonObject {
 
 function trimComparePayload(payload: JsonObject): JsonObject {
   const output = clone(payload);
-  if (output.result && typeof output.result === 'object' && output.result !== null) {
+  if (
+    output.result &&
+    typeof output.result === "object" &&
+    output.result !== null
+  ) {
     const result = output.result as JsonObject;
     if (result.local_summary) {
       result.local_summary = {};
@@ -516,21 +625,33 @@ function trimComparePayload(payload: JsonObject): JsonObject {
 
 function trimIncidentPayload(payload: JsonObject): JsonObject {
   const output = clone(payload);
-  if (output.summary && typeof output.summary === 'object' && output.summary !== null) {
+  if (
+    output.summary &&
+    typeof output.summary === "object" &&
+    output.summary !== null
+  ) {
     const summary = output.summary as JsonObject;
     if (Array.isArray(summary.events)) {
       summary.events = [];
     }
   }
-  if (output.validation && typeof output.validation === 'object' && output.validation !== null) {
+  if (
+    output.validation &&
+    typeof output.validation === "object" &&
+    output.validation !== null
+  ) {
     const validation = output.validation as JsonObject;
     const eventValidation = validation.event_validation as JsonObject;
-    if (eventValidation && typeof eventValidation === 'object') {
+    if (eventValidation && typeof eventValidation === "object") {
       eventValidation.errors = [];
       eventValidation.warnings = [];
     }
   }
-  if (output.narrative && typeof output.narrative === 'object' && output.narrative !== null) {
+  if (
+    output.narrative &&
+    typeof output.narrative === "object" &&
+    output.narrative !== null
+  ) {
     const narrative = output.narrative as JsonObject;
     narrative.lines = [];
     narrative.anomaly_ids = [];
@@ -539,7 +660,7 @@ function trimIncidentPayload(payload: JsonObject): JsonObject {
 }
 
 function summarizeReplayComparison(comparison: ReplayComparisonResult): {
-  status: 'clean' | 'mismatched';
+  status: "clean" | "mismatched";
   strictness: ReplayComparisonStrictness;
   local_event_count: number;
   projected_event_count: number;
@@ -569,7 +690,9 @@ function summarizeReplayComparison(comparison: ReplayComparisonResult): {
     projected_event_count: comparison.projectedEventCount,
     mismatch_count: comparison.mismatchCount,
     match_rate: comparison.matchRate,
-    anomaly_ids: comparison.anomalies.map((entry, index) => buildReplayAnomalyId(entry, index)),
+    anomaly_ids: comparison.anomalies.map((entry, index) =>
+      buildReplayAnomalyId(entry, index),
+    ),
     top_anomalies: comparison.anomalies.slice(0, 50).map((entry) => ({
       anomaly_id: buildReplayAnomalyId(entry, entry.context.seq ?? 0),
       code: entry.code,
@@ -594,15 +717,15 @@ function buildReplayAnomalyId(anomaly: ReplayAnomaly, seed = 0): string {
   const context = anomaly.context;
   const key = [
     anomaly.code,
-    context.taskPda ?? '',
-    context.disputePda ?? '',
-    context.sourceEventName ?? '',
+    context.taskPda ?? "",
+    context.disputePda ?? "",
+    context.sourceEventName ?? "",
     context.seq ?? seed,
-    context.signature ?? '',
+    context.signature ?? "",
     anomaly.message,
-  ].join('|');
+  ].join("|");
 
-  return createHash('sha1').update(key).digest('hex').slice(0, 16);
+  return createHash("sha1").update(key).digest("hex").slice(0, 16);
 }
 
 function deriveIncidentTraceId(filters: {
@@ -617,12 +740,20 @@ function deriveIncidentTraceId(filters: {
     fromSlot: filters.fromSlot ?? null,
     toSlot: filters.toSlot ?? null,
   } as JsonValue);
-  return createHash('sha256').update(`incident:${key}`).digest('hex').slice(0, 32);
+  return createHash("sha256")
+    .update(`incident:${key}`)
+    .digest("hex")
+    .slice(0, 32);
 }
 
 function summarizeReplayIncident(
   records: readonly ReplayTimelineRecord[],
-  filters: { taskPda?: string; disputePda?: string; fromSlot?: number; toSlot?: number },
+  filters: {
+    taskPda?: string;
+    disputePda?: string;
+    fromSlot?: number;
+    toSlot?: number;
+  },
 ): {
   total_events: number;
   task_pda_filters: Array<string | null>;
@@ -664,8 +795,10 @@ function summarizeReplayIncident(
   const traceIdCounts: Record<string, number> = {};
 
   const events = sorted.map((record) => {
-    sourceEventTypeCounts[record.sourceEventType] = (sourceEventTypeCounts[record.sourceEventType] ?? 0) + 1;
-    sourceEventNameCounts[record.sourceEventName] = (sourceEventNameCounts[record.sourceEventName] ?? 0) + 1;
+    sourceEventTypeCounts[record.sourceEventType] =
+      (sourceEventTypeCounts[record.sourceEventType] ?? 0) + 1;
+    sourceEventNameCounts[record.sourceEventName] =
+      (sourceEventNameCounts[record.sourceEventName] ?? 0) + 1;
     if (record.traceId) {
       traceIdCounts[record.traceId] = (traceIdCounts[record.traceId] ?? 0) + 1;
     }
@@ -708,7 +841,12 @@ function summarizeReplayIncident(
 function validateReplayIncident(
   records: readonly ReplayTimelineRecord[],
   strictMode: boolean,
-  filters?: { taskPda?: string; disputePda?: string; fromSlot?: number; toSlot?: number },
+  filters?: {
+    taskPda?: string;
+    disputePda?: string;
+    fromSlot?: number;
+    toSlot?: number;
+  },
 ): {
   strict_mode: boolean;
   event_validation: {
@@ -738,10 +876,7 @@ function validateReplayIncident(
   });
 
   const anomalyIds = [...replay.errors, ...replay.warnings].map((message) => {
-    return createHash('sha1')
-      .update(message)
-      .digest('hex')
-      .slice(0, 16);
+    return createHash("sha1").update(message).digest("hex").slice(0, 16);
   });
 
   const replayTaskCount = Object.keys(replay.tasks).length;
@@ -756,9 +891,9 @@ function validateReplayIncident(
     anomaly_ids: [...anomalyIds].sort(),
   };
 
-  const deterministicHash = createHash('sha256')
+  const deterministicHash = createHash("sha256")
     .update(stableStringifyJson(result as unknown as JsonValue))
-    .digest('hex');
+    .digest("hex");
 
   return {
     ...result,
@@ -780,7 +915,8 @@ function buildIncidentNarrative(
   const sortedEvents = [...events].sort((a, b) => a.seq - b.seq);
 
   const anomalyLines = sortedEvents.slice(0, 100).map((event) => {
-    const marker = event.anomaly_id.length > 0 ? ` | anomaly:${event.anomaly_id}` : '';
+    const marker =
+      event.anomaly_id.length > 0 ? ` | anomaly:${event.anomaly_id}` : "";
     return `${event.seq}/${event.slot}/${event.signature}: ${event.source_event_name} (${event.source_event_type})${marker}`;
   });
 
@@ -795,9 +931,9 @@ function buildIncidentNarrative(
     .filter((entry) => entry.length > 0)
     .sort();
 
-  const deterministicHash = createHash('sha256')
+  const deterministicHash = createHash("sha256")
     .update(stableStringifyJson(lines as unknown as JsonValue))
-    .digest('hex');
+    .digest("hex");
 
   return { lines, anomaly_ids, deterministic_hash: deterministicHash };
 }
@@ -834,7 +970,7 @@ async function withReplayPolicyControl(
       tool: toolName,
       actor,
       requestId,
-      status: 'start',
+      status: "start",
       durationMs: 0,
       riskLevel: profile.riskLevel,
       mutatedState: profile.mutatesState,
@@ -851,10 +987,10 @@ async function withReplayPolicyControl(
         tool: toolName,
         actor,
         requestId,
-        status: 'denied',
+        status: "denied",
         durationMs,
         reason: permissionError,
-        violationCode: 'replay.access_denied',
+        violationCode: "replay.access_denied",
         riskLevel: profile.riskLevel,
         mutatedState: profile.mutatesState,
         effectiveCaps,
@@ -864,7 +1000,7 @@ async function withReplayPolicyControl(
     return createToolError(
       toolName,
       outputSchema,
-      'replay.access_denied',
+      "replay.access_denied",
       permissionError,
       false,
       { actor: actor.id, requestId, tool: toolName, command: toolName },
@@ -881,7 +1017,7 @@ async function withReplayPolicyControl(
         tool: toolName,
         actor,
         requestId,
-        status: 'failure',
+        status: "failure",
         durationMs,
         reason: message,
         riskLevel: profile.riskLevel,
@@ -893,7 +1029,7 @@ async function withReplayPolicyControl(
     return createToolError(
       toolName,
       outputSchema,
-      'replay.concurrency_limit',
+      "replay.concurrency_limit",
       message,
       true,
       { actor: actor.id, tool: toolName },
@@ -902,11 +1038,14 @@ async function withReplayPolicyControl(
 
   activeReplayJobs += 1;
   const timeout = effectiveCaps.timeoutMs > 0 ? effectiveCaps.timeoutMs : null;
-  const timeoutPromise = timeout === null
-    ? Promise.resolve<ReplayToolOutput | never>(undefined as never)
-    : nodeSetTimeout(timeout).then(() => {
-      throw new Error(`replay tool ${toolName} timed out after ${timeout}ms`);
-    });
+  const timeoutPromise =
+    timeout === null
+      ? Promise.resolve<ReplayToolOutput | never>(undefined as never)
+      : nodeSetTimeout(timeout).then(() => {
+          throw new Error(
+            `replay tool ${toolName} timed out after ${timeout}ms`,
+          );
+        });
   let removeAbortListener = () => {};
   const abortPromise = new Promise<ReplayToolOutput | never>((_, reject) => {
     const signal = extra?.signal;
@@ -917,29 +1056,45 @@ async function withReplayPolicyControl(
       reject(new Error(`replay tool ${toolName} was cancelled`));
       return;
     }
-    const handler = () => reject(new Error(`replay tool ${toolName} was cancelled`));
-    signal.addEventListener('abort', handler, { once: true });
+    const handler = () =>
+      reject(new Error(`replay tool ${toolName} was cancelled`));
+    signal.addEventListener("abort", handler, { once: true });
     const cleanup = () => {
-      signal.removeEventListener('abort', handler);
+      signal.removeEventListener("abort", handler);
     };
     removeAbortListener = cleanup;
   });
 
-  let auditStatus: 'success' | 'failure' = 'failure';
+  let auditStatus: "success" | "failure" = "failure";
   let auditReason: string | undefined;
   try {
-    const outcome = await Promise.race([callback(effectiveCaps), timeoutPromise, abortPromise]);
-    const parsed = outcome ?? {
-      isError: true,
-      content: [{ type: 'text', text: safeStringify({ message: 'tool returned no output' }) }],
-      structuredContent: { status: 'error' },
-    } as ReplayToolOutput;
-    auditStatus = parsed.isError ? 'failure' : 'success';
+    const outcome = await Promise.race([
+      callback(effectiveCaps),
+      timeoutPromise,
+      abortPromise,
+    ]);
+    const parsed =
+      outcome ??
+      ({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: safeStringify({ message: "tool returned no output" }),
+          },
+        ],
+        structuredContent: { status: "error" },
+      } as ReplayToolOutput);
+    auditStatus = parsed.isError ? "failure" : "success";
 
     if (parsed.isError) {
-      const record = parsed.structuredContent as { code?: unknown; message?: unknown };
-      const code = typeof record.code === 'string' ? record.code : undefined;
-      const message = typeof record.message === 'string' ? record.message : undefined;
+      const record = parsed.structuredContent as {
+        code?: unknown;
+        message?: unknown;
+      };
+      const code = typeof record.code === "string" ? record.code : undefined;
+      const message =
+        typeof record.message === "string" ? record.message : undefined;
       if (code && message) {
         auditReason = `${code}: ${message}`;
       } else if (message) {
@@ -950,7 +1105,7 @@ async function withReplayPolicyControl(
     return parsed;
   } catch (error) {
     const classified = classifyControlError(error, toolName);
-    auditStatus = 'failure';
+    auditStatus = "failure";
     auditReason = classified.message;
     return createToolError(
       toolName,
@@ -995,7 +1150,7 @@ function enforcePolicyWindow(
     return createToolError(
       command,
       REPLAY_BACKFILL_OUTPUT_SCHEMA,
-      'replay.slot_window_exceeded',
+      "replay.slot_window_exceeded",
       `to_slot is more than ${maxSlotWindow} slots behind current slot`,
       false,
       { currentSlot, toSlot: parsed.to_slot, maxSlotWindow },
@@ -1017,7 +1172,7 @@ function enforceEventCap(
   return createToolError(
     command,
     schema,
-    'replay.event_cap_exceeded',
+    "replay.event_cap_exceeded",
     `result count ${actualCount} exceeds policy cap ${cap}`,
     false,
     fields ?? {},
@@ -1026,28 +1181,52 @@ function enforceEventCap(
 
 export function registerReplayTools(server: McpServer): void {
   server.tool(
-    'agenc_replay_backfill',
-    'Backfill replay timeline records from on-chain events.',
+    "agenc_replay_backfill",
+    "Backfill replay timeline records from on-chain events.",
     ReplayBackfillInputSchema.shape,
-    (args, extra) => runReplayBackfillTool(args, DEFAULT_REPLAY_RUNTIME, loadReplayPolicy(), extra),
+    (args, extra) =>
+      runReplayBackfillTool(
+        args,
+        DEFAULT_REPLAY_RUNTIME,
+        loadReplayPolicy(),
+        extra,
+      ),
   );
   server.tool(
-    'agenc_replay_compare',
-    'Compare replay projection timeline against a local trajectory trace.',
+    "agenc_replay_compare",
+    "Compare replay projection timeline against a local trajectory trace.",
     ReplayCompareInputSchema.shape,
-    (args, extra) => runReplayCompareTool(args, DEFAULT_REPLAY_RUNTIME, loadReplayPolicy(), extra),
+    (args, extra) =>
+      runReplayCompareTool(
+        args,
+        DEFAULT_REPLAY_RUNTIME,
+        loadReplayPolicy(),
+        extra,
+      ),
   );
   server.tool(
-    'agenc_replay_incident',
-    'Reconstruct replay incident timeline and validation narrative.',
+    "agenc_replay_incident",
+    "Reconstruct replay incident timeline and validation narrative.",
     ReplayIncidentInputSchema.shape,
-    (args, extra) => runReplayIncidentTool(args, DEFAULT_REPLAY_RUNTIME, loadReplayPolicy(), extra),
+    (args, extra) =>
+      runReplayIncidentTool(
+        args,
+        DEFAULT_REPLAY_RUNTIME,
+        loadReplayPolicy(),
+        extra,
+      ),
   );
   server.tool(
-    'agenc_replay_status',
-    'Inspect replay store status summary.',
+    "agenc_replay_status",
+    "Inspect replay store status summary.",
     ReplayStatusInputSchema.shape,
-    (args, extra) => runReplayStatusTool(args, DEFAULT_REPLAY_RUNTIME, loadReplayPolicy(), extra),
+    (args, extra) =>
+      runReplayStatusTool(
+        args,
+        DEFAULT_REPLAY_RUNTIME,
+        loadReplayPolicy(),
+        extra,
+      ),
   );
 }
 
@@ -1062,31 +1241,48 @@ export async function runReplayBackfillTool(
     parsed = ReplayBackfillInputSchema.parse(args);
   } catch (error) {
     return createToolError(
-      'agenc_replay_backfill',
+      "agenc_replay_backfill",
       REPLAY_BACKFILL_OUTPUT_SCHEMA,
-      'replay.invalid_input',
+      "replay.invalid_input",
       error instanceof Error ? error.message : String(error),
       false,
     );
   }
 
   return withReplayPolicyControl(
-    'agenc_replay_backfill',
+    "agenc_replay_backfill",
     REPLAY_BACKFILL_OUTPUT_SCHEMA,
     extra,
     policy,
     async (caps) => {
       try {
-        const currentSlot = parsed.rpc === '' ? null : await runtime.getCurrentSlot?.(parsed.rpc) ?? null;
-        const windowError = enforcePolicyWindow('agenc_replay_backfill', parsed, currentSlot, caps.maxWindowSlots);
+        const currentSlot =
+          parsed.rpc === ""
+            ? null
+            : ((await runtime.getCurrentSlot?.(parsed.rpc)) ?? null);
+        const windowError = enforcePolicyWindow(
+          "agenc_replay_backfill",
+          parsed,
+          currentSlot,
+          caps.maxWindowSlots,
+        );
         if (windowError) {
           return windowError;
         }
 
-        const store = runtime.createStore(parsed.store_type, parsed.sqlite_path);
-        const fetcher = runtime.createBackfillFetcher(parsed.rpc, parsed.program_id);
-        const redactions = mergeRedactions(policy.defaultRedactions, parsed.redact_fields);
-        const sections = parseSections(parsed.sections, ['result']);
+        const store = runtime.createStore(
+          parsed.store_type,
+          parsed.sqlite_path,
+        );
+        const fetcher = runtime.createBackfillFetcher(
+          parsed.rpc,
+          parsed.program_id,
+        );
+        const redactions = mergeRedactions(
+          policy.defaultRedactions,
+          parsed.redact_fields,
+        );
+        const sections = parseSections(parsed.sections, ["result"]);
         const backfill = new ReplayBackfillService(store, {
           toSlot: parsed.to_slot,
           pageSize: parsed.page_size,
@@ -1100,7 +1296,7 @@ export async function runReplayBackfillTool(
 
         const result = await backfill.runBackfill();
         const capError = enforceEventCap(
-          'agenc_replay_backfill',
+          "agenc_replay_backfill",
           result.processed,
           caps.maxEventCount,
           REPLAY_BACKFILL_OUTPUT_SCHEMA,
@@ -1111,23 +1307,26 @@ export async function runReplayBackfillTool(
         }
 
         const rawPayload = {
-          status: 'ok',
-          command: 'agenc_replay_backfill',
+          status: "ok",
+          command: "agenc_replay_backfill",
           schema: REPLAY_BACKFILL_OUTPUT_SCHEMA,
-          mode: 'backfill',
+          mode: "backfill",
           to_slot: parsed.to_slot,
           store_type: parsed.store_type,
           page_size: parsed.page_size,
           result: {
             processed: result.processed,
             duplicates: result.duplicates,
-            cursor: result.cursor === null ? null : {
-              slot: result.cursor.slot,
-              signature: result.cursor.signature,
-              event_name: result.cursor.eventName,
-              trace_id: result.cursor.traceId,
-              trace_span_id: result.cursor.traceSpanId,
-            },
+            cursor:
+              result.cursor === null
+                ? null
+                : {
+                    slot: result.cursor.slot,
+                    signature: result.cursor.signature,
+                    event_name: result.cursor.eventName,
+                    trace_id: result.cursor.traceId,
+                    trace_span_id: result.cursor.traceSpanId,
+                  },
           },
           command_params: {
             rpc: parsed.rpc,
@@ -1143,14 +1342,25 @@ export async function runReplayBackfillTool(
           truncation_reason: null as string | null,
         };
 
-        const processedSections = applySectionSelection(rawPayload, ['result'], sections);
+        const processedSections = applySectionSelection(
+          rawPayload,
+          ["result"],
+          sections,
+        );
         const redacted = applyRedaction(processedSections, redactions);
-        const payloadBudget = Math.min(parsed.max_payload_bytes, caps.maxPayloadBytes);
-        const truncated = truncateOutput(redacted, payloadBudget, trimBackfillPayload);
+        const payloadBudget = Math.min(
+          parsed.max_payload_bytes,
+          caps.maxPayloadBytes,
+        );
+        const truncated = truncateOutput(
+          redacted,
+          payloadBudget,
+          trimBackfillPayload,
+        );
 
         return createToolOutput(
           ReplayBackfillOutputSchema,
-          'agenc_replay_backfill',
+          "agenc_replay_backfill",
           {
             ...truncated.payload,
             truncated: truncated.truncated,
@@ -1159,9 +1369,9 @@ export async function runReplayBackfillTool(
         );
       } catch (error) {
         return createToolError(
-          'agenc_replay_backfill',
+          "agenc_replay_backfill",
           REPLAY_BACKFILL_OUTPUT_SCHEMA,
-          'replay.backfill_failed',
+          "replay.backfill_failed",
           error instanceof Error ? error.message : String(error),
           true,
         );
@@ -1181,25 +1391,28 @@ export async function runReplayCompareTool(
     parsed = ReplayCompareInputSchema.parse(args);
   } catch (error) {
     return createToolError(
-      'agenc_replay_compare',
+      "agenc_replay_compare",
       REPLAY_COMPARE_OUTPUT_SCHEMA,
-      'replay.invalid_input',
+      "replay.invalid_input",
       error instanceof Error ? error.message : String(error),
       false,
     );
   }
 
   return withReplayPolicyControl(
-    'agenc_replay_compare',
+    "agenc_replay_compare",
     REPLAY_COMPARE_OUTPUT_SCHEMA,
     extra,
     policy,
     async (caps) => {
       try {
-        const store = runtime.createStore(parsed.store_type, parsed.sqlite_path);
+        const store = runtime.createStore(
+          parsed.store_type,
+          parsed.sqlite_path,
+        );
         const localTrace = runtime.readLocalTrace(parsed.local_trace_path);
         const windowError = enforceQueryWindow(
-          'agenc_replay_compare',
+          "agenc_replay_compare",
           REPLAY_COMPARE_OUTPUT_SCHEMA,
           parsed.from_slot,
           parsed.to_slot,
@@ -1210,7 +1423,7 @@ export async function runReplayCompareTool(
         }
         const records = await store.query(pickQuery(parsed));
         const capError = enforceEventCap(
-          'agenc_replay_compare',
+          "agenc_replay_compare",
           records.length,
           caps.maxEventCount,
           REPLAY_COMPARE_OUTPUT_SCHEMA,
@@ -1220,7 +1433,9 @@ export async function runReplayCompareTool(
           return capError;
         }
 
-        const strictness: ReplayComparisonStrictness = parsed.strict_mode ? 'strict' : 'lenient';
+        const strictness: ReplayComparisonStrictness = parsed.strict_mode
+          ? "strict"
+          : "lenient";
         const comparison = await new ReplayComparisonService().compare({
           projected: records,
           localTrace,
@@ -1230,11 +1445,14 @@ export async function runReplayCompareTool(
             disputePda: parsed.dispute_pda,
           },
         });
-        const sections = parseSections(parsed.sections, ['result']);
-        const redactions = mergeRedactions(policy.defaultRedactions, parsed.redact_fields);
+        const sections = parseSections(parsed.sections, ["result"]);
+        const redactions = mergeRedactions(
+          policy.defaultRedactions,
+          parsed.redact_fields,
+        );
         const rawPayload = {
-          status: 'ok',
-          command: 'agenc_replay_compare',
+          status: "ok",
+          command: "agenc_replay_compare",
           schema: REPLAY_COMPARE_OUTPUT_SCHEMA,
           strictness,
           local_trace_path: parsed.local_trace_path,
@@ -1254,14 +1472,21 @@ export async function runReplayCompareTool(
           truncation_reason: null as string | null,
         };
 
-        const output = applySectionSelection(rawPayload, ['result'], sections);
+        const output = applySectionSelection(rawPayload, ["result"], sections);
         const redacted = applyRedaction(output, redactions);
-        const payloadBudget = Math.min(parsed.max_payload_bytes, caps.maxPayloadBytes);
-        const truncated = truncateOutput(redacted, payloadBudget, trimComparePayload);
+        const payloadBudget = Math.min(
+          parsed.max_payload_bytes,
+          caps.maxPayloadBytes,
+        );
+        const truncated = truncateOutput(
+          redacted,
+          payloadBudget,
+          trimComparePayload,
+        );
 
         return createToolOutput(
           ReplayCompareOutputSchema,
-          'agenc_replay_compare',
+          "agenc_replay_compare",
           {
             ...truncated.payload,
             truncated: truncated.truncated,
@@ -1270,9 +1495,9 @@ export async function runReplayCompareTool(
         );
       } catch (error) {
         return createToolError(
-          'agenc_replay_compare',
+          "agenc_replay_compare",
           REPLAY_COMPARE_OUTPUT_SCHEMA,
-          'replay.compare_failed',
+          "replay.compare_failed",
           error instanceof Error ? error.message : String(error),
           true,
         );
@@ -1292,15 +1517,18 @@ export async function runReplayIncidentTool(
     parsed = ReplayIncidentInputSchema.parse(args);
   } catch (error) {
     return createToolError(
-      'agenc_replay_incident',
+      "agenc_replay_incident",
       REPLAY_INCIDENT_OUTPUT_SCHEMA,
-      'replay.invalid_input',
+      "replay.invalid_input",
       error instanceof Error ? error.message : String(error),
       false,
     );
   }
 
-  const queryRaw = typeof parsed.query === 'string' && parsed.query.trim().length > 0 ? parsed.query : undefined;
+  const queryRaw =
+    typeof parsed.query === "string" && parsed.query.trim().length > 0
+      ? parsed.query
+      : undefined;
   let queryDsl: QueryDSL | null = null;
   let normalizedQueryHash: string | undefined;
   if (queryRaw !== undefined) {
@@ -1309,51 +1537,67 @@ export async function runReplayIncidentTool(
       normalizedQueryHash = normalizeQuery(queryDsl).hash;
     } catch (error) {
       return createToolError(
-        'agenc_replay_incident',
+        "agenc_replay_incident",
         REPLAY_INCIDENT_OUTPUT_SCHEMA,
-        'replay.invalid_input',
+        "replay.invalid_input",
         error instanceof Error ? error.message : String(error),
         false,
       );
     }
   }
 
-  if (queryDsl?.taskPda && parsed.task_pda && parsed.task_pda !== queryDsl.taskPda) {
+  if (
+    queryDsl?.taskPda &&
+    parsed.task_pda &&
+    parsed.task_pda !== queryDsl.taskPda
+  ) {
     return createToolError(
-      'agenc_replay_incident',
+      "agenc_replay_incident",
       REPLAY_INCIDENT_OUTPUT_SCHEMA,
-      'replay.invalid_input',
-      'conflicting task_pda and query.taskPda filters',
+      "replay.invalid_input",
+      "conflicting task_pda and query.taskPda filters",
       false,
     );
   }
 
-  if (queryDsl?.disputePda && parsed.dispute_pda && parsed.dispute_pda !== queryDsl.disputePda) {
+  if (
+    queryDsl?.disputePda &&
+    parsed.dispute_pda &&
+    parsed.dispute_pda !== queryDsl.disputePda
+  ) {
     return createToolError(
-      'agenc_replay_incident',
+      "agenc_replay_incident",
       REPLAY_INCIDENT_OUTPUT_SCHEMA,
-      'replay.invalid_input',
-      'conflicting dispute_pda and query.disputePda filters',
+      "replay.invalid_input",
+      "conflicting dispute_pda and query.disputePda filters",
       false,
     );
   }
 
-  if (queryDsl?.slotRange?.from !== undefined && parsed.from_slot !== undefined && parsed.from_slot !== queryDsl.slotRange.from) {
+  if (
+    queryDsl?.slotRange?.from !== undefined &&
+    parsed.from_slot !== undefined &&
+    parsed.from_slot !== queryDsl.slotRange.from
+  ) {
     return createToolError(
-      'agenc_replay_incident',
+      "agenc_replay_incident",
       REPLAY_INCIDENT_OUTPUT_SCHEMA,
-      'replay.invalid_input',
-      'conflicting from_slot and query.slotRange filters',
+      "replay.invalid_input",
+      "conflicting from_slot and query.slotRange filters",
       false,
     );
   }
 
-  if (queryDsl?.slotRange?.to !== undefined && parsed.to_slot !== undefined && parsed.to_slot !== queryDsl.slotRange.to) {
+  if (
+    queryDsl?.slotRange?.to !== undefined &&
+    parsed.to_slot !== undefined &&
+    parsed.to_slot !== queryDsl.slotRange.to
+  ) {
     return createToolError(
-      'agenc_replay_incident',
+      "agenc_replay_incident",
       REPLAY_INCIDENT_OUTPUT_SCHEMA,
-      'replay.invalid_input',
-      'conflicting to_slot and query.slotRange filters',
+      "replay.invalid_input",
+      "conflicting to_slot and query.slotRange filters",
       false,
     );
   }
@@ -1365,24 +1609,27 @@ export async function runReplayIncidentTool(
 
   if (effectiveTaskPda === undefined && effectiveDisputePda === undefined) {
     return createToolError(
-      'agenc_replay_incident',
+      "agenc_replay_incident",
       REPLAY_INCIDENT_OUTPUT_SCHEMA,
-      'replay.missing_filter',
-      'incident requires task_pda, dispute_pda, or query with a taskPda/disputePda filter',
+      "replay.missing_filter",
+      "incident requires task_pda, dispute_pda, or query with a taskPda/disputePda filter",
       false,
     );
   }
 
   return withReplayPolicyControl(
-    'agenc_replay_incident',
+    "agenc_replay_incident",
     REPLAY_INCIDENT_OUTPUT_SCHEMA,
     extra,
     policy,
     async (caps) => {
       try {
-        const store = runtime.createStore(parsed.store_type, parsed.sqlite_path);
+        const store = runtime.createStore(
+          parsed.store_type,
+          parsed.sqlite_path,
+        );
         const windowError = enforceQueryWindow(
-          'agenc_replay_incident',
+          "agenc_replay_incident",
           REPLAY_INCIDENT_OUTPUT_SCHEMA,
           effectiveFromSlot,
           effectiveToSlot,
@@ -1398,7 +1645,7 @@ export async function runReplayIncidentTool(
           toSlot: effectiveToSlot,
         });
         const capError = enforceEventCap(
-          'agenc_replay_incident',
+          "agenc_replay_incident",
           records.length,
           caps.maxEventCount,
           REPLAY_INCIDENT_OUTPUT_SCHEMA,
@@ -1408,9 +1655,18 @@ export async function runReplayIncidentTool(
           return capError;
         }
 
-        const slicedRecords = queryDsl ? applyQueryFilter(records, queryDsl) : records;
-        const sections = parseSections(parsed.sections, ['summary', 'validation', 'narrative']);
-        const redactions = mergeRedactions(policy.defaultRedactions, parsed.redact_fields);
+        const slicedRecords = queryDsl
+          ? applyQueryFilter(records, queryDsl)
+          : records;
+        const sections = parseSections(parsed.sections, [
+          "summary",
+          "validation",
+          "narrative",
+        ]);
+        const redactions = mergeRedactions(
+          policy.defaultRedactions,
+          parsed.redact_fields,
+        );
         const summaryFilters = {
           taskPda: effectiveTaskPda,
           disputePda: effectiveDisputePda,
@@ -1418,15 +1674,22 @@ export async function runReplayIncidentTool(
           toSlot: effectiveToSlot,
         };
         const summary = summarizeReplayIncident(slicedRecords, summaryFilters);
-        const validation = validateReplayIncident(slicedRecords, parsed.strict_mode, summaryFilters);
-        const narrative = buildIncidentNarrative(summary.events.map((entry, index) => ({
-          seq: entry.seq,
-          slot: entry.slot,
-          signature: entry.signature,
-          source_event_name: entry.source_event_name,
-          source_event_type: entry.source_event_type,
-          anomaly_id: validation.anomaly_ids[index] ?? '',
-        })), validation);
+        const validation = validateReplayIncident(
+          slicedRecords,
+          parsed.strict_mode,
+          summaryFilters,
+        );
+        const narrative = buildIncidentNarrative(
+          summary.events.map((entry, index) => ({
+            seq: entry.seq,
+            slot: entry.slot,
+            signature: entry.signature,
+            source_event_name: entry.source_event_name,
+            source_event_type: entry.source_event_type,
+            anomaly_id: validation.anomaly_ids[index] ?? "",
+          })),
+          validation,
+        );
 
         const summaryValidation = ReplayIncidentValidationSchema.parse({
           strict_mode: validation.strict_mode,
@@ -1435,7 +1698,9 @@ export async function runReplayIncidentTool(
           deterministic_hash: validation.deterministic_hash,
         }) as z.infer<typeof ReplayIncidentValidationSchema>;
 
-        const summaryPayload = ReplayIncidentSummarySchema.parse(summary) as z.infer<typeof ReplayIncidentSummarySchema>;
+        const summaryPayload = ReplayIncidentSummarySchema.parse(
+          summary,
+        ) as z.infer<typeof ReplayIncidentSummarySchema>;
         const narrativePayload = ReplayIncidentNarrativeSchema.parse({
           lines: narrative.lines,
           anomaly_ids: narrative.anomaly_ids,
@@ -1443,8 +1708,8 @@ export async function runReplayIncidentTool(
         }) as z.infer<typeof ReplayIncidentNarrativeSchema>;
 
         const rawPayload = {
-          status: 'ok',
-          command: 'agenc_replay_incident',
+          status: "ok",
+          command: "agenc_replay_incident",
           schema: REPLAY_INCIDENT_OUTPUT_SCHEMA,
           command_params: {
             task_pda: effectiveTaskPda,
@@ -1466,14 +1731,25 @@ export async function runReplayIncidentTool(
           truncation_reason: null as string | null,
         };
 
-        const filtered = applySectionSelection(rawPayload, ['summary', 'validation', 'narrative'], sections);
+        const filtered = applySectionSelection(
+          rawPayload,
+          ["summary", "validation", "narrative"],
+          sections,
+        );
         const redacted = applyRedaction(filtered, redactions);
-        const payloadBudget = Math.min(parsed.max_payload_bytes, caps.maxPayloadBytes);
-        const truncated = truncateOutput(redacted, payloadBudget, trimIncidentPayload);
+        const payloadBudget = Math.min(
+          parsed.max_payload_bytes,
+          caps.maxPayloadBytes,
+        );
+        const truncated = truncateOutput(
+          redacted,
+          payloadBudget,
+          trimIncidentPayload,
+        );
 
         return createToolOutput(
           ReplayIncidentOutputSchema,
-          'agenc_replay_incident',
+          "agenc_replay_incident",
           {
             ...truncated.payload,
             truncated: truncated.truncated,
@@ -1482,9 +1758,9 @@ export async function runReplayIncidentTool(
         );
       } catch (error) {
         return createToolError(
-          'agenc_replay_incident',
+          "agenc_replay_incident",
           REPLAY_INCIDENT_OUTPUT_SCHEMA,
-          'replay.incident_failed',
+          "replay.incident_failed",
           error instanceof Error ? error.message : String(error),
           true,
         );
@@ -1504,27 +1780,33 @@ export async function runReplayStatusTool(
     parsed = ReplayStatusInputSchema.parse(args);
   } catch (error) {
     return createToolError(
-      'agenc_replay_status',
+      "agenc_replay_status",
       REPLAY_STATUS_OUTPUT_SCHEMA,
-      'replay.invalid_input',
+      "replay.invalid_input",
       error instanceof Error ? error.message : String(error),
       false,
     );
   }
 
   return withReplayPolicyControl(
-    'agenc_replay_status',
+    "agenc_replay_status",
     REPLAY_STATUS_OUTPUT_SCHEMA,
     extra,
     policy,
     async (caps) => {
       try {
-        const sections = parseSections(parsed.sections, ['status']);
-        const redactions = mergeRedactions(policy.defaultRedactions, parsed.redact_fields);
-        const store = runtime.createStore(parsed.store_type, parsed.sqlite_path);
+        const sections = parseSections(parsed.sections, ["status"]);
+        const redactions = mergeRedactions(
+          policy.defaultRedactions,
+          parsed.redact_fields,
+        );
+        const store = runtime.createStore(
+          parsed.store_type,
+          parsed.sqlite_path,
+        );
         const records = await store.query(pickQuery(parsed));
         const capError = enforceEventCap(
-          'agenc_replay_status',
+          "agenc_replay_status",
           records.length,
           caps.maxEventCount,
           REPLAY_STATUS_OUTPUT_SCHEMA,
@@ -1547,8 +1829,8 @@ export async function runReplayStatusTool(
 
         const activeCursor = await store.getCursor();
         const rawPayload = {
-          status: 'ok',
-          command: 'agenc_replay_status',
+          status: "ok",
+          command: "agenc_replay_status",
           schema: REPLAY_STATUS_OUTPUT_SCHEMA,
           store_type: parsed.store_type,
           event_count: records.length,
@@ -1560,19 +1842,23 @@ export async function runReplayStatusTool(
           truncated: false,
         };
 
-        const filtered = applySectionSelection(rawPayload, ['status'], sections);
+        const filtered = applySectionSelection(
+          rawPayload,
+          ["status"],
+          sections,
+        );
         const redacted = applyRedaction(filtered, redactions);
 
         return createToolOutput(
           ReplayStatusOutputSchema,
-          'agenc_replay_status',
+          "agenc_replay_status",
           redacted,
         );
       } catch (error) {
         return createToolError(
-          'agenc_replay_status',
+          "agenc_replay_status",
           REPLAY_STATUS_OUTPUT_SCHEMA,
-          'replay.status_failed',
+          "replay.status_failed",
           error instanceof Error ? error.message : String(error),
           true,
         );

@@ -11,7 +11,7 @@ export type {
   SkillRegistryClient,
   SkillRegistryClientConfig,
   SearchOptions,
-} from './types.js';
+} from "./types.js";
 
 // Error classes
 export {
@@ -20,14 +20,18 @@ export {
   SkillVerificationError,
   SkillPublishError,
   SkillPurchaseError,
-} from './errors.js';
+} from "./errors.js";
 
 // Payment flow
-export type { SkillPurchaseConfig, PurchaseResult, OnChainPurchaseRecord } from './payment.js';
-export { SkillPurchaseManager } from './payment.js';
+export type {
+  SkillPurchaseConfig,
+  PurchaseResult,
+  OnChainPurchaseRecord,
+} from "./payment.js";
+export { SkillPurchaseManager } from "./payment.js";
 
 // Client implementation and constants
 export {
   OnChainSkillRegistryClient,
   SKILL_REGISTRY_PROGRAM_ID,
-} from './client.js';
+} from "./client.js";

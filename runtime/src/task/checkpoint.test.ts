@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Keypair } from '@solana/web3.js';
-import { InMemoryCheckpointStore } from './checkpoint.js';
-import { TaskExecutor } from './executor.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Keypair } from "@solana/web3.js";
+import { InMemoryCheckpointStore } from "./checkpoint.js";
+import { TaskExecutor } from "./executor.js";
 import type {
   TaskExecutionContext,
   TaskExecutionResult,
@@ -9,8 +9,8 @@ import type {
   CheckpointStore,
   TaskCheckpoint,
   ClaimResult,
-} from './types.js';
-import { silentLogger } from '../utils/logger.js';
+} from "./types.js";
+import { silentLogger } from "../utils/logger.js";
 import {
   createTask,
   createDiscoveryResult,
@@ -18,16 +18,20 @@ import {
   createMockDiscovery,
   createMockClaim,
   waitFor,
-} from './test-utils.js';
+} from "./test-utils.js";
 
 const agentId = new Uint8Array(32).fill(42);
 const agentPda = Keypair.generate().publicKey;
 
-const defaultHandler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => ({
+const defaultHandler = async (
+  _ctx: TaskExecutionContext,
+): Promise<TaskExecutionResult> => ({
   proofHash: new Uint8Array(32).fill(1),
 });
 
-function createExecutorConfig(overrides: Partial<TaskExecutorConfig> = {}): TaskExecutorConfig {
+function createExecutorConfig(
+  overrides: Partial<TaskExecutorConfig> = {},
+): TaskExecutorConfig {
   return {
     operations: createMockOperations(),
     handler: defaultHandler,
@@ -42,17 +46,17 @@ function createExecutorConfig(overrides: Partial<TaskExecutorConfig> = {}): Task
 // InMemoryCheckpointStore Tests
 // ============================================================================
 
-describe('InMemoryCheckpointStore', () => {
+describe("InMemoryCheckpointStore", () => {
   let store: InMemoryCheckpointStore;
 
   beforeEach(() => {
     store = new InMemoryCheckpointStore();
   });
 
-  it('saves and loads a checkpoint', async () => {
+  it("saves and loads a checkpoint", async () => {
     const checkpoint: TaskCheckpoint = {
-      taskPda: 'abc123',
-      stage: 'claimed',
+      taskPda: "abc123",
+      stage: "claimed",
       claimResult: {
         success: true,
         taskId: new Uint8Array(32),
@@ -63,43 +67,43 @@ describe('InMemoryCheckpointStore', () => {
     };
 
     await store.save(checkpoint);
-    const loaded = await store.load('abc123');
+    const loaded = await store.load("abc123");
     expect(loaded).toEqual(checkpoint);
   });
 
-  it('returns null for unknown task', async () => {
-    const loaded = await store.load('nonexistent');
+  it("returns null for unknown task", async () => {
+    const loaded = await store.load("nonexistent");
     expect(loaded).toBeNull();
   });
 
-  it('removes a checkpoint', async () => {
+  it("removes a checkpoint", async () => {
     const checkpoint: TaskCheckpoint = {
-      taskPda: 'abc123',
-      stage: 'claimed',
+      taskPda: "abc123",
+      stage: "claimed",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
 
     await store.save(checkpoint);
-    await store.remove('abc123');
-    const loaded = await store.load('abc123');
+    await store.remove("abc123");
+    const loaded = await store.load("abc123");
     expect(loaded).toBeNull();
   });
 
-  it('remove is a no-op for unknown task', async () => {
-    await expect(store.remove('nonexistent')).resolves.toBeUndefined();
+  it("remove is a no-op for unknown task", async () => {
+    await expect(store.remove("nonexistent")).resolves.toBeUndefined();
   });
 
-  it('listPending returns all saved checkpoints', async () => {
+  it("listPending returns all saved checkpoints", async () => {
     const cp1: TaskCheckpoint = {
-      taskPda: 'task1',
-      stage: 'claimed',
+      taskPda: "task1",
+      stage: "claimed",
       createdAt: 1000,
       updatedAt: 1000,
     };
     const cp2: TaskCheckpoint = {
-      taskPda: 'task2',
-      stage: 'executed',
+      taskPda: "task2",
+      stage: "executed",
       createdAt: 2000,
       updatedAt: 2000,
     };
@@ -113,21 +117,21 @@ describe('InMemoryCheckpointStore', () => {
     expect(pending).toContainEqual(cp2);
   });
 
-  it('listPending returns empty array when no checkpoints', async () => {
+  it("listPending returns empty array when no checkpoints", async () => {
     const pending = await store.listPending();
     expect(pending).toEqual([]);
   });
 
-  it('save overwrites existing checkpoint for same taskPda', async () => {
+  it("save overwrites existing checkpoint for same taskPda", async () => {
     const cp1: TaskCheckpoint = {
-      taskPda: 'task1',
-      stage: 'claimed',
+      taskPda: "task1",
+      stage: "claimed",
       createdAt: 1000,
       updatedAt: 1000,
     };
     const cp2: TaskCheckpoint = {
-      taskPda: 'task1',
-      stage: 'executed',
+      taskPda: "task1",
+      stage: "executed",
       createdAt: 1000,
       updatedAt: 2000,
     };
@@ -135,8 +139,8 @@ describe('InMemoryCheckpointStore', () => {
     await store.save(cp1);
     await store.save(cp2);
 
-    const loaded = await store.load('task1');
-    expect(loaded?.stage).toBe('executed');
+    const loaded = await store.load("task1");
+    expect(loaded?.stage).toBe("executed");
 
     const pending = await store.listPending();
     expect(pending).toHaveLength(1);
@@ -147,7 +151,7 @@ describe('InMemoryCheckpointStore', () => {
 // Executor Checkpoint Integration Tests
 // ============================================================================
 
-describe('TaskExecutor checkpoint integration', () => {
+describe("TaskExecutor checkpoint integration", () => {
   let executor: TaskExecutor;
 
   afterEach(async () => {
@@ -156,22 +160,24 @@ describe('TaskExecutor checkpoint integration', () => {
     }
   });
 
-  describe('pipeline checkpoints', () => {
-    it('saves checkpoint after claim and execution, removes after submit', async () => {
+  describe("pipeline checkpoints", () => {
+    it("saves checkpoint after claim and execution, removes after submit", async () => {
       const store = new InMemoryCheckpointStore();
-      const saveSpy = vi.spyOn(store, 'save');
-      const removeSpy = vi.spyOn(store, 'remove');
+      const saveSpy = vi.spyOn(store, "save");
+      const removeSpy = vi.spyOn(store, "remove");
 
       const ops = createMockOperations();
       const discovery = createMockDiscovery();
       const task = createDiscoveryResult();
 
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        checkpointStore: store,
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          checkpointStore: store,
+        }),
+      );
 
       const completed = vi.fn();
       executor.on({ onTaskCompleted: completed });
@@ -192,11 +198,11 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(saveSpy).toHaveBeenCalledTimes(2);
 
       const firstSave = saveSpy.mock.calls[0][0] as TaskCheckpoint;
-      expect(firstSave.stage).toBe('claimed');
+      expect(firstSave.stage).toBe("claimed");
       expect(firstSave.taskPda).toBe(task.pda.toBase58());
 
       const secondSave = saveSpy.mock.calls[1][0] as TaskCheckpoint;
-      expect(secondSave.stage).toBe('executed');
+      expect(secondSave.stage).toBe("executed");
       expect(secondSave.taskPda).toBe(task.pda.toBase58());
 
       // Should have removed after submit
@@ -207,16 +213,18 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(pending).toHaveLength(0);
     });
 
-    it('works normally without checkpoint store', async () => {
+    it("works normally without checkpoint store", async () => {
       const ops = createMockOperations();
       const discovery = createMockDiscovery();
       const task = createDiscoveryResult();
 
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+        }),
+      );
 
       const completed = vi.fn();
       executor.on({ onTaskCompleted: completed });
@@ -232,8 +240,8 @@ describe('TaskExecutor checkpoint integration', () => {
     });
   });
 
-  describe('crash recovery', () => {
-    it('resumes from claimed stage (skips claim, runs execute + submit)', async () => {
+  describe("crash recovery", () => {
+    it("resumes from claimed stage (skips claim, runs execute + submit)", async () => {
       const taskPda = Keypair.generate().publicKey;
       const claimPda = Keypair.generate().publicKey;
       const taskPdaStr = taskPda.toBase58();
@@ -248,7 +256,7 @@ describe('TaskExecutor checkpoint integration', () => {
       const store = new InMemoryCheckpointStore();
       await store.save({
         taskPda: taskPdaStr,
-        stage: 'claimed',
+        stage: "claimed",
         claimResult,
         createdAt: Date.now() - 1000,
         updatedAt: Date.now() - 1000,
@@ -256,26 +264,32 @@ describe('TaskExecutor checkpoint integration', () => {
 
       const ops = createMockOperations();
       // fetchClaim returns a valid, non-expired claim
-      ops.fetchClaim.mockResolvedValue(createMockClaim({
-        expiresAt: Math.floor(Date.now() / 1000) + 300,
-      }));
+      ops.fetchClaim.mockResolvedValue(
+        createMockClaim({
+          expiresAt: Math.floor(Date.now() / 1000) + 300,
+        }),
+      );
       // fetchTask returns the task
       ops.fetchTask.mockResolvedValue(task);
 
       const handlerCalled = vi.fn();
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         handlerCalled();
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const discovery = createMockDiscovery();
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        handler,
-        checkpointStore: store,
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          handler,
+          checkpointStore: store,
+        }),
+      );
 
       const completed = vi.fn();
       executor.on({ onTaskCompleted: completed });
@@ -296,7 +310,7 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(pending).toHaveLength(0);
     });
 
-    it('resumes from executed stage (skips claim + execute, runs submit)', async () => {
+    it("resumes from executed stage (skips claim + execute, runs submit)", async () => {
       const taskPda = Keypair.generate().publicKey;
       const claimPda = Keypair.generate().publicKey;
       const taskPdaStr = taskPda.toBase58();
@@ -315,7 +329,7 @@ describe('TaskExecutor checkpoint integration', () => {
       const store = new InMemoryCheckpointStore();
       await store.save({
         taskPda: taskPdaStr,
-        stage: 'executed',
+        stage: "executed",
         claimResult,
         executionResult,
         createdAt: Date.now() - 1000,
@@ -323,25 +337,31 @@ describe('TaskExecutor checkpoint integration', () => {
       });
 
       const ops = createMockOperations();
-      ops.fetchClaim.mockResolvedValue(createMockClaim({
-        expiresAt: Math.floor(Date.now() / 1000) + 300,
-      }));
+      ops.fetchClaim.mockResolvedValue(
+        createMockClaim({
+          expiresAt: Math.floor(Date.now() / 1000) + 300,
+        }),
+      );
       ops.fetchTask.mockResolvedValue(task);
 
       const handlerCalled = vi.fn();
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         handlerCalled();
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const discovery = createMockDiscovery();
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        handler,
-        checkpointStore: store,
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          handler,
+          checkpointStore: store,
+        }),
+      );
 
       const completed = vi.fn();
       executor.on({ onTaskCompleted: completed });
@@ -362,7 +382,7 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(pending).toHaveLength(0);
     });
 
-    it('cleans up stale checkpoint when claim has expired', async () => {
+    it("cleans up stale checkpoint when claim has expired", async () => {
       const taskPda = Keypair.generate().publicKey;
       const claimPda = Keypair.generate().publicKey;
       const taskPdaStr = taskPda.toBase58();
@@ -376,7 +396,7 @@ describe('TaskExecutor checkpoint integration', () => {
       const store = new InMemoryCheckpointStore();
       await store.save({
         taskPda: taskPdaStr,
-        stage: 'claimed',
+        stage: "claimed",
         claimResult,
         createdAt: Date.now() - 60000,
         updatedAt: Date.now() - 60000,
@@ -384,17 +404,21 @@ describe('TaskExecutor checkpoint integration', () => {
 
       const ops = createMockOperations();
       // Return an expired claim
-      ops.fetchClaim.mockResolvedValue(createMockClaim({
-        expiresAt: Math.floor(Date.now() / 1000) - 10, // expired 10s ago
-      }));
+      ops.fetchClaim.mockResolvedValue(
+        createMockClaim({
+          expiresAt: Math.floor(Date.now() / 1000) - 10, // expired 10s ago
+        }),
+      );
 
       const discovery = createMockDiscovery();
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        checkpointStore: store,
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          checkpointStore: store,
+        }),
+      );
 
       const startPromise = executor.start();
       // Give recovery time to run
@@ -411,7 +435,7 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(pending).toHaveLength(0);
     });
 
-    it('cleans up checkpoint when task no longer exists on-chain', async () => {
+    it("cleans up checkpoint when task no longer exists on-chain", async () => {
       const taskPda = Keypair.generate().publicKey;
       const claimPda = Keypair.generate().publicKey;
       const taskPdaStr = taskPda.toBase58();
@@ -419,7 +443,7 @@ describe('TaskExecutor checkpoint integration', () => {
       const store = new InMemoryCheckpointStore();
       await store.save({
         taskPda: taskPdaStr,
-        stage: 'claimed',
+        stage: "claimed",
         claimResult: {
           success: true,
           taskId: new Uint8Array(32),
@@ -431,19 +455,23 @@ describe('TaskExecutor checkpoint integration', () => {
 
       const ops = createMockOperations();
       // Claim exists and is valid
-      ops.fetchClaim.mockResolvedValue(createMockClaim({
-        expiresAt: Math.floor(Date.now() / 1000) + 300,
-      }));
+      ops.fetchClaim.mockResolvedValue(
+        createMockClaim({
+          expiresAt: Math.floor(Date.now() / 1000) + 300,
+        }),
+      );
       // But the task is gone
       ops.fetchTask.mockResolvedValue(null);
 
       const discovery = createMockDiscovery();
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        checkpointStore: store,
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          checkpointStore: store,
+        }),
+      );
 
       const startPromise = executor.start();
       await new Promise((r) => setTimeout(r, 200));
@@ -455,7 +483,7 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(pending).toHaveLength(0);
     });
 
-    it('recovers multiple checkpoints', async () => {
+    it("recovers multiple checkpoints", async () => {
       const task1Pda = Keypair.generate().publicKey;
       const task2Pda = Keypair.generate().publicKey;
       const claimPda = Keypair.generate().publicKey;
@@ -470,7 +498,7 @@ describe('TaskExecutor checkpoint integration', () => {
       const store = new InMemoryCheckpointStore();
       await store.save({
         taskPda: task1Pda.toBase58(),
-        stage: 'executed',
+        stage: "executed",
         claimResult,
         executionResult: { proofHash: new Uint8Array(32).fill(1) },
         createdAt: Date.now() - 2000,
@@ -478,7 +506,7 @@ describe('TaskExecutor checkpoint integration', () => {
       });
       await store.save({
         taskPda: task2Pda.toBase58(),
-        stage: 'executed',
+        stage: "executed",
         claimResult,
         executionResult: { proofHash: new Uint8Array(32).fill(2) },
         createdAt: Date.now() - 2000,
@@ -486,18 +514,22 @@ describe('TaskExecutor checkpoint integration', () => {
       });
 
       const ops = createMockOperations();
-      ops.fetchClaim.mockResolvedValue(createMockClaim({
-        expiresAt: Math.floor(Date.now() / 1000) + 300,
-      }));
+      ops.fetchClaim.mockResolvedValue(
+        createMockClaim({
+          expiresAt: Math.floor(Date.now() / 1000) + 300,
+        }),
+      );
       ops.fetchTask.mockResolvedValue(task);
 
       const discovery = createMockDiscovery();
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        checkpointStore: store,
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          checkpointStore: store,
+        }),
+      );
 
       const completed = vi.fn();
       executor.on({ onTaskCompleted: completed });
@@ -512,16 +544,18 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(pending).toHaveLength(0);
     });
 
-    it('skips recovery when no checkpoint store configured', async () => {
+    it("skips recovery when no checkpoint store configured", async () => {
       const ops = createMockOperations();
       const discovery = createMockDiscovery();
 
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        // no checkpointStore
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          // no checkpointStore
+        }),
+      );
 
       const startPromise = executor.start();
       await new Promise((r) => setTimeout(r, 200));
@@ -533,17 +567,19 @@ describe('TaskExecutor checkpoint integration', () => {
       expect(ops.completeTask).not.toHaveBeenCalled();
     });
 
-    it('skips recovery when checkpoint store is empty', async () => {
+    it("skips recovery when checkpoint store is empty", async () => {
       const store = new InMemoryCheckpointStore();
       const ops = createMockOperations();
       const discovery = createMockDiscovery();
 
-      executor = new TaskExecutor(createExecutorConfig({
-        operations: ops,
-        discovery,
-        mode: 'autonomous',
-        checkpointStore: store,
-      }));
+      executor = new TaskExecutor(
+        createExecutorConfig({
+          operations: ops,
+          discovery,
+          mode: "autonomous",
+          checkpointStore: store,
+        }),
+      );
 
       const startPromise = executor.start();
       await new Promise((r) => setTimeout(r, 200));

@@ -2,7 +2,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -36,7 +41,8 @@ describe("coordination-security", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   const protocolPda = deriveProtocolPda(program.programId);
   const programDataPda = deriveProgramDataPda(program.programId);
@@ -45,7 +51,7 @@ describe("coordination-security", () => {
   const runId = generateRunId();
 
   let treasury: Keypair;
-  let treasuryPubkey: PublicKey;  // Actual treasury from protocol config
+  let treasuryPubkey: PublicKey; // Actual treasury from protocol config
   let creator: Keypair;
   let worker1: Keypair;
   let worker2: Keypair;
@@ -77,7 +83,10 @@ describe("coordination-security", () => {
   const uniqueAgentId = (prefix: string): Buffer =>
     makeAgentId(`${prefix}-${Math.random().toString(36).slice(2, 8)}`, runId);
 
-  async function ensureWalletBalance(wallet: PublicKey, minLamports: number): Promise<void> {
+  async function ensureWalletBalance(
+    wallet: PublicKey,
+    minLamports: number,
+  ): Promise<void> {
     const currentBalance = await provider.connection.getBalance(wallet);
     if (currentBalance >= minLamports) {
       return;
@@ -87,7 +96,6 @@ describe("coordination-security", () => {
     const sig = await provider.connection.requestAirdrop(wallet, topUpLamports);
     await provider.connection.confirmTransaction(sig, "confirmed");
   }
-
 
   before(async () => {
     treasury = Keypair.generate();
@@ -114,12 +122,25 @@ describe("coordination-security", () => {
     disputeId1 = makeDisputeId("d1", runId);
 
     const airdropAmount = 10 * LAMPORTS_PER_SOL;
-    const wallets = [treasury, creator, worker1, worker2, worker3, arbiter1, arbiter2, arbiter3, unauthorized];
+    const wallets = [
+      treasury,
+      creator,
+      worker1,
+      worker2,
+      worker3,
+      arbiter1,
+      arbiter2,
+      arbiter3,
+      unauthorized,
+    ];
 
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, airdropAmount),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          wallet.publicKey,
+          airdropAmount,
+        ),
+        "confirmed",
       );
     }
 
@@ -132,7 +153,7 @@ describe("coordination-security", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           new BN(LAMPORTS_PER_SOL / 100),
           1,
-          [provider.wallet.publicKey, treasury.publicKey]
+          [provider.wallet.publicKey, treasury.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -141,18 +162,33 @@ describe("coordination-security", () => {
           secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([treasury])
         .rpc();
       treasuryPubkey = treasury.publicKey;
-      console.log("Protocol initialized with treasury:", treasuryPubkey.toString());
+      console.log(
+        "Protocol initialized with treasury:",
+        treasuryPubkey.toString(),
+      );
     } catch (e: any) {
-      if (e?.error?.errorCode?.code === 'ProtocolAlreadyInitialized' ||
-          e?.message?.includes('already in use')) {
+      if (
+        e?.error?.errorCode?.code === "ProtocolAlreadyInitialized" ||
+        e?.message?.includes("already in use")
+      ) {
         // Expected - protocol already initialized from previous test run
-        const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
+        const protocolConfig =
+          await program.account.protocolConfig.fetch(protocolPda);
         treasuryPubkey = protocolConfig.treasury;
-        console.log("Protocol already initialized, using existing treasury:", treasuryPubkey.toString());
+        console.log(
+          "Protocol already initialized, using existing treasury:",
+          treasuryPubkey.toString(),
+        );
       } else {
         throw e;
       }
@@ -174,7 +210,7 @@ describe("coordination-security", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://creator.example.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
+          new BN(1 * LAMPORTS_PER_SOL), // stake_amount
         )
         .accountsPartial({
           agent: creatorAgentPda,
@@ -199,7 +235,8 @@ describe("coordination-security", () => {
       it("Successfully initializes protocol", async () => {
         // Protocol may already be initialized by other test files
         // Just verify the protocol config exists and has valid values
-        const protocol = await program.account.protocolConfig.fetch(protocolPda);
+        const protocol =
+          await program.account.protocolConfig.fetch(protocolPda);
         expect(protocol.authority).to.exist;
         expect(protocol.treasury).to.exist;
         expect(protocol.disputeThreshold).to.be.at.least(1).and.at.most(100);
@@ -210,7 +247,8 @@ describe("coordination-security", () => {
       });
 
       it("Keeps protocol config accessible after initialization", async () => {
-        const protocol = await program.account.protocolConfig.fetch(protocolPda);
+        const protocol =
+          await program.account.protocolConfig.fetch(protocolPda);
         expect(protocol.authority).to.exist;
         expect(protocol.treasury).to.exist;
       });
@@ -220,7 +258,9 @@ describe("coordination-security", () => {
       it("Successfully registers a new agent", async () => {
         const agentPda = deriveAgentPda(agentId1, program.programId);
 
-        const balanceBefore = await provider.connection.getBalance(worker1.publicKey);
+        const balanceBefore = await provider.connection.getBalance(
+          worker1.publicKey,
+        );
 
         await program.methods
           .registerAgent(
@@ -228,7 +268,7 @@ describe("coordination-security", () => {
             new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
             "https://worker1.example.com",
             null,
-            new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
+            new BN(1 * LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: agentPda,
@@ -240,8 +280,12 @@ describe("coordination-security", () => {
 
         const agent = await program.account.agentRegistration.fetch(agentPda);
         expect(agent.agentId).to.deep.equal(Array.from(agentId1));
-        expect(agent.authority.toString()).to.equal(worker1.publicKey.toString());
-        expect(agent.capabilities.toNumber()).to.equal(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE);
+        expect(agent.authority.toString()).to.equal(
+          worker1.publicKey.toString(),
+        );
+        expect(agent.capabilities.toNumber()).to.equal(
+          CAPABILITY_COMPUTE | CAPABILITY_INFERENCE,
+        );
         expect("active" in agent.status).to.be.true;
         expect(agent.endpoint).to.equal("https://worker1.example.com");
         expect(agent.reputation).to.equal(5000);
@@ -252,11 +296,16 @@ describe("coordination-security", () => {
         const agentPda = deriveAgentPda(agentId2, program.programId);
 
         let eventEmitted = false;
-        const listener = program.addEventListener("AgentRegistered", (event) => {
-          expect(event.agentId).to.deep.equal(Array.from(agentId2));
-          expect(event.authority.toString()).to.equal(worker2.publicKey.toString());
-          eventEmitted = true;
-        });
+        const listener = program.addEventListener(
+          "AgentRegistered",
+          (event) => {
+            expect(event.agentId).to.deep.equal(Array.from(agentId2));
+            expect(event.authority.toString()).to.equal(
+              worker2.publicKey.toString(),
+            );
+            eventEmitted = true;
+          },
+        );
 
         await program.methods
           .registerAgent(
@@ -264,7 +313,7 @@ describe("coordination-security", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://worker2.example.com",
             null,
-            new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
+            new BN(1 * LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: agentPda,
@@ -278,22 +327,27 @@ describe("coordination-security", () => {
         program.removeEventListener(listener);
         if (!eventEmitted) {
           const agent = await program.account.agentRegistration.fetch(agentPda);
-          expect(agent.authority.toString()).to.equal(worker2.publicKey.toString());
+          expect(agent.authority.toString()).to.equal(
+            worker2.publicKey.toString(),
+          );
         }
       });
 
       it("Fails when registering agent with empty endpoint", async () => {
         const emptyEndpointAgentId = makeAgentId("empty", runId);
-        const agentPda = deriveAgentPda(emptyEndpointAgentId, program.programId);
+        const agentPda = deriveAgentPda(
+          emptyEndpointAgentId,
+          program.programId,
+        );
 
         try {
           await program.methods
             .registerAgent(
               Array.from(emptyEndpointAgentId),
               new BN(CAPABILITY_COMPUTE),
-              "",  // Empty endpoint - should fail
+              "", // Empty endpoint - should fail
               null,
-              new BN(1 * LAMPORTS_PER_SOL)
+              new BN(1 * LAMPORTS_PER_SOL),
             )
             .accountsPartial({
               agent: agentPda,
@@ -304,7 +358,10 @@ describe("coordination-security", () => {
             .rpc();
           expect.fail("Should have failed - empty endpoint");
         } catch (e: unknown) {
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
           expect(anchorError.error?.errorCode?.code).to.equal("InvalidInput");
         }
       });
@@ -316,10 +373,12 @@ describe("coordination-security", () => {
 
         await program.methods
           .updateAgent(
-            new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE | CAPABILITY_ARBITER),
+            new BN(
+              CAPABILITY_COMPUTE | CAPABILITY_INFERENCE | CAPABILITY_ARBITER,
+            ),
             "https://worker1-updated.example.com",
             null,
-            1
+            1,
           )
           .accountsPartial({
             agent: agentPda,
@@ -329,7 +388,9 @@ describe("coordination-security", () => {
           .rpc();
 
         const agent = await program.account.agentRegistration.fetch(agentPda);
-        expect(agent.capabilities.toNumber()).to.equal(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE | CAPABILITY_ARBITER);
+        expect(agent.capabilities.toNumber()).to.equal(
+          CAPABILITY_COMPUTE | CAPABILITY_INFERENCE | CAPABILITY_ARBITER,
+        );
         expect(agent.endpoint).to.equal("https://worker1-updated.example.com");
       });
 
@@ -354,18 +415,25 @@ describe("coordination-security", () => {
         }
 
         // totalAgents should have decreased, but we can't assert exact value due to shared state
-        const protocol = await program.account.protocolConfig.fetch(protocolPda);
+        const protocol =
+          await program.account.protocolConfig.fetch(protocolPda);
         expect(protocol.totalAgents).to.exist;
       });
     });
 
     describe("Task Creation - All Types", () => {
       it("Successfully creates exclusive task with reward", async () => {
-        const taskPda = deriveTaskPda(creator.publicKey, taskId1, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          taskId1,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const rewardAmount = 2 * LAMPORTS_PER_SOL;
-        const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
 
         await program.methods
           .createTask(
@@ -376,20 +444,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -397,7 +465,9 @@ describe("coordination-security", () => {
         const task = await program.account.task.fetch(taskPda);
         expect(task.taskId).to.deep.equal(Array.from(taskId1));
         expect(task.creator.toString()).to.equal(creator.publicKey.toString());
-        expect(task.requiredCapabilities.toNumber()).to.equal(CAPABILITY_COMPUTE);
+        expect(task.requiredCapabilities.toNumber()).to.equal(
+          CAPABILITY_COMPUTE,
+        );
         expect(task.rewardAmount.toNumber()).to.equal(rewardAmount);
         expect(task.maxWorkers).to.equal(1);
         expect(task.currentWorkers).to.equal(0);
@@ -410,7 +480,11 @@ describe("coordination-security", () => {
       });
 
       it("Successfully creates collaborative task", async () => {
-        const taskPda = deriveTaskPda(creator.publicKey, taskId2, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          taskId2,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
@@ -422,20 +496,20 @@ describe("coordination-security", () => {
             3,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_COLLABORATIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -447,7 +521,11 @@ describe("coordination-security", () => {
       });
 
       it("Successfully creates competitive task", async () => {
-        const taskPda = deriveTaskPda(creator.publicKey, taskId3, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          taskId3,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
@@ -459,20 +537,20 @@ describe("coordination-security", () => {
             5,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_COMPETITIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -485,7 +563,11 @@ describe("coordination-security", () => {
 
     describe("Task Claim and Complete - Exclusive Task", () => {
       it("Successfully claims exclusive task", async () => {
-        const taskPda = deriveTaskPda(creator.publicKey, taskId1, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          taskId1,
+          program.programId,
+        );
         const worker1Pda = deriveAgentPda(agentId1, program.programId);
         const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
@@ -512,18 +594,27 @@ describe("coordination-security", () => {
       });
 
       it("Successfully completes exclusive task and receives reward", async () => {
-        const taskPda = deriveTaskPda(creator.publicKey, taskId1, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          taskId1,
+          program.programId,
+        );
         const worker1Pda = deriveAgentPda(agentId1, program.programId);
         const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
-        const proofHash = Buffer.from("proof-hash-00000000000001".padEnd(32, "\0"));
+        const proofHash = Buffer.from(
+          "proof-hash-00000000000001".padEnd(32, "\0"),
+        );
         const rewardAmount = 2 * LAMPORTS_PER_SOL;
-        const expectedFee = Math.floor(rewardAmount * 100 / 10000);
+        const expectedFee = Math.floor((rewardAmount * 100) / 10000);
         const expectedReward = rewardAmount - expectedFee;
 
-        const workerBalanceBefore = await provider.connection.getBalance(worker1.publicKey);
-        const treasuryBalanceBefore = await provider.connection.getBalance(treasuryPubkey);
+        const workerBalanceBefore = await provider.connection.getBalance(
+          worker1.publicKey,
+        );
+        const treasuryBalanceBefore =
+          await provider.connection.getBalance(treasuryPubkey);
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
@@ -564,11 +655,18 @@ describe("coordination-security", () => {
           // Expected when escrow account is fully closed after final completion.
         }
 
-        const workerBalanceAfter = await provider.connection.getBalance(worker1.publicKey);
-        const treasuryBalanceAfter = await provider.connection.getBalance(treasuryPubkey);
+        const workerBalanceAfter = await provider.connection.getBalance(
+          worker1.publicKey,
+        );
+        const treasuryBalanceAfter =
+          await provider.connection.getBalance(treasuryPubkey);
 
-        expect(workerBalanceAfter - workerBalanceBefore).to.be.at.least(expectedReward - 100000);
-        expect(treasuryBalanceAfter - treasuryBalanceBefore).to.equal(expectedFee);
+        expect(workerBalanceAfter - workerBalanceBefore).to.be.at.least(
+          expectedReward - 100000,
+        );
+        expect(treasuryBalanceAfter - treasuryBalanceBefore).to.equal(
+          expectedFee,
+        );
 
         const agent = await program.account.agentRegistration.fetch(worker1Pda);
         expect(agent.tasksCompleted.toNumber()).to.equal(1);
@@ -581,11 +679,17 @@ describe("coordination-security", () => {
     describe("Task Cancel - Unclaimed", () => {
       it("Successfully cancels unclaimed task", async () => {
         const newTaskId = uniqueTaskId("cancel");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const rewardAmount = 1 * LAMPORTS_PER_SOL;
-        const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+        const creatorBalanceBefore = await provider.connection.getBalance(
+          creator.publicKey,
+        );
 
         await program.methods
           .createTask(
@@ -596,20 +700,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -633,8 +737,12 @@ describe("coordination-security", () => {
         const task = await program.account.task.fetch(taskPda);
         expect(task.status).to.deep.equal({ cancelled: {} });
 
-        const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
-        expect(creatorBalanceAfter).to.be.greaterThan(creatorBalanceBefore - 10_000_000);
+        const creatorBalanceAfter = await provider.connection.getBalance(
+          creator.publicKey,
+        );
+        expect(creatorBalanceAfter).to.be.greaterThan(
+          creatorBalanceBefore - 10_000_000,
+        );
       });
     });
 
@@ -650,7 +758,11 @@ describe("coordination-security", () => {
         workerPda = deriveAgentPda(agentId3, program.programId);
 
         disputeTaskId = uniqueTaskId("dispute");
-        taskPda = deriveTaskPda(creator.publicKey, disputeTaskId, program.programId);
+        taskPda = deriveTaskPda(
+          creator.publicKey,
+          disputeTaskId,
+          program.programId,
+        );
         escrowPda = deriveEscrowPda(taskPda, program.programId);
         disputePda = deriveDisputePda(disputeId1, program.programId);
 
@@ -660,7 +772,7 @@ describe("coordination-security", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://worker3.example.com",
             null,
-            new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
+            new BN(1 * LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: workerPda,
@@ -679,20 +791,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -713,7 +825,9 @@ describe("coordination-security", () => {
       });
 
       it("Successfully initiates dispute", async () => {
-        const evidenceHash = Buffer.from("evidence-hash000000000001".padEnd(32, "\0"));
+        const evidenceHash = Buffer.from(
+          "evidence-hash000000000001".padEnd(32, "\0"),
+        );
 
         await program.methods
           .initiateDispute(
@@ -721,7 +835,7 @@ describe("coordination-security", () => {
             Array.from(disputeTaskId),
             Array.from(evidenceHash),
             RESOLUTION_TYPE_REFUND,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -754,8 +868,16 @@ describe("coordination-security", () => {
           const approve = i < 2;
 
           const arbiterPda = deriveAgentPda(arbiterId, program.programId);
-          const votePda = deriveVotePda(disputePda, arbiterPda, program.programId);
-          const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiterKey.publicKey, program.programId);
+          const votePda = deriveVotePda(
+            disputePda,
+            arbiterPda,
+            program.programId,
+          );
+          const authorityVotePda = deriveAuthorityVotePda(
+            disputePda,
+            arbiterKey.publicKey,
+            program.programId,
+          );
 
           await program.methods
             .registerAgent(
@@ -763,7 +885,7 @@ describe("coordination-security", () => {
               new BN(CAPABILITY_ARBITER),
               `https://arbiter${i + 1}.example.com`,
               null,
-              new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
+              new BN(1 * LAMPORTS_PER_SOL), // stake_amount
             )
             .accountsPartial({
               agent: arbiterPda,
@@ -795,7 +917,9 @@ describe("coordination-security", () => {
         // Votes are stake-weighted by reputation (default 5000 = 50% weight).
         const expectedVoteWeight = Math.floor(LAMPORTS_PER_SOL / 2);
         expect(dispute.votesFor.toNumber()).to.equal(2 * expectedVoteWeight);
-        expect(dispute.votesAgainst.toNumber()).to.equal(1 * expectedVoteWeight);
+        expect(dispute.votesAgainst.toNumber()).to.equal(
+          1 * expectedVoteWeight,
+        );
         expect(dispute.totalVoters).to.equal(3);
       });
 
@@ -803,9 +927,21 @@ describe("coordination-security", () => {
         const arbiterPda1 = deriveAgentPda(arbiterId1, program.programId);
         const arbiterPda2 = deriveAgentPda(arbiterId2, program.programId);
         const arbiterPda3 = deriveAgentPda(arbiterId3, program.programId);
-        const votePda1 = deriveVotePda(disputePda, arbiterPda1, program.programId);
-        const votePda2 = deriveVotePda(disputePda, arbiterPda2, program.programId);
-        const votePda3 = deriveVotePda(disputePda, arbiterPda3, program.programId);
+        const votePda1 = deriveVotePda(
+          disputePda,
+          arbiterPda1,
+          program.programId,
+        );
+        const votePda2 = deriveVotePda(
+          disputePda,
+          arbiterPda2,
+          program.programId,
+        );
+        const votePda3 = deriveVotePda(
+          disputePda,
+          arbiterPda3,
+          program.programId,
+        );
         let resolved = false;
 
         try {
@@ -840,8 +976,12 @@ describe("coordination-security", () => {
             .rpc();
           resolved = true;
         } catch (e: unknown) {
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
 
         if (resolved) {
@@ -859,7 +999,12 @@ describe("coordination-security", () => {
 
         try {
           await program.methods
-            .updateAgent(new BN(CAPABILITY_COMPUTE), "https://malicious.com", null, 1)  // 1 = Active
+            .updateAgent(
+              new BN(CAPABILITY_COMPUTE),
+              "https://malicious.com",
+              null,
+              1,
+            ) // 1 = Active
             .accountsPartial({
               agent: agentPda,
               authority: unauthorized.publicKey,
@@ -869,14 +1014,22 @@ describe("coordination-security", () => {
           expect.fail("Should have failed - unauthorized agent update");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
       it("Fails when non-creator tries to cancel task", async () => {
         const newTaskId = uniqueTaskId("unauth");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
@@ -888,20 +1041,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -914,19 +1067,23 @@ describe("coordination-security", () => {
               escrow: escrowPda,
               creator: unauthorized.publicKey,
               protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
-            tokenEscrowAta: null,
-            creatorTokenAccount: null,
-            rewardMint: null,
-            tokenProgram: null,
+              systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([unauthorized])
             .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -934,7 +1091,11 @@ describe("coordination-security", () => {
     describe("Double Claims and Completions", () => {
       it("Fails when worker tries to claim same task twice", async () => {
         const newTaskId = uniqueTaskId("double-claim");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
         const worker1Pda = deriveAgentPda(agentId1, program.programId);
         const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
@@ -948,20 +1109,20 @@ describe("coordination-security", () => {
             2,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_COLLABORATIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -987,22 +1148,30 @@ describe("coordination-security", () => {
               claim: claimPda,
               worker: worker1Pda,
               authority: worker1.publicKey,
-            protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
+              protocolConfig: protocolPda,
+              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - double claim");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
       it("Fails when worker tries to complete task twice", async () => {
         const newTaskId = uniqueTaskId("double-complete");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
         const worker1Pda = deriveAgentPda(agentId1, program.programId);
         const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
@@ -1016,20 +1185,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -1047,7 +1216,9 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        const proofHash = Buffer.from("proof-hash-00000000000002".padEnd(32, "\0"));
+        const proofHash = Buffer.from(
+          "proof-hash-00000000000002".padEnd(32, "\0"),
+        );
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
@@ -1081,21 +1252,25 @@ describe("coordination-security", () => {
               protocolConfig: protocolPda,
               treasury: treasuryPubkey,
               authority: worker1.publicKey,
-            creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
-            tokenEscrowAta: null,
-            workerTokenAccount: null,
-            treasuryTokenAccount: null,
-            rewardMint: null,
-            tokenProgram: null,
+              creator: creator.publicKey,
+              systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              workerTokenAccount: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - double completion");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1103,7 +1278,11 @@ describe("coordination-security", () => {
     describe("Capability and Status Validation", () => {
       it("Fails when worker lacks required capabilities", async () => {
         const newTaskId = uniqueTaskId("cap-check");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
         const worker1Pda = deriveAgentPda(agentId1, program.programId);
         const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
@@ -1117,20 +1296,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -1143,24 +1322,31 @@ describe("coordination-security", () => {
               claim: claimPda,
               worker: worker1Pda,
               authority: worker1.publicKey,
-            protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
+              protocolConfig: protocolPda,
+              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - worker lacks capabilities");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
       it("Fails when inactive agent tries to claim task", async () => {
         const inactiveWorker = Keypair.generate();
         await provider.connection.confirmTransaction(
-          await provider.connection.requestAirdrop(inactiveWorker.publicKey, 3 * LAMPORTS_PER_SOL),
-          "confirmed"
+          await provider.connection.requestAirdrop(
+            inactiveWorker.publicKey,
+            3 * LAMPORTS_PER_SOL,
+          ),
+          "confirmed",
         );
 
         const inactiveAgentId = uniqueAgentId("inactive-worker");
@@ -1172,7 +1358,7 @@ describe("coordination-security", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://inactive-worker.example.com",
             null,
-            new BN(1 * LAMPORTS_PER_SOL)
+            new BN(1 * LAMPORTS_PER_SOL),
           )
           .accountsPartial({
             agent: agentPda,
@@ -1183,7 +1369,7 @@ describe("coordination-security", () => {
           .rpc();
 
         await program.methods
-          .updateAgent(null, null, null, 0)  // 0 = Inactive
+          .updateAgent(null, null, null, 0) // 0 = Inactive
           .accountsPartial({
             agent: agentPda,
             authority: inactiveWorker.publicKey,
@@ -1192,7 +1378,11 @@ describe("coordination-security", () => {
           .rpc();
 
         const newTaskId = uniqueTaskId("inactive");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
         const claimPda = deriveClaimPda(taskPda, agentPda, program.programId);
 
@@ -1205,20 +1395,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -1231,16 +1421,20 @@ describe("coordination-security", () => {
               claim: claimPda,
               worker: agentPda,
               authority: inactiveWorker.publicKey,
-            protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
+              protocolConfig: protocolPda,
+              systemProgram: SystemProgram.programId,
             })
             .signers([inactiveWorker])
             .rpc();
           expect.fail("Should have failed - inactive agent");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1248,7 +1442,11 @@ describe("coordination-security", () => {
     describe("Deadline Expiry", () => {
       it("Fails to claim task after deadline", async () => {
         const newTaskId = uniqueTaskId("expired");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const nearFutureDeadline = Math.floor(Date.now() / 1000) + 2;
@@ -1262,20 +1460,20 @@ describe("coordination-security", () => {
             1,
             new BN(nearFutureDeadline),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -1293,22 +1491,30 @@ describe("coordination-security", () => {
               claim: claimPda,
               worker: worker1Pda,
               authority: worker1.publicKey,
-            protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
+              protocolConfig: protocolPda,
+              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - task expired");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
       it("Successfully cancels expired task with no completions", async () => {
         const newTaskId = uniqueTaskId("cancel-expired");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const nearFutureDeadline = Math.floor(Date.now() / 1000) + 2;
@@ -1322,20 +1528,20 @@ describe("coordination-security", () => {
             1,
             new BN(nearFutureDeadline),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -1368,7 +1574,11 @@ describe("coordination-security", () => {
         const newDisputeId = uniqueDisputeId("threshold");
         const newTaskId = uniqueTaskId("threshold");
         const disputePda = deriveDisputePda(newDisputeId, program.programId);
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
@@ -1380,26 +1590,30 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
 
         const worker3AgentPda = deriveAgentPda(agentId3, program.programId);
-        const workerClaimPda = deriveClaimPda(taskPda, worker3AgentPda, program.programId);
+        const workerClaimPda = deriveClaimPda(
+          taskPda,
+          worker3AgentPda,
+          program.programId,
+        );
 
         await program.methods
           .claimTask()
@@ -1420,7 +1634,7 @@ describe("coordination-security", () => {
             Array.from(newTaskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             RESOLUTION_TYPE_REFUND,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -1439,10 +1653,26 @@ describe("coordination-security", () => {
         const arbiterPda1 = deriveAgentPda(arbiterId1, program.programId);
         const arbiterPda2 = deriveAgentPda(arbiterId2, program.programId);
 
-        const votePda1 = deriveVotePda(disputePda, arbiterPda1, program.programId);
-        const votePda2 = deriveVotePda(disputePda, arbiterPda2, program.programId);
-        const authorityVotePda1 = deriveAuthorityVotePda(disputePda, arbiter1.publicKey, program.programId);
-        const authorityVotePda2 = deriveAuthorityVotePda(disputePda, arbiter2.publicKey, program.programId);
+        const votePda1 = deriveVotePda(
+          disputePda,
+          arbiterPda1,
+          program.programId,
+        );
+        const votePda2 = deriveVotePda(
+          disputePda,
+          arbiterPda2,
+          program.programId,
+        );
+        const authorityVotePda1 = deriveAuthorityVotePda(
+          disputePda,
+          arbiter1.publicKey,
+          program.programId,
+        );
+        const authorityVotePda2 = deriveAuthorityVotePda(
+          disputePda,
+          arbiter2.publicKey,
+          program.programId,
+        );
 
         await program.methods
           .voteDispute(true)
@@ -1508,8 +1738,12 @@ describe("coordination-security", () => {
             .rpc();
           expect.fail("Should have failed - quorum/deadline not satisfied");
         } catch (e: unknown) {
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1517,7 +1751,11 @@ describe("coordination-security", () => {
     describe("Max Workers Boundary", () => {
       it("Fails when task exceeds max workers", async () => {
         const newTaskId = uniqueTaskId("max-workers");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
@@ -1529,28 +1767,36 @@ describe("coordination-security", () => {
             2,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_COLLABORATIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
 
         const worker1Pda = deriveAgentPda(agentId1, program.programId);
         const worker3Pda = deriveAgentPda(agentId3, program.programId);
-        const claimPda1 = deriveClaimPda(taskPda, worker1Pda, program.programId);
-        const claimPda2 = deriveClaimPda(taskPda, worker3Pda, program.programId);
+        const claimPda1 = deriveClaimPda(
+          taskPda,
+          worker1Pda,
+          program.programId,
+        );
+        const claimPda2 = deriveClaimPda(
+          taskPda,
+          worker3Pda,
+          program.programId,
+        );
 
         await program.methods
           .claimTask()
@@ -1584,11 +1830,18 @@ describe("coordination-security", () => {
         const extraWorker = Keypair.generate();
         const extraAgentId = uniqueAgentId("extra");
         const extraAgentPda = deriveAgentPda(extraAgentId, program.programId);
-        const claimPda3 = deriveClaimPda(taskPda, extraAgentPda, program.programId);
+        const claimPda3 = deriveClaimPda(
+          taskPda,
+          extraAgentPda,
+          program.programId,
+        );
 
         await provider.connection.confirmTransaction(
-          await provider.connection.requestAirdrop(extraWorker.publicKey, 2 * LAMPORTS_PER_SOL),
-          "confirmed"
+          await provider.connection.requestAirdrop(
+            extraWorker.publicKey,
+            2 * LAMPORTS_PER_SOL,
+          ),
+          "confirmed",
         );
 
         await program.methods
@@ -1597,7 +1850,7 @@ describe("coordination-security", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://extra.com",
             null,
-            new BN(LAMPORTS_PER_SOL)  // stake_amount
+            new BN(LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: extraAgentPda,
@@ -1615,16 +1868,20 @@ describe("coordination-security", () => {
               claim: claimPda3,
               worker: extraAgentPda,
               authority: extraWorker.publicKey,
-            protocolConfig: protocolPda,
-            systemProgram: SystemProgram.programId,
+              protocolConfig: protocolPda,
+              systemProgram: SystemProgram.programId,
             })
             .signers([extraWorker])
             .rpc();
           expect.fail("Should have failed - max workers exceeded");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1642,7 +1899,7 @@ describe("coordination-security", () => {
               1,
               new BN(Math.floor(Date.now() / 1000) + 3600),
               TASK_TYPE_EXCLUSIVE,
-              null,  // constraint_hash
+              null, // constraint_hash
               0, // min_reputation
               null, // reward_mint
             )
@@ -1661,8 +1918,12 @@ describe("coordination-security", () => {
             .rpc();
           expect.fail("Should have failed - zero reward is invalid");
         } catch (e: unknown) {
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1670,7 +1931,11 @@ describe("coordination-security", () => {
     describe("Deregister with Active Tasks", () => {
       it("Fails to deregister agent with active tasks", async () => {
         const newTaskId = uniqueTaskId("deregister");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
@@ -1682,20 +1947,20 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -1731,8 +1996,12 @@ describe("coordination-security", () => {
           expect.fail("Should have failed - agent has active tasks");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1742,7 +2011,11 @@ describe("coordination-security", () => {
         const newDisputeId = uniqueDisputeId("non-arbiter");
         const newTaskId = uniqueTaskId("non-arbiter");
         const disputePda = deriveDisputePda(newDisputeId, program.programId);
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
@@ -1754,26 +2027,30 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
 
         const worker3AgentPda = deriveAgentPda(agentId3, program.programId);
-        const workerClaimPda = deriveClaimPda(taskPda, worker3AgentPda, program.programId);
+        const workerClaimPda = deriveClaimPda(
+          taskPda,
+          worker3AgentPda,
+          program.programId,
+        );
 
         await program.methods
           .claimTask()
@@ -1794,7 +2071,7 @@ describe("coordination-security", () => {
             Array.from(newTaskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             RESOLUTION_TYPE_REFUND,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -1811,8 +2088,16 @@ describe("coordination-security", () => {
           .rpc();
 
         const worker1Pda = deriveAgentPda(agentId1, program.programId);
-        const votePda = deriveVotePda(disputePda, worker1Pda, program.programId);
-        const authorityVotePda = deriveAuthorityVotePda(disputePda, worker1.publicKey, program.programId);
+        const votePda = deriveVotePda(
+          disputePda,
+          worker1Pda,
+          program.programId,
+        );
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          worker1.publicKey,
+          program.programId,
+        );
 
         try {
           await program.methods
@@ -1834,8 +2119,12 @@ describe("coordination-security", () => {
           expect.fail("Should have failed - non-arbiter voting");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1844,72 +2133,108 @@ describe("coordination-security", () => {
       it("Fails to initialize with invalid fee (over 1000 bps)", async () => {
         const newProtocolPda = PublicKey.findProgramAddressSync(
           [Buffer.from("protocol2")],
-          program.programId
+          program.programId,
         )[0];
 
         try {
           await program.methods
-            .initializeProtocol(51, 1001, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
+            .initializeProtocol(51, 1001, new BN(1 * LAMPORTS_PER_SOL), 1, [
+              provider.wallet.publicKey,
+            ])
             .accountsPartial({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
             })
-            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+            .remainingAccounts([
+              {
+                pubkey: deriveProgramDataPda(program.programId),
+                isSigner: false,
+                isWritable: false,
+              },
+            ])
             .rpc();
           expect.fail("Should have failed - invalid fee");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
       it("Fails to initialize with invalid dispute threshold (0)", async () => {
         const newProtocolPda = PublicKey.findProgramAddressSync(
           [Buffer.from("protocol3")],
-          program.programId
+          program.programId,
         )[0];
 
         try {
           await program.methods
-            .initializeProtocol(0, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
+            .initializeProtocol(0, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [
+              provider.wallet.publicKey,
+            ])
             .accountsPartial({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
             })
-            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+            .remainingAccounts([
+              {
+                pubkey: deriveProgramDataPda(program.programId),
+                isSigner: false,
+                isWritable: false,
+              },
+            ])
             .rpc();
           expect.fail("Should have failed - invalid dispute threshold");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
 
       it("Fails to initialize with invalid dispute threshold (> 100)", async () => {
         const newProtocolPda = PublicKey.findProgramAddressSync(
           [Buffer.from("protocol4")],
-          program.programId
+          program.programId,
         )[0];
 
         try {
           await program.methods
-            .initializeProtocol(101, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
+            .initializeProtocol(101, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [
+              provider.wallet.publicKey,
+            ])
             .accountsPartial({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
             })
-            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+            .remainingAccounts([
+              {
+                pubkey: deriveProgramDataPda(program.programId),
+                isSigner: false,
+                isWritable: false,
+              },
+            ])
             .rpc();
           expect.fail("Should have failed - invalid dispute threshold > 100");
         } catch (e: unknown) {
           // Verify error occurred - Anchor returns AnchorError with errorCode
-          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
+          const anchorError = e as {
+            error?: { errorCode?: { code: string } };
+            message?: string;
+          };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to
+            .exist;
         }
       });
     });
@@ -1917,10 +2242,16 @@ describe("coordination-security", () => {
     describe("Fund Leak Prevention", () => {
       it("Verifies no lamport leaks in task lifecycle", async () => {
         const newTaskId = uniqueTaskId("fund-leak");
-        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const taskPda = deriveTaskPda(
+          creator.publicKey,
+          newTaskId,
+          program.programId,
+        );
         const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
-        const initialBalance = await provider.connection.getBalance(creator.publicKey);
+        const initialBalance = await provider.connection.getBalance(
+          creator.publicKey,
+        );
         const rewardAmount = 2 * LAMPORTS_PER_SOL;
 
         await program.methods
@@ -1932,28 +2263,32 @@ describe("coordination-security", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
-          null, // reward_mint
+            null, // reward_mint
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          rewardMint: null,
-          creatorTokenAccount: null,
-          tokenEscrowAta: null,
-          tokenProgram: null,
-          associatedTokenProgram: null,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
 
-        const afterCreateBalance = await provider.connection.getBalance(creator.publicKey);
+        const afterCreateBalance = await provider.connection.getBalance(
+          creator.publicKey,
+        );
         const escrowBalance = await provider.connection.getBalance(escrowPda);
 
-        expect(initialBalance - afterCreateBalance).to.be.at.most(rewardAmount + 10_000_000);
+        expect(initialBalance - afterCreateBalance).to.be.at.most(
+          rewardAmount + 10_000_000,
+        );
         expect(escrowBalance).to.be.at.least(rewardAmount);
         expect(escrowBalance).to.be.at.most(rewardAmount + 5_000_000);
 
@@ -1973,7 +2308,9 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        const proofHash = Buffer.from("proof-hash-00000000000004".padEnd(32, "\0"));
+        const proofHash = Buffer.from(
+          "proof-hash-00000000000004".padEnd(32, "\0"),
+        );
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
@@ -1996,7 +2333,8 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        const finalEscrowBalance = await provider.connection.getBalance(escrowPda);
+        const finalEscrowBalance =
+          await provider.connection.getBalance(escrowPda);
         expect(finalEscrowBalance).to.equal(0);
       });
     });

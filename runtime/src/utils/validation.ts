@@ -32,7 +32,7 @@ export function requireNonEmptyString(
   field: string,
   errors: string[],
 ): void {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== "string" || value.length === 0) {
     errors.push(`${field} must be a non-empty string`);
   }
 }
@@ -43,7 +43,7 @@ export function requireFiniteNumber(
   field: string,
   errors: string[],
 ): void {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     errors.push(`${field} must be a finite number`);
   }
 }
@@ -55,8 +55,8 @@ export function requireOneOf(
   allowed: ReadonlySet<string>,
   errors: string[],
 ): void {
-  if (typeof value !== 'string' || !allowed.has(value)) {
-    errors.push(`${field} must be one of: ${[...allowed].join(', ')}`);
+  if (typeof value !== "string" || !allowed.has(value)) {
+    errors.push(`${field} must be one of: ${[...allowed].join(", ")}`);
   }
 }
 
@@ -68,7 +68,12 @@ export function requireIntRange(
   max: number,
   errors: string[],
 ): void {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < min ||
+    value > max
+  ) {
     errors.push(`${field} must be an integer between ${min} and ${max}`);
   }
 }

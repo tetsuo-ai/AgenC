@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
+import { describe, it, expect } from "vitest";
+import { PublicKey } from "@solana/web3.js";
 import {
   parseTaskCreatedEvent,
   parseTaskClaimedEvent,
@@ -26,9 +26,12 @@ import {
   parseBondSlashedEvent,
   parseSpeculativeCommitmentCreatedEvent,
   parseDependentTaskCreatedEvent,
-} from './parse.js';
+} from "./parse.js";
 
-function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
+function mockBN(value: bigint | number): {
+  toNumber: () => number;
+  toString: () => string;
+} {
   const bigValue = BigInt(value);
   return {
     toNumber: () => Number(bigValue),
@@ -36,7 +39,7 @@ function mockBN(value: bigint | number): { toNumber: () => number; toString: () 
   };
 }
 
-const TEST_KEY = new PublicKey('11111111111111111111111111111111');
+const TEST_KEY = new PublicKey("11111111111111111111111111111111");
 
 function createId(seed = 0): Uint8Array {
   const bytes = new Uint8Array(32);
@@ -46,12 +49,12 @@ function createId(seed = 0): Uint8Array {
   return bytes;
 }
 
-describe('Event Parse Functions', () => {
-  describe('parseTaskCreatedEvent', () => {
-    it('should convert all fields correctly', () => {
+describe("Event Parse Functions", () => {
+  describe("parseTaskCreatedEvent", () => {
+    it("should convert all fields correctly", () => {
       const raw = {
         taskId: Array.from({ length: 32 }, (_, i) => i),
-        creator: new PublicKey('11111111111111111111111111111111'),
+        creator: new PublicKey("11111111111111111111111111111111"),
         requiredCapabilities: mockBN(7n),
         rewardAmount: mockBN(1_000_000_000n),
         taskType: 0,
@@ -72,11 +75,11 @@ describe('Event Parse Functions', () => {
       expect(parsed.timestamp).toBe(789012);
     });
 
-    it('should handle Uint8Array taskId input', () => {
+    it("should handle Uint8Array taskId input", () => {
       const taskId = new Uint8Array(32).fill(42);
       const raw = {
         taskId,
-        creator: new PublicKey('11111111111111111111111111111111'),
+        creator: new PublicKey("11111111111111111111111111111111"),
         requiredCapabilities: mockBN(1n),
         rewardAmount: mockBN(500_000_000n),
         taskType: 1,
@@ -88,9 +91,9 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseTaskClaimedEvent', () => {
-    it('should preserve u8 fields as numbers', () => {
-      const workerKey = new PublicKey('11111111111111111111111111111111');
+  describe("parseTaskClaimedEvent", () => {
+    it("should preserve u8 fields as numbers", () => {
+      const workerKey = new PublicKey("11111111111111111111111111111111");
       const raw = {
         taskId: new Uint8Array(32),
         worker: workerKey,
@@ -106,11 +109,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseTaskCompletedEvent', () => {
-    it('should convert proofHash and rewardPaid', () => {
+  describe("parseTaskCompletedEvent", () => {
+    it("should convert proofHash and rewardPaid", () => {
       const raw = {
         taskId: Array.from({ length: 32 }, (_, i) => i),
-        worker: new PublicKey('11111111111111111111111111111111'),
+        worker: new PublicKey("11111111111111111111111111111111"),
         proofHash: Array.from({ length: 32 }, (_, i) => 255 - i),
         resultData: Array.from({ length: 64 }, (_, i) => i % 256),
         rewardPaid: mockBN(2_500_000_000n),
@@ -127,11 +130,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseTaskCancelledEvent', () => {
-    it('should convert refundAmount to bigint', () => {
+  describe("parseTaskCancelledEvent", () => {
+    it("should convert refundAmount to bigint", () => {
       const raw = {
         taskId: new Uint8Array(32),
-        creator: new PublicKey('11111111111111111111111111111111'),
+        creator: new PublicKey("11111111111111111111111111111111"),
         refundAmount: mockBN(1_500_000_000n),
         timestamp: mockBN(123456),
       };
@@ -140,12 +143,12 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseDependentTaskCreatedEvent', () => {
-    it('should convert task and timestamp fields correctly', () => {
+  describe("parseDependentTaskCreatedEvent", () => {
+    it("should convert task and timestamp fields correctly", () => {
       const raw = {
         taskId: Array.from({ length: 32 }, (_, i) => i),
-        creator: new PublicKey('11111111111111111111111111111111'),
-        dependsOn: new PublicKey('11111111111111111111111111111112'),
+        creator: new PublicKey("11111111111111111111111111111111"),
+        dependsOn: new PublicKey("11111111111111111111111111111112"),
         dependencyType: 2,
         rewardMint: null,
         timestamp: mockBN(987654321),
@@ -160,13 +163,13 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseDisputeInitiatedEvent', () => {
-    it('should convert both disputeId and taskId to Uint8Array', () => {
+  describe("parseDisputeInitiatedEvent", () => {
+    it("should convert both disputeId and taskId to Uint8Array", () => {
       const raw = {
         disputeId: Array.from({ length: 32 }, (_, i) => i),
         taskId: Array.from({ length: 32 }, (_, i) => 32 + i),
-        initiator: new PublicKey('11111111111111111111111111111111'),
-        defendant: new PublicKey('11111111111111111111111111111112'),
+        initiator: new PublicKey("11111111111111111111111111111111"),
+        defendant: new PublicKey("11111111111111111111111111111112"),
         resolutionType: 0,
         votingDeadline: mockBN(999999),
         timestamp: mockBN(123456),
@@ -181,11 +184,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseDisputeVoteCastEvent', () => {
-    it('should convert votesFor/votesAgainst to bigint and preserve boolean', () => {
+  describe("parseDisputeVoteCastEvent", () => {
+    it("should convert votesFor/votesAgainst to bigint and preserve boolean", () => {
       const raw = {
         disputeId: new Uint8Array(32),
-        voter: new PublicKey('11111111111111111111111111111111'),
+        voter: new PublicKey("11111111111111111111111111111111"),
         approved: true,
         votesFor: mockBN(5n),
         votesAgainst: mockBN(2n),
@@ -195,13 +198,13 @@ describe('Event Parse Functions', () => {
       expect(parsed.approved).toBe(true);
       expect(parsed.votesFor).toBe(5n);
       expect(parsed.votesAgainst).toBe(2n);
-      expect(typeof parsed.votesFor).toBe('bigint');
-      expect(typeof parsed.votesAgainst).toBe('bigint');
+      expect(typeof parsed.votesFor).toBe("bigint");
+      expect(typeof parsed.votesAgainst).toBe("bigint");
     });
   });
 
-  describe('parseDisputeResolvedEvent', () => {
-    it('should convert votesFor/votesAgainst to bigint', () => {
+  describe("parseDisputeResolvedEvent", () => {
+    it("should convert votesFor/votesAgainst to bigint", () => {
       const raw = {
         disputeId: new Uint8Array(32),
         resolutionType: 2,
@@ -218,8 +221,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseDisputeExpiredEvent', () => {
-    it('should convert refundAmount to bigint', () => {
+  describe("parseDisputeExpiredEvent", () => {
+    it("should convert refundAmount to bigint", () => {
       const raw = {
         disputeId: new Uint8Array(32),
         taskId: new Uint8Array(32),
@@ -235,12 +238,12 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseDisputeCancelledEvent', () => {
-    it('should parse raw dispute cancellation event', () => {
+  describe("parseDisputeCancelledEvent", () => {
+    it("should parse raw dispute cancellation event", () => {
       const raw = {
         disputeId: new Uint8Array(32),
-        task: new PublicKey('11111111111111111111111111111111'),
-        initiator: new PublicKey('11111111111111111111111111111112'),
+        task: new PublicKey("11111111111111111111111111111111"),
+        initiator: new PublicKey("11111111111111111111111111111112"),
         cancelledAt: mockBN(5555555),
       };
       const parsed = parseDisputeCancelledEvent(raw);
@@ -251,8 +254,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseArbiterVotesCleanedUpEvent', () => {
-    it('should parse arbiter cleanup count', () => {
+  describe("parseArbiterVotesCleanedUpEvent", () => {
+    it("should parse arbiter cleanup count", () => {
       const raw = {
         disputeId: new Uint8Array(32),
         arbiterCount: 3,
@@ -263,12 +266,12 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseStateUpdatedEvent', () => {
-    it('should convert stateKey to Uint8Array and version to bigint', () => {
+  describe("parseStateUpdatedEvent", () => {
+    it("should convert stateKey to Uint8Array and version to bigint", () => {
       const raw = {
         stateKey: Array.from({ length: 32 }, (_, i) => i),
         stateValue: Array.from({ length: 64 }, (_, i) => i % 256),
-        updater: new PublicKey('11111111111111111111111111111111'),
+        updater: new PublicKey("11111111111111111111111111111111"),
         version: mockBN(42n),
         timestamp: mockBN(123456),
       };
@@ -281,11 +284,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseProtocolInitializedEvent', () => {
-    it('should preserve threshold and feeBps as numbers', () => {
+  describe("parseProtocolInitializedEvent", () => {
+    it("should preserve threshold and feeBps as numbers", () => {
       const raw = {
-        authority: new PublicKey('11111111111111111111111111111111'),
-        treasury: new PublicKey('11111111111111111111111111111112'),
+        authority: new PublicKey("11111111111111111111111111111111"),
+        treasury: new PublicKey("11111111111111111111111111111112"),
         disputeThreshold: 66,
         protocolFeeBps: 250,
         timestamp: mockBN(123456),
@@ -296,11 +299,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseRewardDistributedEvent', () => {
-    it('should convert amount and protocolFee to bigint', () => {
+  describe("parseRewardDistributedEvent", () => {
+    it("should convert amount and protocolFee to bigint", () => {
       const raw = {
         taskId: new Uint8Array(32),
-        recipient: new PublicKey('11111111111111111111111111111111'),
+        recipient: new PublicKey("11111111111111111111111111111111"),
         amount: mockBN(1_000_000_000n),
         protocolFee: mockBN(25_000_000n),
         timestamp: mockBN(123456),
@@ -311,8 +314,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseRateLimitHitEvent', () => {
-    it('should convert all fields correctly', () => {
+  describe("parseRateLimitHitEvent", () => {
+    it("should convert all fields correctly", () => {
       const raw = {
         agentId: new Uint8Array(32),
         actionType: 0,
@@ -329,17 +332,17 @@ describe('Event Parse Functions', () => {
       expect(parsed.currentCount).toBe(10);
       expect(parsed.maxCount).toBe(20);
       expect(parsed.cooldownRemaining).toBe(3600);
-      expect(typeof parsed.actionType).toBe('number');
-      expect(typeof parsed.limitType).toBe('number');
+      expect(typeof parsed.actionType).toBe("number");
+      expect(typeof parsed.limitType).toBe("number");
     });
   });
 
-  describe('parseMigrationCompletedEvent', () => {
-    it('should preserve version numbers', () => {
+  describe("parseMigrationCompletedEvent", () => {
+    it("should preserve version numbers", () => {
       const raw = {
         fromVersion: 1,
         toVersion: 2,
-        authority: new PublicKey('11111111111111111111111111111111'),
+        authority: new PublicKey("11111111111111111111111111111111"),
         timestamp: mockBN(123456),
       };
       const parsed = parseMigrationCompletedEvent(raw);
@@ -348,8 +351,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseProtocolVersionUpdatedEvent', () => {
-    it('should preserve all version fields', () => {
+  describe("parseProtocolVersionUpdatedEvent", () => {
+    it("should preserve all version fields", () => {
       const raw = {
         oldVersion: 1,
         newVersion: 2,
@@ -363,8 +366,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseRateLimitsUpdatedEvent', () => {
-    it('should convert cooldowns and stake field', () => {
+  describe("parseRateLimitsUpdatedEvent", () => {
+    it("should convert cooldowns and stake field", () => {
       const raw = {
         taskCreationCooldown: mockBN(600),
         maxTasksPer24h: 25,
@@ -385,8 +388,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseProtocolFeeUpdatedEvent', () => {
-    it('should normalize protocol fee deltas', () => {
+  describe("parseProtocolFeeUpdatedEvent", () => {
+    it("should normalize protocol fee deltas", () => {
       const raw = {
         oldFeeBps: 250,
         newFeeBps: 300,
@@ -401,8 +404,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseReputationChangedEvent', () => {
-    it('should convert agent and reputation values', () => {
+  describe("parseReputationChangedEvent", () => {
+    it("should convert agent and reputation values", () => {
       const raw = {
         agentId: createId(1),
         oldReputation: 50,
@@ -420,8 +423,8 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseBondDepositedEvent', () => {
-    it('should parse and normalize deposit totals', () => {
+  describe("parseBondDepositedEvent", () => {
+    it("should parse and normalize deposit totals", () => {
       const raw = {
         agent: TEST_KEY,
         amount: mockBN(1_000_000_000),
@@ -436,11 +439,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseBondLockedEvent', () => {
-    it('should parse locked commitment payload', () => {
+  describe("parseBondLockedEvent", () => {
+    it("should parse locked commitment payload", () => {
       const raw = {
         agent: TEST_KEY,
-        commitment: new PublicKey('11111111111111111111111111111113'),
+        commitment: new PublicKey("11111111111111111111111111111113"),
         amount: mockBN(600_000_000),
         timestamp: mockBN(123456),
       };
@@ -452,11 +455,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseBondReleasedEvent', () => {
-    it('should parse released commitment payload', () => {
+  describe("parseBondReleasedEvent", () => {
+    it("should parse released commitment payload", () => {
       const raw = {
         agent: TEST_KEY,
-        commitment: new PublicKey('11111111111111111111111111111114'),
+        commitment: new PublicKey("11111111111111111111111111111114"),
         amount: mockBN(600_000_000),
         timestamp: mockBN(123456),
       };
@@ -467,11 +470,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseBondSlashedEvent', () => {
-    it('should parse slash payload including reason', () => {
+  describe("parseBondSlashedEvent", () => {
+    it("should parse slash payload including reason", () => {
       const raw = {
         agent: TEST_KEY,
-        commitment: new PublicKey('11111111111111111111111111111115'),
+        commitment: new PublicKey("11111111111111111111111111111115"),
         amount: mockBN(600_000_000),
         reason: 1,
         timestamp: mockBN(123456),
@@ -483,11 +486,11 @@ describe('Event Parse Functions', () => {
     });
   });
 
-  describe('parseSpeculativeCommitmentCreatedEvent', () => {
-    it('should parse commitment hash and expiry', () => {
+  describe("parseSpeculativeCommitmentCreatedEvent", () => {
+    it("should parse commitment hash and expiry", () => {
       const raw = {
         task: TEST_KEY,
-        producer: new PublicKey('11111111111111111111111111111116'),
+        producer: new PublicKey("11111111111111111111111111111116"),
         resultHash: Array.from(new Uint8Array(32)),
         bondedStake: mockBN(500_000_000),
         expiresAt: mockBN(7777777),

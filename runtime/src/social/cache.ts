@@ -4,8 +4,8 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { AgentProfile, ProfileCacheConfig } from './types.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { AgentProfile, ProfileCacheConfig } from "./types.js";
 
 /** Default TTL: 60 seconds */
 const DEFAULT_TTL_MS = 60_000;

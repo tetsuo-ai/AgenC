@@ -8,8 +8,13 @@
  * @module
  */
 
-import type { DiscoveredTask, TaskFilterConfig, TaskScorer, OnChainTask } from './types.js';
-import { OnChainTaskStatus, isPrivateTask } from './types.js';
+import type {
+  DiscoveredTask,
+  TaskFilterConfig,
+  TaskScorer,
+  OnChainTask,
+} from "./types.js";
+import { OnChainTaskStatus, isPrivateTask } from "./types.js";
 
 /** Default time remaining (1 day in seconds) for tasks with no deadline. */
 const DEFAULT_NO_DEADLINE_SECONDS = 86_400;
@@ -164,7 +169,9 @@ export function matchesFilter(
 export const defaultTaskScorer: TaskScorer = (task: DiscoveredTask): number => {
   const now = Math.floor(Date.now() / 1000);
   const timeRemaining =
-    task.task.deadline > 0 ? task.task.deadline - now : DEFAULT_NO_DEADLINE_SECONDS;
+    task.task.deadline > 0
+      ? task.task.deadline - now
+      : DEFAULT_NO_DEADLINE_SECONDS;
 
   const denominator = Math.max(1, timeRemaining);
   return Number(task.task.rewardAmount) / denominator;

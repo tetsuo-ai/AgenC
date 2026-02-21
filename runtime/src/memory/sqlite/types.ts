@@ -4,8 +4,8 @@
  * @module
  */
 
-import type { MemoryBackendConfig } from '../types.js';
-import type { EncryptionConfig } from '../encryption.js';
+import type { MemoryBackendConfig } from "../types.js";
+import type { EncryptionConfig } from "../encryption.js";
 
 /**
  * Configuration for the SQLite memory backend.

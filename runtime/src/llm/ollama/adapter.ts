@@ -15,18 +15,18 @@ import type {
   LLMUsage,
   LLMTool,
   StreamProgressCallback,
-} from '../types.js';
-import { validateToolCall } from '../types.js';
-import type { OllamaProviderConfig } from './types.js';
-import { LLMProviderError, mapLLMError } from '../errors.js';
-import { ensureLazyImport } from '../lazy-import.js';
-import { withTimeout } from '../timeout.js';
+} from "../types.js";
+import { validateToolCall } from "../types.js";
+import type { OllamaProviderConfig } from "./types.js";
+import { LLMProviderError, mapLLMError } from "../errors.js";
+import { ensureLazyImport } from "../lazy-import.js";
+import { withTimeout } from "../timeout.js";
 
-const DEFAULT_HOST = 'http://localhost:11434';
-const DEFAULT_MODEL = 'llama3';
+const DEFAULT_HOST = "http://localhost:11434";
+const DEFAULT_MODEL = "llama3";
 
 export class OllamaProvider implements LLMProvider {
-  readonly name = 'ollama';
+  readonly name = "ollama";
 
   private client: unknown | null = null;
   private readonly config: OllamaProviderConfig;
@@ -57,10 +57,13 @@ export class OllamaProvider implements LLMProvider {
     }
   }
 
-  async chatStream(messages: LLMMessage[], onChunk: StreamProgressCallback): Promise<LLMResponse> {
+  async chatStream(
+    messages: LLMMessage[],
+    onChunk: StreamProgressCallback,
+  ): Promise<LLMResponse> {
     const client = await this.ensureClient();
     const params = { ...this.buildParams(messages), stream: true };
-    let content = '';
+    let content = "";
     let model = this.config.model;
     let toolCalls: LLMToolCall[] = [];
     let promptTokens = 0;
@@ -84,7 +87,7 @@ export class OllamaProvider implements LLMProvider {
           for (const tc of chunk.message.tool_calls) {
             const validated = validateToolCall({
               id: tc.function?.name ?? `call_${toolCalls.length}`,
-              name: tc.function?.name ?? '',
+              name: tc.function?.name ?? "",
               arguments: JSON.stringify(tc.function?.arguments ?? {}),
             });
             if (validated) {
@@ -98,20 +101,25 @@ export class OllamaProvider implements LLMProvider {
         if (chunk.eval_count) completionTokens = chunk.eval_count;
       }
 
-      const finishReason: LLMResponse['finishReason'] = toolCalls.length > 0 ? 'tool_calls' : 'stop';
-      onChunk({ content: '', done: true, toolCalls });
+      const finishReason: LLMResponse["finishReason"] =
+        toolCalls.length > 0 ? "tool_calls" : "stop";
+      onChunk({ content: "", done: true, toolCalls });
 
       return {
         content,
         toolCalls,
-        usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens },
+        usage: {
+          promptTokens,
+          completionTokens,
+          totalTokens: promptTokens + completionTokens,
+        },
         model,
         finishReason,
       };
     } catch (err: unknown) {
       if (content.length > 0) {
         const mappedError = this.mapError(err);
-        onChunk({ content: '', done: true, toolCalls });
+        onChunk({ content: "", done: true, toolCalls });
         return {
           content,
           toolCalls,
@@ -121,7 +129,7 @@ export class OllamaProvider implements LLMProvider {
             totalTokens: promptTokens + completionTokens,
           },
           model,
-          finishReason: 'error',
+          finishReason: "error",
           error: mappedError,
           partial: true,
         };
@@ -143,7 +151,7 @@ export class OllamaProvider implements LLMProvider {
   private async ensureClient(): Promise<unknown> {
     if (this.client) return this.client;
 
-    this.client = await ensureLazyImport('ollama', this.name, (mod) => {
+    this.client = await ensureLazyImport("ollama", this.name, (mod) => {
       const OllamaClass = (mod.Ollama ?? mod.default) as any;
       return new OllamaClass({ host: this.config.host });
     });
@@ -158,12 +166,14 @@ export class OllamaProvider implements LLMProvider {
 
     // Build options
     const options: Record<string, unknown> = {};
-    if (this.config.temperature !== undefined) options.temperature = this.config.temperature;
+    if (this.config.temperature !== undefined)
+      options.temperature = this.config.temperature;
     if (this.config.numCtx !== undefined) options.num_ctx = this.config.numCtx;
     if (this.config.numGpu !== undefined) options.num_gpu = this.config.numGpu;
     if (Object.keys(options).length > 0) params.options = options;
 
-    if (this.config.keepAlive !== undefined) params.keep_alive = this.config.keepAlive;
+    if (this.config.keepAlive !== undefined)
+      params.keep_alive = this.config.keepAlive;
 
     // Tools — Ollama uses OpenAI-compatible format
     if (this.tools.length > 0) params.tools = this.tools;
@@ -172,9 +182,9 @@ export class OllamaProvider implements LLMProvider {
   }
 
   private toOllamaMessage(msg: LLMMessage): Record<string, unknown> {
-    if (msg.role === 'tool') {
+    if (msg.role === "tool") {
       return {
-        role: 'tool',
+        role: "tool",
         content: msg.content,
       };
     }
@@ -183,22 +193,26 @@ export class OllamaProvider implements LLMProvider {
 
   private parseResponse(response: any): LLMResponse {
     const message = response.message ?? {};
-    const content = message.content ?? '';
+    const content = message.content ?? "";
 
     const toolCalls: LLMToolCall[] = (message.tool_calls ?? [])
       .map((tc: any, i: number) =>
         validateToolCall({
           id: tc.function?.name ?? `call_${i}`,
-          name: tc.function?.name ?? '',
+          name: tc.function?.name ?? "",
           arguments: JSON.stringify(tc.function?.arguments ?? {}),
-        })
+        }),
       )
-      .filter((toolCall: LLMToolCall | null): toolCall is LLMToolCall => toolCall !== null);
+      .filter(
+        (toolCall: LLMToolCall | null): toolCall is LLMToolCall =>
+          toolCall !== null,
+      );
 
     const usage: LLMUsage = {
       promptTokens: response.prompt_eval_count ?? 0,
       completionTokens: response.eval_count ?? 0,
-      totalTokens: (response.prompt_eval_count ?? 0) + (response.eval_count ?? 0),
+      totalTokens:
+        (response.prompt_eval_count ?? 0) + (response.eval_count ?? 0),
     };
 
     return {
@@ -206,14 +220,14 @@ export class OllamaProvider implements LLMProvider {
       toolCalls,
       usage,
       model: response.model ?? this.config.model,
-      finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+      finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
     };
   }
 
   private mapError(err: unknown): Error {
     // Ollama-specific: connection refused means server isn't running
     const e = err as any;
-    if (e?.code === 'ECONNREFUSED') {
+    if (e?.code === "ECONNREFUSED") {
       return new LLMProviderError(
         this.name,
         `Cannot connect to Ollama at ${this.config.host}. Is the server running?`,

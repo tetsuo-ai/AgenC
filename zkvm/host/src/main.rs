@@ -68,9 +68,7 @@ fn parse_request_from_stdin() -> Result<agenc_zkvm_host::ProveRequest, String> {
 fn print_image_id() -> Result<(), String> {
     #[cfg(feature = "production-prover")]
     {
-        let image_id = agenc_zkvm_host::guest_id_to_image_id(
-            &agenc_zkvm_methods::AGENC_GUEST_ID,
-        );
+        let image_id = agenc_zkvm_host::guest_id_to_image_id(&agenc_zkvm_methods::AGENC_GUEST_ID);
 
         println!("=== RISC Zero Image ID (from guest ELF) ===\n");
 
@@ -115,6 +113,7 @@ fn print_image_id() -> Result<(), String> {
             "image-id requires --features production-prover (needs rzup toolchain).\n",
             "Install: curl -L https://risczero.com/install | bash && rzup install\n",
             "Then: cargo run -p agenc-zkvm-host --features production-prover -- image-id"
-        ).into())
+        )
+        .into())
     }
 }

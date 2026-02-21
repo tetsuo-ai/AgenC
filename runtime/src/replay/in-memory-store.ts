@@ -4,16 +4,18 @@
  * @module
  */
 
-import { buildReplayKey } from './types.js';
+import { buildReplayKey } from "./types.js";
 import type {
   ReplayEventCursor,
   ReplayStorageWriteResult,
   ReplayTimelineRecord,
   ReplayTimelineQuery,
   ReplayTimelineStore,
-} from './types.js';
+} from "./types.js";
 
-function sortReplayEvents(events: readonly ReplayTimelineRecord[]): ReplayTimelineRecord[] {
+function sortReplayEvents(
+  events: readonly ReplayTimelineRecord[],
+): ReplayTimelineRecord[] {
   return [...events].sort((left, right) => {
     if (left.slot !== right.slot) {
       return left.slot - right.slot;
@@ -28,7 +30,10 @@ function sortReplayEvents(events: readonly ReplayTimelineRecord[]): ReplayTimeli
   });
 }
 
-function passesFilter(event: ReplayTimelineRecord, filter: ReplayTimelineQuery): boolean {
+function passesFilter(
+  event: ReplayTimelineRecord,
+  filter: ReplayTimelineQuery,
+): boolean {
   if (filter.taskPda && event.taskPda !== filter.taskPda) {
     return false;
   }
@@ -41,10 +46,16 @@ function passesFilter(event: ReplayTimelineRecord, filter: ReplayTimelineQuery):
   if (filter.toSlot !== undefined && event.slot > filter.toSlot) {
     return false;
   }
-  if (filter.fromTimestampMs !== undefined && event.timestampMs < filter.fromTimestampMs) {
+  if (
+    filter.fromTimestampMs !== undefined &&
+    event.timestampMs < filter.fromTimestampMs
+  ) {
     return false;
   }
-  if (filter.toTimestampMs !== undefined && event.timestampMs > filter.toTimestampMs) {
+  if (
+    filter.toTimestampMs !== undefined &&
+    event.timestampMs > filter.toTimestampMs
+  ) {
     return false;
   }
   return true;
@@ -55,12 +66,18 @@ export class InMemoryReplayTimelineStore implements ReplayTimelineStore {
   private readonly ids = new Set<string>();
   private cursor: ReplayEventCursor | null = null;
 
-  async save(records: readonly ReplayTimelineRecord[]): Promise<ReplayStorageWriteResult> {
+  async save(
+    records: readonly ReplayTimelineRecord[],
+  ): Promise<ReplayStorageWriteResult> {
     let inserted = 0;
     let duplicates = 0;
 
     for (const event of records) {
-      const key = buildReplayKey(event.slot, event.signature, event.sourceEventType);
+      const key = buildReplayKey(
+        event.slot,
+        event.signature,
+        event.sourceEventType,
+      );
       if (this.ids.has(key)) {
         duplicates += 1;
         continue;
@@ -74,8 +91,12 @@ export class InMemoryReplayTimelineStore implements ReplayTimelineStore {
     return { inserted, duplicates };
   }
 
-  async query(filter: ReplayTimelineQuery = {}): Promise<ReadonlyArray<ReplayTimelineRecord>> {
-    const all = sortReplayEvents(this.events.filter((event) => passesFilter(event, filter)));
+  async query(
+    filter: ReplayTimelineQuery = {},
+  ): Promise<ReadonlyArray<ReplayTimelineRecord>> {
+    const all = sortReplayEvents(
+      this.events.filter((event) => passesFilter(event, filter)),
+    );
     const start = filter.offset ?? 0;
     const end = filter.limit === undefined ? all.length : start + filter.limit;
     return all.slice(start, end);
@@ -95,11 +116,11 @@ export class InMemoryReplayTimelineStore implements ReplayTimelineStore {
     this.cursor = null;
   }
 
-  getDurability(): import('../memory/types.js').DurabilityInfo {
+  getDurability(): import("../memory/types.js").DurabilityInfo {
     return {
-      level: 'none',
+      level: "none",
       supportsFlush: false,
-      description: 'Data lives only in process memory and is lost on restart.',
+      description: "Data lives only in process memory and is lost on restart.",
     };
   }
 

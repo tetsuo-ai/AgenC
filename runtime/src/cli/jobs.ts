@@ -1,11 +1,11 @@
-import type { CronScheduler } from '../gateway/scheduler.js';
-import type { CliRuntimeContext, CliStatusCode } from './types.js';
+import type { CronScheduler } from "../gateway/scheduler.js";
+import type { CliRuntimeContext, CliStatusCode } from "./types.js";
 
 export async function runJobsListCommand(
   context: CliRuntimeContext,
   scheduler: CronScheduler,
 ): Promise<CliStatusCode> {
-  const jobs = scheduler.listJobs().map(job => ({
+  const jobs = scheduler.listJobs().map((job) => ({
     name: job.name,
     cron: job.cron,
     enabled: job.enabled,
@@ -14,9 +14,9 @@ export async function runJobsListCommand(
   }));
 
   context.output({
-    status: 'ok',
-    command: 'jobs.list',
-    schema: 'jobs.list.output.v1',
+    status: "ok",
+    command: "jobs.list",
+    schema: "jobs.list.output.v1",
     jobs,
   });
 
@@ -32,17 +32,17 @@ export async function runJobsRunCommand(
     await scheduler.triggerJob(jobName);
   } catch (error) {
     context.error({
-      status: 'error',
-      command: 'jobs.run',
+      status: "error",
+      command: "jobs.run",
       message: error instanceof Error ? error.message : String(error),
     });
     return 1;
   }
 
   context.output({
-    status: 'ok',
-    command: 'jobs.run',
-    schema: 'jobs.run.output.v1',
+    status: "ok",
+    command: "jobs.run",
+    schema: "jobs.run.output.v1",
     job: jobName,
   });
 
@@ -57,17 +57,17 @@ export async function runJobsEnableCommand(
   const found = scheduler.enableJob(jobName);
   if (!found) {
     context.error({
-      status: 'error',
-      command: 'jobs.enable',
+      status: "error",
+      command: "jobs.enable",
       message: `job "${jobName}" not found`,
     });
     return 1;
   }
 
   context.output({
-    status: 'ok',
-    command: 'jobs.enable',
-    schema: 'jobs.enable.output.v1',
+    status: "ok",
+    command: "jobs.enable",
+    schema: "jobs.enable.output.v1",
     job: jobName,
   });
 
@@ -82,17 +82,17 @@ export async function runJobsDisableCommand(
   const found = scheduler.disableJob(jobName);
   if (!found) {
     context.error({
-      status: 'error',
-      command: 'jobs.disable',
+      status: "error",
+      command: "jobs.disable",
       message: `job "${jobName}" not found`,
     });
     return 1;
   }
 
   context.output({
-    status: 'ok',
-    command: 'jobs.disable',
-    schema: 'jobs.disable.output.v1',
+    status: "ok",
+    command: "jobs.disable",
+    schema: "jobs.disable.output.v1",
     job: jobName,
   });
 

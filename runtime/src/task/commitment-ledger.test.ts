@@ -2,17 +2,17 @@
  * Tests for CommitmentLedger
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { promises as fs } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { promises as fs } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   CommitmentLedger,
   CommitmentStatus,
   SpeculativeCommitment,
   CommitmentLedgerConfig,
-} from './commitment-ledger.js';
+} from "./commitment-ledger.js";
 
 // ============================================================================
 // Test Helpers
@@ -54,14 +54,14 @@ function createTestCommitment(
     resultHash?: Uint8Array;
     producerAgent?: PublicKey;
     stakeAtRisk?: bigint;
-  }
+  },
 ): SpeculativeCommitment {
   return ledger.createCommitment(
     overrides?.taskPda ?? randomPda(),
     overrides?.taskId ?? randomTaskId(),
     overrides?.resultHash ?? randomHash(),
     overrides?.producerAgent ?? randomPda(),
-    overrides?.stakeAtRisk ?? 1000000n
+    overrides?.stakeAtRisk ?? 1000000n,
   );
 }
 
@@ -69,15 +69,15 @@ function createTestCommitment(
 // Tests
 // ============================================================================
 
-describe('CommitmentLedger', () => {
+describe("CommitmentLedger", () => {
   let ledger: CommitmentLedger;
 
   beforeEach(() => {
     ledger = new CommitmentLedger();
   });
 
-  describe('createCommitment', () => {
-    it('should create a commitment with correct properties', () => {
+  describe("createCommitment", () => {
+    it("should create a commitment with correct properties", () => {
       const taskPda = randomPda();
       const taskId = randomTaskId();
       const resultHash = randomHash();
@@ -89,7 +89,7 @@ describe('CommitmentLedger', () => {
         taskId,
         resultHash,
         producerAgent,
-        stakeAtRisk
+        stakeAtRisk,
       );
 
       expect(commitment.id).toBeDefined();
@@ -99,24 +99,24 @@ describe('CommitmentLedger', () => {
       expect(commitment.resultHash).toEqual(resultHash);
       expect(commitment.producerAgent.equals(producerAgent)).toBe(true);
       expect(commitment.stakeAtRisk).toBe(stakeAtRisk);
-      expect(commitment.status).toBe('pending');
+      expect(commitment.status).toBe("pending");
       expect(commitment.dependentTaskPdas).toEqual([]);
       expect(commitment.createdAt).toBeLessThanOrEqual(Date.now());
       expect(commitment.confirmedAt).toBeNull();
       expect(commitment.depth).toBe(0);
     });
 
-    it('should reject duplicate commitments for the same task', () => {
+    it("should reject duplicate commitments for the same task", () => {
       const taskPda = randomPda();
 
       createTestCommitment(ledger, { taskPda });
 
       expect(() => createTestCommitment(ledger, { taskPda })).toThrow(
-        'Commitment already exists'
+        "Commitment already exists",
       );
     });
 
-    it('should enforce maxCommitments limit', () => {
+    it("should enforce maxCommitments limit", () => {
       const smallLedger = new CommitmentLedger({ maxCommitments: 3 });
 
       createTestCommitment(smallLedger);
@@ -124,11 +124,11 @@ describe('CommitmentLedger', () => {
       createTestCommitment(smallLedger);
 
       expect(() => createTestCommitment(smallLedger)).toThrow(
-        'Maximum commitments limit'
+        "Maximum commitments limit",
       );
     });
 
-    it('should generate unique IDs for each commitment', () => {
+    it("should generate unique IDs for each commitment", () => {
       const ids = new Set<string>();
 
       for (let i = 0; i < 100; i++) {
@@ -139,8 +139,8 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('getByTask', () => {
-    it('should retrieve a commitment by task PDA', () => {
+  describe("getByTask", () => {
+    it("should retrieve a commitment by task PDA", () => {
       const taskPda = randomPda();
       const created = createTestCommitment(ledger, { taskPda });
 
@@ -150,14 +150,14 @@ describe('CommitmentLedger', () => {
       expect(retrieved?.id).toBe(created.id);
     });
 
-    it('should return undefined for non-existent task', () => {
+    it("should return undefined for non-existent task", () => {
       const result = ledger.getByTask(randomPda());
       expect(result).toBeUndefined();
     });
   });
 
-  describe('getById', () => {
-    it('should retrieve a commitment by ID', () => {
+  describe("getById", () => {
+    it("should retrieve a commitment by ID", () => {
       const created = createTestCommitment(ledger);
 
       const retrieved = ledger.getById(created.id);
@@ -166,33 +166,33 @@ describe('CommitmentLedger', () => {
       expect(retrieved?.id).toBe(created.id);
     });
 
-    it('should return undefined for non-existent ID', () => {
-      const result = ledger.getById('nonexistent');
+    it("should return undefined for non-existent ID", () => {
+      const result = ledger.getById("nonexistent");
       expect(result).toBeUndefined();
     });
   });
 
-  describe('updateStatus', () => {
-    it('should update commitment status', () => {
+  describe("updateStatus", () => {
+    it("should update commitment status", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda });
 
-      ledger.updateStatus(taskPda, 'executing');
+      ledger.updateStatus(taskPda, "executing");
 
       const commitment = ledger.getByTask(taskPda);
-      expect(commitment?.status).toBe('executing');
+      expect(commitment?.status).toBe("executing");
     });
 
-    it('should allow all valid status transitions', () => {
+    it("should allow all valid status transitions", () => {
       const statuses: CommitmentStatus[] = [
-        'pending',
-        'executing',
-        'executed',
-        'proof_generating',
-        'proof_generated',
-        'confirmed',
-        'failed',
-        'rolled_back',
+        "pending",
+        "executing",
+        "executed",
+        "proof_generating",
+        "proof_generated",
+        "confirmed",
+        "failed",
+        "rolled_back",
       ];
 
       for (const status of statuses) {
@@ -206,15 +206,15 @@ describe('CommitmentLedger', () => {
       }
     });
 
-    it('should throw error for non-existent task', () => {
-      expect(() => ledger.updateStatus(randomPda(), 'executing')).toThrow(
-        'Commitment not found'
+    it("should throw error for non-existent task", () => {
+      expect(() => ledger.updateStatus(randomPda(), "executing")).toThrow(
+        "Commitment not found",
       );
     });
   });
 
-  describe('addDependent', () => {
-    it('should add a dependent task', () => {
+  describe("addDependent", () => {
+    it("should add a dependent task", () => {
       const taskPda = randomPda();
       const dependentPda = randomPda();
       createTestCommitment(ledger, { taskPda });
@@ -226,7 +226,7 @@ describe('CommitmentLedger', () => {
       expect(commitment?.dependentTaskPdas[0].equals(dependentPda)).toBe(true);
     });
 
-    it('should handle multiple dependents', () => {
+    it("should handle multiple dependents", () => {
       const taskPda = randomPda();
       const dependent1 = randomPda();
       const dependent2 = randomPda();
@@ -241,7 +241,7 @@ describe('CommitmentLedger', () => {
       expect(commitment?.dependentTaskPdas.length).toBe(3);
     });
 
-    it('should not add duplicate dependents', () => {
+    it("should not add duplicate dependents", () => {
       const taskPda = randomPda();
       const dependentPda = randomPda();
       createTestCommitment(ledger, { taskPda });
@@ -253,15 +253,15 @@ describe('CommitmentLedger', () => {
       expect(commitment?.dependentTaskPdas.length).toBe(1);
     });
 
-    it('should throw error for non-existent task', () => {
+    it("should throw error for non-existent task", () => {
       expect(() => ledger.addDependent(randomPda(), randomPda())).toThrow(
-        'Commitment not found'
+        "Commitment not found",
       );
     });
   });
 
-  describe('markConfirmed', () => {
-    it('should mark commitment as confirmed with timestamp', () => {
+  describe("markConfirmed", () => {
+    it("should mark commitment as confirmed with timestamp", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda });
 
@@ -270,32 +270,32 @@ describe('CommitmentLedger', () => {
       const afterConfirm = Date.now();
 
       const commitment = ledger.getByTask(taskPda);
-      expect(commitment?.status).toBe('confirmed');
+      expect(commitment?.status).toBe("confirmed");
       expect(commitment?.confirmedAt).toBeGreaterThanOrEqual(beforeConfirm);
       expect(commitment?.confirmedAt).toBeLessThanOrEqual(afterConfirm);
     });
 
-    it('should throw error for non-existent task', () => {
+    it("should throw error for non-existent task", () => {
       expect(() => ledger.markConfirmed(randomPda())).toThrow(
-        'Commitment not found'
+        "Commitment not found",
       );
     });
   });
 
-  describe('markFailed', () => {
-    it('should mark commitment as failed', () => {
+  describe("markFailed", () => {
+    it("should mark commitment as failed", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda });
 
       const affected = ledger.markFailed(taskPda);
 
       const commitment = ledger.getByTask(taskPda);
-      expect(commitment?.status).toBe('failed');
+      expect(commitment?.status).toBe("failed");
       expect(affected.length).toBe(1);
       expect(affected[0].id).toBe(commitment?.id);
     });
 
-    it('should cascade to dependent commitments', () => {
+    it("should cascade to dependent commitments", () => {
       // Create a chain: parent -> child -> grandchild
       const parentPda = randomPda();
       const childPda = randomPda();
@@ -315,25 +315,25 @@ describe('CommitmentLedger', () => {
       const affected = ledger.markFailed(parentPda);
 
       expect(affected.length).toBe(3);
-      expect(ledger.getByTask(parentPda)?.status).toBe('failed');
-      expect(ledger.getByTask(childPda)?.status).toBe('rolled_back');
-      expect(ledger.getByTask(grandchildPda)?.status).toBe('rolled_back');
+      expect(ledger.getByTask(parentPda)?.status).toBe("failed");
+      expect(ledger.getByTask(childPda)?.status).toBe("rolled_back");
+      expect(ledger.getByTask(grandchildPda)?.status).toBe("rolled_back");
     });
 
-    it('should throw error for non-existent task', () => {
+    it("should throw error for non-existent task", () => {
       expect(() => ledger.markFailed(randomPda())).toThrow(
-        'Commitment not found'
+        "Commitment not found",
       );
     });
   });
 
-  describe('getAffectedByFailure', () => {
-    it('should return empty array for non-existent task', () => {
+  describe("getAffectedByFailure", () => {
+    it("should return empty array for non-existent task", () => {
       const affected = ledger.getAffectedByFailure(randomPda());
       expect(affected).toEqual([]);
     });
 
-    it('should return only the task if no dependents', () => {
+    it("should return only the task if no dependents", () => {
       const taskPda = randomPda();
       const commitment = createTestCommitment(ledger, { taskPda });
 
@@ -343,7 +343,7 @@ describe('CommitmentLedger', () => {
       expect(affected[0].id).toBe(commitment.id);
     });
 
-    it('should return all transitive dependents', () => {
+    it("should return all transitive dependents", () => {
       // Create a tree structure:
       //       root
       //      /    \
@@ -369,7 +369,7 @@ describe('CommitmentLedger', () => {
       expect(affected.length).toBe(4);
     });
 
-    it('should handle diamond dependencies', () => {
+    it("should handle diamond dependencies", () => {
       // Create a diamond:
       //     root
       //    /    \
@@ -400,12 +400,12 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('getTotalStakeAtRisk', () => {
-    it('should return 0 for empty ledger', () => {
+  describe("getTotalStakeAtRisk", () => {
+    it("should return 0 for empty ledger", () => {
       expect(ledger.getTotalStakeAtRisk()).toBe(0n);
     });
 
-    it('should sum stake from active commitments', () => {
+    it("should sum stake from active commitments", () => {
       createTestCommitment(ledger, { stakeAtRisk: 1000n });
       createTestCommitment(ledger, { stakeAtRisk: 2000n });
       createTestCommitment(ledger, { stakeAtRisk: 3000n });
@@ -413,7 +413,7 @@ describe('CommitmentLedger', () => {
       expect(ledger.getTotalStakeAtRisk()).toBe(6000n);
     });
 
-    it('should exclude confirmed commitments', () => {
+    it("should exclude confirmed commitments", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda, stakeAtRisk: 1000n });
       createTestCommitment(ledger, { stakeAtRisk: 2000n });
@@ -423,7 +423,7 @@ describe('CommitmentLedger', () => {
       expect(ledger.getTotalStakeAtRisk()).toBe(2000n);
     });
 
-    it('should exclude failed commitments', () => {
+    it("should exclude failed commitments", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda, stakeAtRisk: 1000n });
       createTestCommitment(ledger, { stakeAtRisk: 2000n });
@@ -433,7 +433,7 @@ describe('CommitmentLedger', () => {
       expect(ledger.getTotalStakeAtRisk()).toBe(2000n);
     });
 
-    it('should exclude rolled back commitments', () => {
+    it("should exclude rolled back commitments", () => {
       const parentPda = randomPda();
       const childPda = randomPda();
       createTestCommitment(ledger, { taskPda: parentPda, stakeAtRisk: 1000n });
@@ -447,12 +447,12 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('getMaxDepth', () => {
-    it('should return 0 for empty ledger', () => {
+  describe("getMaxDepth", () => {
+    it("should return 0 for empty ledger", () => {
       expect(ledger.getMaxDepth()).toBe(0);
     });
 
-    it('should return max depth of active commitments', () => {
+    it("should return max depth of active commitments", () => {
       // All depth 0 by default in this implementation
       createTestCommitment(ledger);
       createTestCommitment(ledger);
@@ -460,7 +460,7 @@ describe('CommitmentLedger', () => {
       expect(ledger.getMaxDepth()).toBe(0);
     });
 
-    it('should exclude confirmed commitments from max depth', () => {
+    it("should exclude confirmed commitments from max depth", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda });
       createTestCommitment(ledger);
@@ -471,13 +471,13 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('getByDepth', () => {
-    it('should return empty array for non-existent depth', () => {
+  describe("getByDepth", () => {
+    it("should return empty array for non-existent depth", () => {
       const result = ledger.getByDepth(5);
       expect(result).toEqual([]);
     });
 
-    it('should return commitments at specified depth', () => {
+    it("should return commitments at specified depth", () => {
       const c1 = createTestCommitment(ledger);
       const c2 = createTestCommitment(ledger);
 
@@ -490,12 +490,12 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('pruneConfirmed', () => {
-    it('should return 0 for empty ledger', () => {
+  describe("pruneConfirmed", () => {
+    it("should return 0 for empty ledger", () => {
       expect(ledger.pruneConfirmed()).toBe(0);
     });
 
-    it('should not prune recently confirmed commitments', () => {
+    it("should not prune recently confirmed commitments", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda });
       ledger.markConfirmed(taskPda);
@@ -506,7 +506,7 @@ describe('CommitmentLedger', () => {
       expect(ledger.getByTask(taskPda)).toBeDefined();
     });
 
-    it('should prune old confirmed commitments', () => {
+    it("should prune old confirmed commitments", () => {
       // Use a ledger with very short retention
       const shortRetentionLedger = new CommitmentLedger({
         confirmedRetentionMs: 1, // 1ms retention
@@ -528,7 +528,7 @@ describe('CommitmentLedger', () => {
       expect(shortRetentionLedger.getByTask(taskPda)).toBeUndefined();
     });
 
-    it('should not prune non-confirmed commitments', () => {
+    it("should not prune non-confirmed commitments", () => {
       const shortRetentionLedger = new CommitmentLedger({
         confirmedRetentionMs: 1,
       });
@@ -547,7 +547,7 @@ describe('CommitmentLedger', () => {
       expect(pruned).toBe(0);
     });
 
-    it('should clean up all indexes when pruning', () => {
+    it("should clean up all indexes when pruning", () => {
       const shortRetentionLedger = new CommitmentLedger({
         confirmedRetentionMs: 1,
       });
@@ -568,8 +568,8 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('getStats', () => {
-    it('should return zeros for empty ledger', () => {
+  describe("getStats", () => {
+    it("should return zeros for empty ledger", () => {
       const stats = ledger.getStats();
 
       expect(stats.total).toBe(0);
@@ -585,7 +585,7 @@ describe('CommitmentLedger', () => {
       expect(stats.maxDepth).toBe(0);
     });
 
-    it('should count commitments by status', () => {
+    it("should count commitments by status", () => {
       const pda1 = randomPda();
       const pda2 = randomPda();
       const pda3 = randomPda();
@@ -596,7 +596,7 @@ describe('CommitmentLedger', () => {
       createTestCommitment(ledger, { taskPda: pda3 });
       createTestCommitment(ledger, { taskPda: pda4 });
 
-      ledger.updateStatus(pda2, 'executing');
+      ledger.updateStatus(pda2, "executing");
       ledger.markConfirmed(pda3);
       ledger.markFailed(pda4);
 
@@ -609,7 +609,7 @@ describe('CommitmentLedger', () => {
       expect(stats.failed).toBe(1);
     });
 
-    it('should calculate total stake at risk', () => {
+    it("should calculate total stake at risk", () => {
       createTestCommitment(ledger, { stakeAtRisk: 1000n });
       createTestCommitment(ledger, { stakeAtRisk: 2000n });
 
@@ -619,56 +619,56 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('mutation queue', () => {
-    it('should queue and process mutations', () => {
+  describe("mutation queue", () => {
+    it("should queue and process mutations", () => {
       const taskPda = randomPda();
       const commitment = createTestCommitment(ledger, { taskPda });
 
       // Queue a status update
       ledger.queueMutation({
-        type: 'updateStatus',
+        type: "updateStatus",
         taskPda,
-        status: 'executing',
+        status: "executing",
       });
 
       // Status should not change until processed
-      expect(ledger.getByTask(taskPda)?.status).toBe('pending');
+      expect(ledger.getByTask(taskPda)?.status).toBe("pending");
 
       // Process mutations
       ledger.processMutations();
 
       // Now status should be updated
-      expect(ledger.getByTask(taskPda)?.status).toBe('executing');
+      expect(ledger.getByTask(taskPda)?.status).toBe("executing");
     });
 
-    it('should process multiple mutations in order', () => {
+    it("should process multiple mutations in order", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda });
 
       ledger.queueMutation({
-        type: 'updateStatus',
+        type: "updateStatus",
         taskPda,
-        status: 'executing',
+        status: "executing",
       });
       ledger.queueMutation({
-        type: 'updateStatus',
+        type: "updateStatus",
         taskPda,
-        status: 'executed',
+        status: "executed",
       });
       ledger.queueMutation({
-        type: 'updateStatus',
+        type: "updateStatus",
         taskPda,
-        status: 'proof_generating',
+        status: "proof_generating",
       });
 
       ledger.processMutations();
 
-      expect(ledger.getByTask(taskPda)?.status).toBe('proof_generating');
+      expect(ledger.getByTask(taskPda)?.status).toBe("proof_generating");
     });
   });
 
-  describe('clear', () => {
-    it('should remove all commitments', () => {
+  describe("clear", () => {
+    it("should remove all commitments", () => {
       createTestCommitment(ledger);
       createTestCommitment(ledger);
       createTestCommitment(ledger);
@@ -680,8 +680,8 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('getAllCommitments', () => {
-    it('should return all commitments', () => {
+  describe("getAllCommitments", () => {
+    it("should return all commitments", () => {
       const c1 = createTestCommitment(ledger);
       const c2 = createTestCommitment(ledger);
       const c3 = createTestCommitment(ledger);
@@ -696,7 +696,7 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('persistence', () => {
+  describe("persistence", () => {
     let persistPath: string;
 
     beforeEach(() => {
@@ -711,34 +711,34 @@ describe('CommitmentLedger', () => {
       }
     });
 
-    it('should throw error when persistence is disabled', async () => {
+    it("should throw error when persistence is disabled", async () => {
       const nonPersistentLedger = new CommitmentLedger({
         persistToDisk: false,
       });
 
       await expect(nonPersistentLedger.persist()).rejects.toThrow(
-        'persistence is not enabled'
+        "persistence is not enabled",
       );
       await expect(nonPersistentLedger.load()).rejects.toThrow(
-        'persistence is not enabled'
+        "persistence is not enabled",
       );
     });
 
-    it('should throw error when path is not configured', async () => {
+    it("should throw error when path is not configured", async () => {
       const missingPathLedger = new CommitmentLedger({
         persistToDisk: true,
         // No persistPath
       });
 
       await expect(missingPathLedger.persist()).rejects.toThrow(
-        'path is not configured'
+        "path is not configured",
       );
       await expect(missingPathLedger.load()).rejects.toThrow(
-        'path is not configured'
+        "path is not configured",
       );
     });
 
-    it('should persist and load commitments', async () => {
+    it("should persist and load commitments", async () => {
       const persistentLedger = new CommitmentLedger({
         persistToDisk: true,
         persistPath,
@@ -759,21 +759,21 @@ describe('CommitmentLedger', () => {
         taskId1,
         resultHash1,
         producer1,
-        1000n
+        1000n,
       );
       const c2 = persistentLedger.createCommitment(
         taskPda2,
         taskId2,
         resultHash2,
         producer2,
-        2000n
+        2000n,
       );
 
       // Add a dependent
       persistentLedger.addDependent(taskPda1, taskPda2);
 
       // Update status
-      persistentLedger.updateStatus(taskPda1, 'executing');
+      persistentLedger.updateStatus(taskPda1, "executing");
       persistentLedger.markConfirmed(taskPda2);
 
       // Persist
@@ -792,7 +792,7 @@ describe('CommitmentLedger', () => {
 
       expect(loaded1).toBeDefined();
       expect(loaded1?.id).toBe(c1.id);
-      expect(loaded1?.status).toBe('executing');
+      expect(loaded1?.status).toBe("executing");
       expect(loaded1?.stakeAtRisk).toBe(1000n);
       expect(loaded1?.sourceTaskPda.equals(taskPda1)).toBe(true);
       expect(loaded1?.dependentTaskPdas.length).toBe(1);
@@ -800,11 +800,11 @@ describe('CommitmentLedger', () => {
 
       expect(loaded2).toBeDefined();
       expect(loaded2?.id).toBe(c2.id);
-      expect(loaded2?.status).toBe('confirmed');
+      expect(loaded2?.status).toBe("confirmed");
       expect(loaded2?.confirmedAt).toBeDefined();
     });
 
-    it('should handle loading from non-existent file', async () => {
+    it("should handle loading from non-existent file", async () => {
       const newLedger = new CommitmentLedger({
         persistToDisk: true,
         persistPath: join(tmpdir(), `nonexistent-${Date.now()}.json`),
@@ -816,7 +816,7 @@ describe('CommitmentLedger', () => {
       expect(newLedger.getAllCommitments().length).toBe(0);
     });
 
-    it('should preserve byte arrays correctly', async () => {
+    it("should preserve byte arrays correctly", async () => {
       const persistentLedger = new CommitmentLedger({
         persistToDisk: true,
         persistPath,
@@ -831,7 +831,7 @@ describe('CommitmentLedger', () => {
         taskId,
         resultHash,
         randomPda(),
-        1000n
+        1000n,
       );
 
       await persistentLedger.persist();
@@ -849,8 +849,8 @@ describe('CommitmentLedger', () => {
     });
   });
 
-  describe('edge cases', () => {
-    it('should handle very large stake values', () => {
+  describe("edge cases", () => {
+    it("should handle very large stake values", () => {
       const largeStake = 1000000000000000000n; // 1e18
 
       const commitment = createTestCommitment(ledger, {
@@ -861,14 +861,14 @@ describe('CommitmentLedger', () => {
       expect(ledger.getTotalStakeAtRisk()).toBe(largeStake);
     });
 
-    it('should handle zero stake', () => {
+    it("should handle zero stake", () => {
       const commitment = createTestCommitment(ledger, { stakeAtRisk: 0n });
 
       expect(commitment.stakeAtRisk).toBe(0n);
       expect(ledger.getTotalStakeAtRisk()).toBe(0n);
     });
 
-    it('should handle commitment with no dependents marked as failed', () => {
+    it("should handle commitment with no dependents marked as failed", () => {
       const taskPda = randomPda();
       createTestCommitment(ledger, { taskPda });
 
@@ -877,7 +877,7 @@ describe('CommitmentLedger', () => {
       expect(affected.length).toBe(1);
     });
 
-    it('should handle long dependency chains', () => {
+    it("should handle long dependency chains", () => {
       const pdas: PublicKey[] = [];
       for (let i = 0; i < 100; i++) {
         const pda = randomPda();

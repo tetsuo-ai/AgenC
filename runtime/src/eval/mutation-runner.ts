@@ -4,37 +4,41 @@
  * @module
  */
 
-import path from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import type { EvalRunRecord, EvaluationScorecard, ScorecardSerializeResult } from './metrics.js';
+import path from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import type {
+  EvalRunRecord,
+  EvaluationScorecard,
+  ScorecardSerializeResult,
+} from "./metrics.js";
 import {
   computeEvaluationScorecard,
   evalRunFromReplayResult,
   serializeEvaluationScorecard,
-} from './metrics.js';
-import { TrajectoryReplayEngine } from './replay.js';
+} from "./metrics.js";
+import { TrajectoryReplayEngine } from "./replay.js";
 import {
   parseTrajectoryTrace,
   stableStringifyJson,
   type JsonValue,
-} from './types.js';
+} from "./types.js";
 import {
   BENCHMARK_ARTIFACT_SCHEMA_VERSION,
   BenchmarkRunner,
   type BenchmarkMetricDelta,
   type BenchmarkRunOptions,
-} from './benchmark-runner.js';
+} from "./benchmark-runner.js";
 import {
   hashBenchmarkManifest,
   loadBenchmarkManifest,
   parseBenchmarkManifest,
   type BenchmarkManifest,
   type BenchmarkScenarioManifest,
-} from './benchmark-manifest.js';
+} from "./benchmark-manifest.js";
 import {
   MutationEngine,
   type MutationOperatorCategory,
-} from './mutation-engine.js';
+} from "./mutation-engine.js";
 
 export const MUTATION_ARTIFACT_SCHEMA_VERSION = 1 as const;
 
@@ -69,7 +73,7 @@ export interface MutationScenarioReportArtifact {
   scenarioId: string;
   title: string;
   taskClass: string;
-  riskTier: BenchmarkScenarioManifest['riskTier'];
+  riskTier: BenchmarkScenarioManifest["riskTier"];
   runCount: number;
   scorecard: EvaluationScorecard;
   serializedScorecard: ScorecardSerializeResult;
@@ -77,7 +81,7 @@ export interface MutationScenarioReportArtifact {
 }
 
 export interface MutationRegressionScenario {
-  scope: 'aggregate' | 'scenario' | 'operator';
+  scope: "aggregate" | "scenario" | "operator";
   id: string;
   passRateDelta: number;
   conformanceScoreDelta: number;
@@ -129,32 +133,36 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function riskTierToScore(tier: BenchmarkScenarioManifest['riskTier']): number {
-  if (tier === 'low') return 0.2;
-  if (tier === 'medium') return 0.5;
+function riskTierToScore(tier: BenchmarkScenarioManifest["riskTier"]): number {
+  if (tier === "low") return 0.2;
+  if (tier === "medium") return 0.5;
   return 0.85;
 }
 
 function computeDeltas(
-  aggregate: EvaluationScorecard['aggregate'],
-  baseline: EvaluationScorecard['aggregate'],
+  aggregate: EvaluationScorecard["aggregate"],
+  baseline: EvaluationScorecard["aggregate"],
 ): BenchmarkMetricDelta {
   return {
     passRate: aggregate.passRate - baseline.passRate,
     passAtK: aggregate.passAtK - baseline.passAtK,
     passCaretK: aggregate.passCaretK - baseline.passCaretK,
-    riskWeightedSuccess: aggregate.riskWeightedSuccess - baseline.riskWeightedSuccess,
+    riskWeightedSuccess:
+      aggregate.riskWeightedSuccess - baseline.riskWeightedSuccess,
     conformanceScore: aggregate.conformanceScore - baseline.conformanceScore,
-    costNormalizedUtility: aggregate.costNormalizedUtility - baseline.costNormalizedUtility,
+    costNormalizedUtility:
+      aggregate.costNormalizedUtility - baseline.costNormalizedUtility,
   };
 }
 
-function toRewardString(value: EvalRunRecord['rewardLamports']): string | undefined {
+function toRewardString(
+  value: EvalRunRecord["rewardLamports"],
+): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === "bigint") return value.toString();
   return String(value);
 }
 
@@ -164,12 +172,14 @@ async function readFixtureTrace(
   manifestDir: string | undefined,
 ): Promise<unknown> {
   if (!scenario.fixtureTrace) {
-    throw new Error(`scenario "${scenario.id}" has no runner and no fixtureTrace`);
+    throw new Error(
+      `scenario "${scenario.id}" has no runner and no fixtureTrace`,
+    );
   }
   const fixturePath = path.isAbsolute(scenario.fixtureTrace)
     ? scenario.fixtureTrace
     : path.resolve(manifestDir ?? process.cwd(), scenario.fixtureTrace);
-  const raw = await readFile(fixturePath, 'utf8');
+  const raw = await readFile(fixturePath, "utf8");
   const parsed = JSON.parse(raw) as unknown;
   const trace = parseTrajectoryTrace(parsed);
   return {
@@ -186,33 +196,38 @@ function buildTopRegressions(
 ): MutationRegressionScenario[] {
   const entries: MutationRegressionScenario[] = [
     {
-      scope: 'aggregate',
-      id: 'aggregate',
+      scope: "aggregate",
+      id: "aggregate",
       passRateDelta: aggregateDelta.passRate,
       conformanceScoreDelta: aggregateDelta.conformanceScore,
       costNormalizedUtilityDelta: aggregateDelta.costNormalizedUtility,
-      runCount: scenarioReports.reduce((acc, report) => acc + report.runCount, 0),
+      runCount: scenarioReports.reduce(
+        (acc, report) => acc + report.runCount,
+        0,
+      ),
     },
   ];
 
   for (const scenario of scenarioReports) {
     entries.push({
-      scope: 'scenario',
+      scope: "scenario",
       id: scenario.scenarioId,
       passRateDelta: scenario.deltasFromBaseline.passRate,
       conformanceScoreDelta: scenario.deltasFromBaseline.conformanceScore,
-      costNormalizedUtilityDelta: scenario.deltasFromBaseline.costNormalizedUtility,
+      costNormalizedUtilityDelta:
+        scenario.deltasFromBaseline.costNormalizedUtility,
       runCount: scenario.runCount,
     });
   }
 
   for (const operator of operatorReports) {
     entries.push({
-      scope: 'operator',
+      scope: "operator",
       id: operator.operatorId,
       passRateDelta: operator.deltasFromBaseline.passRate,
       conformanceScoreDelta: operator.deltasFromBaseline.conformanceScore,
-      costNormalizedUtilityDelta: operator.deltasFromBaseline.costNormalizedUtility,
+      costNormalizedUtilityDelta:
+        operator.deltasFromBaseline.costNormalizedUtility,
       runCount: operator.runCount,
     });
   }
@@ -234,17 +249,38 @@ function buildTopRegressions(
  * Parse and validate mutation artifact input.
  */
 export function parseMutationArtifact(value: unknown): MutationArtifact {
-  assert(isPlainObject(value), 'mutation artifact must be an object');
-  assert(value.schemaVersion === MUTATION_ARTIFACT_SCHEMA_VERSION, `unsupported mutation artifact schemaVersion: ${String(value.schemaVersion)}`);
-  assert(value.benchmarkSchemaVersion === BENCHMARK_ARTIFACT_SCHEMA_VERSION, `unsupported benchmark schema version: ${String(value.benchmarkSchemaVersion)}`);
-  assert(typeof value.runId === 'string' && value.runId.length > 0, 'runId must be a non-empty string');
-  assert(Number.isInteger(value.generatedAtMs), 'generatedAtMs must be an integer');
-  assert(typeof value.corpusVersion === 'string' && value.corpusVersion.length > 0, 'corpusVersion must be a non-empty string');
-  assert(typeof value.manifestHash === 'string' && value.manifestHash.length > 0, 'manifestHash must be a non-empty string');
-  assert(Array.isArray(value.runs), 'runs must be an array');
-  assert(Array.isArray(value.operators), 'operators must be an array');
-  assert(Array.isArray(value.scenarios), 'scenarios must be an array');
-  assert(Array.isArray(value.topRegressions), 'topRegressions must be an array');
+  assert(isPlainObject(value), "mutation artifact must be an object");
+  assert(
+    value.schemaVersion === MUTATION_ARTIFACT_SCHEMA_VERSION,
+    `unsupported mutation artifact schemaVersion: ${String(value.schemaVersion)}`,
+  );
+  assert(
+    value.benchmarkSchemaVersion === BENCHMARK_ARTIFACT_SCHEMA_VERSION,
+    `unsupported benchmark schema version: ${String(value.benchmarkSchemaVersion)}`,
+  );
+  assert(
+    typeof value.runId === "string" && value.runId.length > 0,
+    "runId must be a non-empty string",
+  );
+  assert(
+    Number.isInteger(value.generatedAtMs),
+    "generatedAtMs must be an integer",
+  );
+  assert(
+    typeof value.corpusVersion === "string" && value.corpusVersion.length > 0,
+    "corpusVersion must be a non-empty string",
+  );
+  assert(
+    typeof value.manifestHash === "string" && value.manifestHash.length > 0,
+    "manifestHash must be a non-empty string",
+  );
+  assert(Array.isArray(value.runs), "runs must be an array");
+  assert(Array.isArray(value.operators), "operators must be an array");
+  assert(Array.isArray(value.scenarios), "scenarios must be an array");
+  assert(
+    Array.isArray(value.topRegressions),
+    "topRegressions must be an array",
+  );
   return value as unknown as MutationArtifact;
 }
 
@@ -266,7 +302,7 @@ export class MutationRunner {
 
   async runFromFile(
     manifestPath: string,
-    options: Omit<MutationRunOptions, 'manifestDir'> = {},
+    options: Omit<MutationRunOptions, "manifestDir"> = {},
   ): Promise<MutationArtifact> {
     const manifest = await loadBenchmarkManifest(manifestPath);
     return await this.run(manifest, {
@@ -275,11 +311,16 @@ export class MutationRunner {
     });
   }
 
-  async run(input: BenchmarkManifest, options: MutationRunOptions = {}): Promise<MutationArtifact> {
+  async run(
+    input: BenchmarkManifest,
+    options: MutationRunOptions = {},
+  ): Promise<MutationArtifact> {
     const manifest = parseBenchmarkManifest(input);
     const runId = this.runId ?? `mutation-${this.now()}`;
     const manifestHash = hashBenchmarkManifest(manifest);
-    const mutationSeed = Number.isInteger(options.mutationSeed) ? (options.mutationSeed as number) : 0;
+    const mutationSeed = Number.isInteger(options.mutationSeed)
+      ? (options.mutationSeed as number)
+      : 0;
     const k = Math.max(1, Math.floor(options.k ?? manifest.k ?? 3));
 
     const baselineRunner = new BenchmarkRunner({
@@ -299,7 +340,10 @@ export class MutationRunner {
     const scenarioRecordMap = new Map<string, EvalRunRecord[]>();
     const operatorRecordMap = new Map<string, EvalRunRecord[]>();
     const operatorRunMap = new Map<string, MutationScenarioRunArtifact[]>();
-    const operatorMetaMap = new Map<string, { category: MutationOperatorCategory; description: string }>(
+    const operatorMetaMap = new Map<
+      string,
+      { category: MutationOperatorCategory; description: string }
+    >(
       this.engine.getOperators().map((operator) => [
         operator.id,
         {
@@ -314,16 +358,26 @@ export class MutationRunner {
         const scenarioRunner = options.scenarioRunners?.[scenario.id];
         const execution = scenarioRunner
           ? await scenarioRunner({ manifest, scenario, seed })
-          : { trace: await readFixtureTrace(scenario, seed, options.manifestDir) };
+          : {
+              trace: await readFixtureTrace(
+                scenario,
+                seed,
+                options.manifestDir,
+              ),
+            };
 
-        const mutations = this.engine.createMutations(execution.trace, {
-          scenarioId: scenario.id,
-          seed,
-          mutationSeed,
-        }, {
-          operatorIds: options.operatorIds,
-          maxMutationsPerScenario: options.maxMutationsPerScenario,
-        });
+        const mutations = this.engine.createMutations(
+          execution.trace,
+          {
+            scenarioId: scenario.id,
+            seed,
+            mutationSeed,
+          },
+          {
+            operatorIds: options.operatorIds,
+            maxMutationsPerScenario: options.maxMutationsPerScenario,
+          },
+        );
 
         for (const mutation of mutations) {
           const replay = new TrajectoryReplayEngine({
@@ -386,37 +440,53 @@ export class MutationRunner {
     }
 
     const aggregateScorecard = computeEvaluationScorecard(allRunRecords, { k });
-    const aggregateDelta = computeDeltas(aggregateScorecard.aggregate, baselineAggregate);
+    const aggregateDelta = computeDeltas(
+      aggregateScorecard.aggregate,
+      baselineAggregate,
+    );
 
-    const scenarioReports: MutationScenarioReportArtifact[] = manifest.scenarios.map((scenario) => {
-      const records = scenarioRecordMap.get(scenario.id) ?? [];
-      const scorecard = computeEvaluationScorecard(records, { k });
-      const baselineScenario = baselineArtifact.scenarios.find((entry) => entry.scenarioId === scenario.id);
-      const baselineReference = baselineScenario?.scorecard.aggregate ?? baselineAggregate;
-      return {
-        scenarioId: scenario.id,
-        title: scenario.title,
-        taskClass: scenario.taskClass,
-        riskTier: scenario.riskTier,
-        runCount: records.length,
-        scorecard,
-        serializedScorecard: serializeEvaluationScorecard(scorecard),
-        deltasFromBaseline: computeDeltas(scorecard.aggregate, baselineReference),
-      };
-    }).sort((left, right) => left.scenarioId.localeCompare(right.scenarioId));
+    const scenarioReports: MutationScenarioReportArtifact[] = manifest.scenarios
+      .map((scenario) => {
+        const records = scenarioRecordMap.get(scenario.id) ?? [];
+        const scorecard = computeEvaluationScorecard(records, { k });
+        const baselineScenario = baselineArtifact.scenarios.find(
+          (entry) => entry.scenarioId === scenario.id,
+        );
+        const baselineReference =
+          baselineScenario?.scorecard.aggregate ?? baselineAggregate;
+        return {
+          scenarioId: scenario.id,
+          title: scenario.title,
+          taskClass: scenario.taskClass,
+          riskTier: scenario.riskTier,
+          runCount: records.length,
+          scorecard,
+          serializedScorecard: serializeEvaluationScorecard(scorecard),
+          deltasFromBaseline: computeDeltas(
+            scorecard.aggregate,
+            baselineReference,
+          ),
+        };
+      })
+      .sort((left, right) => left.scenarioId.localeCompare(right.scenarioId));
 
-    const operatorReports: MutationOperatorReportArtifact[] = [...operatorRecordMap.entries()]
+    const operatorReports: MutationOperatorReportArtifact[] = [
+      ...operatorRecordMap.entries(),
+    ]
       .map(([operatorId, records]) => {
         const scorecard = computeEvaluationScorecard(records, { k });
         const meta = operatorMetaMap.get(operatorId);
         return {
           operatorId,
-          operatorCategory: meta?.category ?? 'workflow',
-          description: meta?.description ?? 'Custom mutation operator',
+          operatorCategory: meta?.category ?? "workflow",
+          description: meta?.description ?? "Custom mutation operator",
           runCount: records.length,
           scorecard,
           serializedScorecard: serializeEvaluationScorecard(scorecard),
-          deltasFromBaseline: computeDeltas(scorecard.aggregate, baselineAggregate),
+          deltasFromBaseline: computeDeltas(
+            scorecard.aggregate,
+            baselineAggregate,
+          ),
         };
       })
       .sort((left, right) => left.operatorId.localeCompare(right.operatorId));
@@ -439,10 +509,16 @@ export class MutationRunner {
         serializedScorecard: serializeEvaluationScorecard(aggregateScorecard),
         deltasFromBaseline: aggregateDelta,
       },
-      runs: runs.sort((left, right) => left.mutationId.localeCompare(right.mutationId)),
+      runs: runs.sort((left, right) =>
+        left.mutationId.localeCompare(right.mutationId),
+      ),
       operators: operatorReports,
       scenarios: scenarioReports,
-      topRegressions: buildTopRegressions(aggregateDelta, scenarioReports, operatorReports),
+      topRegressions: buildTopRegressions(
+        aggregateDelta,
+        scenarioReports,
+        operatorReports,
+      ),
     };
 
     return artifact;
@@ -464,5 +540,9 @@ export async function writeMutationArtifact(
   artifact: MutationArtifact,
 ): Promise<void> {
   await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${serializeMutationArtifact(artifact)}\n`, 'utf8');
+  await writeFile(
+    outputPath,
+    `${serializeMutationArtifact(artifact)}\n`,
+    "utf8",
+  );
 }

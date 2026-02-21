@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when an LLM provider returns an error response.
@@ -18,7 +18,7 @@ export class LLMProviderError extends RuntimeError {
       `${providerName} error: ${message}`,
       RuntimeErrorCodes.LLM_PROVIDER_ERROR,
     );
-    this.name = 'LLMProviderError';
+    this.name = "LLMProviderError";
     this.providerName = providerName;
     this.statusCode = statusCode;
   }
@@ -36,7 +36,7 @@ export class LLMRateLimitError extends RuntimeError {
       ? `${providerName} rate limited, retry after ${retryAfterMs}ms`
       : `${providerName} rate limited`;
     super(msg, RuntimeErrorCodes.LLM_RATE_LIMIT);
-    this.name = 'LLMRateLimitError';
+    this.name = "LLMRateLimitError";
     this.providerName = providerName;
     this.retryAfterMs = retryAfterMs;
   }
@@ -49,8 +49,11 @@ export class LLMResponseConversionError extends RuntimeError {
   public readonly response: string;
 
   constructor(message: string, response: string) {
-    super(`Response conversion failed: ${message}`, RuntimeErrorCodes.LLM_RESPONSE_CONVERSION);
-    this.name = 'LLMResponseConversionError';
+    super(
+      `Response conversion failed: ${message}`,
+      RuntimeErrorCodes.LLM_RESPONSE_CONVERSION,
+    );
+    this.name = "LLMResponseConversionError";
     this.response = response;
   }
 }
@@ -67,7 +70,7 @@ export class LLMToolCallError extends RuntimeError {
       `Tool call "${toolName}" (${toolCallId}) failed: ${message}`,
       RuntimeErrorCodes.LLM_TOOL_CALL_ERROR,
     );
-    this.name = 'LLMToolCallError';
+    this.name = "LLMToolCallError";
     this.toolName = toolName;
     this.toolCallId = toolCallId;
   }
@@ -85,7 +88,7 @@ export class LLMTimeoutError extends RuntimeError {
       `${providerName} request timed out after ${timeoutMs}ms`,
       RuntimeErrorCodes.LLM_TIMEOUT,
     );
-    this.name = 'LLMTimeoutError';
+    this.name = "LLMTimeoutError";
     this.providerName = providerName;
     this.timeoutMs = timeoutMs;
   }
@@ -103,7 +106,7 @@ export class LLMAuthenticationError extends RuntimeError {
       `${providerName} authentication failed (HTTP ${statusCode})`,
       RuntimeErrorCodes.LLM_PROVIDER_ERROR,
     );
-    this.name = 'LLMAuthenticationError';
+    this.name = "LLMAuthenticationError";
     this.providerName = providerName;
     this.statusCode = statusCode;
   }
@@ -121,7 +124,7 @@ export class LLMServerError extends RuntimeError {
       `${providerName} server error (HTTP ${statusCode}): ${message}`,
       RuntimeErrorCodes.LLM_PROVIDER_ERROR,
     );
-    this.name = 'LLMServerError';
+    this.name = "LLMServerError";
     this.providerName = providerName;
     this.statusCode = statusCode;
   }
@@ -131,13 +134,15 @@ function parseRetryAfterMs(headers: unknown): number | undefined {
   if (!headers) return undefined;
 
   let raw: string | undefined;
-  if (typeof (headers as any).get === 'function') {
-    const value = (headers as { get(name: string): string | null }).get('retry-after');
+  if (typeof (headers as any).get === "function") {
+    const value = (headers as { get(name: string): string | null }).get(
+      "retry-after",
+    );
     raw = value ?? undefined;
-  } else if (typeof headers === 'object' && headers !== null) {
+  } else if (typeof headers === "object" && headers !== null) {
     const record = headers as Record<string, unknown>;
-    const value = record['retry-after'] ?? record['Retry-After'];
-    if (typeof value === 'string' || typeof value === 'number') {
+    const value = record["retry-after"] ?? record["Retry-After"];
+    if (typeof value === "string" || typeof value === "number") {
       raw = String(value);
     }
   }
@@ -171,13 +176,13 @@ export function mapLLMError(
   const e = err as any;
   const rawStatus = e?.status ?? e?.statusCode;
   const parsedStatus =
-    typeof rawStatus === 'number'
+    typeof rawStatus === "number"
       ? rawStatus
-      : Number.parseInt(String(rawStatus ?? ''), 10);
+      : Number.parseInt(String(rawStatus ?? ""), 10);
   const status = Number.isFinite(parsedStatus) ? parsedStatus : undefined;
   const message = e?.message ?? String(err);
 
-  if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
+  if (e?.name === "AbortError" || e?.code === "ABORT_ERR") {
     return new LLMTimeoutError(providerName, timeoutMs);
   }
 
@@ -190,8 +195,8 @@ export function mapLLMError(
   }
 
   if (
-    e?.code === 'ETIMEDOUT' ||
-    e?.code === 'ECONNABORTED' ||
+    e?.code === "ETIMEDOUT" ||
+    e?.code === "ECONNABORTED" ||
     /timeout/i.test(message)
   ) {
     return new LLMTimeoutError(providerName, timeoutMs);

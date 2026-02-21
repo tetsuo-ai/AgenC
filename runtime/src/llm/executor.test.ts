@@ -1,37 +1,49 @@
-import { describe, it, expect, vi } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
-import { LLMTaskExecutor } from './executor.js';
-import type { LLMProvider, LLMResponse, LLMMessage, StreamProgressCallback } from './types.js';
-import type { Task } from '../autonomous/types.js';
-import { TaskStatus } from '../autonomous/types.js';
-import type { MemoryBackend, MemoryEntry, AddEntryOptions, MemoryQuery } from '../memory/types.js';
-import type { MemoryGraphResult } from '../memory/graph.js';
+import { describe, it, expect, vi } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { LLMTaskExecutor } from "./executor.js";
+import type {
+  LLMProvider,
+  LLMResponse,
+  LLMMessage,
+  StreamProgressCallback,
+} from "./types.js";
+import type { Task } from "../autonomous/types.js";
+import { TaskStatus } from "../autonomous/types.js";
+import type {
+  MemoryBackend,
+  MemoryEntry,
+  AddEntryOptions,
+  MemoryQuery,
+} from "../memory/types.js";
+import type { MemoryGraphResult } from "../memory/graph.js";
 
 function createMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
   return {
-    name: 'mock',
+    name: "mock",
     chat: vi.fn<[LLMMessage[]], Promise<LLMResponse>>().mockResolvedValue({
-      content: 'mock response',
+      content: "mock response",
       toolCalls: [],
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      model: 'mock-model',
-      finishReason: 'stop',
+      model: "mock-model",
+      finishReason: "stop",
     }),
-    chatStream: vi.fn<[LLMMessage[], StreamProgressCallback], Promise<LLMResponse>>().mockResolvedValue({
-      content: 'mock stream response',
-      toolCalls: [],
-      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      model: 'mock-model',
-      finishReason: 'stop',
-    }),
+    chatStream: vi
+      .fn<[LLMMessage[], StreamProgressCallback], Promise<LLMResponse>>()
+      .mockResolvedValue({
+        content: "mock stream response",
+        toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        model: "mock-model",
+        finishReason: "stop",
+      }),
     healthCheck: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
     ...overrides,
   };
 }
 
-function createMockTask(descriptionStr = 'test task'): Task {
+function createMockTask(descriptionStr = "test task"): Task {
   const desc = Buffer.alloc(64, 0);
-  Buffer.from(descriptionStr, 'utf-8').copy(desc);
+  Buffer.from(descriptionStr, "utf-8").copy(desc);
 
   return {
     pda: PublicKey.default,
@@ -48,8 +60,8 @@ function createMockTask(descriptionStr = 'test task'): Task {
   };
 }
 
-describe('LLMTaskExecutor', () => {
-  it('calls provider.chat and returns 4 bigints', async () => {
+describe("LLMTaskExecutor", () => {
+  it("calls provider.chat and returns 4 bigints", async () => {
     const provider = createMockProvider();
     const executor = new LLMTaskExecutor({ provider });
 
@@ -58,11 +70,11 @@ describe('LLMTaskExecutor', () => {
     expect(provider.chat).toHaveBeenCalledOnce();
     expect(output).toHaveLength(4);
     for (const v of output) {
-      expect(typeof v).toBe('bigint');
+      expect(typeof v).toBe("bigint");
     }
   });
 
-  it('uses streaming when configured', async () => {
+  it("uses streaming when configured", async () => {
     const onStreamChunk = vi.fn();
     const provider = createMockProvider();
     const executor = new LLMTaskExecutor({
@@ -77,89 +89,93 @@ describe('LLMTaskExecutor', () => {
     expect(provider.chat).not.toHaveBeenCalled();
   });
 
-  it('includes system prompt in messages', async () => {
+  it("includes system prompt in messages", async () => {
     const provider = createMockProvider();
     const executor = new LLMTaskExecutor({
       provider,
-      systemPrompt: 'You are a helpful agent.',
+      systemPrompt: "You are a helpful agent.",
     });
 
     await executor.execute(createMockTask());
 
-    const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+    const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as LLMMessage[];
     expect(messages[0]).toEqual({
-      role: 'system',
-      content: 'You are a helpful agent.',
+      role: "system",
+      content: "You are a helpful agent.",
     });
-    expect(messages[1].role).toBe('user');
+    expect(messages[1].role).toBe("user");
   });
 
-  it('strips null bytes from task description', async () => {
+  it("strips null bytes from task description", async () => {
     const provider = createMockProvider();
     const executor = new LLMTaskExecutor({ provider });
 
     // Task description with null padding
-    const task = createMockTask('hello');
+    const task = createMockTask("hello");
     await executor.execute(task);
 
-    const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
-    expect(messages[0].content).toContain('Description: hello');
-    expect(messages[0].content).not.toContain('\0');
+    const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as LLMMessage[];
+    expect(messages[0].content).toContain("Description: hello");
+    expect(messages[0].content).not.toContain("\0");
   });
 
-  it('handles tool call loop', async () => {
+  it("handles tool call loop", async () => {
     const toolCallResponse: LLMResponse = {
-      content: '',
-      toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{"key":"val"}' }],
+      content: "",
+      toolCalls: [{ id: "call_1", name: "lookup", arguments: '{"key":"val"}' }],
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      model: 'mock-model',
-      finishReason: 'tool_calls',
+      model: "mock-model",
+      finishReason: "tool_calls",
     };
     const finalResponse: LLMResponse = {
-      content: 'final answer',
+      content: "final answer",
       toolCalls: [],
       usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
-      model: 'mock-model',
-      finishReason: 'stop',
+      model: "mock-model",
+      finishReason: "stop",
     };
 
-    const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+    const chatFn = vi
+      .fn<[LLMMessage[]], Promise<LLMResponse>>()
       .mockResolvedValueOnce(toolCallResponse)
       .mockResolvedValueOnce(finalResponse);
 
     const provider = createMockProvider({ chat: chatFn });
-    const toolHandler = vi.fn().mockResolvedValue('tool result');
+    const toolHandler = vi.fn().mockResolvedValue("tool result");
 
     const executor = new LLMTaskExecutor({ provider, toolHandler });
     const output = await executor.execute(createMockTask());
 
     expect(chatFn).toHaveBeenCalledTimes(2);
-    expect(toolHandler).toHaveBeenCalledWith('lookup', { key: 'val' });
+    expect(toolHandler).toHaveBeenCalledWith("lookup", { key: "val" });
     expect(output).toHaveLength(4);
   });
 
-  it('returns invalid tool-argument errors to the model and skips tool execution', async () => {
+  it("returns invalid tool-argument errors to the model and skips tool execution", async () => {
     const invalidToolCallResponse: LLMResponse = {
-      content: '',
-      toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{invalid-json' }],
+      content: "",
+      toolCalls: [{ id: "call_1", name: "lookup", arguments: "{invalid-json" }],
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      model: 'mock-model',
-      finishReason: 'tool_calls',
+      model: "mock-model",
+      finishReason: "tool_calls",
     };
     const finalResponse: LLMResponse = {
-      content: 'final answer',
+      content: "final answer",
       toolCalls: [],
       usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
-      model: 'mock-model',
-      finishReason: 'stop',
+      model: "mock-model",
+      finishReason: "stop",
     };
 
-    const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+    const chatFn = vi
+      .fn<[LLMMessage[]], Promise<LLMResponse>>()
       .mockResolvedValueOnce(invalidToolCallResponse)
       .mockResolvedValueOnce(finalResponse);
 
     const provider = createMockProvider({ chat: chatFn });
-    const toolHandler = vi.fn().mockResolvedValue('tool result');
+    const toolHandler = vi.fn().mockResolvedValue("tool result");
 
     const executor = new LLMTaskExecutor({ provider, toolHandler });
     await executor.execute(createMockTask());
@@ -168,32 +184,33 @@ describe('LLMTaskExecutor', () => {
 
     const followupMessages = chatFn.mock.calls[1][0] as LLMMessage[];
     const toolErrorMessage = followupMessages.find(
-      (message) => message.role === 'tool' && message.toolCallId === 'call_1',
+      (message) => message.role === "tool" && message.toolCallId === "call_1",
     );
-    expect(toolErrorMessage?.content).toContain('Invalid tool arguments');
+    expect(toolErrorMessage?.content).toContain("Invalid tool arguments");
   });
 
-  it('rejects tool arguments that are valid JSON but not an object', async () => {
+  it("rejects tool arguments that are valid JSON but not an object", async () => {
     const invalidShapeResponse: LLMResponse = {
-      content: '',
-      toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '[1,2,3]' }],
+      content: "",
+      toolCalls: [{ id: "call_1", name: "lookup", arguments: "[1,2,3]" }],
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      model: 'mock-model',
-      finishReason: 'tool_calls',
+      model: "mock-model",
+      finishReason: "tool_calls",
     };
     const finalResponse: LLMResponse = {
-      content: 'final answer',
+      content: "final answer",
       toolCalls: [],
       usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
-      model: 'mock-model',
-      finishReason: 'stop',
+      model: "mock-model",
+      finishReason: "stop",
     };
 
-    const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+    const chatFn = vi
+      .fn<[LLMMessage[]], Promise<LLMResponse>>()
       .mockResolvedValueOnce(invalidShapeResponse)
       .mockResolvedValueOnce(finalResponse);
     const provider = createMockProvider({ chat: chatFn });
-    const toolHandler = vi.fn().mockResolvedValue('tool result');
+    const toolHandler = vi.fn().mockResolvedValue("tool result");
     const executor = new LLMTaskExecutor({ provider, toolHandler });
 
     await executor.execute(createMockTask());
@@ -201,43 +218,46 @@ describe('LLMTaskExecutor', () => {
     expect(toolHandler).not.toHaveBeenCalled();
     const followupMessages = chatFn.mock.calls[1][0] as LLMMessage[];
     const toolErrorMessage = followupMessages.find(
-      (message) => message.role === 'tool' && message.toolCallId === 'call_1',
+      (message) => message.role === "tool" && message.toolCallId === "call_1",
     );
-    expect(toolErrorMessage?.content).toContain('JSON object');
+    expect(toolErrorMessage?.content).toContain("JSON object");
   });
 
-  it('rejects when provider returns an error finish reason', async () => {
-    const streamError = new Error('partial stream failed');
+  it("rejects when provider returns an error finish reason", async () => {
+    const streamError = new Error("partial stream failed");
     const provider = createMockProvider({
       chat: vi.fn<[LLMMessage[]], Promise<LLMResponse>>().mockResolvedValue({
-        content: 'partial',
+        content: "partial",
         toolCalls: [],
         usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
-        model: 'mock-model',
-        finishReason: 'error',
+        model: "mock-model",
+        finishReason: "error",
         error: streamError,
         partial: true,
       }),
     });
 
     const executor = new LLMTaskExecutor({ provider });
-    await expect(executor.execute(createMockTask())).rejects.toThrow('partial stream failed');
+    await expect(executor.execute(createMockTask())).rejects.toThrow(
+      "partial stream failed",
+    );
   });
 
-  it('terminates tool call loop at maxToolRounds', async () => {
+  it("terminates tool call loop at maxToolRounds", async () => {
     const toolCallResponse: LLMResponse = {
-      content: 'thinking...',
-      toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{}' }],
+      content: "thinking...",
+      toolCalls: [{ id: "call_1", name: "lookup", arguments: "{}" }],
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      model: 'mock-model',
-      finishReason: 'tool_calls',
+      model: "mock-model",
+      finishReason: "tool_calls",
     };
 
-    const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+    const chatFn = vi
+      .fn<[LLMMessage[]], Promise<LLMResponse>>()
       .mockResolvedValue(toolCallResponse);
 
     const provider = createMockProvider({ chat: chatFn });
-    const toolHandler = vi.fn().mockResolvedValue('result');
+    const toolHandler = vi.fn().mockResolvedValue("result");
 
     const executor = new LLMTaskExecutor({
       provider,
@@ -252,7 +272,7 @@ describe('LLMTaskExecutor', () => {
     expect(output).toHaveLength(4);
   });
 
-  it('uses custom responseToOutput', async () => {
+  it("uses custom responseToOutput", async () => {
     const provider = createMockProvider();
     const custom = vi.fn().mockReturnValue([1n, 2n, 3n, 4n]);
 
@@ -263,17 +283,17 @@ describe('LLMTaskExecutor', () => {
 
     const output = await executor.execute(createMockTask());
 
-    expect(custom).toHaveBeenCalledWith('mock response');
+    expect(custom).toHaveBeenCalledWith("mock response");
     expect(output).toEqual([1n, 2n, 3n, 4n]);
   });
 
-  it('canExecute returns true when no capabilities filter set', () => {
+  it("canExecute returns true when no capabilities filter set", () => {
     const provider = createMockProvider();
     const executor = new LLMTaskExecutor({ provider });
     expect(executor.canExecute(createMockTask())).toBe(true);
   });
 
-  it('canExecute filters by requiredCapabilities', () => {
+  it("canExecute filters by requiredCapabilities", () => {
     const provider = createMockProvider();
     const executor = new LLMTaskExecutor({
       provider,
@@ -293,26 +313,38 @@ describe('LLMTaskExecutor', () => {
   // Memory integration
   // ==========================================================================
 
-  describe('memory integration', () => {
-    function createMockMemory(overrides: Partial<MemoryBackend> = {}): MemoryBackend {
+  describe("memory integration", () => {
+    function createMockMemory(
+      overrides: Partial<MemoryBackend> = {},
+    ): MemoryBackend {
       return {
-        name: 'mock-memory',
-        addEntry: vi.fn<[AddEntryOptions], Promise<MemoryEntry>>().mockImplementation(async (opts) => ({
-          id: `entry-${Date.now()}`,
-          sessionId: opts.sessionId,
-          role: opts.role,
-          content: opts.content,
-          toolCallId: opts.toolCallId,
-          toolName: opts.toolName,
-          timestamp: Date.now(),
-          taskPda: opts.taskPda,
-          metadata: opts.metadata,
-        })),
-        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue([]),
-        query: vi.fn<[MemoryQuery], Promise<MemoryEntry[]>>().mockResolvedValue([]),
+        name: "mock-memory",
+        addEntry: vi
+          .fn<[AddEntryOptions], Promise<MemoryEntry>>()
+          .mockImplementation(async (opts) => ({
+            id: `entry-${Date.now()}`,
+            sessionId: opts.sessionId,
+            role: opts.role,
+            content: opts.content,
+            toolCallId: opts.toolCallId,
+            toolName: opts.toolName,
+            timestamp: Date.now(),
+            taskPda: opts.taskPda,
+            metadata: opts.metadata,
+          })),
+        getThread: vi
+          .fn<[string, number?], Promise<MemoryEntry[]>>()
+          .mockResolvedValue([]),
+        query: vi
+          .fn<[MemoryQuery], Promise<MemoryEntry[]>>()
+          .mockResolvedValue([]),
         deleteThread: vi.fn<[string], Promise<number>>().mockResolvedValue(0),
-        listSessions: vi.fn<[string?], Promise<string[]>>().mockResolvedValue([]),
-        set: vi.fn<[string, unknown, number?], Promise<void>>().mockResolvedValue(undefined),
+        listSessions: vi
+          .fn<[string?], Promise<string[]>>()
+          .mockResolvedValue([]),
+        set: vi
+          .fn<[string, unknown, number?], Promise<void>>()
+          .mockResolvedValue(undefined),
         get: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn<[string], Promise<boolean>>().mockResolvedValue(false),
         has: vi.fn<[string], Promise<boolean>>().mockResolvedValue(false),
@@ -324,14 +356,14 @@ describe('LLMTaskExecutor', () => {
       };
     }
 
-    function createTaskWithUniquePda(descriptionStr = 'test task'): Task {
+    function createTaskWithUniquePda(descriptionStr = "test task"): Task {
       const task = createMockTask(descriptionStr);
       // Use a real keypair-derived pubkey so toBase58 is deterministic and unique
       task.pda = Keypair.generate().publicKey;
       return task;
     }
 
-    it('persists messages when memory provided', async () => {
+    it("persists messages when memory provided", async () => {
       const memory = createMockMemory();
       const provider = createMockProvider();
       const executor = new LLMTaskExecutor({ provider, memory });
@@ -342,28 +374,50 @@ describe('LLMTaskExecutor', () => {
       expect(memory.addEntry).toHaveBeenCalledTimes(2);
 
       // First call = user message
-      const firstCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls[0][0] as AddEntryOptions;
-      expect(firstCall.role).toBe('user');
+      const firstCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as AddEntryOptions;
+      expect(firstCall.role).toBe("user");
       expect(firstCall.sessionId).toMatch(/^conv:/);
       expect(firstCall.taskPda).toBeDefined();
 
       // Second call = assistant message
-      const secondCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls[1][0] as AddEntryOptions;
-      expect(secondCall.role).toBe('assistant');
+      const secondCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as AddEntryOptions;
+      expect(secondCall.role).toBe("assistant");
     });
 
-    it('loads prior messages on retry (memory has entries)', async () => {
+    it("loads prior messages on retry (memory has entries)", async () => {
       const task = createTaskWithUniquePda();
       const sessionId = `conv:${task.pda.toBase58()}`;
 
       const priorEntries: MemoryEntry[] = [
-        { id: '1', sessionId, role: 'system', content: 'You are helpful.', timestamp: 1000 },
-        { id: '2', sessionId, role: 'user', content: 'Task info', timestamp: 1001 },
-        { id: '3', sessionId, role: 'assistant', content: 'Prior response', timestamp: 1002 },
+        {
+          id: "1",
+          sessionId,
+          role: "system",
+          content: "You are helpful.",
+          timestamp: 1000,
+        },
+        {
+          id: "2",
+          sessionId,
+          role: "user",
+          content: "Task info",
+          timestamp: 1001,
+        },
+        {
+          id: "3",
+          sessionId,
+          role: "assistant",
+          content: "Prior response",
+          timestamp: 1002,
+        },
       ];
 
       const memory = createMockMemory({
-        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue(priorEntries),
+        getThread: vi
+          .fn<[string, number?], Promise<MemoryEntry[]>>()
+          .mockResolvedValue(priorEntries),
       });
       const provider = createMockProvider();
       const executor = new LLMTaskExecutor({ provider, memory });
@@ -374,22 +428,29 @@ describe('LLMTaskExecutor', () => {
       expect(memory.getThread).toHaveBeenCalledWith(sessionId);
 
       // provider.chat should receive messages built from prior entries (3 prior + 1 assistant response pushed)
-      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
-      expect(messages[0].role).toBe('system');
-      expect(messages[0].content).toBe('You are helpful.');
-      expect(messages[1].role).toBe('user');
-      expect(messages[2].role).toBe('assistant');
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as LLMMessage[];
+      expect(messages[0].role).toBe("system");
+      expect(messages[0].content).toBe("You are helpful.");
+      expect(messages[1].role).toBe("user");
+      expect(messages[2].role).toBe("assistant");
 
       // No initial persistMessages since isNew=false, only assistant response persisted
       expect(memory.addEntry).toHaveBeenCalledTimes(1);
     });
 
-    it('builds fresh messages when memory is empty', async () => {
+    it("builds fresh messages when memory is empty", async () => {
       const memory = createMockMemory({
-        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue([]),
+        getThread: vi
+          .fn<[string, number?], Promise<MemoryEntry[]>>()
+          .mockResolvedValue([]),
       });
       const provider = createMockProvider();
-      const executor = new LLMTaskExecutor({ provider, memory, systemPrompt: 'You are an agent.' });
+      const executor = new LLMTaskExecutor({
+        provider,
+        memory,
+        systemPrompt: "You are an agent.",
+      });
 
       await executor.execute(createTaskWithUniquePda());
 
@@ -398,29 +459,32 @@ describe('LLMTaskExecutor', () => {
       expect(memory.addEntry).toHaveBeenCalledTimes(3);
     });
 
-    it('persists tool call loop messages', async () => {
+    it("persists tool call loop messages", async () => {
       const toolCallResponse: LLMResponse = {
-        content: 'thinking...',
-        toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{"key":"val"}' }],
+        content: "thinking...",
+        toolCalls: [
+          { id: "call_1", name: "lookup", arguments: '{"key":"val"}' },
+        ],
         usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-        model: 'mock-model',
-        finishReason: 'tool_calls',
+        model: "mock-model",
+        finishReason: "tool_calls",
       };
       const finalResponse: LLMResponse = {
-        content: 'final answer',
+        content: "final answer",
         toolCalls: [],
         usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
-        model: 'mock-model',
-        finishReason: 'stop',
+        model: "mock-model",
+        finishReason: "stop",
       };
 
-      const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+      const chatFn = vi
+        .fn<[LLMMessage[]], Promise<LLMResponse>>()
         .mockResolvedValueOnce(toolCallResponse)
         .mockResolvedValueOnce(finalResponse);
 
       const memory = createMockMemory();
       const provider = createMockProvider({ chat: chatFn });
-      const toolHandler = vi.fn().mockResolvedValue('tool result');
+      const toolHandler = vi.fn().mockResolvedValue("tool result");
 
       const executor = new LLMTaskExecutor({ provider, toolHandler, memory });
       await executor.execute(createTaskWithUniquePda());
@@ -432,30 +496,30 @@ describe('LLMTaskExecutor', () => {
       // 4. second assistant response (final answer)
       expect(memory.addEntry).toHaveBeenCalledTimes(4);
 
-      const calls = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls.map(
-        (c: [AddEntryOptions]) => c[0].role
-      );
-      expect(calls).toEqual(['user', 'assistant', 'tool', 'assistant']);
+      const calls = (
+        memory.addEntry as ReturnType<typeof vi.fn>
+      ).mock.calls.map((c: [AddEntryOptions]) => c[0].role);
+      expect(calls).toEqual(["user", "assistant", "tool", "assistant"]);
     });
 
-    it('injects high-confidence graph facts into prompt context', async () => {
+    it("injects high-confidence graph facts into prompt context", async () => {
       const task = createTaskWithUniquePda();
       const provider = createMockProvider();
       const memoryGraph = {
         query: vi.fn().mockResolvedValue([
           {
             node: {
-              id: 'fact-1',
-              content: 'Critical treasury migration completed',
+              id: "fact-1",
+              content: "Critical treasury migration completed",
               createdAt: Date.now(),
               updatedAt: Date.now(),
               baseConfidence: 0.92,
-              provenance: [{ type: 'onchain_event', sourceId: 'tx-abc' }],
+              provenance: [{ type: "onchain_event", sourceId: "tx-abc" }],
             },
             effectiveConfidence: 0.88,
             contradicted: false,
             superseded: false,
-            sources: [{ type: 'onchain_event', sourceId: 'tx-abc' }],
+            sources: [{ type: "onchain_event", sourceId: "tx-abc" }],
           } satisfies MemoryGraphResult,
         ]),
         ingestToolOutput: vi.fn().mockResolvedValue(undefined),
@@ -468,36 +532,42 @@ describe('LLMTaskExecutor', () => {
 
       await executor.execute(task);
 
-      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
-      expect(messages.some(
-        (message) =>
-          message.role === 'system'
-          && message.content.includes('Relevant high-confidence memory'),
-      )).toBe(true);
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as LLMMessage[];
+      expect(
+        messages.some(
+          (message) =>
+            message.role === "system" &&
+            message.content.includes("Relevant high-confidence memory"),
+        ),
+      ).toBe(true);
       expect(memoryGraph.query).toHaveBeenCalled();
     });
 
-    it('ingests tool outputs into memory graph during tool loops', async () => {
+    it("ingests tool outputs into memory graph during tool loops", async () => {
       const toolCallResponse: LLMResponse = {
-        content: 'thinking...',
-        toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{"key":"val"}' }],
+        content: "thinking...",
+        toolCalls: [
+          { id: "call_1", name: "lookup", arguments: '{"key":"val"}' },
+        ],
         usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-        model: 'mock-model',
-        finishReason: 'tool_calls',
+        model: "mock-model",
+        finishReason: "tool_calls",
       };
       const finalResponse: LLMResponse = {
-        content: 'final answer',
+        content: "final answer",
         toolCalls: [],
         usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
-        model: 'mock-model',
-        finishReason: 'stop',
+        model: "mock-model",
+        finishReason: "stop",
       };
       const task = createTaskWithUniquePda();
-      const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+      const chatFn = vi
+        .fn<[LLMMessage[]], Promise<LLMResponse>>()
         .mockResolvedValueOnce(toolCallResponse)
         .mockResolvedValueOnce(finalResponse);
       const provider = createMockProvider({ chat: chatFn });
-      const toolHandler = vi.fn().mockResolvedValue('tool result');
+      const toolHandler = vi.fn().mockResolvedValue("tool result");
       const memoryGraph = {
         query: vi.fn().mockResolvedValue([]),
         ingestToolOutput: vi.fn().mockResolvedValue(undefined),
@@ -515,16 +585,18 @@ describe('LLMTaskExecutor', () => {
         expect.objectContaining({
           sessionId: `conv:${task.pda.toBase58()}`,
           taskPda: task.pda.toBase58(),
-          toolName: 'lookup',
-          output: 'tool result',
+          toolName: "lookup",
+          output: "tool result",
         }),
       );
     });
 
-    it('memory failure does not block execution', async () => {
+    it("memory failure does not block execution", async () => {
       const memory = createMockMemory({
-        addEntry: vi.fn().mockRejectedValue(new Error('storage offline')),
-        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue([]),
+        addEntry: vi.fn().mockRejectedValue(new Error("storage offline")),
+        getThread: vi
+          .fn<[string, number?], Promise<MemoryEntry[]>>()
+          .mockResolvedValue([]),
       });
       const provider = createMockProvider();
       const executor = new LLMTaskExecutor({ provider, memory });
@@ -532,13 +604,13 @@ describe('LLMTaskExecutor', () => {
       const output = await executor.execute(createTaskWithUniquePda());
       expect(output).toHaveLength(4);
       for (const v of output) {
-        expect(typeof v).toBe('bigint');
+        expect(typeof v).toBe("bigint");
       }
     });
 
-    it('getThread failure does not block execution', async () => {
+    it("getThread failure does not block execution", async () => {
       const memory = createMockMemory({
-        getThread: vi.fn().mockRejectedValue(new Error('connection refused')),
+        getThread: vi.fn().mockRejectedValue(new Error("connection refused")),
       });
       const provider = createMockProvider();
       const executor = new LLMTaskExecutor({ provider, memory });
@@ -549,7 +621,7 @@ describe('LLMTaskExecutor', () => {
       expect(memory.addEntry).toHaveBeenCalled();
     });
 
-    it('no persistence when memory not configured', async () => {
+    it("no persistence when memory not configured", async () => {
       const provider = createMockProvider();
       const executor = new LLMTaskExecutor({ provider }); // no memory
 
@@ -558,15 +630,20 @@ describe('LLMTaskExecutor', () => {
       // Nothing to assert on memory — just verify it works without memory
     });
 
-    it('uses configured memoryTtlMs', async () => {
+    it("uses configured memoryTtlMs", async () => {
       const memory = createMockMemory();
       const provider = createMockProvider();
       const customTtl = 3600_000; // 1h
-      const executor = new LLMTaskExecutor({ provider, memory, memoryTtlMs: customTtl });
+      const executor = new LLMTaskExecutor({
+        provider,
+        memory,
+        memoryTtlMs: customTtl,
+      });
 
       await executor.execute(createTaskWithUniquePda());
 
-      const firstCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls[0][0] as AddEntryOptions;
+      const firstCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as AddEntryOptions;
       expect(firstCall.ttlMs).toBe(customTtl);
     });
   });

@@ -2,7 +2,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -14,31 +19,36 @@ describe("complete_task_private (router interface)", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   const HASH_SIZE = 32;
   const JOURNAL_SIZE = 192;
 
   const TRUSTED_SELECTOR = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
-  const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
-  const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
+  const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey(
+    "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+  );
+  const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey(
+    "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+  );
   // Must match sdk/src/constants.ts TRUSTED_RISC0_IMAGE_ID and on-chain complete_task_private.rs
   const TRUSTED_IMAGE_ID = Buffer.from([
-    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245,
-    211, 97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
+    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245, 211,
+    97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
   ]);
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
   const [routerPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("router")],
-    TRUSTED_ROUTER_PROGRAM_ID
+    TRUSTED_ROUTER_PROGRAM_ID,
   );
   const [verifierEntryPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("verifier"), TRUSTED_SELECTOR],
-    TRUSTED_ROUTER_PROGRAM_ID
+    TRUSTED_ROUTER_PROGRAM_ID,
   );
 
   const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -50,48 +60,52 @@ describe("complete_task_private (router interface)", () => {
   let creatorAgentPda: PublicKey;
   let workerAgentPda: PublicKey;
 
-  const creatorAgentId = Buffer.from(`creator-${runId}`.slice(0, 32).padEnd(32, "\0"));
-  const workerAgentId = Buffer.from(`worker-${runId}`.slice(0, 32).padEnd(32, "\0"));
+  const creatorAgentId = Buffer.from(
+    `creator-${runId}`.slice(0, 32).padEnd(32, "\0"),
+  );
+  const workerAgentId = Buffer.from(
+    `worker-${runId}`.slice(0, 32).padEnd(32, "\0"),
+  );
 
   function deriveAgentPda(agentId: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("agent"), agentId],
-      program.programId
+      program.programId,
     )[0];
   }
 
   function deriveTaskPda(creatorPubkey: PublicKey, taskId: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("task"), creatorPubkey.toBuffer(), taskId],
-      program.programId
+      program.programId,
     )[0];
   }
 
   function deriveEscrowPda(taskPda: PublicKey): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("escrow"), taskPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
   }
 
   function deriveClaimPda(taskPda: PublicKey, workerPda: PublicKey): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("claim"), taskPda.toBuffer(), workerPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
   }
 
   function deriveBindingSpendPda(bindingSeed: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("binding_spend"), bindingSeed],
-      program.programId
+      program.programId,
     )[0];
   }
 
   function deriveNullifierSpendPda(nullifierSeed: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("nullifier_spend"), nullifierSeed],
-      program.programId
+      program.programId,
     )[0];
   }
 
@@ -107,7 +121,8 @@ describe("complete_task_private (router interface)", () => {
     bindingSeed?: Buffer;
     nullifierSeed?: Buffer;
   }): Buffer {
-    const outputCommitment = fields.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x22);
+    const outputCommitment =
+      fields.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x22);
     const bindingSeed = fields.bindingSeed ?? Buffer.alloc(HASH_SIZE, 0x33);
     const nullifierSeed = fields.nullifierSeed ?? Buffer.alloc(HASH_SIZE, 0x44);
 
@@ -174,7 +189,7 @@ describe("complete_task_private (router interface)", () => {
         TASK_TYPE_EXCLUSIVE,
         Array.from(constraintHash),
         0,
-        null
+        null,
       )
       .accountsPartial({
         task: taskPda,
@@ -261,7 +276,7 @@ describe("complete_task_private (router interface)", () => {
     for (const keypair of [treasury, creator, worker]) {
       const sig = await provider.connection.requestAirdrop(
         keypair.publicKey,
-        10 * LAMPORTS_PER_SOL
+        10 * LAMPORTS_PER_SOL,
       );
       await provider.connection.confirmTransaction(sig, "confirmed");
     }
@@ -274,7 +289,7 @@ describe("complete_task_private (router interface)", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           new BN(LAMPORTS_PER_SOL / 100),
           1,
-          [provider.wallet.publicKey, treasury.publicKey]
+          [provider.wallet.publicKey, treasury.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -299,11 +314,15 @@ describe("complete_task_private (router interface)", () => {
     }
 
     const protocol = await program.account.protocolConfig.fetch(protocolPda);
-    const minAgentStakeLamportsRaw = (protocol as { minAgentStake: unknown }).minAgentStake;
+    const minAgentStakeLamportsRaw = (protocol as { minAgentStake: unknown })
+      .minAgentStake;
     const minAgentStakeLamports = BN.isBN(minAgentStakeLamportsRaw)
       ? minAgentStakeLamportsRaw.toNumber()
       : Number(minAgentStakeLamportsRaw);
-    const registerStakeLamports = Math.max(minAgentStakeLamports, LAMPORTS_PER_SOL);
+    const registerStakeLamports = Math.max(
+      minAgentStakeLamports,
+      LAMPORTS_PER_SOL,
+    );
 
     creatorAgentPda = deriveAgentPda(creatorAgentId);
     workerAgentPda = deriveAgentPda(workerAgentId);
@@ -319,7 +338,7 @@ describe("complete_task_private (router interface)", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://private-interface-test.example",
             null,
-            new BN(registerStakeLamports)
+            new BN(registerStakeLamports),
           )
           .accountsPartial({
             agent: agentPda,
@@ -330,15 +349,19 @@ describe("complete_task_private (router interface)", () => {
           .signers([signer])
           .rpc();
       } catch (e) {
-        const existingAgent = await (program.account.agentRegistration as {
-          fetchNullable: (pubkey: PublicKey) => Promise<{ authority: PublicKey } | null>;
-        }).fetchNullable(agentPda);
+        const existingAgent = await (
+          program.account.agentRegistration as {
+            fetchNullable: (
+              pubkey: PublicKey,
+            ) => Promise<{ authority: PublicKey } | null>;
+          }
+        ).fetchNullable(agentPda);
         if (!existingAgent) {
           throw e;
         }
         if (!existingAgent.authority.equals(signer.publicKey)) {
           throw new Error(
-            `agent ${agentPda.toBase58()} authority mismatch (${existingAgent.authority.toBase58()} != ${signer.publicKey.toBase58()})`
+            `agent ${agentPda.toBase58()} authority mismatch (${existingAgent.authority.toBase58()} != ${signer.publicKey.toBase58()})`,
           );
         }
       }
@@ -347,7 +370,8 @@ describe("complete_task_private (router interface)", () => {
 
   it("uses new private payload shape and router/dual-spend accounts", async () => {
     const constraintHash = Buffer.alloc(HASH_SIZE, 0x71);
-    const { taskId, taskPda, escrowPda, claimPda } = await createTaskAndClaim(constraintHash);
+    const { taskId, taskPda, escrowPda, claimPda } =
+      await createTaskAndClaim(constraintHash);
     const proof = createProofPayload({
       taskPda,
       authority: worker.publicKey,
@@ -355,18 +379,31 @@ describe("complete_task_private (router interface)", () => {
       sealBytesLen: 32,
     });
 
-    await expectCompletionFailure({ taskId, taskPda, escrowPda, claimPda, proof });
+    await expectCompletionFailure({
+      taskId,
+      taskPda,
+      escrowPda,
+      claimPda,
+      proof,
+    });
   });
 
   it("accepts payload fields sealBytes/journal/imageId/bindingSeed/nullifierSeed", async () => {
     const constraintHash = Buffer.alloc(HASH_SIZE, 0x72);
-    const { taskId, taskPda, escrowPda, claimPda } = await createTaskAndClaim(constraintHash);
+    const { taskId, taskPda, escrowPda, claimPda } =
+      await createTaskAndClaim(constraintHash);
     const proof = createProofPayload({
       taskPda,
       authority: worker.publicKey,
       constraintHash,
     });
 
-    await expectCompletionFailure({ taskId, taskPda, escrowPda, claimPda, proof });
+    await expectCompletionFailure({
+      taskId,
+      taskPda,
+      escrowPda,
+      claimPda,
+      proof,
+    });
   });
 });

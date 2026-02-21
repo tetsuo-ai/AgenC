@@ -4,11 +4,20 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import runtimePackage from '../../package.json';
-import { stableStringifyJson, type JsonValue, EVAL_TRACE_SCHEMA_VERSION } from './types.js';
-import { computeEvidenceHash, INCIDENT_CASE_SCHEMA_VERSION, type IncidentCase, type IncidentEvidenceHash } from './incident-case.js';
-import type { ProjectedTimelineEvent } from './projector.js';
+import { createHash } from "node:crypto";
+import runtimePackage from "../../package.json";
+import {
+  stableStringifyJson,
+  type JsonValue,
+  EVAL_TRACE_SCHEMA_VERSION,
+} from "./types.js";
+import {
+  computeEvidenceHash,
+  INCIDENT_CASE_SCHEMA_VERSION,
+  type IncidentCase,
+  type IncidentEvidenceHash,
+} from "./incident-case.js";
+import type { ProjectedTimelineEvent } from "./projector.js";
 
 /** Schema version for evidence-pack manifest format. */
 export const EVIDENCE_PACK_SCHEMA_VERSION = 1 as const;
@@ -56,17 +65,19 @@ export interface BuildEvidencePackInput {
   runtimeVersion?: string;
 }
 
-const DEFAULT_RUNTIME_VERSION = typeof (runtimePackage as { version?: unknown }).version === 'string'
-  ? (runtimePackage as { version: string }).version
-  : 'unknown';
+const DEFAULT_RUNTIME_VERSION =
+  typeof (runtimePackage as { version?: unknown }).version === "string"
+    ? (runtimePackage as { version: string }).version
+    : "unknown";
 
-const REDACTED_MARKER = '[REDACTED]';
+const REDACTED_MARKER = "[REDACTED]";
 
 export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
   const sealed = input.sealed === true;
-  const runtimeVersion = typeof input.runtimeVersion === 'string' && input.runtimeVersion.length > 0
-    ? input.runtimeVersion
-    : DEFAULT_RUNTIME_VERSION;
+  const runtimeVersion =
+    typeof input.runtimeVersion === "string" && input.runtimeVersion.length > 0
+      ? input.runtimeVersion
+      : DEFAULT_RUNTIME_VERSION;
 
   let events = [...input.events];
   let incidentCase: IncidentCase = {
@@ -76,7 +87,9 @@ export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
   };
 
   if (sealed && input.redactionPolicy) {
-    events = events.map((event) => applyRedaction(event, input.redactionPolicy!));
+    events = events.map((event) =>
+      applyRedaction(event, input.redactionPolicy!),
+    );
 
     if (input.redactionPolicy.redactActors) {
       incidentCase = {
@@ -89,12 +102,18 @@ export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
     }
   }
 
-  const eventsHash = computeEvidenceHash('events', events as unknown as JsonValue);
+  const eventsHash = computeEvidenceHash(
+    "events",
+    events as unknown as JsonValue,
+  );
   const incidentCaseWithRefs: IncidentCase = {
     ...incidentCase,
     evidenceHashes: [...incidentCase.evidenceHashes, eventsHash],
   };
-  const caseHash = computeEvidenceHash('incident-case', incidentCaseWithRefs as unknown as JsonValue);
+  const caseHash = computeEvidenceHash(
+    "incident-case",
+    incidentCaseWithRefs as unknown as JsonValue,
+  );
 
   const cursorRange = {
     fromSlot: incidentCaseWithRefs.traceWindow.fromSlot,
@@ -128,16 +147,18 @@ export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
 
 /** Serialize bundle to the three-file format. */
 export function serializeEvidencePack(pack: EvidencePack): {
-  'manifest.json': string;
-  'incident-case.jsonl': string;
-  'events.jsonl': string;
+  "manifest.json": string;
+  "incident-case.jsonl": string;
+  "events.jsonl": string;
 } {
   return {
-    'manifest.json': JSON.stringify(pack.manifest, null, 2),
-    'incident-case.jsonl': stableStringifyJson(pack.incidentCase as unknown as JsonValue),
-    'events.jsonl': pack.events
+    "manifest.json": JSON.stringify(pack.manifest, null, 2),
+    "incident-case.jsonl": stableStringifyJson(
+      pack.incidentCase as unknown as JsonValue,
+    ),
+    "events.jsonl": pack.events
       .map((event) => stableStringifyJson(event as unknown as JsonValue))
-      .join('\n'),
+      .join("\n"),
   };
 }
 
@@ -157,21 +178,29 @@ function applyRedaction(
 
   return {
     ...event,
-    payload: payload as ProjectedTimelineEvent['payload'],
+    payload: payload as ProjectedTimelineEvent["payload"],
   };
 }
 
 function deepDeleteField(value: unknown, path: string): unknown {
-  const normalized = path.startsWith('payload.') ? path.slice('payload.'.length) : path;
-  const segments = normalized.split('.').filter((segment) => segment.length > 0);
+  const normalized = path.startsWith("payload.")
+    ? path.slice("payload.".length)
+    : path;
+  const segments = normalized
+    .split(".")
+    .filter((segment) => segment.length > 0);
   if (segments.length === 0) {
     return value;
   }
   return deepDeleteSegment(value, segments, 0);
 }
 
-function deepDeleteSegment(value: unknown, segments: readonly string[], index: number): unknown {
-  if (value === null || value === undefined || typeof value !== 'object') {
+function deepDeleteSegment(
+  value: unknown,
+  segments: readonly string[],
+  index: number,
+): unknown {
+  if (value === null || value === undefined || typeof value !== "object") {
     return value;
   }
 
@@ -212,12 +241,15 @@ function deepDeleteSegment(value: unknown, segments: readonly string[], index: n
   };
 }
 
-function deepRedactPattern(value: unknown, patterns: readonly RegExp[]): unknown {
+function deepRedactPattern(
+  value: unknown,
+  patterns: readonly RegExp[],
+): unknown {
   if (value === null || value === undefined) {
     return value;
   }
 
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     for (const pattern of patterns) {
       // Avoid stateful regexp surprises.
       pattern.lastIndex = 0;
@@ -232,7 +264,7 @@ function deepRedactPattern(value: unknown, patterns: readonly RegExp[]): unknown
     return value.map((entry) => deepRedactPattern(entry, patterns));
   }
 
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     const output: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(record)) {
@@ -245,59 +277,46 @@ function deepRedactPattern(value: unknown, patterns: readonly RegExp[]): unknown
 }
 
 function truncateHash(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 function computeSchemaHash(): string {
   const schemaLayout = {
     IncidentCase: [
-      'schemaVersion',
-      'caseId',
-      'createdAtMs',
-      'traceWindow',
-      'transitions',
-      'anomalyIds',
-      'anomalies',
-      'actorMap',
-      'evidenceHashes',
-      'caseStatus',
-      'taskIds',
-      'disputeIds',
-      'metadata',
+      "schemaVersion",
+      "caseId",
+      "createdAtMs",
+      "traceWindow",
+      "transitions",
+      "anomalyIds",
+      "anomalies",
+      "actorMap",
+      "evidenceHashes",
+      "caseStatus",
+      "taskIds",
+      "disputeIds",
+      "metadata",
     ],
     IncidentTraceWindow: [
-      'fromSlot',
-      'toSlot',
-      'fromTimestampMs',
-      'toTimestampMs',
+      "fromSlot",
+      "toSlot",
+      "fromTimestampMs",
+      "toTimestampMs",
     ],
     IncidentTransition: [
-      'seq',
-      'fromState',
-      'toState',
-      'slot',
-      'signature',
-      'sourceEventName',
-      'timestampMs',
-      'taskPda',
-      'disputePda',
+      "seq",
+      "fromState",
+      "toState",
+      "slot",
+      "signature",
+      "sourceEventName",
+      "timestampMs",
+      "taskPda",
+      "disputePda",
     ],
-    IncidentActor: [
-      'pubkey',
-      'role',
-      'firstSeenSeq',
-    ],
-    IncidentAnomalyRef: [
-      'anomalyId',
-      'code',
-      'severity',
-      'message',
-      'seq',
-    ],
-    IncidentEvidenceHash: [
-      'label',
-      'sha256',
-    ],
+    IncidentActor: ["pubkey", "role", "firstSeenSeq"],
+    IncidentAnomalyRef: ["anomalyId", "code", "severity", "message", "seq"],
+    IncidentEvidenceHash: ["label", "sha256"],
     versions: {
       evalTrace: EVAL_TRACE_SCHEMA_VERSION,
       incidentCase: INCIDENT_CASE_SCHEMA_VERSION,
@@ -305,9 +324,9 @@ function computeSchemaHash(): string {
     },
   };
 
-  return createHash('sha256')
+  return createHash("sha256")
     .update(stableStringifyJson(schemaLayout as unknown as JsonValue))
-    .digest('hex');
+    .digest("hex");
 }
 
 function computeToolFingerprint(): string {
@@ -316,6 +335,5 @@ function computeToolFingerprint(): string {
     incidentCaseSchemaVersion: INCIDENT_CASE_SCHEMA_VERSION,
     evidencePackSchemaVersion: EVIDENCE_PACK_SCHEMA_VERSION,
   } as unknown as JsonValue);
-  return createHash('sha256').update(seed).digest('hex');
+  return createHash("sha256").update(seed).digest("hex");
 }
-

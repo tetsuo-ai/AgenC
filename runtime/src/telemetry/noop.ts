@@ -6,8 +6,12 @@
  * @module
  */
 
-import type { MetricsSnapshot } from '../task/metrics.js';
-import type { TelemetryCollector, TelemetrySnapshot, TelemetrySink } from './types.js';
+import type { MetricsSnapshot } from "../task/metrics.js";
+import type {
+  TelemetryCollector,
+  TelemetrySnapshot,
+  TelemetrySink,
+} from "./types.js";
 
 const EMPTY_METRICS_SNAPSHOT: MetricsSnapshot = {
   counters: {},
@@ -25,15 +29,47 @@ const EMPTY_TELEMETRY_SNAPSHOT: TelemetrySnapshot = {
 };
 
 export class NoopTelemetryCollector implements TelemetryCollector {
-  counter(_name: string, _value?: number, _labels?: Record<string, string>): void {}
-  histogram(_name: string, _value: number, _labels?: Record<string, string>): void {}
-  gauge(_name: string, _value: number, _labels?: Record<string, string>): void {}
-  bigintGauge(_name: string, _value: bigint, _labels?: Record<string, string>): void {}
-  recordTaskDuration(_stage: string, _durationMs: number, _labels?: Record<string, string>): void {}
-  incrementCounter(_name: string, _value?: number, _labels?: Record<string, string>): void {}
-  recordHistogram(_name: string, _value: number, _labels?: Record<string, string>): void {}
-  getSnapshot(): MetricsSnapshot { return { ...EMPTY_METRICS_SNAPSHOT, timestamp: Date.now() }; }
-  getFullSnapshot(): TelemetrySnapshot { return { ...EMPTY_TELEMETRY_SNAPSHOT, timestamp: Date.now() }; }
+  counter(
+    _name: string,
+    _value?: number,
+    _labels?: Record<string, string>,
+  ): void {}
+  histogram(
+    _name: string,
+    _value: number,
+    _labels?: Record<string, string>,
+  ): void {}
+  gauge(
+    _name: string,
+    _value: number,
+    _labels?: Record<string, string>,
+  ): void {}
+  bigintGauge(
+    _name: string,
+    _value: bigint,
+    _labels?: Record<string, string>,
+  ): void {}
+  recordTaskDuration(
+    _stage: string,
+    _durationMs: number,
+    _labels?: Record<string, string>,
+  ): void {}
+  incrementCounter(
+    _name: string,
+    _value?: number,
+    _labels?: Record<string, string>,
+  ): void {}
+  recordHistogram(
+    _name: string,
+    _value: number,
+    _labels?: Record<string, string>,
+  ): void {}
+  getSnapshot(): MetricsSnapshot {
+    return { ...EMPTY_METRICS_SNAPSHOT, timestamp: Date.now() };
+  }
+  getFullSnapshot(): TelemetrySnapshot {
+    return { ...EMPTY_TELEMETRY_SNAPSHOT, timestamp: Date.now() };
+  }
   reset(): void {}
   flush(): void {}
   addSink(_sink: TelemetrySink): void {}

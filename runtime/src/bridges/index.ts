@@ -16,9 +16,9 @@ export type {
   FarcasterPostParams,
   FarcasterPostResult,
   FarcasterBridgeConfig,
-} from './types.js';
+} from "./types.js";
 
-export { BridgeError, BridgePaymentError } from './errors.js';
-export { LangChainBridge } from './langchain.js';
-export { X402Bridge } from './x402.js';
-export { FarcasterBridge } from './farcaster.js';
+export { BridgeError, BridgePaymentError } from "./errors.js";
+export { LangChainBridge } from "./langchain.js";
+export { X402Bridge } from "./x402.js";
+export { FarcasterBridge } from "./farcaster.js";

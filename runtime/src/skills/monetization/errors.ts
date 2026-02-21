@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../../types/errors.js";
 
 /**
  * Error thrown when a skill subscription operation fails.
@@ -18,7 +18,7 @@ export class SkillSubscriptionError extends RuntimeError {
       `Skill subscription error for "${skillId}": ${reason}`,
       RuntimeErrorCodes.SKILL_SUBSCRIPTION_ERROR,
     );
-    this.name = 'SkillSubscriptionError';
+    this.name = "SkillSubscriptionError";
     this.skillId = skillId;
     this.reason = reason;
   }
@@ -36,7 +36,7 @@ export class SkillRevenueError extends RuntimeError {
       `Skill revenue error for "${skillId}": ${reason}`,
       RuntimeErrorCodes.SKILL_REVENUE_ERROR,
     );
-    this.name = 'SkillRevenueError';
+    this.name = "SkillRevenueError";
     this.skillId = skillId;
     this.reason = reason;
   }

@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { extractTaskRiskFeatures, scoreTaskRisk } from './risk-scoring.js';
-import { createTask as makeTask } from './test-utils.js';
+import { describe, expect, it } from "vitest";
+import { extractTaskRiskFeatures, scoreTaskRisk } from "./risk-scoring.js";
+import { createTask as makeTask } from "./test-utils.js";
 
-describe('risk scoring', () => {
-  it('extracts bounded feature values', () => {
+describe("risk scoring", () => {
+  it("extracts bounded feature values", () => {
     const nowMs = 1_700_000_000_000;
     const task = makeTask({
       reward: 500_000_000n,
@@ -31,7 +31,7 @@ describe('risk scoring', () => {
     }
   });
 
-  it('scores high-risk tasks above low-risk tasks with explainable contributions', () => {
+  it("scores high-risk tasks above low-risk tasks with explainable contributions", () => {
     const nowMs = 1_700_000_000_000;
 
     const lowRiskTask = makeTask({
@@ -64,11 +64,11 @@ describe('risk scoring', () => {
 
     expect(high.score).toBeGreaterThan(low.score);
     expect(high.contributions).toHaveLength(6);
-    expect(high.contributions[0]).toHaveProperty('feature');
-    expect(high.contributions[0]).toHaveProperty('contribution');
+    expect(high.contributions[0]).toHaveProperty("feature");
+    expect(high.contributions[0]).toHaveProperty("contribution");
   });
 
-  it('respects configured tier thresholds', () => {
+  it("respects configured tier thresholds", () => {
     const task = makeTask({ reward: 100_000_000n, taskType: 1 });
 
     const result = scoreTaskRisk(
@@ -84,7 +84,7 @@ describe('risk scoring', () => {
       },
     );
 
-    expect(['low', 'medium', 'high']).toContain(result.tier);
+    expect(["low", "medium", "high"]).toContain(result.tier);
     expect(result.metadata.mediumRiskThreshold).toBe(0.2);
     expect(result.metadata.highRiskThreshold).toBe(0.4);
   });

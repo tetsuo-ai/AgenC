@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
-import { getTaskLifecycleSummary, TaskState } from '../tasks';
-import { getDisputesByActor, getReplayHealthCheck } from '../queries';
-import { PROGRAM_ID } from '../constants';
+import { describe, expect, it, vi } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { getTaskLifecycleSummary, TaskState } from "../tasks";
+import { getDisputesByActor, getReplayHealthCheck } from "../queries";
+import { PROGRAM_ID } from "../constants";
 
 function bnLike(value: number) {
   return {
@@ -12,12 +12,13 @@ function bnLike(value: number) {
 }
 
 function createTaskRaw(overrides: Partial<Record<string, unknown>> = {}) {
-  const creator = overrides.creator as PublicKey ?? Keypair.generate().publicKey;
+  const creator =
+    (overrides.creator as PublicKey) ?? Keypair.generate().publicKey;
   return {
     taskId: new Uint8Array(32).fill(1),
     status: overrides.status ?? { open: {} },
     creator,
-    rewardAmount: overrides.rewardAmount ?? { toString: () => '1000' },
+    rewardAmount: overrides.rewardAmount ?? { toString: () => "1000" },
     deadline: overrides.deadline ?? bnLike(0),
     constraintHash: overrides.constraintHash ?? null,
     currentWorkers: overrides.currentWorkers ?? 0,
@@ -37,15 +38,20 @@ function buildLifecycleProgram(params: {
   missingTask?: boolean;
 }) {
   const fetchTask = params.missingTask
-    ? vi.fn().mockRejectedValue(new Error('Account does not exist'))
+    ? vi.fn().mockRejectedValue(new Error("Account does not exist"))
     : vi.fn().mockResolvedValue(params.taskRaw);
 
   const taskClaimAll = vi.fn().mockResolvedValue(params.claims ?? []);
   const disputeAll = vi.fn().mockResolvedValue(params.disputes ?? []);
 
-  const getProgramAccounts = vi.fn().mockResolvedValue(
-    Array.from({ length: params.dependentCount ?? 0 }, () => ({ account: {}, pubkey: Keypair.generate().publicKey })),
-  );
+  const getProgramAccounts = vi
+    .fn()
+    .mockResolvedValue(
+      Array.from({ length: params.dependentCount ?? 0 }, () => ({
+        account: {},
+        pubkey: Keypair.generate().publicKey,
+      })),
+    );
 
   return {
     programId: PROGRAM_ID,
@@ -96,9 +102,9 @@ function createDisputeBuffer(args: {
   return data;
 }
 
-describe('convenience APIs (#975)', () => {
-  describe('getTaskLifecycleSummary', () => {
-    it('returns completed task timeline in order', async () => {
+describe("convenience APIs (#975)", () => {
+  describe("getTaskLifecycleSummary", () => {
+    it("returns completed task timeline in order", async () => {
       const taskPda = Keypair.generate().publicKey;
       const worker = Keypair.generate().publicKey;
 
@@ -131,14 +137,14 @@ describe('convenience APIs (#975)', () => {
       expect(summary?.dependentCount).toBe(2);
       expect(summary?.durationSeconds).toBe(300);
       expect(summary?.timeline.map((e) => e.eventName)).toEqual([
-        'taskCreated',
-        'taskClaimed',
-        'taskClaimCompleted',
-        'taskCompleted',
+        "taskCreated",
+        "taskClaimed",
+        "taskClaimCompleted",
+        "taskCompleted",
       ]);
     });
 
-    it('returns cancelled timeline with cancellation event', async () => {
+    it("returns cancelled timeline with cancellation event", async () => {
       const taskPda = Keypair.generate().publicKey;
       const creator = Keypair.generate().publicKey;
 
@@ -151,10 +157,12 @@ describe('convenience APIs (#975)', () => {
       });
 
       const summary = await getTaskLifecycleSummary(program as any, taskPda);
-      expect(summary?.timeline.some((e) => e.eventName === 'taskCancelled')).toBe(true);
+      expect(
+        summary?.timeline.some((e) => e.eventName === "taskCancelled"),
+      ).toBe(true);
     });
 
-    it('marks non-terminal overdue task as expired', async () => {
+    it("marks non-terminal overdue task as expired", async () => {
       const taskPda = Keypair.generate().publicKey;
       const now = Math.floor(Date.now() / 1000);
 
@@ -170,17 +178,20 @@ describe('convenience APIs (#975)', () => {
       expect(summary?.isExpired).toBe(true);
     });
 
-    it('returns null for missing task account', async () => {
+    it("returns null for missing task account", async () => {
       const program = buildLifecycleProgram({
         taskRaw: {},
         missingTask: true,
       });
 
-      const summary = await getTaskLifecycleSummary(program as any, Keypair.generate().publicKey);
+      const summary = await getTaskLifecycleSummary(
+        program as any,
+        Keypair.generate().publicKey,
+      );
       expect(summary).toBeNull();
     });
 
-    it('flags active dispute state and preserves dependent count', async () => {
+    it("flags active dispute state and preserves dependent count", async () => {
       const taskPda = Keypair.generate().publicKey;
       const initiator = Keypair.generate().publicKey;
 
@@ -208,8 +219,8 @@ describe('convenience APIs (#975)', () => {
     });
   });
 
-  describe('getDisputesByActor', () => {
-    it('finds disputes where actor is initiator', async () => {
+  describe("getDisputesByActor", () => {
+    it("finds disputes where actor is initiator", async () => {
       const actor = Keypair.generate().publicKey;
       const disputePda = Keypair.generate().publicKey;
       const taskPda = Keypair.generate().publicKey;
@@ -241,12 +252,16 @@ describe('convenience APIs (#975)', () => {
         getAccountInfo: vi.fn(),
       };
 
-      const results = await getDisputesByActor(connection as any, actor, PROGRAM_ID);
+      const results = await getDisputesByActor(
+        connection as any,
+        actor,
+        PROGRAM_ID,
+      );
       expect(results).toHaveLength(1);
-      expect(results[0].actorRole).toBe('initiator');
+      expect(results[0].actorRole).toBe("initiator");
     });
 
-    it('finds disputes where actor is defendant', async () => {
+    it("finds disputes where actor is defendant", async () => {
       const actor = Keypair.generate().publicKey;
       const disputePda = Keypair.generate().publicKey;
       const taskPda = Keypair.generate().publicKey;
@@ -278,12 +293,16 @@ describe('convenience APIs (#975)', () => {
         getAccountInfo: vi.fn(),
       };
 
-      const results = await getDisputesByActor(connection as any, actor, PROGRAM_ID);
+      const results = await getDisputesByActor(
+        connection as any,
+        actor,
+        PROGRAM_ID,
+      );
       expect(results).toHaveLength(1);
-      expect(results[0].actorRole).toBe('defendant');
+      expect(results[0].actorRole).toBe("defendant");
     });
 
-    it('returns empty when actor has no disputes', async () => {
+    it("returns empty when actor has no disputes", async () => {
       const actor = Keypair.generate().publicKey;
 
       const connection = {
@@ -295,11 +314,15 @@ describe('convenience APIs (#975)', () => {
         getAccountInfo: vi.fn(),
       };
 
-      const results = await getDisputesByActor(connection as any, actor, PROGRAM_ID);
+      const results = await getDisputesByActor(
+        connection as any,
+        actor,
+        PROGRAM_ID,
+      );
       expect(results).toEqual([]);
     });
 
-    it('deduplicates disputes returned by multiple role scans', async () => {
+    it("deduplicates disputes returned by multiple role scans", async () => {
       const actor = Keypair.generate().publicKey;
       const disputePda = Keypair.generate().publicKey;
       const taskPda = Keypair.generate().publicKey;
@@ -319,66 +342,80 @@ describe('convenience APIs (#975)', () => {
       const connection = {
         getProgramAccounts: vi
           .fn()
-          .mockResolvedValueOnce([{ pubkey: disputePda, account: { data: duplicateData } }])
-          .mockResolvedValueOnce([{ pubkey: disputePda, account: { data: duplicateData } }])
+          .mockResolvedValueOnce([
+            { pubkey: disputePda, account: { data: duplicateData } },
+          ])
+          .mockResolvedValueOnce([
+            { pubkey: disputePda, account: { data: duplicateData } },
+          ])
           .mockResolvedValueOnce([]),
         getAccountInfo: vi.fn(),
       };
 
-      const results = await getDisputesByActor(connection as any, actor, PROGRAM_ID);
+      const results = await getDisputesByActor(
+        connection as any,
+        actor,
+        PROGRAM_ID,
+      );
       expect(results).toHaveLength(1);
     });
   });
 
-  describe('getReplayHealthCheck', () => {
-    it('returns healthy for recent events', async () => {
+  describe("getReplayHealthCheck", () => {
+    it("returns healthy for recent events", async () => {
       const now = Date.now();
       const store = {
         query: vi.fn().mockResolvedValue([
-          { taskPda: 'task-1', disputePda: 'dispute-1', timestampMs: now - 1_000 },
-          { taskPda: 'task-2', timestampMs: now - 2_000 },
+          {
+            taskPda: "task-1",
+            disputePda: "dispute-1",
+            timestampMs: now - 1_000,
+          },
+          { taskPda: "task-2", timestampMs: now - 2_000 },
         ]),
-        getCursor: vi.fn().mockResolvedValue({ slot: 1, signature: 'sig-1' }),
+        getCursor: vi.fn().mockResolvedValue({ slot: 1, signature: "sig-1" }),
       };
 
       const health = await getReplayHealthCheck(store);
-      expect(health.status).toBe('healthy');
+      expect(health.status).toBe("healthy");
       expect(health.eventCount).toBe(2);
       expect(health.uniqueTaskCount).toBe(2);
     });
 
-    it('returns empty for no records', async () => {
+    it("returns empty for no records", async () => {
       const store = {
         query: vi.fn().mockResolvedValue([]),
         getCursor: vi.fn().mockResolvedValue(null),
       };
 
       const health = await getReplayHealthCheck(store);
-      expect(health.status).toBe('empty');
+      expect(health.status).toBe("empty");
       expect(health.latestEventTimestampMs).toBeNull();
     });
 
-    it('returns stale for old records', async () => {
+    it("returns stale for old records", async () => {
       const store = {
-        query: vi.fn().mockResolvedValue([
-          { taskPda: 'task-1', timestampMs: Date.now() - 7_200_000 },
-        ]),
+        query: vi
+          .fn()
+          .mockResolvedValue([
+            { taskPda: "task-1", timestampMs: Date.now() - 7_200_000 },
+          ]),
         getCursor: vi.fn().mockResolvedValue(null),
       };
 
       const health = await getReplayHealthCheck(store, 3_600_000);
-      expect(health.status).toBe('stale');
+      expect(health.status).toBe("stale");
       expect(health.hasRecentEvents).toBe(false);
     });
 
-    it('returns unreachable when store query throws', async () => {
+    it("returns unreachable when store query throws", async () => {
       const store = {
-        query: vi.fn().mockRejectedValue(new Error('offline')),
+        query: vi.fn().mockRejectedValue(new Error("offline")),
         getCursor: vi.fn(),
       };
 
       const health = await getReplayHealthCheck(store);
-      expect(health.status).toBe('unreachable');
+      expect(health.status).toBe("unreachable");
       expect(health.storeReachable).toBe(false);
     });
   });

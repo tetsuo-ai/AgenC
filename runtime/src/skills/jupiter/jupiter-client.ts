@@ -7,9 +7,9 @@
  * @module
  */
 
-import type { Logger } from '../../utils/logger.js';
-import type { SwapQuoteParams, SwapQuote, TokenPrice } from './types.js';
-import { JUPITER_PRICE_API_URL } from './constants.js';
+import type { Logger } from "../../utils/logger.js";
+import type { SwapQuoteParams, SwapQuote, TokenPrice } from "./types.js";
+import { JUPITER_PRICE_API_URL } from "./constants.js";
 
 /**
  * Configuration for JupiterClient.
@@ -34,7 +34,7 @@ export class JupiterApiError extends Error {
 
   constructor(message: string, endpoint: string, statusCode?: number) {
     super(message);
-    this.name = 'JupiterApiError';
+    this.name = "JupiterApiError";
     this.endpoint = endpoint;
     this.statusCode = statusCode;
     if (Error.captureStackTrace) {
@@ -80,35 +80,35 @@ export class JupiterClient {
    * @throws JupiterApiError on request failure
    */
   async getQuote(params: SwapQuoteParams): Promise<SwapQuote> {
-    const url = new URL('/quote', this.apiBaseUrl);
-    url.searchParams.set('inputMint', params.inputMint);
-    url.searchParams.set('outputMint', params.outputMint);
-    url.searchParams.set('amount', params.amount.toString());
+    const url = new URL("/quote", this.apiBaseUrl);
+    url.searchParams.set("inputMint", params.inputMint);
+    url.searchParams.set("outputMint", params.outputMint);
+    url.searchParams.set("amount", params.amount.toString());
 
     if (params.slippageBps !== undefined) {
-      url.searchParams.set('slippageBps', params.slippageBps.toString());
+      url.searchParams.set("slippageBps", params.slippageBps.toString());
     }
     if (params.onlyDirectRoutes) {
-      url.searchParams.set('onlyDirectRoutes', 'true');
+      url.searchParams.set("onlyDirectRoutes", "true");
     }
 
     this.logger.debug(`Jupiter quote request: ${url.toString()}`);
 
     const response = await this.fetchWithTimeout(url.toString(), {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      method: "GET",
+      headers: { Accept: "application/json" },
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => 'unknown');
+      const body = await response.text().catch(() => "unknown");
       throw new JupiterApiError(
         `Quote request failed (${response.status}): ${body}`,
-        '/quote',
+        "/quote",
         response.status,
       );
     }
 
-    const data = await response.json() as Record<string, unknown>;
+    const data = (await response.json()) as Record<string, unknown>;
 
     return {
       inputMint: String(data.inputMint),
@@ -135,15 +135,15 @@ export class JupiterClient {
     userPublicKey: string,
     wrapUnwrapSol = true,
   ): Promise<Uint8Array> {
-    const url = new URL('/swap', this.apiBaseUrl);
+    const url = new URL("/swap", this.apiBaseUrl);
 
-    this.logger.debug('Jupiter swap transaction request');
+    this.logger.debug("Jupiter swap transaction request");
 
     const response = await this.fetchWithTimeout(url.toString(), {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify({
         quoteResponse,
@@ -153,25 +153,25 @@ export class JupiterClient {
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => 'unknown');
+      const body = await response.text().catch(() => "unknown");
       throw new JupiterApiError(
         `Swap transaction request failed (${response.status}): ${body}`,
-        '/swap',
+        "/swap",
         response.status,
       );
     }
 
-    const data = await response.json() as Record<string, unknown>;
+    const data = (await response.json()) as Record<string, unknown>;
     const swapTransaction = data.swapTransaction as string | undefined;
 
     if (!swapTransaction) {
       throw new JupiterApiError(
-        'Swap response missing swapTransaction field',
-        '/swap',
+        "Swap response missing swapTransaction field",
+        "/swap",
       );
     }
 
-    return Buffer.from(swapTransaction, 'base64');
+    return Buffer.from(swapTransaction, "base64");
   }
 
   /**
@@ -186,32 +186,34 @@ export class JupiterClient {
       return new Map();
     }
 
-    const url = new URL('/price', JUPITER_PRICE_API_URL);
-    url.searchParams.set('ids', mints.join(','));
+    const url = new URL("/price", JUPITER_PRICE_API_URL);
+    url.searchParams.set("ids", mints.join(","));
 
     this.logger.debug(`Jupiter price request for ${mints.length} token(s)`);
 
     const response = await this.fetchWithTimeout(url.toString(), {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      method: "GET",
+      headers: { Accept: "application/json" },
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => 'unknown');
+      const body = await response.text().catch(() => "unknown");
       throw new JupiterApiError(
         `Price request failed (${response.status}): ${body}`,
-        '/price',
+        "/price",
         response.status,
       );
     }
 
-    const data = await response.json() as Record<string, unknown>;
-    const priceData = data.data as Record<string, Record<string, unknown>> | undefined;
+    const data = (await response.json()) as Record<string, unknown>;
+    const priceData = data.data as
+      | Record<string, Record<string, unknown>>
+      | undefined;
     const result = new Map<string, TokenPrice>();
 
     if (priceData) {
       for (const [mint, info] of Object.entries(priceData)) {
-        if (info && typeof info.price === 'number') {
+        if (info && typeof info.price === "number") {
           result.set(mint, { mint, priceUsd: info.price });
         }
       }
@@ -233,7 +235,7 @@ export class JupiterClient {
     try {
       return await fetch(url, { ...init, signal: controller.signal });
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
+      if (err instanceof Error && err.name === "AbortError") {
         throw new JupiterApiError(
           `Request timed out after ${this.timeoutMs}ms`,
           url,

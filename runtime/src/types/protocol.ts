@@ -1,4 +1,4 @@
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey } from "@solana/web3.js";
 
 /** Maximum number of multisig owners */
 export const MAX_MULTISIG_OWNERS = 5;
@@ -128,23 +128,26 @@ interface RawProtocolConfigData {
  */
 function isBNLike(value: unknown): value is { toString: () => string } {
   return (
-    typeof value === 'object' &&
+    typeof value === "object" &&
     value !== null &&
-    typeof (value as Record<string, unknown>).toString === 'function'
+    typeof (value as Record<string, unknown>).toString === "function"
   );
 }
 
 /**
  * Checks if a value is a BN-like object with toNumber method (for i64 fields)
  */
-function isBNLikeWithToNumber(value: unknown): value is { toNumber: () => number } {
+function isBNLikeWithToNumber(
+  value: unknown,
+): value is { toNumber: () => number } {
   return (
-    isBNLike(value) && typeof (value as Record<string, unknown>).toNumber === 'function'
+    isBNLike(value) &&
+    typeof (value as Record<string, unknown>).toNumber === "function"
   );
 }
 
 function isPublicKeyLike(value: unknown): boolean {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     try {
       // Reject non-base58 garbage early so parse errors remain deterministic.
       new PublicKey(value);
@@ -156,13 +159,13 @@ function isPublicKeyLike(value: unknown): boolean {
   if (value instanceof PublicKey) {
     return true;
   }
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== "object" || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate.toBase58 === 'function' ||
-    typeof candidate.toBytes === 'function'
+    typeof candidate.toBase58 === "function" ||
+    typeof candidate.toBytes === "function"
   );
 }
 
@@ -170,19 +173,22 @@ function toPublicKey(value: unknown): PublicKey {
   if (value instanceof PublicKey) {
     return value;
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return new PublicKey(value);
   }
-  if (typeof value === 'object' && value !== null) {
-    const candidate = value as { toBytes?: () => Uint8Array; toBase58?: () => string };
-    if (typeof candidate.toBytes === 'function') {
+  if (typeof value === "object" && value !== null) {
+    const candidate = value as {
+      toBytes?: () => Uint8Array;
+      toBase58?: () => string;
+    };
+    if (typeof candidate.toBytes === "function") {
       return new PublicKey(candidate.toBytes());
     }
-    if (typeof candidate.toBase58 === 'function') {
+    if (typeof candidate.toBase58 === "function") {
       return new PublicKey(candidate.toBase58());
     }
   }
-  throw new Error('Invalid public key value');
+  throw new Error("Invalid public key value");
 }
 
 /**
@@ -190,7 +196,7 @@ function toPublicKey(value: unknown): PublicKey {
  * Validates all required fields used by parseProtocolConfig.
  */
 function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
-  if (typeof data !== 'object' || data === null) {
+  if (typeof data !== "object" || data === null) {
     return false;
   }
   const obj = data as Record<string, unknown>;
@@ -200,20 +206,22 @@ function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
   if (!isPublicKeyLike(obj.treasury)) return false;
 
   // Validate number fields (u8, u16)
-  if (typeof obj.disputeThreshold !== 'number') return false;
-  if (typeof obj.protocolFeeBps !== 'number') return false;
-  if (typeof obj.bump !== 'number') return false;
-  if (typeof obj.multisigThreshold !== 'number') return false;
-  if (typeof obj.multisigOwnersLen !== 'number') return false;
+  if (typeof obj.disputeThreshold !== "number") return false;
+  if (typeof obj.protocolFeeBps !== "number") return false;
+  if (typeof obj.bump !== "number") return false;
+  if (typeof obj.multisigThreshold !== "number") return false;
+  if (typeof obj.multisigOwnersLen !== "number") return false;
   const hasMaxTasksPer24h =
-    typeof obj.maxTasksPer24h === 'number' || typeof obj.maxTasksPer24H === 'number';
+    typeof obj.maxTasksPer24h === "number" ||
+    typeof obj.maxTasksPer24H === "number";
   if (!hasMaxTasksPer24h) return false;
   const hasMaxDisputesPer24h =
-    typeof obj.maxDisputesPer24h === 'number' || typeof obj.maxDisputesPer24H === 'number';
+    typeof obj.maxDisputesPer24h === "number" ||
+    typeof obj.maxDisputesPer24H === "number";
   if (!hasMaxDisputesPer24h) return false;
-  if (typeof obj.slashPercentage !== 'number') return false;
-  if (typeof obj.protocolVersion !== 'number') return false;
-  if (typeof obj.minSupportedVersion !== 'number') return false;
+  if (typeof obj.slashPercentage !== "number") return false;
+  if (typeof obj.protocolVersion !== "number") return false;
+  if (typeof obj.minSupportedVersion !== "number") return false;
 
   // Validate BN-like fields (u64 - need toString for bigint conversion)
   if (!isBNLike(obj.minArbiterStake)) return false;
@@ -263,35 +271,37 @@ function toBigInt(value: { toString: () => string }): bigint {
  */
 export function parseProtocolConfig(data: unknown): ProtocolConfig {
   if (!isRawProtocolConfigData(data)) {
-    throw new Error('Invalid protocol config data: missing required fields');
+    throw new Error("Invalid protocol config data: missing required fields");
   }
 
   const maxTasksPer24h =
-    typeof data.maxTasksPer24h === 'number' ? data.maxTasksPer24h : data.maxTasksPer24H;
+    typeof data.maxTasksPer24h === "number"
+      ? data.maxTasksPer24h
+      : data.maxTasksPer24H;
   const maxDisputesPer24h =
-    typeof data.maxDisputesPer24h === 'number'
+    typeof data.maxDisputesPer24h === "number"
       ? data.maxDisputesPer24h
       : data.maxDisputesPer24H;
   if (maxTasksPer24h === undefined || maxDisputesPer24h === undefined) {
-    throw new Error('Invalid protocol config data: missing rate-limit fields');
+    throw new Error("Invalid protocol config data: missing rate-limit fields");
   }
 
   // Range validation for protocol fields
   if (data.disputeThreshold < 1 || data.disputeThreshold > 100) {
     throw new Error(
-      `Invalid disputeThreshold: ${data.disputeThreshold} (must be 1-100)`
+      `Invalid disputeThreshold: ${data.disputeThreshold} (must be 1-100)`,
     );
   }
 
   if (data.protocolFeeBps > 10000) {
     throw new Error(
-      `Invalid protocolFeeBps: ${data.protocolFeeBps} (must be <= 10000)`
+      `Invalid protocolFeeBps: ${data.protocolFeeBps} (must be <= 10000)`,
     );
   }
 
   if (data.slashPercentage > 100) {
     throw new Error(
-      `Invalid slashPercentage: ${data.slashPercentage} (must be 0-100)`
+      `Invalid slashPercentage: ${data.slashPercentage} (must be 0-100)`,
     );
   }
 
@@ -300,7 +310,7 @@ export function parseProtocolConfig(data: unknown): ProtocolConfig {
   // Validate multisigOwnersLen is within bounds
   if (multisigOwnersLen > MAX_MULTISIG_OWNERS) {
     throw new Error(
-      `Invalid multisigOwnersLen: ${multisigOwnersLen} exceeds maximum ${MAX_MULTISIG_OWNERS}`
+      `Invalid multisigOwnersLen: ${multisigOwnersLen} exceeds maximum ${MAX_MULTISIG_OWNERS}`,
     );
   }
 

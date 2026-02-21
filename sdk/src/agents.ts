@@ -1,13 +1,8 @@
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-} from '@solana/web3.js';
-import anchor, { type Program } from '@coral-xyz/anchor';
-import { PROGRAM_ID, SEEDS } from './constants';
-import { getAccount } from './anchor-utils';
-import { toBigInt, toNumber } from './utils/numeric';
+import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import anchor, { type Program } from "@coral-xyz/anchor";
+import { PROGRAM_ID, SEEDS } from "./constants";
+import { getAccount } from "./anchor-utils";
+import { toBigInt, toNumber } from "./utils/numeric";
 
 export interface RegisterAgentParams {
   agentId: Uint8Array | number[];
@@ -45,24 +40,27 @@ export interface AgentState {
 }
 
 function toAgentIdBytes(agentId: Uint8Array | number[]): Uint8Array {
-  const bytes = agentId instanceof Uint8Array ? agentId : Uint8Array.from(agentId);
+  const bytes =
+    agentId instanceof Uint8Array ? agentId : Uint8Array.from(agentId);
   if (bytes.length !== 32) {
-    throw new Error(`Invalid agentId length: ${bytes.length}. Expected 32 bytes.`);
+    throw new Error(
+      `Invalid agentId length: ${bytes.length}. Expected 32 bytes.`,
+    );
   }
   return bytes;
 }
 
 function parseAgentStatus(raw: unknown): AgentStatus {
-  if (typeof raw === 'number') {
+  if (typeof raw === "number") {
     return raw as AgentStatus;
   }
 
-  if (raw && typeof raw === 'object') {
+  if (raw && typeof raw === "object") {
     const enumObj = raw as Record<string, unknown>;
-    if ('inactive' in enumObj) return AgentStatus.Inactive;
-    if ('active' in enumObj) return AgentStatus.Active;
-    if ('busy' in enumObj) return AgentStatus.Busy;
-    if ('suspended' in enumObj) return AgentStatus.Suspended;
+    if ("inactive" in enumObj) return AgentStatus.Inactive;
+    if ("active" in enumObj) return AgentStatus.Active;
+    if ("busy" in enumObj) return AgentStatus.Busy;
+    if ("suspended" in enumObj) return AgentStatus.Suspended;
   }
 
   return AgentStatus.Inactive;
@@ -78,7 +76,10 @@ export function deriveAgentPda(
   programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   const idBytes = toAgentIdBytes(agentId);
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.AGENT, idBytes], programId);
+  const [pda] = PublicKey.findProgramAddressSync(
+    [SEEDS.AGENT, idBytes],
+    programId,
+  );
   return pda;
 }
 
@@ -110,7 +111,7 @@ export async function registerAgent(
     .signers([authority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { agentPda, txSignature: tx };
 }
 
@@ -153,7 +154,7 @@ export async function updateAgent(
   }
 
   const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { txSignature: tx };
 }
@@ -178,7 +179,7 @@ export async function suspendAgent(
     .signers([protocolAuthority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -202,7 +203,7 @@ export async function unsuspendAgent(
     .signers([protocolAuthority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -226,7 +227,7 @@ export async function deregisterAgent(
     .signers([authority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
@@ -235,19 +236,24 @@ export async function getAgent(
   agentPda: PublicKey,
 ): Promise<AgentState | null> {
   try {
-    const account = (await getAccount(program, 'agentRegistration').fetch(agentPda)) as Record<string, unknown>;
+    const account = (await getAccount(program, "agentRegistration").fetch(
+      agentPda,
+    )) as Record<string, unknown>;
 
     const metadataUriRaw = account.metadataUri ?? account.metadata_uri;
-    const metadataUri = typeof metadataUriRaw === 'string' && metadataUriRaw.length > 0
-      ? metadataUriRaw
-      : null;
+    const metadataUri =
+      typeof metadataUriRaw === "string" && metadataUriRaw.length > 0
+        ? metadataUriRaw
+        : null;
 
     return {
-      agentId: new Uint8Array((account.agentId ?? account.agent_id ?? []) as number[]),
+      agentId: new Uint8Array(
+        (account.agentId ?? account.agent_id ?? []) as number[],
+      ),
       authority: account.authority as PublicKey,
       capabilities: toBigInt(account.capabilities),
       status: parseAgentStatus(account.status),
-      endpoint: (account.endpoint ?? '') as string,
+      endpoint: (account.endpoint ?? "") as string,
       metadataUri,
       stakeAmount: toBigInt(account.stake),
       activeTasks: toNumber(account.activeTasks ?? account.active_tasks),
@@ -256,7 +262,10 @@ export async function getAgent(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('Account does not exist') || message.includes('could not find account')) {
+    if (
+      message.includes("Account does not exist") ||
+      message.includes("could not find account")
+    ) {
       return null;
     }
     throw error;

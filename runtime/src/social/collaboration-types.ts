@@ -9,16 +9,16 @@
  * @module
  */
 
-import type { PublicKey, Keypair } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import type { TeamPayoutConfig } from '../team/types.js';
-import type { TeamContractEngine } from '../team/engine.js';
-import type { AgentFeed } from './feed.js';
-import type { AgentMessaging } from './messaging.js';
-import type { AgentDiscovery } from './discovery.js';
-import type { ReputationSignalCallback } from './reputation-types.js';
+import type { PublicKey, Keypair } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import type { TeamPayoutConfig } from "../team/types.js";
+import type { TeamContractEngine } from "../team/engine.js";
+import type { AgentFeed } from "./feed.js";
+import type { AgentMessaging } from "./messaging.js";
+import type { AgentDiscovery } from "./discovery.js";
+import type { ReputationSignalCallback } from "./reputation-types.js";
 
 // ============================================================================
 // Constants
@@ -26,9 +26,38 @@ import type { ReputationSignalCallback } from './reputation-types.js';
 
 /** Well-known 32-byte topic for collaboration request feed posts ("collab\0\0" + 24 zero bytes) */
 export const COLLABORATION_TOPIC = new Uint8Array([
-  0x63, 0x6f, 0x6c, 0x6c, 0x61, 0x62, 0x00, 0x00, // "collab\0\0"
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0,
+  0x63,
+  0x6f,
+  0x6c,
+  0x6c,
+  0x61,
+  0x62,
+  0x00,
+  0x00, // "collab\0\0"
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
 ]);
 
 /** Maximum length of a collaboration request title */
@@ -62,11 +91,11 @@ export interface CollaborationRequest {
 
 /** Status of a collaboration request */
 export type CollaborationRequestStatus =
-  | 'open'
-  | 'forming'
-  | 'formed'
-  | 'expired'
-  | 'cancelled';
+  | "open"
+  | "forming"
+  | "formed"
+  | "expired"
+  | "cancelled";
 
 /** A response from an agent to a collaboration request */
 export interface CollaborationResponse {
@@ -106,7 +135,7 @@ export interface CollaborationRequestState {
 
 /** JSON metadata structure hashed for contentHash */
 export interface CollaborationRequestMetadata {
-  type: 'collaboration_request';
+  type: "collaboration_request";
   version: 1;
   title: string;
   description: string;

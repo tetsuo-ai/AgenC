@@ -2,16 +2,16 @@
  * Tests for DependencyGraph
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
+import { describe, it, expect, beforeEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
 import {
   DependencyGraph,
   DependencyType,
   TaskNode,
   TaskNodeStatus,
-} from './dependency-graph.js';
-import type { OnChainTask } from './types.js';
-import { OnChainTaskStatus, TaskType } from './types.js';
+} from "./dependency-graph.js";
+import type { OnChainTask } from "./types.js";
+import { OnChainTaskStatus, TaskType } from "./types.js";
 
 // ============================================================================
 // Test Helpers
@@ -58,15 +58,15 @@ function randomPda(): PublicKey {
 // Tests
 // ============================================================================
 
-describe('DependencyGraph', () => {
+describe("DependencyGraph", () => {
   let graph: DependencyGraph;
 
   beforeEach(() => {
     graph = new DependencyGraph();
   });
 
-  describe('addTask', () => {
-    it('should add a root task to the graph', () => {
+  describe("addTask", () => {
+    it("should add a root task to the graph", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -76,20 +76,20 @@ describe('DependencyGraph', () => {
       const node = graph.getNode(pda);
       expect(node).toBeDefined();
       expect(node?.depth).toBe(0);
-      expect(node?.status).toBe('pending');
+      expect(node?.status).toBe("pending");
       expect(node?.dependsOn).toBeNull();
     });
 
-    it('should throw error when adding duplicate task', () => {
+    it("should throw error when adding duplicate task", () => {
       const task = createMockTask();
       const pda = randomPda();
 
       graph.addTask(task, pda);
 
-      expect(() => graph.addTask(task, pda)).toThrow('already exists');
+      expect(() => graph.addTask(task, pda)).toThrow("already exists");
     });
 
-    it('should track multiple root tasks', () => {
+    it("should track multiple root tasks", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const pda1 = randomPda();
@@ -103,8 +103,8 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('addTaskWithParent', () => {
-    it('should add a child task with correct depth', () => {
+  describe("addTaskWithParent", () => {
+    it("should add a child task with correct depth", () => {
       const parentTask = createMockTask();
       const childTask = createMockTask();
       const parentPda = randomPda();
@@ -119,17 +119,17 @@ describe('DependencyGraph', () => {
       expect(child?.dependsOn?.toBase58()).toBe(parentPda.toBase58());
     });
 
-    it('should throw error when parent not found', () => {
+    it("should throw error when parent not found", () => {
       const childTask = createMockTask();
       const childPda = randomPda();
       const nonExistentParent = randomPda();
 
       expect(() =>
-        graph.addTaskWithParent(childTask, childPda, nonExistentParent)
-      ).toThrow('not found');
+        graph.addTaskWithParent(childTask, childPda, nonExistentParent),
+      ).toThrow("not found");
     });
 
-    it('should increment depth through chain', () => {
+    it("should increment depth through chain", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -146,22 +146,27 @@ describe('DependencyGraph', () => {
       expect(graph.getDepth(pda3)).toBe(2);
     });
 
-    it('should support different dependency types', () => {
+    it("should support different dependency types", () => {
       const parentTask = createMockTask();
       const childTask = createMockTask();
       const parentPda = randomPda();
       const childPda = randomPda();
 
       graph.addTask(parentTask, parentPda);
-      graph.addTaskWithParent(childTask, childPda, parentPda, DependencyType.Order);
+      graph.addTaskWithParent(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Order,
+      );
 
       const child = graph.getNode(childPda);
       expect(child?.dependencyType).toBe(DependencyType.Order);
     });
   });
 
-  describe('removeTask', () => {
-    it('should remove a leaf task', () => {
+  describe("removeTask", () => {
+    it("should remove a leaf task", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -172,7 +177,7 @@ describe('DependencyGraph', () => {
       expect(graph.hasTask(pda)).toBe(false);
     });
 
-    it('should throw error when removing task with dependents', () => {
+    it("should throw error when removing task with dependents", () => {
       const parentTask = createMockTask();
       const childTask = createMockTask();
       const parentPda = randomPda();
@@ -181,10 +186,10 @@ describe('DependencyGraph', () => {
       graph.addTask(parentTask, parentPda);
       graph.addTaskWithParent(childTask, childPda, parentPda);
 
-      expect(() => graph.removeTask(parentPda)).toThrow('has');
+      expect(() => graph.removeTask(parentPda)).toThrow("has");
     });
 
-    it('should update parent edges when child is removed', () => {
+    it("should update parent edges when child is removed", () => {
       const parentTask = createMockTask();
       const childTask = createMockTask();
       const parentPda = randomPda();
@@ -199,14 +204,14 @@ describe('DependencyGraph', () => {
       expect(graph.getDependents(parentPda).length).toBe(0);
     });
 
-    it('should handle removing non-existent task gracefully', () => {
+    it("should handle removing non-existent task gracefully", () => {
       const nonExistent = randomPda();
       expect(() => graph.removeTask(nonExistent)).not.toThrow();
     });
   });
 
-  describe('getDependents', () => {
-    it('should return empty array for task with no children', () => {
+  describe("getDependents", () => {
+    it("should return empty array for task with no children", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -215,7 +220,7 @@ describe('DependencyGraph', () => {
       expect(graph.getDependents(pda)).toEqual([]);
     });
 
-    it('should return direct children only', () => {
+    it("should return direct children only", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -232,7 +237,7 @@ describe('DependencyGraph', () => {
       expect(dependents[0].taskPda.toBase58()).toBe(pda2.toBase58());
     });
 
-    it('should return multiple children', () => {
+    it("should return multiple children", () => {
       const parent = createMockTask();
       const child1 = createMockTask();
       const child2 = createMockTask();
@@ -249,8 +254,8 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('getParent', () => {
-    it('should return null for root task', () => {
+  describe("getParent", () => {
+    it("should return null for root task", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -259,7 +264,7 @@ describe('DependencyGraph', () => {
       expect(graph.getParent(pda)).toBeNull();
     });
 
-    it('should return parent task', () => {
+    it("should return parent task", () => {
       const parentTask = createMockTask();
       const childTask = createMockTask();
       const parentPda = randomPda();
@@ -273,13 +278,13 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('getDepth', () => {
-    it('should return -1 for non-existent task', () => {
+  describe("getDepth", () => {
+    it("should return -1 for non-existent task", () => {
       const nonExistent = randomPda();
       expect(graph.getDepth(nonExistent)).toBe(-1);
     });
 
-    it('should return correct depth for chain', () => {
+    it("should return correct depth for chain", () => {
       const pdas: PublicKey[] = [];
 
       // Create a chain of 5 tasks
@@ -301,13 +306,13 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('wouldCreateCycle', () => {
-    it('should detect self-loop', () => {
+  describe("wouldCreateCycle", () => {
+    it("should detect self-loop", () => {
       const pda = randomPda();
       expect(graph.wouldCreateCycle(pda, pda)).toBe(true);
     });
 
-    it('should detect simple cycle', () => {
+    it("should detect simple cycle", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const pda1 = randomPda();
@@ -320,7 +325,7 @@ describe('DependencyGraph', () => {
       expect(graph.wouldCreateCycle(pda2, pda1)).toBe(true);
     });
 
-    it('should detect longer cycle', () => {
+    it("should detect longer cycle", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -336,7 +341,7 @@ describe('DependencyGraph', () => {
       expect(graph.wouldCreateCycle(pda3, pda1)).toBe(true);
     });
 
-    it('should not detect cycle when none exists', () => {
+    it("should not detect cycle when none exists", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const pda1 = randomPda();
@@ -350,7 +355,7 @@ describe('DependencyGraph', () => {
       expect(graph.wouldCreateCycle(pda2, pda1)).toBe(false);
     });
 
-    it('should prevent cycle creation in addTaskWithParent', () => {
+    it("should prevent cycle creation in addTaskWithParent", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const pda1 = randomPda();
@@ -371,14 +376,14 @@ describe('DependencyGraph', () => {
 
       // A task already in graph cannot be re-added (throws duplicate error)
       const duplicateTask = createMockTask({ taskId: task1.taskId });
-      expect(() =>
-        graph.addTaskWithParent(duplicateTask, pda1, pda2)
-      ).toThrow('already exists');
+      expect(() => graph.addTaskWithParent(duplicateTask, pda1, pda2)).toThrow(
+        "already exists",
+      );
     });
   });
 
-  describe('getTasksAtDepth', () => {
-    it('should return empty array for non-existent depth', () => {
+  describe("getTasksAtDepth", () => {
+    it("should return empty array for non-existent depth", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -387,7 +392,7 @@ describe('DependencyGraph', () => {
       expect(graph.getTasksAtDepth(5)).toEqual([]);
     });
 
-    it('should return all tasks at specified depth', () => {
+    it("should return all tasks at specified depth", () => {
       const root = createMockTask();
       const child1 = createMockTask();
       const child2 = createMockTask();
@@ -407,12 +412,12 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('getRoots', () => {
-    it('should return empty array for empty graph', () => {
+  describe("getRoots", () => {
+    it("should return empty array for empty graph", () => {
       expect(graph.getRoots()).toEqual([]);
     });
 
-    it('should return all root tasks', () => {
+    it("should return all root tasks", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -429,12 +434,12 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('getLeaves', () => {
-    it('should return all tasks in empty graph as leaves', () => {
+  describe("getLeaves", () => {
+    it("should return all tasks in empty graph as leaves", () => {
       expect(graph.getLeaves()).toEqual([]);
     });
 
-    it('should return tasks with no children', () => {
+    it("should return tasks with no children", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -450,7 +455,7 @@ describe('DependencyGraph', () => {
       expect(leaves.length).toBe(2);
     });
 
-    it('should return single task as both root and leaf', () => {
+    it("should return single task as both root and leaf", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -461,12 +466,12 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('topologicalSort', () => {
-    it('should return empty array for empty graph', () => {
+  describe("topologicalSort", () => {
+    it("should return empty array for empty graph", () => {
       expect(graph.topologicalSort()).toEqual([]);
     });
 
-    it('should return tasks in correct order', () => {
+    it("should return tasks in correct order", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -483,11 +488,15 @@ describe('DependencyGraph', () => {
 
       // Parents should come before children
       const indices = sorted.map((n) => n.taskPda.toBase58());
-      expect(indices.indexOf(pda1.toBase58())).toBeLessThan(indices.indexOf(pda2.toBase58()));
-      expect(indices.indexOf(pda2.toBase58())).toBeLessThan(indices.indexOf(pda3.toBase58()));
+      expect(indices.indexOf(pda1.toBase58())).toBeLessThan(
+        indices.indexOf(pda2.toBase58()),
+      );
+      expect(indices.indexOf(pda2.toBase58())).toBeLessThan(
+        indices.indexOf(pda3.toBase58()),
+      );
     });
 
-    it('should handle diamond dependency', () => {
+    it("should handle diamond dependency", () => {
       //     A
       //    / \
       //   B   C
@@ -515,33 +524,35 @@ describe('DependencyGraph', () => {
       // A should be first
       expect(indices.indexOf(pdaA.toBase58())).toBe(0);
       // B should be before D
-      expect(indices.indexOf(pdaB.toBase58())).toBeLessThan(indices.indexOf(pdaD.toBase58()));
+      expect(indices.indexOf(pdaB.toBase58())).toBeLessThan(
+        indices.indexOf(pdaD.toBase58()),
+      );
     });
   });
 
-  describe('updateStatus', () => {
-    it('should update task status', () => {
+  describe("updateStatus", () => {
+    it("should update task status", () => {
       const task = createMockTask();
       const pda = randomPda();
 
       graph.addTask(task, pda);
-      expect(graph.getNode(pda)?.status).toBe('pending');
+      expect(graph.getNode(pda)?.status).toBe("pending");
 
-      graph.updateStatus(pda, 'executing');
-      expect(graph.getNode(pda)?.status).toBe('executing');
+      graph.updateStatus(pda, "executing");
+      expect(graph.getNode(pda)?.status).toBe("executing");
 
-      graph.updateStatus(pda, 'completed');
-      expect(graph.getNode(pda)?.status).toBe('completed');
+      graph.updateStatus(pda, "completed");
+      expect(graph.getNode(pda)?.status).toBe("completed");
     });
 
-    it('should return false for non-existent task', () => {
+    it("should return false for non-existent task", () => {
       const nonExistent = randomPda();
-      expect(graph.updateStatus(nonExistent, 'executing')).toBe(false);
+      expect(graph.updateStatus(nonExistent, "executing")).toBe(false);
     });
   });
 
-  describe('getSpeculatableTasks', () => {
-    it('should return root pending tasks', () => {
+  describe("getSpeculatableTasks", () => {
+    it("should return root pending tasks", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -551,7 +562,7 @@ describe('DependencyGraph', () => {
       expect(speculatable.length).toBe(1);
     });
 
-    it('should not return executing or completed tasks', () => {
+    it("should not return executing or completed tasks", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const pda1 = randomPda();
@@ -560,14 +571,14 @@ describe('DependencyGraph', () => {
       graph.addTask(task1, pda1);
       graph.addTask(task2, pda2);
 
-      graph.updateStatus(pda1, 'executing');
-      graph.updateStatus(pda2, 'completed');
+      graph.updateStatus(pda1, "executing");
+      graph.updateStatus(pda2, "completed");
 
       const speculatable = graph.getSpeculatableTasks();
       expect(speculatable.length).toBe(0);
     });
 
-    it('should return child when parent is executing', () => {
+    it("should return child when parent is executing", () => {
       const parent = createMockTask();
       const child = createMockTask();
       const parentPda = randomPda();
@@ -578,16 +589,22 @@ describe('DependencyGraph', () => {
 
       // Child not speculatable when parent is pending
       let speculatable = graph.getSpeculatableTasks();
-      expect(speculatable.map((n) => n.taskPda.toBase58())).toContain(parentPda.toBase58());
-      expect(speculatable.map((n) => n.taskPda.toBase58())).not.toContain(childPda.toBase58());
+      expect(speculatable.map((n) => n.taskPda.toBase58())).toContain(
+        parentPda.toBase58(),
+      );
+      expect(speculatable.map((n) => n.taskPda.toBase58())).not.toContain(
+        childPda.toBase58(),
+      );
 
       // Child becomes speculatable when parent is executing
-      graph.updateStatus(parentPda, 'executing');
+      graph.updateStatus(parentPda, "executing");
       speculatable = graph.getSpeculatableTasks();
-      expect(speculatable.map((n) => n.taskPda.toBase58())).toContain(childPda.toBase58());
+      expect(speculatable.map((n) => n.taskPda.toBase58())).toContain(
+        childPda.toBase58(),
+      );
     });
 
-    it('should return child when parent is completed', () => {
+    it("should return child when parent is completed", () => {
       const parent = createMockTask();
       const child = createMockTask();
       const parentPda = randomPda();
@@ -596,13 +613,15 @@ describe('DependencyGraph', () => {
       graph.addTask(parent, parentPda);
       graph.addTaskWithParent(child, childPda, parentPda);
 
-      graph.updateStatus(parentPda, 'completed');
+      graph.updateStatus(parentPda, "completed");
 
       const speculatable = graph.getSpeculatableTasks();
-      expect(speculatable.map((n) => n.taskPda.toBase58())).toContain(childPda.toBase58());
+      expect(speculatable.map((n) => n.taskPda.toBase58())).toContain(
+        childPda.toBase58(),
+      );
     });
 
-    it('should not return child when parent is failed', () => {
+    it("should not return child when parent is failed", () => {
       const parent = createMockTask();
       const child = createMockTask();
       const parentPda = randomPda();
@@ -611,15 +630,15 @@ describe('DependencyGraph', () => {
       graph.addTask(parent, parentPda);
       graph.addTaskWithParent(child, childPda, parentPda);
 
-      graph.updateStatus(parentPda, 'failed');
+      graph.updateStatus(parentPda, "failed");
 
       const speculatable = graph.getSpeculatableTasks();
       expect(speculatable.length).toBe(0);
     });
   });
 
-  describe('getDescendants', () => {
-    it('should return all descendants', () => {
+  describe("getDescendants", () => {
+    it("should return all descendants", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -638,7 +657,7 @@ describe('DependencyGraph', () => {
       expect(descendants.length).toBe(3);
     });
 
-    it('should return empty array for leaf task', () => {
+    it("should return empty array for leaf task", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -648,8 +667,8 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('getAncestors', () => {
-    it('should return all ancestors nearest first', () => {
+  describe("getAncestors", () => {
+    it("should return all ancestors nearest first", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -667,7 +686,7 @@ describe('DependencyGraph', () => {
       expect(ancestors[1].taskPda.toBase58()).toBe(pda1.toBase58());
     });
 
-    it('should return empty array for root task', () => {
+    it("should return empty array for root task", () => {
       const task = createMockTask();
       const pda = randomPda();
 
@@ -677,8 +696,8 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('toJSON', () => {
-    it('should serialize empty graph', () => {
+  describe("toJSON", () => {
+    it("should serialize empty graph", () => {
       const json = graph.toJSON();
       expect(json).toEqual({
         nodes: [],
@@ -687,7 +706,7 @@ describe('DependencyGraph', () => {
       });
     });
 
-    it('should serialize graph with nodes and edges', () => {
+    it("should serialize graph with nodes and edges", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const pda1 = randomPda();
@@ -713,8 +732,8 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('getStats', () => {
-    it('should return correct stats for empty graph', () => {
+  describe("getStats", () => {
+    it("should return correct stats for empty graph", () => {
       const stats = graph.getStats();
       expect(stats).toEqual({
         nodeCount: 0,
@@ -724,7 +743,7 @@ describe('DependencyGraph', () => {
       });
     });
 
-    it('should return correct stats for complex graph', () => {
+    it("should return correct stats for complex graph", () => {
       // Create a tree:
       //      A (depth 0)
       //     / \
@@ -748,7 +767,7 @@ describe('DependencyGraph', () => {
       expect(stats.rootCount).toBe(1);
     });
 
-    it('should count multiple roots', () => {
+    it("should count multiple roots", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
       const task3 = createMockTask();
@@ -762,8 +781,8 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('clear', () => {
-    it('should clear all tasks', () => {
+  describe("clear", () => {
+    it("should clear all tasks", () => {
       const task1 = createMockTask();
       const task2 = createMockTask();
 
@@ -779,8 +798,8 @@ describe('DependencyGraph', () => {
     });
   });
 
-  describe('edge cases', () => {
-    it('should handle deep chain', () => {
+  describe("edge cases", () => {
+    it("should handle deep chain", () => {
       const pdas: PublicKey[] = [];
       const depth = 100;
 
@@ -804,7 +823,7 @@ describe('DependencyGraph', () => {
       expect(sorted.length).toBe(depth);
     });
 
-    it('should handle wide tree', () => {
+    it("should handle wide tree", () => {
       const root = createMockTask();
       const rootPda = randomPda();
       const width = 100;

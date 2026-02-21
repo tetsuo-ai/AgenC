@@ -17,7 +17,7 @@ export {
   formatCapabilities,
   countCapabilities,
   type CapabilityName,
-} from './capabilities.js';
+} from "./capabilities.js";
 
 export {
   // Constants
@@ -51,7 +51,7 @@ export {
   type AgentDeregisteredEvent,
   type AgentSuspendedEvent,
   type AgentUnsuspendedEvent,
-} from './types.js';
+} from "./types.js";
 
 // PDA derivation helpers
 export {
@@ -62,7 +62,7 @@ export {
   deriveAuthorityVotePda,
   findAuthorityVotePda,
   type PdaWithBump,
-} from './pda.js';
+} from "./pda.js";
 
 // Event subscription utilities
 export {
@@ -76,7 +76,7 @@ export {
   type EventSubscription,
   type AgentEventCallbacks,
   type EventSubscriptionOptions,
-} from './events.js';
+} from "./events.js";
 
 // AgentManager class
 export {
@@ -84,4 +84,4 @@ export {
   type AgentManagerConfig,
   type ProtocolConfigCacheOptions,
   type GetProtocolConfigOptions,
-} from './manager.js';
+} from "./manager.js";

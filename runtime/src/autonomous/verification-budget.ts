@@ -9,8 +9,8 @@ import type {
   VerifierLaneConfig,
   VerifierPolicyConfig,
   VerifierTaskTypePolicy,
-} from './types.js';
-import type { RiskTier, TaskRiskScoreResult } from './risk-scoring.js';
+} from "./types.js";
+import type { RiskTier, TaskRiskScoreResult } from "./risk-scoring.js";
 
 export interface BudgetGuardrail {
   readonly minBudgetLamports: bigint;
@@ -33,10 +33,10 @@ export interface BudgetAdjustmentResult {
   adjusted: boolean;
   adjustmentFraction: number;
   reason:
-    | 'cooldown_active'
-    | 'increased_on_success'
-    | 'decreased_on_failure'
-    | 'no_change';
+    | "cooldown_active"
+    | "increased_on_success"
+    | "decreased_on_failure"
+    | "no_change";
   adjustedAtMs: number;
 }
 
@@ -46,7 +46,7 @@ export interface BudgetAuditEntry {
   readonly previousBudgetLamports: bigint;
   readonly nextBudgetLamports: bigint;
   readonly adjustmentFraction: number;
-  readonly reason: BudgetAdjustmentResult['reason'];
+  readonly reason: BudgetAdjustmentResult["reason"];
   readonly riskTier: RiskTier;
   readonly success: boolean;
   readonly consecutiveStreak: number;
@@ -56,7 +56,7 @@ export interface VerificationBudgetDecision {
   enabled: boolean;
   adaptive: boolean;
   riskScore: number;
-  riskTier: 'low' | 'medium' | 'high';
+  riskTier: "low" | "medium" | "high";
   maxVerificationRetries: number;
   maxVerificationDurationMs: number;
   minConfidence: number;
@@ -95,18 +95,26 @@ function positiveInt(value: number, fallback: number): number {
   return Math.max(1, Math.floor(value));
 }
 
-function getTaskTypePolicy(policy: VerifierPolicyConfig | undefined, task: Task): VerifierTaskTypePolicy | undefined {
+function getTaskTypePolicy(
+  policy: VerifierPolicyConfig | undefined,
+  task: Task,
+): VerifierTaskTypePolicy | undefined {
   if (!policy?.taskTypePolicies || task.taskType === undefined) {
     return undefined;
   }
   return policy.taskTypePolicies[task.taskType];
 }
 
-export function resolveBudgetGuardrail(override: Partial<BudgetGuardrail> = {}): BudgetGuardrail {
+export function resolveBudgetGuardrail(
+  override: Partial<BudgetGuardrail> = {},
+): BudgetGuardrail {
   const guardrail = {
-    minBudgetLamports: override.minBudgetLamports ?? DEFAULT_BUDGET_GUARDRAIL.minBudgetLamports,
-    maxBudgetLamports: override.maxBudgetLamports ?? DEFAULT_BUDGET_GUARDRAIL.maxBudgetLamports,
-    adjustmentRate: override.adjustmentRate ?? DEFAULT_BUDGET_GUARDRAIL.adjustmentRate,
+    minBudgetLamports:
+      override.minBudgetLamports ?? DEFAULT_BUDGET_GUARDRAIL.minBudgetLamports,
+    maxBudgetLamports:
+      override.maxBudgetLamports ?? DEFAULT_BUDGET_GUARDRAIL.maxBudgetLamports,
+    adjustmentRate:
+      override.adjustmentRate ?? DEFAULT_BUDGET_GUARDRAIL.adjustmentRate,
     cooldownMs: override.cooldownMs ?? DEFAULT_BUDGET_GUARDRAIL.cooldownMs,
   };
   validateBudgetGuardrail(guardrail);
@@ -115,20 +123,27 @@ export function resolveBudgetGuardrail(override: Partial<BudgetGuardrail> = {}):
 
 export function validateBudgetGuardrail(guardrail: BudgetGuardrail): void {
   if (guardrail.minBudgetLamports < 0n) {
-    throw new Error('minBudgetLamports must be non-negative');
+    throw new Error("minBudgetLamports must be non-negative");
   }
   if (guardrail.maxBudgetLamports < guardrail.minBudgetLamports) {
-    throw new Error('maxBudgetLamports must be >= minBudgetLamports');
+    throw new Error("maxBudgetLamports must be >= minBudgetLamports");
   }
-  if (!Number.isFinite(guardrail.adjustmentRate) || guardrail.adjustmentRate < 0 || guardrail.adjustmentRate > 1) {
-    throw new Error('adjustmentRate must be in [0, 1]');
+  if (
+    !Number.isFinite(guardrail.adjustmentRate) ||
+    guardrail.adjustmentRate < 0 ||
+    guardrail.adjustmentRate > 1
+  ) {
+    throw new Error("adjustmentRate must be in [0, 1]");
   }
   if (!Number.isFinite(guardrail.cooldownMs) || guardrail.cooldownMs < 0) {
-    throw new Error('cooldownMs must be non-negative');
+    throw new Error("cooldownMs must be non-negative");
   }
 }
 
-function resolveBasePolicy(task: Task, config: VerifierLaneConfig): {
+function resolveBasePolicy(
+  task: Task,
+  config: VerifierLaneConfig,
+): {
   taskTypePolicy?: VerifierTaskTypePolicy;
   minConfidence: number;
   maxVerificationRetries: number;
@@ -139,7 +154,9 @@ function resolveBasePolicy(task: Task, config: VerifierLaneConfig): {
   return {
     taskTypePolicy,
     minConfidence: clamp01(
-      taskTypePolicy?.minConfidence ?? config.minConfidence ?? DEFAULT_MIN_CONFIDENCE,
+      taskTypePolicy?.minConfidence ??
+        config.minConfidence ??
+        DEFAULT_MIN_CONFIDENCE,
     ),
     maxVerificationRetries: nonNegativeInt(
       taskTypePolicy?.maxVerificationRetries ??
@@ -156,7 +173,10 @@ function resolveBasePolicy(task: Task, config: VerifierLaneConfig): {
   };
 }
 
-function clampVerificationSpend(taskRewardLamports: bigint, maxAllowedSpendLamports: bigint): bigint {
+function clampVerificationSpend(
+  taskRewardLamports: bigint,
+  maxAllowedSpendLamports: bigint,
+): bigint {
   let spend = maxAllowedSpendLamports;
   if (spend < 0n) {
     spend = 0n;
@@ -168,9 +188,14 @@ function clampVerificationSpend(taskRewardLamports: bigint, maxAllowedSpendLampo
   return spend;
 }
 
-export function calculateNextBudget(input: BudgetAdjustmentInput): BudgetAdjustmentResult {
+export function calculateNextBudget(
+  input: BudgetAdjustmentInput,
+): BudgetAdjustmentResult {
   const guardrail = resolveBudgetGuardrail(input.guardrail);
-  const currentBudgetLamports = clampBudget(input.currentBudgetLamports, guardrail);
+  const currentBudgetLamports = clampBudget(
+    input.currentBudgetLamports,
+    guardrail,
+  );
   const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : 0;
   const sinceLast = nowMs - input.lastAdjustmentTimestampMs;
 
@@ -179,22 +204,23 @@ export function calculateNextBudget(input: BudgetAdjustmentInput): BudgetAdjustm
       nextBudgetLamports: currentBudgetLamports,
       adjusted: false,
       adjustmentFraction: 0,
-      reason: 'cooldown_active',
+      reason: "cooldown_active",
       adjustedAtMs: input.lastAdjustmentTimestampMs,
     };
   }
 
-  const consecutiveCount = countConsecutiveFromEnd(input.history, input.success) + 1;
+  const consecutiveCount =
+    countConsecutiveFromEnd(input.history, input.success) + 1;
   let adjustmentFraction = 0;
-  let reason: BudgetAdjustmentResult['reason'];
+  let reason: BudgetAdjustmentResult["reason"];
   if (input.success) {
     const streakFactor = Math.min(1, consecutiveCount / 5);
     adjustmentFraction = guardrail.adjustmentRate * streakFactor;
-    reason = 'increased_on_success';
+    reason = "increased_on_success";
   } else {
     const streakFactor = Math.min(1, consecutiveCount / 3);
     adjustmentFraction = -guardrail.adjustmentRate * streakFactor;
-    reason = 'decreased_on_failure';
+    reason = "decreased_on_failure";
   }
 
   if (!Number.isFinite(adjustmentFraction) || adjustmentFraction === 0) {
@@ -202,20 +228,23 @@ export function calculateNextBudget(input: BudgetAdjustmentInput): BudgetAdjustm
       nextBudgetLamports: currentBudgetLamports,
       adjusted: false,
       adjustmentFraction: 0,
-      reason: 'no_change',
+      reason: "no_change",
       adjustedAtMs: input.lastAdjustmentTimestampMs,
     };
   }
 
   const fractionAbs = Math.max(0, Math.min(1, Math.abs(adjustmentFraction)));
-  const scaledFraction = BigInt(Math.floor(fractionAbs * Number(DECIMAL_SCALE)));
+  const scaledFraction = BigInt(
+    Math.floor(fractionAbs * Number(DECIMAL_SCALE)),
+  );
   const rawDelta = (currentBudgetLamports * scaledFraction) / DECIMAL_SCALE;
   const delta = rawDelta < 0n ? 0n : rawDelta;
 
   let nextBudget = currentBudgetLamports;
   if (adjustmentFraction > 0) {
     const increased = nextBudget + delta;
-    nextBudget = increased >= nextBudget ? increased : guardrail.maxBudgetLamports;
+    nextBudget =
+      increased >= nextBudget ? increased : guardrail.maxBudgetLamports;
   } else {
     nextBudget = delta > nextBudget ? 0n : nextBudget - delta;
   }
@@ -229,7 +258,10 @@ export function calculateNextBudget(input: BudgetAdjustmentInput): BudgetAdjustm
   };
 }
 
-export function countConsecutiveFromEnd(history: readonly boolean[], matchValue: boolean): number {
+export function countConsecutiveFromEnd(
+  history: readonly boolean[],
+  matchValue: boolean,
+): number {
   let count = 0;
   for (let i = history.length - 1; i >= 0; i -= 1) {
     if (history[i] !== matchValue) {
@@ -252,11 +284,13 @@ export class BudgetAuditTrail {
   private seq = 0;
 
   constructor(maxEntries = 1000) {
-    const sanitized = Number.isFinite(maxEntries) ? Math.floor(maxEntries) : 1000;
+    const sanitized = Number.isFinite(maxEntries)
+      ? Math.floor(maxEntries)
+      : 1000;
     this.maxEntries = Math.max(1, sanitized);
   }
 
-  record(entry: Omit<BudgetAuditEntry, 'seq'>): void {
+  record(entry: Omit<BudgetAuditEntry, "seq">): void {
     this.entries.push({ ...entry, seq: this.seq++ });
     while (this.entries.length > this.maxEntries) {
       this.entries.shift();
@@ -315,7 +349,7 @@ export function allocateVerificationBudget(
         task.reward * BigInt(baseRetries + 1),
     ),
     metadata: {
-      source: 'static_policy',
+      source: "static_policy",
     },
   };
 
@@ -334,9 +368,9 @@ export function allocateVerificationBudget(
       enabled: false,
       adaptive: true,
       metadata: {
-        source: 'adaptive_risk',
+        source: "adaptive_risk",
         minRiskScoreToVerify,
-        reason: 'below_risk_threshold',
+        reason: "below_risk_threshold",
       },
     };
   }
@@ -365,7 +399,8 @@ export function allocateVerificationBudget(
     retryDefaults[tier],
   );
   let maxVerificationDurationMs = positiveInt(
-    adaptiveRisk?.maxVerificationDurationMsByRisk?.[tier] ?? durationDefaults[tier],
+    adaptiveRisk?.maxVerificationDurationMsByRisk?.[tier] ??
+      durationDefaults[tier],
     durationDefaults[tier],
   );
   let minConfidence = clamp01(
@@ -373,10 +408,16 @@ export function allocateVerificationBudget(
   );
 
   if (taskTypePolicy?.adaptiveMaxVerificationRetries !== undefined) {
-    maxVerificationRetries = nonNegativeInt(taskTypePolicy.adaptiveMaxVerificationRetries, maxVerificationRetries);
+    maxVerificationRetries = nonNegativeInt(
+      taskTypePolicy.adaptiveMaxVerificationRetries,
+      maxVerificationRetries,
+    );
   }
   if (taskTypePolicy?.adaptiveMaxVerificationDurationMs !== undefined) {
-    maxVerificationDurationMs = positiveInt(taskTypePolicy.adaptiveMaxVerificationDurationMs, maxVerificationDurationMs);
+    maxVerificationDurationMs = positiveInt(
+      taskTypePolicy.adaptiveMaxVerificationDurationMs,
+      maxVerificationDurationMs,
+    );
   }
   if (taskTypePolicy?.adaptiveMinConfidence !== undefined) {
     minConfidence = clamp01(taskTypePolicy.adaptiveMinConfidence);
@@ -385,14 +426,20 @@ export function allocateVerificationBudget(
   if (adaptiveRisk?.hardMaxVerificationRetries !== undefined) {
     maxVerificationRetries = Math.min(
       maxVerificationRetries,
-      nonNegativeInt(adaptiveRisk.hardMaxVerificationRetries, maxVerificationRetries),
+      nonNegativeInt(
+        adaptiveRisk.hardMaxVerificationRetries,
+        maxVerificationRetries,
+      ),
     );
   }
 
   if (adaptiveRisk?.hardMaxVerificationDurationMs !== undefined) {
     maxVerificationDurationMs = Math.min(
       maxVerificationDurationMs,
-      positiveInt(adaptiveRisk.hardMaxVerificationDurationMs, maxVerificationDurationMs),
+      positiveInt(
+        adaptiveRisk.hardMaxVerificationDurationMs,
+        maxVerificationDurationMs,
+      ),
     );
   }
 
@@ -403,9 +450,10 @@ export function allocateVerificationBudget(
     tierSpendCap;
 
   if (adaptiveRisk?.hardMaxVerificationCostLamports !== undefined) {
-    maxAllowedSpendLamports = maxAllowedSpendLamports < adaptiveRisk.hardMaxVerificationCostLamports
-      ? maxAllowedSpendLamports
-      : adaptiveRisk.hardMaxVerificationCostLamports;
+    maxAllowedSpendLamports =
+      maxAllowedSpendLamports < adaptiveRisk.hardMaxVerificationCostLamports
+        ? maxAllowedSpendLamports
+        : adaptiveRisk.hardMaxVerificationCostLamports;
   }
 
   return {
@@ -416,9 +464,12 @@ export function allocateVerificationBudget(
     maxVerificationRetries,
     maxVerificationDurationMs,
     minConfidence,
-    maxAllowedSpendLamports: clampVerificationSpend(task.reward, maxAllowedSpendLamports),
+    maxAllowedSpendLamports: clampVerificationSpend(
+      task.reward,
+      maxAllowedSpendLamports,
+    ),
     metadata: {
-      source: 'adaptive_risk',
+      source: "adaptive_risk",
       minRiskScoreToVerify,
     },
   };

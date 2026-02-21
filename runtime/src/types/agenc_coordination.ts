@@ -11,1095 +11,780 @@
  * IDL can be found at `target/idl/agenc_coordination.json`.
  */
 export type AgencCoordination = {
-  "address": "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
-  "metadata": {
-    "name": "agencCoordination",
-    "version": "0.1.0",
-    "spec": "0.1.0",
-    "description": "AgenC Decentralized Agent Coordination Protocol for Solana",
-    "repository": "https://github.com/tetsuo-ai/AgenC"
-  },
-  "instructions": [
+  address: "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7";
+  metadata: {
+    name: "agencCoordination";
+    version: "0.1.0";
+    spec: "0.1.0";
+    description: "AgenC Decentralized Agent Coordination Protocol for Solana";
+    repository: "https://github.com/tetsuo-ai/AgenC";
+  };
+  instructions: [
     {
-      "name": "applyDisputeSlash",
-      "docs": [
-        "Apply slashing to a worker after losing a dispute."
-      ],
-      "discriminator": [
-        195,
-        168,
-        20,
-        83,
-        250,
-        122,
-        11,
-        187
-      ],
-      "accounts": [
+      name: "applyDisputeSlash";
+      docs: ["Apply slashing to a worker after losing a dispute."];
+      discriminator: [195, 168, 20, 83, 250, 122, 11, 187];
+      accounts: [
         {
-          "name": "dispute",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "dispute";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [100, 105, 115, 112, 117, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "dispute.dispute_id",
-                "account": "dispute"
-              }
-            ]
-          }
+                kind: "account";
+                path: "dispute.dispute_id";
+                account: "dispute";
+              },
+            ];
+          };
         },
         {
-          "name": "task",
-          "pda": {
-            "seeds": [
+          name: "task";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "workerClaim",
-          "pda": {
-            "seeds": [
+          name: "workerClaim";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker_claim.worker",
-                "account": "taskClaim"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker_claim.worker";
+                account: "taskClaim";
+              },
+            ];
+          };
         },
         {
-          "name": "workerAgent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "workerAgent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "worker_agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker_agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "treasury",
-          "writable": true
+          name: "treasury";
+          writable: true;
         },
         {
-          "name": "escrow",
-          "docs": [
-            "Escrow PDA for the disputed task (kept open until slash for token disputes)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "escrow";
+          docs: [
+            "Escrow PDA for the disputed task (kept open until slash for token disputes)",
+          ];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "tokenEscrowAta",
-          "docs": [
-            "Token escrow ATA holding deferred slash amount"
-          ],
-          "writable": true,
-          "optional": true
+          name: "tokenEscrowAta";
+          docs: ["Token escrow ATA holding deferred slash amount"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "treasuryTokenAccount",
-          "docs": [
-            "Treasury token ATA receiving slashed tokens"
-          ],
-          "writable": true,
-          "optional": true
+          name: "treasuryTokenAccount";
+          docs: ["Treasury token ATA receiving slashed tokens"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "rewardMint",
-          "docs": [
-            "SPL mint for task rewards (must match task.reward_mint)"
-          ],
-          "optional": true
+          name: "rewardMint";
+          docs: ["SPL mint for task rewards (must match task.reward_mint)"];
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
+          name: "tokenProgram";
+          docs: ["SPL Token program"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "applyInitiatorSlash",
-      "docs": [
+      name: "applyInitiatorSlash";
+      docs: [
         "Apply slashing to a dispute initiator when their dispute is rejected.",
         "This provides symmetric slashing: workers are slashed for bad work,",
-        "initiators are slashed for frivolous disputes."
-      ],
-      "discriminator": [
-        63,
-        59,
-        40,
-        189,
-        124,
-        61,
-        159,
-        168
-      ],
-      "accounts": [
+        "initiators are slashed for frivolous disputes.",
+      ];
+      discriminator: [63, 59, 40, 189, 124, 61, 159, 168];
+      accounts: [
         {
-          "name": "dispute",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "dispute";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [100, 105, 115, 112, 117, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "dispute.dispute_id",
-                "account": "dispute"
-              }
-            ]
-          }
+                kind: "account";
+                path: "dispute.dispute_id";
+                account: "dispute";
+              },
+            ];
+          };
         },
         {
-          "name": "task",
-          "docs": [
-            "Task being disputed - validates initiator was a participant"
-          ],
-          "pda": {
-            "seeds": [
+          name: "task";
+          docs: ["Task being disputed - validates initiator was a participant"];
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "initiatorAgent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "initiatorAgent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "initiator_agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "initiator_agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "treasury",
-          "writable": true
-        }
-      ],
-      "args": []
+          name: "treasury";
+          writable: true;
+        },
+      ];
+      args: [];
     },
     {
-      "name": "cancelDispute",
-      "docs": [
+      name: "cancelDispute";
+      docs: [
         "Cancel a dispute before any votes are cast.",
-        "Only the dispute initiator can cancel, and only if no arbiter has voted yet."
-      ],
-      "discriminator": [
-        23,
-        155,
-        220,
-        94,
-        76,
-        141,
-        231,
-        124
-      ],
-      "accounts": [
+        "Only the dispute initiator can cancel, and only if no arbiter has voted yet.",
+      ];
+      discriminator: [23, 155, 220, 94, 76, 141, 231, 124];
+      accounts: [
         {
-          "name": "dispute",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "dispute";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [100, 105, 115, 112, 117, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "dispute.dispute_id",
-                "account": "dispute"
-              }
-            ]
-          }
+                kind: "account";
+                path: "dispute.dispute_id";
+                account: "dispute";
+              },
+            ];
+          };
         },
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "docs": [
-            "Only the initiator's authority can cancel"
-          ],
-          "signer": true
-        }
-      ],
-      "args": []
+          name: "authority";
+          docs: ["Only the initiator's authority can cancel"];
+          signer: true;
+        },
+      ];
+      args: [];
     },
     {
-      "name": "cancelProposal",
-      "docs": [
+      name: "cancelProposal";
+      docs: [
         "Cancel a governance proposal before any votes are cast.",
-        "Only the proposer's authority can cancel."
-      ],
-      "discriminator": [
-        106,
-        74,
-        128,
-        146,
-        19,
-        65,
-        39,
-        23
-      ],
-      "accounts": [
+        "Only the proposer's authority can cancel.",
+      ];
+      discriminator: [106, 74, 128, 146, 19, 65, 39, 23];
+      accounts: [
         {
-          "name": "proposal",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "proposal";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  112,
-                  111,
-                  115,
-                  97,
-                  108
-                ]
+                kind: "const";
+                value: [112, 114, 111, 112, 111, 115, 97, 108];
               },
               {
-                "kind": "account",
-                "path": "proposal.proposer",
-                "account": "proposal"
+                kind: "account";
+                path: "proposal.proposer";
+                account: "proposal";
               },
               {
-                "kind": "account",
-                "path": "proposal.nonce",
-                "account": "proposal"
-              }
-            ]
-          }
+                kind: "account";
+                path: "proposal.nonce";
+                account: "proposal";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "signer": true
-        }
-      ],
-      "args": []
+          name: "authority";
+          signer: true;
+        },
+      ];
+      args: [];
     },
     {
-      "name": "cancelTask",
-      "docs": [
-        "Cancel an unclaimed or expired task and reclaim funds."
-      ],
-      "discriminator": [
-        69,
-        228,
-        134,
-        187,
-        134,
-        105,
-        238,
-        48
-      ],
-      "accounts": [
+      name: "cancelTask";
+      docs: ["Cancel an unclaimed or expired task and reclaim funds."];
+      discriminator: [69, 228, 134, 187, 134, 105, 238, 48];
+      accounts: [
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "escrow";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "creator",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "task"
-          ]
+          name: "creator";
+          writable: true;
+          signer: true;
+          relations: ["task"];
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
         },
         {
-          "name": "tokenEscrowAta",
-          "docs": [
-            "Token escrow ATA holding reward tokens (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "tokenEscrowAta";
+          docs: ["Token escrow ATA holding reward tokens (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "creatorTokenAccount",
-          "docs": [
-            "Creator's token account to receive refund (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "creatorTokenAccount";
+          docs: ["Creator's token account to receive refund (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "rewardMint",
-          "docs": [
-            "SPL token mint (optional, must match task.reward_mint)"
-          ],
-          "optional": true
+          name: "rewardMint";
+          docs: ["SPL token mint (optional, must match task.reward_mint)"];
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
+          name: "tokenProgram";
+          docs: ["SPL Token program (optional, required for token tasks)"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "claimTask",
-      "docs": [
+      name: "claimTask";
+      docs: [
         "Claim a task to signal intent to work on it.",
-        "Agent must have required capabilities and task must be claimable."
-      ],
-      "discriminator": [
-        49,
-        222,
-        219,
-        238,
-        155,
-        68,
-        221,
-        136
-      ],
-      "accounts": [
+        "Agent must have required capabilities and task must be claimable.",
+      ];
+      discriminator: [49, 222, 219, 238, 155, 68, 221, 136];
+      accounts: [
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "claim",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "claim";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "worker",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "worker";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "worker.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "worker"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["worker"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "completeTask",
-      "docs": [
+      name: "completeTask";
+      docs: [
         "Submit proof of work and mark task portion as complete.",
         "For collaborative tasks, multiple completions may be needed.",
         "",
         "# Arguments",
         "* `ctx` - Context with task, worker claim, and reward accounts",
         "* `proof_hash` - 32-byte hash of the proof of work",
-        "* `result_data` - Optional result data or pointer"
-      ],
-      "discriminator": [
-        109,
-        167,
-        192,
-        41,
-        129,
-        108,
-        220,
-        196
-      ],
-      "accounts": [
+        "* `result_data` - Optional result data or pointer",
+      ];
+      discriminator: [109, 167, 192, 41, 129, 108, 220, 196];
+      accounts: [
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "claim",
-          "docs": [
+          name: "claim";
+          docs: [
             "Note: Claim account is closed after completion.",
             "If proof-of-completion is needed later, store result_hash",
-            "in an event or separate completion record."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
+            "in an event or separate completion record.",
+          ];
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "docs": [
+          name: "escrow";
+          docs: [
             "Note: Escrow account is closed conditionally after the final completion.",
-            "For collaborative tasks with multiple workers, it stays open until all complete."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
+            "For collaborative tasks with multiple workers, it stays open until all complete.",
+          ];
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "creator",
-          "writable": true
+          name: "creator";
+          writable: true;
         },
         {
-          "name": "worker",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "worker";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "worker.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "treasury",
-          "writable": true
+          name: "treasury";
+          writable: true;
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "worker"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["worker"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
         },
         {
-          "name": "tokenEscrowAta",
-          "docs": [
-            "Token escrow ATA holding reward tokens (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "tokenEscrowAta";
+          docs: ["Token escrow ATA holding reward tokens (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "workerTokenAccount",
-          "docs": [
-            "Worker's token account to receive reward (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "workerTokenAccount";
+          docs: ["Worker's token account to receive reward (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "treasuryTokenAccount",
-          "docs": [
-            "Treasury's token account for protocol fees (optional, must pre-exist)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "treasuryTokenAccount";
+          docs: [
+            "Treasury's token account for protocol fees (optional, must pre-exist)",
+          ];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "rewardMint",
-          "docs": [
-            "SPL token mint (optional, must match task.reward_mint)"
-          ],
-          "optional": true
+          name: "rewardMint";
+          docs: ["SPL token mint (optional, must match task.reward_mint)"];
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": [
+          name: "tokenProgram";
+          docs: ["SPL Token program (optional, required for token tasks)"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        },
+      ];
+      args: [
         {
-          "name": "proofHash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "proofHash";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "resultData",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
-          }
-        }
-      ]
+          name: "resultData";
+          type: {
+            option: {
+              array: ["u8", 64];
+            };
+          };
+        },
+      ];
     },
     {
-      "name": "completeTaskPrivate",
-      "docs": [
-        "Complete a task with private proof verification."
-      ],
-      "discriminator": [
-        117,
-        181,
-        96,
-        96,
-        194,
-        254,
-        58,
-        35
-      ],
-      "accounts": [
+      name: "completeTaskPrivate";
+      docs: ["Complete a task with private proof verification."];
+      discriminator: [117, 181, 96, 96, 194, 254, 58, 35];
+      accounts: [
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "claim",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "claim";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "escrow";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "creator",
-          "writable": true
+          name: "creator";
+          writable: true;
         },
         {
-          "name": "worker",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "worker";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "worker.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "bindingSpend",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "bindingSpend";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   98,
                   105,
                   110,
@@ -1112,24 +797,24 @@ export type AgencCoordination = {
                   112,
                   101,
                   110,
-                  100
-                ]
+                  100,
+                ];
               },
               {
-                "kind": "arg",
-                "path": "proof.binding_seed"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "proof.binding_seed";
+              },
+            ];
+          };
         },
         {
-          "name": "nullifierSpend",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "nullifierSpend";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   110,
                   117,
                   108,
@@ -1144,50 +829,41 @@ export type AgencCoordination = {
                   112,
                   101,
                   110,
-                  100
-                ]
+                  100,
+                ];
               },
               {
-                "kind": "arg",
-                "path": "proof.nullifier_seed"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "proof.nullifier_seed";
+              },
+            ];
+          };
         },
         {
-          "name": "treasury",
-          "writable": true
+          name: "treasury";
+          writable: true;
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "worker"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["worker"];
         },
         {
-          "name": "routerProgram"
+          name: "routerProgram";
         },
         {
-          "name": "router",
-          "pda": {
-            "seeds": [
+          name: "router";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  114,
-                  111,
-                  117,
-                  116,
-                  101,
-                  114
-                ]
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
+                kind: "const";
+                value: [114, 111, 117, 116, 101, 114];
+              },
+            ];
+            program: {
+              kind: "const";
+              value: [
                 78,
                 225,
                 133,
@@ -1219,41 +895,27 @@ export type AgencCoordination = {
                 85,
                 205,
                 10,
-                148
-              ]
-            }
-          }
+                148,
+              ];
+            };
+          };
         },
         {
-          "name": "verifierEntry",
-          "pda": {
-            "seeds": [
+          name: "verifierEntry";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  118,
-                  101,
-                  114,
-                  105,
-                  102,
-                  105,
-                  101,
-                  114
-                ]
+                kind: "const";
+                value: [118, 101, 114, 105, 102, 105, 101, 114];
               },
               {
-                "kind": "const",
-                "value": [
-                  82,
-                  90,
-                  86,
-                  77
-                ]
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
+                kind: "const";
+                value: [82, 90, 86, 77];
+              },
+            ];
+            program: {
+              kind: "const";
+              value: [
                 78,
                 225,
                 133,
@@ -1285,61 +947,61 @@ export type AgencCoordination = {
                 85,
                 205,
                 10,
-                148
-              ]
-            }
-          }
+                148,
+              ];
+            };
+          };
         },
         {
-          "name": "verifierProgram"
+          name: "verifierProgram";
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
         },
         {
-          "name": "tokenEscrowAta",
-          "writable": true,
-          "optional": true
+          name: "tokenEscrowAta";
+          writable: true;
+          optional: true;
         },
         {
-          "name": "workerTokenAccount",
-          "writable": true,
-          "optional": true
+          name: "workerTokenAccount";
+          writable: true;
+          optional: true;
         },
         {
-          "name": "treasuryTokenAccount",
-          "writable": true,
-          "optional": true
+          name: "treasuryTokenAccount";
+          writable: true;
+          optional: true;
         },
         {
-          "name": "rewardMint",
-          "optional": true
+          name: "rewardMint";
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": [
+          name: "tokenProgram";
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        },
+      ];
+      args: [
         {
-          "name": "taskId",
-          "type": "u64"
+          name: "taskId";
+          type: "u64";
         },
         {
-          "name": "proof",
-          "type": {
-            "defined": {
-              "name": "privateCompletionPayload"
-            }
-          }
-        }
-      ]
+          name: "proof";
+          type: {
+            defined: {
+              name: "privateCompletionPayload";
+            };
+          };
+        },
+      ];
     },
     {
-      "name": "createDependentTask",
-      "docs": [
+      name: "createDependentTask";
+      docs: [
         "Create a new task that depends on an existing parent task.",
         "The parent task must not be cancelled or disputed.",
         "",
@@ -1353,422 +1015,308 @@ export type AgencCoordination = {
         "* `deadline` - Unix timestamp deadline (0 = no deadline)",
         "* `task_type` - 0=exclusive (single worker), 1=collaborative (multi-worker)",
         "* `constraint_hash` - For private tasks: hash of expected output (None for non-private)",
-        "* `dependency_type` - 1=Data, 2=Ordering, 3=Proof"
-      ],
-      "discriminator": [
-        113,
-        118,
-        102,
-        157,
-        66,
-        214,
-        158,
-        146
-      ],
-      "accounts": [
+        "* `dependency_type` - 1=Data, 2=Ordering, 3=Proof",
+      ];
+      discriminator: [113, 118, 102, 157, 66, 214, 158, 146];
+      accounts: [
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "creator"
+                kind: "account";
+                path: "creator";
               },
               {
-                "kind": "arg",
-                "path": "taskId"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "taskId";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "escrow";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "parentTask",
-          "docs": [
+          name: "parentTask";
+          docs: [
             "The parent task this new task depends on",
-            "Note: Uses Box to reduce stack usage for this large account"
-          ]
+            "Note: Uses Box to reduce stack usage for this large account",
+          ];
         },
         {
-          "name": "protocolConfig",
-          "docs": [
-            "Note: Uses Box to reduce stack usage for this large account"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          docs: ["Note: Uses Box to reduce stack usage for this large account"];
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "creatorAgent",
-          "docs": [
-            "Creator's agent registration for rate limiting (required)"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "creatorAgent";
+          docs: ["Creator's agent registration for rate limiting (required)"];
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "creator_agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "creator_agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "docs": [
-            "The authority that owns the creator_agent"
-          ],
-          "signer": true,
-          "relations": [
-            "creatorAgent"
-          ]
+          name: "authority";
+          docs: ["The authority that owns the creator_agent"];
+          signer: true;
+          relations: ["creatorAgent"];
         },
         {
-          "name": "creator",
-          "docs": [
+          name: "creator";
+          docs: [
             "The creator who pays for and owns the task",
-            "Must match authority to prevent social engineering attacks (#375)"
-          ],
-          "writable": true,
-          "signer": true
+            "Must match authority to prevent social engineering attacks (#375)",
+          ];
+          writable: true;
+          signer: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
         },
         {
-          "name": "rewardMint",
-          "docs": [
-            "SPL token mint for reward denomination (optional)"
-          ],
-          "optional": true
+          name: "rewardMint";
+          docs: ["SPL token mint for reward denomination (optional)"];
+          optional: true;
         },
         {
-          "name": "creatorTokenAccount",
-          "docs": [
-            "Creator's token account holding reward tokens (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "creatorTokenAccount";
+          docs: ["Creator's token account holding reward tokens (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "tokenEscrowAta",
-          "docs": [
-            "Escrow's associated token account for holding reward tokens (optional)."
-          ],
-          "writable": true,
-          "optional": true
+          name: "tokenEscrowAta";
+          docs: [
+            "Escrow's associated token account for holding reward tokens (optional).",
+          ];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          name: "tokenProgram";
+          docs: ["SPL Token program (optional, required for token tasks)"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
         },
         {
-          "name": "associatedTokenProgram",
-          "docs": [
-            "Associated Token Account program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        }
-      ],
-      "args": [
+          name: "associatedTokenProgram";
+          docs: [
+            "Associated Token Account program (optional, required for token tasks)",
+          ];
+          optional: true;
+          address: "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+        },
+      ];
+      args: [
         {
-          "name": "taskId",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "taskId";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "requiredCapabilities",
-          "type": "u64"
+          name: "requiredCapabilities";
+          type: "u64";
         },
         {
-          "name": "description",
-          "type": {
-            "array": [
-              "u8",
-              64
-            ]
-          }
+          name: "description";
+          type: {
+            array: ["u8", 64];
+          };
         },
         {
-          "name": "rewardAmount",
-          "type": "u64"
+          name: "rewardAmount";
+          type: "u64";
         },
         {
-          "name": "maxWorkers",
-          "type": "u8"
+          name: "maxWorkers";
+          type: "u8";
         },
         {
-          "name": "deadline",
-          "type": "i64"
+          name: "deadline";
+          type: "i64";
         },
         {
-          "name": "taskType",
-          "type": "u8"
+          name: "taskType";
+          type: "u8";
         },
         {
-          "name": "constraintHash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
+          name: "constraintHash";
+          type: {
+            option: {
+              array: ["u8", 32];
+            };
+          };
         },
         {
-          "name": "dependencyType",
-          "type": "u8"
+          name: "dependencyType";
+          type: "u8";
         },
         {
-          "name": "minReputation",
-          "type": "u16"
+          name: "minReputation";
+          type: "u16";
         },
         {
-          "name": "rewardMint",
-          "type": {
-            "option": "pubkey"
-          }
-        }
-      ]
+          name: "rewardMint";
+          type: {
+            option: "pubkey";
+          };
+        },
+      ];
     },
     {
-      "name": "createProposal",
-      "docs": [
+      name: "createProposal";
+      docs: [
         "Create a governance proposal.",
-        "Proposer must be an active agent with sufficient stake."
-      ],
-      "discriminator": [
-        132,
-        116,
-        68,
-        174,
-        216,
-        160,
-        198,
-        22
-      ],
-      "accounts": [
+        "Proposer must be an active agent with sufficient stake.",
+      ];
+      discriminator: [132, 116, 68, 174, 216, 160, 198, 22];
+      accounts: [
         {
-          "name": "proposal",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "proposal";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  112,
-                  111,
-                  115,
-                  97,
-                  108
-                ]
+                kind: "const";
+                value: [112, 114, 111, 112, 111, 115, 97, 108];
               },
               {
-                "kind": "account",
-                "path": "proposer"
+                kind: "account";
+                path: "proposer";
               },
               {
-                "kind": "arg",
-                "path": "nonce"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "nonce";
+              },
+            ];
+          };
         },
         {
-          "name": "proposer",
-          "pda": {
-            "seeds": [
+          name: "proposer";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "proposer.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "proposer.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "governanceConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "governanceConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  103,
-                  111,
-                  118,
-                  101,
-                  114,
-                  110,
-                  97,
-                  110,
-                  99,
-                  101
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [103, 111, 118, 101, 114, 110, 97, 110, 99, 101];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "proposer"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["proposer"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "nonce",
-          "type": "u64"
+          name: "nonce";
+          type: "u64";
         },
         {
-          "name": "proposalType",
-          "type": "u8"
+          name: "proposalType";
+          type: "u8";
         },
         {
-          "name": "titleHash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "titleHash";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "descriptionHash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "descriptionHash";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "payload",
-          "type": {
-            "array": [
-              "u8",
-              64
-            ]
-          }
+          name: "payload";
+          type: {
+            array: ["u8", 64];
+          };
         },
         {
-          "name": "votingPeriod",
-          "type": "i64"
-        }
-      ]
+          name: "votingPeriod";
+          type: "i64";
+        },
+      ];
     },
     {
-      "name": "createTask",
-      "docs": [
+      name: "createTask";
+      docs: [
         "Create a new task with requirements and optional reward.",
         "Tasks are stored in a PDA derived from the creator and task ID.",
         "",
@@ -1781,279 +1329,211 @@ export type AgencCoordination = {
         "* `max_workers` - Maximum number of agents that can work on this task",
         "* `deadline` - Unix timestamp deadline (0 = no deadline)",
         "* `task_type` - 0=exclusive (single worker), 1=collaborative (multi-worker)",
-        "* `constraint_hash` - For private tasks: hash of expected output (None for non-private)"
-      ],
-      "discriminator": [
-        194,
-        80,
-        6,
-        180,
-        232,
-        127,
-        48,
-        171
-      ],
-      "accounts": [
+        "* `constraint_hash` - For private tasks: hash of expected output (None for non-private)",
+      ];
+      discriminator: [194, 80, 6, 180, 232, 127, 48, 171];
+      accounts: [
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "creator"
+                kind: "account";
+                path: "creator";
               },
               {
-                "kind": "arg",
-                "path": "taskId"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "taskId";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "escrow";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "creatorAgent",
-          "docs": [
-            "Creator's agent registration for rate limiting (required)"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "creatorAgent";
+          docs: ["Creator's agent registration for rate limiting (required)"];
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "creator_agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "creator_agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "docs": [
-            "The authority that owns the creator_agent"
-          ],
-          "signer": true,
-          "relations": [
-            "creatorAgent"
-          ]
+          name: "authority";
+          docs: ["The authority that owns the creator_agent"];
+          signer: true;
+          relations: ["creatorAgent"];
         },
         {
-          "name": "creator",
-          "docs": [
+          name: "creator";
+          docs: [
             "The creator who pays for and owns the task",
-            "Must match authority to prevent social engineering attacks (#375)"
-          ],
-          "writable": true,
-          "signer": true
+            "Must match authority to prevent social engineering attacks (#375)",
+          ];
+          writable: true;
+          signer: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
         },
         {
-          "name": "rewardMint",
-          "docs": [
-            "SPL token mint for reward denomination (optional)"
-          ],
-          "optional": true
+          name: "rewardMint";
+          docs: ["SPL token mint for reward denomination (optional)"];
+          optional: true;
         },
         {
-          "name": "creatorTokenAccount",
-          "docs": [
-            "Creator's token account holding reward tokens (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "creatorTokenAccount";
+          docs: ["Creator's token account holding reward tokens (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "tokenEscrowAta",
-          "docs": [
+          name: "tokenEscrowAta";
+          docs: [
             "Escrow's associated token account for holding reward tokens (optional).",
-            "Created via ATA CPI during handler if token task."
-          ],
-          "writable": true,
-          "optional": true
+            "Created via ATA CPI during handler if token task.",
+          ];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          name: "tokenProgram";
+          docs: ["SPL Token program (optional, required for token tasks)"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
         },
         {
-          "name": "associatedTokenProgram",
-          "docs": [
-            "Associated Token Account program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        }
-      ],
-      "args": [
+          name: "associatedTokenProgram";
+          docs: [
+            "Associated Token Account program (optional, required for token tasks)",
+          ];
+          optional: true;
+          address: "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+        },
+      ];
+      args: [
         {
-          "name": "taskId",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "taskId";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "requiredCapabilities",
-          "type": "u64"
+          name: "requiredCapabilities";
+          type: "u64";
         },
         {
-          "name": "description",
-          "type": {
-            "array": [
-              "u8",
-              64
-            ]
-          }
+          name: "description";
+          type: {
+            array: ["u8", 64];
+          };
         },
         {
-          "name": "rewardAmount",
-          "type": "u64"
+          name: "rewardAmount";
+          type: "u64";
         },
         {
-          "name": "maxWorkers",
-          "type": "u8"
+          name: "maxWorkers";
+          type: "u8";
         },
         {
-          "name": "deadline",
-          "type": "i64"
+          name: "deadline";
+          type: "i64";
         },
         {
-          "name": "taskType",
-          "type": "u8"
+          name: "taskType";
+          type: "u8";
         },
         {
-          "name": "constraintHash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
+          name: "constraintHash";
+          type: {
+            option: {
+              array: ["u8", 32];
+            };
+          };
         },
         {
-          "name": "minReputation",
-          "type": "u16"
+          name: "minReputation";
+          type: "u16";
         },
         {
-          "name": "rewardMint",
-          "type": {
-            "option": "pubkey"
-          }
-        }
-      ]
+          name: "rewardMint";
+          type: {
+            option: "pubkey";
+          };
+        },
+      ];
     },
     {
-      "name": "delegateReputation",
-      "docs": [
+      name: "delegateReputation";
+      docs: [
         "Delegate reputation points to a trusted peer.",
-        "One delegation per (delegator, delegatee) pair."
-      ],
-      "discriminator": [
-        195,
-        86,
-        46,
-        27,
-        29,
-        166,
-        147,
-        66
-      ],
-      "accounts": [
+        "One delegation per (delegator, delegatee) pair.",
+      ];
+      discriminator: [195, 86, 46, 27, 29, 166, 147, 66];
+      accounts: [
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "delegatorAgent"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["delegatorAgent"];
         },
         {
-          "name": "delegatorAgent"
+          name: "delegatorAgent";
         },
         {
-          "name": "delegateeAgent"
+          name: "delegateeAgent";
         },
         {
-          "name": "delegation",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "delegation";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   114,
                   101,
                   112,
@@ -2074,777 +1554,560 @@ export type AgencCoordination = {
                   116,
                   105,
                   111,
-                  110
-                ]
+                  110,
+                ];
               },
               {
-                "kind": "account",
-                "path": "delegatorAgent"
+                kind: "account";
+                path: "delegatorAgent";
               },
               {
-                "kind": "account",
-                "path": "delegateeAgent"
-              }
-            ]
-          }
+                kind: "account";
+                path: "delegateeAgent";
+              },
+            ];
+          };
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "amount",
-          "type": "u16"
+          name: "amount";
+          type: "u16";
         },
         {
-          "name": "expiresAt",
-          "type": "i64"
-        }
-      ]
+          name: "expiresAt";
+          type: "i64";
+        },
+      ];
     },
     {
-      "name": "deregisterAgent",
-      "docs": [
+      name: "deregisterAgent";
+      docs: [
         "Deregister an agent and reclaim rent.",
-        "Agent must have no active tasks."
-      ],
-      "discriminator": [
-        227,
-        208,
-        166,
-        164,
-        48,
-        69,
-        111,
-        1
-      ],
-      "accounts": [
+        "Agent must have no active tasks.",
+      ];
+      discriminator: [227, 208, 166, 164, 48, 69, 111, 1];
+      accounts: [
         {
-          "name": "agent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "agent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "agent"
-          ]
-        }
-      ],
-      "args": []
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["agent"];
+        },
+      ];
+      args: [];
     },
     {
-      "name": "executeProposal",
-      "docs": [
+      name: "executeProposal";
+      docs: [
         "Execute an approved governance proposal after voting period ends.",
-        "Permissionless — anyone can call after quorum + majority is met."
-      ],
-      "discriminator": [
-        186,
-        60,
-        116,
-        133,
-        108,
-        128,
-        111,
-        28
-      ],
-      "accounts": [
+        "Permissionless — anyone can call after quorum + majority is met.",
+      ];
+      discriminator: [186, 60, 116, 133, 108, 128, 111, 28];
+      accounts: [
         {
-          "name": "proposal",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "proposal";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  112,
-                  111,
-                  115,
-                  97,
-                  108
-                ]
+                kind: "const";
+                value: [112, 114, 111, 112, 111, 115, 97, 108];
               },
               {
-                "kind": "account",
-                "path": "proposal.proposer",
-                "account": "proposal"
+                kind: "account";
+                path: "proposal.proposer";
+                account: "proposal";
               },
               {
-                "kind": "account",
-                "path": "proposal.nonce",
-                "account": "proposal"
-              }
-            ]
-          }
+                kind: "account";
+                path: "proposal.nonce";
+                account: "proposal";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "governanceConfig",
-          "pda": {
-            "seeds": [
+          name: "governanceConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  103,
-                  111,
-                  118,
-                  101,
-                  114,
-                  110,
-                  97,
-                  110,
-                  99,
-                  101
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [103, 111, 118, 101, 114, 110, 97, 110, 99, 101];
+              },
+            ];
+          };
         },
         {
-          "name": "executor",
-          "docs": [
-            "Executor can be anyone (permissionless after voting ends)"
-          ],
-          "signer": true
+          name: "executor";
+          docs: ["Executor can be anyone (permissionless after voting ends)"];
+          signer: true;
         },
         {
-          "name": "treasury",
-          "docs": [
+          name: "treasury";
+          docs: [
             "Must match protocol_config.treasury. Spend path supports:",
             "- program-owned treasury (direct lamport mutation), or",
-            "- system-owned treasury when this account signs."
-          ],
-          "writable": true,
-          "optional": true
+            "- system-owned treasury when this account signs.",
+          ];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "recipient",
-          "docs": [
-            "Validated from proposal payload in handler."
-          ],
-          "writable": true,
-          "optional": true
+          name: "recipient";
+          docs: ["Validated from proposal payload in handler."];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "expireClaim",
-      "docs": [
+      name: "expireClaim";
+      docs: [
         "Expire a stale claim to free up task slot.",
-        "Can only be called after claim.expires_at has passed."
-      ],
-      "discriminator": [
-        176,
-        78,
-        241,
-        29,
-        159,
-        81,
-        26,
-        6
-      ],
-      "accounts": [
+        "Can only be called after claim.expires_at has passed.",
+      ];
+      discriminator: [176, 78, 241, 29, 159, 81, 26, 6];
+      accounts: [
         {
-          "name": "caller",
-          "docs": [
-            "Caller who triggers the expiration - receives cleanup reward"
-          ],
-          "writable": true,
-          "signer": true
+          name: "caller";
+          docs: [
+            "Caller who triggers the expiration - receives cleanup reward",
+          ];
+          writable: true;
+          signer: true;
         },
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "escrow";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "claim",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "claim";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker";
+              },
+            ];
+          };
         },
         {
-          "name": "worker",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "worker";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "worker.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "rentRecipient",
-          "writable": true
+          name: "rentRecipient";
+          writable: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "expireDispute",
-      "docs": [
-        "Expire a dispute after the maximum duration has passed."
-      ],
-      "discriminator": [
-        241,
-        116,
-        178,
-        182,
-        234,
-        173,
-        61,
-        120
-      ],
-      "accounts": [
+      name: "expireDispute";
+      docs: ["Expire a dispute after the maximum duration has passed."];
+      discriminator: [241, 116, 178, 182, 234, 173, 61, 120];
+      accounts: [
         {
-          "name": "dispute",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "dispute";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [100, 105, 115, 112, 117, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "dispute.dispute_id",
-                "account": "dispute"
-              }
-            ]
-          }
+                kind: "account";
+                path: "dispute.dispute_id";
+                account: "dispute";
+              },
+            ];
+          };
         },
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "escrow";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "creator",
-          "writable": true
+          name: "creator";
+          writable: true;
         },
         {
-          "name": "workerClaim",
-          "docs": [
+          name: "workerClaim";
+          docs: [
             "Worker's claim on the disputed task (fix #137)",
             "Optional - when provided, allows decrementing worker's active_tasks",
-            "and enables fair refund distribution (fix #418)"
-          ],
-          "writable": true,
-          "optional": true,
-          "pda": {
-            "seeds": [
+            "and enables fair refund distribution (fix #418)",
+          ];
+          writable: true;
+          optional: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker_claim.worker",
-                "account": "taskClaim"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker_claim.worker";
+                account: "taskClaim";
+              },
+            ];
+          };
         },
         {
-          "name": "worker",
-          "docs": [
-            "Worker's AgentRegistration PDA (must be dispute defendant)."
-          ],
-          "writable": true,
-          "optional": true
+          name: "worker";
+          docs: ["Worker's AgentRegistration PDA (must be dispute defendant)."];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "workerAuthority",
-          "docs": [
-            "Required when worker should receive funds on expiration"
-          ],
-          "writable": true,
-          "optional": true
+          name: "workerAuthority";
+          docs: ["Required when worker should receive funds on expiration"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "tokenEscrowAta",
-          "docs": [
-            "Token escrow ATA holding reward tokens (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "tokenEscrowAta";
+          docs: ["Token escrow ATA holding reward tokens (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "creatorTokenAccount",
-          "docs": [
-            "Creator's token account for refund (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "creatorTokenAccount";
+          docs: ["Creator's token account for refund (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "workerTokenAccountAta",
-          "docs": [
-            "Worker's token account for payment (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "workerTokenAccountAta";
+          docs: ["Worker's token account for payment (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "rewardMint",
-          "docs": [
-            "SPL token mint (optional, must match task.reward_mint)"
-          ],
-          "optional": true
+          name: "rewardMint";
+          docs: ["SPL token mint (optional, must match task.reward_mint)"];
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
+          name: "tokenProgram";
+          docs: ["SPL Token program (optional, required for token tasks)"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "initializeGovernance",
-      "docs": [
+      name: "initializeGovernance";
+      docs: [
         "Initialize governance configuration.",
-        "Must be called by the protocol authority."
-      ],
-      "discriminator": [
-        171,
-        87,
-        101,
-        237,
-        27,
-        107,
-        201,
-        57
-      ],
-      "accounts": [
+        "Must be called by the protocol authority.",
+      ];
+      discriminator: [171, 87, 101, 237, 27, 107, 201, 57];
+      accounts: [
         {
-          "name": "governanceConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "governanceConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  103,
-                  111,
-                  118,
-                  101,
-                  114,
-                  110,
-                  97,
-                  110,
-                  99,
-                  101
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [103, 111, 118, 101, 114, 110, 97, 110, 99, 101];
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true
+          name: "authority";
+          writable: true;
+          signer: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "votingPeriod",
-          "type": "i64"
+          name: "votingPeriod";
+          type: "i64";
         },
         {
-          "name": "executionDelay",
-          "type": "i64"
+          name: "executionDelay";
+          type: "i64";
         },
         {
-          "name": "quorumBps",
-          "type": "u16"
+          name: "quorumBps";
+          type: "u16";
         },
         {
-          "name": "approvalThresholdBps",
-          "type": "u16"
+          name: "approvalThresholdBps";
+          type: "u16";
         },
         {
-          "name": "minProposalStake",
-          "type": "u64"
-        }
-      ]
+          name: "minProposalStake";
+          type: "u64";
+        },
+      ];
     },
     {
-      "name": "initializeProtocol",
-      "docs": [
+      name: "initializeProtocol";
+      docs: [
         "Initialize the protocol configuration.",
-        "Called once to set up global parameters."
-      ],
-      "discriminator": [
-        188,
-        233,
-        252,
-        106,
-        134,
-        146,
-        202,
-        91
-      ],
-      "accounts": [
+        "Called once to set up global parameters.",
+      ];
+      discriminator: [188, 233, 252, 106, 134, 146, 202, 91];
+      accounts: [
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "treasury"
+          name: "treasury";
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true
+          name: "authority";
+          writable: true;
+          signer: true;
         },
         {
-          "name": "secondSigner",
-          "docs": [
+          name: "secondSigner";
+          docs: [
             "Second multisig signer required at initialization to prevent single-party setup.",
             "Must be different from authority and must be in multisig_owners.",
-            "This ensures at least two parties are involved in protocol initialization (fix #556)."
-          ],
-          "signer": true
+            "This ensures at least two parties are involved in protocol initialization (fix #556).",
+          ];
+          signer: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "disputeThreshold",
-          "type": "u8"
+          name: "disputeThreshold";
+          type: "u8";
         },
         {
-          "name": "protocolFeeBps",
-          "type": "u16"
+          name: "protocolFeeBps";
+          type: "u16";
         },
         {
-          "name": "minStake",
-          "type": "u64"
+          name: "minStake";
+          type: "u64";
         },
         {
-          "name": "minStakeForDispute",
-          "type": "u64"
+          name: "minStakeForDispute";
+          type: "u64";
         },
         {
-          "name": "multisigThreshold",
-          "type": "u8"
+          name: "multisigThreshold";
+          type: "u8";
         },
         {
-          "name": "multisigOwners",
-          "type": {
-            "vec": "pubkey"
-          }
-        }
-      ]
+          name: "multisigOwners";
+          type: {
+            vec: "pubkey";
+          };
+        },
+      ];
     },
     {
-      "name": "initiateDispute",
-      "docs": [
+      name: "initiateDispute";
+      docs: [
         "Initiate a conflict resolution process.",
         "Creates a dispute that requires multi-sig consensus to resolve.",
         "",
@@ -2853,443 +2116,316 @@ export type AgencCoordination = {
         "* `dispute_id` - Unique identifier for the dispute",
         "* `task_id` - Related task ID",
         "* `evidence_hash` - Hash of evidence supporting the dispute",
-        "* `resolution_type` - 0=refund, 1=complete, 2=split"
-      ],
-      "discriminator": [
-        128,
-        242,
-        160,
-        23,
-        44,
-        61,
-        171,
-        37
-      ],
-      "accounts": [
+        "* `resolution_type` - 0=refund, 1=complete, 2=split",
+      ];
+      discriminator: [128, 242, 160, 23, 44, 61, 171, 37];
+      accounts: [
         {
-          "name": "dispute",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "dispute";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [100, 105, 115, 112, 117, 116, 101];
               },
               {
-                "kind": "arg",
-                "path": "disputeId"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "disputeId";
+              },
+            ];
+          };
         },
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "agent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "agent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "initiatorClaim",
-          "docs": [
-            "Optional: Initiator's claim if they are a worker (not the creator)"
-          ],
-          "optional": true,
-          "pda": {
-            "seeds": [
+          name: "initiatorClaim";
+          docs: [
+            "Optional: Initiator's claim if they are a worker (not the creator)",
+          ];
+          optional: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "agent"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent";
+              },
+            ];
+          };
         },
         {
-          "name": "workerAgent",
-          "docs": [
-            "Optional: Worker agent to be disputed (required when initiator is task creator)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "workerAgent";
+          docs: [
+            "Optional: Worker agent to be disputed (required when initiator is task creator)",
+          ];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "workerClaim",
-          "docs": [
-            "Optional: Worker's claim (required when worker_agent is provided)"
-          ],
-          "optional": true
+          name: "workerClaim";
+          docs: [
+            "Optional: Worker's claim (required when worker_agent is provided)",
+          ];
+          optional: true;
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "agent"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["agent"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "disputeId",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "disputeId";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "taskId",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "taskId";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "evidenceHash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "evidenceHash";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "resolutionType",
-          "type": "u8"
+          name: "resolutionType";
+          type: "u8";
         },
         {
-          "name": "evidence",
-          "type": "string"
-        }
-      ]
+          name: "evidence";
+          type: "string";
+        },
+      ];
     },
     {
-      "name": "migrateProtocol",
-      "docs": [
+      name: "migrateProtocol";
+      docs: [
         "Migrate protocol to a new version (multisig gated).",
         "Handles state migration when upgrading the program.",
         "",
         "# Arguments",
-        "* `target_version` - The version to migrate to"
-      ],
-      "discriminator": [
-        182,
-        254,
-        253,
-        220,
-        0,
-        144,
-        234,
-        250
-      ],
-      "accounts": [
+        "* `target_version` - The version to migrate to",
+      ];
+      discriminator: [182, 254, 253, 220, 0, 144, 234, 250];
+      accounts: [
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
+        },
+      ];
+      args: [
         {
-          "name": "targetVersion",
-          "type": "u8"
-        }
-      ]
+          name: "targetVersion";
+          type: "u8";
+        },
+      ];
     },
     {
-      "name": "postToFeed",
-      "docs": [
+      name: "postToFeed";
+      docs: [
         "Post to the agent feed.",
-        "Author must be an active agent. Content is stored on IPFS, hash on-chain."
-      ],
-      "discriminator": [
-        140,
-        84,
-        238,
-        165,
-        168,
-        159,
-        119,
-        128
-      ],
-      "accounts": [
+        "Author must be an active agent. Content is stored on IPFS, hash on-chain.",
+      ];
+      discriminator: [140, 84, 238, 165, 168, 159, 119, 128];
+      accounts: [
         {
-          "name": "post",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "post";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  115,
-                  116
-                ]
+                kind: "const";
+                value: [112, 111, 115, 116];
               },
               {
-                "kind": "account",
-                "path": "author"
+                kind: "account";
+                path: "author";
               },
               {
-                "kind": "arg",
-                "path": "nonce"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "nonce";
+              },
+            ];
+          };
         },
         {
-          "name": "author",
-          "pda": {
-            "seeds": [
+          name: "author";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "author.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "author.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "author"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["author"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "contentHash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "contentHash";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "nonce",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "nonce";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "topic",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "topic";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "parentPost",
-          "type": {
-            "option": "pubkey"
-          }
-        }
-      ]
+          name: "parentPost";
+          type: {
+            option: "pubkey";
+          };
+        },
+      ];
     },
     {
-      "name": "purchaseSkill",
-      "docs": [
+      name: "purchaseSkill";
+      docs: [
         "Purchase a skill (SOL or SPL token).",
-        "Protocol fee is deducted and sent to treasury."
-      ],
-      "discriminator": [
-        70,
-        41,
-        105,
-        156,
-        159,
-        169,
-        215,
-        188
-      ],
-      "accounts": [
+        "Protocol fee is deducted and sent to treasury.",
+      ];
+      discriminator: [70, 41, 105, 156, 159, 169, 215, 188];
+      accounts: [
         {
-          "name": "skill",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "skill";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  115,
-                  107,
-                  105,
-                  108,
-                  108
-                ]
+                kind: "const";
+                value: [115, 107, 105, 108, 108];
               },
               {
-                "kind": "account",
-                "path": "skill.author",
-                "account": "skillRegistration"
+                kind: "account";
+                path: "skill.author";
+                account: "skillRegistration";
               },
               {
-                "kind": "account",
-                "path": "skill.skill_id",
-                "account": "skillRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "skill.skill_id";
+                account: "skillRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "purchaseRecord",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "purchaseRecord";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   115,
                   107,
                   105,
@@ -3303,202 +2439,152 @@ export type AgencCoordination = {
                   104,
                   97,
                   115,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "skill"
-              },
-              {
-                "kind": "account",
-                "path": "buyer"
-              }
-            ]
-          }
-        },
-        {
-          "name": "buyer",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
                   101,
-                  110,
-                  116
-                ]
+                ];
               },
               {
-                "kind": "account",
-                "path": "buyer.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
-        },
-        {
-          "name": "authorAgent",
-          "docs": [
-            "Skill author's agent registration"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "account";
+                path: "skill";
               },
               {
-                "kind": "account",
-                "path": "author_agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "buyer";
+              },
+            ];
+          };
         },
         {
-          "name": "authorWallet",
-          "writable": true
-        },
-        {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "buyer";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
+              },
+              {
+                kind: "account";
+                path: "buyer.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "treasury",
-          "writable": true
+          name: "authorAgent";
+          docs: ["Skill author's agent registration"];
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
+              },
+              {
+                kind: "account";
+                path: "author_agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "buyer"
-          ]
+          name: "authorWallet";
+          writable: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          name: "protocolConfig";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "priceMint",
-          "docs": [
-            "SPL token mint for price denomination (optional)"
-          ],
-          "optional": true
+          name: "treasury";
+          writable: true;
         },
         {
-          "name": "buyerTokenAccount",
-          "docs": [
-            "Buyer's token account (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["buyer"];
         },
         {
-          "name": "authorTokenAccount",
-          "docs": [
-            "Author's token account (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
         },
         {
-          "name": "treasuryTokenAccount",
-          "docs": [
-            "Treasury's token account (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "priceMint";
+          docs: ["SPL token mint for price denomination (optional)"];
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional)"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
+          name: "buyerTokenAccount";
+          docs: ["Buyer's token account (optional)"];
+          writable: true;
+          optional: true;
+        },
+        {
+          name: "authorTokenAccount";
+          docs: ["Author's token account (optional)"];
+          writable: true;
+          optional: true;
+        },
+        {
+          name: "treasuryTokenAccount";
+          docs: ["Treasury's token account (optional)"];
+          writable: true;
+          optional: true;
+        },
+        {
+          name: "tokenProgram";
+          docs: ["SPL Token program (optional)"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "rateSkill",
-      "docs": [
+      name: "rateSkill";
+      docs: [
         "Rate a skill (1-5, reputation-weighted).",
-        "One rating per agent per skill, enforced by PDA uniqueness."
-      ],
-      "discriminator": [
-        44,
-        124,
-        30,
-        253,
-        90,
-        244,
-        174,
-        75
-      ],
-      "accounts": [
+        "One rating per agent per skill, enforced by PDA uniqueness.",
+      ];
+      discriminator: [44, 124, 30, 253, 90, 244, 174, 75];
+      accounts: [
         {
-          "name": "skill",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "skill";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  115,
-                  107,
-                  105,
-                  108,
-                  108
-                ]
+                kind: "const";
+                value: [115, 107, 105, 108, 108];
               },
               {
-                "kind": "account",
-                "path": "skill.author",
-                "account": "skillRegistration"
+                kind: "account";
+                path: "skill.author";
+                account: "skillRegistration";
               },
               {
-                "kind": "account",
-                "path": "skill.skill_id",
-                "account": "skillRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "skill.skill_id";
+                account: "skillRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "ratingAccount",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "ratingAccount";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   115,
                   107,
                   105,
@@ -3510,49 +2596,43 @@ export type AgencCoordination = {
                   116,
                   105,
                   110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "skill"
-              },
-              {
-                "kind": "account",
-                "path": "rater"
-              }
-            ]
-          }
-        },
-        {
-          "name": "rater",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
                   103,
-                  101,
-                  110,
-                  116
-                ]
+                ];
               },
               {
-                "kind": "account",
-                "path": "rater.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "skill";
+              },
+              {
+                kind: "account";
+                path: "rater";
+              },
+            ];
+          };
         },
         {
-          "name": "purchaseRecord",
-          "pda": {
-            "seeds": [
+          name: "rater";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
+              },
+              {
+                kind: "account";
+                path: "rater.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
+        },
+        {
+          name: "purchaseRecord";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [
                   115,
                   107,
                   105,
@@ -3566,74 +2646,60 @@ export type AgencCoordination = {
                   104,
                   97,
                   115,
-                  101
-                ]
+                  101,
+                ];
               },
               {
-                "kind": "account",
-                "path": "skill"
+                kind: "account";
+                path: "skill";
               },
               {
-                "kind": "account",
-                "path": "rater"
-              }
-            ]
-          }
+                kind: "account";
+                path: "rater";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "rater"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["rater"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "rating",
-          "type": "u8"
+          name: "rating";
+          type: "u8";
         },
         {
-          "name": "reviewHash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
-        }
-      ]
+          name: "reviewHash";
+          type: {
+            option: {
+              array: ["u8", 32];
+            };
+          };
+        },
+      ];
     },
     {
-      "name": "registerAgent",
-      "docs": [
+      name: "registerAgent";
+      docs: [
         "Register a new agent on-chain with its capabilities and metadata.",
         "Creates a unique PDA for the agent that serves as its on-chain identity.",
         "",
@@ -3642,506 +2708,366 @@ export type AgencCoordination = {
         "* `agent_id` - Unique 32-byte identifier for the agent",
         "* `capabilities` - Bitmask of agent capabilities (see AgentCapability)",
         "* `endpoint` - Network endpoint for off-chain communication",
-        "* `metadata_uri` - Optional URI to extended metadata (IPFS/Arweave)"
-      ],
-      "discriminator": [
-        135,
-        157,
-        66,
-        195,
-        2,
-        113,
-        175,
-        30
-      ],
-      "accounts": [
+        "* `metadata_uri` - Optional URI to extended metadata (IPFS/Arweave)",
+      ];
+      discriminator: [135, 157, 66, 195, 2, 113, 175, 30];
+      accounts: [
         {
-          "name": "agent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "agent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "arg",
-                "path": "agentId"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "agentId";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true
+          name: "authority";
+          writable: true;
+          signer: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "agentId",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "agentId";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "capabilities",
-          "type": "u64"
+          name: "capabilities";
+          type: "u64";
         },
         {
-          "name": "endpoint",
-          "type": "string"
+          name: "endpoint";
+          type: "string";
         },
         {
-          "name": "metadataUri",
-          "type": {
-            "option": "string"
-          }
+          name: "metadataUri";
+          type: {
+            option: "string";
+          };
         },
         {
-          "name": "stakeAmount",
-          "type": "u64"
-        }
-      ]
+          name: "stakeAmount";
+          type: "u64";
+        },
+      ];
     },
     {
-      "name": "registerSkill",
-      "docs": [
+      name: "registerSkill";
+      docs: [
         "Register a new skill on-chain.",
-        "Author must be an active agent."
-      ],
-      "discriminator": [
-        166,
-        249,
-        255,
-        189,
-        192,
-        197,
-        102,
-        2
-      ],
-      "accounts": [
+        "Author must be an active agent.",
+      ];
+      discriminator: [166, 249, 255, 189, 192, 197, 102, 2];
+      accounts: [
         {
-          "name": "skill",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "skill";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  115,
-                  107,
-                  105,
-                  108,
-                  108
-                ]
+                kind: "const";
+                value: [115, 107, 105, 108, 108];
               },
               {
-                "kind": "account",
-                "path": "author"
+                kind: "account";
+                path: "author";
               },
               {
-                "kind": "arg",
-                "path": "skillId"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "skillId";
+              },
+            ];
+          };
         },
         {
-          "name": "author",
-          "pda": {
-            "seeds": [
+          name: "author";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "author.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "author.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "author"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["author"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "skillId",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "skillId";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "name",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "name";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "contentHash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "contentHash";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "price",
-          "type": "u64"
+          name: "price";
+          type: "u64";
         },
         {
-          "name": "priceMint",
-          "type": {
-            "option": "pubkey"
-          }
+          name: "priceMint";
+          type: {
+            option: "pubkey";
+          };
         },
         {
-          "name": "tags",
-          "type": {
-            "array": [
-              "u8",
-              64
-            ]
-          }
-        }
-      ]
+          name: "tags";
+          type: {
+            array: ["u8", 64];
+          };
+        },
+      ];
     },
     {
-      "name": "resolveDispute",
-      "docs": [
+      name: "resolveDispute";
+      docs: [
         "Execute the resolved dispute outcome.",
-        "Requires sufficient votes to meet threshold."
-      ],
-      "discriminator": [
-        231,
-        6,
-        202,
-        6,
-        96,
-        103,
-        12,
-        230
-      ],
-      "accounts": [
+        "Requires sufficient votes to meet threshold.",
+      ];
+      discriminator: [231, 6, 202, 6, 96, 103, 12, 230];
+      accounts: [
         {
-          "name": "dispute",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "dispute";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [100, 105, 115, 112, 117, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "dispute.dispute_id",
-                "account": "dispute"
-              }
-            ]
-          }
+                kind: "account";
+                path: "dispute.dispute_id";
+                account: "dispute";
+              },
+            ];
+          };
         },
         {
-          "name": "task",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "task";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "escrow";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
+                kind: "const";
+                value: [101, 115, 99, 114, 111, 119];
               },
               {
-                "kind": "account",
-                "path": "task"
-              }
-            ]
-          }
+                kind: "account";
+                path: "task";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "resolver",
-          "signer": true
+          name: "resolver";
+          signer: true;
         },
         {
-          "name": "creator",
-          "writable": true
+          name: "creator";
+          writable: true;
         },
         {
-          "name": "workerClaim",
-          "docs": [
+          name: "workerClaim";
+          docs: [
             "Worker's claim proving they worked on task (fix #59)",
             "Required for Complete/Split resolutions that pay a worker",
-            "Made mutable to allow closing after dispute resolution (fix #439)"
-          ],
-          "writable": true,
-          "optional": true,
-          "pda": {
-            "seeds": [
+            "Made mutable to allow closing after dispute resolution (fix #439)",
+          ];
+          writable: true;
+          optional: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker_claim.worker",
-                "account": "taskClaim"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker_claim.worker";
+                account: "taskClaim";
+              },
+            ];
+          };
         },
         {
-          "name": "worker",
-          "docs": [
-            "Worker agent account for the dispute defendant."
-          ],
-          "writable": true,
-          "optional": true
+          name: "worker";
+          docs: ["Worker agent account for the dispute defendant."];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "workerAuthority",
-          "writable": true,
-          "optional": true
+          name: "workerAuthority";
+          writable: true;
+          optional: true;
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
         },
         {
-          "name": "tokenEscrowAta",
-          "docs": [
-            "Token escrow ATA holding reward tokens (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "tokenEscrowAta";
+          docs: ["Token escrow ATA holding reward tokens (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "creatorTokenAccount",
-          "docs": [
-            "Creator's token account for refund (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "creatorTokenAccount";
+          docs: ["Creator's token account for refund (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "workerTokenAccountAta",
-          "docs": [
-            "Worker's token account for payment (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "workerTokenAccountAta";
+          docs: ["Worker's token account for payment (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "treasuryTokenAccount",
-          "docs": [
-            "Treasury's token account for protocol fees (optional)"
-          ],
-          "writable": true,
-          "optional": true
+          name: "treasuryTokenAccount";
+          docs: ["Treasury's token account for protocol fees (optional)"];
+          writable: true;
+          optional: true;
         },
         {
-          "name": "rewardMint",
-          "docs": [
-            "SPL token mint (optional, must match task.reward_mint)"
-          ],
-          "optional": true
+          name: "rewardMint";
+          docs: ["SPL token mint (optional, must match task.reward_mint)"];
+          optional: true;
         },
         {
-          "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional, required for token tasks)"
-          ],
-          "optional": true,
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
+          name: "tokenProgram";
+          docs: ["SPL Token program (optional, required for token tasks)"];
+          optional: true;
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "revokeDelegation",
-      "docs": [
+      name: "revokeDelegation";
+      docs: [
         "Revoke a reputation delegation and close the account.",
-        "Rent is returned to the delegator's authority."
-      ],
-      "discriminator": [
-        188,
-        92,
-        135,
-        67,
-        160,
-        181,
-        54,
-        62
-      ],
-      "accounts": [
+        "Rent is returned to the delegator's authority.",
+      ];
+      discriminator: [188, 92, 135, 67, 160, 181, 54, 62];
+      accounts: [
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "delegatorAgent"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["delegatorAgent"];
         },
         {
-          "name": "delegatorAgent"
+          name: "delegatorAgent";
         },
         {
-          "name": "delegation",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "delegation";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   114,
                   101,
                   112,
@@ -4162,60 +3088,49 @@ export type AgencCoordination = {
                   116,
                   105,
                   111,
-                  110
-                ]
+                  110,
+                ];
               },
               {
-                "kind": "account",
-                "path": "delegatorAgent"
+                kind: "account";
+                path: "delegatorAgent";
               },
               {
-                "kind": "account",
-                "path": "delegation.delegatee",
-                "account": "reputationDelegation"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
+                kind: "account";
+                path: "delegation.delegatee";
+                account: "reputationDelegation";
+              },
+            ];
+          };
+        },
+      ];
+      args: [];
     },
     {
-      "name": "stakeReputation",
-      "docs": [
+      name: "stakeReputation";
+      docs: [
         "Stake SOL on agent reputation.",
-        "Creates or adds to an existing reputation stake account."
-      ],
-      "discriminator": [
-        104,
-        250,
-        157,
-        87,
-        16,
-        190,
-        180,
-        238
-      ],
-      "accounts": [
+        "Creates or adds to an existing reputation stake account.",
+      ];
+      discriminator: [104, 250, 157, 87, 16, 190, 180, 238];
+      accounts: [
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "agent"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["agent"];
         },
         {
-          "name": "agent"
+          name: "agent";
         },
         {
-          "name": "reputationStake",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "reputationStake";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   114,
                   101,
                   112,
@@ -4231,395 +3146,270 @@ export type AgencCoordination = {
                   116,
                   97,
                   107,
-                  101
-                ]
+                  101,
+                ];
               },
               {
-                "kind": "account",
-                "path": "agent"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent";
+              },
+            ];
+          };
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
+          name: "amount";
+          type: "u64";
+        },
+      ];
     },
     {
-      "name": "suspendAgent",
-      "docs": [
+      name: "suspendAgent";
+      docs: [
         "Suspend an agent (protocol authority only, fix #819).",
-        "Prevents the agent from claiming tasks or participating in disputes."
-      ],
-      "discriminator": [
-        242,
-        28,
-        54,
-        59,
-        247,
-        20,
-        59,
-        110
-      ],
-      "accounts": [
+        "Prevents the agent from claiming tasks or participating in disputes.",
+      ];
+      discriminator: [242, 28, 54, 59, 247, 20, 59, 110];
+      accounts: [
         {
-          "name": "agent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "agent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "signer": true,
-          "relations": [
-            "protocolConfig"
-          ]
-        }
-      ],
-      "args": []
+          name: "authority";
+          signer: true;
+          relations: ["protocolConfig"];
+        },
+      ];
+      args: [];
     },
     {
-      "name": "unsuspendAgent",
-      "docs": [
+      name: "unsuspendAgent";
+      docs: [
         "Unsuspend an agent (protocol authority only, fix #819).",
-        "Restores the agent to Inactive status."
-      ],
-      "discriminator": [
-        79,
-        75,
-        53,
-        57,
-        177,
-        142,
-        131,
-        149
-      ],
-      "accounts": [
+        "Restores the agent to Inactive status.",
+      ];
+      discriminator: [79, 75, 53, 57, 177, 142, 131, 149];
+      accounts: [
         {
-          "name": "agent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "agent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "signer": true,
-          "relations": [
-            "protocolConfig"
-          ]
-        }
-      ],
-      "args": []
+          name: "authority";
+          signer: true;
+          relations: ["protocolConfig"];
+        },
+      ];
+      args: [];
     },
     {
-      "name": "updateAgent",
-      "docs": [
+      name: "updateAgent";
+      docs: [
         "Update an existing agent's registration data.",
-        "Only the agent's authority can modify its registration."
-      ],
-      "discriminator": [
-        85,
-        2,
-        178,
-        9,
-        119,
-        139,
-        102,
-        164
-      ],
-      "accounts": [
+        "Only the agent's authority can modify its registration.",
+      ];
+      discriminator: [85, 2, 178, 9, 119, 139, 102, 164];
+      accounts: [
         {
-          "name": "agent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "agent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "signer": true,
-          "relations": [
-            "agent"
-          ]
-        }
-      ],
-      "args": [
+          name: "authority";
+          signer: true;
+          relations: ["agent"];
+        },
+      ];
+      args: [
         {
-          "name": "capabilities",
-          "type": {
-            "option": "u64"
-          }
+          name: "capabilities";
+          type: {
+            option: "u64";
+          };
         },
         {
-          "name": "endpoint",
-          "type": {
-            "option": "string"
-          }
+          name: "endpoint";
+          type: {
+            option: "string";
+          };
         },
         {
-          "name": "metadataUri",
-          "type": {
-            "option": "string"
-          }
+          name: "metadataUri";
+          type: {
+            option: "string";
+          };
         },
         {
-          "name": "status",
-          "type": {
-            "option": "u8"
-          }
-        }
-      ]
+          name: "status";
+          type: {
+            option: "u8";
+          };
+        },
+      ];
     },
     {
-      "name": "updateMinVersion",
-      "docs": [
+      name: "updateMinVersion";
+      docs: [
         "Update minimum supported protocol version (multisig gated).",
         "Used to deprecate old versions after migration grace period.",
         "",
         "# Arguments",
-        "* `new_min_version` - The new minimum supported version"
-      ],
-      "discriminator": [
-        149,
-        215,
-        23,
-        120,
-        114,
-        69,
-        110,
-        37
-      ],
-      "accounts": [
+        "* `new_min_version` - The new minimum supported version",
+      ];
+      discriminator: [149, 215, 23, 120, 114, 69, 110, 37];
+      accounts: [
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
+        },
+      ];
+      args: [
         {
-          "name": "newMinVersion",
-          "type": "u8"
-        }
-      ]
+          name: "newMinVersion";
+          type: "u8";
+        },
+      ];
     },
     {
-      "name": "updateMultisig",
-      "docs": [
+      name: "updateMultisig";
+      docs: [
         "Rotate multisig owners/threshold (multisig gated).",
         "",
         "Hardening:",
         "- Allows signer rotation for key loss/compromise recovery.",
-        "- Requires threshold of new-set signers in the same update transaction."
-      ],
-      "discriminator": [
-        152,
-        192,
-        112,
-        152,
-        120,
-        184,
-        150,
-        59
-      ],
-      "accounts": [
+        "- Requires threshold of new-set signers in the same update transaction.",
+      ];
+      discriminator: [152, 192, 112, 152, 120, 184, 150, 59];
+      accounts: [
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
+        },
+      ];
+      args: [
         {
-          "name": "newThreshold",
-          "type": "u8"
+          name: "newThreshold";
+          type: "u8";
         },
         {
-          "name": "newOwners",
-          "type": {
-            "vec": "pubkey"
-          }
-        }
-      ]
+          name: "newOwners";
+          type: {
+            vec: "pubkey";
+          };
+        },
+      ];
     },
     {
-      "name": "updateProtocolFee",
-      "docs": [
-        "Update the protocol fee (multisig gated)."
-      ],
-      "discriminator": [
-        170,
-        136,
-        6,
-        60,
-        43,
-        130,
-        81,
-        96
-      ],
-      "accounts": [
+      name: "updateProtocolFee";
+      docs: ["Update the protocol fee (multisig gated)."];
+      discriminator: [170, 136, 6, 60, 43, 130, 81, 96];
+      accounts: [
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
+        },
+      ];
+      args: [
         {
-          "name": "protocolFeeBps",
-          "type": "u16"
-        }
-      ]
+          name: "protocolFeeBps";
+          type: "u16";
+        },
+      ];
     },
     {
-      "name": "updateRateLimits",
-      "docs": [
+      name: "updateRateLimits";
+      docs: [
         "Update rate limiting configuration (multisig gated).",
         "Parameters can be tuned post-deployment without program upgrade.",
         "",
@@ -4628,194 +3418,138 @@ export type AgencCoordination = {
         "* `max_tasks_per_24h` - Maximum tasks per agent per 24h (0 = unlimited)",
         "* `dispute_initiation_cooldown` - Seconds between disputes (0 = disabled)",
         "* `max_disputes_per_24h` - Maximum disputes per agent per 24h (0 = unlimited)",
-        "* `min_stake_for_dispute` - Minimum stake required to initiate dispute"
-      ],
-      "discriminator": [
-        247,
-        36,
-        121,
-        254,
-        22,
-        16,
-        226,
-        1
-      ],
-      "accounts": [
+        "* `min_stake_for_dispute` - Minimum stake required to initiate dispute",
+      ];
+      discriminator: [247, 36, 121, 254, 22, 16, 226, 1];
+      accounts: [
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
+        },
+      ];
+      args: [
         {
-          "name": "taskCreationCooldown",
-          "type": "i64"
+          name: "taskCreationCooldown";
+          type: "i64";
         },
         {
-          "name": "maxTasksPer24h",
-          "type": "u8"
+          name: "maxTasksPer24h";
+          type: "u8";
         },
         {
-          "name": "disputeInitiationCooldown",
-          "type": "i64"
+          name: "disputeInitiationCooldown";
+          type: "i64";
         },
         {
-          "name": "maxDisputesPer24h",
-          "type": "u8"
+          name: "maxDisputesPer24h";
+          type: "u8";
         },
         {
-          "name": "minStakeForDispute",
-          "type": "u64"
-        }
-      ]
+          name: "minStakeForDispute";
+          type: "u64";
+        },
+      ];
     },
     {
-      "name": "updateSkill",
-      "docs": [
+      name: "updateSkill";
+      docs: [
         "Update a skill's content, price, tags, or active status.",
-        "Only the skill author can update."
-      ],
-      "discriminator": [
-        116,
-        142,
-        164,
-        86,
-        9,
-        27,
-        112,
-        227
-      ],
-      "accounts": [
+        "Only the skill author can update.",
+      ];
+      discriminator: [116, 142, 164, 86, 9, 27, 112, 227];
+      accounts: [
         {
-          "name": "skill",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "skill";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  115,
-                  107,
-                  105,
-                  108,
-                  108
-                ]
+                kind: "const";
+                value: [115, 107, 105, 108, 108];
               },
               {
-                "kind": "account",
-                "path": "author"
+                kind: "account";
+                path: "author";
               },
               {
-                "kind": "account",
-                "path": "skill.skill_id",
-                "account": "skillRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "skill.skill_id";
+                account: "skillRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "author",
-          "pda": {
-            "seeds": [
+          name: "author";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "author.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "author.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "signer": true,
-          "relations": [
-            "author"
-          ]
-        }
-      ],
-      "args": [
+          name: "authority";
+          signer: true;
+          relations: ["author"];
+        },
+      ];
+      args: [
         {
-          "name": "contentHash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "contentHash";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "price",
-          "type": "u64"
+          name: "price";
+          type: "u64";
         },
         {
-          "name": "tags",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
-          }
+          name: "tags";
+          type: {
+            option: {
+              array: ["u8", 64];
+            };
+          };
         },
         {
-          "name": "isActive",
-          "type": {
-            "option": "bool"
-          }
-        }
-      ]
+          name: "isActive";
+          type: {
+            option: "bool";
+          };
+        },
+      ];
     },
     {
-      "name": "updateState",
-      "docs": [
+      name: "updateState";
+      docs: [
         "Update shared coordination state.",
         "Used for broadcasting state changes to other agents.",
         "",
@@ -4823,476 +3557,339 @@ export type AgencCoordination = {
         "* `ctx` - Context with coordination PDA",
         "* `state_key` - Key identifying the state variable",
         "* `state_value` - New value for the state",
-        "* `version` - Expected current version (for optimistic locking)"
-      ],
-      "discriminator": [
-        135,
-        112,
-        215,
-        75,
-        247,
-        185,
-        53,
-        176
-      ],
-      "accounts": [
+        "* `version` - Expected current version (for optimistic locking)",
+      ];
+      discriminator: [135, 112, 215, 75, 247, 185, 53, 176];
+      accounts: [
         {
-          "name": "state",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "state";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [115, 116, 97, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "authority"
+                kind: "account";
+                path: "authority";
               },
               {
-                "kind": "arg",
-                "path": "stateKey"
-              }
-            ]
-          }
+                kind: "arg";
+                path: "stateKey";
+              },
+            ];
+          };
         },
         {
-          "name": "agent",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "agent";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "agent"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["agent"];
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
         {
-          "name": "stateKey",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          name: "stateKey";
+          type: {
+            array: ["u8", 32];
+          };
         },
         {
-          "name": "stateValue",
-          "type": {
-            "array": [
-              "u8",
-              64
-            ]
-          }
+          name: "stateValue";
+          type: {
+            array: ["u8", 64];
+          };
         },
         {
-          "name": "version",
-          "type": "u64"
-        }
-      ]
+          name: "version";
+          type: "u64";
+        },
+      ];
     },
     {
-      "name": "updateTreasury",
-      "docs": [
+      name: "updateTreasury";
+      docs: [
         "Update protocol treasury destination (multisig gated).",
         "",
         "Hardening:",
         "- Allows treasury rotation/recovery.",
-        "- New treasury must be program-owned, or a signer system account."
-      ],
-      "discriminator": [
-        60,
-        16,
-        243,
-        66,
-        96,
-        59,
-        254,
-        131
-      ],
-      "accounts": [
+        "- New treasury must be program-owned, or a signer system account.",
+      ];
+      discriminator: [60, 16, 243, 66, 96, 59, 254, 131];
+      accounts: [
         {
-          "name": "protocolConfig",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "newTreasury",
-          "docs": [
+          name: "newTreasury";
+          docs: [
             "Must be either:",
             "- program-owned (preferred), or",
-            "- a system-owned signer account (legacy compatibility)."
-          ]
-        }
-      ],
-      "args": []
+            "- a system-owned signer account (legacy compatibility).",
+          ];
+        },
+      ];
+      args: [];
     },
     {
-      "name": "upvotePost",
-      "docs": [
+      name: "upvotePost";
+      docs: [
         "Upvote a feed post.",
-        "One vote per agent per post, enforced by PDA uniqueness."
-      ],
-      "discriminator": [
-        198,
-        186,
-        192,
-        175,
-        171,
-        226,
-        72,
-        252
-      ],
-      "accounts": [
+        "One vote per agent per post, enforced by PDA uniqueness.",
+      ];
+      discriminator: [198, 186, 192, 175, 171, 226, 72, 252];
+      accounts: [
         {
-          "name": "post",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "post";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  115,
-                  116
-                ]
+                kind: "const";
+                value: [112, 111, 115, 116];
               },
               {
-                "kind": "account",
-                "path": "post.author",
-                "account": "feedPost"
+                kind: "account";
+                path: "post.author";
+                account: "feedPost";
               },
               {
-                "kind": "account",
-                "path": "post.nonce",
-                "account": "feedPost"
-              }
-            ]
-          }
+                kind: "account";
+                path: "post.nonce";
+                account: "feedPost";
+              },
+            ];
+          };
         },
         {
-          "name": "vote",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "vote";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  117,
-                  112,
-                  118,
-                  111,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [117, 112, 118, 111, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "post"
+                kind: "account";
+                path: "post";
               },
               {
-                "kind": "account",
-                "path": "voter"
-              }
-            ]
-          }
+                kind: "account";
+                path: "voter";
+              },
+            ];
+          };
         },
         {
-          "name": "voter",
-          "pda": {
-            "seeds": [
+          name: "voter";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "voter.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "voter.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "voter"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["voter"];
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [];
     },
     {
-      "name": "voteDispute",
-      "docs": [
+      name: "voteDispute";
+      docs: [
         "Vote on a dispute resolution.",
-        "Arbiters must be registered agents with arbitration capability."
-      ],
-      "discriminator": [
-        23,
-        190,
-        211,
-        170,
-        65,
-        223,
-        4,
-        243
-      ],
-      "accounts": [
+        "Arbiters must be registered agents with arbitration capability.",
+      ];
+      discriminator: [23, 190, 211, 170, 65, 223, 4, 243];
+      accounts: [
         {
-          "name": "dispute",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "dispute";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  100,
-                  105,
-                  115,
-                  112,
-                  117,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [100, 105, 115, 112, 117, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "dispute.dispute_id",
-                "account": "dispute"
-              }
-            ]
-          }
+                kind: "account";
+                path: "dispute.dispute_id";
+                account: "dispute";
+              },
+            ];
+          };
         },
         {
-          "name": "task",
-          "docs": [
-            "Task account for arbiter party validation (fix #461)"
-          ],
-          "pda": {
-            "seeds": [
+          name: "task";
+          docs: ["Task account for arbiter party validation (fix #461)"];
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  115,
-                  107
-                ]
+                kind: "const";
+                value: [116, 97, 115, 107];
               },
               {
-                "kind": "account",
-                "path": "task.creator",
-                "account": "task"
+                kind: "account";
+                path: "task.creator";
+                account: "task";
               },
               {
-                "kind": "account",
-                "path": "task.task_id",
-                "account": "task"
-              }
-            ]
-          },
-          "relations": [
-            "dispute"
-          ]
+                kind: "account";
+                path: "task.task_id";
+                account: "task";
+              },
+            ];
+          };
+          relations: ["dispute"];
         },
         {
-          "name": "workerClaim",
-          "docs": [
+          name: "workerClaim";
+          docs: [
             "Optional: Worker's claim on the task (for arbiter party validation, fix #461)",
-            "If provided, validates arbiter is not the worker"
-          ],
-          "optional": true,
-          "pda": {
-            "seeds": [
+            "If provided, validates arbiter is not the worker",
+          ];
+          optional: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
+                kind: "const";
+                value: [99, 108, 97, 105, 109];
               },
               {
-                "kind": "account",
-                "path": "task"
+                kind: "account";
+                path: "task";
               },
               {
-                "kind": "account",
-                "path": "worker_claim.worker",
-                "account": "taskClaim"
-              }
-            ]
-          }
+                kind: "account";
+                path: "worker_claim.worker";
+                account: "taskClaim";
+              },
+            ];
+          };
         },
         {
-          "name": "defendantAgent",
-          "docs": [
+          name: "defendantAgent";
+          docs: [
             "Optional: Defendant's agent registration (for authority-level participant check, fix #824)",
             "If provided, validates arbiter's authority is not the defendant worker's authority.",
-            "Must match the dispute's defendant field."
-          ],
-          "optional": true,
-          "pda": {
-            "seeds": [
+            "Must match the dispute's defendant field.",
+          ];
+          optional: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
               },
               {
-                "kind": "account",
-                "path": "defendant_agent.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
+                kind: "account";
+                path: "defendant_agent.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "vote",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "vote";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  118,
-                  111,
-                  116,
-                  101
-                ]
+                kind: "const";
+                value: [118, 111, 116, 101];
               },
               {
-                "kind": "account",
-                "path": "dispute"
+                kind: "account";
+                path: "dispute";
               },
               {
-                "kind": "account",
-                "path": "arbiter"
-              }
-            ]
-          }
+                kind: "account";
+                path: "arbiter";
+              },
+            ];
+          };
         },
         {
-          "name": "authorityVote",
-          "docs": [
+          name: "authorityVote";
+          docs: [
             "Authority-level vote tracking to prevent Sybil attacks (fix #101)",
-            "One authority can only vote once per dispute, regardless of how many agents they control"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
+            "One authority can only vote once per dispute, regardless of how many agents they control",
+          ];
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   97,
                   117,
                   116,
@@ -5306,139 +3903,104 @@ export type AgencCoordination = {
                   118,
                   111,
                   116,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "dispute"
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "arbiter",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
                   101,
-                  110,
-                  116
-                ]
+                ];
               },
               {
-                "kind": "account",
-                "path": "arbiter.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
-        },
-        {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+                kind: "account";
+                path: "dispute";
+              },
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "account";
+                path: "authority";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "arbiter"
-          ]
+          name: "arbiter";
+          writable: true;
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
+              },
+              {
+                kind: "account";
+                path: "arbiter.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
+        },
         {
-          "name": "approve",
-          "type": "bool"
-        }
-      ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["arbiter"];
+        },
+        {
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
+        {
+          name: "approve";
+          type: "bool";
+        },
+      ];
     },
     {
-      "name": "voteProposal",
-      "docs": [
+      name: "voteProposal";
+      docs: [
         "Vote on a governance proposal.",
-        "Voter must be an active agent. Double voting prevented by PDA uniqueness."
-      ],
-      "discriminator": [
-        247,
-        104,
-        114,
-        240,
-        237,
-        41,
-        200,
-        36
-      ],
-      "accounts": [
+        "Voter must be an active agent. Double voting prevented by PDA uniqueness.",
+      ];
+      discriminator: [247, 104, 114, 240, 237, 41, 200, 36];
+      accounts: [
         {
-          "name": "proposal",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "proposal";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  112,
-                  111,
-                  115,
-                  97,
-                  108
-                ]
+                kind: "const";
+                value: [112, 114, 111, 112, 111, 115, 97, 108];
               },
               {
-                "kind": "account",
-                "path": "proposal.proposer",
-                "account": "proposal"
+                kind: "account";
+                path: "proposal.proposer";
+                account: "proposal";
               },
               {
-                "kind": "account",
-                "path": "proposal.nonce",
-                "account": "proposal"
-              }
-            ]
-          }
+                kind: "account";
+                path: "proposal.nonce";
+                account: "proposal";
+              },
+            ];
+          };
         },
         {
-          "name": "vote",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "vote";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   103,
                   111,
                   118,
@@ -5453,118 +4015,90 @@ export type AgencCoordination = {
                   118,
                   111,
                   116,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "proposal"
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "voter",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
                   101,
-                  110,
-                  116
-                ]
+                ];
               },
               {
-                "kind": "account",
-                "path": "voter.agent_id",
-                "account": "agentRegistration"
-              }
-            ]
-          }
-        },
-        {
-          "name": "protocolConfig",
-          "pda": {
-            "seeds": [
+                kind: "account";
+                path: "proposal";
+              },
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
+                kind: "account";
+                path: "authority";
+              },
+            ];
+          };
         },
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "voter"
-          ]
+          name: "voter";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [97, 103, 101, 110, 116];
+              },
+              {
+                kind: "account";
+                path: "voter.agent_id";
+                account: "agentRegistration";
+              },
+            ];
+          };
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
+          name: "protocolConfig";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [112, 114, 111, 116, 111, 99, 111, 108];
+              },
+            ];
+          };
+        },
         {
-          "name": "approve",
-          "type": "bool"
-        }
-      ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["voter"];
+        },
+        {
+          name: "systemProgram";
+          address: "11111111111111111111111111111111";
+        },
+      ];
+      args: [
+        {
+          name: "approve";
+          type: "bool";
+        },
+      ];
     },
     {
-      "name": "withdrawReputationStake",
-      "docs": [
+      name: "withdrawReputationStake";
+      docs: [
         "Withdraw SOL from reputation stake after cooldown period.",
-        "Agent must have no pending disputes as defendant."
-      ],
-      "discriminator": [
-        234,
-        37,
-        157,
-        236,
-        80,
-        222,
-        40,
-        233
-      ],
-      "accounts": [
+        "Agent must have no pending disputes as defendant.",
+      ];
+      discriminator: [234, 37, 157, 236, 80, 222, 40, 233];
+      accounts: [
         {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "agent"
-          ]
+          name: "authority";
+          writable: true;
+          signer: true;
+          relations: ["agent"];
         },
         {
-          "name": "agent"
+          name: "agent";
         },
         {
-          "name": "reputationStake",
-          "writable": true,
-          "pda": {
-            "seeds": [
+          name: "reputationStake";
+          writable: true;
+          pda: {
+            seeds: [
               {
-                "kind": "const",
-                "value": [
+                kind: "const";
+                value: [
                   114,
                   101,
                   112,
@@ -5580,1985 +4114,1353 @@ export type AgencCoordination = {
                   116,
                   97,
                   107,
-                  101
-                ]
+                  101,
+                ];
               },
               {
-                "kind": "account",
-                "path": "agent"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
+                kind: "account";
+                path: "agent";
+              },
+            ];
+          };
+        },
+      ];
+      args: [
         {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
-    }
-  ],
-  "accounts": [
-    {
-      "name": "agentRegistration",
-      "discriminator": [
-        130,
-        53,
-        100,
-        103,
-        121,
-        77,
-        148,
-        19
-      ]
-    },
-    {
-      "name": "authorityDisputeVote",
-      "discriminator": [
-        194,
-        81,
-        47,
-        196,
-        187,
-        81,
-        110,
-        137
-      ]
-    },
-    {
-      "name": "bindingSpend",
-      "discriminator": [
-        196,
-        241,
-        81,
-        0,
-        238,
-        99,
-        30,
-        100
-      ]
-    },
-    {
-      "name": "coordinationState",
-      "discriminator": [
-        11,
-        232,
-        15,
-        241,
-        234,
-        143,
-        35,
-        252
-      ]
-    },
-    {
-      "name": "dispute",
-      "discriminator": [
-        36,
-        49,
-        241,
-        67,
-        40,
-        36,
-        241,
-        74
-      ]
-    },
-    {
-      "name": "disputeVote",
-      "discriminator": [
-        166,
-        202,
-        140,
-        76,
-        65,
-        35,
-        254,
-        149
-      ]
-    },
-    {
-      "name": "feedPost",
-      "discriminator": [
-        228,
-        215,
-        236,
-        73,
-        246,
-        181,
-        191,
-        228
-      ]
-    },
-    {
-      "name": "feedVote",
-      "discriminator": [
-        228,
-        56,
-        120,
-        128,
-        135,
-        128,
-        195,
-        19
-      ]
-    },
-    {
-      "name": "governanceConfig",
-      "discriminator": [
-        81,
-        63,
-        124,
-        107,
-        210,
-        100,
-        145,
-        70
-      ]
-    },
-    {
-      "name": "governanceVote",
-      "discriminator": [
-        157,
-        104,
-        16,
-        111,
-        208,
-        31,
-        53,
-        132
-      ]
-    },
-    {
-      "name": "nullifierSpend",
-      "discriminator": [
-        254,
-        192,
-        216,
-        27,
-        119,
-        64,
-        151,
-        144
-      ]
-    },
-    {
-      "name": "proposal",
-      "discriminator": [
-        26,
-        94,
-        189,
-        187,
-        116,
-        136,
-        53,
-        33
-      ]
-    },
-    {
-      "name": "protocolConfig",
-      "discriminator": [
-        207,
-        91,
-        250,
-        28,
-        152,
-        179,
-        215,
-        209
-      ]
-    },
-    {
-      "name": "purchaseRecord",
-      "discriminator": [
-        239,
-        38,
-        40,
-        199,
-        4,
-        96,
-        209,
-        2
-      ]
-    },
-    {
-      "name": "reputationDelegation",
-      "discriminator": [
-        247,
-        166,
-        224,
-        123,
-        62,
-        95,
-        198,
-        71
-      ]
-    },
-    {
-      "name": "reputationStake",
-      "discriminator": [
-        226,
-        12,
-        248,
-        110,
-        109,
-        108,
-        99,
-        212
-      ]
-    },
-    {
-      "name": "skillRating",
-      "discriminator": [
-        107,
-        74,
-        49,
-        243,
-        139,
-        30,
-        9,
-        244
-      ]
-    },
-    {
-      "name": "skillRegistration",
-      "discriminator": [
-        195,
-        23,
-        19,
-        205,
-        215,
-        225,
-        192,
-        254
-      ]
-    },
-    {
-      "name": "task",
-      "discriminator": [
-        79,
-        34,
-        229,
-        55,
-        88,
-        90,
-        55,
-        84
-      ]
-    },
-    {
-      "name": "taskClaim",
-      "discriminator": [
-        115,
-        77,
-        242,
-        98,
-        7,
-        81,
-        209,
-        137
-      ]
-    },
-    {
-      "name": "taskEscrow",
-      "discriminator": [
-        209,
-        72,
-        197,
-        54,
-        17,
-        55,
-        3,
-        187
-      ]
-    }
-  ],
-  "events": [
-    {
-      "name": "agentDeregistered",
-      "discriminator": [
-        132,
-        69,
-        246,
-        19,
-        135,
-        65,
-        28,
-        134
-      ]
-    },
-    {
-      "name": "agentRegistered",
-      "discriminator": [
-        191,
-        78,
-        217,
-        54,
-        232,
-        100,
-        189,
-        85
-      ]
-    },
-    {
-      "name": "agentSuspended",
-      "discriminator": [
-        219,
-        202,
-        177,
-        3,
-        116,
-        220,
-        164,
-        148
-      ]
-    },
-    {
-      "name": "agentUnsuspended",
-      "discriminator": [
-        26,
-        114,
-        30,
-        199,
-        235,
-        91,
-        134,
-        255
-      ]
-    },
-    {
-      "name": "agentUpdated",
-      "discriminator": [
-        210,
-        179,
-        162,
-        250,
-        123,
-        250,
-        210,
-        166
-      ]
-    },
-    {
-      "name": "arbiterVotesCleanedUp",
-      "discriminator": [
-        50,
-        95,
-        231,
-        24,
-        238,
-        79,
-        179,
-        220
-      ]
-    },
-    {
-      "name": "bondDeposited",
-      "discriminator": [
-        210,
-        149,
-        47,
-        232,
-        72,
-        128,
-        248,
-        153
-      ]
-    },
-    {
-      "name": "bondLocked",
-      "discriminator": [
-        89,
-        45,
-        139,
-        7,
-        22,
-        105,
-        232,
-        59
-      ]
-    },
-    {
-      "name": "bondReleased",
-      "discriminator": [
-        191,
-        161,
-        250,
-        29,
-        188,
-        146,
-        120,
-        251
-      ]
-    },
-    {
-      "name": "bondSlashed",
-      "discriminator": [
-        59,
-        7,
-        252,
-        195,
-        234,
-        156,
-        42,
-        54
-      ]
-    },
-    {
-      "name": "dependentTaskCreated",
-      "discriminator": [
-        82,
-        63,
-        46,
-        148,
-        85,
-        191,
-        122,
-        114
-      ]
-    },
-    {
-      "name": "disputeCancelled",
-      "discriminator": [
-        38,
-        80,
-        189,
-        225,
-        112,
-        190,
-        156,
-        178
-      ]
-    },
-    {
-      "name": "disputeExpired",
-      "discriminator": [
-        28,
-        47,
-        191,
-        124,
-        204,
-        113,
-        101,
-        116
-      ]
-    },
-    {
-      "name": "disputeInitiated",
-      "discriminator": [
-        150,
-        109,
-        93,
-        252,
-        198,
-        4,
-        183,
-        153
-      ]
-    },
-    {
-      "name": "disputeResolved",
-      "discriminator": [
-        121,
-        64,
-        249,
-        153,
-        139,
-        128,
-        236,
-        187
-      ]
-    },
-    {
-      "name": "disputeVoteCast",
-      "discriminator": [
-        193,
-        34,
-        94,
-        69,
-        4,
-        179,
-        143,
-        87
-      ]
-    },
-    {
-      "name": "governanceInitialized",
-      "discriminator": [
-        41,
-        187,
-        103,
-        26,
-        42,
-        44,
-        30,
-        15
-      ]
-    },
-    {
-      "name": "governanceVoteCast",
-      "discriminator": [
-        223,
-        253,
-        198,
-        94,
-        141,
-        151,
-        78,
-        57
-      ]
-    },
-    {
-      "name": "migrationCompleted",
-      "discriminator": [
-        223,
-        45,
-        123,
-        192,
-        106,
-        249,
-        6,
-        241
-      ]
-    },
-    {
-      "name": "multisigUpdated",
-      "discriminator": [
-        242,
-        206,
-        37,
-        59,
-        122,
-        197,
-        210,
-        72
-      ]
-    },
-    {
-      "name": "postCreated",
-      "discriminator": [
-        209,
-        178,
-        232,
-        24,
-        158,
-        92,
-        77,
-        227
-      ]
-    },
-    {
-      "name": "postUpvoted",
-      "discriminator": [
-        85,
-        112,
-        248,
-        67,
-        90,
-        20,
-        117,
-        210
-      ]
-    },
-    {
-      "name": "proposalCancelled",
-      "discriminator": [
-        253,
-        59,
-        104,
-        46,
-        129,
-        78,
-        9,
-        14
-      ]
-    },
-    {
-      "name": "proposalCreated",
-      "discriminator": [
-        186,
-        8,
-        160,
-        108,
-        81,
-        13,
-        51,
-        206
-      ]
-    },
-    {
-      "name": "proposalExecuted",
-      "discriminator": [
-        92,
-        213,
-        189,
-        201,
-        101,
-        83,
-        111,
-        83
-      ]
-    },
-    {
-      "name": "protocolFeeUpdated",
-      "discriminator": [
-        172,
-        56,
-        83,
-        113,
-        219,
-        69,
-        69,
-        105
-      ]
-    },
-    {
-      "name": "protocolInitialized",
-      "discriminator": [
-        173,
-        122,
-        168,
-        254,
-        9,
-        118,
-        76,
-        132
-      ]
-    },
-    {
-      "name": "protocolVersionUpdated",
-      "discriminator": [
-        233,
-        202,
-        182,
-        241,
-        6,
-        134,
-        81,
-        48
-      ]
-    },
-    {
-      "name": "rateLimitHit",
-      "discriminator": [
-        157,
-        150,
-        77,
-        158,
-        30,
-        167,
-        242,
-        145
-      ]
-    },
-    {
-      "name": "rateLimitsUpdated",
-      "discriminator": [
-        32,
-        232,
-        72,
-        132,
-        73,
-        25,
-        219,
-        10
-      ]
-    },
-    {
-      "name": "reputationChanged",
-      "discriminator": [
-        190,
-        190,
-        93,
-        65,
-        6,
-        39,
-        92,
-        250
-      ]
-    },
-    {
-      "name": "reputationDelegated",
-      "discriminator": [
-        143,
-        11,
-        134,
-        202,
-        135,
-        97,
-        121,
-        223
-      ]
-    },
-    {
-      "name": "reputationDelegationRevoked",
-      "discriminator": [
-        130,
-        130,
-        191,
-        20,
-        81,
-        88,
-        109,
-        152
-      ]
-    },
-    {
-      "name": "reputationStakeWithdrawn",
-      "discriminator": [
-        189,
-        97,
-        237,
-        131,
-        201,
-        190,
-        121,
-        43
-      ]
-    },
-    {
-      "name": "reputationStaked",
-      "discriminator": [
-        12,
-        70,
-        73,
-        125,
-        30,
-        125,
-        6,
-        10
-      ]
-    },
-    {
-      "name": "rewardDistributed",
-      "discriminator": [
-        36,
-        65,
-        223,
-        38,
-        136,
-        162,
-        10,
-        30
-      ]
-    },
-    {
-      "name": "skillPurchased",
-      "discriminator": [
-        90,
-        255,
-        155,
-        123,
-        29,
-        16,
-        39,
-        75
-      ]
-    },
-    {
-      "name": "skillRated",
-      "discriminator": [
-        90,
-        85,
-        214,
-        124,
-        228,
-        179,
-        112,
-        13
-      ]
-    },
-    {
-      "name": "skillRegistered",
-      "discriminator": [
-        222,
-        131,
-        204,
-        34,
-        182,
-        68,
-        239,
-        64
-      ]
-    },
-    {
-      "name": "skillUpdated",
-      "discriminator": [
-        168,
-        10,
-        44,
-        211,
-        219,
-        5,
-        98,
-        98
-      ]
-    },
-    {
-      "name": "speculativeCommitmentCreated",
-      "discriminator": [
-        72,
-        69,
-        96,
-        30,
-        161,
-        244,
-        6,
-        183
-      ]
-    },
-    {
-      "name": "stateUpdated",
-      "discriminator": [
-        187,
-        220,
-        147,
-        37,
-        52,
-        210,
-        78,
-        173
-      ]
-    },
-    {
-      "name": "taskCancelled",
-      "discriminator": [
-        158,
-        101,
-        220,
-        187,
-        16,
-        141,
-        141,
-        64
-      ]
-    },
-    {
-      "name": "taskClaimed",
-      "discriminator": [
-        208,
-        90,
-        243,
-        116,
-        80,
-        15,
-        228,
-        202
-      ]
-    },
-    {
-      "name": "taskCompleted",
-      "discriminator": [
-        132,
-        223,
-        98,
-        152,
-        2,
-        9,
-        57,
-        128
-      ]
-    },
-    {
-      "name": "taskCreated",
-      "discriminator": [
-        49,
-        174,
-        6,
-        7,
-        71,
-        159,
-        69,
-        175
-      ]
-    },
-    {
-      "name": "treasuryUpdated",
-      "discriminator": [
-        80,
-        239,
-        54,
-        168,
-        43,
-        38,
-        85,
-        145
-      ]
-    }
-  ],
-  "errors": [
-    {
-      "code": 6000,
-      "name": "agentAlreadyRegistered",
-      "msg": "Agent is already registered"
-    },
-    {
-      "code": 6001,
-      "name": "agentNotFound",
-      "msg": "Agent not found"
-    },
-    {
-      "code": 6002,
-      "name": "agentNotActive",
-      "msg": "Agent is not active"
-    },
-    {
-      "code": 6003,
-      "name": "insufficientCapabilities",
-      "msg": "Agent has insufficient capabilities"
-    },
-    {
-      "code": 6004,
-      "name": "invalidCapabilities",
-      "msg": "Agent capabilities bitmask cannot be zero"
-    },
-    {
-      "code": 6005,
-      "name": "maxActiveTasksReached",
-      "msg": "Agent has reached maximum active tasks"
-    },
-    {
-      "code": 6006,
-      "name": "agentHasActiveTasks",
-      "msg": "Agent has active tasks and cannot be deregistered"
-    },
-    {
-      "code": 6007,
-      "name": "unauthorizedAgent",
-      "msg": "Only the agent authority can perform this action"
-    },
-    {
-      "code": 6008,
-      "name": "creatorAuthorityMismatch",
-      "msg": "Creator must match authority to prevent social engineering"
-    },
-    {
-      "code": 6009,
-      "name": "invalidAgentId",
-      "msg": "Invalid agent ID: agent_id cannot be all zeros"
-    },
-    {
-      "code": 6010,
-      "name": "agentRegistrationRequired",
-      "msg": "Agent registration required to create tasks"
-    },
-    {
-      "code": 6011,
-      "name": "agentSuspended",
-      "msg": "Agent is suspended and cannot change status"
-    },
-    {
-      "code": 6012,
-      "name": "agentBusyWithTasks",
-      "msg": "Agent cannot set status to Active while having active tasks"
-    },
-    {
-      "code": 6013,
-      "name": "taskNotFound",
-      "msg": "Task not found"
-    },
-    {
-      "code": 6014,
-      "name": "taskNotOpen",
-      "msg": "Task is not open for claims"
-    },
-    {
-      "code": 6015,
-      "name": "taskFullyClaimed",
-      "msg": "Task has reached maximum workers"
-    },
-    {
-      "code": 6016,
-      "name": "taskExpired",
-      "msg": "Task has expired"
-    },
-    {
-      "code": 6017,
-      "name": "taskNotExpired",
-      "msg": "Task deadline has not passed"
-    },
-    {
-      "code": 6018,
-      "name": "deadlinePassed",
-      "msg": "Task deadline has passed"
-    },
-    {
-      "code": 6019,
-      "name": "taskNotInProgress",
-      "msg": "Task is not in progress"
-    },
-    {
-      "code": 6020,
-      "name": "taskAlreadyCompleted",
-      "msg": "Task is already completed"
-    },
-    {
-      "code": 6021,
-      "name": "taskCannotBeCancelled",
-      "msg": "Task cannot be cancelled"
-    },
-    {
-      "code": 6022,
-      "name": "unauthorizedTaskAction",
-      "msg": "Only the task creator can perform this action"
-    },
-    {
-      "code": 6023,
-      "name": "invalidCreator",
-      "msg": "Invalid creator"
-    },
-    {
-      "code": 6024,
-      "name": "invalidTaskId",
-      "msg": "Invalid task ID: cannot be zero"
-    },
-    {
-      "code": 6025,
-      "name": "invalidDescription",
-      "msg": "Invalid description: cannot be empty"
-    },
-    {
-      "code": 6026,
-      "name": "invalidMaxWorkers",
-      "msg": "Invalid max workers: must be between 1 and 100"
-    },
-    {
-      "code": 6027,
-      "name": "invalidTaskType",
-      "msg": "Invalid task type"
-    },
-    {
-      "code": 6028,
-      "name": "invalidDeadline",
-      "msg": "Invalid deadline: deadline must be greater than zero"
-    },
-    {
-      "code": 6029,
-      "name": "invalidReward",
-      "msg": "Invalid reward: reward must be greater than zero"
-    },
-    {
-      "code": 6030,
-      "name": "invalidRequiredCapabilities",
-      "msg": "Invalid required capabilities: required_capabilities cannot be zero"
-    },
-    {
-      "code": 6031,
-      "name": "competitiveTaskAlreadyWon",
-      "msg": "Competitive task already completed by another worker"
-    },
-    {
-      "code": 6032,
-      "name": "noWorkers",
-      "msg": "Task has no workers"
-    },
-    {
-      "code": 6033,
-      "name": "constraintHashMismatch",
-      "msg": "Proof constraint hash does not match task's stored constraint hash"
-    },
-    {
-      "code": 6034,
-      "name": "notPrivateTask",
-      "msg": "Task is not a private task (no constraint hash set)"
-    },
-    {
-      "code": 6035,
-      "name": "alreadyClaimed",
-      "msg": "Worker has already claimed this task"
-    },
-    {
-      "code": 6036,
-      "name": "notClaimed",
-      "msg": "Worker has not claimed this task"
-    },
-    {
-      "code": 6037,
-      "name": "claimAlreadyCompleted",
-      "msg": "Claim has already been completed"
-    },
-    {
-      "code": 6038,
-      "name": "claimNotExpired",
-      "msg": "Claim has not expired yet"
-    },
-    {
-      "code": 6039,
-      "name": "claimExpired",
-      "msg": "Claim has expired"
-    },
-    {
-      "code": 6040,
-      "name": "invalidExpiration",
-      "msg": "Invalid expiration: expires_at cannot be zero"
-    },
-    {
-      "code": 6041,
-      "name": "invalidProof",
-      "msg": "Invalid proof of work"
-    },
-    {
-      "code": 6042,
-      "name": "zkVerificationFailed",
-      "msg": "ZK proof verification failed"
-    },
-    {
-      "code": 6043,
-      "name": "invalidSealEncoding",
-      "msg": "Invalid RISC0 seal encoding"
-    },
-    {
-      "code": 6044,
-      "name": "invalidJournalLength",
-      "msg": "Invalid RISC0 journal length"
-    },
-    {
-      "code": 6045,
-      "name": "invalidJournalBinding",
-      "msg": "Invalid RISC0 journal binding"
-    },
-    {
-      "code": 6046,
-      "name": "invalidJournalTask",
-      "msg": "RISC0 journal task binding mismatch"
-    },
-    {
-      "code": 6047,
-      "name": "invalidJournalAuthority",
-      "msg": "RISC0 journal authority binding mismatch"
-    },
-    {
-      "code": 6048,
-      "name": "invalidImageId",
-      "msg": "Invalid RISC0 image ID"
-    },
-    {
-      "code": 6049,
-      "name": "trustedSelectorMismatch",
-      "msg": "RISC0 seal selector does not match trusted selector"
-    },
-    {
-      "code": 6050,
-      "name": "trustedVerifierProgramMismatch",
-      "msg": "RISC0 verifier program does not match trusted verifier"
-    },
-    {
-      "code": 6051,
-      "name": "routerAccountMismatch",
-      "msg": "RISC0 router account constraints failed"
-    },
-    {
-      "code": 6052,
-      "name": "invalidProofSize",
-      "msg": "Invalid proof size - expected 256 bytes for RISC Zero seal body"
-    },
-    {
-      "code": 6053,
-      "name": "invalidProofBinding",
-      "msg": "Invalid proof binding: expected_binding cannot be all zeros"
-    },
-    {
-      "code": 6054,
-      "name": "invalidOutputCommitment",
-      "msg": "Invalid output commitment: output_commitment cannot be all zeros"
-    },
-    {
-      "code": 6055,
-      "name": "invalidRentRecipient",
-      "msg": "Invalid rent recipient: must be worker authority"
-    },
-    {
-      "code": 6056,
-      "name": "gracePeriodNotPassed",
-      "msg": "Grace period not passed: only worker authority can expire claim within 60 seconds of expiry"
-    },
-    {
-      "code": 6057,
-      "name": "invalidProofHash",
-      "msg": "Invalid proof hash: proof_hash cannot be all zeros"
-    },
-    {
-      "code": 6058,
-      "name": "invalidResultData",
-      "msg": "Invalid result data: result_data cannot be all zeros when provided"
-    },
-    {
-      "code": 6059,
-      "name": "disputeNotActive",
-      "msg": "Dispute is not active"
-    },
-    {
-      "code": 6060,
-      "name": "votingEnded",
-      "msg": "Voting period has ended"
-    },
-    {
-      "code": 6061,
-      "name": "votingNotEnded",
-      "msg": "Voting period has not ended"
-    },
-    {
-      "code": 6062,
-      "name": "alreadyVoted",
-      "msg": "Already voted on this dispute"
-    },
-    {
-      "code": 6063,
-      "name": "notArbiter",
-      "msg": "Not authorized to vote (not an arbiter)"
-    },
-    {
-      "code": 6064,
-      "name": "insufficientVotes",
-      "msg": "Insufficient votes to resolve"
-    },
-    {
-      "code": 6065,
-      "name": "disputeAlreadyResolved",
-      "msg": "Dispute has already been resolved"
-    },
-    {
-      "code": 6066,
-      "name": "unauthorizedResolver",
-      "msg": "Only protocol authority or dispute initiator can resolve disputes"
-    },
-    {
-      "code": 6067,
-      "name": "activeDisputeVotes",
-      "msg": "Agent has active dispute votes pending resolution"
-    },
-    {
-      "code": 6068,
-      "name": "recentVoteActivity",
-      "msg": "Agent must wait 24 hours after voting before deregistering"
-    },
-    {
-      "code": 6069,
-      "name": "authorityAlreadyVoted",
-      "msg": "Authority has already voted on this dispute"
-    },
-    {
-      "code": 6070,
-      "name": "insufficientEvidence",
-      "msg": "Insufficient dispute evidence provided"
-    },
-    {
-      "code": 6071,
-      "name": "evidenceTooLong",
-      "msg": "Dispute evidence exceeds maximum allowed length"
-    },
-    {
-      "code": 6072,
-      "name": "disputeNotExpired",
-      "msg": "Dispute has not expired"
-    },
-    {
-      "code": 6073,
-      "name": "slashAlreadyApplied",
-      "msg": "Dispute slashing already applied"
-    },
-    {
-      "code": 6074,
-      "name": "slashWindowExpired",
-      "msg": "Slash window expired: must apply slashing within 7 days of resolution"
-    },
-    {
-      "code": 6075,
-      "name": "disputeNotResolved",
-      "msg": "Dispute has not been resolved"
-    },
-    {
-      "code": 6076,
-      "name": "notTaskParticipant",
-      "msg": "Only task creator or workers can initiate disputes"
-    },
-    {
-      "code": 6077,
-      "name": "invalidEvidenceHash",
-      "msg": "Invalid evidence hash: cannot be all zeros"
-    },
-    {
-      "code": 6078,
-      "name": "arbiterIsDisputeParticipant",
-      "msg": "Arbiter cannot vote on disputes they are a participant in"
-    },
-    {
-      "code": 6079,
-      "name": "insufficientQuorum",
-      "msg": "Insufficient quorum: minimum number of voters not reached"
-    },
-    {
-      "code": 6080,
-      "name": "activeDisputesExist",
-      "msg": "Agent has active disputes as defendant and cannot deregister"
-    },
-    {
-      "code": 6081,
-      "name": "workerAgentRequired",
-      "msg": "Worker agent account required when creator initiates dispute"
-    },
-    {
-      "code": 6082,
-      "name": "workerClaimRequired",
-      "msg": "Worker claim account required when creator initiates dispute"
-    },
-    {
-      "code": 6083,
-      "name": "workerNotInDispute",
-      "msg": "Worker was not involved in this dispute"
-    },
-    {
-      "code": 6084,
-      "name": "initiatorCannotResolve",
-      "msg": "Dispute initiator cannot resolve their own dispute"
-    },
-    {
-      "code": 6085,
-      "name": "versionMismatch",
-      "msg": "State version mismatch (concurrent modification)"
-    },
-    {
-      "code": 6086,
-      "name": "stateKeyExists",
-      "msg": "State key already exists"
-    },
+          name: "amount";
+          type: "u64";
+        },
+      ];
+    },
+  ];
+  accounts: [
+    {
+      name: "agentRegistration";
+      discriminator: [130, 53, 100, 103, 121, 77, 148, 19];
+    },
+    {
+      name: "authorityDisputeVote";
+      discriminator: [194, 81, 47, 196, 187, 81, 110, 137];
+    },
+    {
+      name: "bindingSpend";
+      discriminator: [196, 241, 81, 0, 238, 99, 30, 100];
+    },
+    {
+      name: "coordinationState";
+      discriminator: [11, 232, 15, 241, 234, 143, 35, 252];
+    },
+    {
+      name: "dispute";
+      discriminator: [36, 49, 241, 67, 40, 36, 241, 74];
+    },
+    {
+      name: "disputeVote";
+      discriminator: [166, 202, 140, 76, 65, 35, 254, 149];
+    },
+    {
+      name: "feedPost";
+      discriminator: [228, 215, 236, 73, 246, 181, 191, 228];
+    },
+    {
+      name: "feedVote";
+      discriminator: [228, 56, 120, 128, 135, 128, 195, 19];
+    },
+    {
+      name: "governanceConfig";
+      discriminator: [81, 63, 124, 107, 210, 100, 145, 70];
+    },
+    {
+      name: "governanceVote";
+      discriminator: [157, 104, 16, 111, 208, 31, 53, 132];
+    },
+    {
+      name: "nullifierSpend";
+      discriminator: [254, 192, 216, 27, 119, 64, 151, 144];
+    },
+    {
+      name: "proposal";
+      discriminator: [26, 94, 189, 187, 116, 136, 53, 33];
+    },
+    {
+      name: "protocolConfig";
+      discriminator: [207, 91, 250, 28, 152, 179, 215, 209];
+    },
+    {
+      name: "purchaseRecord";
+      discriminator: [239, 38, 40, 199, 4, 96, 209, 2];
+    },
+    {
+      name: "reputationDelegation";
+      discriminator: [247, 166, 224, 123, 62, 95, 198, 71];
+    },
+    {
+      name: "reputationStake";
+      discriminator: [226, 12, 248, 110, 109, 108, 99, 212];
+    },
+    {
+      name: "skillRating";
+      discriminator: [107, 74, 49, 243, 139, 30, 9, 244];
+    },
+    {
+      name: "skillRegistration";
+      discriminator: [195, 23, 19, 205, 215, 225, 192, 254];
+    },
+    {
+      name: "task";
+      discriminator: [79, 34, 229, 55, 88, 90, 55, 84];
+    },
+    {
+      name: "taskClaim";
+      discriminator: [115, 77, 242, 98, 7, 81, 209, 137];
+    },
+    {
+      name: "taskEscrow";
+      discriminator: [209, 72, 197, 54, 17, 55, 3, 187];
+    },
+  ];
+  events: [
+    {
+      name: "agentDeregistered";
+      discriminator: [132, 69, 246, 19, 135, 65, 28, 134];
+    },
+    {
+      name: "agentRegistered";
+      discriminator: [191, 78, 217, 54, 232, 100, 189, 85];
+    },
+    {
+      name: "agentSuspended";
+      discriminator: [219, 202, 177, 3, 116, 220, 164, 148];
+    },
+    {
+      name: "agentUnsuspended";
+      discriminator: [26, 114, 30, 199, 235, 91, 134, 255];
+    },
+    {
+      name: "agentUpdated";
+      discriminator: [210, 179, 162, 250, 123, 250, 210, 166];
+    },
+    {
+      name: "arbiterVotesCleanedUp";
+      discriminator: [50, 95, 231, 24, 238, 79, 179, 220];
+    },
+    {
+      name: "bondDeposited";
+      discriminator: [210, 149, 47, 232, 72, 128, 248, 153];
+    },
+    {
+      name: "bondLocked";
+      discriminator: [89, 45, 139, 7, 22, 105, 232, 59];
+    },
+    {
+      name: "bondReleased";
+      discriminator: [191, 161, 250, 29, 188, 146, 120, 251];
+    },
+    {
+      name: "bondSlashed";
+      discriminator: [59, 7, 252, 195, 234, 156, 42, 54];
+    },
+    {
+      name: "dependentTaskCreated";
+      discriminator: [82, 63, 46, 148, 85, 191, 122, 114];
+    },
+    {
+      name: "disputeCancelled";
+      discriminator: [38, 80, 189, 225, 112, 190, 156, 178];
+    },
+    {
+      name: "disputeExpired";
+      discriminator: [28, 47, 191, 124, 204, 113, 101, 116];
+    },
+    {
+      name: "disputeInitiated";
+      discriminator: [150, 109, 93, 252, 198, 4, 183, 153];
+    },
+    {
+      name: "disputeResolved";
+      discriminator: [121, 64, 249, 153, 139, 128, 236, 187];
+    },
+    {
+      name: "disputeVoteCast";
+      discriminator: [193, 34, 94, 69, 4, 179, 143, 87];
+    },
+    {
+      name: "governanceInitialized";
+      discriminator: [41, 187, 103, 26, 42, 44, 30, 15];
+    },
+    {
+      name: "governanceVoteCast";
+      discriminator: [223, 253, 198, 94, 141, 151, 78, 57];
+    },
+    {
+      name: "migrationCompleted";
+      discriminator: [223, 45, 123, 192, 106, 249, 6, 241];
+    },
+    {
+      name: "multisigUpdated";
+      discriminator: [242, 206, 37, 59, 122, 197, 210, 72];
+    },
+    {
+      name: "postCreated";
+      discriminator: [209, 178, 232, 24, 158, 92, 77, 227];
+    },
+    {
+      name: "postUpvoted";
+      discriminator: [85, 112, 248, 67, 90, 20, 117, 210];
+    },
+    {
+      name: "proposalCancelled";
+      discriminator: [253, 59, 104, 46, 129, 78, 9, 14];
+    },
+    {
+      name: "proposalCreated";
+      discriminator: [186, 8, 160, 108, 81, 13, 51, 206];
+    },
+    {
+      name: "proposalExecuted";
+      discriminator: [92, 213, 189, 201, 101, 83, 111, 83];
+    },
+    {
+      name: "protocolFeeUpdated";
+      discriminator: [172, 56, 83, 113, 219, 69, 69, 105];
+    },
+    {
+      name: "protocolInitialized";
+      discriminator: [173, 122, 168, 254, 9, 118, 76, 132];
+    },
+    {
+      name: "protocolVersionUpdated";
+      discriminator: [233, 202, 182, 241, 6, 134, 81, 48];
+    },
+    {
+      name: "rateLimitHit";
+      discriminator: [157, 150, 77, 158, 30, 167, 242, 145];
+    },
+    {
+      name: "rateLimitsUpdated";
+      discriminator: [32, 232, 72, 132, 73, 25, 219, 10];
+    },
+    {
+      name: "reputationChanged";
+      discriminator: [190, 190, 93, 65, 6, 39, 92, 250];
+    },
+    {
+      name: "reputationDelegated";
+      discriminator: [143, 11, 134, 202, 135, 97, 121, 223];
+    },
+    {
+      name: "reputationDelegationRevoked";
+      discriminator: [130, 130, 191, 20, 81, 88, 109, 152];
+    },
+    {
+      name: "reputationStakeWithdrawn";
+      discriminator: [189, 97, 237, 131, 201, 190, 121, 43];
+    },
+    {
+      name: "reputationStaked";
+      discriminator: [12, 70, 73, 125, 30, 125, 6, 10];
+    },
+    {
+      name: "rewardDistributed";
+      discriminator: [36, 65, 223, 38, 136, 162, 10, 30];
+    },
+    {
+      name: "skillPurchased";
+      discriminator: [90, 255, 155, 123, 29, 16, 39, 75];
+    },
+    {
+      name: "skillRated";
+      discriminator: [90, 85, 214, 124, 228, 179, 112, 13];
+    },
+    {
+      name: "skillRegistered";
+      discriminator: [222, 131, 204, 34, 182, 68, 239, 64];
+    },
+    {
+      name: "skillUpdated";
+      discriminator: [168, 10, 44, 211, 219, 5, 98, 98];
+    },
+    {
+      name: "speculativeCommitmentCreated";
+      discriminator: [72, 69, 96, 30, 161, 244, 6, 183];
+    },
+    {
+      name: "stateUpdated";
+      discriminator: [187, 220, 147, 37, 52, 210, 78, 173];
+    },
+    {
+      name: "taskCancelled";
+      discriminator: [158, 101, 220, 187, 16, 141, 141, 64];
+    },
+    {
+      name: "taskClaimed";
+      discriminator: [208, 90, 243, 116, 80, 15, 228, 202];
+    },
+    {
+      name: "taskCompleted";
+      discriminator: [132, 223, 98, 152, 2, 9, 57, 128];
+    },
+    {
+      name: "taskCreated";
+      discriminator: [49, 174, 6, 7, 71, 159, 69, 175];
+    },
+    {
+      name: "treasuryUpdated";
+      discriminator: [80, 239, 54, 168, 43, 38, 85, 145];
+    },
+  ];
+  errors: [
+    {
+      code: 6000;
+      name: "agentAlreadyRegistered";
+      msg: "Agent is already registered";
+    },
+    {
+      code: 6001;
+      name: "agentNotFound";
+      msg: "Agent not found";
+    },
+    {
+      code: 6002;
+      name: "agentNotActive";
+      msg: "Agent is not active";
+    },
+    {
+      code: 6003;
+      name: "insufficientCapabilities";
+      msg: "Agent has insufficient capabilities";
+    },
+    {
+      code: 6004;
+      name: "invalidCapabilities";
+      msg: "Agent capabilities bitmask cannot be zero";
+    },
+    {
+      code: 6005;
+      name: "maxActiveTasksReached";
+      msg: "Agent has reached maximum active tasks";
+    },
+    {
+      code: 6006;
+      name: "agentHasActiveTasks";
+      msg: "Agent has active tasks and cannot be deregistered";
+    },
+    {
+      code: 6007;
+      name: "unauthorizedAgent";
+      msg: "Only the agent authority can perform this action";
+    },
+    {
+      code: 6008;
+      name: "creatorAuthorityMismatch";
+      msg: "Creator must match authority to prevent social engineering";
+    },
+    {
+      code: 6009;
+      name: "invalidAgentId";
+      msg: "Invalid agent ID: agent_id cannot be all zeros";
+    },
+    {
+      code: 6010;
+      name: "agentRegistrationRequired";
+      msg: "Agent registration required to create tasks";
+    },
+    {
+      code: 6011;
+      name: "agentSuspended";
+      msg: "Agent is suspended and cannot change status";
+    },
+    {
+      code: 6012;
+      name: "agentBusyWithTasks";
+      msg: "Agent cannot set status to Active while having active tasks";
+    },
+    {
+      code: 6013;
+      name: "taskNotFound";
+      msg: "Task not found";
+    },
+    {
+      code: 6014;
+      name: "taskNotOpen";
+      msg: "Task is not open for claims";
+    },
+    {
+      code: 6015;
+      name: "taskFullyClaimed";
+      msg: "Task has reached maximum workers";
+    },
+    {
+      code: 6016;
+      name: "taskExpired";
+      msg: "Task has expired";
+    },
+    {
+      code: 6017;
+      name: "taskNotExpired";
+      msg: "Task deadline has not passed";
+    },
+    {
+      code: 6018;
+      name: "deadlinePassed";
+      msg: "Task deadline has passed";
+    },
+    {
+      code: 6019;
+      name: "taskNotInProgress";
+      msg: "Task is not in progress";
+    },
+    {
+      code: 6020;
+      name: "taskAlreadyCompleted";
+      msg: "Task is already completed";
+    },
+    {
+      code: 6021;
+      name: "taskCannotBeCancelled";
+      msg: "Task cannot be cancelled";
+    },
+    {
+      code: 6022;
+      name: "unauthorizedTaskAction";
+      msg: "Only the task creator can perform this action";
+    },
+    {
+      code: 6023;
+      name: "invalidCreator";
+      msg: "Invalid creator";
+    },
+    {
+      code: 6024;
+      name: "invalidTaskId";
+      msg: "Invalid task ID: cannot be zero";
+    },
+    {
+      code: 6025;
+      name: "invalidDescription";
+      msg: "Invalid description: cannot be empty";
+    },
+    {
+      code: 6026;
+      name: "invalidMaxWorkers";
+      msg: "Invalid max workers: must be between 1 and 100";
+    },
+    {
+      code: 6027;
+      name: "invalidTaskType";
+      msg: "Invalid task type";
+    },
+    {
+      code: 6028;
+      name: "invalidDeadline";
+      msg: "Invalid deadline: deadline must be greater than zero";
+    },
+    {
+      code: 6029;
+      name: "invalidReward";
+      msg: "Invalid reward: reward must be greater than zero";
+    },
+    {
+      code: 6030;
+      name: "invalidRequiredCapabilities";
+      msg: "Invalid required capabilities: required_capabilities cannot be zero";
+    },
+    {
+      code: 6031;
+      name: "competitiveTaskAlreadyWon";
+      msg: "Competitive task already completed by another worker";
+    },
+    {
+      code: 6032;
+      name: "noWorkers";
+      msg: "Task has no workers";
+    },
+    {
+      code: 6033;
+      name: "constraintHashMismatch";
+      msg: "Proof constraint hash does not match task's stored constraint hash";
+    },
+    {
+      code: 6034;
+      name: "notPrivateTask";
+      msg: "Task is not a private task (no constraint hash set)";
+    },
+    {
+      code: 6035;
+      name: "alreadyClaimed";
+      msg: "Worker has already claimed this task";
+    },
+    {
+      code: 6036;
+      name: "notClaimed";
+      msg: "Worker has not claimed this task";
+    },
+    {
+      code: 6037;
+      name: "claimAlreadyCompleted";
+      msg: "Claim has already been completed";
+    },
+    {
+      code: 6038;
+      name: "claimNotExpired";
+      msg: "Claim has not expired yet";
+    },
+    {
+      code: 6039;
+      name: "claimExpired";
+      msg: "Claim has expired";
+    },
+    {
+      code: 6040;
+      name: "invalidExpiration";
+      msg: "Invalid expiration: expires_at cannot be zero";
+    },
+    {
+      code: 6041;
+      name: "invalidProof";
+      msg: "Invalid proof of work";
+    },
+    {
+      code: 6042;
+      name: "zkVerificationFailed";
+      msg: "ZK proof verification failed";
+    },
+    {
+      code: 6043;
+      name: "invalidSealEncoding";
+      msg: "Invalid RISC0 seal encoding";
+    },
+    {
+      code: 6044;
+      name: "invalidJournalLength";
+      msg: "Invalid RISC0 journal length";
+    },
+    {
+      code: 6045;
+      name: "invalidJournalBinding";
+      msg: "Invalid RISC0 journal binding";
+    },
+    {
+      code: 6046;
+      name: "invalidJournalTask";
+      msg: "RISC0 journal task binding mismatch";
+    },
+    {
+      code: 6047;
+      name: "invalidJournalAuthority";
+      msg: "RISC0 journal authority binding mismatch";
+    },
+    {
+      code: 6048;
+      name: "invalidImageId";
+      msg: "Invalid RISC0 image ID";
+    },
+    {
+      code: 6049;
+      name: "trustedSelectorMismatch";
+      msg: "RISC0 seal selector does not match trusted selector";
+    },
+    {
+      code: 6050;
+      name: "trustedVerifierProgramMismatch";
+      msg: "RISC0 verifier program does not match trusted verifier";
+    },
+    {
+      code: 6051;
+      name: "routerAccountMismatch";
+      msg: "RISC0 router account constraints failed";
+    },
+    {
+      code: 6052;
+      name: "invalidProofSize";
+      msg: "Invalid proof size - expected 256 bytes for RISC Zero seal body";
+    },
+    {
+      code: 6053;
+      name: "invalidProofBinding";
+      msg: "Invalid proof binding: expected_binding cannot be all zeros";
+    },
+    {
+      code: 6054;
+      name: "invalidOutputCommitment";
+      msg: "Invalid output commitment: output_commitment cannot be all zeros";
+    },
+    {
+      code: 6055;
+      name: "invalidRentRecipient";
+      msg: "Invalid rent recipient: must be worker authority";
+    },
+    {
+      code: 6056;
+      name: "gracePeriodNotPassed";
+      msg: "Grace period not passed: only worker authority can expire claim within 60 seconds of expiry";
+    },
+    {
+      code: 6057;
+      name: "invalidProofHash";
+      msg: "Invalid proof hash: proof_hash cannot be all zeros";
+    },
+    {
+      code: 6058;
+      name: "invalidResultData";
+      msg: "Invalid result data: result_data cannot be all zeros when provided";
+    },
+    {
+      code: 6059;
+      name: "disputeNotActive";
+      msg: "Dispute is not active";
+    },
+    {
+      code: 6060;
+      name: "votingEnded";
+      msg: "Voting period has ended";
+    },
+    {
+      code: 6061;
+      name: "votingNotEnded";
+      msg: "Voting period has not ended";
+    },
+    {
+      code: 6062;
+      name: "alreadyVoted";
+      msg: "Already voted on this dispute";
+    },
+    {
+      code: 6063;
+      name: "notArbiter";
+      msg: "Not authorized to vote (not an arbiter)";
+    },
+    {
+      code: 6064;
+      name: "insufficientVotes";
+      msg: "Insufficient votes to resolve";
+    },
+    {
+      code: 6065;
+      name: "disputeAlreadyResolved";
+      msg: "Dispute has already been resolved";
+    },
+    {
+      code: 6066;
+      name: "unauthorizedResolver";
+      msg: "Only protocol authority or dispute initiator can resolve disputes";
+    },
+    {
+      code: 6067;
+      name: "activeDisputeVotes";
+      msg: "Agent has active dispute votes pending resolution";
+    },
     {
-      "code": 6087,
-      "name": "stateNotFound",
-      "msg": "State not found"
+      code: 6068;
+      name: "recentVoteActivity";
+      msg: "Agent must wait 24 hours after voting before deregistering";
     },
     {
-      "code": 6088,
-      "name": "invalidStateValue",
-      "msg": "Invalid state value: state_value cannot be all zeros"
+      code: 6069;
+      name: "authorityAlreadyVoted";
+      msg: "Authority has already voted on this dispute";
     },
     {
-      "code": 6089,
-      "name": "stateOwnershipViolation",
-      "msg": "State ownership violation: only the creator agent can update this state"
+      code: 6070;
+      name: "insufficientEvidence";
+      msg: "Insufficient dispute evidence provided";
     },
     {
-      "code": 6090,
-      "name": "invalidStateKey",
-      "msg": "Invalid state key: state_key cannot be all zeros"
+      code: 6071;
+      name: "evidenceTooLong";
+      msg: "Dispute evidence exceeds maximum allowed length";
     },
     {
-      "code": 6091,
-      "name": "protocolAlreadyInitialized",
-      "msg": "Protocol is already initialized"
+      code: 6072;
+      name: "disputeNotExpired";
+      msg: "Dispute has not expired";
     },
     {
-      "code": 6092,
-      "name": "protocolNotInitialized",
-      "msg": "Protocol is not initialized"
+      code: 6073;
+      name: "slashAlreadyApplied";
+      msg: "Dispute slashing already applied";
     },
     {
-      "code": 6093,
-      "name": "invalidProtocolFee",
-      "msg": "Invalid protocol fee (must be <= 1000 bps)"
+      code: 6074;
+      name: "slashWindowExpired";
+      msg: "Slash window expired: must apply slashing within 7 days of resolution";
     },
     {
-      "code": 6094,
-      "name": "invalidTreasury",
-      "msg": "Invalid treasury: treasury account cannot be default pubkey"
+      code: 6075;
+      name: "disputeNotResolved";
+      msg: "Dispute has not been resolved";
     },
     {
-      "code": 6095,
-      "name": "invalidDisputeThreshold",
-      "msg": "Invalid dispute threshold: must be 1-100 (percentage of votes required)"
+      code: 6076;
+      name: "notTaskParticipant";
+      msg: "Only task creator or workers can initiate disputes";
     },
     {
-      "code": 6096,
-      "name": "insufficientStake",
-      "msg": "Insufficient stake for arbiter registration"
+      code: 6077;
+      name: "invalidEvidenceHash";
+      msg: "Invalid evidence hash: cannot be all zeros";
     },
     {
-      "code": 6097,
-      "name": "multisigInvalidThreshold",
-      "msg": "Invalid multisig threshold"
+      code: 6078;
+      name: "arbiterIsDisputeParticipant";
+      msg: "Arbiter cannot vote on disputes they are a participant in";
     },
     {
-      "code": 6098,
-      "name": "multisigInvalidSigners",
-      "msg": "Invalid multisig signer configuration"
+      code: 6079;
+      name: "insufficientQuorum";
+      msg: "Insufficient quorum: minimum number of voters not reached";
     },
     {
-      "code": 6099,
-      "name": "multisigNotEnoughSigners",
-      "msg": "Not enough multisig signers"
+      code: 6080;
+      name: "activeDisputesExist";
+      msg: "Agent has active disputes as defendant and cannot deregister";
     },
     {
-      "code": 6100,
-      "name": "multisigDuplicateSigner",
-      "msg": "Duplicate multisig signer provided"
+      code: 6081;
+      name: "workerAgentRequired";
+      msg: "Worker agent account required when creator initiates dispute";
     },
     {
-      "code": 6101,
-      "name": "multisigDefaultSigner",
-      "msg": "Multisig signer cannot be default pubkey"
+      code: 6082;
+      name: "workerClaimRequired";
+      msg: "Worker claim account required when creator initiates dispute";
     },
     {
-      "code": 6102,
-      "name": "multisigSignerNotSystemOwned",
-      "msg": "Multisig signer account not owned by System Program"
+      code: 6083;
+      name: "workerNotInDispute";
+      msg: "Worker was not involved in this dispute";
     },
     {
-      "code": 6103,
-      "name": "invalidInput",
-      "msg": "Invalid input parameter"
+      code: 6084;
+      name: "initiatorCannotResolve";
+      msg: "Dispute initiator cannot resolve their own dispute";
     },
     {
-      "code": 6104,
-      "name": "arithmeticOverflow",
-      "msg": "Arithmetic overflow"
+      code: 6085;
+      name: "versionMismatch";
+      msg: "State version mismatch (concurrent modification)";
     },
     {
-      "code": 6105,
-      "name": "voteOverflow",
-      "msg": "Vote count overflow"
+      code: 6086;
+      name: "stateKeyExists";
+      msg: "State key already exists";
     },
     {
-      "code": 6106,
-      "name": "insufficientFunds",
-      "msg": "Insufficient funds"
+      code: 6087;
+      name: "stateNotFound";
+      msg: "State not found";
     },
     {
-      "code": 6107,
-      "name": "rewardTooSmall",
-      "msg": "Reward too small: worker must receive at least 1 lamport"
+      code: 6088;
+      name: "invalidStateValue";
+      msg: "Invalid state value: state_value cannot be all zeros";
     },
     {
-      "code": 6108,
-      "name": "corruptedData",
-      "msg": "Account data is corrupted"
+      code: 6089;
+      name: "stateOwnershipViolation";
+      msg: "State ownership violation: only the creator agent can update this state";
     },
     {
-      "code": 6109,
-      "name": "stringTooLong",
-      "msg": "String too long"
+      code: 6090;
+      name: "invalidStateKey";
+      msg: "Invalid state key: state_key cannot be all zeros";
     },
     {
-      "code": 6110,
-      "name": "invalidAccountOwner",
-      "msg": "Account owner validation failed: account not owned by this program"
+      code: 6091;
+      name: "protocolAlreadyInitialized";
+      msg: "Protocol is already initialized";
     },
     {
-      "code": 6111,
-      "name": "rateLimitExceeded",
-      "msg": "Rate limit exceeded: maximum actions per 24h window reached"
+      code: 6092;
+      name: "protocolNotInitialized";
+      msg: "Protocol is not initialized";
     },
     {
-      "code": 6112,
-      "name": "cooldownNotElapsed",
-      "msg": "Cooldown period has not elapsed since last action"
+      code: 6093;
+      name: "invalidProtocolFee";
+      msg: "Invalid protocol fee (must be <= 1000 bps)";
     },
     {
-      "code": 6113,
-      "name": "updateTooFrequent",
-      "msg": "Agent update too frequent: must wait cooldown period"
+      code: 6094;
+      name: "invalidTreasury";
+      msg: "Invalid treasury: treasury account cannot be default pubkey";
     },
     {
-      "code": 6114,
-      "name": "invalidCooldown",
-      "msg": "Cooldown value cannot be negative"
+      code: 6095;
+      name: "invalidDisputeThreshold";
+      msg: "Invalid dispute threshold: must be 1-100 (percentage of votes required)";
     },
     {
-      "code": 6115,
-      "name": "cooldownTooLarge",
-      "msg": "Cooldown value exceeds maximum (24 hours)"
+      code: 6096;
+      name: "insufficientStake";
+      msg: "Insufficient stake for arbiter registration";
     },
     {
-      "code": 6116,
-      "name": "rateLimitTooHigh",
-      "msg": "Rate limit value exceeds maximum allowed (1000)"
+      code: 6097;
+      name: "multisigInvalidThreshold";
+      msg: "Invalid multisig threshold";
     },
     {
-      "code": 6117,
-      "name": "cooldownTooLong",
-      "msg": "Cooldown value exceeds maximum allowed (1 week)"
+      code: 6098;
+      name: "multisigInvalidSigners";
+      msg: "Invalid multisig signer configuration";
     },
     {
-      "code": 6118,
-      "name": "insufficientStakeForDispute",
-      "msg": "Insufficient stake to initiate dispute"
+      code: 6099;
+      name: "multisigNotEnoughSigners";
+      msg: "Not enough multisig signers";
     },
     {
-      "code": 6119,
-      "name": "insufficientStakeForCreatorDispute",
-      "msg": "Creator-initiated disputes require 2x the minimum stake"
+      code: 6100;
+      name: "multisigDuplicateSigner";
+      msg: "Duplicate multisig signer provided";
     },
     {
-      "code": 6120,
-      "name": "versionMismatchProtocol",
-      "msg": "Protocol version mismatch: account version incompatible with current program"
+      code: 6101;
+      name: "multisigDefaultSigner";
+      msg: "Multisig signer cannot be default pubkey";
     },
     {
-      "code": 6121,
-      "name": "accountVersionTooOld",
-      "msg": "Account version too old: migration required"
+      code: 6102;
+      name: "multisigSignerNotSystemOwned";
+      msg: "Multisig signer account not owned by System Program";
     },
     {
-      "code": 6122,
-      "name": "accountVersionTooNew",
-      "msg": "Account version too new: program upgrade required"
+      code: 6103;
+      name: "invalidInput";
+      msg: "Invalid input parameter";
     },
     {
-      "code": 6123,
-      "name": "invalidMigrationSource",
-      "msg": "Migration not allowed: invalid source version"
+      code: 6104;
+      name: "arithmeticOverflow";
+      msg: "Arithmetic overflow";
     },
     {
-      "code": 6124,
-      "name": "invalidMigrationTarget",
-      "msg": "Migration not allowed: invalid target version"
+      code: 6105;
+      name: "voteOverflow";
+      msg: "Vote count overflow";
     },
     {
-      "code": 6125,
-      "name": "unauthorizedUpgrade",
-      "msg": "Only upgrade authority can perform this action"
+      code: 6106;
+      name: "insufficientFunds";
+      msg: "Insufficient funds";
     },
     {
-      "code": 6126,
-      "name": "invalidMinVersion",
-      "msg": "Minimum version cannot exceed current protocol version"
+      code: 6107;
+      name: "rewardTooSmall";
+      msg: "Reward too small: worker must receive at least 1 lamport";
     },
     {
-      "code": 6127,
-      "name": "protocolConfigRequired",
-      "msg": "Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts"
+      code: 6108;
+      name: "corruptedData";
+      msg: "Account data is corrupted";
     },
     {
-      "code": 6128,
-      "name": "parentTaskCancelled",
-      "msg": "Parent task has been cancelled"
+      code: 6109;
+      name: "stringTooLong";
+      msg: "String too long";
     },
     {
-      "code": 6129,
-      "name": "parentTaskDisputed",
-      "msg": "Parent task is in disputed state"
+      code: 6110;
+      name: "invalidAccountOwner";
+      msg: "Account owner validation failed: account not owned by this program";
     },
     {
-      "code": 6130,
-      "name": "invalidDependencyType",
-      "msg": "Invalid dependency type"
+      code: 6111;
+      name: "rateLimitExceeded";
+      msg: "Rate limit exceeded: maximum actions per 24h window reached";
     },
     {
-      "code": 6131,
-      "name": "parentTaskNotCompleted",
-      "msg": "Parent task must be completed before completing a proof-dependent task"
+      code: 6112;
+      name: "cooldownNotElapsed";
+      msg: "Cooldown period has not elapsed since last action";
     },
     {
-      "code": 6132,
-      "name": "parentTaskAccountRequired",
-      "msg": "Parent task account required for proof-dependent task completion"
+      code: 6113;
+      name: "updateTooFrequent";
+      msg: "Agent update too frequent: must wait cooldown period";
     },
     {
-      "code": 6133,
-      "name": "unauthorizedCreator",
-      "msg": "Parent task does not belong to the same creator"
+      code: 6114;
+      name: "invalidCooldown";
+      msg: "Cooldown value cannot be negative";
     },
     {
-      "code": 6134,
-      "name": "nullifierAlreadySpent",
-      "msg": "Nullifier has already been spent - proof/knowledge reuse detected"
+      code: 6115;
+      name: "cooldownTooLarge";
+      msg: "Cooldown value exceeds maximum (24 hours)";
     },
     {
-      "code": 6135,
-      "name": "invalidNullifier",
-      "msg": "Invalid nullifier: nullifier value cannot be all zeros"
+      code: 6116;
+      name: "rateLimitTooHigh";
+      msg: "Rate limit value exceeds maximum allowed (1000)";
     },
     {
-      "code": 6136,
-      "name": "incompleteWorkerAccounts",
-      "msg": "All worker accounts must be provided when cancelling a task with active claims"
+      code: 6117;
+      name: "cooldownTooLong";
+      msg: "Cooldown value exceeds maximum allowed (1 week)";
     },
     {
-      "code": 6137,
-      "name": "workerAccountsRequired",
-      "msg": "Worker accounts required when task has active workers"
+      code: 6118;
+      name: "insufficientStakeForDispute";
+      msg: "Insufficient stake to initiate dispute";
     },
     {
-      "code": 6138,
-      "name": "duplicateArbiter",
-      "msg": "Duplicate arbiter provided in remaining_accounts"
+      code: 6119;
+      name: "insufficientStakeForCreatorDispute";
+      msg: "Creator-initiated disputes require 2x the minimum stake";
     },
     {
-      "code": 6139,
-      "name": "insufficientEscrowBalance",
-      "msg": "Escrow has insufficient balance for reward transfer"
+      code: 6120;
+      name: "versionMismatchProtocol";
+      msg: "Protocol version mismatch: account version incompatible with current program";
     },
     {
-      "code": 6140,
-      "name": "invalidStatusTransition",
-      "msg": "Invalid task status transition"
+      code: 6121;
+      name: "accountVersionTooOld";
+      msg: "Account version too old: migration required";
     },
     {
-      "code": 6141,
-      "name": "stakeTooLow",
-      "msg": "Stake value is below minimum required (0.001 SOL)"
+      code: 6122;
+      name: "accountVersionTooNew";
+      msg: "Account version too new: program upgrade required";
     },
     {
-      "code": 6142,
-      "name": "invalidMinStake",
-      "msg": "min_stake_for_dispute must be greater than zero"
+      code: 6123;
+      name: "invalidMigrationSource";
+      msg: "Migration not allowed: invalid source version";
     },
     {
-      "code": 6143,
-      "name": "invalidSlashAmount",
-      "msg": "Slash amount must be greater than zero"
+      code: 6124;
+      name: "invalidMigrationTarget";
+      msg: "Migration not allowed: invalid target version";
     },
     {
-      "code": 6144,
-      "name": "bondAmountTooLow",
-      "msg": "Bond amount too low"
+      code: 6125;
+      name: "unauthorizedUpgrade";
+      msg: "Only upgrade authority can perform this action";
     },
     {
-      "code": 6145,
-      "name": "bondAlreadyExists",
-      "msg": "Bond already exists"
+      code: 6126;
+      name: "invalidMinVersion";
+      msg: "Minimum version cannot exceed current protocol version";
     },
     {
-      "code": 6146,
-      "name": "bondNotFound",
-      "msg": "Bond not found"
+      code: 6127;
+      name: "protocolConfigRequired";
+      msg: "Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts";
     },
     {
-      "code": 6147,
-      "name": "bondNotMatured",
-      "msg": "Bond not yet matured"
+      code: 6128;
+      name: "parentTaskCancelled";
+      msg: "Parent task has been cancelled";
     },
     {
-      "code": 6148,
-      "name": "insufficientReputation",
-      "msg": "Agent reputation below task minimum requirement"
+      code: 6129;
+      name: "parentTaskDisputed";
+      msg: "Parent task is in disputed state";
     },
     {
-      "code": 6149,
-      "name": "invalidMinReputation",
-      "msg": "Invalid minimum reputation: must be <= 10000"
+      code: 6130;
+      name: "invalidDependencyType";
+      msg: "Invalid dependency type";
     },
     {
-      "code": 6150,
-      "name": "developmentKeyNotAllowed",
-      "msg": "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use."
+      code: 6131;
+      name: "parentTaskNotCompleted";
+      msg: "Parent task must be completed before completing a proof-dependent task";
     },
     {
-      "code": 6151,
-      "name": "selfTaskNotAllowed",
-      "msg": "Cannot claim own task: worker authority matches task creator"
+      code: 6132;
+      name: "parentTaskAccountRequired";
+      msg: "Parent task account required for proof-dependent task completion";
     },
     {
-      "code": 6152,
-      "name": "missingTokenAccounts",
-      "msg": "Token accounts not provided for token-denominated task"
+      code: 6133;
+      name: "unauthorizedCreator";
+      msg: "Parent task does not belong to the same creator";
     },
     {
-      "code": 6153,
-      "name": "invalidTokenEscrow",
-      "msg": "Token escrow ATA does not match expected derivation"
+      code: 6134;
+      name: "nullifierAlreadySpent";
+      msg: "Nullifier has already been spent - proof/knowledge reuse detected";
     },
     {
-      "code": 6154,
-      "name": "invalidTokenMint",
-      "msg": "Provided mint does not match task's reward_mint"
+      code: 6135;
+      name: "invalidNullifier";
+      msg: "Invalid nullifier: nullifier value cannot be all zeros";
     },
     {
-      "code": 6155,
-      "name": "tokenTransferFailed",
-      "msg": "SPL token transfer CPI failed"
+      code: 6136;
+      name: "incompleteWorkerAccounts";
+      msg: "All worker accounts must be provided when cancelling a task with active claims";
     },
     {
-      "code": 6156,
-      "name": "proposalNotActive",
-      "msg": "Proposal is not active"
+      code: 6137;
+      name: "workerAccountsRequired";
+      msg: "Worker accounts required when task has active workers";
     },
     {
-      "code": 6157,
-      "name": "proposalVotingNotEnded",
-      "msg": "Voting period has not ended"
+      code: 6138;
+      name: "duplicateArbiter";
+      msg: "Duplicate arbiter provided in remaining_accounts";
     },
     {
-      "code": 6158,
-      "name": "proposalVotingEnded",
-      "msg": "Voting period has ended"
+      code: 6139;
+      name: "insufficientEscrowBalance";
+      msg: "Escrow has insufficient balance for reward transfer";
     },
     {
-      "code": 6159,
-      "name": "proposalAlreadyExecuted",
-      "msg": "Proposal has already been executed"
+      code: 6140;
+      name: "invalidStatusTransition";
+      msg: "Invalid task status transition";
     },
     {
-      "code": 6160,
-      "name": "proposalInsufficientQuorum",
-      "msg": "Insufficient quorum for proposal execution"
+      code: 6141;
+      name: "stakeTooLow";
+      msg: "Stake value is below minimum required (0.001 SOL)";
     },
     {
-      "code": 6161,
-      "name": "proposalNotApproved",
-      "msg": "Proposal did not achieve majority"
+      code: 6142;
+      name: "invalidMinStake";
+      msg: "min_stake_for_dispute must be greater than zero";
     },
     {
-      "code": 6162,
-      "name": "proposalUnauthorizedCancel",
-      "msg": "Only the proposer can cancel this proposal"
+      code: 6143;
+      name: "invalidSlashAmount";
+      msg: "Slash amount must be greater than zero";
     },
     {
-      "code": 6163,
-      "name": "proposalInsufficientStake",
-      "msg": "Insufficient stake to create a proposal"
+      code: 6144;
+      name: "bondAmountTooLow";
+      msg: "Bond amount too low";
     },
     {
-      "code": 6164,
-      "name": "invalidProposalPayload",
-      "msg": "Invalid proposal payload"
+      code: 6145;
+      name: "bondAlreadyExists";
+      msg: "Bond already exists";
     },
     {
-      "code": 6165,
-      "name": "invalidProposalType",
-      "msg": "Invalid proposal type"
+      code: 6146;
+      name: "bondNotFound";
+      msg: "Bond not found";
     },
     {
-      "code": 6166,
-      "name": "treasuryInsufficientBalance",
-      "msg": "Treasury spend amount exceeds available balance"
+      code: 6147;
+      name: "bondNotMatured";
+      msg: "Bond not yet matured";
     },
     {
-      "code": 6167,
-      "name": "timelockNotElapsed",
-      "msg": "Execution timelock has not elapsed"
+      code: 6148;
+      name: "insufficientReputation";
+      msg: "Agent reputation below task minimum requirement";
     },
     {
-      "code": 6168,
-      "name": "invalidGovernanceParam",
-      "msg": "Invalid governance configuration parameter"
+      code: 6149;
+      name: "invalidMinReputation";
+      msg: "Invalid minimum reputation: must be <= 10000";
     },
     {
-      "code": 6169,
-      "name": "treasuryNotProgramOwned",
-      "msg": "Treasury must be a program-owned PDA"
+      code: 6150;
+      name: "developmentKeyNotAllowed";
+      msg: "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use.";
     },
     {
-      "code": 6170,
-      "name": "treasuryNotSpendable",
-      "msg": "Treasury must be program-owned, or a signer system account for governance spends"
+      code: 6151;
+      name: "selfTaskNotAllowed";
+      msg: "Cannot claim own task: worker authority matches task creator";
     },
     {
-      "code": 6171,
-      "name": "skillInvalidId",
-      "msg": "Skill ID cannot be all zeros"
+      code: 6152;
+      name: "missingTokenAccounts";
+      msg: "Token accounts not provided for token-denominated task";
     },
     {
-      "code": 6172,
-      "name": "skillInvalidName",
-      "msg": "Skill name cannot be all zeros"
+      code: 6153;
+      name: "invalidTokenEscrow";
+      msg: "Token escrow ATA does not match expected derivation";
     },
     {
-      "code": 6173,
-      "name": "skillInvalidContentHash",
-      "msg": "Skill content hash cannot be all zeros"
+      code: 6154;
+      name: "invalidTokenMint";
+      msg: "Provided mint does not match task's reward_mint";
     },
     {
-      "code": 6174,
-      "name": "skillNotActive",
-      "msg": "Skill is not active"
+      code: 6155;
+      name: "tokenTransferFailed";
+      msg: "SPL token transfer CPI failed";
     },
     {
-      "code": 6175,
-      "name": "skillInvalidRating",
-      "msg": "Rating must be between 1 and 5"
+      code: 6156;
+      name: "proposalNotActive";
+      msg: "Proposal is not active";
     },
     {
-      "code": 6176,
-      "name": "skillSelfRating",
-      "msg": "Cannot rate own skill"
+      code: 6157;
+      name: "proposalVotingNotEnded";
+      msg: "Voting period has not ended";
     },
     {
-      "code": 6177,
-      "name": "skillUnauthorizedUpdate",
-      "msg": "Only the skill author can update this skill"
+      code: 6158;
+      name: "proposalVotingEnded";
+      msg: "Voting period has ended";
     },
     {
-      "code": 6178,
-      "name": "skillSelfPurchase",
-      "msg": "Cannot purchase own skill"
+      code: 6159;
+      name: "proposalAlreadyExecuted";
+      msg: "Proposal has already been executed";
     },
     {
-      "code": 6179,
-      "name": "feedInvalidContentHash",
-      "msg": "Feed content hash cannot be all zeros"
+      code: 6160;
+      name: "proposalInsufficientQuorum";
+      msg: "Insufficient quorum for proposal execution";
     },
     {
-      "code": 6180,
-      "name": "feedInvalidTopic",
-      "msg": "Feed topic cannot be all zeros"
+      code: 6161;
+      name: "proposalNotApproved";
+      msg: "Proposal did not achieve majority";
     },
     {
-      "code": 6181,
-      "name": "feedPostNotFound",
-      "msg": "Feed post not found"
+      code: 6162;
+      name: "proposalUnauthorizedCancel";
+      msg: "Only the proposer can cancel this proposal";
     },
     {
-      "code": 6182,
-      "name": "feedSelfUpvote",
-      "msg": "Cannot upvote own post"
+      code: 6163;
+      name: "proposalInsufficientStake";
+      msg: "Insufficient stake to create a proposal";
     },
     {
-      "code": 6183,
-      "name": "reputationStakeAmountTooLow",
-      "msg": "Reputation stake amount must be greater than zero"
+      code: 6164;
+      name: "invalidProposalPayload";
+      msg: "Invalid proposal payload";
     },
     {
-      "code": 6184,
-      "name": "reputationStakeLocked",
-      "msg": "Reputation stake is locked: withdrawal before cooldown"
+      code: 6165;
+      name: "invalidProposalType";
+      msg: "Invalid proposal type";
     },
     {
-      "code": 6185,
-      "name": "reputationStakeInsufficientBalance",
-      "msg": "Reputation stake has insufficient balance for withdrawal"
+      code: 6166;
+      name: "treasuryInsufficientBalance";
+      msg: "Treasury spend amount exceeds available balance";
     },
     {
-      "code": 6186,
-      "name": "reputationDelegationAmountInvalid",
-      "msg": "Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT"
+      code: 6167;
+      name: "timelockNotElapsed";
+      msg: "Execution timelock has not elapsed";
     },
     {
-      "code": 6187,
-      "name": "reputationCannotDelegateSelf",
-      "msg": "Cannot delegate reputation to self"
+      code: 6168;
+      name: "invalidGovernanceParam";
+      msg: "Invalid governance configuration parameter";
     },
     {
-      "code": 6188,
-      "name": "reputationDelegationExpired",
-      "msg": "Reputation delegation has expired"
+      code: 6169;
+      name: "treasuryNotProgramOwned";
+      msg: "Treasury must be a program-owned PDA";
     },
     {
-      "code": 6189,
-      "name": "reputationAgentNotActive",
-      "msg": "Agent must be Active to participate in reputation economy"
+      code: 6170;
+      name: "treasuryNotSpendable";
+      msg: "Treasury must be program-owned, or a signer system account for governance spends";
     },
     {
-      "code": 6190,
-      "name": "reputationDisputesPending",
-      "msg": "Agent has pending disputes as defendant: cannot withdraw stake"
+      code: 6171;
+      name: "skillInvalidId";
+      msg: "Skill ID cannot be all zeros";
     },
     {
-      "code": 6191,
-      "name": "privateTaskRequiresZkProof",
-      "msg": "Private tasks (non-zero constraint_hash) must use complete_task_private"
+      code: 6172;
+      name: "skillInvalidName";
+      msg: "Skill name cannot be all zeros";
     },
     {
-      "code": 6192,
-      "name": "invalidTokenAccountOwner",
-      "msg": "Token account owner does not match expected authority"
+      code: 6173;
+      name: "skillInvalidContentHash";
+      msg: "Skill content hash cannot be all zeros";
     },
     {
-      "code": 6193,
-      "name": "insufficientSeedEntropy",
-      "msg": "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
-    }
-  ],
-  "types": [
+      code: 6174;
+      name: "skillNotActive";
+      msg: "Skill is not active";
+    },
+    {
+      code: 6175;
+      name: "skillInvalidRating";
+      msg: "Rating must be between 1 and 5";
+    },
+    {
+      code: 6176;
+      name: "skillSelfRating";
+      msg: "Cannot rate own skill";
+    },
+    {
+      code: 6177;
+      name: "skillUnauthorizedUpdate";
+      msg: "Only the skill author can update this skill";
+    },
+    {
+      code: 6178;
+      name: "skillSelfPurchase";
+      msg: "Cannot purchase own skill";
+    },
+    {
+      code: 6179;
+      name: "feedInvalidContentHash";
+      msg: "Feed content hash cannot be all zeros";
+    },
+    {
+      code: 6180;
+      name: "feedInvalidTopic";
+      msg: "Feed topic cannot be all zeros";
+    },
+    {
+      code: 6181;
+      name: "feedPostNotFound";
+      msg: "Feed post not found";
+    },
+    {
+      code: 6182;
+      name: "feedSelfUpvote";
+      msg: "Cannot upvote own post";
+    },
+    {
+      code: 6183;
+      name: "reputationStakeAmountTooLow";
+      msg: "Reputation stake amount must be greater than zero";
+    },
+    {
+      code: 6184;
+      name: "reputationStakeLocked";
+      msg: "Reputation stake is locked: withdrawal before cooldown";
+    },
+    {
+      code: 6185;
+      name: "reputationStakeInsufficientBalance";
+      msg: "Reputation stake has insufficient balance for withdrawal";
+    },
+    {
+      code: 6186;
+      name: "reputationDelegationAmountInvalid";
+      msg: "Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT";
+    },
+    {
+      code: 6187;
+      name: "reputationCannotDelegateSelf";
+      msg: "Cannot delegate reputation to self";
+    },
+    {
+      code: 6188;
+      name: "reputationDelegationExpired";
+      msg: "Reputation delegation has expired";
+    },
+    {
+      code: 6189;
+      name: "reputationAgentNotActive";
+      msg: "Agent must be Active to participate in reputation economy";
+    },
+    {
+      code: 6190;
+      name: "reputationDisputesPending";
+      msg: "Agent has pending disputes as defendant: cannot withdraw stake";
+    },
+    {
+      code: 6191;
+      name: "privateTaskRequiresZkProof";
+      msg: "Private tasks (non-zero constraint_hash) must use complete_task_private";
+    },
+    {
+      code: 6192;
+      name: "invalidTokenAccountOwner";
+      msg: "Token account owner does not match expected authority";
+    },
+    {
+      code: 6193;
+      name: "insufficientSeedEntropy";
+      msg: "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)";
+    },
+  ];
+  types: [
     {
-      "name": "agentDeregistered",
-      "docs": [
-        "Emitted when an agent deregisters"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "agentDeregistered";
+      docs: ["Emitted when an agent deregisters"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "authority",
-            "type": "pubkey"
+            name: "authority";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "agentRegistered",
-      "docs": [
-        "Emitted when a new agent registers"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "agentRegistered";
+      docs: ["Emitted when a new agent registers"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "authority",
-            "type": "pubkey"
+            name: "authority";
+            type: "pubkey";
           },
           {
-            "name": "capabilities",
-            "type": "u64"
+            name: "capabilities";
+            type: "u64";
           },
           {
-            "name": "endpoint",
-            "type": "string"
+            name: "endpoint";
+            type: "string";
           },
           {
-            "name": "stakeAmount",
-            "type": "u64"
+            name: "stakeAmount";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "agentRegistration",
-      "docs": [
-        "Agent registration account",
-        "PDA seeds: [\"agent\", agent_id]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "agentRegistration";
+      docs: ["Agent registration account", 'PDA seeds: ["agent", agent_id]'];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "docs": [
-              "Unique agent identifier"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            docs: ["Unique agent identifier"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "authority",
-            "docs": [
-              "Agent's signing authority"
-            ],
-            "type": "pubkey"
+            name: "authority";
+            docs: ["Agent's signing authority"];
+            type: "pubkey";
           },
           {
-            "name": "capabilities",
-            "docs": [
+            name: "capabilities";
+            docs: [
               "Agent capabilities as a bitmask (u64).",
               "",
               "Each bit represents a specific capability the agent possesses.",
@@ -7567,982 +5469,816 @@ export type AgencCoordination = {
               "- Bits 10-63: Reserved for future protocol extensions",
               "",
               "Agents can only claim tasks where they have all required capabilities:",
-              "`(agent.capabilities & task.required_capabilities) == task.required_capabilities`"
-            ],
-            "type": "u64"
+              "`(agent.capabilities & task.required_capabilities) == task.required_capabilities`",
+            ];
+            type: "u64";
           },
           {
-            "name": "status",
-            "docs": [
-              "Agent status"
-            ],
-            "type": {
-              "defined": {
-                "name": "agentStatus"
-              }
-            }
+            name: "status";
+            docs: ["Agent status"];
+            type: {
+              defined: {
+                name: "agentStatus";
+              };
+            };
           },
           {
-            "name": "endpoint",
-            "docs": [
-              "Network endpoint (max 256 chars)"
-            ],
-            "type": "string"
+            name: "endpoint";
+            docs: ["Network endpoint (max 256 chars)"];
+            type: "string";
           },
           {
-            "name": "metadataUri",
-            "docs": [
-              "Extended metadata URI (max 128 chars)"
-            ],
-            "type": "string"
+            name: "metadataUri";
+            docs: ["Extended metadata URI (max 128 chars)"];
+            type: "string";
           },
           {
-            "name": "registeredAt",
-            "docs": [
-              "Registration timestamp"
-            ],
-            "type": "i64"
+            name: "registeredAt";
+            docs: ["Registration timestamp"];
+            type: "i64";
           },
           {
-            "name": "lastActive",
-            "docs": [
-              "Last activity timestamp"
-            ],
-            "type": "i64"
+            name: "lastActive";
+            docs: ["Last activity timestamp"];
+            type: "i64";
           },
           {
-            "name": "tasksCompleted",
-            "docs": [
-              "Total tasks completed"
-            ],
-            "type": "u64"
+            name: "tasksCompleted";
+            docs: ["Total tasks completed"];
+            type: "u64";
           },
           {
-            "name": "totalEarned",
-            "docs": [
-              "Total rewards earned"
-            ],
-            "type": "u64"
+            name: "totalEarned";
+            docs: ["Total rewards earned"];
+            type: "u64";
           },
           {
-            "name": "reputation",
-            "docs": [
+            name: "reputation";
+            docs: [
               "Agent reputation score (0-10000)",
               "Initial value: 5000 (neutral starting point)",
-              "Can be adjusted via protocol config in future versions"
-            ],
-            "type": "u16"
+              "Can be adjusted via protocol config in future versions",
+            ];
+            type: "u16";
           },
           {
-            "name": "activeTasks",
-            "docs": [
-              "Active task count"
-            ],
-            "type": "u8"
+            name: "activeTasks";
+            docs: ["Active task count"];
+            type: "u8";
           },
           {
-            "name": "stake",
-            "docs": [
-              "Stake amount (for arbiters)"
-            ],
-            "type": "u64"
+            name: "stake";
+            docs: ["Stake amount (for arbiters)"];
+            type: "u64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "lastTaskCreated",
-            "docs": [
-              "Timestamp of last task creation"
-            ],
-            "type": "i64"
+            name: "lastTaskCreated";
+            docs: ["Timestamp of last task creation"];
+            type: "i64";
           },
           {
-            "name": "lastDisputeInitiated",
-            "docs": [
-              "Timestamp of last dispute initiated"
-            ],
-            "type": "i64"
+            name: "lastDisputeInitiated";
+            docs: ["Timestamp of last dispute initiated"];
+            type: "i64";
           },
           {
-            "name": "taskCount24h",
-            "docs": [
-              "Number of tasks created in current 24h window"
-            ],
-            "type": "u8"
+            name: "taskCount24h";
+            docs: ["Number of tasks created in current 24h window"];
+            type: "u8";
           },
           {
-            "name": "disputeCount24h",
-            "docs": [
-              "Number of disputes initiated in current 24h window"
-            ],
-            "type": "u8"
+            name: "disputeCount24h";
+            docs: ["Number of disputes initiated in current 24h window"];
+            type: "u8";
           },
           {
-            "name": "rateLimitWindowStart",
-            "docs": [
-              "Start of current rate limit window (unix timestamp)"
-            ],
-            "type": "i64"
+            name: "rateLimitWindowStart";
+            docs: ["Start of current rate limit window (unix timestamp)"];
+            type: "i64";
           },
           {
-            "name": "activeDisputeVotes",
-            "docs": [
-              "Active dispute votes pending resolution"
-            ],
-            "type": "u8"
+            name: "activeDisputeVotes";
+            docs: ["Active dispute votes pending resolution"];
+            type: "u8";
           },
           {
-            "name": "lastVoteTimestamp",
-            "docs": [
-              "Timestamp of last dispute vote"
-            ],
-            "type": "i64"
+            name: "lastVoteTimestamp";
+            docs: ["Timestamp of last dispute vote"];
+            type: "i64";
           },
           {
-            "name": "lastStateUpdate",
-            "docs": [
-              "Timestamp of last state update"
-            ],
-            "type": "i64"
+            name: "lastStateUpdate";
+            docs: ["Timestamp of last state update"];
+            type: "i64";
           },
           {
-            "name": "disputesAsDefendant",
-            "docs": [
-              "Active disputes where this agent is a defendant (can be slashed)"
-            ],
-            "type": "u8"
+            name: "disputesAsDefendant";
+            docs: [
+              "Active disputes where this agent is a defendant (can be slashed)",
+            ];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
+            name: "reserved";
+            docs: [
               "Reserved bytes for future use.",
               "Note: Not validated on deserialization - may contain arbitrary data",
-              "from previous versions. New fields should handle this gracefully."
-            ],
-            "type": {
-              "array": [
-                "u8",
-                5
-              ]
-            }
-          }
-        ]
-      }
+              "from previous versions. New fields should handle this gracefully.",
+            ];
+            type: {
+              array: ["u8", 5];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "agentStatus",
-      "docs": [
-        "Agent status"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "agentStatus";
+      docs: ["Agent status"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "inactive"
+            name: "inactive";
           },
           {
-            "name": "active"
+            name: "active";
           },
           {
-            "name": "busy"
+            name: "busy";
           },
           {
-            "name": "suspended"
-          }
-        ]
-      }
+            name: "suspended";
+          },
+        ];
+      };
     },
     {
-      "name": "agentSuspended",
-      "docs": [
-        "Emitted when an agent is suspended by the protocol authority (fix #819)"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "agentSuspended";
+      docs: [
+        "Emitted when an agent is suspended by the protocol authority (fix #819)",
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "authority",
-            "type": "pubkey"
+            name: "authority";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "agentUnsuspended",
-      "docs": [
-        "Emitted when an agent is unsuspended by the protocol authority (fix #819)"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "agentUnsuspended";
+      docs: [
+        "Emitted when an agent is unsuspended by the protocol authority (fix #819)",
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "authority",
-            "type": "pubkey"
+            name: "authority";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "agentUpdated",
-      "docs": [
-        "Emitted when an agent updates its registration"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "agentUpdated";
+      docs: ["Emitted when an agent updates its registration"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "capabilities",
-            "type": "u64"
+            name: "capabilities";
+            type: "u64";
           },
           {
-            "name": "status",
-            "type": "u8"
+            name: "status";
+            type: "u8";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "arbiterVotesCleanedUp",
-      "docs": [
-        "Emitted when arbiter votes are cleaned up during dispute expiration"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "arbiterVotesCleanedUp";
+      docs: [
+        "Emitted when arbiter votes are cleaned up during dispute expiration",
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "disputeId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "disputeId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "arbiterCount",
-            "type": "u8"
-          }
-        ]
-      }
+            name: "arbiterCount";
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "authorityDisputeVote",
-      "docs": [
+      name: "authorityDisputeVote";
+      docs: [
         "Authority-level vote record to prevent Sybil attacks",
         "One authority can only vote once per dispute, regardless of how many agents they control",
-        "PDA seeds: [\"authority_vote\", dispute, authority]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["authority_vote", dispute, authority]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "dispute",
-            "docs": [
-              "Dispute being voted on"
-            ],
-            "type": "pubkey"
+            name: "dispute";
+            docs: ["Dispute being voted on"];
+            type: "pubkey";
           },
           {
-            "name": "authority",
-            "docs": [
-              "Authority (wallet) that voted"
-            ],
-            "type": "pubkey"
+            name: "authority";
+            docs: ["Authority (wallet) that voted"];
+            type: "pubkey";
           },
           {
-            "name": "votingAgent",
-            "docs": [
-              "The agent used to cast this vote"
-            ],
-            "type": "pubkey"
+            name: "votingAgent";
+            docs: ["The agent used to cast this vote"];
+            type: "pubkey";
           },
           {
-            "name": "votedAt",
-            "docs": [
-              "Vote timestamp"
-            ],
-            "type": "i64"
+            name: "votedAt";
+            docs: ["Vote timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
-          }
-        ]
-      }
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "bindingSpend",
-      "docs": [
+      name: "bindingSpend";
+      docs: [
         "Binding spend account to prevent statement replay for the same",
         "task/authority/commitment context.",
-        "PDA seeds: [\"binding_spend\", binding]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["binding_spend", binding]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "binding",
-            "docs": [
-              "Binding value committed in the private journal."
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "binding";
+            docs: ["Binding value committed in the private journal."];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "task",
-            "docs": [
-              "The task where this binding was first used"
-            ],
-            "type": "pubkey"
+            name: "task";
+            docs: ["The task where this binding was first used"];
+            type: "pubkey";
           },
           {
-            "name": "agent",
-            "docs": [
-              "The agent who spent this binding"
-            ],
-            "type": "pubkey"
+            name: "agent";
+            docs: ["The agent who spent this binding"];
+            type: "pubkey";
           },
           {
-            "name": "spentAt",
-            "docs": [
-              "Timestamp when binding was spent"
-            ],
-            "type": "i64"
+            name: "spentAt";
+            docs: ["Timestamp when binding was spent"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
-          }
-        ]
-      }
+            name: "bump";
+            docs: ["Bump seed for PDA"];
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "bondDeposited",
-      "docs": [
-        "Emitted when bond is deposited to speculation bond account"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "bondDeposited";
+      docs: ["Emitted when bond is deposited to speculation bond account"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agent",
-            "type": "pubkey"
+            name: "agent";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u64"
+            name: "amount";
+            type: "u64";
           },
           {
-            "name": "newTotal",
-            "type": "u64"
+            name: "newTotal";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "bondLocked",
-      "docs": [
-        "Emitted when bond is locked for a commitment"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "bondLocked";
+      docs: ["Emitted when bond is locked for a commitment"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agent",
-            "type": "pubkey"
+            name: "agent";
+            type: "pubkey";
           },
           {
-            "name": "commitment",
-            "type": "pubkey"
+            name: "commitment";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u64"
+            name: "amount";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "bondReleased",
-      "docs": [
-        "Emitted when bond is released back to agent after successful proof"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "bondReleased";
+      docs: [
+        "Emitted when bond is released back to agent after successful proof",
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agent",
-            "type": "pubkey"
+            name: "agent";
+            type: "pubkey";
           },
           {
-            "name": "commitment",
-            "type": "pubkey"
+            name: "commitment";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u64"
+            name: "amount";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "bondSlashed",
-      "docs": [
-        "Emitted when an agent's bond is slashed due to failed speculation"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "bondSlashed";
+      docs: [
+        "Emitted when an agent's bond is slashed due to failed speculation",
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agent",
-            "type": "pubkey"
+            name: "agent";
+            type: "pubkey";
           },
           {
-            "name": "commitment",
-            "type": "pubkey"
+            name: "commitment";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u64"
+            name: "amount";
+            type: "u64";
           },
           {
-            "name": "reason",
-            "type": "u8"
+            name: "reason";
+            type: "u8";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "coordinationState",
-      "docs": [
+      name: "coordinationState";
+      docs: [
         "Shared coordination state",
-        "PDA seeds: [\"state\", owner, state_key]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["state", owner, state_key]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "owner",
-            "docs": [
-              "Owner authority - namespaces state to prevent cross-user collisions"
-            ],
-            "type": "pubkey"
+            name: "owner";
+            docs: [
+              "Owner authority - namespaces state to prevent cross-user collisions",
+            ];
+            type: "pubkey";
           },
           {
-            "name": "stateKey",
-            "docs": [
-              "State key"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "stateKey";
+            docs: ["State key"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "stateValue",
-            "docs": [
-              "State value"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+            name: "stateValue";
+            docs: ["State value"];
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "lastUpdater",
-            "docs": [
-              "Last updater"
-            ],
-            "type": "pubkey"
+            name: "lastUpdater";
+            docs: ["Last updater"];
+            type: "pubkey";
           },
           {
-            "name": "version",
-            "docs": [
-              "Version for optimistic locking"
-            ],
-            "type": "u64"
+            name: "version";
+            docs: ["Version for optimistic locking"];
+            type: "u64";
           },
           {
-            "name": "updatedAt",
-            "docs": [
-              "Last update timestamp"
-            ],
-            "type": "i64"
+            name: "updatedAt";
+            docs: ["Last update timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
-          }
-        ]
-      }
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "dependencyType",
-      "docs": [
-        "Task dependency type for speculative execution decisions"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "dependencyType";
+      docs: ["Task dependency type for speculative execution decisions"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "none"
+            name: "none";
           },
           {
-            "name": "data"
+            name: "data";
           },
           {
-            "name": "ordering"
+            name: "ordering";
           },
           {
-            "name": "proof"
-          }
-        ]
-      }
+            name: "proof";
+          },
+        ];
+      };
     },
     {
-      "name": "dependentTaskCreated",
-      "docs": [
-        "Emitted when a task with dependencies is created"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "dependentTaskCreated";
+      docs: ["Emitted when a task with dependencies is created"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "creator",
-            "type": "pubkey"
+            name: "creator";
+            type: "pubkey";
           },
           {
-            "name": "dependsOn",
-            "type": "pubkey"
+            name: "dependsOn";
+            type: "pubkey";
           },
           {
-            "name": "dependencyType",
-            "type": "u8"
+            name: "dependencyType";
+            type: "u8";
           },
           {
-            "name": "rewardMint",
-            "docs": [
-              "SPL token mint for reward denomination (None = SOL)"
-            ],
-            "type": {
-              "option": "pubkey"
-            }
+            name: "rewardMint";
+            docs: ["SPL token mint for reward denomination (None = SOL)"];
+            type: {
+              option: "pubkey";
+            };
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "dispute",
-      "docs": [
+      name: "dispute";
+      docs: [
         "Dispute account for conflict resolution",
-        "PDA seeds: [\"dispute\", dispute_id]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["dispute", dispute_id]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "disputeId",
-            "docs": [
-              "Dispute identifier"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "disputeId";
+            docs: ["Dispute identifier"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "task",
-            "docs": [
-              "Related task"
-            ],
-            "type": "pubkey"
+            name: "task";
+            docs: ["Related task"];
+            type: "pubkey";
           },
           {
-            "name": "initiator",
-            "docs": [
-              "Initiator (agent PDA)"
-            ],
-            "type": "pubkey"
+            name: "initiator";
+            docs: ["Initiator (agent PDA)"];
+            type: "pubkey";
           },
           {
-            "name": "initiatorAuthority",
-            "docs": [
-              "Initiator's authority wallet (for resolver constraint)"
-            ],
-            "type": "pubkey"
+            name: "initiatorAuthority";
+            docs: ["Initiator's authority wallet (for resolver constraint)"];
+            type: "pubkey";
           },
           {
-            "name": "evidenceHash",
-            "docs": [
-              "Evidence hash"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "evidenceHash";
+            docs: ["Evidence hash"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "resolutionType",
-            "docs": [
-              "Proposed resolution type"
-            ],
-            "type": {
-              "defined": {
-                "name": "resolutionType"
-              }
-            }
+            name: "resolutionType";
+            docs: ["Proposed resolution type"];
+            type: {
+              defined: {
+                name: "resolutionType";
+              };
+            };
           },
           {
-            "name": "status",
-            "docs": [
-              "Dispute status"
-            ],
-            "type": {
-              "defined": {
-                "name": "disputeStatus"
-              }
-            }
+            name: "status";
+            docs: ["Dispute status"];
+            type: {
+              defined: {
+                name: "disputeStatus";
+              };
+            };
           },
           {
-            "name": "createdAt",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
+            name: "createdAt";
+            docs: ["Creation timestamp"];
+            type: "i64";
           },
           {
-            "name": "resolvedAt",
-            "docs": [
-              "Resolution timestamp"
-            ],
-            "type": "i64"
+            name: "resolvedAt";
+            docs: ["Resolution timestamp"];
+            type: "i64";
           },
           {
-            "name": "votesFor",
-            "docs": [
-              "Votes for approval"
-            ],
-            "type": "u64"
+            name: "votesFor";
+            docs: ["Votes for approval"];
+            type: "u64";
           },
           {
-            "name": "votesAgainst",
-            "docs": [
-              "Votes against"
-            ],
-            "type": "u64"
+            name: "votesAgainst";
+            docs: ["Votes against"];
+            type: "u64";
           },
           {
-            "name": "totalVoters",
-            "docs": [
+            name: "totalVoters";
+            docs: [
               "Total arbiters who voted (max 255 due to u8)",
-              "Note: Increase to u16 if more arbiters needed"
-            ],
-            "type": "u8"
+              "Note: Increase to u16 if more arbiters needed",
+            ];
+            type: "u8";
           },
           {
-            "name": "votingDeadline",
-            "docs": [
+            name: "votingDeadline";
+            docs: [
               "Voting deadline - after this, no new votes accepted",
-              "voting_deadline = created_at + voting_period"
-            ],
-            "type": "i64"
+              "voting_deadline = created_at + voting_period",
+            ];
+            type: "i64";
           },
           {
-            "name": "expiresAt",
-            "docs": [
+            name: "expiresAt";
+            docs: [
               "Dispute expiration - after this, can call expire_dispute",
               "expires_at = created_at + max_dispute_duration",
-              "Note: expires_at >= voting_deadline, allowing resolution after voting ends"
-            ],
-            "type": "i64"
+              "Note: expires_at >= voting_deadline, allowing resolution after voting ends",
+            ];
+            type: "i64";
           },
           {
-            "name": "slashApplied",
-            "docs": [
-              "Whether worker slashing has been applied"
-            ],
-            "type": "bool"
+            name: "slashApplied";
+            docs: ["Whether worker slashing has been applied"];
+            type: "bool";
           },
           {
-            "name": "initiatorSlashApplied",
-            "docs": [
-              "Whether initiator slashing has been applied (for rejected disputes)"
-            ],
-            "type": "bool"
+            name: "initiatorSlashApplied";
+            docs: [
+              "Whether initiator slashing has been applied (for rejected disputes)",
+            ];
+            type: "bool";
           },
           {
-            "name": "workerStakeAtDispute",
-            "docs": [
-              "Snapshot of worker's stake at dispute initiation (prevents stake withdrawal attacks)"
-            ],
-            "type": "u64"
+            name: "workerStakeAtDispute";
+            docs: [
+              "Snapshot of worker's stake at dispute initiation (prevents stake withdrawal attacks)",
+            ];
+            type: "u64";
           },
           {
-            "name": "initiatedByCreator",
-            "docs": [
+            name: "initiatedByCreator";
+            docs: [
               "Whether the dispute was initiated by the task creator (fix #407)",
-              "Used to apply stricter requirements and different expiration behavior for creator disputes"
-            ],
-            "type": "bool"
+              "Used to apply stricter requirements and different expiration behavior for creator disputes",
+            ];
+            type: "bool";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "defendant",
-            "docs": [
+            name: "defendant";
+            docs: [
               "The defendant worker's agent PDA (fix #827)",
               "Binds slashing target at dispute initiation to prevent slashing wrong worker",
-              "on collaborative tasks with multiple claimants."
-            ],
-            "type": "pubkey"
-          }
-        ]
-      }
+              "on collaborative tasks with multiple claimants.",
+            ];
+            type: "pubkey";
+          },
+        ];
+      };
     },
     {
-      "name": "disputeCancelled",
-      "docs": [
-        "Emitted when a dispute is cancelled by its initiator (fix #587)"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "disputeCancelled";
+      docs: ["Emitted when a dispute is cancelled by its initiator (fix #587)"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "disputeId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "disputeId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "task",
-            "type": "pubkey"
+            name: "task";
+            type: "pubkey";
           },
           {
-            "name": "initiator",
-            "type": "pubkey"
+            name: "initiator";
+            type: "pubkey";
           },
           {
-            "name": "cancelledAt",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "cancelledAt";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "disputeExpired",
-      "docs": [
+      name: "disputeExpired";
+      docs: [
         "Emitted when a dispute expires without resolution",
-        "Updated in fix #418 to include fair distribution details"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        "Updated in fix #418 to include fair distribution details",
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "disputeId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "disputeId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "refundAmount",
-            "type": "u64"
+            name: "refundAmount";
+            type: "u64";
           },
           {
-            "name": "creatorAmount",
-            "docs": [
-              "Amount refunded to creator (fix #418)"
-            ],
-            "type": "u64"
+            name: "creatorAmount";
+            docs: ["Amount refunded to creator (fix #418)"];
+            type: "u64";
           },
           {
-            "name": "workerAmount",
-            "docs": [
-              "Amount paid to worker (fix #418)"
-            ],
-            "type": "u64"
+            name: "workerAmount";
+            docs: ["Amount paid to worker (fix #418)"];
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "disputeInitiated",
-      "docs": [
-        "Emitted when a dispute is initiated"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "disputeInitiated";
+      docs: ["Emitted when a dispute is initiated"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "disputeId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "disputeId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "initiator",
-            "type": "pubkey"
+            name: "initiator";
+            type: "pubkey";
           },
           {
-            "name": "defendant",
-            "docs": [
-              "The defendant worker's agent PDA (fix #827)"
-            ],
-            "type": "pubkey"
+            name: "defendant";
+            docs: ["The defendant worker's agent PDA (fix #827)"];
+            type: "pubkey";
           },
           {
-            "name": "resolutionType",
-            "type": "u8"
+            name: "resolutionType";
+            type: "u8";
           },
           {
-            "name": "votingDeadline",
-            "type": "i64"
+            name: "votingDeadline";
+            type: "i64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "disputeResolved",
-      "docs": [
+      name: "disputeResolved";
+      docs: [
         "Emitted when a dispute is resolved",
         "",
         "The `outcome` field distinguishes between different resolution paths:",
@@ -8551,1288 +6287,1054 @@ export type AgencCoordination = {
         "- 2 = NoVoteDefault (no votes cast, defaulted to rejection - fix #425)",
         "",
         "The NoVoteDefault outcome indicates arbiter apathy rather than active rejection.",
-        "This allows consumers to distinguish between \"arbiters rejected this\" vs",
-        "\"no arbiters participated, so it defaulted to rejection\"."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'This allows consumers to distinguish between "arbiters rejected this" vs',
+        '"no arbiters participated, so it defaulted to rejection".',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "disputeId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "disputeId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "resolutionType",
-            "type": "u8"
+            name: "resolutionType";
+            type: "u8";
           },
           {
-            "name": "outcome",
-            "docs": [
-              "Resolution outcome: 0=Rejected, 1=Approved, 2=NoVoteDefault"
-            ],
-            "type": "u8"
+            name: "outcome";
+            docs: [
+              "Resolution outcome: 0=Rejected, 1=Approved, 2=NoVoteDefault",
+            ];
+            type: "u8";
           },
           {
-            "name": "votesFor",
-            "type": "u64"
+            name: "votesFor";
+            type: "u64";
           },
           {
-            "name": "votesAgainst",
-            "type": "u64"
+            name: "votesAgainst";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "disputeStatus",
-      "docs": [
-        "Dispute status"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "disputeStatus";
+      docs: ["Dispute status"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "active"
+            name: "active";
           },
           {
-            "name": "resolved"
+            name: "resolved";
           },
           {
-            "name": "expired"
+            name: "expired";
           },
           {
-            "name": "cancelled"
-          }
-        ]
-      }
+            name: "cancelled";
+          },
+        ];
+      };
     },
     {
-      "name": "disputeVote",
-      "docs": [
-        "Vote record for dispute",
-        "PDA seeds: [\"vote\", dispute, voter]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "disputeVote";
+      docs: ["Vote record for dispute", 'PDA seeds: ["vote", dispute, voter]'];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "dispute",
-            "docs": [
-              "Dispute being voted on"
-            ],
-            "type": "pubkey"
+            name: "dispute";
+            docs: ["Dispute being voted on"];
+            type: "pubkey";
           },
           {
-            "name": "voter",
-            "docs": [
-              "Voter (arbiter)"
-            ],
-            "type": "pubkey"
+            name: "voter";
+            docs: ["Voter (arbiter)"];
+            type: "pubkey";
           },
           {
-            "name": "approved",
-            "docs": [
-              "Vote (true = approve, false = reject)"
-            ],
-            "type": "bool"
+            name: "approved";
+            docs: ["Vote (true = approve, false = reject)"];
+            type: "bool";
           },
           {
-            "name": "votedAt",
-            "docs": [
-              "Vote timestamp"
-            ],
-            "type": "i64"
+            name: "votedAt";
+            docs: ["Vote timestamp"];
+            type: "i64";
           },
           {
-            "name": "stakeAtVote",
-            "docs": [
-              "Arbiter's stake at the time of voting (for weighted resolution)"
-            ],
-            "type": "u64"
+            name: "stakeAtVote";
+            docs: [
+              "Arbiter's stake at the time of voting (for weighted resolution)",
+            ];
+            type: "u64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
-          }
-        ]
-      }
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "disputeVoteCast",
-      "docs": [
-        "Emitted when a vote is cast on a dispute"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "disputeVoteCast";
+      docs: ["Emitted when a vote is cast on a dispute"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "disputeId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "disputeId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "voter",
-            "type": "pubkey"
+            name: "voter";
+            type: "pubkey";
           },
           {
-            "name": "approved",
-            "type": "bool"
+            name: "approved";
+            type: "bool";
           },
           {
-            "name": "votesFor",
-            "type": "u64"
+            name: "votesFor";
+            type: "u64";
           },
           {
-            "name": "votesAgainst",
-            "type": "u64"
+            name: "votesAgainst";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "feedPost",
-      "docs": [
+      name: "feedPost";
+      docs: [
         "Agent feed post (content hash stored on-chain, content on IPFS)",
-        "PDA seeds: [\"post\", author_agent_pda, nonce]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["post", author_agent_pda, nonce]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "author",
-            "docs": [
-              "Author agent PDA"
-            ],
-            "type": "pubkey"
+            name: "author";
+            docs: ["Author agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "contentHash",
-            "docs": [
-              "IPFS content hash (CIDv1 or SHA-256 of content)"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "contentHash";
+            docs: ["IPFS content hash (CIDv1 or SHA-256 of content)"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "topic",
-            "docs": [
-              "Topic identifier (application-level grouping)"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "topic";
+            docs: ["Topic identifier (application-level grouping)"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "parentPost",
-            "docs": [
-              "Optional parent post PDA (for replies/threads)"
-            ],
-            "type": {
-              "option": "pubkey"
-            }
+            name: "parentPost";
+            docs: ["Optional parent post PDA (for replies/threads)"];
+            type: {
+              option: "pubkey";
+            };
           },
           {
-            "name": "nonce",
-            "docs": [
-              "Unique nonce (client-generated UUID)"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "nonce";
+            docs: ["Unique nonce (client-generated UUID)"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "upvoteCount",
-            "docs": [
-              "Number of upvotes"
-            ],
-            "type": "u32"
+            name: "upvoteCount";
+            docs: ["Number of upvotes"];
+            type: "u32";
           },
           {
-            "name": "createdAt",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
+            name: "createdAt";
+            docs: ["Creation timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                8
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 8];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "feedVote",
-      "docs": [
+      name: "feedVote";
+      docs: [
         "Feed upvote record (one per voter per post, prevents double voting)",
-        "PDA seeds: [\"upvote\", post_pda, voter_agent_pda]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["upvote", post_pda, voter_agent_pda]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "post",
-            "docs": [
-              "Post PDA that was upvoted"
-            ],
-            "type": "pubkey"
+            name: "post";
+            docs: ["Post PDA that was upvoted"];
+            type: "pubkey";
           },
           {
-            "name": "voter",
-            "docs": [
-              "Voter agent PDA"
-            ],
-            "type": "pubkey"
+            name: "voter";
+            docs: ["Voter agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "docs": [
-              "Vote timestamp"
-            ],
-            "type": "i64"
+            name: "timestamp";
+            docs: ["Vote timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                4
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 4];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "governanceConfig",
-      "docs": [
-        "Governance configuration account",
-        "PDA seeds: [\"governance\"]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "governanceConfig";
+      docs: ["Governance configuration account", 'PDA seeds: ["governance"]'];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "authority",
-            "docs": [
-              "Protocol authority (must match ProtocolConfig.authority at init time)"
-            ],
-            "type": "pubkey"
+            name: "authority";
+            docs: [
+              "Protocol authority (must match ProtocolConfig.authority at init time)",
+            ];
+            type: "pubkey";
           },
           {
-            "name": "minProposalStake",
-            "docs": [
-              "Minimum stake required to create a proposal"
-            ],
-            "type": "u64"
+            name: "minProposalStake";
+            docs: ["Minimum stake required to create a proposal"];
+            type: "u64";
           },
           {
-            "name": "votingPeriod",
-            "docs": [
-              "Voting period in seconds for new proposals"
-            ],
-            "type": "i64"
+            name: "votingPeriod";
+            docs: ["Voting period in seconds for new proposals"];
+            type: "i64";
           },
           {
-            "name": "executionDelay",
-            "docs": [
-              "Execution delay after voting ends (timelock) in seconds"
-            ],
-            "type": "i64"
+            name: "executionDelay";
+            docs: ["Execution delay after voting ends (timelock) in seconds"];
+            type: "i64";
           },
           {
-            "name": "quorumBps",
-            "docs": [
-              "Quorum in basis points of total agents' stake"
-            ],
-            "type": "u16"
+            name: "quorumBps";
+            docs: ["Quorum in basis points of total agents' stake"];
+            type: "u16";
           },
           {
-            "name": "approvalThresholdBps",
-            "docs": [
-              "Approval threshold in basis points (e.g., 5000 = simple majority)"
-            ],
-            "type": "u16"
+            name: "approvalThresholdBps";
+            docs: [
+              "Approval threshold in basis points (e.g., 5000 = simple majority)",
+            ];
+            type: "u16";
           },
           {
-            "name": "totalProposals",
-            "docs": [
-              "Total proposals created (monotonic counter)"
-            ],
-            "type": "u64"
+            name: "totalProposals";
+            docs: ["Total proposals created (monotonic counter)"];
+            type: "u64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 64];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "governanceInitialized",
-      "docs": [
-        "Emitted when governance configuration is initialized"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "governanceInitialized";
+      docs: ["Emitted when governance configuration is initialized"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "authority",
-            "type": "pubkey"
+            name: "authority";
+            type: "pubkey";
           },
           {
-            "name": "votingPeriod",
-            "type": "i64"
+            name: "votingPeriod";
+            type: "i64";
           },
           {
-            "name": "executionDelay",
-            "type": "i64"
+            name: "executionDelay";
+            type: "i64";
           },
           {
-            "name": "quorumBps",
-            "type": "u16"
+            name: "quorumBps";
+            type: "u16";
           },
           {
-            "name": "approvalThresholdBps",
-            "type": "u16"
+            name: "approvalThresholdBps";
+            type: "u16";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "governanceVote",
-      "docs": [
+      name: "governanceVote";
+      docs: [
         "Governance vote record",
-        "PDA seeds: [\"governance_vote\", proposal, voter]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["governance_vote", proposal, voter]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "proposal",
-            "docs": [
-              "Proposal being voted on"
-            ],
-            "type": "pubkey"
+            name: "proposal";
+            docs: ["Proposal being voted on"];
+            type: "pubkey";
           },
           {
-            "name": "voter",
-            "docs": [
-              "Voter (agent PDA)"
-            ],
-            "type": "pubkey"
+            name: "voter";
+            docs: ["Voter (agent PDA)"];
+            type: "pubkey";
           },
           {
-            "name": "approved",
-            "docs": [
-              "Vote (true = approve, false = reject)"
-            ],
-            "type": "bool"
+            name: "approved";
+            docs: ["Vote (true = approve, false = reject)"];
+            type: "bool";
           },
           {
-            "name": "votedAt",
-            "docs": [
-              "Vote timestamp"
-            ],
-            "type": "i64"
+            name: "votedAt";
+            docs: ["Vote timestamp"];
+            type: "i64";
           },
           {
-            "name": "voteWeight",
-            "docs": [
-              "Voter's effective vote weight (reputation * stake, capped)"
-            ],
-            "type": "u64"
+            name: "voteWeight";
+            docs: [
+              "Voter's effective vote weight (reputation * stake, capped)",
+            ];
+            type: "u64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                8
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 8];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "governanceVoteCast",
-      "docs": [
-        "Emitted when a vote is cast on a governance proposal"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "governanceVoteCast";
+      docs: ["Emitted when a vote is cast on a governance proposal"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "proposal",
-            "type": "pubkey"
+            name: "proposal";
+            type: "pubkey";
           },
           {
-            "name": "voter",
-            "type": "pubkey"
+            name: "voter";
+            type: "pubkey";
           },
           {
-            "name": "approved",
-            "type": "bool"
+            name: "approved";
+            type: "bool";
           },
           {
-            "name": "voteWeight",
-            "type": "u64"
+            name: "voteWeight";
+            type: "u64";
           },
           {
-            "name": "votesFor",
-            "type": "u64"
+            name: "votesFor";
+            type: "u64";
           },
           {
-            "name": "votesAgainst",
-            "type": "u64"
+            name: "votesAgainst";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "migrationCompleted",
-      "docs": [
-        "Emitted when protocol migration is completed"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "migrationCompleted";
+      docs: ["Emitted when protocol migration is completed"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "fromVersion",
-            "type": "u8"
+            name: "fromVersion";
+            type: "u8";
           },
           {
-            "name": "toVersion",
-            "type": "u8"
+            name: "toVersion";
+            type: "u8";
           },
           {
-            "name": "authority",
-            "type": "pubkey"
+            name: "authority";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "multisigUpdated",
-      "docs": [
-        "Emitted when multisig signer set or threshold is updated."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "multisigUpdated";
+      docs: ["Emitted when multisig signer set or threshold is updated."];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "oldThreshold",
-            "type": "u8"
+            name: "oldThreshold";
+            type: "u8";
           },
           {
-            "name": "newThreshold",
-            "type": "u8"
+            name: "newThreshold";
+            type: "u8";
           },
           {
-            "name": "oldOwnerCount",
-            "type": "u8"
+            name: "oldOwnerCount";
+            type: "u8";
           },
           {
-            "name": "newOwnerCount",
-            "type": "u8"
+            name: "newOwnerCount";
+            type: "u8";
           },
           {
-            "name": "updatedBy",
-            "type": "pubkey"
+            name: "updatedBy";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "nullifierSpend",
-      "docs": [
+      name: "nullifierSpend";
+      docs: [
         "Nullifier spend account to prevent global proof/knowledge replay.",
-        "PDA seeds: [\"nullifier_spend\", nullifier]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["nullifier_spend", nullifier]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "nullifier",
-            "docs": [
-              "Nullifier value committed in the private journal."
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "nullifier";
+            docs: ["Nullifier value committed in the private journal."];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "task",
-            "docs": [
-              "The task where this nullifier was first used"
-            ],
-            "type": "pubkey"
+            name: "task";
+            docs: ["The task where this nullifier was first used"];
+            type: "pubkey";
           },
           {
-            "name": "agent",
-            "docs": [
-              "The agent who spent this nullifier"
-            ],
-            "type": "pubkey"
+            name: "agent";
+            docs: ["The agent who spent this nullifier"];
+            type: "pubkey";
           },
           {
-            "name": "spentAt",
-            "docs": [
-              "Timestamp when nullifier was spent"
-            ],
-            "type": "i64"
+            name: "spentAt";
+            docs: ["Timestamp when nullifier was spent"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
-          }
-        ]
-      }
+            name: "bump";
+            docs: ["Bump seed for PDA"];
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "postCreated",
-      "docs": [
-        "Emitted when an agent creates a feed post"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "postCreated";
+      docs: ["Emitted when an agent creates a feed post"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "post",
-            "type": "pubkey"
+            name: "post";
+            type: "pubkey";
           },
           {
-            "name": "author",
-            "type": "pubkey"
+            name: "author";
+            type: "pubkey";
           },
           {
-            "name": "contentHash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "contentHash";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "topic",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "topic";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "parentPost",
-            "type": {
-              "option": "pubkey"
-            }
+            name: "parentPost";
+            type: {
+              option: "pubkey";
+            };
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "postUpvoted",
-      "docs": [
-        "Emitted when a feed post is upvoted"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "postUpvoted";
+      docs: ["Emitted when a feed post is upvoted"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "post",
-            "type": "pubkey"
+            name: "post";
+            type: "pubkey";
           },
           {
-            "name": "voter",
-            "type": "pubkey"
+            name: "voter";
+            type: "pubkey";
           },
           {
-            "name": "newUpvoteCount",
-            "type": "u32"
+            name: "newUpvoteCount";
+            type: "u32";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "privateCompletionPayload",
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "privateCompletionPayload";
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "sealBytes",
-            "type": "bytes"
+            name: "sealBytes";
+            type: "bytes";
           },
           {
-            "name": "journal",
-            "type": "bytes"
+            name: "journal";
+            type: "bytes";
           },
           {
-            "name": "imageId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "imageId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "bindingSeed",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "bindingSeed";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "nullifierSeed",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
-        ]
-      }
+            name: "nullifierSeed";
+            type: {
+              array: ["u8", 32];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "proposal",
-      "docs": [
+      name: "proposal";
+      docs: [
         "Governance proposal account",
-        "PDA seeds: [\"proposal\", proposer, nonce]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["proposal", proposer, nonce]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "proposer",
-            "docs": [
-              "Proposer's agent PDA"
-            ],
-            "type": "pubkey"
+            name: "proposer";
+            docs: ["Proposer's agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "proposerAuthority",
-            "docs": [
-              "Proposer's authority wallet"
-            ],
-            "type": "pubkey"
+            name: "proposerAuthority";
+            docs: ["Proposer's authority wallet"];
+            type: "pubkey";
           },
           {
-            "name": "nonce",
-            "docs": [
-              "Monotonic nonce per proposer (allows multiple proposals)"
-            ],
-            "type": "u64"
+            name: "nonce";
+            docs: ["Monotonic nonce per proposer (allows multiple proposals)"];
+            type: "u64";
           },
           {
-            "name": "proposalType",
-            "docs": [
-              "Proposal type"
-            ],
-            "type": {
-              "defined": {
-                "name": "proposalType"
-              }
-            }
+            name: "proposalType";
+            docs: ["Proposal type"];
+            type: {
+              defined: {
+                name: "proposalType";
+              };
+            };
           },
           {
-            "name": "titleHash",
-            "docs": [
-              "Title hash (SHA256 of title string)"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "titleHash";
+            docs: ["Title hash (SHA256 of title string)"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "descriptionHash",
-            "docs": [
-              "Description hash (SHA256 of description/URI)"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "descriptionHash";
+            docs: ["Description hash (SHA256 of description/URI)"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "payload",
-            "docs": [
+            name: "payload";
+            docs: [
               "Type-specific payload (64 bytes)",
               "FeeChange: new fee bps as u16 LE in bytes [0..2], rest zero",
               "TreasurySpend: recipient Pubkey [0..32] + amount u64 LE [32..40], rest zero",
-              "ProtocolUpgrade: reserved for future parameter batch changes"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+              "ProtocolUpgrade: reserved for future parameter batch changes",
+            ];
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "status",
-            "docs": [
-              "Current status"
-            ],
-            "type": {
-              "defined": {
-                "name": "proposalStatus"
-              }
-            }
+            name: "status";
+            docs: ["Current status"];
+            type: {
+              defined: {
+                name: "proposalStatus";
+              };
+            };
           },
           {
-            "name": "createdAt",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
+            name: "createdAt";
+            docs: ["Creation timestamp"];
+            type: "i64";
           },
           {
-            "name": "votingDeadline",
-            "docs": [
-              "Voting deadline (no new votes accepted after this)"
-            ],
-            "type": "i64"
+            name: "votingDeadline";
+            docs: ["Voting deadline (no new votes accepted after this)"];
+            type: "i64";
           },
           {
-            "name": "executionAfter",
-            "docs": [
-              "Earliest timestamp at which the proposal can be executed (timelock)"
-            ],
-            "type": "i64"
+            name: "executionAfter";
+            docs: [
+              "Earliest timestamp at which the proposal can be executed (timelock)",
+            ];
+            type: "i64";
           },
           {
-            "name": "executedAt",
-            "docs": [
-              "Execution timestamp (0 if not executed)"
-            ],
-            "type": "i64"
+            name: "executedAt";
+            docs: ["Execution timestamp (0 if not executed)"];
+            type: "i64";
           },
           {
-            "name": "votesFor",
-            "docs": [
-              "Total stake-weighted votes for approval"
-            ],
-            "type": "u64"
+            name: "votesFor";
+            docs: ["Total stake-weighted votes for approval"];
+            type: "u64";
           },
           {
-            "name": "votesAgainst",
-            "docs": [
-              "Total stake-weighted votes against"
-            ],
-            "type": "u64"
+            name: "votesAgainst";
+            docs: ["Total stake-weighted votes against"];
+            type: "u64";
           },
           {
-            "name": "totalVoters",
-            "docs": [
-              "Number of individual voters"
-            ],
-            "type": "u16"
+            name: "totalVoters";
+            docs: ["Number of individual voters"];
+            type: "u16";
           },
           {
-            "name": "quorum",
-            "docs": [
-              "Required quorum (minimum total stake-weighted votes)"
-            ],
-            "type": "u64"
+            name: "quorum";
+            docs: ["Required quorum (minimum total stake-weighted votes)"];
+            type: "u64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 64];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "proposalCancelled",
-      "docs": [
-        "Emitted when a governance proposal is cancelled"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "proposalCancelled";
+      docs: ["Emitted when a governance proposal is cancelled"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "proposal",
-            "type": "pubkey"
+            name: "proposal";
+            type: "pubkey";
           },
           {
-            "name": "proposer",
-            "type": "pubkey"
+            name: "proposer";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "proposalCreated",
-      "docs": [
-        "Emitted when a governance proposal is created"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "proposalCreated";
+      docs: ["Emitted when a governance proposal is created"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "proposer",
-            "type": "pubkey"
+            name: "proposer";
+            type: "pubkey";
           },
           {
-            "name": "proposalType",
-            "type": "u8"
+            name: "proposalType";
+            type: "u8";
           },
           {
-            "name": "titleHash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "titleHash";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "votingDeadline",
-            "type": "i64"
+            name: "votingDeadline";
+            type: "i64";
           },
           {
-            "name": "quorum",
-            "type": "u64"
+            name: "quorum";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "proposalExecuted",
-      "docs": [
-        "Emitted when a governance proposal is executed"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "proposalExecuted";
+      docs: ["Emitted when a governance proposal is executed"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "proposal",
-            "type": "pubkey"
+            name: "proposal";
+            type: "pubkey";
           },
           {
-            "name": "proposalType",
-            "type": "u8"
+            name: "proposalType";
+            type: "u8";
           },
           {
-            "name": "votesFor",
-            "type": "u64"
+            name: "votesFor";
+            type: "u64";
           },
           {
-            "name": "votesAgainst",
-            "type": "u64"
+            name: "votesAgainst";
+            type: "u64";
           },
           {
-            "name": "totalVoters",
-            "type": "u16"
+            name: "totalVoters";
+            type: "u16";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "proposalStatus",
-      "docs": [
-        "Governance proposal status"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "proposalStatus";
+      docs: ["Governance proposal status"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "active"
+            name: "active";
           },
           {
-            "name": "executed"
+            name: "executed";
           },
           {
-            "name": "defeated"
+            name: "defeated";
           },
           {
-            "name": "cancelled"
-          }
-        ]
-      }
+            name: "cancelled";
+          },
+        ];
+      };
     },
     {
-      "name": "proposalType",
-      "docs": [
-        "Governance proposal type"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "proposalType";
+      docs: ["Governance proposal type"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "protocolUpgrade"
+            name: "protocolUpgrade";
           },
           {
-            "name": "feeChange"
+            name: "feeChange";
           },
           {
-            "name": "treasurySpend"
+            name: "treasurySpend";
           },
           {
-            "name": "rateLimitChange"
-          }
-        ]
-      }
+            name: "rateLimitChange";
+          },
+        ];
+      };
     },
     {
-      "name": "protocolConfig",
-      "docs": [
-        "Protocol configuration account",
-        "PDA seeds: [\"protocol\"]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "protocolConfig";
+      docs: ["Protocol configuration account", 'PDA seeds: ["protocol"]'];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "authority",
-            "docs": [
+            name: "authority";
+            docs: [
               "Protocol authority",
-              "Note: Cannot be updated after initialization."
-            ],
-            "type": "pubkey"
+              "Note: Cannot be updated after initialization.",
+            ];
+            type: "pubkey";
           },
           {
-            "name": "treasury",
-            "docs": [
+            name: "treasury";
+            docs: [
               "Treasury address for protocol fees",
-              "Can be updated via multisig-gated `update_treasury`."
-            ],
-            "type": "pubkey"
+              "Can be updated via multisig-gated `update_treasury`.",
+            ];
+            type: "pubkey";
           },
           {
-            "name": "disputeThreshold",
-            "docs": [
-              "Minimum votes needed to resolve dispute (percentage, 1-100)"
-            ],
-            "type": "u8"
+            name: "disputeThreshold";
+            docs: [
+              "Minimum votes needed to resolve dispute (percentage, 1-100)",
+            ];
+            type: "u8";
           },
           {
-            "name": "protocolFeeBps",
-            "docs": [
-              "Protocol fee in basis points (1/100th of a percent)"
-            ],
-            "type": "u16"
+            name: "protocolFeeBps";
+            docs: ["Protocol fee in basis points (1/100th of a percent)"];
+            type: "u16";
           },
           {
-            "name": "minArbiterStake",
-            "docs": [
-              "Minimum stake required to register as arbiter"
-            ],
-            "type": "u64"
+            name: "minArbiterStake";
+            docs: ["Minimum stake required to register as arbiter"];
+            type: "u64";
           },
           {
-            "name": "minAgentStake",
-            "docs": [
-              "Minimum stake required to register as agent"
-            ],
-            "type": "u64"
+            name: "minAgentStake";
+            docs: ["Minimum stake required to register as agent"];
+            type: "u64";
           },
           {
-            "name": "maxClaimDuration",
-            "docs": [
-              "Max duration (seconds) a claim can stay active without completion"
-            ],
-            "type": "i64"
+            name: "maxClaimDuration";
+            docs: [
+              "Max duration (seconds) a claim can stay active without completion",
+            ];
+            type: "i64";
           },
           {
-            "name": "maxDisputeDuration",
-            "docs": [
-              "Max duration (seconds) a dispute can remain active"
-            ],
-            "type": "i64"
+            name: "maxDisputeDuration";
+            docs: ["Max duration (seconds) a dispute can remain active"];
+            type: "i64";
           },
           {
-            "name": "totalAgents",
-            "docs": [
-              "Total registered agents"
-            ],
-            "type": "u64"
+            name: "totalAgents";
+            docs: ["Total registered agents"];
+            type: "u64";
           },
           {
-            "name": "totalTasks",
-            "docs": [
-              "Total tasks created"
-            ],
-            "type": "u64"
+            name: "totalTasks";
+            docs: ["Total tasks created"];
+            type: "u64";
           },
           {
-            "name": "completedTasks",
-            "docs": [
-              "Total tasks completed"
-            ],
-            "type": "u64"
+            name: "completedTasks";
+            docs: ["Total tasks completed"];
+            type: "u64";
           },
           {
-            "name": "totalValueDistributed",
-            "docs": [
-              "Total value distributed"
-            ],
-            "type": "u64"
+            name: "totalValueDistributed";
+            docs: ["Total value distributed"];
+            type: "u64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed for PDA"];
+            type: "u8";
           },
           {
-            "name": "multisigThreshold",
-            "docs": [
-              "Multisig threshold"
-            ],
-            "type": "u8"
+            name: "multisigThreshold";
+            docs: ["Multisig threshold"];
+            type: "u8";
           },
           {
-            "name": "multisigOwnersLen",
-            "docs": [
-              "Length of configured multisig owners"
-            ],
-            "type": "u8"
+            name: "multisigOwnersLen";
+            docs: ["Length of configured multisig owners"];
+            type: "u8";
           },
           {
-            "name": "taskCreationCooldown",
-            "docs": [
-              "Minimum cooldown between task creations (seconds, 0 = disabled)"
-            ],
-            "type": "i64"
+            name: "taskCreationCooldown";
+            docs: [
+              "Minimum cooldown between task creations (seconds, 0 = disabled)",
+            ];
+            type: "i64";
           },
           {
-            "name": "maxTasksPer24h",
-            "docs": [
-              "Maximum tasks an agent can create per 24h window (0 = unlimited)"
-            ],
-            "type": "u8"
+            name: "maxTasksPer24h";
+            docs: [
+              "Maximum tasks an agent can create per 24h window (0 = unlimited)",
+            ];
+            type: "u8";
           },
           {
-            "name": "disputeInitiationCooldown",
-            "docs": [
-              "Minimum cooldown between dispute initiations (seconds, 0 = disabled)"
-            ],
-            "type": "i64"
+            name: "disputeInitiationCooldown";
+            docs: [
+              "Minimum cooldown between dispute initiations (seconds, 0 = disabled)",
+            ];
+            type: "i64";
           },
           {
-            "name": "maxDisputesPer24h",
-            "docs": [
-              "Maximum disputes an agent can initiate per 24h window (0 = unlimited)"
-            ],
-            "type": "u8"
+            name: "maxDisputesPer24h";
+            docs: [
+              "Maximum disputes an agent can initiate per 24h window (0 = unlimited)",
+            ];
+            type: "u8";
           },
           {
-            "name": "minStakeForDispute",
-            "docs": [
-              "Minimum stake required to initiate a dispute (griefing resistance)"
-            ],
-            "type": "u64"
+            name: "minStakeForDispute";
+            docs: [
+              "Minimum stake required to initiate a dispute (griefing resistance)",
+            ];
+            type: "u64";
           },
           {
-            "name": "slashPercentage",
-            "docs": [
-              "Percentage of stake slashed on losing dispute (0-100)"
-            ],
-            "type": "u8"
+            name: "slashPercentage";
+            docs: ["Percentage of stake slashed on losing dispute (0-100)"];
+            type: "u8";
           },
           {
-            "name": "stateUpdateCooldown",
-            "docs": [
-              "Cooldown between state updates per agent (seconds, 0 = disabled) (fix #415)"
-            ],
-            "type": "i64"
+            name: "stateUpdateCooldown";
+            docs: [
+              "Cooldown between state updates per agent (seconds, 0 = disabled) (fix #415)",
+            ];
+            type: "i64";
           },
           {
-            "name": "votingPeriod",
-            "docs": [
-              "Voting period for disputes in seconds (default: 24 hours)"
-            ],
-            "type": "i64"
+            name: "votingPeriod";
+            docs: ["Voting period for disputes in seconds (default: 24 hours)"];
+            type: "i64";
           },
           {
-            "name": "protocolVersion",
-            "docs": [
-              "Current protocol version (for upgrades)"
-            ],
-            "type": "u8"
+            name: "protocolVersion";
+            docs: ["Current protocol version (for upgrades)"];
+            type: "u8";
           },
           {
-            "name": "minSupportedVersion",
-            "docs": [
-              "Minimum supported version for backward compatibility"
-            ],
-            "type": "u8"
+            name: "minSupportedVersion";
+            docs: ["Minimum supported version for backward compatibility"];
+            type: "u8";
           },
           {
-            "name": "padding",
-            "docs": [
+            name: "padding";
+            docs: [
               "Padding for future use and alignment",
-              "Currently unused but reserved for backwards-compatible additions"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                2
-              ]
-            }
+              "Currently unused but reserved for backwards-compatible additions",
+            ];
+            type: {
+              array: ["u8", 2];
+            };
           },
           {
-            "name": "multisigOwners",
-            "docs": [
+            name: "multisigOwners";
+            docs: [
               "Multisig owners for admin-gated protocol changes.",
               "",
               "Updated via multisig-gated `update_multisig` with strict validation:",
@@ -9841,1696 +7343,1389 @@ export type AgencCoordination = {
               "- update tx must include threshold signers from the new owner set",
               "",
               "Only the first `multisig_owners_len` entries are valid; remaining slots",
-              "are always `Pubkey::default()`."
-            ],
-            "type": {
-              "array": [
-                "pubkey",
-                5
-              ]
-            }
-          }
-        ]
-      }
+              "are always `Pubkey::default()`.",
+            ];
+            type: {
+              array: ["pubkey", 5];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "protocolFeeUpdated",
-      "docs": [
-        "Emitted when protocol fee is updated"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "protocolFeeUpdated";
+      docs: ["Emitted when protocol fee is updated"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "oldFeeBps",
-            "type": "u16"
+            name: "oldFeeBps";
+            type: "u16";
           },
           {
-            "name": "newFeeBps",
-            "type": "u16"
+            name: "newFeeBps";
+            type: "u16";
           },
           {
-            "name": "updatedBy",
-            "type": "pubkey"
+            name: "updatedBy";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "protocolInitialized",
-      "docs": [
-        "Emitted when protocol is initialized"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "protocolInitialized";
+      docs: ["Emitted when protocol is initialized"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "authority",
-            "type": "pubkey"
+            name: "authority";
+            type: "pubkey";
           },
           {
-            "name": "treasury",
-            "type": "pubkey"
+            name: "treasury";
+            type: "pubkey";
           },
           {
-            "name": "disputeThreshold",
-            "type": "u8"
+            name: "disputeThreshold";
+            type: "u8";
           },
           {
-            "name": "protocolFeeBps",
-            "type": "u16"
+            name: "protocolFeeBps";
+            type: "u16";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "protocolVersionUpdated",
-      "docs": [
-        "Emitted when protocol version is updated"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "protocolVersionUpdated";
+      docs: ["Emitted when protocol version is updated"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "oldVersion",
-            "type": "u8"
+            name: "oldVersion";
+            type: "u8";
           },
           {
-            "name": "newVersion",
-            "type": "u8"
+            name: "newVersion";
+            type: "u8";
           },
           {
-            "name": "minSupportedVersion",
-            "type": "u8"
+            name: "minSupportedVersion";
+            type: "u8";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "purchaseRecord",
-      "docs": [
+      name: "purchaseRecord";
+      docs: [
         "Purchase record (one per buyer per skill, prevents double purchase)",
-        "PDA seeds: [\"skill_purchase\", skill_pda, buyer_agent_pda]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["skill_purchase", skill_pda, buyer_agent_pda]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "skill",
-            "docs": [
-              "Skill purchased"
-            ],
-            "type": "pubkey"
+            name: "skill";
+            docs: ["Skill purchased"];
+            type: "pubkey";
           },
           {
-            "name": "buyer",
-            "docs": [
-              "Buyer's agent PDA"
-            ],
-            "type": "pubkey"
+            name: "buyer";
+            docs: ["Buyer's agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "pricePaid",
-            "docs": [
-              "Price paid at time of purchase"
-            ],
-            "type": "u64"
+            name: "pricePaid";
+            docs: ["Price paid at time of purchase"];
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "docs": [
-              "Purchase timestamp"
-            ],
-            "type": "i64"
+            name: "timestamp";
+            docs: ["Purchase timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                4
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 4];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "rateLimitHit",
-      "docs": [
-        "Emitted when a rate limit is hit"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "rateLimitHit";
+      docs: ["Emitted when a rate limit is hit"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "actionType",
-            "type": "u8"
+            name: "actionType";
+            type: "u8";
           },
           {
-            "name": "limitType",
-            "type": "u8"
+            name: "limitType";
+            type: "u8";
           },
           {
-            "name": "currentCount",
-            "type": "u8"
+            name: "currentCount";
+            type: "u8";
           },
           {
-            "name": "maxCount",
-            "type": "u8"
+            name: "maxCount";
+            type: "u8";
           },
           {
-            "name": "cooldownRemaining",
-            "type": "i64"
+            name: "cooldownRemaining";
+            type: "i64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "rateLimitsUpdated",
-      "docs": [
-        "Emitted when rate limit configuration is updated"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "rateLimitsUpdated";
+      docs: ["Emitted when rate limit configuration is updated"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskCreationCooldown",
-            "type": "i64"
+            name: "taskCreationCooldown";
+            type: "i64";
           },
           {
-            "name": "maxTasksPer24h",
-            "type": "u8"
+            name: "maxTasksPer24h";
+            type: "u8";
           },
           {
-            "name": "disputeInitiationCooldown",
-            "type": "i64"
+            name: "disputeInitiationCooldown";
+            type: "i64";
           },
           {
-            "name": "maxDisputesPer24h",
-            "type": "u8"
+            name: "maxDisputesPer24h";
+            type: "u8";
           },
           {
-            "name": "minStakeForDispute",
-            "type": "u64"
+            name: "minStakeForDispute";
+            type: "u64";
           },
           {
-            "name": "updatedBy",
-            "type": "pubkey"
+            name: "updatedBy";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "reputationChanged",
-      "docs": [
-        "Emitted when an agent's reputation changes"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "reputationChanged";
+      docs: ["Emitted when an agent's reputation changes"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agentId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "agentId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "oldReputation",
-            "type": "u16"
+            name: "oldReputation";
+            type: "u16";
           },
           {
-            "name": "newReputation",
-            "type": "u16"
+            name: "newReputation";
+            type: "u16";
           },
           {
-            "name": "reason",
-            "docs": [
-              "Reason: 0=completion, 1=dispute_slash, 2=decay"
-            ],
-            "type": "u8"
+            name: "reason";
+            docs: ["Reason: 0=completion, 1=dispute_slash, 2=decay"];
+            type: "u8";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "reputationDelegated",
-      "docs": [
-        "Emitted when an agent delegates reputation to a peer"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "reputationDelegated";
+      docs: ["Emitted when an agent delegates reputation to a peer"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "delegator",
-            "type": "pubkey"
+            name: "delegator";
+            type: "pubkey";
           },
           {
-            "name": "delegatee",
-            "type": "pubkey"
+            name: "delegatee";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u16"
+            name: "amount";
+            type: "u16";
           },
           {
-            "name": "expiresAt",
-            "type": "i64"
+            name: "expiresAt";
+            type: "i64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "reputationDelegation",
-      "docs": [
+      name: "reputationDelegation";
+      docs: [
         "Reputation delegation — agent delegates reputation points to a trusted peer.",
         "One delegation per (delegator, delegatee) pair. Revoke-and-redelegate pattern.",
-        "PDA seeds: [\"reputation_delegation\", delegator_pda, delegatee_pda]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["reputation_delegation", delegator_pda, delegatee_pda]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "delegator",
-            "docs": [
-              "Delegator agent PDA"
-            ],
-            "type": "pubkey"
+            name: "delegator";
+            docs: ["Delegator agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "delegatee",
-            "docs": [
-              "Delegatee agent PDA"
-            ],
-            "type": "pubkey"
+            name: "delegatee";
+            docs: ["Delegatee agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "docs": [
-              "Reputation points delegated (0-10000 scale)"
-            ],
-            "type": "u16"
+            name: "amount";
+            docs: ["Reputation points delegated (0-10000 scale)"];
+            type: "u16";
           },
           {
-            "name": "expiresAt",
-            "docs": [
-              "Expiration timestamp (0 = no expiry)"
-            ],
-            "type": "i64"
+            name: "expiresAt";
+            docs: ["Expiration timestamp (0 = no expiry)"];
+            type: "i64";
           },
           {
-            "name": "createdAt",
-            "docs": [
-              "Delegation creation timestamp"
-            ],
-            "type": "i64"
+            name: "createdAt";
+            docs: ["Delegation creation timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed for PDA"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                8
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 8];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "reputationDelegationRevoked",
-      "docs": [
-        "Emitted when a reputation delegation is revoked"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "reputationDelegationRevoked";
+      docs: ["Emitted when a reputation delegation is revoked"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "delegator",
-            "type": "pubkey"
+            name: "delegator";
+            type: "pubkey";
           },
           {
-            "name": "delegatee",
-            "type": "pubkey"
+            name: "delegatee";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u16"
+            name: "amount";
+            type: "u16";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "reputationStake",
-      "docs": [
+      name: "reputationStake";
+      docs: [
         "Reputation stake account — agent stakes SOL on their reputation.",
         "SOL is stored as excess lamports on the PDA (same pattern as agent registration stake).",
         "Account is never closed to preserve slash_count history (prevents reset exploit).",
-        "PDA seeds: [\"reputation_stake\", agent_pda]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["reputation_stake", agent_pda]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agent",
-            "docs": [
-              "Agent PDA this stake belongs to"
-            ],
-            "type": "pubkey"
+            name: "agent";
+            docs: ["Agent PDA this stake belongs to"];
+            type: "pubkey";
           },
           {
-            "name": "stakedAmount",
-            "docs": [
-              "SOL lamports currently staked"
-            ],
-            "type": "u64"
+            name: "stakedAmount";
+            docs: ["SOL lamports currently staked"];
+            type: "u64";
           },
           {
-            "name": "lockedUntil",
-            "docs": [
-              "Timestamp before which withdrawals are blocked"
-            ],
-            "type": "i64"
+            name: "lockedUntil";
+            docs: ["Timestamp before which withdrawals are blocked"];
+            type: "i64";
           },
           {
-            "name": "slashCount",
-            "docs": [
-              "Historical count of slashes applied"
-            ],
-            "type": "u8"
+            name: "slashCount";
+            docs: ["Historical count of slashes applied"];
+            type: "u8";
           },
           {
-            "name": "createdAt",
-            "docs": [
-              "Account creation timestamp"
-            ],
-            "type": "i64"
+            name: "createdAt";
+            docs: ["Account creation timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed for PDA"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed for PDA"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                8
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 8];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "reputationStakeWithdrawn",
-      "docs": [
-        "Emitted when an agent withdraws staked SOL"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "reputationStakeWithdrawn";
+      docs: ["Emitted when an agent withdraws staked SOL"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agent",
-            "type": "pubkey"
+            name: "agent";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u64"
+            name: "amount";
+            type: "u64";
           },
           {
-            "name": "remainingStaked",
-            "type": "u64"
+            name: "remainingStaked";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "reputationStaked",
-      "docs": [
-        "Emitted when an agent stakes SOL on their reputation"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "reputationStaked";
+      docs: ["Emitted when an agent stakes SOL on their reputation"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "agent",
-            "type": "pubkey"
+            name: "agent";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u64"
+            name: "amount";
+            type: "u64";
           },
           {
-            "name": "totalStaked",
-            "type": "u64"
+            name: "totalStaked";
+            type: "u64";
           },
           {
-            "name": "lockedUntil",
-            "type": "i64"
+            name: "lockedUntil";
+            type: "i64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "resolutionType",
-      "docs": [
-        "Dispute resolution type"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "resolutionType";
+      docs: ["Dispute resolution type"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "refund"
+            name: "refund";
           },
           {
-            "name": "complete"
+            name: "complete";
           },
           {
-            "name": "split"
-          }
-        ]
-      }
+            name: "split";
+          },
+        ];
+      };
     },
     {
-      "name": "rewardDistributed",
-      "docs": [
-        "Emitted for reward distribution"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "rewardDistributed";
+      docs: ["Emitted for reward distribution"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "recipient",
-            "type": "pubkey"
+            name: "recipient";
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "type": "u64"
+            name: "amount";
+            type: "u64";
           },
           {
-            "name": "protocolFee",
-            "type": "u64"
+            name: "protocolFee";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "skillPurchased",
-      "docs": [
-        "Emitted when a skill is purchased"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "skillPurchased";
+      docs: ["Emitted when a skill is purchased"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "skill",
-            "type": "pubkey"
+            name: "skill";
+            type: "pubkey";
           },
           {
-            "name": "buyer",
-            "type": "pubkey"
+            name: "buyer";
+            type: "pubkey";
           },
           {
-            "name": "author",
-            "type": "pubkey"
+            name: "author";
+            type: "pubkey";
           },
           {
-            "name": "pricePaid",
-            "type": "u64"
+            name: "pricePaid";
+            type: "u64";
           },
           {
-            "name": "protocolFee",
-            "type": "u64"
+            name: "protocolFee";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "skillRated",
-      "docs": [
-        "Emitted when a skill is rated by another agent"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "skillRated";
+      docs: ["Emitted when a skill is rated by another agent"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "skill",
-            "type": "pubkey"
+            name: "skill";
+            type: "pubkey";
           },
           {
-            "name": "rater",
-            "type": "pubkey"
+            name: "rater";
+            type: "pubkey";
           },
           {
-            "name": "rating",
-            "type": "u8"
+            name: "rating";
+            type: "u8";
           },
           {
-            "name": "raterReputation",
-            "type": "u16"
+            name: "raterReputation";
+            type: "u16";
           },
           {
-            "name": "newTotalRating",
-            "type": "u64"
+            name: "newTotalRating";
+            type: "u64";
           },
           {
-            "name": "newRatingCount",
-            "type": "u32"
+            name: "newRatingCount";
+            type: "u32";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "skillRating",
-      "docs": [
+      name: "skillRating";
+      docs: [
         "Skill rating record (one per rater per skill)",
-        "PDA seeds: [\"skill_rating\", skill_pda, rater_agent_pda]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["skill_rating", skill_pda, rater_agent_pda]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "skill",
-            "docs": [
-              "Skill being rated"
-            ],
-            "type": "pubkey"
+            name: "skill";
+            docs: ["Skill being rated"];
+            type: "pubkey";
           },
           {
-            "name": "rater",
-            "docs": [
-              "Rater's agent PDA"
-            ],
-            "type": "pubkey"
+            name: "rater";
+            docs: ["Rater's agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "rating",
-            "docs": [
-              "Rating value (1-5)"
-            ],
-            "type": "u8"
+            name: "rating";
+            docs: ["Rating value (1-5)"];
+            type: "u8";
           },
           {
-            "name": "reviewHash",
-            "docs": [
-              "Optional review content hash"
-            ],
-            "type": {
-              "option": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
+            name: "reviewHash";
+            docs: ["Optional review content hash"];
+            type: {
+              option: {
+                array: ["u8", 32];
+              };
+            };
           },
           {
-            "name": "raterReputation",
-            "docs": [
-              "Rater's reputation at time of rating"
-            ],
-            "type": "u16"
+            name: "raterReputation";
+            docs: ["Rater's reputation at time of rating"];
+            type: "u16";
           },
           {
-            "name": "timestamp",
-            "docs": [
-              "Rating timestamp"
-            ],
-            "type": "i64"
+            name: "timestamp";
+            docs: ["Rating timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                4
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 4];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "skillRegistered",
-      "docs": [
-        "Emitted when a new skill is registered"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "skillRegistered";
+      docs: ["Emitted when a new skill is registered"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "skill",
-            "type": "pubkey"
+            name: "skill";
+            type: "pubkey";
           },
           {
-            "name": "author",
-            "type": "pubkey"
+            name: "author";
+            type: "pubkey";
           },
           {
-            "name": "skillId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "skillId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "name",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "name";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "contentHash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "contentHash";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "price",
-            "type": "u64"
+            name: "price";
+            type: "u64";
           },
           {
-            "name": "priceMint",
-            "type": {
-              "option": "pubkey"
-            }
+            name: "priceMint";
+            type: {
+              option: "pubkey";
+            };
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "skillRegistration",
-      "docs": [
+      name: "skillRegistration";
+      docs: [
         "Skill registration account",
-        "PDA seeds: [\"skill\", author_agent_pda, skill_id]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["skill", author_agent_pda, skill_id]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "author",
-            "docs": [
-              "Author's agent PDA"
-            ],
-            "type": "pubkey"
+            name: "author";
+            docs: ["Author's agent PDA"];
+            type: "pubkey";
           },
           {
-            "name": "skillId",
-            "docs": [
-              "Unique skill identifier"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "skillId";
+            docs: ["Unique skill identifier"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "name",
-            "docs": [
-              "Skill display name"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "name";
+            docs: ["Skill display name"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "contentHash",
-            "docs": [
-              "Content hash (IPFS CID, Arweave tx, etc.)"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "contentHash";
+            docs: ["Content hash (IPFS CID, Arweave tx, etc.)"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "price",
-            "docs": [
-              "Price in lamports (SOL) or token smallest units"
-            ],
-            "type": "u64"
+            name: "price";
+            docs: ["Price in lamports (SOL) or token smallest units"];
+            type: "u64";
           },
           {
-            "name": "priceMint",
-            "docs": [
-              "Optional SPL token mint for price denomination (None = SOL)"
-            ],
-            "type": {
-              "option": "pubkey"
-            }
+            name: "priceMint";
+            docs: [
+              "Optional SPL token mint for price denomination (None = SOL)",
+            ];
+            type: {
+              option: "pubkey";
+            };
           },
           {
-            "name": "tags",
-            "docs": [
-              "Tags for discovery (encoded by client)"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+            name: "tags";
+            docs: ["Tags for discovery (encoded by client)"];
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "totalRating",
-            "docs": [
-              "Sum of reputation-weighted ratings"
-            ],
-            "type": "u64"
+            name: "totalRating";
+            docs: ["Sum of reputation-weighted ratings"];
+            type: "u64";
           },
           {
-            "name": "ratingCount",
-            "docs": [
-              "Number of ratings received"
-            ],
-            "type": "u32"
+            name: "ratingCount";
+            docs: ["Number of ratings received"];
+            type: "u32";
           },
           {
-            "name": "downloadCount",
-            "docs": [
-              "Number of purchases"
-            ],
-            "type": "u32"
+            name: "downloadCount";
+            docs: ["Number of purchases"];
+            type: "u32";
           },
           {
-            "name": "version",
-            "docs": [
-              "Content version (monotonically increasing)"
-            ],
-            "type": "u8"
+            name: "version";
+            docs: ["Content version (monotonically increasing)"];
+            type: "u8";
           },
           {
-            "name": "isActive",
-            "docs": [
-              "Whether the skill is currently active"
-            ],
-            "type": "bool"
+            name: "isActive";
+            docs: ["Whether the skill is currently active"];
+            type: "bool";
           },
           {
-            "name": "createdAt",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
+            name: "createdAt";
+            docs: ["Creation timestamp"];
+            type: "i64";
           },
           {
-            "name": "updatedAt",
-            "docs": [
-              "Last update timestamp"
-            ],
-            "type": "i64"
+            name: "updatedAt";
+            docs: ["Last update timestamp"];
+            type: "i64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "reserved",
-            "docs": [
-              "Reserved for future use"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                8
-              ]
-            }
-          }
-        ]
-      }
+            name: "reserved";
+            docs: ["Reserved for future use"];
+            type: {
+              array: ["u8", 8];
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "skillUpdated",
-      "docs": [
-        "Emitted when a skill is updated by its author"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "skillUpdated";
+      docs: ["Emitted when a skill is updated by its author"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "skill",
-            "type": "pubkey"
+            name: "skill";
+            type: "pubkey";
           },
           {
-            "name": "author",
-            "type": "pubkey"
+            name: "author";
+            type: "pubkey";
           },
           {
-            "name": "contentHash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "contentHash";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "price",
-            "type": "u64"
+            name: "price";
+            type: "u64";
           },
           {
-            "name": "version",
-            "type": "u8"
+            name: "version";
+            type: "u8";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "speculativeCommitmentCreated",
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "speculativeCommitmentCreated";
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "task",
-            "type": "pubkey"
+            name: "task";
+            type: "pubkey";
           },
           {
-            "name": "producer",
-            "type": "pubkey"
+            name: "producer";
+            type: "pubkey";
           },
           {
-            "name": "resultHash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "resultHash";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "bondedStake",
-            "type": "u64"
+            name: "bondedStake";
+            type: "u64";
           },
           {
-            "name": "expiresAt",
-            "type": "i64"
+            name: "expiresAt";
+            type: "i64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "stateUpdated",
-      "docs": [
-        "Emitted when coordination state is updated"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "stateUpdated";
+      docs: ["Emitted when coordination state is updated"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "stateKey",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "stateKey";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "stateValue",
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+            name: "stateValue";
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "updater",
-            "type": "pubkey"
+            name: "updater";
+            type: "pubkey";
           },
           {
-            "name": "version",
-            "type": "u64"
+            name: "version";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "task",
-      "docs": [
-        "Task account",
-        "PDA seeds: [\"task\", creator, task_id]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "task";
+      docs: ["Task account", 'PDA seeds: ["task", creator, task_id]'];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskId",
-            "docs": [
-              "Unique task identifier"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            docs: ["Unique task identifier"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "creator",
-            "docs": [
-              "Task creator (paying party)"
-            ],
-            "type": "pubkey"
+            name: "creator";
+            docs: ["Task creator (paying party)"];
+            type: "pubkey";
           },
           {
-            "name": "requiredCapabilities",
-            "docs": [
+            name: "requiredCapabilities";
+            docs: [
               "Required capability bitmask (u64).",
               "",
               "Specifies which capabilities an agent must have to claim this task.",
               "See [`capability`] module for defined bits. An agent can claim this",
-              "task only if: `(agent.capabilities & required_capabilities) == required_capabilities`"
-            ],
-            "type": "u64"
+              "task only if: `(agent.capabilities & required_capabilities) == required_capabilities`",
+            ];
+            type: "u64";
           },
           {
-            "name": "description",
-            "docs": [
-              "Task description or instruction hash"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+            name: "description";
+            docs: ["Task description or instruction hash"];
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "constraintHash",
-            "docs": [
+            name: "constraintHash";
+            docs: [
               "Constraint hash for private task verification (hash of expected output)",
-              "For private tasks, workers must prove they know output that hashes to this value"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+              "For private tasks, workers must prove they know output that hashes to this value",
+            ];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "rewardAmount",
-            "docs": [
-              "Reward amount in lamports"
-            ],
-            "type": "u64"
+            name: "rewardAmount";
+            docs: ["Reward amount in lamports"];
+            type: "u64";
           },
           {
-            "name": "maxWorkers",
-            "docs": [
-              "Maximum workers allowed"
-            ],
-            "type": "u8"
+            name: "maxWorkers";
+            docs: ["Maximum workers allowed"];
+            type: "u8";
           },
           {
-            "name": "currentWorkers",
-            "docs": [
-              "Current worker count"
-            ],
-            "type": "u8"
+            name: "currentWorkers";
+            docs: ["Current worker count"];
+            type: "u8";
           },
           {
-            "name": "status",
-            "docs": [
-              "Task status"
-            ],
-            "type": {
-              "defined": {
-                "name": "taskStatus"
-              }
-            }
+            name: "status";
+            docs: ["Task status"];
+            type: {
+              defined: {
+                name: "taskStatus";
+              };
+            };
           },
           {
-            "name": "taskType",
-            "docs": [
-              "Task type"
-            ],
-            "type": {
-              "defined": {
-                "name": "taskType"
-              }
-            }
+            name: "taskType";
+            docs: ["Task type"];
+            type: {
+              defined: {
+                name: "taskType";
+              };
+            };
           },
           {
-            "name": "createdAt",
-            "docs": [
-              "Creation timestamp"
-            ],
-            "type": "i64"
+            name: "createdAt";
+            docs: ["Creation timestamp"];
+            type: "i64";
           },
           {
-            "name": "deadline",
-            "docs": [
-              "Deadline timestamp (0 = no deadline)"
-            ],
-            "type": "i64"
+            name: "deadline";
+            docs: ["Deadline timestamp (0 = no deadline)"];
+            type: "i64";
           },
           {
-            "name": "completedAt",
-            "docs": [
-              "Completion timestamp"
-            ],
-            "type": "i64"
+            name: "completedAt";
+            docs: ["Completion timestamp"];
+            type: "i64";
           },
           {
-            "name": "escrow",
-            "docs": [
-              "Escrow account for reward"
-            ],
-            "type": "pubkey"
+            name: "escrow";
+            docs: ["Escrow account for reward"];
+            type: "pubkey";
           },
           {
-            "name": "result",
-            "docs": [
-              "Result data or pointer"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+            name: "result";
+            docs: ["Result data or pointer"];
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "completions",
-            "docs": [
-              "Number of completions (for collaborative tasks)"
-            ],
-            "type": "u8"
+            name: "completions";
+            docs: ["Number of completions (for collaborative tasks)"];
+            type: "u8";
           },
           {
-            "name": "requiredCompletions",
-            "docs": [
-              "Required completions"
-            ],
-            "type": "u8"
+            name: "requiredCompletions";
+            docs: ["Required completions"];
+            type: "u8";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
           },
           {
-            "name": "protocolFeeBps",
-            "docs": [
-              "Protocol fee in basis points, locked at task creation (#479)"
-            ],
-            "type": "u16"
+            name: "protocolFeeBps";
+            docs: [
+              "Protocol fee in basis points, locked at task creation (#479)",
+            ];
+            type: "u16";
           },
           {
-            "name": "dependsOn",
-            "docs": [
-              "Optional parent task this task depends on (None for independent tasks)"
-            ],
-            "type": {
-              "option": "pubkey"
-            }
+            name: "dependsOn";
+            docs: [
+              "Optional parent task this task depends on (None for independent tasks)",
+            ];
+            type: {
+              option: "pubkey";
+            };
           },
           {
-            "name": "dependencyType",
-            "docs": [
-              "Type of dependency relationship"
-            ],
-            "type": {
-              "defined": {
-                "name": "dependencyType"
-              }
-            }
+            name: "dependencyType";
+            docs: ["Type of dependency relationship"];
+            type: {
+              defined: {
+                name: "dependencyType";
+              };
+            };
           },
           {
-            "name": "minReputation",
-            "docs": [
+            name: "minReputation";
+            docs: [
               "Minimum reputation score (0-10000) required for workers to claim this task.",
-              "0 means no reputation gate (default for backward compatibility)."
-            ],
-            "type": "u16"
+              "0 means no reputation gate (default for backward compatibility).",
+            ];
+            type: "u16";
           },
           {
-            "name": "rewardMint",
-            "docs": [
+            name: "rewardMint";
+            docs: [
               "Optional SPL token mint for reward denomination.",
               "None = SOL rewards (default, backward compatible).",
-              "Some(mint) = SPL token rewards using the specified mint."
-            ],
-            "type": {
-              "option": "pubkey"
-            }
-          }
-        ]
-      }
+              "Some(mint) = SPL token rewards using the specified mint.",
+            ];
+            type: {
+              option: "pubkey";
+            };
+          },
+        ];
+      };
     },
     {
-      "name": "taskCancelled",
-      "docs": [
-        "Emitted when a task is cancelled"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "taskCancelled";
+      docs: ["Emitted when a task is cancelled"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "creator",
-            "type": "pubkey"
+            name: "creator";
+            type: "pubkey";
           },
           {
-            "name": "refundAmount",
-            "type": "u64"
+            name: "refundAmount";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "taskClaim",
-      "docs": [
+      name: "taskClaim";
+      docs: [
         "Worker's claim on a task",
-        "PDA seeds: [\"claim\", task, worker_agent]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+        'PDA seeds: ["claim", task, worker_agent]',
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "task",
-            "docs": [
-              "Task being claimed"
-            ],
-            "type": "pubkey"
+            name: "task";
+            docs: ["Task being claimed"];
+            type: "pubkey";
           },
           {
-            "name": "worker",
-            "docs": [
-              "Worker agent"
-            ],
-            "type": "pubkey"
+            name: "worker";
+            docs: ["Worker agent"];
+            type: "pubkey";
           },
           {
-            "name": "claimedAt",
-            "docs": [
-              "Claim timestamp"
-            ],
-            "type": "i64"
+            name: "claimedAt";
+            docs: ["Claim timestamp"];
+            type: "i64";
           },
           {
-            "name": "expiresAt",
-            "docs": [
-              "Expiration timestamp for claim"
-            ],
-            "type": "i64"
+            name: "expiresAt";
+            docs: ["Expiration timestamp for claim"];
+            type: "i64";
           },
           {
-            "name": "completedAt",
-            "docs": [
-              "Completion timestamp"
-            ],
-            "type": "i64"
+            name: "completedAt";
+            docs: ["Completion timestamp"];
+            type: "i64";
           },
           {
-            "name": "proofHash",
-            "docs": [
-              "Proof of work hash"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "proofHash";
+            docs: ["Proof of work hash"];
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "resultData",
-            "docs": [
-              "Result data"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+            name: "resultData";
+            docs: ["Result data"];
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "isCompleted",
-            "docs": [
-              "Is completed"
-            ],
-            "type": "bool"
+            name: "isCompleted";
+            docs: ["Is completed"];
+            type: "bool";
           },
           {
-            "name": "isValidated",
-            "docs": [
-              "Is validated"
-            ],
-            "type": "bool"
+            name: "isValidated";
+            docs: ["Is validated"];
+            type: "bool";
           },
           {
-            "name": "rewardPaid",
-            "docs": [
-              "Reward paid"
-            ],
-            "type": "u64"
+            name: "rewardPaid";
+            docs: ["Reward paid"];
+            type: "u64";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
-          }
-        ]
-      }
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "taskClaimed",
-      "docs": [
-        "Emitted when an agent claims a task"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "taskClaimed";
+      docs: ["Emitted when an agent claims a task"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "worker",
-            "type": "pubkey"
+            name: "worker";
+            type: "pubkey";
           },
           {
-            "name": "currentWorkers",
-            "type": "u8"
+            name: "currentWorkers";
+            type: "u8";
           },
           {
-            "name": "maxWorkers",
-            "type": "u8"
+            name: "maxWorkers";
+            type: "u8";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "taskCompleted",
-      "docs": [
-        "Emitted when a task is completed"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "taskCompleted";
+      docs: ["Emitted when a task is completed"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "worker",
-            "type": "pubkey"
+            name: "worker";
+            type: "pubkey";
           },
           {
-            "name": "proofHash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "proofHash";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "resultData",
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
+            name: "resultData";
+            type: {
+              array: ["u8", 64];
+            };
           },
           {
-            "name": "rewardPaid",
-            "type": "u64"
+            name: "rewardPaid";
+            type: "u64";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "taskCreated",
-      "docs": [
-        "Emitted when a new task is created"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "taskCreated";
+      docs: ["Emitted when a new task is created"];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "taskId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            name: "taskId";
+            type: {
+              array: ["u8", 32];
+            };
           },
           {
-            "name": "creator",
-            "type": "pubkey"
+            name: "creator";
+            type: "pubkey";
           },
           {
-            "name": "requiredCapabilities",
-            "type": "u64"
+            name: "requiredCapabilities";
+            type: "u64";
           },
           {
-            "name": "rewardAmount",
-            "type": "u64"
+            name: "rewardAmount";
+            type: "u64";
           },
           {
-            "name": "taskType",
-            "type": "u8"
+            name: "taskType";
+            type: "u8";
           },
           {
-            "name": "deadline",
-            "type": "i64"
+            name: "deadline";
+            type: "i64";
           },
           {
-            "name": "minReputation",
-            "type": "u16"
+            name: "minReputation";
+            type: "u16";
           },
           {
-            "name": "rewardMint",
-            "docs": [
-              "SPL token mint for reward denomination (None = SOL)"
-            ],
-            "type": {
-              "option": "pubkey"
-            }
+            name: "rewardMint";
+            docs: ["SPL token mint for reward denomination (None = SOL)"];
+            type: {
+              option: "pubkey";
+            };
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
     },
     {
-      "name": "taskEscrow",
-      "docs": [
-        "Task escrow account",
-        "PDA seeds: [\"escrow\", task]"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "taskEscrow";
+      docs: ["Task escrow account", 'PDA seeds: ["escrow", task]'];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "task",
-            "docs": [
-              "Task this escrow belongs to"
-            ],
-            "type": "pubkey"
+            name: "task";
+            docs: ["Task this escrow belongs to"];
+            type: "pubkey";
           },
           {
-            "name": "amount",
-            "docs": [
-              "Total amount deposited"
-            ],
-            "type": "u64"
+            name: "amount";
+            docs: ["Total amount deposited"];
+            type: "u64";
           },
           {
-            "name": "distributed",
-            "docs": [
-              "Amount already distributed"
-            ],
-            "type": "u64"
+            name: "distributed";
+            docs: ["Amount already distributed"];
+            type: "u64";
           },
           {
-            "name": "isClosed",
-            "docs": [
-              "Is closed"
-            ],
-            "type": "bool"
+            name: "isClosed";
+            docs: ["Is closed"];
+            type: "bool";
           },
           {
-            "name": "bump",
-            "docs": [
-              "Bump seed"
-            ],
-            "type": "u8"
-          }
-        ]
-      }
+            name: "bump";
+            docs: ["Bump seed"];
+            type: "u8";
+          },
+        ];
+      };
     },
     {
-      "name": "taskStatus",
-      "docs": [
-        "Task status"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "taskStatus";
+      docs: ["Task status"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "open"
+            name: "open";
           },
           {
-            "name": "inProgress"
+            name: "inProgress";
           },
           {
-            "name": "pendingValidation"
+            name: "pendingValidation";
           },
           {
-            "name": "completed"
+            name: "completed";
           },
           {
-            "name": "cancelled"
+            name: "cancelled";
           },
           {
-            "name": "disputed"
-          }
-        ]
-      }
+            name: "disputed";
+          },
+        ];
+      };
     },
     {
-      "name": "taskType",
-      "docs": [
-        "Task type enumeration"
-      ],
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
+      name: "taskType";
+      docs: ["Task type enumeration"];
+      repr: {
+        kind: "rust";
+      };
+      type: {
+        kind: "enum";
+        variants: [
           {
-            "name": "exclusive"
+            name: "exclusive";
           },
           {
-            "name": "collaborative"
+            name: "collaborative";
           },
           {
-            "name": "competitive"
-          }
-        ]
-      }
+            name: "competitive";
+          },
+        ];
+      };
     },
     {
-      "name": "treasuryUpdated",
-      "docs": [
-        "Emitted when protocol treasury is updated via multisig governance."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
+      name: "treasuryUpdated";
+      docs: [
+        "Emitted when protocol treasury is updated via multisig governance.",
+      ];
+      type: {
+        kind: "struct";
+        fields: [
           {
-            "name": "oldTreasury",
-            "type": "pubkey"
+            name: "oldTreasury";
+            type: "pubkey";
           },
           {
-            "name": "newTreasury",
-            "type": "pubkey"
+            name: "newTreasury";
+            type: "pubkey";
           },
           {
-            "name": "updatedBy",
-            "type": "pubkey"
+            name: "updatedBy";
+            type: "pubkey";
           },
           {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
-    }
-  ]
+            name: "timestamp";
+            type: "i64";
+          },
+        ];
+      };
+    },
+  ];
 };

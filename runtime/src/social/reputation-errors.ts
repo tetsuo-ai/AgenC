@@ -6,7 +6,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when reputation scoring fails (invalid input, overflow, etc.).
@@ -19,7 +19,7 @@ export class ReputationScoringError extends RuntimeError {
       `Reputation scoring failed: ${reason}`,
       RuntimeErrorCodes.REPUTATION_SCORING_ERROR,
     );
-    this.name = 'ReputationScoringError';
+    this.name = "ReputationScoringError";
     this.reason = reason;
   }
 }
@@ -35,7 +35,7 @@ export class ReputationTrackingError extends RuntimeError {
       `Reputation tracking failed: ${reason}`,
       RuntimeErrorCodes.REPUTATION_TRACKING_ERROR,
     );
-    this.name = 'ReputationTrackingError';
+    this.name = "ReputationTrackingError";
     this.reason = reason;
   }
 }

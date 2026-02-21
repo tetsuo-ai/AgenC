@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 import {
   WORKFLOW_FEATURE_SCHEMA_VERSION,
   WORKFLOW_OBJECTIVE_SCHEMA_VERSION,
@@ -8,12 +8,14 @@ import {
   validateWorkflowObjectiveSpec,
   workflowObjectiveOutcomeFromFeature,
   type WorkflowFeatureVector,
-} from './optimizer-types.js';
+} from "./optimizer-types.js";
 
-function makeFeature(overrides: Partial<WorkflowFeatureVector> = {}): WorkflowFeatureVector {
+function makeFeature(
+  overrides: Partial<WorkflowFeatureVector> = {},
+): WorkflowFeatureVector {
   return {
     schemaVersion: WORKFLOW_FEATURE_SCHEMA_VERSION,
-    workflowId: 'wf-1',
+    workflowId: "wf-1",
     capturedAtMs: 123,
     topology: {
       nodeCount: 2,
@@ -23,14 +25,14 @@ function makeFeature(overrides: Partial<WorkflowFeatureVector> = {}): WorkflowFe
       averageBranchingFactor: 1,
     },
     composition: {
-      taskTypeHistogram: { '0': 2 },
-      dependencyTypeHistogram: { '0': 1, '1': 1 },
+      taskTypeHistogram: { "0": 2 },
+      dependencyTypeHistogram: { "0": 1, "1": 1 },
       privateTaskCount: 0,
-      totalRewardLamports: '300',
+      totalRewardLamports: "300",
       averageRewardLamports: 150,
     },
     outcomes: {
-      outcome: 'completed',
+      outcome: "completed",
       success: true,
       elapsedMs: 25,
       completionRate: 1,
@@ -43,33 +45,33 @@ function makeFeature(overrides: Partial<WorkflowFeatureVector> = {}): WorkflowFe
     },
     nodeFeatures: [
       {
-        name: 'root',
+        name: "root",
         taskType: 0,
         dependencyType: 0,
-        rewardLamports: '100',
+        rewardLamports: "100",
         maxWorkers: 1,
         minReputation: 0,
         hasConstraintHash: false,
-        status: 'completed',
+        status: "completed",
       },
       {
-        name: 'child',
+        name: "child",
         taskType: 0,
         dependencyType: 1,
-        rewardLamports: '200',
+        rewardLamports: "200",
         maxWorkers: 1,
         minReputation: 0,
         hasConstraintHash: false,
-        status: 'completed',
+        status: "completed",
       },
     ],
-    metadata: { workflow_source: 'single_agent' },
+    metadata: { workflow_source: "single_agent" },
     ...overrides,
   };
 }
 
-describe('workflow optimizer objective contracts', () => {
-  it('builds default objective schema with safe weighted metrics', () => {
+describe("workflow optimizer objective contracts", () => {
+  it("builds default objective schema with safe weighted metrics", () => {
     const spec = createDefaultWorkflowObjectiveSpec();
 
     expect(spec.schemaVersion).toBe(WORKFLOW_OBJECTIVE_SCHEMA_VERSION);
@@ -78,25 +80,27 @@ describe('workflow optimizer objective contracts', () => {
     expect(total).toBeCloseTo(1, 6);
   });
 
-  it('validates objective schema invariants', () => {
+  it("validates objective schema invariants", () => {
     expect(() =>
       validateWorkflowObjectiveSpec({
-        id: 'x',
+        id: "x",
         schemaVersion: WORKFLOW_OBJECTIVE_SCHEMA_VERSION,
-        weights: [{ metric: 'success_rate', direction: 'maximize', weight: 0.2 }],
+        weights: [
+          { metric: "success_rate", direction: "maximize", weight: 0.2 },
+        ],
       }),
     ).not.toThrow();
 
     expect(() =>
       validateWorkflowObjectiveSpec({
-        id: 'x',
+        id: "x",
         schemaVersion: WORKFLOW_OBJECTIVE_SCHEMA_VERSION,
-        weights: [{ metric: 'latency_ms', direction: 'minimize', weight: -1 }],
+        weights: [{ metric: "latency_ms", direction: "minimize", weight: -1 }],
       }),
-    ).toThrow('must be non-negative');
+    ).toThrow("must be non-negative");
   });
 
-  it('scores improved outcomes higher under default objective', () => {
+  it("scores improved outcomes higher under default objective", () => {
     const baseline = scoreWorkflowObjective({
       successRate: 0.4,
       conformanceScore: 0.5,
@@ -120,19 +124,19 @@ describe('workflow optimizer objective contracts', () => {
   });
 });
 
-describe('workflow feature schema parsing and migration', () => {
-  it('parses v1 feature vectors', () => {
+describe("workflow feature schema parsing and migration", () => {
+  it("parses v1 feature vectors", () => {
     const feature = makeFeature();
     const parsed = parseWorkflowFeatureVector(feature);
 
     expect(parsed.schemaVersion).toBe(WORKFLOW_FEATURE_SCHEMA_VERSION);
-    expect(parsed.workflowId).toBe('wf-1');
+    expect(parsed.workflowId).toBe("wf-1");
     expect(parsed.nodeFeatures).toHaveLength(2);
   });
 
-  it('migrates legacy feature vectors with missing schemaVersion', () => {
+  it("migrates legacy feature vectors with missing schemaVersion", () => {
     const legacy = {
-      workflowId: 'wf-legacy',
+      workflowId: "wf-legacy",
       topology: {
         nodeCount: 1,
         edgeCount: 0,
@@ -141,14 +145,14 @@ describe('workflow feature schema parsing and migration', () => {
         averageBranchingFactor: 0,
       },
       composition: {
-        taskTypeHistogram: { '0': 1 },
-        dependencyTypeHistogram: { '0': 1 },
+        taskTypeHistogram: { "0": 1 },
+        dependencyTypeHistogram: { "0": 1 },
         privateTaskCount: 0,
-        totalRewardLamports: '1',
+        totalRewardLamports: "1",
         averageRewardLamports: 1,
       },
       outcomes: {
-        outcome: 'completed',
+        outcome: "completed",
         success: true,
         elapsedMs: 1,
         completionRate: 1,
@@ -161,14 +165,14 @@ describe('workflow feature schema parsing and migration', () => {
       },
       nodeFeatures: [
         {
-          name: 'only',
+          name: "only",
           taskType: 0,
           dependencyType: 0,
-          rewardLamports: '1',
+          rewardLamports: "1",
           maxWorkers: 1,
           minReputation: 0,
           hasConstraintHash: false,
-          status: 'completed',
+          status: "completed",
         },
       ],
     };
@@ -176,14 +180,14 @@ describe('workflow feature schema parsing and migration', () => {
     const parsed = parseWorkflowFeatureVector(legacy);
 
     expect(parsed.schemaVersion).toBe(WORKFLOW_FEATURE_SCHEMA_VERSION);
-    expect(parsed.workflowId).toBe('wf-legacy');
+    expect(parsed.workflowId).toBe("wf-legacy");
     expect(parsed.capturedAtMs).toBeGreaterThanOrEqual(0);
   });
 
-  it('projects objective outcome from feature outputs', () => {
+  it("projects objective outcome from feature outputs", () => {
     const feature = makeFeature({
       outcomes: {
-        outcome: 'partially_completed',
+        outcome: "partially_completed",
         success: false,
         elapsedMs: 99,
         completionRate: 0.5,

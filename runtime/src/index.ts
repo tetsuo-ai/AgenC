@@ -32,7 +32,7 @@ export {
   isValidBps,
   TaskState,
   type TaskStatus,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 
 // IDL and program creation
 export {
@@ -40,12 +40,12 @@ export {
   type AgencCoordination,
   createProgram,
   createReadOnlyProgram,
-} from './idl.js';
+} from "./idl.js";
 
-export const VERSION = '0.1.0';
+export const VERSION = "0.1.0";
 
 // Runtime class
-export { AgentRuntime } from './runtime.js';
+export { AgentRuntime } from "./runtime.js";
 
 // Types (protocol, errors, wallet, config) — all via types barrel
 export {
@@ -214,7 +214,7 @@ export {
   type ConfigWarning,
   type ConfigValidationResult,
   type ConfigSchemaSnapshot,
-} from './types/index.js';
+} from "./types/index.js";
 
 // Task module (Phase 3)
 export {
@@ -235,22 +235,17 @@ export {
   type TaskDiscoveryMode,
   // TaskExecutor class
   TaskExecutor,
-} from './task/index.js';
+} from "./task/index.js";
 
 // Logger utilities
-export {
-  Logger,
-  LogLevel,
-  createLogger,
-  silentLogger,
-} from './utils/index.js';
+export { Logger, LogLevel, createLogger, silentLogger } from "./utils/index.js";
 
 // Process utilities
 export {
   runCommand,
   type RunCommandOptions,
   type RunCommandResult,
-} from './utils/index.js';
+} from "./utils/index.js";
 
 // Encoding utilities
 export {
@@ -268,7 +263,7 @@ export {
   toAnchorBytes,
   uint8ToBase64,
   base64ToUint8,
-} from './utils/index.js';
+} from "./utils/index.js";
 
 // Validation utilities
 export {
@@ -278,7 +273,7 @@ export {
   requireFiniteNumber,
   requireOneOf,
   requireIntRange,
-} from './utils/index.js';
+} from "./utils/index.js";
 
 // SPL Token utilities
 export {
@@ -290,7 +285,7 @@ export {
   buildCreateTaskTokenAccounts,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-} from './utils/index.js';
+} from "./utils/index.js";
 
 // Event monitoring (Phase 2)
 export {
@@ -399,7 +394,7 @@ export {
   EventMonitor,
   type EventMonitorConfig,
   type EventMonitorMetrics,
-} from './events/index.js';
+} from "./events/index.js";
 
 // Skill library system
 export {
@@ -504,7 +499,7 @@ export {
   SECONDS_PER_YEAR,
   DEFAULT_TRIAL_SECS,
   MAX_ANALYTICS_ENTRIES_PER_SKILL,
-} from './skills/index.js';
+} from "./skills/index.js";
 
 // LLM Adapters (Phase 4)
 export {
@@ -555,7 +550,7 @@ export {
   type AnthropicProviderConfig,
   OllamaProvider,
   type OllamaProviderConfig,
-} from './llm/index.js';
+} from "./llm/index.js";
 
 // Autonomous Agent System
 export {
@@ -630,7 +625,7 @@ export {
   type VerifierLaneConfig,
   type VerifierExecutionResult,
   DefaultClaimStrategy,
-} from './autonomous/index.js';
+} from "./autonomous/index.js";
 
 // Eval and deterministic replay
 export {
@@ -771,7 +766,7 @@ export {
   type CalibrationBin,
   type CalibrationAggregate,
   type CalibrationReport,
-} from './eval/index.js';
+} from "./eval/index.js";
 
 export {
   InMemoryReplayTimelineStore,
@@ -818,7 +813,7 @@ export {
   normalizePdaValue,
   normalizePdaString,
   extractDisputePdaFromPayload,
-} from './replay/index.js';
+} from "./replay/index.js";
 
 // Policy and Safety Engine
 export {
@@ -854,7 +849,7 @@ export {
   type ToolPolicyConditions,
   type ToolPolicyContext,
   type ToolPolicyDecision,
-} from './policy/index.js';
+} from "./policy/index.js";
 
 // Tool System (Phase 5)
 export {
@@ -908,7 +903,7 @@ export {
   DEFAULT_DENY_PREFIXES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
-} from './tools/index.js';
+} from "./tools/index.js";
 
 // ZK Proof Engine (Phase 7)
 export {
@@ -933,7 +928,7 @@ export {
   // Engine
   ProofEngine,
   buildSdkProverConfig,
-} from './proof/index.js';
+} from "./proof/index.js";
 
 // Memory Backends (Phase 6)
 export {
@@ -1004,7 +999,7 @@ export {
   type SemanticMemoryRetrieverConfig,
   type RetrievalResult,
   type ScoredRetrievalEntry,
-} from './memory/index.js';
+} from "./memory/index.js";
 
 // Dispute Operations (Phase 8)
 export {
@@ -1040,7 +1035,7 @@ export {
   type DisputeResult,
   type VoteResult,
   type DisputeOpsConfig,
-} from './dispute/index.js';
+} from "./dispute/index.js";
 
 // Workflow DAG Orchestrator (Phase 9)
 export {
@@ -1129,7 +1124,7 @@ export {
   DAGSubmitter,
   DAGMonitor,
   DAGOrchestrator,
-} from './workflow/index.js';
+} from "./workflow/index.js";
 
 // Team Contracts (Phase 12)
 export {
@@ -1178,7 +1173,7 @@ export {
   type RoleFailureAttribution,
   type TeamContractSnapshot,
   type TeamEngineHooks,
-} from './team/index.js';
+} from "./team/index.js";
 
 // Marketplace Bidding (Phase 13)
 export {
@@ -1240,7 +1235,7 @@ export {
   type ResolveServiceDisputeInput,
   type ListServiceRequestsInput,
   type ServiceMarketplaceConfig,
-} from './marketplace/index.js';
+} from "./marketplace/index.js";
 
 // Connection Manager
 export {
@@ -1262,7 +1257,7 @@ export {
   deriveCoalesceKey,
   // Class
   ConnectionManager,
-} from './connection/index.js';
+} from "./connection/index.js";
 
 // Telemetry (Phase 11)
 export {
@@ -1281,7 +1276,7 @@ export {
   TelemetryError,
   // Metric name constants
   TELEMETRY_METRIC_NAMES,
-} from './telemetry/index.js';
+} from "./telemetry/index.js";
 
 // Gateway (Phase 1)
 export {
@@ -1510,7 +1505,7 @@ export {
   type RemoteChatMessage,
   type OfflineQueueEntry,
   type PushNotification,
-} from './gateway/index.js';
+} from "./gateway/index.js";
 
 // Channel Plugins (Phase 1.5)
 export {
@@ -1532,7 +1527,7 @@ export {
   type SignalChannelConfig,
   MatrixChannel,
   type MatrixChannelConfig,
-} from './channels/index.js';
+} from "./channels/index.js";
 
 // Governance Operations (Phase 10)
 export {
@@ -1572,7 +1567,7 @@ export {
   type GovernanceVoteResult,
   type ProposalWithVotes,
   type GovernanceOpsConfig,
-} from './governance/index.js';
+} from "./governance/index.js";
 
 // Social module (Phase 8.1)
 export {
@@ -1587,7 +1582,7 @@ export {
   type SortOrder,
   type DiscoveryConfig,
   type ProfileCacheConfig,
-} from './social/index.js';
+} from "./social/index.js";
 
 // Social / Messaging (Phase 8.2)
 export {
@@ -1617,7 +1612,7 @@ export {
   MessagingSignatureError,
   // Operations class
   AgentMessaging,
-} from './social/index.js';
+} from "./social/index.js";
 
 // Social / Feed (Phase 8.3)
 export {
@@ -1644,7 +1639,7 @@ export {
   FeedQueryError,
   // Operations class
   AgentFeed,
-} from './social/index.js';
+} from "./social/index.js";
 
 // Social / Reputation (Phase 8.4)
 export {
@@ -1674,7 +1669,7 @@ export {
   ReputationTrackingError,
   // Operations class
   ReputationScorer,
-} from './social/index.js';
+} from "./social/index.js";
 
 // Social / Collaboration (Phase 8.5)
 export {
@@ -1693,11 +1688,10 @@ export {
   CollaborationResponseError,
   CollaborationFormationError,
   CollaborationProtocol,
-} from './social/index.js';
+} from "./social/index.js";
 
 // Agent Builder (Phase 10)
-export { AgentBuilder, BuiltAgent } from './builder.js';
-
+export { AgentBuilder, BuiltAgent } from "./builder.js";
 
 // Voice Support (Phase 9.3)
 export {
@@ -1741,7 +1735,7 @@ export {
   type VoiceServerEvent,
   type VoiceSessionCallbacks,
   type XaiRealtimeClientConfig,
-} from './voice/index.js';
+} from "./voice/index.js";
 
 // Cross-Protocol Bridges (Phase 10)
 export {
@@ -1761,7 +1755,7 @@ export {
   LangChainBridge,
   X402Bridge,
   FarcasterBridge,
-} from './bridges/index.js';
+} from "./bridges/index.js";
 
 // Reputation Economy (Phase 10.3)
 export {
@@ -1795,4 +1789,4 @@ export {
   ReputationPortabilityError,
   // Operations
   ReputationEconomyOperations,
-} from './reputation/index.js';
+} from "./reputation/index.js";

@@ -1,10 +1,10 @@
-import type { ReplayPolicy } from './replay.js';
-import type { ReplayToolRequestExtra } from './replay-internal-types.js';
-import { getToolRiskProfile } from './replay-risk.js';
+import type { ReplayPolicy } from "./replay.js";
+import type { ReplayToolRequestExtra } from "./replay-internal-types.js";
+import { getToolRiskProfile } from "./replay-risk.js";
 
 export interface ResolvedActor {
   id: string;
-  source: 'auth_client_id' | 'session_id' | 'anonymous';
+  source: "auth_client_id" | "session_id" | "anonymous";
   authenticated: boolean;
 }
 
@@ -14,7 +14,7 @@ export function resolveActor(extra: ReplayToolRequestExtra): ResolvedActor {
   if (authInfo?.clientId) {
     return {
       id: authInfo.clientId,
-      source: 'auth_client_id',
+      source: "auth_client_id",
       authenticated: true,
     };
   }
@@ -22,14 +22,14 @@ export function resolveActor(extra: ReplayToolRequestExtra): ResolvedActor {
   if (extra?.sessionId) {
     return {
       id: `session:${extra.sessionId}`,
-      source: 'session_id',
+      source: "session_id",
       authenticated: false,
     };
   }
 
   return {
-    id: 'anonymous',
-    source: 'anonymous',
+    id: "anonymous",
+    source: "anonymous",
     authenticated: false,
   };
 }
@@ -49,8 +49,8 @@ export function checkActorPermission(
   }
 
   const profile = getToolRiskProfile(toolName);
-  if (profile.riskLevel === 'high' && !actor.authenticated) {
-    const requireAuth = env.MCP_REPLAY_REQUIRE_AUTH_FOR_HIGH_RISK === 'true';
+  if (profile.riskLevel === "high" && !actor.authenticated) {
+    const requireAuth = env.MCP_REPLAY_REQUIRE_AUTH_FOR_HIGH_RISK === "true";
     if (requireAuth) {
       return `tool ${toolName} requires authenticated actor (risk level: high)`;
     }

@@ -3,8 +3,8 @@
  * @module
  */
 
-import { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 import type {
   EventCallback,
   EventSubscription,
@@ -22,7 +22,7 @@ import type {
   RawDisputeExpiredEvent,
   RawDisputeCancelledEvent,
   RawArbiterVotesCleanedUpEvent,
-} from './types.js';
+} from "./types.js";
 import {
   parseDisputeInitiatedEvent,
   parseDisputeVoteCastEvent,
@@ -30,8 +30,8 @@ import {
   parseDisputeExpiredEvent,
   parseDisputeCancelledEvent,
   parseArbiterVotesCleanedUpEvent,
-} from './parse.js';
-import { createEventSubscription } from './factory.js';
+} from "./parse.js";
+import { createEventSubscription } from "./factory.js";
 
 /**
  * Subscribes to DisputeInitiated events.
@@ -44,12 +44,16 @@ import { createEventSubscription } from './factory.js';
 export function subscribeToDisputeInitiated(
   program: Program<AgencCoordination>,
   callback: EventCallback<DisputeInitiatedEvent>,
-  options?: DisputeEventFilterOptions
+  options?: DisputeEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawDisputeInitiatedEvent, DisputeInitiatedEvent, DisputeEventFilterOptions>(
+  return createEventSubscription<
+    RawDisputeInitiatedEvent,
+    DisputeInitiatedEvent,
+    DisputeEventFilterOptions
+  >(
     program,
     {
-      eventName: 'disputeInitiated',
+      eventName: "disputeInitiated",
       parse: parseDisputeInitiatedEvent,
       getFilterId: (event) => event.disputeId,
       getFilterValue: (opts) => opts.disputeId,
@@ -70,12 +74,16 @@ export function subscribeToDisputeInitiated(
 export function subscribeToDisputeVoteCast(
   program: Program<AgencCoordination>,
   callback: EventCallback<DisputeVoteCastEvent>,
-  options?: DisputeEventFilterOptions
+  options?: DisputeEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawDisputeVoteCastEvent, DisputeVoteCastEvent, DisputeEventFilterOptions>(
+  return createEventSubscription<
+    RawDisputeVoteCastEvent,
+    DisputeVoteCastEvent,
+    DisputeEventFilterOptions
+  >(
     program,
     {
-      eventName: 'disputeVoteCast',
+      eventName: "disputeVoteCast",
       parse: parseDisputeVoteCastEvent,
       getFilterId: (event) => event.disputeId,
       getFilterValue: (opts) => opts.disputeId,
@@ -96,12 +104,16 @@ export function subscribeToDisputeVoteCast(
 export function subscribeToDisputeResolved(
   program: Program<AgencCoordination>,
   callback: EventCallback<DisputeResolvedEvent>,
-  options?: DisputeEventFilterOptions
+  options?: DisputeEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawDisputeResolvedEvent, DisputeResolvedEvent, DisputeEventFilterOptions>(
+  return createEventSubscription<
+    RawDisputeResolvedEvent,
+    DisputeResolvedEvent,
+    DisputeEventFilterOptions
+  >(
     program,
     {
-      eventName: 'disputeResolved',
+      eventName: "disputeResolved",
       parse: parseDisputeResolvedEvent,
       getFilterId: (event) => event.disputeId,
       getFilterValue: (opts) => opts.disputeId,
@@ -122,12 +134,16 @@ export function subscribeToDisputeResolved(
 export function subscribeToDisputeExpired(
   program: Program<AgencCoordination>,
   callback: EventCallback<DisputeExpiredEvent>,
-  options?: DisputeEventFilterOptions
+  options?: DisputeEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawDisputeExpiredEvent, DisputeExpiredEvent, DisputeEventFilterOptions>(
+  return createEventSubscription<
+    RawDisputeExpiredEvent,
+    DisputeExpiredEvent,
+    DisputeEventFilterOptions
+  >(
     program,
     {
-      eventName: 'disputeExpired',
+      eventName: "disputeExpired",
       parse: parseDisputeExpiredEvent,
       getFilterId: (event) => event.disputeId,
       getFilterValue: (opts) => opts.disputeId,
@@ -146,12 +162,16 @@ export function subscribeToDisputeExpired(
  */
 export function subscribeToDisputeCancelled(
   program: Program<AgencCoordination>,
-  callback: EventCallback<DisputeCancelledEvent>
+  callback: EventCallback<DisputeCancelledEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawDisputeCancelledEvent, DisputeCancelledEvent, never>(
+  return createEventSubscription<
+    RawDisputeCancelledEvent,
+    DisputeCancelledEvent,
+    never
+  >(
     program,
     {
-      eventName: 'disputeCancelled',
+      eventName: "disputeCancelled",
       parse: parseDisputeCancelledEvent,
     },
     callback,
@@ -167,12 +187,16 @@ export function subscribeToDisputeCancelled(
  */
 export function subscribeToArbiterVotesCleanedUp(
   program: Program<AgencCoordination>,
-  callback: EventCallback<ArbiterVotesCleanedUpEvent>
+  callback: EventCallback<ArbiterVotesCleanedUpEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawArbiterVotesCleanedUpEvent, ArbiterVotesCleanedUpEvent, never>(
+  return createEventSubscription<
+    RawArbiterVotesCleanedUpEvent,
+    ArbiterVotesCleanedUpEvent,
+    never
+  >(
     program,
     {
-      eventName: 'arbiterVotesCleanedUp',
+      eventName: "arbiterVotesCleanedUp",
       parse: parseArbiterVotesCleanedUpEvent,
     },
     callback,
@@ -190,32 +214,51 @@ export function subscribeToArbiterVotesCleanedUp(
 export function subscribeToAllDisputeEvents(
   program: Program<AgencCoordination>,
   callbacks: DisputeEventCallbacks,
-  options?: DisputeEventFilterOptions
+  options?: DisputeEventFilterOptions,
 ): EventSubscription {
   const subscriptions: EventSubscription[] = [];
 
   if (callbacks.onDisputeInitiated) {
-    subscriptions.push(subscribeToDisputeInitiated(program, callbacks.onDisputeInitiated, options));
+    subscriptions.push(
+      subscribeToDisputeInitiated(
+        program,
+        callbacks.onDisputeInitiated,
+        options,
+      ),
+    );
   }
   if (callbacks.onDisputeVoteCast) {
-    subscriptions.push(subscribeToDisputeVoteCast(program, callbacks.onDisputeVoteCast, options));
+    subscriptions.push(
+      subscribeToDisputeVoteCast(program, callbacks.onDisputeVoteCast, options),
+    );
   }
   if (callbacks.onDisputeResolved) {
-    subscriptions.push(subscribeToDisputeResolved(program, callbacks.onDisputeResolved, options));
+    subscriptions.push(
+      subscribeToDisputeResolved(program, callbacks.onDisputeResolved, options),
+    );
   }
   if (callbacks.onDisputeExpired) {
-    subscriptions.push(subscribeToDisputeExpired(program, callbacks.onDisputeExpired, options));
+    subscriptions.push(
+      subscribeToDisputeExpired(program, callbacks.onDisputeExpired, options),
+    );
   }
   if (callbacks.onDisputeCancelled) {
-    subscriptions.push(subscribeToDisputeCancelled(program, callbacks.onDisputeCancelled));
+    subscriptions.push(
+      subscribeToDisputeCancelled(program, callbacks.onDisputeCancelled),
+    );
   }
   if (callbacks.onArbiterVotesCleanedUp) {
-    subscriptions.push(subscribeToArbiterVotesCleanedUp(program, callbacks.onArbiterVotesCleanedUp));
+    subscriptions.push(
+      subscribeToArbiterVotesCleanedUp(
+        program,
+        callbacks.onArbiterVotesCleanedUp,
+      ),
+    );
   }
 
   return {
     unsubscribe: async () => {
-      await Promise.all(subscriptions.map(s => s.unsubscribe()));
+      await Promise.all(subscriptions.map((s) => s.unsubscribe()));
     },
   };
 }

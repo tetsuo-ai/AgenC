@@ -4,10 +4,13 @@
  * @module
  */
 
-function createAbortTimeoutError(providerName: string, timeoutMs: number): Error {
+function createAbortTimeoutError(
+  providerName: string,
+  timeoutMs: number,
+): Error {
   const err = new Error(`${providerName} request aborted after ${timeoutMs}ms`);
-  (err as any).name = 'AbortError';
-  (err as any).code = 'ABORT_ERR';
+  (err as any).name = "AbortError";
+  (err as any).code = "ABORT_ERR";
   return err;
 }
 

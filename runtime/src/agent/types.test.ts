@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
+import { describe, it, expect } from "vitest";
+import { PublicKey } from "@solana/web3.js";
 import {
   // Constants
   AgentCapabilities,
@@ -22,12 +22,15 @@ import {
   computeRateLimitState,
   // Types
   type AgentState,
-} from './types';
+} from "./types";
 
 /**
  * Mock BN-like object for testing (matches Anchor's BN type)
  */
-function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
+function mockBN(value: bigint | number): {
+  toNumber: () => number;
+  toString: () => string;
+} {
   const bigValue = BigInt(value);
   return {
     toNumber: () => Number(bigValue),
@@ -36,7 +39,7 @@ function mockBN(value: bigint | number): { toNumber: () => number; toString: () 
 }
 
 // Well-known valid Solana addresses for testing
-const TEST_PUBKEY_1 = '11111111111111111111111111111111';
+const TEST_PUBKEY_1 = "11111111111111111111111111111111";
 
 /**
  * Creates a valid 32-byte agent ID
@@ -56,8 +59,8 @@ function createValidMockData() {
     authority: new PublicKey(TEST_PUBKEY_1),
     capabilities: mockBN(3n), // COMPUTE | INFERENCE
     status: { active: {} }, // Anchor enum format
-    endpoint: 'https://agent.example.com',
-    metadataUri: 'https://metadata.example.com/agent.json',
+    endpoint: "https://agent.example.com",
+    metadataUri: "https://metadata.example.com/agent.json",
     registeredAt: mockBN(1700000000),
     lastActive: mockBN(1700001000),
     tasksCompleted: mockBN(100n),
@@ -82,102 +85,102 @@ function createValidMockData() {
 // Constants Tests
 // ============================================================================
 
-describe('Agent Constants', () => {
-  describe('AGENT_REGISTRATION_SIZE', () => {
-    it('equals 438 bytes (matches state.rs)', () => {
+describe("Agent Constants", () => {
+  describe("AGENT_REGISTRATION_SIZE", () => {
+    it("equals 438 bytes (matches state.rs)", () => {
       expect(AGENT_REGISTRATION_SIZE).toBe(438);
     });
   });
 
-  describe('AGENT_ID_LENGTH', () => {
-    it('equals 32 bytes', () => {
+  describe("AGENT_ID_LENGTH", () => {
+    it("equals 32 bytes", () => {
       expect(AGENT_ID_LENGTH).toBe(32);
     });
   });
 
-  describe('MAX_ENDPOINT_LENGTH', () => {
-    it('equals 128 characters', () => {
+  describe("MAX_ENDPOINT_LENGTH", () => {
+    it("equals 128 characters", () => {
       expect(MAX_ENDPOINT_LENGTH).toBe(128);
     });
   });
 
-  describe('MAX_METADATA_URI_LENGTH', () => {
-    it('equals 128 characters', () => {
+  describe("MAX_METADATA_URI_LENGTH", () => {
+    it("equals 128 characters", () => {
       expect(MAX_METADATA_URI_LENGTH).toBe(128);
     });
   });
 
-  describe('MAX_REPUTATION', () => {
-    it('equals 10000 (100.00%)', () => {
+  describe("MAX_REPUTATION", () => {
+    it("equals 10000 (100.00%)", () => {
       expect(MAX_REPUTATION).toBe(10000);
     });
   });
 
-  describe('MAX_U8', () => {
-    it('equals 255', () => {
+  describe("MAX_U8", () => {
+    it("equals 255", () => {
       expect(MAX_U8).toBe(255);
     });
   });
 
-  describe('CAPABILITY_NAMES', () => {
-    it('contains all 10 capability names', () => {
+  describe("CAPABILITY_NAMES", () => {
+    it("contains all 10 capability names", () => {
       expect(CAPABILITY_NAMES).toHaveLength(10);
-      expect(CAPABILITY_NAMES).toContain('COMPUTE');
-      expect(CAPABILITY_NAMES).toContain('INFERENCE');
-      expect(CAPABILITY_NAMES).toContain('STORAGE');
-      expect(CAPABILITY_NAMES).toContain('NETWORK');
-      expect(CAPABILITY_NAMES).toContain('SENSOR');
-      expect(CAPABILITY_NAMES).toContain('ACTUATOR');
-      expect(CAPABILITY_NAMES).toContain('COORDINATOR');
-      expect(CAPABILITY_NAMES).toContain('ARBITER');
-      expect(CAPABILITY_NAMES).toContain('VALIDATOR');
-      expect(CAPABILITY_NAMES).toContain('AGGREGATOR');
+      expect(CAPABILITY_NAMES).toContain("COMPUTE");
+      expect(CAPABILITY_NAMES).toContain("INFERENCE");
+      expect(CAPABILITY_NAMES).toContain("STORAGE");
+      expect(CAPABILITY_NAMES).toContain("NETWORK");
+      expect(CAPABILITY_NAMES).toContain("SENSOR");
+      expect(CAPABILITY_NAMES).toContain("ACTUATOR");
+      expect(CAPABILITY_NAMES).toContain("COORDINATOR");
+      expect(CAPABILITY_NAMES).toContain("ARBITER");
+      expect(CAPABILITY_NAMES).toContain("VALIDATOR");
+      expect(CAPABILITY_NAMES).toContain("AGGREGATOR");
     });
   });
 });
 
-describe('AgentCapabilities', () => {
-  it('COMPUTE equals 1n << 0n', () => {
+describe("AgentCapabilities", () => {
+  it("COMPUTE equals 1n << 0n", () => {
     expect(AgentCapabilities.COMPUTE).toBe(1n);
   });
 
-  it('INFERENCE equals 1n << 1n', () => {
+  it("INFERENCE equals 1n << 1n", () => {
     expect(AgentCapabilities.INFERENCE).toBe(2n);
   });
 
-  it('STORAGE equals 1n << 2n', () => {
+  it("STORAGE equals 1n << 2n", () => {
     expect(AgentCapabilities.STORAGE).toBe(4n);
   });
 
-  it('NETWORK equals 1n << 3n', () => {
+  it("NETWORK equals 1n << 3n", () => {
     expect(AgentCapabilities.NETWORK).toBe(8n);
   });
 
-  it('SENSOR equals 1n << 4n', () => {
+  it("SENSOR equals 1n << 4n", () => {
     expect(AgentCapabilities.SENSOR).toBe(16n);
   });
 
-  it('ACTUATOR equals 1n << 5n', () => {
+  it("ACTUATOR equals 1n << 5n", () => {
     expect(AgentCapabilities.ACTUATOR).toBe(32n);
   });
 
-  it('COORDINATOR equals 1n << 6n', () => {
+  it("COORDINATOR equals 1n << 6n", () => {
     expect(AgentCapabilities.COORDINATOR).toBe(64n);
   });
 
-  it('ARBITER equals 1n << 7n', () => {
+  it("ARBITER equals 1n << 7n", () => {
     expect(AgentCapabilities.ARBITER).toBe(128n);
   });
 
-  it('VALIDATOR equals 1n << 8n', () => {
+  it("VALIDATOR equals 1n << 8n", () => {
     expect(AgentCapabilities.VALIDATOR).toBe(256n);
   });
 
-  it('AGGREGATOR equals 1n << 9n', () => {
+  it("AGGREGATOR equals 1n << 9n", () => {
     expect(AgentCapabilities.AGGREGATOR).toBe(512n);
   });
 
-  it('all capabilities are unique powers of 2', () => {
+  it("all capabilities are unique powers of 2", () => {
     const values = Object.values(AgentCapabilities);
     const unique = new Set(values.map((v) => v.toString()));
     expect(unique.size).toBe(values.length);
@@ -194,65 +197,65 @@ describe('AgentCapabilities', () => {
 // AgentStatus Tests
 // ============================================================================
 
-describe('AgentStatus', () => {
-  describe('enum values', () => {
-    it('Inactive equals 0', () => {
+describe("AgentStatus", () => {
+  describe("enum values", () => {
+    it("Inactive equals 0", () => {
       expect(AgentStatus.Inactive).toBe(0);
     });
 
-    it('Active equals 1', () => {
+    it("Active equals 1", () => {
       expect(AgentStatus.Active).toBe(1);
     });
 
-    it('Busy equals 2', () => {
+    it("Busy equals 2", () => {
       expect(AgentStatus.Busy).toBe(2);
     });
 
-    it('Suspended equals 3', () => {
+    it("Suspended equals 3", () => {
       expect(AgentStatus.Suspended).toBe(3);
     });
   });
 
-  describe('agentStatusToString', () => {
-    it('converts Inactive', () => {
-      expect(agentStatusToString(AgentStatus.Inactive)).toBe('Inactive');
+  describe("agentStatusToString", () => {
+    it("converts Inactive", () => {
+      expect(agentStatusToString(AgentStatus.Inactive)).toBe("Inactive");
     });
 
-    it('converts Active', () => {
-      expect(agentStatusToString(AgentStatus.Active)).toBe('Active');
+    it("converts Active", () => {
+      expect(agentStatusToString(AgentStatus.Active)).toBe("Active");
     });
 
-    it('converts Busy', () => {
-      expect(agentStatusToString(AgentStatus.Busy)).toBe('Busy');
+    it("converts Busy", () => {
+      expect(agentStatusToString(AgentStatus.Busy)).toBe("Busy");
     });
 
-    it('converts Suspended', () => {
-      expect(agentStatusToString(AgentStatus.Suspended)).toBe('Suspended');
+    it("converts Suspended", () => {
+      expect(agentStatusToString(AgentStatus.Suspended)).toBe("Suspended");
     });
 
-    it('handles unknown values gracefully', () => {
-      expect(agentStatusToString(99 as AgentStatus)).toBe('Unknown (99)');
+    it("handles unknown values gracefully", () => {
+      expect(agentStatusToString(99 as AgentStatus)).toBe("Unknown (99)");
     });
   });
 
-  describe('isValidAgentStatus', () => {
-    it('returns true for valid values (0-3)', () => {
+  describe("isValidAgentStatus", () => {
+    it("returns true for valid values (0-3)", () => {
       expect(isValidAgentStatus(0)).toBe(true);
       expect(isValidAgentStatus(1)).toBe(true);
       expect(isValidAgentStatus(2)).toBe(true);
       expect(isValidAgentStatus(3)).toBe(true);
     });
 
-    it('returns false for negative values', () => {
+    it("returns false for negative values", () => {
       expect(isValidAgentStatus(-1)).toBe(false);
     });
 
-    it('returns false for values > 3', () => {
+    it("returns false for values > 3", () => {
       expect(isValidAgentStatus(4)).toBe(false);
       expect(isValidAgentStatus(255)).toBe(false);
     });
 
-    it('returns false for non-integers', () => {
+    it("returns false for non-integers", () => {
       expect(isValidAgentStatus(1.5)).toBe(false);
     });
   });
@@ -262,50 +265,56 @@ describe('AgentStatus', () => {
 // Capability Helper Tests
 // ============================================================================
 
-describe('hasCapability', () => {
-  it('returns true when capability is present', () => {
+describe("hasCapability", () => {
+  it("returns true when capability is present", () => {
     const caps = AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE;
     expect(hasCapability(caps, AgentCapabilities.COMPUTE)).toBe(true);
     expect(hasCapability(caps, AgentCapabilities.INFERENCE)).toBe(true);
   });
 
-  it('returns false when capability is absent', () => {
+  it("returns false when capability is absent", () => {
     const caps = AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE;
     expect(hasCapability(caps, AgentCapabilities.STORAGE)).toBe(false);
     expect(hasCapability(caps, AgentCapabilities.ARBITER)).toBe(false);
   });
 
-  it('handles zero capabilities', () => {
+  it("handles zero capabilities", () => {
     expect(hasCapability(0n, AgentCapabilities.COMPUTE)).toBe(false);
   });
 
-  it('handles all capabilities', () => {
-    const allCaps = Object.values(AgentCapabilities).reduce((acc, cap) => acc | cap, 0n);
+  it("handles all capabilities", () => {
+    const allCaps = Object.values(AgentCapabilities).reduce(
+      (acc, cap) => acc | cap,
+      0n,
+    );
     for (const cap of Object.values(AgentCapabilities)) {
       expect(hasCapability(allCaps, cap)).toBe(true);
     }
   });
 });
 
-describe('getCapabilityNames', () => {
-  it('returns empty array for zero capabilities', () => {
+describe("getCapabilityNames", () => {
+  it("returns empty array for zero capabilities", () => {
     expect(getCapabilityNames(0n)).toEqual([]);
   });
 
-  it('returns single capability name', () => {
-    expect(getCapabilityNames(AgentCapabilities.COMPUTE)).toEqual(['COMPUTE']);
+  it("returns single capability name", () => {
+    expect(getCapabilityNames(AgentCapabilities.COMPUTE)).toEqual(["COMPUTE"]);
   });
 
-  it('returns multiple capability names in order', () => {
+  it("returns multiple capability names in order", () => {
     const caps = AgentCapabilities.COMPUTE | AgentCapabilities.ARBITER;
     const names = getCapabilityNames(caps);
-    expect(names).toContain('COMPUTE');
-    expect(names).toContain('ARBITER');
+    expect(names).toContain("COMPUTE");
+    expect(names).toContain("ARBITER");
     expect(names).toHaveLength(2);
   });
 
-  it('returns all capability names when all set', () => {
-    const allCaps = Object.values(AgentCapabilities).reduce((acc, cap) => acc | cap, 0n);
+  it("returns all capability names when all set", () => {
+    const allCaps = Object.values(AgentCapabilities).reduce(
+      (acc, cap) => acc | cap,
+      0n,
+    );
     const names = getCapabilityNames(allCaps);
     expect(names).toHaveLength(10);
     for (const name of CAPABILITY_NAMES) {
@@ -314,25 +323,29 @@ describe('getCapabilityNames', () => {
   });
 });
 
-describe('createCapabilityMask', () => {
-  it('returns 0n for empty array', () => {
+describe("createCapabilityMask", () => {
+  it("returns 0n for empty array", () => {
     expect(createCapabilityMask([])).toBe(0n);
   });
 
-  it('creates mask from single capability', () => {
-    expect(createCapabilityMask(['COMPUTE'])).toBe(AgentCapabilities.COMPUTE);
+  it("creates mask from single capability", () => {
+    expect(createCapabilityMask(["COMPUTE"])).toBe(AgentCapabilities.COMPUTE);
   });
 
-  it('creates mask from multiple capabilities', () => {
-    const mask = createCapabilityMask(['COMPUTE', 'INFERENCE', 'ARBITER']);
+  it("creates mask from multiple capabilities", () => {
+    const mask = createCapabilityMask(["COMPUTE", "INFERENCE", "ARBITER"]);
     const expected =
-      AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE | AgentCapabilities.ARBITER;
+      AgentCapabilities.COMPUTE |
+      AgentCapabilities.INFERENCE |
+      AgentCapabilities.ARBITER;
     expect(mask).toBe(expected);
   });
 
-  it('is inverse of getCapabilityNames', () => {
+  it("is inverse of getCapabilityNames", () => {
     const original =
-      AgentCapabilities.STORAGE | AgentCapabilities.NETWORK | AgentCapabilities.AGGREGATOR;
+      AgentCapabilities.STORAGE |
+      AgentCapabilities.NETWORK |
+      AgentCapabilities.AGGREGATOR;
     const names = getCapabilityNames(original);
     const reconstructed = createCapabilityMask(names);
     expect(reconstructed).toBe(original);
@@ -343,9 +356,9 @@ describe('createCapabilityMask', () => {
 // parseAgentState Tests
 // ============================================================================
 
-describe('parseAgentState', () => {
-  describe('success cases', () => {
-    it('parses valid mock data', () => {
+describe("parseAgentState", () => {
+  describe("success cases", () => {
+    it("parses valid mock data", () => {
       const mockData = createValidMockData();
       const agent = parseAgentState(mockData);
 
@@ -354,8 +367,8 @@ describe('parseAgentState', () => {
       expect(agent.authority).toBeInstanceOf(PublicKey);
       expect(agent.capabilities).toBe(3n);
       expect(agent.status).toBe(AgentStatus.Active);
-      expect(agent.endpoint).toBe('https://agent.example.com');
-      expect(agent.metadataUri).toBe('https://metadata.example.com/agent.json');
+      expect(agent.endpoint).toBe("https://agent.example.com");
+      expect(agent.metadataUri).toBe("https://metadata.example.com/agent.json");
       expect(agent.registeredAt).toBe(1700000000);
       expect(agent.lastActive).toBe(1700001000);
       expect(agent.tasksCompleted).toBe(100n);
@@ -375,7 +388,7 @@ describe('parseAgentState', () => {
       expect(agent.disputesAsDefendant).toBe(0);
     });
 
-    it('correctly converts u64 fields to bigint', () => {
+    it("correctly converts u64 fields to bigint", () => {
       const mockData = createValidMockData();
       // Use value > MAX_SAFE_INTEGER
       mockData.totalEarned = mockBN(9_007_199_254_740_993n);
@@ -387,17 +400,17 @@ describe('parseAgentState', () => {
       expect(agent.stake).toBe(18_446_744_073_709_551_615n);
     });
 
-    it('correctly converts i64 timestamp fields to number', () => {
+    it("correctly converts i64 timestamp fields to number", () => {
       const mockData = createValidMockData();
       mockData.registeredAt = mockBN(1704067200); // Jan 1, 2024
 
       const agent = parseAgentState(mockData);
 
       expect(agent.registeredAt).toBe(1704067200);
-      expect(typeof agent.registeredAt).toBe('number');
+      expect(typeof agent.registeredAt).toBe("number");
     });
 
-    it('handles Uint8Array agentId', () => {
+    it("handles Uint8Array agentId", () => {
       const mockData = createValidMockData();
       mockData.agentId = new Uint8Array(createAgentId(99));
 
@@ -407,7 +420,7 @@ describe('parseAgentState', () => {
       expect(agent.agentId[0]).toBe(99);
     });
 
-    it('parses all AgentStatus enum variants', () => {
+    it("parses all AgentStatus enum variants", () => {
       const mockData = createValidMockData();
 
       // Test Inactive
@@ -427,7 +440,7 @@ describe('parseAgentState', () => {
       expect(parseAgentState(mockData).status).toBe(AgentStatus.Suspended);
     });
 
-    it('parses numeric status values', () => {
+    it("parses numeric status values", () => {
       const mockData = createValidMockData();
       mockData.status = 2; // Busy
 
@@ -435,94 +448,116 @@ describe('parseAgentState', () => {
       expect(agent.status).toBe(AgentStatus.Busy);
     });
 
-    it('handles empty strings for endpoint and metadataUri', () => {
+    it("handles empty strings for endpoint and metadataUri", () => {
       const mockData = createValidMockData();
-      mockData.endpoint = '';
-      mockData.metadataUri = '';
+      mockData.endpoint = "";
+      mockData.metadataUri = "";
 
       const agent = parseAgentState(mockData);
 
-      expect(agent.endpoint).toBe('');
-      expect(agent.metadataUri).toBe('');
+      expect(agent.endpoint).toBe("");
+      expect(agent.metadataUri).toBe("");
     });
   });
 
-  describe('error cases - missing required fields', () => {
-    it('throws on null input', () => {
-      expect(() => parseAgentState(null)).toThrow('Invalid agent registration data');
+  describe("error cases - missing required fields", () => {
+    it("throws on null input", () => {
+      expect(() => parseAgentState(null)).toThrow(
+        "Invalid agent registration data",
+      );
     });
 
-    it('throws on undefined input', () => {
-      expect(() => parseAgentState(undefined)).toThrow('Invalid agent registration data');
+    it("throws on undefined input", () => {
+      expect(() => parseAgentState(undefined)).toThrow(
+        "Invalid agent registration data",
+      );
     });
 
-    it('throws on empty object', () => {
-      expect(() => parseAgentState({})).toThrow('Invalid agent registration data');
+    it("throws on empty object", () => {
+      expect(() => parseAgentState({})).toThrow(
+        "Invalid agent registration data",
+      );
     });
 
-    it('throws when agentId is missing', () => {
+    it("throws when agentId is missing", () => {
       const mockData = createValidMockData();
       const { agentId: _, ...dataWithoutAgentId } = mockData;
 
       expect(() => parseAgentState(dataWithoutAgentId)).toThrow(
-        'Invalid agent registration data'
+        "Invalid agent registration data",
       );
     });
 
-    it('throws when authority is not a PublicKey', () => {
+    it("throws when authority is not a PublicKey", () => {
       const mockData = createValidMockData();
-      (mockData as Record<string, unknown>).authority = 'not a pubkey';
+      (mockData as Record<string, unknown>).authority = "not a pubkey";
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agent registration data');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agent registration data",
+      );
     });
 
-    it('throws when capabilities is not BN-like', () => {
+    it("throws when capabilities is not BN-like", () => {
       const mockData = createValidMockData();
       (mockData as Record<string, unknown>).capabilities = 3; // number instead of BN
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agent registration data');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agent registration data",
+      );
     });
 
-    it('throws when timestamp BN fields are missing toNumber', () => {
+    it("throws when timestamp BN fields are missing toNumber", () => {
       const mockData = createValidMockData();
-      (mockData as Record<string, unknown>).registeredAt = { toString: () => '123' }; // missing toNumber
+      (mockData as Record<string, unknown>).registeredAt = {
+        toString: () => "123",
+      }; // missing toNumber
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agent registration data');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agent registration data",
+      );
     });
 
-    it('throws when reputation is not a number', () => {
+    it("throws when reputation is not a number", () => {
       const mockData = createValidMockData();
-      (mockData as Record<string, unknown>).reputation = '8500';
+      (mockData as Record<string, unknown>).reputation = "8500";
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agent registration data');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agent registration data",
+      );
     });
 
-    it('throws when endpoint is not a string', () => {
+    it("throws when endpoint is not a string", () => {
       const mockData = createValidMockData();
       (mockData as Record<string, unknown>).endpoint = 123;
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agent registration data');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agent registration data",
+      );
     });
   });
 
-  describe('error cases - range validation', () => {
-    it('throws when agentId has wrong length', () => {
+  describe("error cases - range validation", () => {
+    it("throws when agentId has wrong length", () => {
       const mockData = createValidMockData();
       mockData.agentId = [1, 2, 3]; // Only 3 bytes
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agentId length: 3');
-      expect(() => parseAgentState(mockData)).toThrow('must be 32');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agentId length: 3",
+      );
+      expect(() => parseAgentState(mockData)).toThrow("must be 32");
     });
 
-    it('throws when reputation exceeds MAX_REPUTATION', () => {
+    it("throws when reputation exceeds MAX_REPUTATION", () => {
       const mockData = createValidMockData();
       mockData.reputation = 10001;
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid reputation: 10001');
-      expect(() => parseAgentState(mockData)).toThrow('must be 0-10000');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid reputation: 10001",
+      );
+      expect(() => parseAgentState(mockData)).toThrow("must be 0-10000");
     });
 
-    it('allows reputation at MAX_REPUTATION', () => {
+    it("allows reputation at MAX_REPUTATION", () => {
       const mockData = createValidMockData();
       mockData.reputation = 10000;
 
@@ -530,7 +565,7 @@ describe('parseAgentState', () => {
       expect(agent.reputation).toBe(10000);
     });
 
-    it('allows reputation at 0', () => {
+    it("allows reputation at 0", () => {
       const mockData = createValidMockData();
       mockData.reputation = 0;
 
@@ -538,96 +573,114 @@ describe('parseAgentState', () => {
       expect(agent.reputation).toBe(0);
     });
 
-    it('throws when activeTasks exceeds MAX_U8', () => {
+    it("throws when activeTasks exceeds MAX_U8", () => {
       const mockData = createValidMockData();
       mockData.activeTasks = 256;
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid activeTasks: 256');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid activeTasks: 256",
+      );
     });
 
-    it('throws when taskCount24h exceeds MAX_U8', () => {
+    it("throws when taskCount24h exceeds MAX_U8", () => {
       const mockData = createValidMockData();
       mockData.taskCount24H = 256;
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid taskCount24h: 256');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid taskCount24h: 256",
+      );
     });
 
-    it('throws when disputeCount24h exceeds MAX_U8', () => {
+    it("throws when disputeCount24h exceeds MAX_U8", () => {
       const mockData = createValidMockData();
       mockData.disputeCount24H = 256;
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid disputeCount24h: 256');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid disputeCount24h: 256",
+      );
     });
 
-    it('throws when activeDisputeVotes exceeds MAX_U8', () => {
+    it("throws when activeDisputeVotes exceeds MAX_U8", () => {
       const mockData = createValidMockData();
       mockData.activeDisputeVotes = 256;
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid activeDisputeVotes: 256');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid activeDisputeVotes: 256",
+      );
     });
 
-    it('throws when bump exceeds MAX_U8', () => {
+    it("throws when bump exceeds MAX_U8", () => {
       const mockData = createValidMockData();
       mockData.bump = 256;
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid bump: 256');
+      expect(() => parseAgentState(mockData)).toThrow("Invalid bump: 256");
     });
 
-    it('throws when endpoint exceeds MAX_ENDPOINT_LENGTH', () => {
+    it("throws when endpoint exceeds MAX_ENDPOINT_LENGTH", () => {
       const mockData = createValidMockData();
-      mockData.endpoint = 'x'.repeat(129);
+      mockData.endpoint = "x".repeat(129);
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid endpoint length: 129');
-      expect(() => parseAgentState(mockData)).toThrow('must be <= 128');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid endpoint length: 129",
+      );
+      expect(() => parseAgentState(mockData)).toThrow("must be <= 128");
     });
 
-    it('allows endpoint at MAX_ENDPOINT_LENGTH', () => {
+    it("allows endpoint at MAX_ENDPOINT_LENGTH", () => {
       const mockData = createValidMockData();
-      mockData.endpoint = 'x'.repeat(128);
+      mockData.endpoint = "x".repeat(128);
 
       const agent = parseAgentState(mockData);
       expect(agent.endpoint.length).toBe(128);
     });
 
-    it('throws when metadataUri exceeds MAX_METADATA_URI_LENGTH', () => {
+    it("throws when metadataUri exceeds MAX_METADATA_URI_LENGTH", () => {
       const mockData = createValidMockData();
-      mockData.metadataUri = 'y'.repeat(129);
+      mockData.metadataUri = "y".repeat(129);
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid metadataUri length: 129');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid metadataUri length: 129",
+      );
     });
 
-    it('throws on invalid numeric status', () => {
+    it("throws on invalid numeric status", () => {
       const mockData = createValidMockData();
       mockData.status = 99; // Invalid status
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agent status value: 99');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agent status value: 99",
+      );
     });
 
-    it('throws on empty object status', () => {
+    it("throws on empty object status", () => {
       const mockData = createValidMockData();
       mockData.status = {}; // Empty object - no variant key
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agent status format');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agent status format",
+      );
     });
 
-    it('throws when agentId has too many bytes', () => {
+    it("throws when agentId has too many bytes", () => {
       const mockData = createValidMockData();
       mockData.agentId = Array(64).fill(1); // 64 bytes instead of 32
 
-      expect(() => parseAgentState(mockData)).toThrow('Invalid agentId length: 64');
+      expect(() => parseAgentState(mockData)).toThrow(
+        "Invalid agentId length: 64",
+      );
     });
 
-    it('allows metadataUri at MAX_METADATA_URI_LENGTH', () => {
+    it("allows metadataUri at MAX_METADATA_URI_LENGTH", () => {
       const mockData = createValidMockData();
-      mockData.metadataUri = 'y'.repeat(128);
+      mockData.metadataUri = "y".repeat(128);
 
       const agent = parseAgentState(mockData);
       expect(agent.metadataUri.length).toBe(128);
     });
   });
 
-  describe('edge cases', () => {
-    it('handles zero values for rate limiting fields', () => {
+  describe("edge cases", () => {
+    it("handles zero values for rate limiting fields", () => {
       const mockData = createValidMockData();
       mockData.lastTaskCreated = mockBN(0);
       mockData.lastDisputeInitiated = mockBN(0);
@@ -648,7 +701,7 @@ describe('parseAgentState', () => {
       expect(agent.lastVoteTimestamp).toBe(0);
     });
 
-    it('handles maximum u8 values', () => {
+    it("handles maximum u8 values", () => {
       const mockData = createValidMockData();
       mockData.activeTasks = 255;
       mockData.taskCount24H = 255;
@@ -665,7 +718,7 @@ describe('parseAgentState', () => {
       expect(agent.bump).toBe(255);
     });
 
-    it('handles zero capabilities', () => {
+    it("handles zero capabilities", () => {
       const mockData = createValidMockData();
       mockData.capabilities = mockBN(0n);
 
@@ -675,8 +728,11 @@ describe('parseAgentState', () => {
       expect(getCapabilityNames(agent.capabilities)).toEqual([]);
     });
 
-    it('handles all capabilities set', () => {
-      const allCaps = Object.values(AgentCapabilities).reduce((acc, cap) => acc | cap, 0n);
+    it("handles all capabilities set", () => {
+      const allCaps = Object.values(AgentCapabilities).reduce(
+        (acc, cap) => acc | cap,
+        0n,
+      );
       const mockData = createValidMockData();
       mockData.capabilities = mockBN(allCaps);
 
@@ -692,8 +748,8 @@ describe('parseAgentState', () => {
 // AgentState Interface Tests
 // ============================================================================
 
-describe('AgentState interface', () => {
-  it('accepts valid structure', () => {
+describe("AgentState interface", () => {
+  it("accepts valid structure", () => {
     const agent: AgentState = {
       agentId: new Uint8Array(32),
       authority: new PublicKey(TEST_PUBKEY_1),
@@ -702,8 +758,8 @@ describe('AgentState interface', () => {
       status: AgentStatus.Active,
       registeredAt: 1700000000,
       lastActive: 1700001000,
-      endpoint: 'https://agent.example.com',
-      metadataUri: 'https://metadata.example.com/agent.json',
+      endpoint: "https://agent.example.com",
+      metadataUri: "https://metadata.example.com/agent.json",
       tasksCompleted: 100n,
       totalEarned: 50_000_000_000n,
       reputation: 8500,
@@ -721,9 +777,9 @@ describe('AgentState interface', () => {
     };
 
     expect(agent.authority).toBeInstanceOf(PublicKey);
-    expect(typeof agent.capabilities).toBe('bigint');
-    expect(typeof agent.tasksCompleted).toBe('bigint');
-    expect(typeof agent.reputation).toBe('number');
+    expect(typeof agent.capabilities).toBe("bigint");
+    expect(typeof agent.tasksCompleted).toBe("bigint");
+    expect(typeof agent.reputation).toBe("number");
   });
 });
 
@@ -731,7 +787,7 @@ describe('AgentState interface', () => {
 // computeRateLimitState Tests
 // ============================================================================
 
-describe('computeRateLimitState', () => {
+describe("computeRateLimitState", () => {
   const baseConfig = {
     taskCreationCooldown: 60, // 60 seconds
     maxTasksPer24h: 50,
@@ -739,7 +795,7 @@ describe('computeRateLimitState', () => {
     maxDisputesPer24h: 10,
   };
 
-  it('allows action when cooldown passed and under limit', () => {
+  it("allows action when cooldown passed and under limit", () => {
     const agent = {
       lastTaskCreated: 1700000000,
       lastDisputeInitiated: 1700000000,
@@ -759,7 +815,7 @@ describe('computeRateLimitState', () => {
     expect(state.disputesRemainingIn24h).toBe(9);
   });
 
-  it('blocks action during cooldown', () => {
+  it("blocks action during cooldown", () => {
     const agent = {
       lastTaskCreated: 1700000000,
       lastDisputeInitiated: 1700000000,
@@ -777,7 +833,7 @@ describe('computeRateLimitState', () => {
     expect(state.disputeCooldownEnds).toBe(1700000300);
   });
 
-  it('blocks action when 24h limit reached', () => {
+  it("blocks action when 24h limit reached", () => {
     const agent = {
       lastTaskCreated: 1700000000,
       lastDisputeInitiated: 1700000000,
@@ -795,7 +851,7 @@ describe('computeRateLimitState', () => {
     expect(state.disputesRemainingIn24h).toBe(0);
   });
 
-  it('resets counts when 24h window expires', () => {
+  it("resets counts when 24h window expires", () => {
     const agent = {
       lastTaskCreated: 1700000000,
       lastDisputeInitiated: 1700000000,
@@ -814,7 +870,7 @@ describe('computeRateLimitState', () => {
     expect(state.canInitiateDispute).toBe(true);
   });
 
-  it('handles unlimited tasks (maxTasksPer24h = 0)', () => {
+  it("handles unlimited tasks (maxTasksPer24h = 0)", () => {
     const config = { ...baseConfig, maxTasksPer24h: 0 };
     const agent = {
       lastTaskCreated: 1700000000,
@@ -831,7 +887,7 @@ describe('computeRateLimitState', () => {
     expect(state.tasksRemainingIn24h).toBe(255); // MAX_U8
   });
 
-  it('handles unlimited disputes (maxDisputesPer24h = 0)', () => {
+  it("handles unlimited disputes (maxDisputesPer24h = 0)", () => {
     const config = { ...baseConfig, maxDisputesPer24h: 0 };
     const agent = {
       lastTaskCreated: 1700000000,
@@ -848,7 +904,7 @@ describe('computeRateLimitState', () => {
     expect(state.disputesRemainingIn24h).toBe(255); // MAX_U8
   });
 
-  it('handles zero cooldowns (disabled)', () => {
+  it("handles zero cooldowns (disabled)", () => {
     const config = {
       taskCreationCooldown: 0,
       maxTasksPer24h: 50,
@@ -872,7 +928,7 @@ describe('computeRateLimitState', () => {
     expect(state.disputeCooldownEnds).toBe(0);
   });
 
-  it('handles edge case: exactly at cooldown end', () => {
+  it("handles edge case: exactly at cooldown end", () => {
     const agent = {
       lastTaskCreated: 1700000000,
       lastDisputeInitiated: 1700000000,
