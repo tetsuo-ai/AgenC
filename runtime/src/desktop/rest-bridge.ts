@@ -1,0 +1,170 @@
+/**
+ * DesktopRESTBridge — connects to the in-container REST API and exposes
+ * desktop tools as runtime Tool objects.
+ *
+ * Each tool is namespaced as "desktop.{name}" (e.g. desktop.screenshot).
+ * Uses fetch() (Node.js 18+ built-in) — no new dependencies.
+ */
+
+import type { Tool, ToolResult } from "../tools/types.js";
+import { safeStringify } from "../tools/types.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { toErrorMessage } from "../utils/async.js";
+import { DesktopSandboxConnectionError } from "./errors.js";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Timeout for health check and tool-list fetch during connect(). */
+const CONNECT_TIMEOUT_MS = 5_000;
+/** Timeout for individual tool execution calls. */
+const TOOL_EXECUTION_TIMEOUT_MS = 120_000;
+
+// ============================================================================
+// Types for REST API responses
+// ============================================================================
+
+interface RESTToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+// ============================================================================
+// Bridge
+// ============================================================================
+
+export interface DesktopRESTBridgeOptions {
+  apiHostPort: number;
+  containerId: string;
+  logger?: Logger;
+}
+
+export class DesktopRESTBridge {
+  private readonly baseUrl: string;
+  private readonly containerId: string;
+  private readonly logger: Logger;
+  private connected = false;
+  private tools: Tool[] = [];
+
+  constructor(options: DesktopRESTBridgeOptions) {
+    this.baseUrl = `http://localhost:${options.apiHostPort}`;
+    this.containerId = options.containerId;
+    this.logger = options.logger ?? silentLogger;
+  }
+
+  /** Fetch tool definitions from the container and create bridged Tool objects. */
+  async connect(): Promise<void> {
+    await this.fetchJsonOrThrow<unknown>(
+      `${this.baseUrl}/health`,
+      "Health check failed",
+    );
+
+    const definitions = await this.fetchJsonOrThrow<RESTToolDefinition[]>(
+      `${this.baseUrl}/tools`,
+      "Failed to fetch tool definitions",
+    );
+
+    this.tools = definitions.map((def) => this.createBridgedTool(def));
+    this.connected = true;
+
+    this.logger.info(
+      `Desktop REST bridge connected to ${this.containerId} (${this.tools.length} tools)`,
+    );
+  }
+
+  /** Mark bridge as disconnected. */
+  disconnect(): void {
+    this.connected = false;
+    this.tools = [];
+  }
+
+  /** Whether the bridge is currently connected. */
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  /** Return the bridged Tool array. Empty if disconnected. */
+  getTools(): readonly Tool[] {
+    return this.connected ? this.tools : [];
+  }
+
+  // --------------------------------------------------------------------------
+  // Internal
+  // --------------------------------------------------------------------------
+
+  /** Fetch JSON from a URL, wrapping failures as DesktopSandboxConnectionError. */
+  private async fetchJsonOrThrow<T>(url: string, context: string): Promise<T> {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return (await res.json()) as T;
+    } catch (err) {
+      throw new DesktopSandboxConnectionError(
+        this.containerId,
+        `${context}: ${toErrorMessage(err)}`,
+      );
+    }
+  }
+
+  private createBridgedTool(def: RESTToolDefinition): Tool {
+    const name = `desktop.${def.name}`;
+    const baseUrl = this.baseUrl;
+    const containerId = this.containerId;
+    const logger = this.logger;
+
+    return {
+      name,
+      description: def.description,
+      inputSchema: def.inputSchema,
+      async execute(
+        args: Record<string, unknown>,
+      ): Promise<ToolResult> {
+        try {
+          const res = await fetch(`${baseUrl}/tools/${def.name}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(args),
+            signal: AbortSignal.timeout(TOOL_EXECUTION_TIMEOUT_MS),
+          });
+
+          const body = await res.json() as Record<string, unknown>;
+
+          // Special handling for screenshot — include data URL for vision LLMs
+          if (
+            def.name === "screenshot" &&
+            typeof body.image === "string"
+          ) {
+            return {
+              content: safeStringify({
+                ...body,
+                dataUrl: `data:image/png;base64,${body.image as string}`,
+              }),
+            };
+          }
+
+          return {
+            content: safeStringify(body),
+            isError: body.isError === true,
+          };
+        } catch (err) {
+          logger.error(
+            `Desktop tool ${name} failed [${containerId}]: ${toErrorMessage(err)}`,
+          );
+          return {
+            content: safeStringify({
+              error: `Tool execution failed: ${toErrorMessage(err)}`,
+            }),
+            isError: true,
+          };
+        }
+      },
+    };
+  }
+}

@@ -1791,6 +1791,38 @@ export {
   ReputationEconomyOperations,
 } from "./reputation/index.js";
 
+// Desktop Sandbox
+export {
+  // Types
+  type DesktopSandboxStatus,
+  type DisplayResolution,
+  type DesktopSandboxConfig,
+  type DesktopSandboxHandle,
+  type DesktopSandboxInfo,
+  type CreateDesktopSandboxOptions,
+  DEFAULT_RESOLUTION,
+  defaultDesktopSandboxConfig,
+  // Errors
+  DesktopSandboxLifecycleError,
+  DesktopSandboxHealthError,
+  DesktopSandboxConnectionError,
+  DesktopSandboxPoolExhaustedError,
+  // Manager
+  DesktopSandboxManager,
+  type DesktopSandboxManagerOptions,
+  // REST Bridge
+  DesktopRESTBridge,
+  type DesktopRESTBridgeOptions,
+  // Session Router
+  createDesktopAwareToolHandler,
+  getCachedDesktopToolDefinitions,
+  destroySessionBridge,
+  type DesktopRouterOptions,
+  // Health Monitoring
+  DesktopSandboxWatchdog,
+  type DesktopSandboxWatchdogConfig,
+} from "./desktop/index.js";
+
 // MCP Client (External MCP server integration)
 export {
   type MCPServerConfig,

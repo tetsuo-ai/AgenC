@@ -211,6 +211,9 @@ export class DaemonManager {
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
   private _baseToolHandler: ToolHandler | null = null;
+  private _desktopManager: import('../desktop/manager.js').DesktopSandboxManager | null = null;
+  private _desktopBridges: Map<string, import('../desktop/rest-bridge.js').DesktopRESTBridge> = new Map();
+  private _desktopRouterFactory: ((sessionId: string) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private _goalManager: import('../autonomous/goal-manager.js').GoalManager | null = null;
   private shutdownInProgress = false;
@@ -264,6 +267,20 @@ export class DaemonManager {
     });
 
     await gateway.start();
+
+    // Start desktop sandbox manager before wiring WebChat (commands need it)
+    if (gatewayConfig.desktop?.enabled) {
+      try {
+        const { DesktopSandboxManager } = await import('../desktop/manager.js');
+        this._desktopManager = new DesktopSandboxManager(gatewayConfig.desktop, {
+          logger: this.logger,
+        });
+        await this._desktopManager.start();
+        this.logger.info('Desktop sandbox manager started');
+      } catch (err) {
+        this.logger.warn?.('Desktop sandbox manager failed to start:', err);
+      }
+    }
 
     // Wire up WebChat channel with LLM pipeline
     await this.wireWebChat(gateway, gatewayConfig);
@@ -337,7 +354,43 @@ export class DaemonManager {
     const registry = await this.createToolRegistry(config, telemetry ?? undefined);
 
     const llmTools = registry.toLLMTools();
-    const baseToolHandler = registry.createToolHandler();
+    let baseToolHandler = registry.createToolHandler();
+
+    // Wrap base tool handler with desktop routing if enabled
+    if (config.desktop?.enabled && this._desktopManager) {
+      const { createDesktopAwareToolHandler } = await import('../desktop/session-router.js');
+      const desktopManager = this._desktopManager;
+      const desktopBridges = this._desktopBridges;
+      const desktopLogger = this.logger;
+
+      // Desktop tools are lazily initialized per session via the router.
+      // Add static desktop tool definitions to LLM tools so the model knows about them.
+      const desktopToolDefs: LLMTool[] = [
+        'screenshot', 'mouse_click', 'mouse_move', 'mouse_drag', 'mouse_scroll',
+        'keyboard_type', 'keyboard_key', 'bash', 'window_list', 'window_focus',
+        'clipboard_get', 'clipboard_set', 'screen_size',
+      ].map((name) => ({
+        type: 'function' as const,
+        function: {
+          name: `desktop.${name}`,
+          description: `Desktop tool: ${name.replace(/_/g, ' ')}`,
+          parameters: { type: 'object', properties: {} },
+        },
+      }));
+      llmTools.push(...desktopToolDefs);
+
+      // The original handler is wrapped per-session in createWebChatMessageHandler
+      // Store the original so per-session wrapping can use it
+      const originalBaseHandler = baseToolHandler;
+      baseToolHandler = originalBaseHandler;
+      this._desktopRouterFactory = (sessionId: string) =>
+        createDesktopAwareToolHandler(originalBaseHandler, sessionId, {
+          desktopManager,
+          bridges: desktopBridges,
+          logger: desktopLogger,
+        });
+    }
+
     this._llmTools = llmTools;
     this._baseToolHandler = baseToolHandler;
     const providers = await this.createLLMProviders(config, llmTools);
@@ -1212,7 +1265,14 @@ export class DaemonManager {
       description: 'Start a new session (reset conversation)',
       global: true,
       handler: async (ctx) => {
-        sessionMgr.reset(resolveSessionId(ctx.senderId));
+        const sessionId = resolveSessionId(ctx.senderId);
+        sessionMgr.reset(sessionId);
+        // Clean up desktop sandbox on session reset
+        if (this._desktopManager) {
+          await this._desktopManager.destroyBySession(sessionId).catch(() => {});
+          const { destroySessionBridge } = await import('../desktop/session-router.js');
+          destroySessionBridge(sessionId, this._desktopBridges);
+        }
         await ctx.reply('Session reset. Starting fresh conversation.');
       },
     });
@@ -1221,7 +1281,13 @@ export class DaemonManager {
       description: 'Reset session and clear context',
       global: true,
       handler: async (ctx) => {
-        sessionMgr.reset(resolveSessionId(ctx.senderId));
+        const sessionId = resolveSessionId(ctx.senderId);
+        sessionMgr.reset(sessionId);
+        if (this._desktopManager) {
+          await this._desktopManager.destroyBySession(sessionId).catch(() => {});
+          const { destroySessionBridge } = await import('../desktop/session-router.js');
+          destroySessionBridge(sessionId, this._desktopBridges);
+        }
         await ctx.reply('Session and context cleared.');
       },
     });
@@ -1284,6 +1350,61 @@ export class DaemonManager {
         await ctx.reply(`LLM providers: ${providerInfo}`);
       },
     });
+
+    // Desktop sandbox commands (only when desktop is enabled)
+    if (this._desktopManager) {
+      const desktopMgr = this._desktopManager;
+      commandRegistry.register({
+        name: 'desktop',
+        description: 'Manage desktop sandbox (start|stop|status|vnc)',
+        args: '<subcommand>',
+        global: true,
+        handler: async (ctx) => {
+          const sub = ctx.argv[0]?.toLowerCase();
+          const sessionId = resolveSessionId(ctx.senderId);
+
+          if (sub === 'start') {
+            try {
+              const handle = await desktopMgr.getOrCreate(sessionId);
+              await ctx.reply(
+                `Desktop sandbox started.\nVNC: http://localhost:${handle.vncHostPort}/vnc.html\n` +
+                `Resolution: ${handle.resolution.width}x${handle.resolution.height}`,
+              );
+            } catch (err) {
+              await ctx.reply(`Failed to start desktop: ${err instanceof Error ? err.message : err}`);
+            }
+          } else if (sub === 'stop') {
+            await desktopMgr.destroyBySession(sessionId);
+            const { destroySessionBridge } = await import('../desktop/session-router.js');
+            destroySessionBridge(sessionId, this._desktopBridges);
+            await ctx.reply('Desktop sandbox stopped.');
+          } else if (sub === 'status') {
+            const handle = desktopMgr.getHandleBySession(sessionId);
+            if (!handle) {
+              await ctx.reply('No active desktop sandbox for this session.');
+            } else {
+              const uptimeS = Math.round((Date.now() - handle.createdAt) / 1000);
+              await ctx.reply(
+                `Desktop sandbox: ${handle.status}\n` +
+                `Container: ${handle.containerId}\n` +
+                `Uptime: ${uptimeS}s\n` +
+                `VNC: http://localhost:${handle.vncHostPort}/vnc.html\n` +
+                `Resolution: ${handle.resolution.width}x${handle.resolution.height}`,
+              );
+            }
+          } else if (sub === 'vnc') {
+            const handle = desktopMgr.getHandleBySession(sessionId);
+            if (!handle) {
+              await ctx.reply('No active desktop sandbox. Use /desktop start first.');
+            } else {
+              await ctx.reply(`http://localhost:${handle.vncHostPort}/vnc.html`);
+            }
+          } else {
+            await ctx.reply('Usage: /desktop <start|stop|status|vnc>');
+          }
+        },
+      });
+    }
 
     // /goal — create or list goals (lazy access to goalManager via getter)
     const daemon = this;
@@ -1510,7 +1631,11 @@ export class DaemonManager {
         }
 
         const start = Date.now();
-        const result = await baseToolHandler(name, args);
+        // Use desktop-aware handler if available, otherwise base handler
+        const activeHandler = this._desktopRouterFactory
+          ? this._desktopRouterFactory(msg.sessionId)
+          : baseToolHandler;
+        const result = await activeHandler(name, args);
         const durationMs = Date.now() - start;
 
         webChat.pushToSession(msg.sessionId, {
@@ -1800,6 +1925,15 @@ export class DaemonManager {
         this._telemetry.flush();
         this._telemetry.destroy();
         this._telemetry = null;
+      }
+      // Disconnect desktop bridges and destroy containers
+      for (const bridge of this._desktopBridges.values()) {
+        bridge.disconnect();
+      }
+      this._desktopBridges.clear();
+      if (this._desktopManager !== null) {
+        await this._desktopManager.stop();
+        this._desktopManager = null;
       }
       if (this._connectionManager !== null) {
         this._connectionManager.destroy();
