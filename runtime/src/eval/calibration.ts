@@ -6,6 +6,8 @@
 
 import type { MetricsProvider } from "../task/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
+import { clamp01 } from "../utils/numeric.js";
+import { groupBy } from "../utils/collections.js";
 import { getRewardTier, type RewardTier } from "./metrics.js";
 
 export interface CalibrationSample {
@@ -52,13 +54,6 @@ export interface CalibrationReport {
   byVerifierGate: Record<"gated" | "ungated", CalibrationAggregate>;
   overconfidentBinIndices: number[];
   underconfidentBinIndices: number[];
-}
-
-function clamp01(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
 }
 
 function buildEmptyBins(binCount: number): CalibrationBin[] {
@@ -161,21 +156,6 @@ function aggregateCalibration(
   };
 }
 
-function groupBy<T, K>(items: T[], keySelector: (item: T) => K): Map<K, T[]> {
-  const groups = new Map<K, T[]>();
-
-  for (const item of items) {
-    const key = keySelector(item);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.push(item);
-      continue;
-    }
-    groups.set(key, [item]);
-  }
-
-  return groups;
-}
 
 export function buildCalibrationReport(
   samples: CalibrationSample[],

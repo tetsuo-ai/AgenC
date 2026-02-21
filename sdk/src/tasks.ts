@@ -369,6 +369,63 @@ function buildTaskCreationContext(
   };
 }
 
+type CompletionTokenAccounts = Record<string, PublicKey | null>;
+
+function buildCompletionTokenAccounts(
+  mint: PublicKey | null,
+  escrowPda: PublicKey,
+  workerPubkey: PublicKey,
+  treasury: PublicKey,
+): CompletionTokenAccounts {
+  if (mint) {
+    return {
+      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
+      workerTokenAccount: getAssociatedTokenAddressSync(mint, workerPubkey),
+      treasuryTokenAccount: getAssociatedTokenAddressSync(mint, treasury),
+      rewardMint: mint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    };
+  }
+  return {
+    tokenEscrowAta: null,
+    workerTokenAccount: null,
+    treasuryTokenAccount: null,
+    rewardMint: null,
+    tokenProgram: null,
+  };
+}
+
+interface CompletionContext {
+  task: {
+    creator: PublicKey;
+    rewardMint: PublicKey | null;
+    taskId?: number[] | Uint8Array;
+  };
+  protocolConfig: {
+    treasury: PublicKey;
+  };
+}
+
+async function fetchCompletionContext(
+  program: Program,
+  taskPda: PublicKey,
+  protocolPda: PublicKey,
+): Promise<CompletionContext> {
+  const task = (await getAccount(program, "task").fetch(taskPda)) as {
+    creator: PublicKey;
+    taskId: number[] | Uint8Array;
+    rewardMint: PublicKey | null;
+  };
+
+  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
+    treasury: PublicKey;
+  };
+
+  return { task, protocolConfig };
+}
+
 async function submitTaskCreationTransaction(
   connection: Connection,
   operation: "createTask" | "createDependentTask",
@@ -609,43 +666,19 @@ export async function completeTask(
   const escrowPda = deriveEscrowPda(taskPda, programId);
   const protocolPda = deriveProtocolPda(programId);
 
-  // Fetch task to get creator and reward_mint
-  const task = (await getAccount(program, "task").fetch(taskPda)) as {
-    creator: PublicKey;
-    rewardMint: PublicKey | null;
-  };
-
-  // Fetch protocol config to get treasury
-  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+  const { task, protocolConfig } = await fetchCompletionContext(
+    program,
+    taskPda,
     protocolPda,
-  )) as {
-    treasury: PublicKey;
-  };
+  );
 
   const mint = task.rewardMint;
-
-  // Build token-specific accounts
-  let tokenAccounts: Record<string, PublicKey | null>;
-  if (mint) {
-    tokenAccounts = {
-      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
-      workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
-      treasuryTokenAccount: getAssociatedTokenAddressSync(
-        mint,
-        protocolConfig.treasury,
-      ),
-      rewardMint: mint,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    };
-  } else {
-    tokenAccounts = {
-      tokenEscrowAta: null,
-      workerTokenAccount: null,
-      treasuryTokenAccount: null,
-      rewardMint: null,
-      tokenProgram: null,
-    };
-  }
+  const tokenAccounts = buildCompletionTokenAccounts(
+    mint,
+    escrowPda,
+    worker.publicKey,
+    protocolConfig.treasury,
+  );
 
   const proofHashArr = Array.from(proofHash);
   const resultDataBuf = resultData ? Buffer.from(resultData) : null;
@@ -738,48 +771,23 @@ export async function completeTaskPrivate(
     TRUSTED_RISC0_ROUTER_PROGRAM_ID,
   );
 
-  // Fetch task to get creator, taskId, and reward_mint
-  const task = (await getAccount(program, "task").fetch(taskPda)) as {
-    creator: PublicKey;
-    taskId: number[] | Uint8Array;
-    rewardMint: PublicKey | null;
-  };
+  const { task, protocolConfig } = await fetchCompletionContext(
+    program,
+    taskPda,
+    protocolPda,
+  );
 
   // Extract task_id as u64 (first 8 bytes LE)
-  const taskIdBuf = Buffer.from(task.taskId);
+  const taskIdBuf = Buffer.from(task.taskId!);
   const taskIdU64 = new anchor.BN(taskIdBuf.subarray(0, 8), "le");
 
-  // Fetch protocol config to get treasury
-  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
-    protocolPda,
-  )) as {
-    treasury: PublicKey;
-  };
-
   const mint = task.rewardMint;
-
-  // Build token-specific accounts
-  let tokenAccounts: Record<string, PublicKey | null>;
-  if (mint) {
-    tokenAccounts = {
-      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
-      workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
-      treasuryTokenAccount: getAssociatedTokenAddressSync(
-        mint,
-        protocolConfig.treasury,
-      ),
-      rewardMint: mint,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    };
-  } else {
-    tokenAccounts = {
-      tokenEscrowAta: null,
-      workerTokenAccount: null,
-      treasuryTokenAccount: null,
-      rewardMint: null,
-      tokenProgram: null,
-    };
-  }
+  const tokenAccounts = buildCompletionTokenAccounts(
+    mint,
+    escrowPda,
+    worker.publicKey,
+    protocolConfig.treasury,
+  );
 
   const cuLimit = mint
     ? RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN
@@ -1159,6 +1167,132 @@ export async function getTasksByCreator(
 }
 
 /**
+ * Fetch all claims for a task and build timeline events for each claim/completion.
+ */
+async function buildClaimTimelineEvents(
+  program: Program,
+  taskPda: PublicKey,
+): Promise<TaskLifecycleEvent[]> {
+  const claims = await getAccount(program, "taskClaim").all([
+    {
+      memcmp: {
+        offset: DISCRIMINATOR_SIZE, // discriminator + task pubkey at offset 8
+        bytes: taskPda.toBase58(),
+      },
+    },
+  ]);
+
+  const events: TaskLifecycleEvent[] = [];
+  for (const claim of claims) {
+    const claimAccount = claim.account as {
+      worker?: PublicKey;
+      claimedAt?: { toNumber: () => number };
+      claimed_at?: { toNumber: () => number };
+      completedAt?: { toNumber: () => number };
+      completed_at?: { toNumber: () => number };
+    };
+
+    const claimedAt =
+      claimAccount.claimedAt?.toNumber() ??
+      claimAccount.claimed_at?.toNumber() ??
+      0;
+    if (claimedAt > 0) {
+      events.push({
+        eventName: "taskClaimed",
+        timestamp: claimedAt,
+        actor: claimAccount.worker,
+        data: { claimPda: claim.publicKey.toBase58() },
+      });
+    }
+
+    const claimCompletedAt =
+      claimAccount.completedAt?.toNumber() ??
+      claimAccount.completed_at?.toNumber() ??
+      0;
+    if (claimCompletedAt > 0) {
+      events.push({
+        eventName: "taskClaimCompleted",
+        timestamp: claimCompletedAt,
+        actor: claimAccount.worker,
+        data: { claimPda: claim.publicKey.toBase58() },
+      });
+    }
+  }
+
+  return events;
+}
+
+/**
+ * Fetch all disputes for a task and build timeline events, tracking active dispute state.
+ */
+async function buildDisputeTimelineEvents(
+  program: Program,
+  taskPda: PublicKey,
+): Promise<{ events: TaskLifecycleEvent[]; hasActiveDispute: boolean }> {
+  const disputes = await getAccount(program, "dispute").all([
+    {
+      memcmp: {
+        offset: DISCRIMINATOR_SIZE + 32, // discriminator + dispute_id
+        bytes: taskPda.toBase58(),
+      },
+    },
+  ]);
+
+  const parseDisputeStatus = (status: unknown): number => {
+    if (typeof status === "number") return status;
+    if (!status || typeof status !== "object") return 0;
+    const key = Object.keys(status as Record<string, unknown>)[0];
+    const map: Record<string, number> = {
+      active: 0,
+      resolved: 1,
+      expired: 2,
+      cancelled: 3,
+    };
+    return map[key] ?? 0;
+  };
+
+  const events: TaskLifecycleEvent[] = [];
+  let hasActiveDispute = false;
+  for (const dispute of disputes) {
+    const d = dispute.account as {
+      initiator?: PublicKey;
+      createdAt?: { toNumber: () => number };
+      created_at?: { toNumber: () => number };
+      resolvedAt?: { toNumber: () => number };
+      resolved_at?: { toNumber: () => number };
+      status?: unknown;
+    };
+
+    const created = d.createdAt?.toNumber() ?? d.created_at?.toNumber() ?? 0;
+    const resolved = d.resolvedAt?.toNumber() ?? d.resolved_at?.toNumber() ?? 0;
+    const status = parseDisputeStatus(d.status);
+
+    if (status === 0) {
+      hasActiveDispute = true;
+    }
+
+    if (created > 0) {
+      events.push({
+        eventName: "disputeInitiated",
+        timestamp: created,
+        actor: d.initiator,
+        data: { disputePda: dispute.publicKey.toBase58() },
+      });
+    }
+
+    if (resolved > 0 && status === 1) {
+      events.push({
+        eventName: "disputeResolved",
+        timestamp: resolved,
+        data: { disputePda: dispute.publicKey.toBase58() },
+      });
+    }
+  }
+
+  return { events, hasActiveDispute };
+}
+
+/**
  * Build a timeline summary for a task from task/claim/dispute accounts.
  *
  * @example
@@ -1204,50 +1338,8 @@ export async function getTaskLifecycleSummary(
     },
   ];
 
-  const claims = await getAccount(program, "taskClaim").all([
-    {
-      memcmp: {
-        offset: DISCRIMINATOR_SIZE, // discriminator + task pubkey at offset 8
-        bytes: taskPda.toBase58(),
-      },
-    },
-  ]);
-
-  for (const claim of claims) {
-    const claimAccount = claim.account as {
-      worker?: PublicKey;
-      claimedAt?: { toNumber: () => number };
-      claimed_at?: { toNumber: () => number };
-      completedAt?: { toNumber: () => number };
-      completed_at?: { toNumber: () => number };
-    };
-
-    const claimedAt =
-      claimAccount.claimedAt?.toNumber() ??
-      claimAccount.claimed_at?.toNumber() ??
-      0;
-    if (claimedAt > 0) {
-      timeline.push({
-        eventName: "taskClaimed",
-        timestamp: claimedAt,
-        actor: claimAccount.worker,
-        data: { claimPda: claim.publicKey.toBase58() },
-      });
-    }
-
-    const claimCompletedAt =
-      claimAccount.completedAt?.toNumber() ??
-      claimAccount.completed_at?.toNumber() ??
-      0;
-    if (claimCompletedAt > 0) {
-      timeline.push({
-        eventName: "taskClaimCompleted",
-        timestamp: claimCompletedAt,
-        actor: claimAccount.worker,
-        data: { claimPda: claim.publicKey.toBase58() },
-      });
-    }
-  }
+  const claimEvents = await buildClaimTimelineEvents(program, taskPda);
+  timeline.push(...claimEvents);
 
   if (task.state === TaskState.Completed && completedAt && completedAt > 0) {
     timeline.push({
@@ -1264,64 +1356,9 @@ export async function getTaskLifecycleSummary(
     });
   }
 
-  const disputes = await getAccount(program, "dispute").all([
-    {
-      memcmp: {
-        offset: DISCRIMINATOR_SIZE + 32, // discriminator + dispute_id
-        bytes: taskPda.toBase58(),
-      },
-    },
-  ]);
-
-  const parseDisputeStatus = (status: unknown): number => {
-    if (typeof status === "number") return status;
-    if (!status || typeof status !== "object") return 0;
-    const key = Object.keys(status as Record<string, unknown>)[0];
-    const map: Record<string, number> = {
-      active: 0,
-      resolved: 1,
-      expired: 2,
-      cancelled: 3,
-    };
-    return map[key] ?? 0;
-  };
-
-  let hasActiveDispute = false;
-  for (const dispute of disputes) {
-    const d = dispute.account as {
-      initiator?: PublicKey;
-      createdAt?: { toNumber: () => number };
-      created_at?: { toNumber: () => number };
-      resolvedAt?: { toNumber: () => number };
-      resolved_at?: { toNumber: () => number };
-      status?: unknown;
-    };
-
-    const created = d.createdAt?.toNumber() ?? d.created_at?.toNumber() ?? 0;
-    const resolved = d.resolvedAt?.toNumber() ?? d.resolved_at?.toNumber() ?? 0;
-    const status = parseDisputeStatus(d.status);
-
-    if (status === 0) {
-      hasActiveDispute = true;
-    }
-
-    if (created > 0) {
-      timeline.push({
-        eventName: "disputeInitiated",
-        timestamp: created,
-        actor: d.initiator,
-        data: { disputePda: dispute.publicKey.toBase58() },
-      });
-    }
-
-    if (resolved > 0 && status === 1) {
-      timeline.push({
-        eventName: "disputeResolved",
-        timestamp: resolved,
-        data: { disputePda: dispute.publicKey.toBase58() },
-      });
-    }
-  }
+  const disputeResult = await buildDisputeTimelineEvents(program, taskPda);
+  timeline.push(...disputeResult.events);
+  const hasActiveDispute = disputeResult.hasActiveDispute;
 
   timeline.sort((a, b) => a.timestamp - b.timestamp);
 

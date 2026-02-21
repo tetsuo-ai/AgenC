@@ -6,6 +6,7 @@
 
 import type { TelemetrySnapshot } from "../telemetry/types.js";
 import type { TelemetryCollector } from "../telemetry/types.js";
+import { clamp01 } from "../utils/numeric.js";
 import type { WorkflowState } from "./types.js";
 import { WorkflowNodeStatus, WorkflowStatus } from "./types.js";
 import {
@@ -32,13 +33,6 @@ export interface WorkflowFeatureExtractionOptions {
   rollbackCount?: number;
   verifierDisagreementCount?: number;
   conformanceScore?: number;
-}
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
 }
 
 function safeNonNegative(value: number): number {

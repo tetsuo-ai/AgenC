@@ -11,6 +11,7 @@ import type {
   VerifierTaskTypePolicy,
 } from "./types.js";
 import type { RiskTier, TaskRiskScoreResult } from "./risk-scoring.js";
+import { clamp01 } from "../utils/numeric.js";
 
 export interface BudgetGuardrail {
   readonly minBudgetLamports: bigint;
@@ -77,13 +78,6 @@ const DEFAULT_MIN_CONFIDENCE = 0.7;
 const DEFAULT_MAX_VERIFICATION_RETRIES = 1;
 const DEFAULT_MAX_VERIFICATION_DURATION_MS = 30_000;
 const DECIMAL_SCALE = 1_000_000n;
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
 
 function nonNegativeInt(value: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
