@@ -3027,7 +3027,7 @@ function buildIncidentEventAnomalyId(entry: {
   timestampMs: number;
 }): string {
   const seed = `${entry.seq}|${entry.slot}|${entry.signature}|${entry.sourceEventName}|${entry.sourceEventType}|${entry.taskPda ?? ""}|${entry.disputePda ?? ""}|${entry.timestampMs}`;
-  return createHash("sha1").update(seed).digest("hex").slice(0, 16);
+  return createHash("sha256").update(seed).digest("hex").slice(0, 16);
 }
 
 async function queryIncidentRecords(
@@ -3081,13 +3081,13 @@ function buildReplayCompareResult(comparison: ReplayComparisonResult): {
     anomalyIds: comparison.anomalies.map((anomaly, index) => {
       const sourceContext = anomaly.context;
       const seed = `${anomaly.code}|${sourceContext.sourceEventName ?? ""}|${sourceContext.seq ?? index}|${sourceContext.sourceEventSequence ?? ""}`;
-      return createHash("sha1").update(seed).digest("hex").slice(0, 16);
+      return createHash("sha256").update(seed).digest("hex").slice(0, 16);
     }),
     topAnomalies: comparison.anomalies.slice(0, 50).map((anomaly, index) => {
       const sourceContext = anomaly.context;
       const anomalySeed = `${anomaly.code}|${sourceContext.taskPda ?? ""}|${sourceContext.seq ?? index}`;
       return {
-        anomalyId: createHash("sha1")
+        anomalyId: createHash("sha256")
           .update(anomalySeed)
           .digest("hex")
           .slice(0, 16),
@@ -3174,7 +3174,7 @@ function summarizeIncidentValidation(
 
   const anomalyIds = [...replayResult.errors, ...replayResult.warnings].map(
     (entry, index) =>
-      createHash("sha1")
+      createHash("sha256")
         .update(entry)
         .update(String(index))
         .digest("hex")

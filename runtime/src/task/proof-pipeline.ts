@@ -747,8 +747,11 @@ export class ProofPipeline {
     );
 
     if (jitter) {
-      // Full jitter: random value between 0 and exponentialDelay
-      return Math.floor(Math.random() * exponentialDelay);
+      // Full jitter: cryptographically random value between 0 and exponentialDelay.
+      // Uses crypto.getRandomValues to prevent predictable retry timing in proof submission.
+      const buf = new Uint32Array(1);
+      globalThis.crypto.getRandomValues(buf);
+      return Math.floor((buf[0] / 0x100000000) * exponentialDelay);
     }
 
     return exponentialDelay;

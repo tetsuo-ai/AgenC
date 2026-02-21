@@ -11,6 +11,7 @@ pub struct RevokeDelegation<'info> {
     pub authority: Signer<'info>,
 
     #[account(
+        mut,
         has_one = authority @ CoordinationError::UnauthorizedAgent,
     )]
     pub delegator_agent: Account<'info, AgentRegistration>,
@@ -26,12 +27,24 @@ pub struct RevokeDelegation<'info> {
 
 pub fn handler(ctx: Context<RevokeDelegation>) -> Result<()> {
     let clock = Clock::get()?;
-    let delegation = &ctx.accounts.delegation;
+
+    // Capture delegation fields before mutable borrow of delegator_agent
+    let delegation_amount = ctx.accounts.delegation.amount;
+    let delegation_delegator = ctx.accounts.delegation.delegator;
+    let delegation_delegatee = ctx.accounts.delegation.delegatee;
+
+    // Restore delegated reputation back to the delegator.
+    // Use saturating_add capped at MAX_REPUTATION to prevent overflow.
+    let delegator = &mut ctx.accounts.delegator_agent;
+    delegator.reputation = delegator
+        .reputation
+        .saturating_add(delegation_amount)
+        .min(crate::instructions::constants::MAX_REPUTATION);
 
     emit!(ReputationDelegationRevoked {
-        delegator: delegation.delegator,
-        delegatee: delegation.delegatee,
-        amount: delegation.amount,
+        delegator: delegation_delegator,
+        delegatee: delegation_delegatee,
+        amount: delegation_amount,
         timestamp: clock.unix_timestamp,
     });
 

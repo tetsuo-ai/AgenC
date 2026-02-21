@@ -418,18 +418,31 @@ export class DaemonManager {
     metrics?: UnifiedTelemetryCollector,
   ): Promise<ToolRegistry> {
     const registry = new ToolRegistry({ logger: this.logger });
-    const processEnv: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
+
+    // Security: Only expose necessary environment variables to the bash tool.
+    // Never pass the full process.env as it contains secrets (API keys, private key paths, etc.).
+    const SAFE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'SOLANA_RPC_URL'];
+    const safeEnv: Record<string, string> = {};
+    for (const key of SAFE_ENV_KEYS) {
+      const value = process.env[key];
       if (value !== undefined) {
-        processEnv[key] = value;
+        safeEnv[key] = value;
       }
     }
 
-    registry.register(createBashTool({ logger: this.logger, env: processEnv, unrestricted: true }));
+    // Security: Do NOT use unrestricted mode — the default deny list prevents
+    // dangerous commands (rm -rf, curl for exfiltration, etc.) from being
+    // executed via LLM tool calling / prompt injection attacks.
+    registry.register(createBashTool({ logger: this.logger, env: safeEnv }));
     registry.registerAll(createHttpTools({}, this.logger));
+
+    // Security: Restrict filesystem access to a dedicated workspace directory.
+    // The entire home directory is too broad — it exposes ~/.ssh, ~/.gnupg,
+    // ~/.config/solana/id.json (private keys), etc. Disable delete by default.
+    const workspacePath = join(homedir(), '.agenc', 'workspace');
     registry.registerAll(createFilesystemTools({
-      allowedPaths: [homedir(), '/tmp'],
-      allowDelete: true,
+      allowedPaths: [workspacePath, '/tmp'],
+      allowDelete: false,
     }));
     registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
 

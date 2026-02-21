@@ -308,6 +308,19 @@ export class SandboxManager {
       args.push("--workdir", options.cwd);
     }
 
+    // Security: Sanitize env var keys/values to prevent injection via --env
+    if (options?.env) {
+      for (const [key] of Object.entries(options.env)) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+          throw new Error(`Invalid environment variable name: ${key}`);
+        }
+      }
+    }
+
+    // Note: command is passed as a single argument to `sh -c` inside the container.
+    // While execFile prevents host-level shell injection, `sh -c` re-enables shell
+    // interpretation inside the container. This is by design — the sandbox provides
+    // isolation via Docker's security boundary (resource limits, no-network, etc.).
     args.push(containerId, "sh", "-c", command);
 
     try {

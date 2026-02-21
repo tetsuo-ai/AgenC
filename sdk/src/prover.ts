@@ -9,12 +9,14 @@
  * and `ProverError` are re-exported from the SDK barrel.
  */
 
+import { isAbsolute, basename } from "node:path";
 import {
   RISC0_SEAL_BORSH_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   HASH_SIZE,
 } from "./constants.js";
+import { validateProverEndpoint } from "./validation.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,6 +157,28 @@ async function proveLocal(
 ): Promise<{ sealBytes: Buffer; journal: Buffer; imageId: Buffer }> {
   const { spawn } = await import("node:child_process");
 
+  // Security: Validate binary path to prevent arbitrary code execution.
+  // Must be an absolute path to an existing, executable file named agenc-zkvm-host.
+  if (!isAbsolute(config.binaryPath)) {
+    throw new ProverError(
+      "binaryPath must be an absolute path",
+      "local-binary",
+    );
+  }
+  if (config.binaryPath.includes("..")) {
+    throw new ProverError(
+      "binaryPath must not contain '..' segments",
+      "local-binary",
+    );
+  }
+  const binaryName = basename(config.binaryPath);
+  if (!binaryName.startsWith("agenc-zkvm-host")) {
+    throw new ProverError(
+      `binaryPath must point to an agenc-zkvm-host binary, got '${binaryName}'`,
+      "local-binary",
+    );
+  }
+
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const inputJson = buildInputJson(input);
 
@@ -227,6 +251,10 @@ async function proveRemote(
   input: ProverInput,
   config: RemoteProverConfig,
 ): Promise<{ sealBytes: Buffer; journal: Buffer; imageId: Buffer }> {
+  // Security: Validate the remote endpoint before sending sensitive proof material.
+  // Rejects non-HTTP protocols, embedded credentials, and dangerous characters.
+  validateProverEndpoint(config.endpoint);
+
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

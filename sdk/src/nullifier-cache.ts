@@ -57,6 +57,21 @@ export class NullifierCache {
     return true;
   }
 
+  /**
+   * Atomically check if a nullifier is already used and mark it if not.
+   * Returns `true` if the nullifier was successfully marked (was NOT previously used).
+   * Returns `false` if the nullifier is already in use.
+   *
+   * This eliminates the TOCTOU gap between separate `isUsed()` and `markUsed()` calls.
+   */
+  tryMarkUsed(nullifier: Uint8Array | Buffer): boolean {
+    if (this.isUsed(nullifier)) {
+      return false;
+    }
+    this.markUsed(nullifier);
+    return true;
+  }
+
   markUsed(nullifier: Uint8Array | Buffer): void {
     const key = this.toKey(nullifier);
 

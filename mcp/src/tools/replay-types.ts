@@ -2,6 +2,15 @@ import { z } from "zod";
 import { computeSchemaHash } from "../utils/schema-hash.js";
 
 /**
+ * Security: Zod refinement that rejects paths with traversal sequences.
+ * Prevents path traversal attacks via `..` segments in user-supplied paths.
+ */
+const safePath = z.string().refine(
+  (p) => !p.includes(".."),
+  { message: "Path must not contain '..' segments (path traversal)" },
+);
+
+/**
  * Alert schema version referenced by replay tools.
  * Must match REPLAY_ALERT_SCHEMA_VERSION in @agenc/runtime.
  */
@@ -14,7 +23,7 @@ export const REPLAY_STATUS_OUTPUT_SCHEMA = "replay.status.output.v1";
 
 const baseSchema = z.object({
   store_type: z.enum(["memory", "sqlite"]).default("memory"),
-  sqlite_path: z.string().optional(),
+  sqlite_path: safePath.optional(),
   trace_id: z.string().optional(),
   strict_mode: z.boolean().default(false),
   max_payload_bytes: z.number().int().positive().default(120_000),
@@ -32,9 +41,8 @@ export const ReplayBackfillInputSchema = baseSchema.extend({
 export type ReplayBackfillInput = z.infer<typeof ReplayBackfillInputSchema>;
 
 export const ReplayCompareInputSchema = baseSchema.extend({
-  local_trace_path: z
-    .string()
-    .min(1)
+  local_trace_path: safePath
+    .refine((p) => p.length > 0, { message: "Path must not be empty" })
     .describe("Path to local trajectory trace JSON"),
   task_pda: z.string().optional(),
   dispute_pda: z.string().optional(),

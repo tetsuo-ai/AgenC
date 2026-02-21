@@ -503,5 +503,5 @@ function computeAnomalyId(
     traceSampled: context.traceSampled,
   } as unknown as JsonValue);
 
-  return createHash("sha1").update(seed).digest("hex").slice(0, 16);
+  return createHash("sha256").update(seed).digest("hex").slice(0, 16);
 }

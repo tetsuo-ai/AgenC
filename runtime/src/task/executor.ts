@@ -1376,7 +1376,9 @@ function computeBackoffDelay(attempt: number, policy: RetryPolicy): number {
     policy.maxDelayMs,
   );
   if (policy.jitter) {
-    return Math.floor(Math.random() * exponentialDelay);
+    const buf = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(buf);
+    return Math.floor((buf[0] / 0x100000000) * exponentialDelay);
   }
   return exponentialDelay;
 }
