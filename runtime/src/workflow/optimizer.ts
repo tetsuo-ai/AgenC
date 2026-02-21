@@ -108,10 +108,10 @@ function nonNegative(value: number): number {
 }
 
 function hashString(input: string): number {
-  let hash = 2166136261;
+  let hash = 2166136261; // FNV-1a 32-bit offset basis
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
+    hash = Math.imul(hash, 16777619); // FNV-1a 32-bit prime
   }
   return hash >>> 0;
 }
