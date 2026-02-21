@@ -6,7 +6,9 @@ import {
   completeTask,
   completeTaskPrivate,
   getTask,
-  generateProof,
+  computeHashes,
+  bigintToBytes32,
+  buildJournalBytes,
   deriveTokenEscrowAddress,
 } from "../index.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
@@ -162,12 +164,35 @@ describe("SDK contract tests", () => {
       treasury: createPublicKeySeeded(16),
     } as never);
 
-    const generated = await generateProof({
+    const hashes = computeHashes(
       taskPda,
-      agentPubkey: worker.publicKey,
-      output: [1n, 2n, 3n, 4n],
-      salt: 17n,
+      worker.publicKey,
+      [1n, 2n, 3n, 4n],
+      17n,
+      99999n, // agentSecret
+    );
+
+    const constraintHashBuf = bigintToBytes32(hashes.constraintHash);
+    const outputCommitmentBuf = bigintToBytes32(hashes.outputCommitment);
+    const bindingSeedBuf = bigintToBytes32(hashes.binding);
+    const nullifierSeedBuf = bigintToBytes32(hashes.nullifier);
+
+    const sealBytes = Buffer.alloc(260, 0xab);
+    sealBytes[0] = 0x52;
+    sealBytes[1] = 0x5a;
+    sealBytes[2] = 0x56;
+    sealBytes[3] = 0x4d;
+
+    const journal = buildJournalBytes({
+      taskPda: taskPda.toBytes(),
+      agentAuthority: worker.publicKey.toBytes(),
+      constraintHash: constraintHashBuf,
+      outputCommitment: outputCommitmentBuf,
+      bindingSeed: bindingSeedBuf,
+      nullifierSeed: nullifierSeedBuf,
     });
+
+    const imageId = Buffer.alloc(32, 0xef);
 
     const result = await completeTaskPrivate(
       connection,
@@ -176,11 +201,11 @@ describe("SDK contract tests", () => {
       workerId,
       taskPda,
       {
-        sealBytes: generated.sealBytes,
-        journal: generated.journal,
-        imageId: generated.imageId,
-        bindingSeed: generated.bindingSeed,
-        nullifierSeed: generated.nullifierSeed,
+        sealBytes,
+        journal,
+        imageId,
+        bindingSeed: bindingSeedBuf,
+        nullifierSeed: nullifierSeedBuf,
       },
     );
 
@@ -252,30 +277,6 @@ describe("SDK contract tests", () => {
       rewardMint: null,
       constraintHash,
     });
-  });
-
-  it("returns stable ProofResult contract for generateProof", async () => {
-    const result = await generateProof({
-      taskPda: createPublicKeySeeded(9),
-      agentPubkey: createPublicKeySeeded(10),
-      output: [1n, 2n, 3n, 4n],
-      salt: 7n,
-    });
-
-    expect(result).toMatchObject({
-      sealBytes: expect.any(Buffer),
-      journal: expect.any(Buffer),
-      imageId: expect.any(Buffer),
-      bindingSeed: expect.any(Buffer),
-      nullifierSeed: expect.any(Buffer),
-      generationTime: expect.any(Number),
-    });
-    expect(result.sealBytes.length).toBe(260);
-    expect(result.journal.length).toBe(192);
-    expect(result.imageId.length).toBe(32);
-    expect(result.bindingSeed.length).toBe(32);
-    expect(result.nullifierSeed.length).toBe(32);
-    expect(result.generationTime).toBeGreaterThanOrEqual(0);
   });
 
   it("returns stable contract for deriveTokenEscrowAddress", () => {

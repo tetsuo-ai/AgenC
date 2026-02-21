@@ -32,21 +32,27 @@ describe("PrivacyClient input validation (#963)", () => {
     expect(() => new PrivacyClient()).not.toThrow();
   });
 
-  it("rejects invalid prover endpoint URL", () => {
-    expect(() => new PrivacyClient({ proverEndpoint: "not-a-url" })).toThrow(
-      "Invalid prover endpoint",
-    );
+  it("accepts proverConfig with remote backend", () => {
+    expect(
+      () =>
+        new PrivacyClient({
+          proverConfig: {
+            kind: "remote",
+            endpoint: "https://prover.example.com",
+          },
+        }),
+    ).not.toThrow();
   });
 
-  it("rejects non-http prover endpoint URL", () => {
+  it("accepts proverConfig with local-binary backend", () => {
     expect(
-      () => new PrivacyClient({ proverEndpoint: "ws://localhost:8080" }),
-    ).toThrow("http or https");
-  });
-
-  it("accepts valid HTTPS prover endpoint URL", () => {
-    expect(
-      () => new PrivacyClient({ proverEndpoint: "https://prover.example.com" }),
+      () =>
+        new PrivacyClient({
+          proverConfig: {
+            kind: "local-binary",
+            binaryPath: "/usr/bin/agenc-zkvm-host",
+          },
+        }),
     ).not.toThrow();
   });
 
@@ -79,12 +85,10 @@ describe("PrivacyClient input validation (#963)", () => {
 
     it("rejects when agentId not provided", async () => {
       const wallet = Keypair.generate();
-      // No agentId in config, set program via internal access
       const client = new PrivacyClient({
         rpcUrl: "http://localhost:8899",
         wallet,
       });
-      // Bypass init to set wallet + program without needing a real IDL
       (client as any).program = {};
       await expect(
         client.completeTaskPrivate({
@@ -94,12 +98,29 @@ describe("PrivacyClient input validation (#963)", () => {
       ).rejects.toThrow("Agent ID not provided");
     });
 
+    it("rejects when proverConfig not provided", async () => {
+      const wallet = Keypair.generate();
+      const client = new PrivacyClient({
+        rpcUrl: "http://localhost:8899",
+        wallet,
+        agentId: new Uint8Array(32).fill(1),
+      });
+      (client as any).program = {};
+      await expect(
+        client.completeTaskPrivate({
+          taskPda: PublicKey.default,
+          output: [1n, 2n, 3n, 4n],
+        }),
+      ).rejects.toThrow("requires proverConfig");
+    });
+
     it("rejects invalid output array length", async () => {
       const wallet = Keypair.generate();
       const client = new PrivacyClient({
         rpcUrl: "http://localhost:8899",
         wallet,
         agentId: new Uint8Array(32).fill(1),
+        proverConfig: { kind: "local-binary", binaryPath: "/test" },
       });
       (client as any).program = {};
       await expect(
@@ -116,6 +137,7 @@ describe("PrivacyClient input validation (#963)", () => {
         rpcUrl: "http://localhost:8899",
         wallet,
         agentId: new Uint8Array(32).fill(1),
+        proverConfig: { kind: "local-binary", binaryPath: "/test" },
       });
       (client as any).program = {};
       await expect(
@@ -133,6 +155,7 @@ describe("PrivacyClient input validation (#963)", () => {
         rpcUrl: "http://localhost:8899",
         wallet,
         agentId: new Uint8Array(32).fill(1),
+        proverConfig: { kind: "local-binary", binaryPath: "/test" },
       });
       (client as any).program = {};
       await expect(

@@ -9,8 +9,6 @@
 
 export {
   generateProof,
-  generateProofWithProver,
-  verifyProofLocally,
   computeHashes,
   generateSalt,
   pubkeyToField,
@@ -18,6 +16,11 @@ export {
   // Hash computation functions
   computeBinding,
   computeConstraintHash,
+  computeNullifierFromAgentSecret,
+  computeCommitmentFromOutput,
+  // Byte helpers
+  bigintToBytes32,
+  buildJournalBytes,
   // Types
   ProofGenerationParams,
   ProofResult,

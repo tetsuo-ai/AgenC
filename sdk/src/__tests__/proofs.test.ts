@@ -19,7 +19,6 @@ import {
   computeNullifierFromAgentSecret,
   generateSalt,
   generateProof,
-  generateProofWithProver,
   FIELD_MODULUS,
 } from "../proofs";
 import {
@@ -553,31 +552,69 @@ describe("proofs", () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       await expect(
-        generateProof({
-          taskPda,
-          agentPubkey,
-          output: [1n, 2n, 3n, 4n],
-          salt: 0n,
-        }),
+        generateProof(
+          {
+            taskPda,
+            agentPubkey,
+            output: [1n, 2n, 3n, 4n],
+            salt: 0n,
+          },
+          { kind: "local-binary", binaryPath: "/test" },
+        ),
       ).rejects.toThrow("non-zero");
     });
 
     it("accepts non-zero salt", async () => {
-      const taskPda = Keypair.generate().publicKey;
-      const agentPubkey = Keypair.generate().publicKey;
-      const result = await generateProof({
-        taskPda,
-        agentPubkey,
-        output: [1n, 2n, 3n, 4n],
+      const params = {
+        taskPda: Keypair.generate().publicKey,
+        agentPubkey: Keypair.generate().publicKey,
+        output: [1n, 2n, 3n, 4n] as bigint[],
         salt: 42n,
         agentSecret: 12345n,
+      };
+
+      const agentSecret = params.agentSecret;
+      const hashes = computeHashes(
+        params.taskPda,
+        params.agentPubkey,
+        params.output,
+        params.salt,
+        agentSecret,
+      );
+      const toBytes32 = (v: bigint): Buffer => {
+        const hex = v.toString(16).padStart(64, "0");
+        return Buffer.from(hex, "hex");
+      };
+      const expectedJournal = Buffer.concat([
+        Buffer.from(params.taskPda.toBytes()),
+        Buffer.from(params.agentPubkey.toBytes()),
+        toBytes32(hashes.constraintHash),
+        toBytes32(hashes.outputCommitment),
+        toBytes32(hashes.binding),
+        toBytes32(hashes.nullifier),
+      ]);
+
+      vi.doMock("../prover", () => ({
+        prove: vi.fn().mockResolvedValue({
+          sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN, 0xab),
+          journal: expectedJournal,
+          imageId: Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xcd),
+        }),
+      }));
+
+      const { generateProof: fn } = await import("../proofs");
+      const result = await fn(params, {
+        kind: "local-binary",
+        binaryPath: "/test",
       });
       expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
       expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
+
+      vi.doUnmock("../prover");
     });
   });
 
-  describe("generateProofWithProver", () => {
+  describe("generateProof", () => {
     /**
      * Helper: given proof params, compute the expected journal so the mock
      * prover can return matching bytes.
@@ -642,7 +679,7 @@ describe("proofs", () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import("../proofs");
+      const { generateProof: fn } = await import("../proofs");
       const result = await fn(params, {
         kind: "local-binary",
         binaryPath: "/test",
@@ -686,7 +723,7 @@ describe("proofs", () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import("../proofs");
+      const { generateProof: fn } = await import("../proofs");
       const result = await fn(params, {
         kind: "local-binary",
         binaryPath: "/test",
@@ -711,7 +748,7 @@ describe("proofs", () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import("../proofs");
+      const { generateProof: fn } = await import("../proofs");
       await expect(
         fn(params, { kind: "local-binary", binaryPath: "/test" }),
       ).rejects.toThrow("does not match computed fields");
@@ -729,7 +766,7 @@ describe("proofs", () => {
           .mockRejectedValue(new PE("binary crashed", "local-binary")),
       }));
 
-      const { generateProofWithProver: fn } = await import("../proofs");
+      const { generateProof: fn } = await import("../proofs");
       await expect(
         fn(params, { kind: "local-binary", binaryPath: "/test" }),
       ).rejects.toThrow("binary crashed");
@@ -750,7 +787,7 @@ describe("proofs", () => {
         }),
       }));
 
-      const { generateProofWithProver: fn } = await import("../proofs");
+      const { generateProof: fn } = await import("../proofs");
       const result = await fn(params, {
         kind: "remote",
         endpoint: "https://test.com",

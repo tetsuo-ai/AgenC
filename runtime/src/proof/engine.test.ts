@@ -26,8 +26,6 @@ vi.mock("@agenc/sdk", () => {
 
   return {
     generateProof: vi.fn().mockResolvedValue({ ...mockProofResult }),
-    generateProofWithProver: vi.fn().mockResolvedValue({ ...mockProofResult }),
-    verifyProofLocally: vi.fn().mockResolvedValue(true),
     computeHashes: vi.fn().mockReturnValue({
       constraintHash: 123n,
       outputCommitment: 456n,
@@ -71,8 +69,6 @@ vi.mock("@agenc/sdk", () => {
 
 import {
   generateProof as mockGenerateProof,
-  generateProofWithProver as mockGenerateProofWithProver,
-  verifyProofLocally as mockVerifyProofLocally,
   computeHashes as mockComputeHashes,
   generateSalt as mockGenerateSalt,
 } from "@agenc/sdk";
@@ -113,7 +109,7 @@ describe("ProofEngine", () => {
     it("creates with custom config", () => {
       const engine = new ProofEngine({
         methodId: new Uint8Array(32),
-        proverBackend: { kind: "deterministic-local" },
+        proverBackend: { kind: "local-binary", binaryPath: "/test" },
         verifyAfterGeneration: true,
         cache: { ttlMs: 60_000, maxEntries: 50 },
       });
@@ -138,8 +134,23 @@ describe("ProofEngine", () => {
   // ==========================================================================
 
   describe("generate without cache", () => {
-    it("calls SDK generateProof and returns EngineProofResult", async () => {
+    it("throws when no proverBackend is configured", async () => {
       const engine = new ProofEngine();
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        ProofGenerationError,
+      );
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        "requires an explicit proverBackend",
+      );
+    });
+
+    it("calls SDK generateProof and returns EngineProofResult", async () => {
+      const engine = new ProofEngine({
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
       const inputs = makeInputs();
       const result = await engine.generate(inputs);
 
@@ -160,21 +171,15 @@ describe("ProofEngine", () => {
       expect(result.generationTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it("does not pass legacy path args to SDK", async () => {
-      const engine = new ProofEngine();
-      const inputs = makeInputs();
-      await engine.generate(inputs);
-
-      const args = vi.mocked(mockGenerateProof).mock.calls[0]?.[0];
-      expect(args).toBeDefined();
-      expect(Object.prototype.hasOwnProperty.call(args, "legacyPath")).toBe(
-        false,
-      );
-    });
-
     it("enforces configured methodId against generated imageId", async () => {
       const pinnedMethodId = new Uint8Array(32).fill(0x7f);
-      const engine = new ProofEngine({ methodId: pinnedMethodId });
+      const engine = new ProofEngine({
+        methodId: pinnedMethodId,
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         "Generated imageId does not match configured methodId",
@@ -185,7 +190,12 @@ describe("ProofEngine", () => {
       vi.mocked(mockGenerateProof).mockRejectedValueOnce(
         new Error("proof backend boom"),
       );
-      const engine = new ProofEngine();
+      const engine = new ProofEngine({
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         ProofGenerationError,
@@ -196,7 +206,12 @@ describe("ProofEngine", () => {
       vi.mocked(mockGenerateProof).mockRejectedValueOnce(
         new Error("proof backend boom"),
       );
-      const engine = new ProofEngine();
+      const engine = new ProofEngine({
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         "proof backend boom",
@@ -205,7 +220,12 @@ describe("ProofEngine", () => {
 
     it("wraps non-Error SDK throws in ProofGenerationError", async () => {
       vi.mocked(mockGenerateProof).mockRejectedValueOnce("string error");
-      const engine = new ProofEngine();
+      const engine = new ProofEngine({
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         ProofGenerationError,
@@ -218,8 +238,16 @@ describe("ProofEngine", () => {
   // ==========================================================================
 
   describe("generate with cache", () => {
+    const cacheEngineConfig = {
+      cache: { ttlMs: 60_000 },
+      proverBackend: {
+        kind: "local-binary" as const,
+        binaryPath: "/usr/bin/agenc-zkvm-host",
+      },
+    };
+
     it("stores result in cache on miss", async () => {
-      const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
+      const engine = new ProofEngine(cacheEngineConfig);
       const inputs = makeInputs();
 
       const result1 = await engine.generate(inputs);
@@ -232,7 +260,7 @@ describe("ProofEngine", () => {
     });
 
     it("returns cached result with fromCache: true", async () => {
-      const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
+      const engine = new ProofEngine(cacheEngineConfig);
       const inputs = makeInputs();
 
       await engine.generate(inputs);
@@ -245,7 +273,13 @@ describe("ProofEngine", () => {
 
     it("respects cache TTL expiry", async () => {
       vi.useFakeTimers();
-      const engine = new ProofEngine({ cache: { ttlMs: 1000 } });
+      const engine = new ProofEngine({
+        cache: { ttlMs: 1000 },
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
       const inputs = makeInputs();
 
       await engine.generate(inputs);
@@ -262,6 +296,10 @@ describe("ProofEngine", () => {
     it("evicts oldest entry when cache is full", async () => {
       const engine = new ProofEngine({
         cache: { ttlMs: 60_000, maxEntries: 2 },
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
       });
 
       const inputs1 = makeInputs();
@@ -284,7 +322,7 @@ describe("ProofEngine", () => {
     });
 
     it("clearCache clears all entries", async () => {
-      const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
+      const engine = new ProofEngine(cacheEngineConfig);
       const inputs = makeInputs();
 
       await engine.generate(inputs);
@@ -300,89 +338,27 @@ describe("ProofEngine", () => {
   // generate() with verification
   // ==========================================================================
 
-  describe("generate with verification", () => {
-    it("verifies proof after generation when configured", async () => {
-      vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
-      const engine = new ProofEngine({ verifyAfterGeneration: true });
-
-      const result = await engine.generate(makeInputs());
-      expect(mockVerifyProofLocally).toHaveBeenCalledOnce();
-      expect(result.verified).toBe(true);
-    });
-
-    it("throws ProofVerificationError when verification returns false", async () => {
-      vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(false);
-      const engine = new ProofEngine({ verifyAfterGeneration: true });
-
-      await expect(engine.generate(makeInputs())).rejects.toThrow(
-        ProofVerificationError,
-      );
-    });
-
-    it("throws ProofVerificationError when verification throws", async () => {
-      vi.mocked(mockVerifyProofLocally).mockRejectedValueOnce(
-        new Error("vkey not found"),
-      );
-      const engine = new ProofEngine({ verifyAfterGeneration: true });
-
-      await expect(engine.generate(makeInputs())).rejects.toThrow(
-        ProofVerificationError,
-      );
-    });
-
-    it("does not verify when verifyAfterGeneration is false", async () => {
-      const engine = new ProofEngine({ verifyAfterGeneration: false });
+  describe("generate with verification flag", () => {
+    it("logs a warning when verifyAfterGeneration is set", async () => {
+      const warnFn = vi.fn();
+      const engine = new ProofEngine({
+        verifyAfterGeneration: true,
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+        logger: {
+          debug: vi.fn(),
+          info: vi.fn(),
+          warn: warnFn,
+          error: vi.fn(),
+          setLevel: vi.fn(),
+        },
+      });
       await engine.generate(makeInputs());
-      expect(mockVerifyProofLocally).not.toHaveBeenCalled();
-    });
-  });
-
-  // ==========================================================================
-  // verify()
-  // ==========================================================================
-
-  describe("verify", () => {
-    it("delegates to SDK verifyProofLocally", async () => {
-      vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
-      const engine = new ProofEngine();
-
-      const valid = await engine.verify(
-        new Uint8Array(256),
-        new Uint8Array(192),
+      expect(warnFn).toHaveBeenCalledWith(
+        expect.stringContaining("verifyAfterGeneration is not supported"),
       );
-      expect(valid).toBe(true);
-      expect(mockVerifyProofLocally).toHaveBeenCalledOnce();
-    });
-
-    it("tracks verification stats on success", async () => {
-      vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
-      const engine = new ProofEngine();
-
-      await engine.verify(new Uint8Array(256), new Uint8Array(192));
-      const stats = engine.getStats();
-      expect(stats.verificationsPerformed).toBe(1);
-      expect(stats.verificationsFailed).toBe(0);
-    });
-
-    it("tracks verification stats on failure", async () => {
-      vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(false);
-      const engine = new ProofEngine();
-
-      await engine.verify(new Uint8Array(256), new Uint8Array(192));
-      const stats = engine.getStats();
-      expect(stats.verificationsPerformed).toBe(1);
-      expect(stats.verificationsFailed).toBe(1);
-    });
-
-    it("throws ProofVerificationError when SDK throws", async () => {
-      vi.mocked(mockVerifyProofLocally).mockRejectedValueOnce(
-        new Error("boom"),
-      );
-      const engine = new ProofEngine();
-
-      await expect(
-        engine.verify(new Uint8Array(256), new Uint8Array(192)),
-      ).rejects.toThrow(ProofVerificationError);
     });
   });
 
@@ -428,11 +404,11 @@ describe("ProofEngine", () => {
   // ==========================================================================
 
   describe("checkTools", () => {
-    it("reports local RISC0 backend status", () => {
+    it("reports default backend status", () => {
       const engine = new ProofEngine();
       const status = engine.checkTools();
       expect(status.risc0).toBe(true);
-      expect(status.proverBackend).toBe("deterministic-local");
+      expect(status.proverBackend).toBe("local-binary");
       expect(status.methodIdPinned).toBe(false);
       expect(status.routerPinned).toBe(false);
     });
@@ -473,7 +449,12 @@ describe("ProofEngine", () => {
     });
 
     it("tracks generation stats", async () => {
-      const engine = new ProofEngine();
+      const engine = new ProofEngine({
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
 
       await engine.generate(makeInputs());
       await engine.generate(makeInputs());
@@ -485,7 +466,13 @@ describe("ProofEngine", () => {
     });
 
     it("tracks cache hit/miss stats", async () => {
-      const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
+      const engine = new ProofEngine({
+        cache: { ttlMs: 60_000 },
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+        },
+      });
       const inputs = makeInputs();
 
       await engine.generate(inputs); // miss
@@ -581,9 +568,15 @@ describe("buildSdkProverConfig", () => {
     );
   });
 
+  it("throws when kind is missing", () => {
+    expect(() => buildSdkProverConfig({})).toThrow(
+      "requires an explicit proverBackend kind",
+    );
+  });
+
   it("throws for unsupported kind", () => {
     expect(() =>
-      buildSdkProverConfig({ kind: "deterministic-local" as any }),
+      buildSdkProverConfig({ kind: "something-else" as any }),
     ).toThrow("unsupported kind");
   });
 });
@@ -597,7 +590,7 @@ describe("ProofEngine with local-binary backend", () => {
     vi.clearAllMocks();
   });
 
-  it("calls generateProofWithProver instead of generateProof", async () => {
+  it("calls SDK generateProof with prover config", async () => {
     const engine = new ProofEngine({
       proverBackend: {
         kind: "local-binary",
@@ -606,8 +599,7 @@ describe("ProofEngine with local-binary backend", () => {
     });
     await engine.generate(makeInputs());
 
-    expect(mockGenerateProofWithProver).toHaveBeenCalledOnce();
-    expect(mockGenerateProof).not.toHaveBeenCalled();
+    expect(mockGenerateProof).toHaveBeenCalledOnce();
   });
 
   it("passes correct prover config to SDK", async () => {
@@ -620,7 +612,7 @@ describe("ProofEngine with local-binary backend", () => {
     });
     await engine.generate(makeInputs());
 
-    const args = vi.mocked(mockGenerateProofWithProver).mock.calls[0];
+    const args = vi.mocked(mockGenerateProof).mock.calls[0];
     expect(args[1]).toEqual({
       kind: "local-binary",
       binaryPath: "/usr/bin/agenc-zkvm-host",
@@ -647,7 +639,7 @@ describe("ProofEngine with remote backend", () => {
     vi.clearAllMocks();
   });
 
-  it("calls generateProofWithProver with remote config", async () => {
+  it("calls SDK generateProof with remote config", async () => {
     const engine = new ProofEngine({
       proverBackend: {
         kind: "remote",
@@ -657,10 +649,9 @@ describe("ProofEngine with remote backend", () => {
     });
     await engine.generate(makeInputs());
 
-    expect(mockGenerateProofWithProver).toHaveBeenCalledOnce();
-    expect(mockGenerateProof).not.toHaveBeenCalled();
+    expect(mockGenerateProof).toHaveBeenCalledOnce();
 
-    const args = vi.mocked(mockGenerateProofWithProver).mock.calls[0];
+    const args = vi.mocked(mockGenerateProof).mock.calls[0];
     expect(args[1]).toEqual({
       kind: "remote",
       endpoint: "https://prover.example.com",
@@ -679,62 +670,6 @@ describe("ProofEngine with remote backend", () => {
     );
     await expect(engine.generate(makeInputs())).rejects.toThrow(
       "endpoint is required",
-    );
-  });
-});
-
-describe("ProofEngine real backend skips verification", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("does not call verifyProofLocally for local-binary backend", async () => {
-    const engine = new ProofEngine({
-      proverBackend: {
-        kind: "local-binary",
-        binaryPath: "/usr/bin/agenc-zkvm-host",
-      },
-      verifyAfterGeneration: true,
-    });
-    const result = await engine.generate(makeInputs());
-
-    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
-    expect(result.verified).toBe(false);
-  });
-
-  it("does not call verifyProofLocally for remote backend", async () => {
-    const engine = new ProofEngine({
-      proverBackend: { kind: "remote", endpoint: "https://prover.example.com" },
-      verifyAfterGeneration: true,
-    });
-    const result = await engine.generate(makeInputs());
-
-    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
-    expect(result.verified).toBe(false);
-  });
-
-  it("logs a warning when verifyAfterGeneration is set with real backend", async () => {
-    const warnFn = vi.fn();
-    const engine = new ProofEngine({
-      proverBackend: {
-        kind: "local-binary",
-        binaryPath: "/usr/bin/agenc-zkvm-host",
-      },
-      verifyAfterGeneration: true,
-      logger: {
-        debug: vi.fn(),
-        info: vi.fn(),
-        warn: warnFn,
-        error: vi.fn(),
-        setLevel: vi.fn(),
-      },
-    });
-    await engine.generate(makeInputs());
-
-    expect(warnFn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "verifyAfterGeneration is not supported with real prover backends",
-      ),
     );
   });
 });
