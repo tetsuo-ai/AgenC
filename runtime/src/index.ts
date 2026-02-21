@@ -1790,3 +1790,18 @@ export {
   // Operations
   ReputationEconomyOperations,
 } from "./reputation/index.js";
+
+// MCP Client (External MCP server integration)
+export {
+  type MCPServerConfig,
+  type MCPToolBridge,
+  createMCPConnection,
+  createToolBridge,
+  MCPManager,
+} from "./mcp-client/index.js";
+
+// Desktop Awareness (Autonomous desktop monitoring)
+export {
+  type DesktopAwarenessConfig,
+  createDesktopAwarenessAction,
+} from "./autonomous/desktop-awareness.js";

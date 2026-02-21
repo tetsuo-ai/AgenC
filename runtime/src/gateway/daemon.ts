@@ -198,6 +198,9 @@ export class DaemonManager {
   private _imessageChannel: ChannelPlugin | null = null;
   private _proactiveCommunicator: ProactiveCommunicator | null = null;
   private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private _heartbeatScheduler: import('./heartbeat.js').HeartbeatScheduler | null = null;
+  private _cronScheduler: import('./scheduler.js').CronScheduler | null = null;
+  private _mcpManager: import('../mcp-client/manager.js').MCPManager | null = null;
   private _voiceBridge: VoiceBridge | null = null;
   private _memoryBackend: MemoryBackend | null = null;
   private _approvalEngine: ApprovalEngine | null = null;
@@ -227,7 +230,32 @@ export class DaemonManager {
       throw new GatewayStateError('Daemon is already running');
     }
 
-    const gatewayConfig = await loadGatewayConfig(this.configPath);
+    const loadedConfig = await loadGatewayConfig(this.configPath);
+
+    // Shallow-copy so we don't mutate the loaded config object
+    const gatewayConfig = { ...loadedConfig };
+
+    // Auto-configure default MCP servers on macOS when none are specified
+    if (process.platform === 'darwin' && !gatewayConfig.mcp?.servers?.length) {
+      gatewayConfig.mcp = {
+        servers: [
+          {
+            name: 'peekaboo',
+            command: 'npx',
+            args: ['-y', '@steipete/peekaboo@latest'],
+            enabled: true,
+          },
+          {
+            name: 'macos-automator',
+            command: 'npx',
+            args: ['-y', '@steipete/macos-automator-mcp@latest'],
+            enabled: true,
+          },
+        ],
+      };
+      this.logger.info('Auto-configured default macOS MCP servers (Peekaboo + macos-automator)');
+    }
+
     const gateway = new Gateway(gatewayConfig, {
       logger: this.logger,
       configPath: this.configPath,
@@ -667,8 +695,10 @@ export class DaemonManager {
   }
 
   /**
-   * Wire autonomous features: curiosity, self-learning, meta-planner, proactive comms.
-   * Creates a HeartbeatScheduler-style interval that runs each action in sequence.
+   * Wire autonomous features: curiosity, self-learning, meta-planner, proactive comms, desktop awareness.
+   *
+   * Uses HeartbeatScheduler for short-cycle actions (meta-planner, proactive comms, desktop awareness)
+   * and CronScheduler for long-running research tasks (curiosity every 2h, self-learning every 6h).
    */
   private async wireAutonomousFeatures(config: GatewayConfig): Promise<void> {
     const heartbeatConfig = (config as Record<string, unknown>).heartbeat as
@@ -723,51 +753,99 @@ export class DaemonManager {
         return;
       }
 
-      const actions = [
-        createCuriosityAction({
-          interests: ["Solana ecosystem", "DeFi protocols", "AI agents"],
-          chatExecutor: this._chatExecutor!,
-          toolHandler: this._baseToolHandler!,
-          memory: this._memoryBackend!,
-          systemPrompt: "You are an autonomous AI research agent.",
-          communicator,
-        }),
-        createSelfLearningAction({
-          llm,
-          memory: this._memoryBackend!,
-        }),
-        createMetaPlannerAction({
-          llm,
-          memory: this._memoryBackend!,
-        }),
-        createProactiveCommsAction({
-          llm,
-          memory: this._memoryBackend!,
-          communicator,
-        }),
-      ];
+      const curiosityAction = createCuriosityAction({
+        interests: ["Solana ecosystem", "DeFi protocols", "AI agents"],
+        chatExecutor: this._chatExecutor!,
+        toolHandler: this._baseToolHandler!,
+        memory: this._memoryBackend!,
+        systemPrompt: "You are an autonomous AI research agent.",
+        communicator,
+      });
+      const selfLearningAction = createSelfLearningAction({
+        llm,
+        memory: this._memoryBackend!,
+      });
+      const metaPlannerAction = createMetaPlannerAction({
+        llm,
+        memory: this._memoryBackend!,
+      });
+      const proactiveCommsAction = createProactiveCommsAction({
+        llm,
+        memory: this._memoryBackend!,
+        communicator,
+      });
 
-      const context = {
-        logger: this.logger,
-        timestamp: Date.now(),
-      };
+      // --- HeartbeatScheduler for short-cycle actions ---
+      const { HeartbeatScheduler } = await import("./heartbeat.js");
+      const heartbeatScheduler = new HeartbeatScheduler(
+        { enabled: true, intervalMs, timeoutMs: 60_000 },
+        { logger: this.logger },
+      );
+      heartbeatScheduler.registerAction(metaPlannerAction);
+      heartbeatScheduler.registerAction(proactiveCommsAction);
 
-      this._heartbeatTimer = setInterval(async () => {
-        for (const action of actions) {
-          if (!action.enabled) continue;
-          try {
-            const result = await action.execute(context);
-            if (result.hasOutput && !result.quiet) {
-              this.logger.info(`[heartbeat:${action.name}] ${result.output}`);
-            }
-          } catch (err) {
-            this.logger.error(`[heartbeat:${action.name}] error:`, err);
-          }
+      // Desktop awareness: register if Peekaboo MCP tools are available
+      if (this._mcpManager) {
+        const screenshotTool = this._mcpManager
+          .getToolsByServer("peekaboo")
+          .find((t) => t.name.includes("takeScreenshot"));
+        if (screenshotTool) {
+          const { createDesktopAwarenessAction } = await import(
+            "../autonomous/desktop-awareness.js"
+          );
+          heartbeatScheduler.registerAction(
+            createDesktopAwarenessAction({
+              screenshotTool,
+              llm,
+              memory: this._memoryBackend!,
+            }),
+          );
+          this.logger.info("Desktop awareness action registered (Peekaboo available)");
         }
-      }, intervalMs);
+      }
+
+      heartbeatScheduler.start();
+      this._heartbeatScheduler = heartbeatScheduler;
+
+      // --- CronScheduler for long-running research tasks ---
+      const { CronScheduler } = await import("./scheduler.js");
+      const cronScheduler = new CronScheduler({ logger: this.logger });
+
+      // Curiosity research every 2 hours
+      cronScheduler.addJob("curiosity", "0 */2 * * *", {
+        name: curiosityAction.name,
+        execute: async (ctx) => {
+          if (!curiosityAction.enabled) return;
+          const result = await curiosityAction.execute({
+            logger: ctx.logger,
+            sendToChannels: async () => {},
+          });
+          if (result.hasOutput && !result.quiet) {
+            ctx.logger.info(`[cron:curiosity] ${result.output}`);
+          }
+        },
+      });
+
+      // Self-learning analysis every 6 hours
+      cronScheduler.addJob("self-learning", "0 */6 * * *", {
+        name: selfLearningAction.name,
+        execute: async (ctx) => {
+          if (!selfLearningAction.enabled) return;
+          const result = await selfLearningAction.execute({
+            logger: ctx.logger,
+            sendToChannels: async () => {},
+          });
+          if (result.hasOutput && !result.quiet) {
+            ctx.logger.info(`[cron:self-learning] ${result.output}`);
+          }
+        },
+      });
+
+      cronScheduler.start();
+      this._cronScheduler = cronScheduler;
 
       this.logger.info(
-        `Autonomous features wired: ${actions.length} actions, interval=${intervalMs}ms`,
+        `Autonomous features wired: heartbeat (interval=${intervalMs}ms) + cron (curiosity @2h, self-learning @6h)`,
       );
     } catch (err) {
       this.logger.error("Failed to wire autonomous features:", err);
@@ -851,6 +929,18 @@ export class DaemonManager {
         registry.registerAll(createMacOSTools({ logger: this.logger }));
       } catch (err) {
         this.logger.warn?.('macOS tools unavailable:', err);
+      }
+    }
+
+    // External MCP server tools (Peekaboo, macos-automator, etc.)
+    if (config.mcp?.servers?.length) {
+      try {
+        const { MCPManager } = await import('../mcp-client/index.js');
+        this._mcpManager = new MCPManager(config.mcp.servers, this.logger);
+        await this._mcpManager.start();
+        registry.registerAll(this._mcpManager.getTools());
+      } catch (err) {
+        this.logger.error('Failed to initialize MCP servers:', err);
       }
     }
 
@@ -1462,14 +1552,15 @@ export class DaemonManager {
 
   /**
    * Create a memory backend based on gateway config.
-   * Defaults to InMemoryBackend when no config or backend='memory'.
+   * Defaults to SqliteBackend for persistence across restarts.
+   * Use backend='memory' to explicitly opt into InMemoryBackend.
    */
   private async createMemoryBackend(
     config: GatewayConfig,
     metrics?: UnifiedTelemetryCollector,
   ): Promise<MemoryBackend> {
     const memConfig = config.memory;
-    const backend = memConfig?.backend ?? 'memory';
+    const backend = memConfig?.backend ?? 'sqlite';
     const encryption = memConfig?.encryptionKey
       ? { key: memConfig.encryptionKey }
       : undefined;
@@ -1495,6 +1586,8 @@ export class DaemonManager {
           metrics,
         });
       }
+      case 'memory':
+        return new InMemoryBackend({ logger: this.logger, metrics });
       default:
         return new InMemoryBackend({ logger: this.logger, metrics });
     }
@@ -1557,7 +1650,21 @@ export class DaemonManager {
         await this._memoryBackend.close();
         this._memoryBackend = null;
       }
-      // Stop heartbeat timer
+      // Stop MCP server connections
+      if (this._mcpManager !== null) {
+        await this._mcpManager.stop();
+        this._mcpManager = null;
+      }
+      // Stop autonomous schedulers
+      if (this._heartbeatScheduler !== null) {
+        this._heartbeatScheduler.stop();
+        this._heartbeatScheduler = null;
+      }
+      if (this._cronScheduler !== null) {
+        this._cronScheduler.stop();
+        this._cronScheduler = null;
+      }
+      // Stop legacy heartbeat timer (if still in use)
       if (this._heartbeatTimer !== null) {
         clearInterval(this._heartbeatTimer);
         this._heartbeatTimer = null;
