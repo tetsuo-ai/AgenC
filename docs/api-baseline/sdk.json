@@ -117,9 +117,14 @@
       "kind": "interface"
     },
     {
-      "name": "computeCommitment",
+      "name": "computeBinding",
       "kind": "function",
-      "signature": "(constraintHash: bigint, salt: bigint): bigint"
+      "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, outputCommitment: bigint): bigint"
+    },
+    {
+      "name": "computeCommitmentFromOutput",
+      "kind": "function",
+      "signature": "(output: bigint[], salt: bigint): bigint"
     },
     {
       "name": "computeConstraintHash",
@@ -127,14 +132,14 @@
       "signature": "(output: bigint[]): bigint"
     },
     {
-      "name": "computeBindingDigest",
-      "kind": "function",
-      "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, outputCommitment: bigint): bigint"
-    },
-    {
       "name": "computeHashes",
       "kind": "function",
       "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, output: bigint[], salt: bigint): HashResult"
+    },
+    {
+      "name": "computeNullifierFromAgentSecret",
+      "kind": "function",
+      "signature": "(agentPubkey: PublicKey, agentSecret?: Uint8Array): bigint"
     },
     {
       "name": "COORDINATION_ERROR_MAP",
@@ -310,7 +315,7 @@
     {
       "name": "generateProof",
       "kind": "function",
-      "signature": "(params: ProofGenerationParams): Promise<ProofResult>"
+      "signature": "(params: ProofGenerationParams, proverConfig: ProverConfig): Promise<ProofResult>"
     },
     {
       "name": "generateSalt",
@@ -534,6 +539,18 @@
     },
     {
       "name": "ProofResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ProverConfig",
+      "kind": "type"
+    },
+    {
+      "name": "ProverError",
+      "kind": "class"
+    },
+    {
+      "name": "ProverInput",
       "kind": "interface"
     },
     {
@@ -816,9 +833,14 @@
       "kind": "const"
     },
     {
-      "name": "verifyProofLocally",
+      "name": "bigintToBytes32",
       "kind": "function",
-      "signature": "(proof: Buffer, publicSignals: bigint[]): Promise<boolean>"
+      "signature": "(value: bigint): Buffer"
+    },
+    {
+      "name": "buildJournalBytes",
+      "kind": "function",
+      "signature": "(fields: { taskPda: Buffer; agentAuthority: Buffer; constraintHash: Buffer; outputCommitment: Buffer; binding: Buffer; nullifier: Buffer; }): Buffer"
     },
     {
       "name": "VERSION",

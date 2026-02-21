@@ -11,7 +11,7 @@ import type { MetricsProvider } from "../task/types.js";
 // Re-export HashResult from SDK for convenience
 export type { HashResult } from "@agenc/sdk";
 
-export type ProverBackend = "deterministic-local" | "local-binary" | "remote";
+export type ProverBackend = "local-binary" | "remote";
 
 export interface RouterConfig {
   /** Trusted verifier-router program id */

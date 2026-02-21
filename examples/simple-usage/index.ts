@@ -10,7 +10,8 @@ import {
   PROGRAM_ID,
   TRUSTED_RISC0_SELECTOR,
   generateSalt,
-  generateProof,
+  computeHashes,
+  bigintToBytes32,
 } from '@agenc/sdk';
 
 const ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
@@ -54,22 +55,20 @@ async function main() {
   const output = [1n, 2n, 3n, 4n];
   const salt = generateSalt();
 
-  console.log('Generating private payload...');
-  const proof = await generateProof({
-    taskPda,
-    agentPubkey,
-    output,
-    salt,
-  });
+  console.log('Computing private payload hashes...');
+  // Actual seal generation requires: generateProof(params, proverConfig)
+  // with a local-binary or remote prover backend.
+  const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 
-  const accounts = deriveSubmissionAccounts(proof.bindingSeed, proof.nullifierSeed);
+  const bindingSeed = bigintToBytes32(hashes.binding);
+  const nullifierSeed = bigintToBytes32(hashes.nullifier);
+  const accounts = deriveSubmissionAccounts(bindingSeed, nullifierSeed);
 
-  console.log('Payload shape:');
-  console.log('  sealBytes:', proof.sealBytes.length);
-  console.log('  journal:', proof.journal.length);
-  console.log('  imageId:', proof.imageId.length);
-  console.log('  bindingSeed:', proof.bindingSeed.length);
-  console.log('  nullifierSeed:', proof.nullifierSeed.length);
+  console.log('Hash values:');
+  console.log('  constraintHash:', hashes.constraintHash.toString(16).substring(0, 16) + '...');
+  console.log('  outputCommitment:', hashes.outputCommitment.toString(16).substring(0, 16) + '...');
+  console.log('  binding:', hashes.binding.toString(16).substring(0, 16) + '...');
+  console.log('  nullifier:', hashes.nullifier.toString(16).substring(0, 16) + '...');
 
   console.log('\nSubmission accounts:');
   console.log('  routerProgram:', accounts.routerProgram.toBase58());
@@ -78,15 +77,6 @@ async function main() {
   console.log('  verifierProgram:', accounts.verifierProgram.toBase58());
   console.log('  bindingSpend:', accounts.bindingSpend.toBase58());
   console.log('  nullifierSpend:', accounts.nullifierSpend.toBase58());
-
-  console.log('\nInstruction payload preview:');
-  console.log({
-    sealBytes: Array.from(proof.sealBytes.subarray(0, 12)),
-    journal: Array.from(proof.journal.subarray(0, 12)),
-    imageId: Array.from(proof.imageId),
-    bindingSeed: Array.from(proof.bindingSeed),
-    nullifierSeed: Array.from(proof.nullifierSeed),
-  });
 }
 
 main().catch(console.error);

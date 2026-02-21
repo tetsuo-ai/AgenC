@@ -6,7 +6,7 @@
 
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import anchor, { Program, AnchorProvider } from "@coral-xyz/anchor";
-import { generateProof, generateSalt } from "@agenc/sdk";
+// SDK proof functions removed — proof generation requires ProofEngine
 import { AgentRuntime } from "../runtime.js";
 import { TaskScanner, TaskEventSubscription } from "./scanner.js";
 import {
@@ -115,23 +115,6 @@ const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
   "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
 );
-const LEGACY_BINDING_VALUE_KEY = `binding${"Value"}`;
-
-type GeneratedProofLike = {
-  bindingSeed?: Uint8Array | Buffer;
-  bindingValue?: Uint8Array | Buffer;
-};
-
-function extractBindingSeed(proof: GeneratedProofLike): Uint8Array {
-  const bindingSeed =
-    proof.bindingSeed ??
-    proof[LEGACY_BINDING_VALUE_KEY as keyof GeneratedProofLike];
-  if (!bindingSeed) {
-    throw new Error("generateProof() response is missing binding seed bytes");
-  }
-  return new Uint8Array(bindingSeed);
-}
-
 /**
  * Internal task tracking
  */
@@ -1474,21 +1457,9 @@ export class AutonomousAgent extends AgentRuntime {
         salt,
       });
     } else {
-      const salt = generateSalt();
-      const generated = await generateProof({
-        taskPda: task.pda,
-        agentPubkey: this.agentWallet.publicKey,
-        output,
-        salt,
-      });
-      proofResult = {
-        sealBytes: new Uint8Array(generated.sealBytes),
-        journal: new Uint8Array(generated.journal),
-        imageId: new Uint8Array(generated.imageId),
-        bindingSeed: extractBindingSeed(generated),
-        nullifierSeed: new Uint8Array(generated.nullifierSeed),
-        proofSize: generated.proofSize,
-      };
+      throw new Error(
+        "Private task completion requires a ProofEngine. Configure one via AutonomousAgent options.",
+      );
     }
 
     const proofDuration = Date.now() - proofStartTime;

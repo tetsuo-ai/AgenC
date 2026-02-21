@@ -4,9 +4,14 @@ use std::{ffi::OsStr, fmt};
 
 pub mod config;
 
-use agenc_zkvm_guest::{serialize_journal, JournalField, JournalFields, JOURNAL_TOTAL_LEN};
+use agenc_zkvm_guest::{JournalField, JournalFields};
+#[cfg(feature = "production-prover")]
+use agenc_zkvm_guest::{serialize_journal, JOURNAL_TOTAL_LEN};
+#[cfg(feature = "production-prover")]
 use borsh::BorshSerialize;
-use verifier_router::{client::encode_seal_with_selector, Seal, Selector};
+use verifier_router::Selector;
+#[cfg(feature = "production-prover")]
+use verifier_router::{client::encode_seal_with_selector, Seal};
 
 pub const IMAGE_ID_LEN: usize = 32;
 pub const SEAL_SELECTOR_LEN: usize = 4;
@@ -16,6 +21,7 @@ pub const TRUSTED_SEAL_SELECTOR: Selector = [0x52, 0x5a, 0x56, 0x4d];
 pub const DEV_MODE_ENV_VAR: &str = "RISC0_DEV_MODE";
 
 pub type ImageId = [u8; IMAGE_ID_LEN];
+#[cfg(feature = "production-prover")]
 type ProofBytes = [u8; SEAL_PROOF_LEN];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,62 +155,12 @@ fn generate_proof_with_dev_mode(
     }
     #[cfg(not(feature = "production-prover"))]
     {
-        generate_proof_simulated(request)
+        let _ = request;
+        Err(ProveError::ProverFailed(
+            "Proof generation requires building with --features production-prover. \
+             Install the RISC Zero toolchain: curl -L https://risczero.com/install | bash && rzup".into()
+        ))
     }
-}
-
-// ---------------------------------------------------------------------------
-// Simulation path (default, no production-prover feature)
-// ---------------------------------------------------------------------------
-
-// Arbitrary mixing constants — small primes chosen to spread bit patterns in
-// simulated output without any cryptographic claims.
-#[cfg(not(feature = "production-prover"))]
-const SIM_ID_STRIDE: u8 = 7;
-#[cfg(not(feature = "production-prover"))]
-const SIM_PROOF_STRIDE: u8 = 13;
-
-#[cfg(not(feature = "production-prover"))]
-fn generate_proof_simulated(request: &ProveRequest) -> Result<ProveResponse, ProveError> {
-    let journal_bytes = serialize_journal(&JournalFields::from(*request));
-
-    if journal_bytes.len() != JOURNAL_TOTAL_LEN {
-        return Err(ProveError::UnexpectedJournalLength {
-            expected: JOURNAL_TOTAL_LEN,
-            actual: journal_bytes.len(),
-        });
-    }
-
-    let image_id = derive_image_id(request);
-    let proof_bytes = simulate_proof_bytes(&journal_bytes, &image_id);
-    let seal_bytes = encode_seal(&proof_bytes)?;
-
-    Ok(ProveResponse {
-        seal_bytes,
-        journal: journal_bytes.to_vec(),
-        image_id,
-    })
-}
-
-#[cfg(not(feature = "production-prover"))]
-fn derive_image_id(request: &ProveRequest) -> ImageId {
-    let mut out = [0_u8; IMAGE_ID_LEN];
-    for (i, slot) in out.iter_mut().enumerate() {
-        *slot = request.constraint_hash[i]
-            ^ request.binding[i].wrapping_add((i as u8).wrapping_mul(SIM_ID_STRIDE));
-    }
-    out
-}
-
-#[cfg(not(feature = "production-prover"))]
-fn simulate_proof_bytes(journal: &[u8; JOURNAL_TOTAL_LEN], image_id: &ImageId) -> ProofBytes {
-    let mut out = [0_u8; SEAL_PROOF_LEN];
-    for (i, slot) in out.iter_mut().enumerate() {
-        *slot = journal[i % JOURNAL_TOTAL_LEN]
-            ^ image_id[i % IMAGE_ID_LEN]
-            ^ (i as u8).wrapping_mul(SIM_PROOF_STRIDE);
-    }
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +261,7 @@ pub fn render_prove_response(response: &ProveResponse) -> String {
     serde_json::to_string(&json_resp).expect("ProveResponse serialization cannot fail")
 }
 
+#[cfg(feature = "production-prover")]
 fn encode_seal(proof_bytes: &ProofBytes) -> Result<Vec<u8>, ProveError> {
     let seal: Seal = encode_seal_with_selector(proof_bytes, TRUSTED_SEAL_SELECTOR);
     debug_assert_eq!(
@@ -337,12 +294,14 @@ fn ensure_allowlisted_deployment(cluster: &str) -> Result<(), ProveError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "production-prover")]
     use borsh::BorshDeserialize;
 
     // -------------------------------------------------------------------
-    // Existing simulation tests (run in default non-production-prover mode)
+    // Core proof generation tests
     // -------------------------------------------------------------------
 
+    #[cfg(feature = "production-prover")]
     #[test]
     fn canonical_seal_shape_and_lengths_are_correct() {
         let request = default_prove_request();
@@ -357,24 +316,6 @@ mod tests {
         assert_eq!(response.image_id.len(), IMAGE_ID_LEN);
     }
 
-    #[cfg(not(feature = "production-prover"))]
-    #[test]
-    fn simulated_seal_bytes_match_router_encoding() {
-        let request = default_prove_request();
-        let journal = serialize_journal(&JournalFields::from(request));
-        let image_id = derive_image_id(&request);
-        let proof_bytes = simulate_proof_bytes(&journal, &image_id);
-
-        let expected_seal = encode_seal_with_selector(&proof_bytes, TRUSTED_SEAL_SELECTOR);
-        let expected_bytes = expected_seal
-            .try_to_vec()
-            .expect("canonical seal must serialize");
-
-        let response =
-            generate_proof_with_dev_mode(&request, None).expect("proof generation must succeed");
-        assert_eq!(response.seal_bytes, expected_bytes);
-    }
-
     #[cfg(feature = "production-prover")]
     #[test]
     fn real_seal_bytes_decode_with_correct_selector() {
@@ -385,6 +326,7 @@ mod tests {
         assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
     }
 
+    #[cfg(feature = "production-prover")]
     #[test]
     fn proof_generation_is_deterministic() {
         let request = default_prove_request();
@@ -417,6 +359,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "production-prover")]
     #[test]
     fn cli_output_is_structured_and_deterministic() {
         let request = default_prove_request();
@@ -431,6 +374,22 @@ mod tests {
         assert!(first.contains(",\"journal\":["));
         assert!(first.contains(",\"image_id\":["));
         assert!(first.ends_with("]}"));
+    }
+
+    #[test]
+    fn without_production_prover_returns_error() {
+        #[cfg(not(feature = "production-prover"))]
+        {
+            let request = default_prove_request();
+            let err = generate_proof_with_dev_mode(&request, None)
+                .expect_err("must fail without production-prover");
+            match err {
+                ProveError::ProverFailed(msg) => {
+                    assert!(msg.contains("--features production-prover"), "error should mention feature flag: {msg}");
+                }
+                other => panic!("expected ProverFailed, got: {other}"),
+            }
+        }
     }
 
     #[test]
