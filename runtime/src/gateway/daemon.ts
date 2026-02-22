@@ -1169,6 +1169,25 @@ export class DaemonManager {
       }
     }
 
+    // X (Twitter) tools — registered when config.x credentials are present.
+    const xConfig = (config as unknown as Record<string, unknown>).x as
+      | { consumerKey?: string; consumerSecret?: string; accessToken?: string; accessTokenSecret?: string }
+      | undefined;
+    if (xConfig?.consumerKey && xConfig.consumerSecret && xConfig.accessToken && xConfig.accessTokenSecret) {
+      try {
+        const { createXTools } = await import('../tools/x/index.js');
+        registry.registerAll(createXTools({
+          consumerKey: xConfig.consumerKey,
+          consumerSecret: xConfig.consumerSecret,
+          accessToken: xConfig.accessToken,
+          accessTokenSecret: xConfig.accessTokenSecret,
+        }, this.logger));
+        this.logger.info('X (Twitter) tools registered');
+      } catch (error) {
+        this.logger.warn?.('X tools unavailable:', error);
+      }
+    }
+
     return registry;
   }
 
