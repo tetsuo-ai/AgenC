@@ -30,6 +30,7 @@ export const WORKSPACE_FILES = {
   CAPABILITIES: "CAPABILITIES.md",
   POLICY: "POLICY.md",
   REPUTATION: "REPUTATION.md",
+  X: "X.md",
 } as const;
 
 export type WorkspaceFileName =
@@ -52,6 +53,7 @@ export interface WorkspaceFiles {
   readonly capabilities?: string;
   readonly policy?: string;
   readonly reputation?: string;
+  readonly x?: string;
 }
 
 /** Result of workspace directory validation. */
@@ -115,6 +117,7 @@ export class WorkspaceLoader {
       capabilities,
       policy,
       reputation,
+      x,
     ] = await Promise.all([
       readSafe(join(this.path, WORKSPACE_FILES.AGENT)),
       readSafe(join(this.path, WORKSPACE_FILES.SOUL)),
@@ -127,6 +130,7 @@ export class WorkspaceLoader {
       readSafe(join(this.path, WORKSPACE_FILES.CAPABILITIES)),
       readSafe(join(this.path, WORKSPACE_FILES.POLICY)),
       readSafe(join(this.path, WORKSPACE_FILES.REPUTATION)),
+      readSafe(join(this.path, WORKSPACE_FILES.X)),
     ]);
 
     return {
@@ -141,6 +145,7 @@ export class WorkspaceLoader {
       capabilities,
       policy,
       reputation,
+      x,
     };
   }
 
@@ -231,6 +236,7 @@ export function assembleSystemPrompt(
   const ordered: (string | undefined)[] = [
     files.agent,
     files.soul,
+    files.x,
     files.identity,
     files.capabilities,
     files.policy,
@@ -363,6 +369,18 @@ On-chain reputation context and thresholds.
 ## Current
 - Reputation score: (fetched at runtime)
 - Min reputation for tasks: 50
+`,
+  [WORKSPACE_FILES.X]: `# X (Twitter)
+
+Voice and posting guidelines for the agent's X presence.
+
+## Handle
+@a_g_e_n_c
+
+## Posting Rules
+- Research before posting
+- No emojis, no hashtags
+- Keep tweets under 200 characters
 `,
 };
 
