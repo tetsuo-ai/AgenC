@@ -50,6 +50,8 @@ export interface WebChatDeps {
   connection?: import("@solana/web3.js").Connection;
   /** Optional callback to broadcast events to all subscribed WS clients. */
   broadcastEvent?: (eventType: string, data: Record<string, unknown>) => void;
+  /** Optional desktop sandbox manager for desktop.* handlers. */
+  desktopManager?: import("../../desktop/manager.js").DesktopSandboxManager;
 }
 
 // ============================================================================
@@ -152,6 +154,23 @@ export interface EventsSubscribeRequest {
 
 export interface EventsUnsubscribeRequest {
   type: "events.unsubscribe";
+  id?: string;
+}
+
+export interface DesktopListRequest {
+  type: "desktop.list";
+  id?: string;
+}
+
+export interface DesktopCreateRequest {
+  type: "desktop.create";
+  sessionId?: string;
+  id?: string;
+}
+
+export interface DesktopDestroyRequest {
+  type: "desktop.destroy";
+  containerId: string;
   id?: string;
 }
 

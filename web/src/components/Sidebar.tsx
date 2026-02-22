@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'tasks', label: 'Tasks', icon: <TasksIcon /> },
   { id: 'memory', label: 'Memory', icon: <MemoryIcon /> },
   { id: 'activity', label: 'Activity', icon: <ActivityIcon /> },
+  { id: 'desktop', label: 'Desktop', icon: <DesktopIcon /> },
 ];
 
 const BOTTOM_NAV: NavItem[] = [
@@ -192,6 +193,16 @@ function PaymentIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  );
+}
+
+function DesktopIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   );
 }

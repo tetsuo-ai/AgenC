@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Input automation
     xdotool xclip xsel \
     # Screenshot + display info
-    scrot imagemagick xdpyinfo \
+    scrot imagemagick x11-utils \
     # Process management
     supervisor \
     # Fonts

@@ -18,18 +18,6 @@ vi.mock("./llm/grok/adapter.js", () => ({
     })),
 }));
 
-vi.mock("./llm/anthropic/adapter.js", () => ({
-  AnthropicProvider: vi
-    .fn()
-    .mockImplementation((config: Record<string, unknown>) => ({
-      name: "anthropic",
-      config,
-      chat: vi.fn(),
-      chatStream: vi.fn(),
-      healthCheck: vi.fn(),
-    })),
-}));
-
 vi.mock("./llm/ollama/adapter.js", () => ({
   OllamaProvider: vi
     .fn()
@@ -174,7 +162,6 @@ vi.mock("./dispute/operations.js", () => ({
 
 import { AgentBuilder, BuiltAgent } from "./builder.js";
 import { GrokProvider } from "./llm/grok/adapter.js";
-import { AnthropicProvider } from "./llm/anthropic/adapter.js";
 import { OllamaProvider } from "./llm/ollama/adapter.js";
 import { LLMTaskExecutor } from "./llm/executor.js";
 import { InMemoryBackend } from "./memory/in-memory/backend.js";
@@ -349,7 +336,6 @@ describe("AgentBuilder", () => {
 
       // No LLM provider created
       expect(GrokProvider).not.toHaveBeenCalled();
-      expect(AnthropicProvider).not.toHaveBeenCalled();
       expect(OllamaProvider).not.toHaveBeenCalled();
       expect(LLMTaskExecutor).not.toHaveBeenCalled();
     });
@@ -437,21 +423,6 @@ describe("AgentBuilder", () => {
       expect(providerConfig.model).toBe("grok-3");
       expect(providerConfig.tools).toBeDefined();
       expect(providerConfig.tools.length).toBe(4); // 4 agenc tools
-    });
-
-    it("creates AnthropicProvider", async () => {
-      await new AgentBuilder(mockConnection, mockKeypair)
-        .withCapabilities(COMPUTE)
-        .withLLM("anthropic", {
-          apiKey: "sk-ant-123",
-          model: "claude-sonnet-4-5-20250929",
-        })
-        .build();
-
-      expect(AnthropicProvider).toHaveBeenCalledTimes(1);
-      const config = (AnthropicProvider as unknown as ReturnType<typeof vi.fn>)
-        .mock.calls[0][0];
-      expect(config.apiKey).toBe("sk-ant-123");
     });
 
     it("creates OllamaProvider", async () => {

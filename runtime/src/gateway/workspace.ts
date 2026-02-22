@@ -92,7 +92,7 @@ export { WorkspaceValidationError } from "./errors.js";
 // Validation helpers (internal — not exported from barrel)
 // ============================================================================
 
-const VALID_LLM_PROVIDERS = new Set(["grok", "anthropic", "ollama"]);
+const VALID_LLM_PROVIDERS = new Set(["grok", "ollama"]);
 
 function validateWorkspaceId(id: string): void {
   if (!WORKSPACE_ID_PATTERN.test(id)) {

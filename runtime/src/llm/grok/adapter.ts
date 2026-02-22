@@ -24,6 +24,12 @@ import { withTimeout } from "../timeout.js";
 
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
+const DEFAULT_VISION_MODEL = "grok-4-0709";
+
+/** Vision models known to support function-calling alongside image understanding. */
+const VISION_MODELS_WITH_TOOLS = new Set([
+  "grok-4-0709",
+]);
 
 export class GrokProvider implements LLMProvider {
   readonly name = "grok";
@@ -209,27 +215,95 @@ export class GrokProvider implements LLMProvider {
         Array.isArray(m.content) &&
         m.content.some((p) => p.type === "image_url"),
     );
-    const model = hasImages
-      ? (this.config.visionModel ?? "grok-2-vision-1212")
-      : this.config.model;
+    const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
+    const model = hasImages ? visionModel : this.config.model;
+
+    // Build mapped messages, handling multimodal tool messages.
+    // The OpenAI API requires tool message content to be a string.
+    // When tool results contain images (e.g. screenshots), we extract
+    // the text for the tool message and inject images as a user message
+    // after all tool results in the block.
+    const mapped: Record<string, unknown>[] = [];
+    const pendingImages: Array<{
+      type: "image_url";
+      image_url: { url: string };
+    }> = [];
+
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+
+      // Collect images from multimodal tool messages
+      if (m.role === "tool" && Array.isArray(m.content)) {
+        for (const part of m.content) {
+          if (part.type === "image_url") {
+            pendingImages.push({
+              type: "image_url",
+              image_url: part.image_url,
+            });
+          }
+        }
+      }
+
+      mapped.push(this.toOpenAIMessage(m));
+
+      // Flush collected images as a user message after the last tool message
+      // in a contiguous tool-result block
+      if (pendingImages.length > 0) {
+        const nextMsg = messages[i + 1];
+        if (!nextMsg || nextMsg.role !== "tool") {
+          mapped.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Here is the screenshot from the tool result above.",
+              },
+              ...pendingImages.map((img) => ({
+                type: img.type,
+                image_url: img.image_url,
+              })),
+            ],
+          });
+          pendingImages.length = 0;
+        }
+      }
+    }
 
     const params: Record<string, unknown> = {
       model,
-      messages: messages.map((m) => this.toOpenAIMessage(m)),
+      messages: mapped,
     };
     if (this.config.temperature !== undefined)
       params.temperature = this.config.temperature;
     if (this.config.maxTokens !== undefined)
       params.max_tokens = this.config.maxTokens;
-    if (this.tools.length > 0 && !hasImages) params.tools = this.tools;
+    // Enable tools unless the vision model is known to not support them
+    if (this.tools.length > 0) {
+      if (!hasImages || VISION_MODELS_WITH_TOOLS.has(visionModel)) {
+        params.tools = this.tools;
+      }
+    }
     return params;
   }
 
   private toOpenAIMessage(msg: LLMMessage): Record<string, unknown> {
     if (msg.role === "tool") {
+      // Tool messages require string content per the OpenAI API spec.
+      // When content is a multimodal array (e.g. from screenshot tool results),
+      // extract only the text parts. Images are injected separately by buildParams.
+      let content: string;
+      if (Array.isArray(msg.content)) {
+        content =
+          msg.content
+            .filter((p) => p.type === "text")
+            .map((p) => (p as { type: "text"; text: string }).text)
+            .join("\n") || "Tool executed successfully.";
+      } else {
+        content = msg.content;
+      }
       return {
         role: "tool",
-        content: msg.content,
+        content,
         tool_call_id: msg.toolCallId,
       };
     }

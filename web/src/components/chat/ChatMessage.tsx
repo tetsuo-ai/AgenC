@@ -1,9 +1,53 @@
-import { useCallback, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { useCallback, useMemo, useState } from 'react';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import type { ChatMessage as ChatMessageType } from '../../types';
+import type { ChatMessage as ChatMessageType, ToolCall } from '../../types';
 import { ToolCallCard } from './ToolCallCard';
+
+/** Allow data: URLs (for inline screenshots) in addition to the default safe protocols. */
+function urlTransform(url: string): string {
+  if (url.startsWith('data:')) return url;
+  return defaultUrlTransform(url);
+}
+
+interface ExtractedContent {
+  text: string;
+  images: string[];
+}
+
+/** Extract inline base64 images from markdown content.
+ *  ReactMarkdown chokes on huge data: URLs, so we pull them out and render
+ *  them as real <img> elements separately. */
+function extractInlineImages(content: string): ExtractedContent {
+  const images: string[] = [];
+  const text = content.replace(/!\[([^\]]*)\]\((data:image\/[^)]{200,})\)/g, (_match, _alt, url) => {
+    images.push(url as string);
+    return '';
+  });
+  return { text: text.trim(), images };
+}
+
+/** Extract screenshot data URLs from tool call results. */
+function extractScreenshotsFromToolCalls(toolCalls: ToolCall[] | undefined): string[] {
+  if (!toolCalls) return [];
+  const urls: string[] = [];
+  for (const tc of toolCalls) {
+    if (tc.toolName !== 'desktop.screenshot' || !tc.result) continue;
+    try {
+      let obj = JSON.parse(tc.result) as Record<string, unknown>;
+      if (typeof obj.content === 'string') {
+        try { obj = JSON.parse(obj.content) as Record<string, unknown>; } catch { /* */ }
+      }
+      if (typeof obj.dataUrl === 'string' && obj.dataUrl.startsWith('data:image/')) {
+        urls.push(obj.dataUrl);
+      } else if (typeof obj.image === 'string' && obj.image.length > 100) {
+        urls.push(`data:image/png;base64,${obj.image}`);
+      }
+    } catch { /* not JSON */ }
+  }
+  return urls;
+}
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -23,6 +67,22 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
       void navigator.clipboard.writeText(message.content);
     }
   }, [message.content]);
+
+  const { text: markdownText, images: inlineImages } = useMemo(
+    () => (message.content ? extractInlineImages(message.content) : { text: '', images: [] }),
+    [message.content],
+  );
+
+  const screenshotImages = useMemo(
+    () => extractScreenshotsFromToolCalls(message.toolCalls),
+    [message.toolCalls],
+  );
+
+  // Combine all images: screenshots from tool calls + inline base64 from markdown
+  const allImages = useMemo(
+    () => [...screenshotImages, ...inlineImages],
+    [screenshotImages, inlineImages],
+  );
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse animate-msg-user' : 'flex-row animate-msg-agent'}`}>
@@ -50,8 +110,19 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
               : 'bg-tetsuo-50 text-tetsuo-800 border border-tetsuo-200 rounded-tl-sm'
           }${searchQuery ? ' ring-2 ring-amber-400/60 shadow-[0_0_8px_rgba(251,191,36,0.2)]' : ''}`}
         >
-          {message.content && (
+          {/* Render screenshots and extracted base64 images */}
+          {allImages.map((src, i) => (
+            <img
+              key={`inline-img-${i}`}
+              src={src}
+              alt="Desktop screenshot"
+              className="max-w-full rounded-lg my-2 border border-tetsuo-200"
+            />
+          ))}
+
+          {markdownText && (
             <ReactMarkdown
+              urlTransform={urlTransform}
               components={{
                 code({ className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
@@ -74,6 +145,16 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
                     </SyntaxHighlighter>
                   );
                 },
+                img({ src, alt, ...props }) {
+                  return (
+                    <img
+                      src={src}
+                      alt={alt || 'image'}
+                      className="max-w-full rounded-lg my-2 border border-tetsuo-200"
+                      {...props}
+                    />
+                  );
+                },
                 p({ children }) {
                   return <p className="mb-2 last:mb-0">{children}</p>;
                 },
@@ -85,7 +166,7 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
                 },
               }}
             >
-              {message.content}
+              {markdownText}
             </ReactMarkdown>
           )}
 

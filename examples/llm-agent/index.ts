@@ -1,8 +1,8 @@
 /**
  * LLM-Powered Task Agent
  *
- * Demonstrates an autonomous agent that uses an LLM provider (Grok, Anthropic,
- * or Ollama) to execute tasks, with tool calling for on-chain protocol queries.
+ * Demonstrates an autonomous agent that uses an LLM provider (Grok or Ollama)
+ * to execute tasks, with tool calling for on-chain protocol queries.
  *
  * The critical wiring pattern for tools:
  *   1. registry.toLLMTools()        -> passed to the PROVIDER config as `tools`
@@ -18,19 +18,16 @@
  *
  *   Provider selection (first match wins):
  *   XAI_API_KEY       - Use Grok (xAI) provider
- *   ANTHROPIC_API_KEY - Use Anthropic provider
- *   (neither)         - Fall back to Ollama (local, no API key needed)
+ *   (not set)         - Fall back to Ollama (local, no API key needed)
  *
  *   Model override:
  *   GROK_MODEL        - Grok model (default: grok-3)
- *   ANTHROPIC_MODEL   - Anthropic model (default: claude-sonnet-4-5-20250929)
  *   OLLAMA_MODEL      - Ollama model (default: llama3)
  *
  * Prerequisites:
  *   Install the SDK for your chosen provider:
- *   - Grok:      npm install openai
- *   - Anthropic: npm install @anthropic-ai/sdk
- *   - Ollama:    npm install ollama
+ *   - Grok:   npm install openai
+ *   - Ollama: npm install ollama
  */
 
 import { Connection, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -42,7 +39,6 @@ import {
   createLogger,
   // LLM
   GrokProvider,
-  AnthropicProvider,
   OllamaProvider,
   LLMTaskExecutor,
   // Tools
@@ -58,7 +54,7 @@ const logger = createLogger('info', '[LLM-Agent]');
 
 /**
  * Select an LLM provider based on available environment variables.
- * Priority: XAI_API_KEY > ANTHROPIC_API_KEY > Ollama (local).
+ * Priority: XAI_API_KEY > Ollama (local).
  */
 function createProvider(tools: ReturnType<ToolRegistry['toLLMTools']>): LLMProvider {
   const xaiKey = process.env.XAI_API_KEY;
@@ -67,19 +63,6 @@ function createProvider(tools: ReturnType<ToolRegistry['toLLMTools']>): LLMProvi
     logger.info(`Using Grok provider (model: ${model})`);
     return new GrokProvider({
       apiKey: xaiKey,
-      model,
-      tools,
-      temperature: 0.7,
-      maxTokens: 2048,
-    });
-  }
-
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (anthropicKey) {
-    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
-    logger.info(`Using Anthropic provider (model: ${model})`);
-    return new AnthropicProvider({
-      apiKey: anthropicKey,
       model,
       tools,
       temperature: 0.7,

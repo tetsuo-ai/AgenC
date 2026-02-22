@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionState, WSMessage } from '../types';
 
-const DEFAULT_URL = 'ws://127.0.0.1:9100';
+const DEFAULT_URL = 'ws://127.0.0.1:3100';
 const PING_INTERVAL_MS = 30_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;

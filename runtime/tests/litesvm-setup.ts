@@ -335,6 +335,9 @@ export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void>
   const secondSigner = Keypair.generate();
   svm.airdrop(secondSigner.publicKey, BigInt(LAMPORTS_PER_SOL));
 
+  const thirdSigner = Keypair.generate();
+  svm.airdrop(thirdSigner.publicKey, BigInt(LAMPORTS_PER_SOL));
+
   const [programDataPda] = PublicKey.findProgramAddressSync(
     [program.programId.toBuffer()],
     BPF_LOADER_UPGRADEABLE_ID
@@ -370,8 +373,8 @@ export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void>
   }
   if (includesMultisigArgs) {
     initializeArgs.push(
-      1, // multisig_threshold
-      [payer.publicKey, secondSigner.publicKey], // multisig_owners
+      2, // multisig_threshold (must be >= 2 and < owners.len())
+      [payer.publicKey, secondSigner.publicKey, thirdSigner.publicKey], // multisig_owners
     );
   }
 
@@ -414,22 +417,26 @@ export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void>
     );
   }
 
-  // Disable rate limits for tests
+  // Set rate limits to the most permissive valid values for tests.
+  // On-chain enforces minimums: cooldowns >= 1s, per-24h limits >= 1,
+  // min_stake_for_dispute >= 1000 lamports.
   try {
     await program.methods
       .updateRateLimits(
-        new BN(0), // task_creation_cooldown = 0
-        0, // max_tasks_per_24h = 0 (unlimited)
-        new BN(0), // dispute_initiation_cooldown = 0
-        0, // max_disputes_per_24h = 0 (unlimited)
-        new BN(0) // min_stake_for_dispute = 0
+        new BN(1), // task_creation_cooldown = 1s (minimum)
+        255, // max_tasks_per_24h = 255 (max u8)
+        new BN(1), // dispute_initiation_cooldown = 1s (minimum)
+        255, // max_disputes_per_24h = 255 (max u8)
+        new BN(1000) // min_stake_for_dispute = 1000 lamports (minimum)
       )
       .accountsPartial({
         protocolConfig: protocolPda,
       })
       .remainingAccounts([
         { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+        { pubkey: secondSigner.publicKey, isSigner: true, isWritable: false },
       ])
+      .signers([secondSigner])
       .rpc();
   } catch (error) {
     throw new Error(

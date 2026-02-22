@@ -15,7 +15,7 @@ import type { DesktopSandboxConfig } from "../desktop/types.js";
 // ============================================================================
 
 export interface GatewayLLMConfig {
-  provider: "grok" | "anthropic" | "ollama";
+  provider: "grok" | "ollama";
   apiKey?: string;
   model?: string;
   baseUrl?: string;
