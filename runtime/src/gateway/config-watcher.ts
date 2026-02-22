@@ -67,7 +67,6 @@ const VALID_LOG_LEVELS: ReadonlySet<string> = new Set([
 ]);
 const VALID_LLM_PROVIDERS: ReadonlySet<string> = new Set([
   "grok",
-  "anthropic",
   "ollama",
 ]);
 const VALID_MEMORY_BACKENDS: ReadonlySet<string> = new Set([

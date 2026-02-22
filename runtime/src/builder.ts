@@ -14,10 +14,8 @@ import type { LogLevel, Logger } from "./utils/logger.js";
 import { createLogger, silentLogger } from "./utils/logger.js";
 import type { LLMProvider } from "./llm/types.js";
 import type { GrokProviderConfig } from "./llm/grok/types.js";
-import type { AnthropicProviderConfig } from "./llm/anthropic/types.js";
 import type { OllamaProviderConfig } from "./llm/ollama/types.js";
 import { GrokProvider } from "./llm/grok/adapter.js";
-import { AnthropicProvider } from "./llm/anthropic/adapter.js";
 import { OllamaProvider } from "./llm/ollama/adapter.js";
 import { LLMTaskExecutor } from "./llm/executor.js";
 import type { MemoryBackend } from "./memory/types.js";
@@ -72,15 +70,13 @@ import type { GatewayConfig } from "./gateway/types.js";
 // LLM provider type discriminator
 // ============================================================================
 
-type LLMProviderType = "grok" | "anthropic" | "ollama";
+type LLMProviderType = "grok" | "ollama";
 
 type LLMConfigForType<T extends LLMProviderType> = T extends "grok"
   ? Omit<GrokProviderConfig, "tools">
-  : T extends "anthropic"
-    ? Omit<AnthropicProviderConfig, "tools">
-    : T extends "ollama"
-      ? Omit<OllamaProviderConfig, "tools">
-      : never;
+  : T extends "ollama"
+    ? Omit<OllamaProviderConfig, "tools">
+    : never;
 
 // ============================================================================
 // Memory backend type discriminator
@@ -613,10 +609,6 @@ export class AgentBuilder {
     switch (this.llmType) {
       case "grok":
         return new GrokProvider(config as unknown as GrokProviderConfig);
-      case "anthropic":
-        return new AnthropicProvider(
-          config as unknown as AnthropicProviderConfig,
-        );
       case "ollama":
         return new OllamaProvider(config as unknown as OllamaProviderConfig);
       default:

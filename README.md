@@ -121,6 +121,44 @@ cd runtime && npm run test
 cd runtime && npm run mutation:gates
 ```
 
+### Run the Web UI
+
+```bash
+# 1. Build all packages
+npm run build
+
+# 2. Start the agent daemon (requires ~/.agenc/config.json with LLM provider)
+node runtime/dist/bin/daemon.js --config ~/.agenc/config.json --log-level info
+
+# 3. In another terminal, start the web UI
+cd web && npm install && npm run dev
+# Opens at http://localhost:5173
+```
+
+The web UI connects to the daemon's WebSocket server and provides:
+- **Chat** — Conversation with the agent (LLM + tool calling)
+- **Dashboard** — Agent status, wallet info, connection state
+- **Tasks** — Browse and create on-chain tasks
+- **Skills** — View and toggle agent skills
+- **Memory** — Search conversation history
+- **Activity Feed** — Real-time protocol events
+- **Voice** — Push-to-talk voice chat (requires voice provider config)
+- **Settings** — LLM provider, model, and gateway configuration
+- **Approvals** — Human-in-the-loop tool authorization
+
+### Desktop Sandbox (Optional)
+
+```bash
+# Build the desktop container image
+docker build -t agenc/desktop:latest containers/desktop/
+
+# Add desktop config to ~/.agenc/config.json:
+# "desktop": { "enabled": true, "image": "agenc/desktop:latest" }
+
+# The agent will auto-create per-session desktop containers.
+# Watch the desktop via noVNC at the port shown in /desktop status.
+```
+
 ## Developer Setup
 
 ### One-Command Setup

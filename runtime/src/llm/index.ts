@@ -56,8 +56,4 @@ export type {
 
 // Provider adapters
 export { GrokProvider, type GrokProviderConfig } from "./grok/index.js";
-export {
-  AnthropicProvider,
-  type AnthropicProviderConfig,
-} from "./anthropic/index.js";
 export { OllamaProvider, type OllamaProviderConfig } from "./ollama/index.js";

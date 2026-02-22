@@ -30,13 +30,13 @@
         "mismatchCount": 3,
         "matchRate": 0,
         "anomalyIds": [
-          "83c35b501fe0dfc3",
-          "c82f37ac12e92e1b",
-          "b121653778054d0c"
+          "41bb6177c012c18b",
+          "772934e75f651e53",
+          "8a6953c6541a4b7b"
         ],
         "topAnomalies": [
           {
-            "anomalyId": "1c22ded427dbd1bd",
+            "anomalyId": "f50ef9bb100f23e6",
             "code": "type_mismatch",
             "severity": "error",
             "message": "event type mismatch at seq=1",
@@ -45,13 +45,13 @@
             "seq": 1
           },
           {
-            "anomalyId": "aac7a2470ab1f9b6",
+            "anomalyId": "9002c61d1ba615e8",
             "code": "hash_mismatch",
             "severity": "error",
             "message": "deterministic replay hash mismatch"
           },
           {
-            "anomalyId": "e1f253ce2e5b77dd",
+            "anomalyId": "5a1afa8a72dc58be",
             "code": "transition_invalid",
             "severity": "warning",
             "message": "[local] unknown event type \"discovered-mismatch\" at seq=1"
@@ -97,7 +97,7 @@
     }
   },
   "metadata": {
-    "generatedAt": "2026-02-14T20:17:05.681Z",
+    "generatedAt": "2026-02-22T00:05:22.296Z",
     "generatedBy": "contract-validator"
   }
 }

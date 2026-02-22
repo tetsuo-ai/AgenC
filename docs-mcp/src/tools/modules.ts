@@ -74,7 +74,7 @@ const MODULE_INFO: Record<string, { description: string; layer: number; primaryC
   agent: { description: 'Agent registration, capabilities, event subscriptions, PDA derivation', layer: 2, primaryClass: 'AgentManager', errorRange: '1-5', testFile: 'agent/manager.test.ts' },
   task: { description: 'Task CRUD, discovery, speculative execution, proof pipeline, DLQ', layer: 3, primaryClass: 'TaskOperations', errorRange: '6-12', testFile: 'task/operations.test.ts' },
   autonomous: { description: 'Autonomous agent loop, task scanner, verifier lanes, risk scoring', layer: 4, primaryClass: 'AutonomousAgent', errorRange: '13-16', testFile: 'autonomous/agent.test.ts' },
-  llm: { description: 'LLM provider adapters (Grok, Anthropic, Ollama), task executor', layer: 3, primaryClass: 'LLMTaskExecutor', errorRange: '17-21', testFile: 'llm/executor.test.ts' },
+  llm: { description: 'LLM provider adapters (Grok, Ollama), task executor', layer: 3, primaryClass: 'LLMTaskExecutor', errorRange: '17-21', testFile: 'llm/executor.test.ts' },
   memory: { description: 'Memory backends (InMemory, SQLite, Redis), thread + KV operations', layer: 3, primaryClass: 'MemoryBackend (interface)', errorRange: '22-24', testFile: 'memory/in-memory/backend.test.ts' },
   proof: { description: 'ZK proof generation, verification, caching (TTL + LRU)', layer: 2, primaryClass: 'ProofEngine', errorRange: '25-27', testFile: 'proof/engine.test.ts' },
   dispute: { description: 'Dispute instructions, PDA derivation, memcmp queries', layer: 2, primaryClass: 'DisputeOperations', errorRange: '28-31', testFile: 'dispute/operations.test.ts' },

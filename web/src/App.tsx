@@ -13,6 +13,7 @@ import { useSettings } from './hooks/useSettings';
 import { useWallet } from './hooks/useWallet';
 import { useActivityFeed } from './hooks/useActivityFeed';
 import { useAgents } from './hooks/useAgents';
+import { useDesktop } from './hooks/useDesktop';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { RightPanel } from './components/RightPanel';
@@ -27,6 +28,7 @@ import { MemoryView } from './components/memory/MemoryView';
 import { ActivityFeedView } from './components/activity/ActivityFeedView';
 import { SettingsView } from './components/settings/SettingsView';
 import { PaymentView } from './components/payment/PaymentView';
+import { DesktopView } from './components/desktop/DesktopView';
 
 // Type helper: extract handleMessage from hook return
 type WithHandler<T> = T & { handleMessage: (msg: WSMessage) => void };
@@ -56,6 +58,7 @@ export default function App() {
   const walletInfo = useWallet({ send, connected });
   const activityFeed = useActivityFeed({ send, connected }) as WithHandler<ReturnType<typeof useActivityFeed>>;
   const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
+  const desktop = useDesktop({ send, connected }) as WithHandler<ReturnType<typeof useDesktop>>;
 
   // Voice toggle — start or stop voice session
   const handleVoiceToggle = useCallback(() => {
@@ -79,6 +82,7 @@ export default function App() {
     walletInfo.handleMessage(msg);
     activityFeed.handleMessage(msg);
     agentsData.handleMessage(msg);
+    desktop.handleMessage(msg);
   }
 
   const handleApprove = useCallback(
@@ -190,6 +194,16 @@ export default function App() {
                 sessions={memory.sessions}
                 onSearch={memory.search}
                 onRefreshSessions={memory.refreshSessions}
+              />
+            )}
+            {currentView === 'desktop' && (
+              <DesktopView
+                sandboxes={desktop.sandboxes}
+                loading={desktop.loading}
+                error={desktop.error}
+                onRefresh={desktop.refresh}
+                onCreate={desktop.create}
+                onDestroy={desktop.destroy}
               />
             )}
             {currentView === 'activity' && (
