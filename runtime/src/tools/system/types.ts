@@ -24,6 +24,8 @@ export interface BashToolConfig {
   readonly allowList?: readonly string[];
   /** Blocked command prefixes (merged with DEFAULT_DENY_LIST) */
   readonly denyList?: readonly string[];
+  /** Commands to remove from the deny list (overrides DEFAULT_DENY_LIST entries) */
+  readonly denyExclusions?: readonly string[];
   /** Max output size in bytes (default: 100_000) */
   readonly maxOutputBytes?: number;
   /** Environment variables to pass to spawned process (default: minimal — PATH only) */

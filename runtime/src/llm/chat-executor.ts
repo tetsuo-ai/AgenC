@@ -276,6 +276,16 @@ export class ChatExecutor {
 
     // Tool call loop
     let rounds = 0;
+    // Deduplicate side-effect tools across ALL rounds: prevent the model
+    // from opening 3 YouTube tabs or running the same AppleScript 3 times.
+    // system.open: opening multiple URLs is never desired
+    // system.applescript: one script per request should suffice (multi-step
+    // actions like "open terminal + write hello" belong in a single script)
+    // Group-level dedup: once ANY side-effect tool executes, skip all others.
+    // This prevents the model from opening Terminal 3x via system.open + system.applescript
+    // + system.bash("open Terminal") in a single round with different tool names.
+    const SIDE_EFFECT_TOOLS = new Set(["system.open", "system.applescript"]);
+    let sideEffectExecuted = false;
     while (
       response.finishReason === "tool_calls" &&
       response.toolCalls.length > 0 &&
@@ -286,8 +296,28 @@ export class ChatExecutor {
 
       // Append the assistant message with tool calls
       messages.push({ role: "assistant", content: response.content });
-
       for (const toolCall of response.toolCalls) {
+        if (SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
+          const skipResult = JSON.stringify({
+            error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
+          });
+          messages.push({
+            role: "tool",
+            content: skipResult,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+          });
+          allToolCalls.push({
+            name: toolCall.name,
+            args: {},
+            result: skipResult,
+            isError: true,
+            durationMs: 0,
+          });
+          continue;
+        }
+        if (SIDE_EFFECT_TOOLS.has(toolCall.name)) sideEffectExecuted = true;
+
         // Allowlist check
         if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
           const errorResult = JSON.stringify({
@@ -407,7 +437,9 @@ export class ChatExecutor {
     // summary from the last successful tool result.
     let finalContent = response.content;
     if (!finalContent && allToolCalls.length > 0) {
-      const lastSuccess = [...allToolCalls].reverse().find((tc) => !tc.isError);
+      // Try to build a descriptive summary from the tool calls themselves
+      const successes = allToolCalls.filter((tc) => !tc.isError);
+      const lastSuccess = successes[successes.length - 1];
       if (lastSuccess) {
         try {
           const parsed = JSON.parse(lastSuccess.result);
@@ -415,6 +447,60 @@ export class ChatExecutor {
             finalContent = `Task created successfully.\n\n**Task PDA:** ${parsed.taskPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
           } else if (parsed.agentPda) {
             finalContent = `Agent registered successfully.\n\n**Agent PDA:** ${parsed.agentPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
+          } else if (parsed.success === true || parsed.exitCode === 0 || parsed.output !== undefined) {
+            // System tool succeeded — build a descriptive message from tool calls
+            // Generate context-aware summary from tool names + args
+            const summaries: string[] = [];
+            for (const tc of successes) {
+              if (tc.name === "system.open") {
+                const target = String(tc.args?.target ?? "");
+                if (target.includes("youtube.com/watch")) {
+                  summaries.push(`Opened YouTube video`);
+                } else if (target.includes("youtube.com")) {
+                  summaries.push(`Opened YouTube`);
+                } else if (target) {
+                  summaries.push(`Opened ${target.slice(0, 80)}`);
+                }
+              } else if (tc.name === "system.bash") {
+                // For bash commands, show actual output if available
+                try {
+                  const bashResult = JSON.parse(tc.result);
+                  const bashOutput = bashResult.stdout || bashResult.output || "";
+                  if (bashOutput.trim()) {
+                    summaries.push(bashOutput.trim().slice(0, 2000));
+                  } else {
+                    const cmd = String(tc.args?.command ?? "").slice(0, 60);
+                    if (cmd) summaries.push(`Ran: ${cmd}`);
+                  }
+                } catch {
+                  const cmd = String(tc.args?.command ?? "").slice(0, 60);
+                  if (cmd) summaries.push(`Ran: ${cmd}`);
+                }
+              } else if (tc.name === "system.applescript") {
+                const script = String(tc.args?.script ?? "");
+                if (script.includes("do script")) {
+                  summaries.push("Opened Terminal and ran the command");
+                } else if (script.includes("activate")) {
+                  summaries.push("Brought app to front");
+                } else if (script.includes("quit")) {
+                  summaries.push("Closed the app");
+                } else {
+                  summaries.push("Done");
+                }
+              } else if (tc.name === "system.notification") {
+                summaries.push("Notification sent");
+              } else {
+                summaries.push("Done");
+              }
+            }
+            finalContent = summaries.length > 0 ? summaries.join("\n") : "Done!";
+          } else if (parsed.error) {
+            finalContent = `Something went wrong: ${String(parsed.error).slice(0, 300)}`;
+          } else if (parsed.exitCode != null && parsed.exitCode !== 0) {
+            const errOutput = parsed.stderr || parsed.stdout || "";
+            finalContent = errOutput.trim()
+              ? `Command failed: ${String(errOutput).slice(0, 300)}`
+              : "The command failed. Let me try a different approach.";
           } else {
             finalContent = `Operation completed. Result:\n\`\`\`json\n${lastSuccess.result.slice(0, 500)}\n\`\`\``;
           }

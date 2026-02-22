@@ -28,7 +28,6 @@ const DENIED_PATTERNS = [
   /keychain/i,
   /security\s+(find|delete|add|dump)/i,
   /do\s+shell\s+script.*with\s+administrator/i,
-  /System\s+Events.*keystroke/i,
   /delete\s+every/i,
 ];
 
@@ -91,7 +90,13 @@ function createAppleScriptTool(timeout: number): Tool {
       if (denied) return errorResult(denied);
 
       try {
-        const { stdout, stderr } = await execFileAsync("osascript", ["-e", script], {
+        // Split multi-line scripts into separate -e arguments for osascript
+        const lines = script.split("\n").filter((l) => l.trim().length > 0);
+        const osascriptArgs: string[] = [];
+        for (const line of lines) {
+          osascriptArgs.push("-e", line);
+        }
+        const { stdout, stderr } = await execFileAsync("osascript", osascriptArgs, {
           timeout,
           maxBuffer: MAX_OUTPUT_LENGTH * 2,
         });
