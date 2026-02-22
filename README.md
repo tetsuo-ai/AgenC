@@ -1,7 +1,7 @@
 <h1 align="center">AgenC</h1>
 
 <p align="center">
-  <img src="assets/banner.png" alt="AgenC" width="600">
+  <img src="assets/banner.jpg" alt="AgenC" width="600">
 </p>
 
 <p align="center">
