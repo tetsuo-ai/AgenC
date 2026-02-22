@@ -364,17 +364,15 @@ export class DaemonManager {
       const desktopLogger = this.logger;
 
       // Desktop tools are lazily initialized per session via the router.
-      // Add static desktop tool definitions to LLM tools so the model knows about them.
-      const desktopToolDefs: LLMTool[] = [
-        'screenshot', 'mouse_click', 'mouse_move', 'mouse_drag', 'mouse_scroll',
-        'keyboard_type', 'keyboard_key', 'bash', 'window_list', 'window_focus',
-        'clipboard_get', 'clipboard_set', 'screen_size',
-      ].map((name) => ({
+      // Add static desktop tool definitions to LLM tools so the model knows
+      // the full schemas (parameter names, types, required fields).
+      const { TOOL_DEFINITIONS } = await import('../desktop/tool-definitions.js');
+      const desktopToolDefs: LLMTool[] = TOOL_DEFINITIONS.map((def) => ({
         type: 'function' as const,
         function: {
-          name: `desktop.${name}`,
-          description: `Desktop tool: ${name.replace(/_/g, ' ')}`,
-          parameters: { type: 'object', properties: {} },
+          name: `desktop.${def.name}`,
+          description: def.description,
+          parameters: def.inputSchema,
         },
       }));
       llmTools.push(...desktopToolDefs);
@@ -434,6 +432,7 @@ export class DaemonManager {
       skillToggle,
       connection: this._connectionManager?.getConnection(),
       broadcastEvent: (type, data) => webChat.broadcastEvent(type, data),
+      desktopManager: this._desktopManager ?? undefined,
     });
     const signals = this.createWebChatSignals(webChat);
     const onMessage = this.createWebChatMessageHandler({
@@ -1819,14 +1818,6 @@ export class DaemonManager {
           apiKey: apiKey ?? '',
           model: model ?? DEFAULT_GROK_MODEL,
           baseURL: baseUrl,
-          tools,
-        });
-      }
-      case 'anthropic': {
-        const { AnthropicProvider } = await import('../llm/anthropic/adapter.js');
-        return new AnthropicProvider({
-          apiKey: apiKey ?? '',
-          model: model ?? 'claude-sonnet-4-5-20250929',
           tools,
         });
       }

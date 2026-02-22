@@ -546,8 +546,6 @@ export {
   // Provider adapters
   GrokProvider,
   type GrokProviderConfig,
-  AnthropicProvider,
-  type AnthropicProviderConfig,
   OllamaProvider,
   type OllamaProviderConfig,
 } from "./llm/index.js";

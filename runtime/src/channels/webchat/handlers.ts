@@ -580,6 +580,82 @@ export async function handleAgentsList(
 }
 
 // ============================================================================
+// Desktop sandbox handlers
+// ============================================================================
+
+export async function handleDesktopList(
+  deps: WebChatDeps,
+  _payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+): Promise<void> {
+  if (!deps.desktopManager) {
+    send({ type: 'desktop.list', payload: [], id });
+    return;
+  }
+  try {
+    const sandboxes = deps.desktopManager.listAll();
+    send({ type: 'desktop.list', payload: sandboxes, id });
+  } catch (err) {
+    send({ type: 'desktop.error', error: `Failed to list sandboxes: ${(err as Error).message}`, id });
+  }
+}
+
+export async function handleDesktopCreate(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+): Promise<void> {
+  if (!deps.desktopManager) {
+    send({ type: 'desktop.error', error: 'Desktop sandbox manager not available — enable desktop in config', id });
+    return;
+  }
+  const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : `desktop-${Date.now()}`;
+  try {
+    const handle = await deps.desktopManager.getOrCreate(sessionId);
+    send({
+      type: 'desktop.created',
+      payload: {
+        containerId: handle.containerId,
+        sessionId: handle.sessionId,
+        status: handle.status,
+        vncUrl: `http://localhost:${handle.vncHostPort}/vnc.html`,
+        apiPort: handle.apiHostPort,
+        vncPort: handle.vncHostPort,
+        createdAt: handle.createdAt,
+      },
+      id,
+    });
+  } catch (err) {
+    send({ type: 'desktop.error', error: `Failed to create sandbox: ${(err as Error).message}`, id });
+  }
+}
+
+export async function handleDesktopDestroy(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+): Promise<void> {
+  if (!deps.desktopManager) {
+    send({ type: 'desktop.error', error: 'Desktop sandbox manager not available — enable desktop in config', id });
+    return;
+  }
+  const containerId = payload?.containerId;
+  if (!containerId || typeof containerId !== 'string') {
+    send({ type: 'desktop.error', error: 'Missing containerId in payload', id });
+    return;
+  }
+  try {
+    await deps.desktopManager.destroy(containerId);
+    send({ type: 'desktop.destroyed', payload: { containerId }, id });
+  } catch (err) {
+    send({ type: 'desktop.error', error: `Failed to destroy sandbox: ${(err as Error).message}`, id });
+  }
+}
+
+// ============================================================================
 // Handler map
 // ============================================================================
 
@@ -602,4 +678,7 @@ export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
   'memory.sessions': handleMemorySessions,
   'approval.respond': handleApprovalRespond,
   'agents.list': handleAgentsList,
+  'desktop.list': handleDesktopList,
+  'desktop.create': handleDesktopCreate,
+  'desktop.destroy': handleDesktopDestroy,
 };

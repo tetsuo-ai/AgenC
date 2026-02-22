@@ -114,6 +114,25 @@ npm run dev                # Development server
 npm run build              # Production build (outputs to dist/)
 ```
 
+### Web App
+
+```bash
+cd web
+npm run dev                # Vite dev server (http://localhost:5173)
+npm run build              # Production build
+```
+
+Connects to the Gateway daemon WebSocket (default `ws://127.0.0.1:3100`). Features: chat, dashboard, tasks, skills, memory, activity feed, voice, settings, approvals.
+
+### Desktop Sandbox
+
+```bash
+docker build -t agenc/desktop:latest containers/desktop/
+docker run -d -p 6080:6080 -p 9990:9990 agenc/desktop:latest
+```
+
+Add `"desktop": { "enabled": true, "image": "agenc/desktop:latest" }` to `~/.agenc/config.json`. The daemon auto-creates per-session containers. noVNC at port 6080, REST API at port 9990.
+
 ### ZK VM (RISC Zero)
 
 ```bash

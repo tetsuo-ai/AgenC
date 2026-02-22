@@ -16,7 +16,7 @@ import { LLMProviderError } from "./errors.js";
  * Handles default/named export resolution and wraps "Cannot find module"
  * errors with an actionable install message.
  *
- * @param packageName - npm package to import (e.g. 'openai', '@anthropic-ai/sdk')
+ * @param packageName - npm package to import (e.g. 'openai', 'ollama')
  * @param providerName - Provider name for error messages (e.g. 'grok')
  * @param configure - Extract and instantiate the client from the imported module
  * @returns The configured client instance
