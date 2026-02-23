@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-panel" version="1.0">
+  <property name="configver" type="int" value="2"/>
+  <property name="panels" type="array">
+    <value type="int" value="1"/>
+    <property name="dark-mode" type="bool" value="true"/>
+    <property name="panel-1" type="empty">
+      <!-- p=8 = bottom-center; no absolute x/y so it adapts to any DISPLAY_HEIGHT -->
+      <property name="position" type="string" value="p=8"/>
+      <property name="length" type="uint" value="100"/>
+      <property name="position-locked" type="bool" value="true"/>
+      <property name="icon-size" type="uint" value="22"/>
+      <property name="size" type="uint" value="36"/>
+      <property name="background-style" type="uint" value="1"/>
+      <property name="background-rgba" type="array">
+        <value type="double" value="0.06"/>
+        <value type="double" value="0.06"/>
+        <value type="double" value="0.10"/>
+        <value type="double" value="0.95"/>
+      </property>
+      <property name="plugin-ids" type="array">
+        <value type="int" value="1"/>
+        <value type="int" value="2"/>
+        <value type="int" value="3"/>
+        <value type="int" value="4"/>
+        <value type="int" value="5"/>
+        <value type="int" value="6"/>
+        <value type="int" value="7"/>
+        <value type="int" value="8"/>
+        <value type="int" value="9"/>
+      </property>
+    </property>
+  </property>
+  <property name="plugins" type="empty">
+    <!-- App menu -->
+    <property name="plugin-1" type="string" value="applicationsmenu">
+      <property name="show-button-title" type="bool" value="false"/>
+      <property name="button-icon" type="string" value="agenc-logo"/>
+      <property name="small" type="bool" value="false"/>
+    </property>
+    <!-- Separator -->
+    <property name="plugin-2" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+      <property name="expand" type="bool" value="false"/>
+    </property>
+    <!-- Launcher: Terminal -->
+    <property name="plugin-3" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="xfce4-terminal.desktop"/>
+      </property>
+    </property>
+    <!-- Launcher: File Manager -->
+    <property name="plugin-4" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="thunar.desktop"/>
+      </property>
+    </property>
+    <!-- Launcher: Firefox -->
+    <property name="plugin-5" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="firefox.desktop"/>
+      </property>
+    </property>
+    <!-- Launcher: Chromium -->
+    <property name="plugin-6" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="chromium-browser.desktop"/>
+      </property>
+    </property>
+    <!-- Expanding separator (pushes clock right) -->
+    <property name="plugin-7" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <!-- System tray -->
+    <property name="plugin-8" type="string" value="systray">
+      <property name="square-icons" type="bool" value="true"/>
+    </property>
+    <!-- Clock -->
+    <property name="plugin-9" type="string" value="clock">
+      <property name="digital-format" type="string" value="%H:%M"/>
+      <property name="mode" type="uint" value="2"/>
+    </property>
+  </property>
+</channel>

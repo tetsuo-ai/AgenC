@@ -117,6 +117,12 @@ export interface AgentInfo {
   reputation: number;
   tasksCompleted: number;
   stake: string;
+  endpoint?: string;
+  metadataUri?: string;
+  registeredAt?: number;
+  lastActive?: number;
+  totalEarned?: string;
+  activeTasks?: number;
 }
 
 // ============================================================================

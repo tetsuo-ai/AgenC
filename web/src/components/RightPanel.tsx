@@ -9,12 +9,12 @@ const TABS: Tab[] = ['main', 'settings', 'payment'];
 const TAB_LABELS: Record<Tab, string> = { main: 'Main', settings: 'Settings', payment: 'Payment' };
 
 const AGENTS = [
-  { name: 'AgenC Runtime', icon: 'runtime', desc: 'Core agent orchestration' },
-  { name: 'Compute Agent', icon: 'compute', desc: 'Task execution & processing' },
-  { name: 'Inference Agent', icon: 'inference', desc: 'LLM & AI model routing' },
-  { name: 'Storage Agent', icon: 'storage', desc: 'Memory & data persistence' },
-  { name: 'Validator Agent', icon: 'validator', desc: 'Proof verification & disputes' },
-  { name: 'Coordinator', icon: 'coordinator', desc: 'Workflow & team orchestration' },
+  { name: 'AgenC Runtime', icon: 'runtime', desc: 'Core agent orchestration', detail: 'Manages agent lifecycle, event subscriptions, and protocol interactions. The central hub that coordinates all other agent types.' },
+  { name: 'Compute Agent', icon: 'compute', desc: 'Task execution & processing', detail: 'Executes computational tasks on-chain. Handles task claiming, proof generation, and result submission for reward collection.' },
+  { name: 'Inference Agent', icon: 'inference', desc: 'LLM & AI model routing', detail: 'Routes prompts to LLM providers (Grok, Anthropic, Ollama) with automatic failover. Manages token budgets and tool-calling loops.' },
+  { name: 'Storage Agent', icon: 'storage', desc: 'Memory & data persistence', detail: 'Persists conversation history and key-value state across sessions. Supports in-memory, SQLite, and Redis backends.' },
+  { name: 'Validator Agent', icon: 'validator', desc: 'Proof verification & disputes', detail: 'Verifies zero-knowledge proofs and participates in dispute resolution. Casts votes as an arbiter on contested task completions.' },
+  { name: 'Coordinator', icon: 'coordinator', desc: 'Workflow & team orchestration', detail: 'Orchestrates DAG workflows and team contracts. Manages task dependencies, milestone payouts, and canary rollouts.' },
 ];
 
 const LLM_PROVIDERS = [
@@ -176,8 +176,17 @@ interface MainTabProps {
 }
 
 function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat, agents }: MainTabProps) {
-  const [activeAgent, setActiveAgent] = useState(0);
+  const [activeAgent, setActiveAgent] = useState(-1);
   const [hoveredChat, setHoveredChat] = useState<number | null>(null);
+  const [copiedAuthority, setCopiedAuthority] = useState(false);
+
+  const toggleAgent = (i: number) => setActiveAgent(activeAgent === i ? -1 : i);
+
+  const copyToClipboard = (text: string) => {
+    void navigator.clipboard.writeText(text);
+    setCopiedAuthority(true);
+    setTimeout(() => setCopiedAuthority(false), 2000);
+  };
 
   const hasOnChainAgents = agents && agents.length > 0;
 
@@ -203,58 +212,80 @@ function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat, agents
 
         {/* On-chain agents */}
         {hasOnChainAgents && agents.map((agent, i) => (
-          <button
+          <AgentButton
             key={agent.pda}
-            onClick={() => setActiveAgent(i)}
-            className="animate-list-item w-full flex items-center gap-3 px-6 py-3 text-left transition-all duration-200 relative"
-            style={{ animationDelay: `${i * 40}ms` }}
-          >
-            <span
-              className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-accent transition-all duration-300 ${
-                activeAgent === i ? 'h-8 opacity-100' : 'h-0 opacity-0'
-              }`}
-            />
-            <div className={`transition-all duration-200 ${activeAgent === i ? 'scale-110' : ''}`}>
-              <AgentIcon type={mapCapabilityToIcon(agent.capabilities)} active={activeAgent === i} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className={`text-sm truncate transition-colors duration-200 ${activeAgent === i ? 'font-medium text-accent' : 'text-tetsuo-600'}`}>
-                  {agent.pda.slice(0, 6)}...{agent.pda.slice(-4)}
-                </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  agent.status === 'Active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-tetsuo-100 text-tetsuo-500'
-                }`}>{agent.status}</span>
-              </div>
-              <div className={`text-xs truncate transition-colors duration-200 ${activeAgent === i ? 'text-accent/60' : 'text-tetsuo-400'}`}>
+            index={i}
+            active={activeAgent === i}
+            onClick={() => toggleAgent(i)}
+            iconType={mapCapabilityToIcon(agent.capabilities)}
+            title={<>{agent.pda.slice(0, 6)}...{agent.pda.slice(-4)}</>}
+            subtitle={
+              <>
                 {agent.capabilities.length > 0 ? agent.capabilities.join(', ') : 'No capabilities'}
                 {agent.tasksCompleted > 0 ? ` · ${agent.tasksCompleted} tasks` : ''}
+              </>
+            }
+            badge={
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                agent.status === 'Active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-tetsuo-100 text-tetsuo-500'
+              }`}>{agent.status}</span>
+            }
+          >
+            <div className="mx-4 mb-2 rounded-lg border border-tetsuo-200 bg-tetsuo-50 overflow-hidden animate-panel-enter">
+              <div className="grid grid-cols-3 gap-px bg-tetsuo-200">
+                <AgentStat label="Reputation" value={String(agent.reputation)} />
+                <AgentStat label="Tasks Done" value={String(agent.tasksCompleted)} />
+                <AgentStat label="Active" value={String(agent.activeTasks ?? 0)} />
+                <AgentStat label="Stake" value={`${agent.stake} SOL`} />
+                <AgentStat label="Earned" value={agent.totalEarned ? `${agent.totalEarned} SOL` : '0'} />
+                <AgentStat label="Last Active" value={agent.lastActive ? formatTimeAgo(agent.lastActive * 1000) : 'N/A'} />
+              </div>
+              <div className="p-3 space-y-2 border-t border-tetsuo-200">
+                <button
+                  onClick={() => copyToClipboard(agent.authority)}
+                  className="w-full flex items-center justify-between text-left group"
+                >
+                  <div className="min-w-0">
+                    <div className="text-[10px] text-tetsuo-400 uppercase tracking-wider">Authority</div>
+                    <div className="text-xs text-tetsuo-600 font-mono truncate">{agent.authority.slice(0, 8)}...{agent.authority.slice(-6)}</div>
+                  </div>
+                  {copiedAuthority ? (
+                    <svg className="w-3.5 h-3.5 text-emerald-500 shrink-0 ml-2 animate-dot-pop" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5 text-tetsuo-400 group-hover:text-tetsuo-600 shrink-0 ml-2 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  )}
+                </button>
+                <a
+                  href={`https://explorer.solana.com/address/${agent.pda}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-md border border-tetsuo-200 text-xs text-tetsuo-600 hover:bg-tetsuo-100 hover:border-tetsuo-300 transition-all duration-200"
+                >
+                  View on Explorer
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                </a>
               </div>
             </div>
-          </button>
+          </AgentButton>
         ))}
 
         {/* Static fallback agents */}
         {!hasOnChainAgents && AGENTS.map((agent, i) => (
-          <button
+          <AgentButton
             key={agent.name}
-            onClick={() => setActiveAgent(i)}
-            className="animate-list-item w-full flex items-center gap-3 px-6 py-3 text-left transition-all duration-200 relative"
-            style={{ animationDelay: `${i * 40}ms` }}
+            index={i}
+            active={activeAgent === i}
+            onClick={() => toggleAgent(i)}
+            iconType={agent.icon}
+            title={agent.name}
+            subtitle={agent.desc}
           >
-            <span
-              className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-accent transition-all duration-300 ${
-                activeAgent === i ? 'h-8 opacity-100' : 'h-0 opacity-0'
-              }`}
-            />
-            <div className={`transition-all duration-200 ${activeAgent === i ? 'scale-110' : ''}`}>
-              <AgentIcon type={agent.icon} active={activeAgent === i} />
+            <div className="mx-4 mb-2 rounded-lg border border-tetsuo-200 bg-tetsuo-50 p-3 animate-panel-enter">
+              <p className="text-xs text-tetsuo-600 leading-relaxed">{agent.detail}</p>
             </div>
-            <div className="min-w-0">
-              <div className={`text-sm truncate transition-colors duration-200 ${activeAgent === i ? 'font-medium text-accent' : 'text-tetsuo-600'}`}>{agent.name}</div>
-              <div className={`text-xs truncate transition-colors duration-200 ${activeAgent === i ? 'text-accent/60' : 'text-tetsuo-400'}`}>{agent.desc}</div>
-            </div>
-          </button>
+          </AgentButton>
         ))}
       </div>
 
@@ -308,6 +339,186 @@ function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat, agents
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Settings Tab — LLM Section
+// =============================================================================
+
+type LLMProviderValue = typeof LLM_PROVIDERS[number]['value'];
+
+interface LLMSettingsProps {
+  provider: string;
+  apiKey: string;
+  model: string;
+  configApiKey: string;
+  ollamaModels: string[];
+  ollamaError: string | null;
+  onProviderChange: (p: LLMProviderValue) => void;
+  onApiKeyChange: (k: string) => void;
+  onModelChange: (m: string) => void;
+  markDirty: () => void;
+  delays: [string, string, string];
+}
+
+function LLMSettings({ provider, apiKey, model, configApiKey, ollamaModels, ollamaError, onProviderChange, onApiKeyChange, onModelChange, markDirty, delays }: LLMSettingsProps) {
+  return (
+    <>
+      {/* LLM Provider */}
+      <div className="animate-list-item" style={{ animationDelay: delays[0] }}>
+        <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-3">LLM Provider</div>
+        <div className="space-y-2">
+          {LLM_PROVIDERS.map((p) => (
+            <label
+              key={p.value}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-all duration-200 ${
+                provider === p.value
+                  ? 'border-accent bg-accent-bg shadow-[0_0_0_1px_rgba(var(--accent),0.15)]'
+                  : 'border-tetsuo-200 hover:bg-tetsuo-50 hover:border-tetsuo-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="llm-provider"
+                checked={provider === p.value}
+                onChange={() => onProviderChange(p.value)}
+                className="sr-only"
+              />
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors duration-200 ${
+                provider === p.value ? 'border-accent' : 'border-tetsuo-300'
+              }`}>
+                {provider === p.value && <div className="w-2 h-2 rounded-full bg-accent animate-dot-pop" />}
+              </div>
+              <span className={`text-sm transition-colors duration-200 ${provider === p.value ? 'text-accent font-medium' : 'text-tetsuo-700'}`}>
+                {p.label}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* API Key */}
+      {provider !== 'ollama' && (
+        <div className="animate-list-item" style={{ animationDelay: delays[1] }}>
+          <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-2">API Key</div>
+          <input
+            type="password"
+            value={apiKey || configApiKey}
+            onChange={(e) => { onApiKeyChange(e.target.value); markDirty(); }}
+            onFocus={() => { if (!apiKey) onApiKeyChange(''); }}
+            placeholder="Enter x.ai API key"
+            className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
+          />
+          <p className="text-xs text-tetsuo-400 mt-1.5">
+            {configApiKey && configApiKey.startsWith('****')
+              ? `Key configured (ending ...${configApiKey.slice(-4)})`
+              : 'No key configured'}
+          </p>
+        </div>
+      )}
+
+      {/* Model */}
+      <div className="animate-list-item" style={{ animationDelay: delays[2] }}>
+        <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-2">Model</div>
+        {provider === 'ollama' && ollamaError && (
+          <p className="text-xs text-amber-500 mb-2">{ollamaError}</p>
+        )}
+        <select
+          value={model}
+          onChange={(e) => { onModelChange(e.target.value); markDirty(); }}
+          className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
+        >
+          {(provider === 'ollama' ? ollamaModels : LLM_PROVIDERS.find((p) => p.value === provider)?.models ?? []).map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+      </div>
+    </>
+  );
+}
+
+// =============================================================================
+// Settings Tab — Voice Section
+// =============================================================================
+
+interface VoiceSettingsProps {
+  voiceEnabled: boolean;
+  voiceMode: 'vad' | 'push-to-talk';
+  voiceName: VoiceName;
+  voiceApiKey: string;
+  useCustomVoiceKey: boolean;
+  configVoiceApiKey: string;
+  onVoiceEnabledChange: (v: boolean) => void;
+  onVoiceModeChange: (m: 'vad' | 'push-to-talk') => void;
+  onVoiceNameChange: (n: VoiceName) => void;
+  onVoiceApiKeyChange: (k: string) => void;
+  onUseCustomVoiceKeyChange: (v: boolean) => void;
+  markDirty: () => void;
+  delay: string;
+}
+
+function VoiceSettings({ voiceEnabled, voiceMode, voiceName, voiceApiKey, useCustomVoiceKey, configVoiceApiKey, onVoiceEnabledChange, onVoiceModeChange, onVoiceNameChange, onVoiceApiKeyChange, onUseCustomVoiceKeyChange, markDirty, delay }: VoiceSettingsProps) {
+  return (
+    <div className="animate-list-item" style={{ animationDelay: delay }}>
+      <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-3">Voice</div>
+      <div className="space-y-3">
+        <SettingToggle
+          label="Voice enabled"
+          on={voiceEnabled}
+          onChange={(v) => { onVoiceEnabledChange(v); markDirty(); }}
+        />
+        <div className="grid gap-3 grid-cols-2">
+          <div>
+            <span className="text-xs text-tetsuo-400 mb-1 block">Voice</span>
+            <select
+              value={voiceName}
+              onChange={(e) => { onVoiceNameChange(e.target.value as VoiceName); markDirty(); }}
+              className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-2.5 py-1.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent transition-all duration-200"
+            >
+              <option value="Ara">Ara</option>
+              <option value="Rex">Rex</option>
+              <option value="Sal">Sal</option>
+              <option value="Eve">Eve</option>
+              <option value="Leo">Leo</option>
+            </select>
+          </div>
+          <div>
+            <span className="text-xs text-tetsuo-400 mb-1 block">Mode</span>
+            <select
+              value={voiceMode}
+              onChange={(e) => { onVoiceModeChange(e.target.value as 'vad' | 'push-to-talk'); markDirty(); }}
+              className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-2.5 py-1.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent transition-all duration-200"
+            >
+              <option value="vad">VAD (auto)</option>
+              <option value="push-to-talk">Push-to-talk</option>
+            </select>
+          </div>
+        </div>
+        <SettingToggle
+          label="Separate voice API key"
+          on={useCustomVoiceKey}
+          onChange={(v) => { onUseCustomVoiceKeyChange(v); markDirty(); }}
+        />
+        {useCustomVoiceKey && (
+          <div>
+            <input
+              type="password"
+              value={voiceApiKey || configVoiceApiKey}
+              onChange={(e) => { onVoiceApiKeyChange(e.target.value); markDirty(); }}
+              onFocus={() => { if (!voiceApiKey) onVoiceApiKeyChange(''); }}
+              placeholder="Enter voice API key (x.ai)"
+              className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
+            />
+            <p className="text-xs text-tetsuo-400 mt-1">
+              {configVoiceApiKey && configVoiceApiKey.startsWith('****')
+                ? `Voice key configured (ending ...${configVoiceApiKey.slice(-4)})`
+                : 'Uses main API key when empty'}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -403,142 +614,45 @@ function SettingsTab({ settings, autoApprove, onAutoApproveChange }: { settings:
   let sectionIdx = 0;
   const sectionDelay = () => `${(sectionIdx++) * 50}ms`;
 
+  // Pre-compute delays for extracted components
+  const llmDelays: [string, string, string] = [sectionDelay(), sectionDelay(), sectionDelay()];
+  const voiceDelay = sectionDelay();
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       {!loaded && (
         <div className="text-xs text-tetsuo-400 text-center py-4">Loading config...</div>
       )}
 
-      {/* LLM Provider */}
-      <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
-        <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-3">LLM Provider</div>
-        <div className="space-y-2">
-          {LLM_PROVIDERS.map((p) => (
-            <label
-              key={p.value}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-all duration-200 ${
-                provider === p.value
-                  ? 'border-accent bg-accent-bg shadow-[0_0_0_1px_rgba(var(--accent),0.15)]'
-                  : 'border-tetsuo-200 hover:bg-tetsuo-50 hover:border-tetsuo-300'
-              }`}
-            >
-              <input
-                type="radio"
-                name="llm-provider"
-                checked={provider === p.value}
-                onChange={() => handleProviderChange(p.value)}
-                className="sr-only"
-              />
-              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors duration-200 ${
-                provider === p.value ? 'border-accent' : 'border-tetsuo-300'
-              }`}>
-                {provider === p.value && <div className="w-2 h-2 rounded-full bg-accent animate-dot-pop" />}
-              </div>
-              <span className={`text-sm transition-colors duration-200 ${provider === p.value ? 'text-accent font-medium' : 'text-tetsuo-700'}`}>
-                {p.label}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
+      <LLMSettings
+        provider={provider}
+        apiKey={apiKey}
+        model={model}
+        configApiKey={config.llm.apiKey}
+        ollamaModels={ollamaModels}
+        ollamaError={ollamaError}
+        onProviderChange={handleProviderChange}
+        onApiKeyChange={setApiKey}
+        onModelChange={setModel}
+        markDirty={markDirty}
+        delays={llmDelays}
+      />
 
-      {/* API Key */}
-      {provider !== 'ollama' && (
-        <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
-          <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-2">API Key</div>
-          <input
-            type="password"
-            value={apiKey || config.llm.apiKey}
-            onChange={(e) => { setApiKey(e.target.value); markDirty(); }}
-            onFocus={() => { if (!apiKey) setApiKey(''); }}
-            placeholder="Enter x.ai API key"
-            className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
-          />
-          <p className="text-xs text-tetsuo-400 mt-1.5">
-            {config.llm.apiKey && config.llm.apiKey.startsWith('****')
-              ? `Key configured (ending ...${config.llm.apiKey.slice(-4)})`
-              : 'No key configured'}
-          </p>
-        </div>
-      )}
-
-      {/* Model */}
-      <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
-        <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-2">Model</div>
-        {provider === 'ollama' && ollamaError && (
-          <p className="text-xs text-amber-500 mb-2">{ollamaError}</p>
-        )}
-        <select
-          value={model}
-          onChange={(e) => { setModel(e.target.value); markDirty(); }}
-          className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
-        >
-          {(provider === 'ollama' ? ollamaModels : LLM_PROVIDERS.find((p) => p.value === provider)?.models ?? []).map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Voice */}
-      <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
-        <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-3">Voice</div>
-        <div className="space-y-3">
-          <SettingToggle
-            label="Voice enabled"
-            on={voiceEnabled}
-            onChange={(v) => { setVoiceEnabled(v); markDirty(); }}
-          />
-          <div className="grid gap-3 grid-cols-2">
-            <div>
-              <span className="text-xs text-tetsuo-400 mb-1 block">Voice</span>
-              <select
-                value={voiceName}
-                onChange={(e) => { setVoiceName(e.target.value as VoiceName); markDirty(); }}
-                className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-2.5 py-1.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent transition-all duration-200"
-              >
-                <option value="Ara">Ara</option>
-                <option value="Rex">Rex</option>
-                <option value="Sal">Sal</option>
-                <option value="Eve">Eve</option>
-                <option value="Leo">Leo</option>
-              </select>
-            </div>
-            <div>
-              <span className="text-xs text-tetsuo-400 mb-1 block">Mode</span>
-              <select
-                value={voiceMode}
-                onChange={(e) => { setVoiceMode(e.target.value as 'vad' | 'push-to-talk'); markDirty(); }}
-                className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-2.5 py-1.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent transition-all duration-200"
-              >
-                <option value="vad">VAD (auto)</option>
-                <option value="push-to-talk">Push-to-talk</option>
-              </select>
-            </div>
-          </div>
-          <SettingToggle
-            label="Separate voice API key"
-            on={useCustomVoiceKey}
-            onChange={(v) => { setUseCustomVoiceKey(v); markDirty(); }}
-          />
-          {useCustomVoiceKey && (
-            <div>
-              <input
-                type="password"
-                value={voiceApiKey || config.voice.apiKey}
-                onChange={(e) => { setVoiceApiKey(e.target.value); markDirty(); }}
-                onFocus={() => { if (!voiceApiKey) setVoiceApiKey(''); }}
-                placeholder="Enter voice API key (x.ai)"
-                className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
-              />
-              <p className="text-xs text-tetsuo-400 mt-1">
-                {config.voice.apiKey && config.voice.apiKey.startsWith('****')
-                  ? `Voice key configured (ending ...${config.voice.apiKey.slice(-4)})`
-                  : 'Uses main API key when empty'}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+      <VoiceSettings
+        voiceEnabled={voiceEnabled}
+        voiceMode={voiceMode}
+        voiceName={voiceName}
+        voiceApiKey={voiceApiKey}
+        useCustomVoiceKey={useCustomVoiceKey}
+        configVoiceApiKey={config.voice.apiKey}
+        onVoiceEnabledChange={setVoiceEnabled}
+        onVoiceModeChange={setVoiceMode}
+        onVoiceNameChange={setVoiceName}
+        onVoiceApiKeyChange={setVoiceApiKey}
+        onUseCustomVoiceKeyChange={setUseCustomVoiceKey}
+        markDirty={markDirty}
+        delay={voiceDelay}
+      />
 
       {/* Tool Approvals */}
       <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
@@ -800,6 +914,73 @@ function PaymentTab({ wallet: w }: { wallet: UseWalletReturn }) {
 // Shared Components
 // =============================================================================
 
+function AgentStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-tetsuo-50 px-3 py-2 text-center">
+      <div className="text-[10px] text-tetsuo-400 uppercase tracking-wider">{label}</div>
+      <div className="text-xs text-tetsuo-700 font-medium mt-0.5 truncate">{value}</div>
+    </div>
+  );
+}
+
+/** Shared expandable agent row — eliminates duplicate button/chevron/accent-bar markup. */
+function AgentButton({
+  index,
+  active,
+  onClick,
+  iconType,
+  title,
+  subtitle,
+  badge,
+  children,
+}: {
+  index: number;
+  active: boolean;
+  onClick: () => void;
+  iconType: string;
+  title: React.ReactNode;
+  subtitle: React.ReactNode;
+  badge?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        onClick={onClick}
+        className="animate-list-item w-full flex items-center gap-3 px-6 py-3 text-left transition-all duration-200 relative"
+        style={{ animationDelay: `${index * 40}ms` }}
+      >
+        <span
+          className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-accent transition-all duration-300 ${
+            active ? 'h-8 opacity-100' : 'h-0 opacity-0'
+          }`}
+        />
+        <div className={`transition-all duration-200 ${active ? 'scale-110' : ''}`}>
+          <AgentIcon type={iconType} active={active} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={`text-sm truncate transition-colors duration-200 ${active ? 'font-medium text-accent' : 'text-tetsuo-600'}`}>
+              {title}
+            </span>
+            {badge}
+          </div>
+          <div className={`text-xs truncate transition-colors duration-200 ${active ? 'text-accent/60' : 'text-tetsuo-400'}`}>
+            {subtitle}
+          </div>
+        </div>
+        <svg
+          className={`w-4 h-4 shrink-0 text-tetsuo-400 transition-transform duration-200 ${active ? 'rotate-180' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {active && children}
+    </div>
+  );
+}
+
 /** Map on-chain capability names to icon types. */
 function mapCapabilityToIcon(capabilities: string[]): string {
   if (capabilities.includes('COORDINATOR')) return 'coordinator';
@@ -853,4 +1034,3 @@ function AgentIcon({ type, active }: { type: string; active: boolean }) {
       return null;
   }
 }
-
