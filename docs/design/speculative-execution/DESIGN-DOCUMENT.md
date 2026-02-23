@@ -100,7 +100,6 @@ This document covers the speculative execution feature set within the AgenC agen
 
 #### Related Documents
 
-- [AgenC WHITEPAPER.md](/WHITEPAPER.md)
 - [Architecture Overview](/docs/architecture.md)
 - [Runtime Phase 2 Design](/docs/design/speculation/README.md)
 - [Decision Log](/docs/design/speculation/DECISION-LOG.md)
