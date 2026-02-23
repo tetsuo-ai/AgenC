@@ -201,11 +201,7 @@ export async function handleTasksList(
     send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
     return;
   }
-  try {
-    await sendTaskList(deps, id, send);
-  } catch (err) {
-    send({ type: 'error', error: `Failed to list tasks: ${(err as Error).message}`, id });
-  }
+  await safeAsync(send, id, 'error', 'Failed to list tasks', () => sendTaskList(deps, id, send));
 }
 
 export async function handleTasksCreate(
@@ -461,8 +457,10 @@ export function handleApprovalRespond(
  * so we parse sequentially rather than using fixed offsets.
  */
 const AGENT_ACCT_DISCRIMINATOR = Buffer.from([130, 53, 100, 103, 121, 77, 148, 19]);
+/** Minimum byte length for an agent account (all variable-length strings empty). */
+const AGENT_ACCT_MIN_LENGTH = 132;
 
-/** Parse minimal agent data from a raw Borsh-serialized account buffer. */
+/** Parse agent data from a raw Borsh-serialized account buffer. */
 function parseRawAgentAccount(data: Buffer): {
   agentId: string;
   authority: string;
@@ -471,7 +469,17 @@ function parseRawAgentAccount(data: Buffer): {
   reputation: number;
   tasksCompleted: bigint;
   stake: bigint;
-} {
+  endpoint: string;
+  metadataUri: string;
+  registeredAt: bigint;
+  lastActive: bigint;
+  totalEarned: bigint;
+  activeTasks: number;
+} | null {
+  if (data.length < AGENT_ACCT_MIN_LENGTH) {
+    console.warn(`[parseRawAgentAccount] data too short: ${data.length} bytes (min ${AGENT_ACCT_MIN_LENGTH})`);
+    return null;
+  }
   let off = 8; // skip discriminator
 
   // agent_id: [u8; 32]
@@ -492,16 +500,22 @@ function parseRawAgentAccount(data: Buffer): {
 
   // endpoint: Borsh String (u32 len prefix + variable bytes)
   const endpointLen = data.readUInt32LE(off);
-  off += 4 + endpointLen;
+  off += 4;
+  const endpoint = data.subarray(off, off + endpointLen).toString('utf8');
+  off += endpointLen;
 
   // metadata_uri: Borsh String (u32 len prefix + variable bytes)
   const metadataUriLen = data.readUInt32LE(off);
-  off += 4 + metadataUriLen;
+  off += 4;
+  const metadataUri = data.subarray(off, off + metadataUriLen).toString('utf8');
+  off += metadataUriLen;
 
   // registered_at: i64
+  const registeredAt = data.readBigInt64LE(off);
   off += 8;
 
   // last_active: i64
+  const lastActive = data.readBigInt64LE(off);
   off += 8;
 
   // tasks_completed: u64
@@ -509,6 +523,7 @@ function parseRawAgentAccount(data: Buffer): {
   off += 8;
 
   // total_earned: u64
+  const totalEarned = data.readBigUInt64LE(off);
   off += 8;
 
   // reputation: u16
@@ -516,6 +531,7 @@ function parseRawAgentAccount(data: Buffer): {
   off += 2;
 
   // active_tasks: u8
+  const activeTasks = data[off];
   off += 1;
 
   // stake: u64
@@ -529,6 +545,12 @@ function parseRawAgentAccount(data: Buffer): {
     reputation,
     tasksCompleted,
     stake,
+    endpoint,
+    metadataUri,
+    registeredAt,
+    lastActive,
+    totalEarned,
+    activeTasks,
   };
 }
 
@@ -557,6 +579,7 @@ export async function handleAgentsList(
     const payload = accounts.map((acc) => {
       try {
         const agent = parseRawAgentAccount(acc.account.data as Buffer);
+        if (!agent) return null;
         return {
           pda: acc.pubkey.toBase58(),
           agentId: agent.agentId,
@@ -566,9 +589,17 @@ export async function handleAgentsList(
           reputation: agent.reputation,
           tasksCompleted: Number(agent.tasksCompleted),
           stake: lamportsToSol(agent.stake),
+          endpoint: agent.endpoint ? agent.endpoint : undefined,
+          metadataUri: agent.metadataUri ? agent.metadataUri : undefined,
+          registeredAt: agent.registeredAt ? Number(agent.registeredAt) : undefined,
+          lastActive: agent.lastActive ? Number(agent.lastActive) : undefined,
+          totalEarned: lamportsToSol(agent.totalEarned),
+          activeTasks: agent.activeTasks,
         };
-      } catch {
-        // Skip accounts that fail to parse
+      } catch (err) {
+        console.warn(
+          `[handleAgentsList] failed to parse agent account ${acc.pubkey.toBase58()} (${acc.account.data.length} bytes): ${(err as Error).message}`,
+        );
         return null;
       }
     }).filter((a): a is NonNullable<typeof a> => a !== null);
@@ -593,12 +624,10 @@ export async function handleDesktopList(
     send({ type: 'desktop.list', payload: [], id });
     return;
   }
-  try {
-    const sandboxes = deps.desktopManager.listAll();
+  await safeAsync(send, id, 'desktop.error', 'Failed to list sandboxes', async () => {
+    const sandboxes = deps.desktopManager!.listAll();
     send({ type: 'desktop.list', payload: sandboxes, id });
-  } catch (err) {
-    send({ type: 'desktop.error', error: `Failed to list sandboxes: ${(err as Error).message}`, id });
-  }
+  });
 }
 
 export async function handleDesktopCreate(
@@ -612,8 +641,8 @@ export async function handleDesktopCreate(
     return;
   }
   const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : `desktop-${Date.now()}`;
-  try {
-    const handle = await deps.desktopManager.getOrCreate(sessionId);
+  await safeAsync(send, id, 'desktop.error', 'Failed to create sandbox', async () => {
+    const handle = await deps.desktopManager!.getOrCreate(sessionId);
     send({
       type: 'desktop.created',
       payload: {
@@ -627,9 +656,7 @@ export async function handleDesktopCreate(
       },
       id,
     });
-  } catch (err) {
-    send({ type: 'desktop.error', error: `Failed to create sandbox: ${(err as Error).message}`, id });
-  }
+  });
 }
 
 export async function handleDesktopDestroy(
@@ -647,11 +674,28 @@ export async function handleDesktopDestroy(
     send({ type: 'desktop.error', error: 'Missing containerId in payload', id });
     return;
   }
-  try {
-    await deps.desktopManager.destroy(containerId);
+  await safeAsync(send, id, 'desktop.error', 'Failed to destroy sandbox', async () => {
+    await deps.desktopManager!.destroy(containerId);
     send({ type: 'desktop.destroyed', payload: { containerId }, id });
+  });
+}
+
+// ============================================================================
+// Shared handler utilities
+// ============================================================================
+
+/** Wrap an async handler body in try/catch with consistent error response. */
+async function safeAsync(
+  send: SendFn,
+  id: string | undefined,
+  errorType: string,
+  errorPrefix: string,
+  fn: () => Promise<void>,
+): Promise<void> {
+  try {
+    await fn();
   } catch (err) {
-    send({ type: 'desktop.error', error: `Failed to destroy sandbox: ${(err as Error).message}`, id });
+    send({ type: errorType, error: `${errorPrefix}: ${(err as Error).message}`, id });
   }
 }
 
