@@ -34,7 +34,7 @@ if (!HELIUS_WEBHOOK_SECRET) {
 }
 const ROUTER_PROGRAM_ID = '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7';
 const VERIFIER_PROGRAM_ID = 'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge';
-const AGENC_PROGRAM_ID = 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ';
+const AGENC_PROGRAM_ID = '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7';
 const WEBHOOK_PORT = process.env.PORT || 3000;
 
 // Helius API endpoints

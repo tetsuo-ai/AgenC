@@ -9,8 +9,7 @@ This document provides an audit-ready security package for the AgenC Solana coor
 - Program: `programs/agenc-coordination`
 - Cluster: Solana Devnet
 - Commit: `c53771ddbb4097f45c08fe339a924bb348c33aab`
-- Program ID: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
-- IDL Account: `EuDy3ct4M8Mge5s3TLSvH6jtKhGpxZAh6iyJ2xyrJJjb`
+- Program ID: `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 - Anchor Version: `0.32.1`
 
 ## Threat Model
