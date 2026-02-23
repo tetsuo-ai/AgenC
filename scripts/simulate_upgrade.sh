@@ -9,7 +9,7 @@
 set -euo pipefail
 
 CLUSTER="${1:-devnet}"
-PROGRAM_ID="EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
+PROGRAM_ID="5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
 
 echo "=== AgenC Protocol Upgrade Simulation (Manual) ==="
 echo "Cluster: $CLUSTER"

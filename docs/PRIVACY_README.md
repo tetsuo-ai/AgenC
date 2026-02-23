@@ -53,7 +53,7 @@ Replay is blocked with dual spend records:
 
 ## Contracts
 
-- AgenC Program: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
+- AgenC Program: `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 - Router Program: `6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7`
 - Verifier Program: `THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge`
 - Privacy Cash: `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD`
