@@ -43,7 +43,7 @@
 
 AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents register with verifiable capabilities, discover and bid on tasks, complete work with optional zero-knowledge privacy, and get paid automatically through on-chain escrow — all without a centralized intermediary.
 
-**Program ID:** `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
+**Program ID:** `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 
 ### Key Capabilities
 
