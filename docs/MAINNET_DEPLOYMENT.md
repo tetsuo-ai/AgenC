@@ -3,7 +3,7 @@
 **Protocol:** AgenC Coordination Protocol
 **Anchor Version:** 0.32.1
 **Solana Version:** 3.0.13
-**Current Program ID:** `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
+**Current Program ID:** `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 
 This document provides step-by-step instructions for deploying the AgenC Coordination Protocol to Solana mainnet-beta.
 
@@ -155,7 +155,7 @@ seeds = true
 skip-lint = false
 
 [programs.localnet]
-agenc_coordination = "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
+agenc_coordination = "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
 
 [provider]
 cluster = "localnet"
@@ -165,7 +165,7 @@ wallet = "~/.config/solana/id.json"
 Add mainnet configuration:
 ```toml
 [programs.mainnet]
-agenc_coordination = "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
+agenc_coordination = "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
 
 [provider]
 cluster = "mainnet"
@@ -690,7 +690,7 @@ Before proceeding to mainnet, obtain sign-off from:
 
 | Account | Address |
 |---------|---------|
-| Program ID | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
+| Program ID | `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7` |
 | Protocol PDA | |
 | Treasury | |
 | Upgrade Authority (Multisig) | |

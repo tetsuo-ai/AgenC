@@ -352,7 +352,7 @@ ALL required capabilities set to claim a task.
 
 const PDA_SEEDS_REFERENCE = `# AgenC PDA Seeds
 
-All PDAs are derived from the program ID: EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ
+All PDAs are derived from the program ID: 5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7
 
 | Account          | Seeds                              | Notes                       |
 |------------------|------------------------------------|-----------------------------|
