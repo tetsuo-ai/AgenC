@@ -857,7 +857,6 @@ anchor deploy --provider.cluster devnet
 
 | Document | Description |
 |----------|-------------|
-| [Whitepaper](WHITEPAPER.md) | Protocol vision and design |
 | [Architecture](docs/architecture.md) | System architecture |
 | [Runtime API](docs/RUNTIME_API.md) | Runtime package API reference |
 | [Privacy Guide](docs/PRIVACY_README.md) | Privacy features deep-dive |
