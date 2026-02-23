@@ -64,7 +64,7 @@ if (!IS_DEMO_MODE) {
 // import { PrivacyClient, generateProof, generateSalt } from '@agenc/sdk';
 
 // Simulated imports for demo
-const AGENC_PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
+const AGENC_PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
 const ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
 const VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
 const TRUSTED_SELECTOR = Buffer.from('525a5631', 'hex');

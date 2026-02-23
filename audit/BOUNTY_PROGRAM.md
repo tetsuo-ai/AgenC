@@ -11,7 +11,7 @@ The AgenC Coordination Protocol is a decentralized multi-agent coordination laye
 - Dispute resolution via arbiter voting
 - Multisig-gated protocol governance
 
-**Program ID:** `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
+**Program ID:** `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 
 **Source Repository:** [Insert repository URL]
 

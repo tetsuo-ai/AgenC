@@ -3,8 +3,7 @@
 ## Deployment Details
 
 - Cluster: Solana Devnet
-- Program ID: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
-- IDL Account: `EuDy3ct4M8Mge5s3TLSvH6jtKhGpxZAh6iyJ2xyrJJjb`
+- Program ID: `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 - Anchor Version: `0.32.1`
 - Commit: `c53771ddbb4097f45c08fe339a924bb348c33aab`
 
