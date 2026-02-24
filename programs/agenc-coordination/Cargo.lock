@@ -253,7 +253,7 @@ dependencies = [
  "indexmap",
  "solana-program-test",
  "solana-sdk",
- "solana-sha256-hasher 2.3.0",
+ "solana-sha256-hasher 3.1.0",
  "tokio",
 ]
 

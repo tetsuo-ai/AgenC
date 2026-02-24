@@ -32,7 +32,7 @@ indexmap = "=2.12.0"
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
 
 # SHA-256 journal digest hashing for verifier-router integration
-solana-sha256-hasher = "=2.3.0"
+solana-sha256-hasher = "=3.1.0"
 
 [target.'cfg(target_os = "solana")'.dependencies]
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
