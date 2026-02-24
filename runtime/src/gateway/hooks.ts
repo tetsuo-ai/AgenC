@@ -318,12 +318,6 @@ export class HookDispatcher {
 export function createBuiltinHooks(): HookHandler[] {
   return [
     {
-      event: "message:inbound",
-      name: "session-memory-recorder",
-      priority: 50,
-      handler: async () => ({ continue: true }),
-    },
-    {
       event: "tool:after",
       name: "tool-audit-logger",
       priority: 90,

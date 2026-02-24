@@ -4,6 +4,8 @@ import { VoiceButton } from './VoiceButton';
 
 interface ChatInputProps {
   onSend: (content: string, attachments?: File[]) => void;
+  onStop?: () => void;
+  isGenerating?: boolean;
   disabled?: boolean;
   voiceState?: VoiceState;
   voiceMode?: VoiceMode;
@@ -14,6 +16,8 @@ interface ChatInputProps {
 
 export function ChatInput({
   onSend,
+  onStop,
+  isGenerating = false,
   disabled,
   voiceState = 'inactive',
   voiceMode = 'vad',
@@ -191,18 +195,31 @@ export function ChatInput({
             />
           )}
 
-          {/* Send button — pill with text + arrow */}
-          <button
-            onClick={handleSubmit}
-            disabled={disabled || (!value.trim() && attachments.length === 0)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent text-white text-sm font-medium hover:bg-accent-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Send message"
-          >
-            Send
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405z" />
-            </svg>
-          </button>
+          {/* Send / Stop button */}
+          {isGenerating ? (
+            <button
+              onClick={onStop}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-colors"
+              title="Stop generation"
+            >
+              Stop
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={disabled || (!value.trim() && attachments.length === 0)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent text-white text-sm font-medium hover:bg-accent-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Send message"
+            >
+              Send
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 

@@ -478,19 +478,10 @@ describe("HookDispatcher", () => {
   });
 
   describe("createBuiltinHooks", () => {
-    it("returns 4 built-in hook handlers", () => {
+    it("returns 3 built-in hook handlers", () => {
       const hooks = createBuiltinHooks();
 
-      expect(hooks).toHaveLength(4);
-    });
-
-    it("includes session-memory-recorder on message:inbound", () => {
-      const hooks = createBuiltinHooks();
-      const recorder = hooks.find((h) => h.name === "session-memory-recorder");
-
-      expect(recorder).toBeDefined();
-      expect(recorder!.event).toBe("message:inbound");
-      expect(recorder!.priority).toBe(50);
+      expect(hooks).toHaveLength(3);
     });
 
     it("includes tool-audit-logger on tool:after", () => {
@@ -540,8 +531,7 @@ describe("HookDispatcher", () => {
         dispatcher.on(hook);
       }
 
-      expect(dispatcher.getHandlerCount()).toBe(4);
-      expect(dispatcher.hasHandlers("message:inbound")).toBe(true);
+      expect(dispatcher.getHandlerCount()).toBe(3);
       expect(dispatcher.hasHandlers("tool:after")).toBe(true);
       expect(dispatcher.hasHandlers("gateway:startup")).toBe(true);
       expect(dispatcher.hasHandlers("tool:before")).toBe(true);

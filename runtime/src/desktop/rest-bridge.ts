@@ -134,24 +134,40 @@ export class DesktopRESTBridge {
             signal: AbortSignal.timeout(TOOL_EXECUTION_TIMEOUT_MS),
           });
 
-          const body = await res.json() as Record<string, unknown>;
+          const raw = await res.json() as Record<string, unknown>;
+
+          // The container returns a ToolResult wrapper: { content: '{"image":"..."}' }
+          // Unwrap the inner content if it's a JSON string.
+          let inner: Record<string, unknown>;
+          if (typeof raw.content === "string") {
+            try {
+              const parsed = JSON.parse(raw.content) as unknown;
+              inner = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+                ? parsed as Record<string, unknown>
+                : { result: raw.content };
+            } catch {
+              inner = { result: raw.content };
+            }
+          } else {
+            inner = raw;
+          }
 
           // Special handling for screenshot — include data URL for vision LLMs
           if (
             def.name === "screenshot" &&
-            typeof body.image === "string"
+            typeof inner.image === "string"
           ) {
             return {
               content: safeStringify({
-                ...body,
-                dataUrl: `data:image/png;base64,${body.image as string}`,
+                ...inner,
+                dataUrl: `data:image/png;base64,${inner.image as string}`,
               }),
             };
           }
 
           return {
-            content: safeStringify(body),
-            isError: body.isError === true,
+            content: safeStringify(inner),
+            isError: raw.isError === true,
           };
         } catch (err) {
           logger.error(
