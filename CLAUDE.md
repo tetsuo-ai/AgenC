@@ -89,7 +89,7 @@ npm run test               # Run vitest unit tests
 cd runtime
 npm run build              # Build (outputs to dist/)
 npm run typecheck           # Type checking only
-npm run test               # Run vitest (~4800+ tests)
+npm run test               # Run vitest (~4860+ tests)
 npm run benchmark           # Run deterministic benchmark corpus
 npm run benchmark:ci        # Benchmark with artifact output
 npm run mutation            # Run mutation test suite
@@ -261,7 +261,7 @@ AgenC/
 │   │   ├── governance/             # On-chain governance operations (5 instructions, PDA helpers)
 │   │   ├── tools/                   # Tool registry + built-in AgenC tools + system tools (HTTP, filesystem, browser, bash, macOS)
 │   │   ├── llm/                     # LLM adapters (Grok, Anthropic, Ollama) + ChatExecutor + FallbackProvider
-│   │   ├── memory/                  # Memory backends (InMemory, SQLite, Redis) + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever
+│   │   ├── memory/                  # Memory backends (InMemory, SQLite, Redis) + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever (semantic pipeline wired into daemon)
 │   │   ├── proof/                   # ZK Proof Engine (caching, stats)
 │   │   ├── dispute/                 # Dispute operations (6 instructions)
 │   │   ├── workflow/                # DAG orchestrator, goal compiler, optimizer, canary rollout, feature extractor
@@ -680,7 +680,7 @@ The `@agenc/runtime` package (~90k lines of TypeScript) provides comprehensive a
 
 - **Version:** `0.1.0`
 - **Build Tool:** `tsup` (ESM + CJS, externals: openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis, ws, grammy, discord.js, @slack/bolt, @whiskeysockets/baileys, matrix-js-sdk, cheerio, playwright, edge-tts)
-- **Test Framework:** `vitest` (~4800+ tests)
+- **Test Framework:** `vitest` (~4860+ tests)
 - **Node:** `>=18.0.0`
 - **Peer Dependencies:** `@coral-xyz/anchor >=0.29.0`, `@solana/web3.js >=1.90.0`, `@solana/spl-token >=0.4.0`
 - **Optional Dependencies:** openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis, ws, grammy, discord.js, @slack/bolt, @whiskeysockets/baileys, matrix-js-sdk, cheerio, playwright, edge-tts
@@ -703,6 +703,7 @@ runtime/src/
 │   │                       # Sessions, workspace, scheduler (cron), heartbeat, hooks
 │   │                       # Identity resolver, personality, media pipeline, approvals, slash commands
 │   │                       # JWT auth, routing, sandbox, sub-agents, remote gateway, voice bridge
+│   │                       # Daemon wires semantic memory: embedding auto-select → vector store → ingestion → retriever
 │   └── channels/           # 8 channel plugins: telegram, discord, webchat, slack, whatsapp, signal, matrix, imessage
 │
 ├── Task Execution
@@ -716,7 +717,7 @@ runtime/src/
 │   ├── llm/                # Grok, Anthropic, Ollama adapters + ChatExecutor + FallbackProvider
 │   ├── tools/              # ToolRegistry, skill adapter, built-in AgenC tools, system tools (HTTP, filesystem, browser, bash, macOS)
 │   ├── skills/             # SkillRegistry + Jupiter DEX + markdown loader + bundled skills + on-chain registry client + catalog + monetization (analytics, revenue)
-│   ├── memory/             # InMemory, SQLite, Redis backends + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever
+│   ├── memory/             # InMemory, SQLite, Redis backends + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever (semantic pipeline wired into daemon)
 │   └── voice/              # STT (Whisper), TTS (ElevenLabs, OpenAI, Edge), Realtime (xAI)
 │
 ├── Protocol Operations
@@ -836,6 +837,27 @@ import { ReputationEconomyOperations } from '@agenc/runtime';
 ```
 
 Wraps on-chain reputation staking, delegation, and portability operations.
+
+### Semantic Memory Pipeline
+
+The daemon's `wireWebChat()` wires a full semantic memory stack when an embedding provider is available:
+
+1. `createEmbeddingProvider()` auto-selects: Ollama (local) → OpenAI (if API key) → Noop (fallback)
+2. `InMemoryVectorStore` stores embeddings with cosine + BM25 hybrid search
+3. `MemoryIngestionEngine` embeds conversation turns + appends daily logs
+4. `createIngestionHooks()` registers 3 hooks: turn capture (`message:outbound`), session end, session compaction
+5. `SemanticMemoryRetriever` (implements `MemoryRetriever`) does hybrid search + recency re-ranking + curated MEMORY.md injection
+
+Falls back to naive last-10-messages retriever when no embedding provider is available.
+
+**Config** (`GatewayMemoryConfig` embedding fields):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `embeddingProvider` | `"ollama" \| "openai" \| "noop"` | Force a specific provider (auto-selects if omitted) |
+| `embeddingApiKey` | `string` | API key for OpenAI embeddings (falls back to `llm.apiKey`) |
+| `embeddingBaseUrl` | `string` | Custom Ollama host or OpenAI base URL |
+| `embeddingModel` | `string` | Embedding model name (e.g. `nomic-embed-text`) |
 
 ### Capabilities (Bitmask)
 
@@ -1397,7 +1419,7 @@ Tests use LiteSVM for ~50x speedup vs solana-test-validator (PR #866).
 ```bash
 npm run test:fast           # LiteSVM tests (~5s, includes agent-feed)
 npm run test                # SDK + runtime vitest suites
-cd runtime && npm run test  # Runtime only (~4800+ tests)
+cd runtime && npm run test  # Runtime only (~4860+ tests)
 ```
 
 ### Test Constants (from test-utils.ts)

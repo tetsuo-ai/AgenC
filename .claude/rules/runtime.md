@@ -264,6 +264,49 @@ runtime/src/memory/
 | SqliteBackend | `SqliteBackendConfig` | `dbPath` (':memory:'), `walMode` (true), `cleanupOnConnect` (true) |
 | RedisBackend | `RedisBackendConfig` | `url` or `host`/`port`, `keyPrefix` ('agenc:memory:'), `connectTimeoutMs` (5000) |
 
+### Semantic Memory Pipeline (wired in daemon, PR #1267)
+
+The daemon's `wireWebChat()` method wires the full semantic memory stack when an embedding provider is available:
+
+```
+createEmbeddingProvider() → auto-selects Ollama/OpenAI/Noop
+  ↓ (if not noop)
+InMemoryVectorStore (dimension from provider)
+  ↓
+MemoryIngestionEngine (embeds turns, appends daily logs)
+  ↓
+createIngestionHooks() → 3 hooks registered on HookDispatcher:
+  - message:outbound (memory-ingestion-turn) — fire-and-forget embed+store
+  - session:end (memory-ingestion-session-end) — summary + entity extraction
+  - session:compact (memory-ingestion-compact) — embed compaction summary
+  ↓
+SemanticMemoryRetriever implements MemoryRetriever:
+  - Embeds user message → hybrid search (cosine + BM25) → recency re-rank
+  - Loads curated MEMORY.md facts (score 1.0, cached 1min)
+  - Formats as <memory> blocks within 2000 token budget
+```
+
+When Noop provider is returned (no Ollama, no API key), falls back to `createMemoryRetriever()` which returns last 10 raw messages.
+
+**Config fields** (`GatewayMemoryConfig`):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `embeddingProvider` | `"ollama" \| "openai" \| "noop"` | auto-select | Force a specific provider |
+| `embeddingApiKey` | `string` | `llm.apiKey` | API key for OpenAI embeddings |
+| `embeddingBaseUrl` | `string` | provider default | Custom Ollama host or OpenAI base URL |
+| `embeddingModel` | `string` | provider default | Embedding model name (e.g. `nomic-embed-text`) |
+
+**Key files:**
+- `memory/embeddings.ts` — `createEmbeddingProvider()` factory, Ollama/OpenAI/Noop providers
+- `memory/vector-store.ts` — `InMemoryVectorStore` (cosine + BM25 hybrid search)
+- `memory/ingestion.ts` — `MemoryIngestionEngine` + `createIngestionHooks()` hook factory
+- `memory/retriever.ts` — `SemanticMemoryRetriever` (implements `MemoryRetriever`)
+- `memory/structured.ts` — `DailyLogManager`, `CuratedMemoryManager`
+- `gateway/daemon.ts` — wiring in `wireWebChat()`
+
+**Note:** The `session-memory-recorder` no-op stub was removed from `createBuiltinHooks()` in `gateway/hooks.ts`. `createBuiltinHooks()` now returns 3 handlers (was 4).
+
 ## ZK Proof Engine (Phase 7)
 
 ProofEngine wraps SDK proof functions with caching, stats, and error wrapping.
