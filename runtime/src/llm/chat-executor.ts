@@ -87,6 +87,8 @@ export interface ChatExecuteParams {
   readonly toolHandler?: ToolHandler;
   /** Per-call stream callback — overrides the constructor callback for this call. */
   readonly onStreamChunk?: StreamProgressCallback;
+  /** Abort signal — when aborted, the executor stops after the current tool call. */
+  readonly signal?: AbortSignal;
 }
 
 /** Result returned from ChatExecutor.execute(). */
@@ -186,7 +188,7 @@ export class ChatExecutor {
    * Execute a chat message against the provider chain.
    */
   async execute(params: ChatExecuteParams): Promise<ChatExecutorResult> {
-    const { message, history, systemPrompt, sessionId } = params;
+    const { message, history, systemPrompt, sessionId, signal } = params;
     const activeToolHandler = params.toolHandler ?? this.toolHandler;
     const activeStreamCallback = params.onStreamChunk ?? this.onStreamChunk;
     const startTime = Date.now();
@@ -292,6 +294,9 @@ export class ChatExecutor {
       activeToolHandler &&
       rounds < this.maxToolRounds
     ) {
+      // Check for cancellation before each round
+      if (signal?.aborted) break;
+
       rounds++;
 
       // Append the assistant message with tool calls
@@ -420,6 +425,9 @@ export class ChatExecutor {
           });
         }
       }
+
+      // Check for cancellation before re-calling LLM
+      if (signal?.aborted) break;
 
       // Re-call LLM
       const next = await this.callWithFallback(messages, activeStreamCallback);

@@ -64,12 +64,39 @@ export class WebChatChannel
   >();
   // clientIds that have subscribed to real-time events
   private readonly eventSubscribers = new Set<string>();
+  // sessionId → AbortController for in-flight chat execution
+  private readonly sessionAbortControllers = new Map<string, AbortController>();
 
   private healthy = true;
 
   constructor(deps: WebChatDeps, _config?: WebChatChannelConfig) {
     super();
     this.deps = deps;
+  }
+
+  /** Create and track an AbortController for a session's in-flight execution. */
+  createAbortController(sessionId: string): AbortController {
+    // Abort any existing in-flight execution for this session
+    this.sessionAbortControllers.get(sessionId)?.abort();
+    const controller = new AbortController();
+    this.sessionAbortControllers.set(sessionId, controller);
+    return controller;
+  }
+
+  /** Cancel the in-flight execution for a session. */
+  cancelSession(sessionId: string): boolean {
+    const controller = this.sessionAbortControllers.get(sessionId);
+    if (controller) {
+      controller.abort();
+      this.sessionAbortControllers.delete(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  /** Clean up the controller after execution completes. */
+  clearAbortController(sessionId: string): void {
+    this.sessionAbortControllers.delete(sessionId);
   }
 
   /** Replace the voice bridge at runtime (e.g. after config hot-reload). */
@@ -199,6 +226,16 @@ export class WebChatChannel
 
     if (type === "chat.typing") {
       // Typing indicators are noted but not forwarded
+      return;
+    }
+
+    if (type === "chat.cancel") {
+      const sessionId = this.clientSessions.get(clientId);
+      if (sessionId && this.cancelSession(sessionId)) {
+        send({ type: "chat.cancelled", id });
+      } else {
+        send({ type: "chat.cancelled", id });
+      }
       return;
     }
 
