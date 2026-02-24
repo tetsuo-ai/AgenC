@@ -9,6 +9,7 @@ interface ChatViewProps {
   messages: ChatMessage[];
   isTyping: boolean;
   onSend: (content: string, attachments?: File[]) => void;
+  onStop?: () => void;
   connected: boolean;
   voiceState?: VoiceState;
   voiceTranscript?: string;
@@ -29,6 +30,7 @@ export function ChatView({
   messages,
   isTyping,
   onSend,
+  onStop,
   connected,
   voiceState = 'inactive',
   voiceTranscript = '',
@@ -102,6 +104,8 @@ export function ChatView({
           <div className="animate-input-glow rounded-2xl">
             <ChatInput
               onSend={onSend}
+              onStop={onStop}
+              isGenerating={isTyping}
               disabled={!connected}
               voiceState={voiceState}
               voiceMode={voiceMode}
@@ -224,6 +228,8 @@ export function ChatView({
       <MessageList messages={messages} isTyping={isTyping} theme={theme} searchQuery={searchQuery} />
       <ChatInput
         onSend={onSend}
+        onStop={onStop}
+        isGenerating={isTyping}
         disabled={!connected}
         voiceState={voiceState}
         voiceMode={voiceMode}

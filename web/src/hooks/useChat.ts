@@ -20,6 +20,7 @@ export interface ChatSessionInfo {
 export interface UseChatReturn {
   messages: ChatMessage[];
   sendMessage: (content: string, attachments?: File[]) => void;
+  stopGeneration: () => void;
   isTyping: boolean;
   sessionId: string | null;
   sessions: ChatSessionInfo[];
@@ -59,6 +60,11 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     setSessionId(null);
     setIsTyping(false);
   }, []);
+
+  const stopGeneration = useCallback(() => {
+    send({ type: 'chat.cancel' });
+    setIsTyping(false);
+  }, [send]);
 
   const sendMessage = useCallback((content: string, files?: File[]) => {
     if (!files || files.length === 0) {
@@ -196,6 +202,11 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
+      case 'chat.cancelled': {
+        setIsTyping(false);
+        break;
+      }
+
       case 'tools.executing': {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const toolCall: ToolCall = {
@@ -288,7 +299,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, [send]);
 
   return {
-    messages, sendMessage, isTyping, sessionId,
+    messages, sendMessage, stopGeneration, isTyping, sessionId,
     sessions, refreshSessions, resumeSession, startNewChat,
     handleMessage,
   } as UseChatReturn & { handleMessage: (msg: WSMessage) => void };
