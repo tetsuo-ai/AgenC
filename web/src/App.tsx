@@ -151,6 +151,7 @@ export default function App() {
                 messages={chat.messages}
                 isTyping={chat.isTyping}
                 onSend={chat.sendMessage}
+                onStop={chat.stopGeneration}
                 connected={connected}
                 voiceState={voice.voiceState}
                 voiceTranscript={voice.transcript}

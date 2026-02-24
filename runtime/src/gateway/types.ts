@@ -41,6 +41,14 @@ export interface GatewayMemoryConfig {
   password?: string;
   /** AES-256-GCM encryption key for content at rest (hex-encoded, 64 hex chars = 32 bytes). */
   encryptionKey?: string;
+  /** Embedding provider for semantic memory. Auto-selects if omitted. */
+  embeddingProvider?: "ollama" | "openai" | "noop";
+  /** API key for embedding provider. Falls back to llm.apiKey. */
+  embeddingApiKey?: string;
+  /** Base URL for embedding provider (e.g. Ollama host). */
+  embeddingBaseUrl?: string;
+  /** Embedding model name (e.g. 'nomic-embed-text'). */
+  embeddingModel?: string;
 }
 
 export interface GatewayChannelConfig {
