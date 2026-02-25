@@ -183,6 +183,13 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
+      case 'chat.session': {
+        const payload = (msg.payload ?? msg) as Record<string, unknown>;
+        const id = (payload.sessionId as string) ?? null;
+        if (id) setSessionId(id);
+        break;
+      }
+
       case 'chat.resumed': {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const resumedId = (payload.sessionId as string) ?? null;

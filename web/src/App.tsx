@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ViewId, WSMessage, ApprovalRequest } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
@@ -62,17 +62,30 @@ export default function App() {
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
   const prevVncUrl = useRef<string | null>(null);
 
+  // Match VNC viewer to the active chat session's container
+  const sessionDesktopUrl = useMemo(
+    () => desktop.vncUrlForSession(chat.sessionId),
+    [desktop, chat.sessionId],
+  );
+
   const toggleDesktopPanel = useCallback(() => {
     setDesktopPanelOpen((prev) => !prev);
   }, []);
 
   // Auto-open desktop panel when a sandbox becomes ready
   useEffect(() => {
-    if (desktop.activeVncUrl && !prevVncUrl.current) {
+    if (sessionDesktopUrl && !prevVncUrl.current) {
       setDesktopPanelOpen(true);
     }
-    prevVncUrl.current = desktop.activeVncUrl;
-  }, [desktop.activeVncUrl]);
+    prevVncUrl.current = sessionDesktopUrl;
+  }, [sessionDesktopUrl]);
+
+  // Periodically refresh sandbox list so we pick up newly-created containers
+  useEffect(() => {
+    if (!connected) return;
+    const id = setInterval(() => desktop.refresh(), 5000);
+    return () => clearInterval(id);
+  }, [connected, desktop.refresh]);
 
   // Voice toggle — start or stop voice session
   const handleVoiceToggle = useCallback(() => {
@@ -180,7 +193,7 @@ export default function App() {
                 activeSessionId={chat.sessionId}
                 onSelectSession={chat.resumeSession}
                 onNewChat={chat.startNewChat}
-                desktopUrl={desktop.activeVncUrl}
+                desktopUrl={sessionDesktopUrl}
                 desktopOpen={desktopPanelOpen}
                 onToggleDesktop={toggleDesktopPanel}
               />
@@ -244,7 +257,7 @@ export default function App() {
         </main>
 
         {/* Desktop right panel — hidden when desktop viewer is open */}
-        <div className={`hidden lg:flex ${desktopPanelOpen && desktop.activeVncUrl ? '!hidden' : ''}`}>
+        <div className={`hidden lg:flex ${desktopPanelOpen && sessionDesktopUrl ? '!hidden' : ''}`}>
           <RightPanel
             settings={gatewaySettings}
             wallet={walletInfo}

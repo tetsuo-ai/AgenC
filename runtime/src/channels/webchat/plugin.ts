@@ -356,6 +356,9 @@ export class WebChatChannel
     // Ensure session mapping
     const sessionId = this.ensureSession(clientId);
 
+    // Notify the client of its session ID (needed for desktop viewer matching)
+    send({ type: 'chat.session', payload: { sessionId } });
+
     // Store user message in history
     this.appendHistory(sessionId, {
       content: content as string,
