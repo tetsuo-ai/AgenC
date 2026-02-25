@@ -129,6 +129,8 @@ export interface ChatExecutorConfig {
   readonly evaluator?: EvaluatorConfig;
   /** Optional provider that injects self-learning context per message. */
   readonly learningProvider?: MemoryRetriever;
+  /** Optional provider that injects cross-session progress context per message. */
+  readonly progressProvider?: MemoryRetriever;
   /** Base cooldown period for failed providers in ms (default: 60_000). */
   readonly providerCooldownMs?: number;
   /** Maximum cooldown period in ms (default: 300_000). */
@@ -215,6 +217,7 @@ export class ChatExecutor {
   private readonly skillInjector?: SkillInjector;
   private readonly memoryRetriever?: MemoryRetriever;
   private readonly learningProvider?: MemoryRetriever;
+  private readonly progressProvider?: MemoryRetriever;
   private readonly onCompaction?: (sessionId: string, summary: string) => void;
   private readonly evaluator?: EvaluatorConfig;
 
@@ -239,6 +242,7 @@ export class ChatExecutor {
     this.skillInjector = config.skillInjector;
     this.memoryRetriever = config.memoryRetriever;
     this.learningProvider = config.learningProvider;
+    this.progressProvider = config.progressProvider;
     this.onCompaction = config.onCompaction;
     this.evaluator = config.evaluator;
   }
@@ -280,6 +284,7 @@ export class ChatExecutor {
     await this.injectContext(this.skillInjector, messageText, sessionId, messages);
     await this.injectContext(this.memoryRetriever, messageText, sessionId, messages);
     await this.injectContext(this.learningProvider, messageText, sessionId, messages);
+    await this.injectContext(this.progressProvider, messageText, sessionId, messages);
 
     // Append history and user message
     messages.push(...history);

@@ -122,3 +122,16 @@ export { DAGMonitor } from "./monitor.js";
 
 // Orchestrator
 export { DAGOrchestrator } from "./orchestrator.js";
+
+// Pipeline executor (resumable workflows)
+export {
+  PipelineExecutor,
+  type PipelineStepErrorPolicy,
+  type PipelineStep,
+  type PipelineContext,
+  type Pipeline,
+  type PipelineStatus,
+  type PipelineResult,
+  type PipelineCheckpoint,
+  type PipelineExecutorConfig,
+} from "./pipeline.js";

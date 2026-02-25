@@ -3,7 +3,7 @@
  * @module
  */
 
-export { sleep, toErrorMessage } from "./async.js";
+export { sleep, toErrorMessage, SEVEN_DAYS_MS } from "./async.js";
 
 export { Logger, LogLevel, createLogger, silentLogger } from "./logger.js";
 

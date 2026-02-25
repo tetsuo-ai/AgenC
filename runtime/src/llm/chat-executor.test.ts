@@ -1002,6 +1002,68 @@ describe("ChatExecutor", () => {
         content: "Memory: user prefers short answers",
       });
     });
+
+    it("progressProvider.retrieve() result appears in messages", async () => {
+      const progressProvider = {
+        retrieve: vi
+          .fn()
+          .mockResolvedValue("## Recent Progress\n\n- [tool_result] ran ls"),
+      };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        progressProvider,
+      });
+
+      await executor.execute(createParams());
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as LLMMessage[];
+      expect(messages).toContainEqual({
+        role: "system",
+        content: "## Recent Progress\n\n- [tool_result] ran ls",
+      });
+    });
+
+    it("progressProvider failure is non-blocking", async () => {
+      const progressProvider = {
+        retrieve: vi.fn().mockRejectedValue(new Error("progress backend down")),
+      };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        progressProvider,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toBe("mock response");
+    });
+
+    it("progressProvider injected after learningProvider", async () => {
+      const learningProvider = {
+        retrieve: vi.fn().mockResolvedValue("## Learned Patterns\n\n- lesson"),
+      };
+      const progressProvider = {
+        retrieve: vi.fn().mockResolvedValue("## Recent Progress\n\n- step"),
+      };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        learningProvider,
+        progressProvider,
+      });
+
+      await executor.execute(createParams());
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as LLMMessage[];
+      // System prompt + learning + progress = 3 system messages before history/user
+      const systemMessages = messages.filter((m) => m.role === "system");
+      expect(systemMessages).toHaveLength(3);
+      expect(systemMessages[1].content).toContain("Learned Patterns");
+      expect(systemMessages[2].content).toContain("Recent Progress");
+    });
   });
 
   // --------------------------------------------------------------------------

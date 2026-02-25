@@ -6,12 +6,11 @@
 
 import { randomUUID } from "node:crypto";
 import type { MemoryBackend } from "./types.js";
+import { SEVEN_DAYS_MS } from "../utils/async.js";
 
 const NODE_PREFIX = "graph:node:";
 const EDGE_PREFIX = "graph:edge:";
 const SESSION_INDEX_PREFIX = "graph:index:session:";
-
-const DEFAULT_CONFIDENCE_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export type ProvenanceSourceType =
   | "onchain_event"
@@ -117,7 +116,7 @@ export class MemoryGraph {
   constructor(backend: MemoryBackend, config: MemoryGraphConfig = {}) {
     this.backend = backend;
     this.confidenceHalfLifeMs =
-      config.confidenceHalfLifeMs ?? DEFAULT_CONFIDENCE_HALF_LIFE_MS;
+      config.confidenceHalfLifeMs ?? SEVEN_DAYS_MS;
     this.now = config.now ?? Date.now;
   }
 

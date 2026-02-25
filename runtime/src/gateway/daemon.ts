@@ -47,6 +47,8 @@ import { WorkspaceLoader, getDefaultWorkspacePath, assembleSystemPrompt } from '
 import { loadPersonalityTemplate, mergePersonality } from './personality.js';
 import { SlashCommandRegistry, createDefaultCommands } from './commands.js';
 import { HookDispatcher, createBuiltinHooks } from './hooks.js';
+import { ProgressTracker, summarizeToolResult } from './progress.js';
+import { PipelineExecutor, type Pipeline, type PipelineStep } from '../workflow/pipeline.js';
 import { ConnectionManager } from '../connection/manager.js';
 import { DiscordChannel } from '../channels/discord/plugin.js';
 import { SlackChannel } from '../channels/slack/plugin.js';
@@ -494,12 +496,33 @@ export class DaemonManager {
       },
     };
 
+    // --- Cross-session progress tracker ---
+    const progressTracker = new ProgressTracker({ memoryBackend, logger: this.logger });
+    hooks.on({
+      event: 'tool:after',
+      name: 'progress-tracker',
+      priority: 95,
+      handler: async (ctx) => {
+        const { sessionId, toolName, args, result, durationMs } = ctx.payload as {
+          sessionId: string; toolName: string; args: Record<string, unknown>;
+          result: string; durationMs: number;
+        };
+        await progressTracker.append({
+          sessionId,
+          type: 'tool_result',
+          summary: summarizeToolResult(toolName, args, result, durationMs),
+        });
+        return { continue: true };
+      },
+    });
+
     this._chatExecutor = providers.length > 0 ? new ChatExecutor({
       providers,
       toolHandler: baseToolHandler,
       skillInjector,
       memoryRetriever,
       learningProvider,
+      progressProvider: progressTracker,
       maxToolRounds: config.llm?.maxToolRounds ?? (config.desktop?.enabled ? 20 : 3),
       sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
       onCompaction: this.handleCompaction,
@@ -507,6 +530,16 @@ export class DaemonManager {
 
     const approvalEngine = new ApprovalEngine();
     this._approvalEngine = approvalEngine;
+
+    // --- Resumable pipeline executor ---
+    const pipelineExecutor = new PipelineExecutor({
+      toolHandler: baseToolHandler,
+      memoryBackend,
+      approvalEngine,
+      progressTracker,
+      logger: this.logger,
+    });
+
     const sessionMgr = this.createSessionManager(hooks);
     const resolveSessionId = this.createSessionIdResolver(sessionMgr);
     const systemPrompt = await this.buildSystemPrompt(config);
@@ -518,6 +551,8 @@ export class DaemonManager {
       registry,
       availableSkills,
       skillList,
+      progressTracker,
+      pipelineExecutor,
     );
     const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt);
     this._voiceBridge = voiceBridge ?? null;
@@ -558,7 +593,7 @@ export class DaemonManager {
       const diff = args[0] as ConfigDiff;
       const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
       if (llmChanged) {
-        void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever, learningProvider);
+        void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever, learningProvider, progressTracker);
       }
       const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
       if (voiceChanged) {
@@ -1185,6 +1220,7 @@ export class DaemonManager {
     skillInjector: SkillInjector,
     memoryRetriever: MemoryRetriever,
     learningProvider?: MemoryRetriever,
+    progressProvider?: MemoryRetriever,
   ): Promise<void> {
     try {
       const providers = await this.createLLMProviders(newConfig, this._llmTools);
@@ -1194,6 +1230,7 @@ export class DaemonManager {
         skillInjector,
         memoryRetriever,
         learningProvider,
+        progressProvider,
         maxToolRounds: newConfig.llm?.maxToolRounds ?? (newConfig.desktop?.enabled ? 20 : 3),
         sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
         onCompaction: this.handleCompaction,
@@ -1426,6 +1463,8 @@ export class DaemonManager {
     registry: ToolRegistry,
     availableSkills: DiscoveredSkill[],
     skillList: WebChatSkillSummary[],
+    progressTracker?: ProgressTracker,
+    pipelineExecutor?: PipelineExecutor,
   ): SlashCommandRegistry {
     const commandRegistry = new SlashCommandRegistry({ logger: this.logger });
     for (const command of createDefaultCommands()) {
@@ -1449,6 +1488,7 @@ export class DaemonManager {
       handler: async (ctx) => {
         const sessionId = resolveSessionId(ctx.senderId);
         sessionMgr.reset(sessionId);
+        await progressTracker?.clear(sessionId);
         // Clean up desktop sandbox on session reset
         if (this._desktopManager) {
           await this._desktopManager.destroyBySession(sessionId).catch(() => {});
@@ -1465,6 +1505,7 @@ export class DaemonManager {
       handler: async (ctx) => {
         const sessionId = resolveSessionId(ctx.senderId);
         sessionMgr.reset(sessionId);
+        await progressTracker?.clear(sessionId);
         if (this._desktopManager) {
           await this._desktopManager.destroyBySession(sessionId).catch(() => {});
           const { destroySessionBridge } = await import('../desktop/session-router.js');
@@ -1532,6 +1573,95 @@ export class DaemonManager {
         await ctx.reply(`LLM providers: ${providerInfo}`);
       },
     });
+
+    // Progress tracker command
+    if (progressTracker) {
+      commandRegistry.register({
+        name: 'progress',
+        description: 'Show recent task progress',
+        global: true,
+        handler: async (ctx) => {
+          const sessionId = resolveSessionId(ctx.senderId);
+          const summary = await progressTracker.getSummary(sessionId);
+          await ctx.reply(summary || 'No progress entries yet.');
+        },
+      });
+    }
+
+    // Pipeline commands
+    if (pipelineExecutor) {
+      commandRegistry.register({
+        name: 'pipeline',
+        description: 'Run a pipeline from JSON steps',
+        args: '<json>',
+        global: true,
+        handler: async (ctx) => {
+          if (!ctx.args) {
+            await ctx.reply('Usage: /pipeline [{"name":"step1","tool":"system.bash","args":{"command":"ls"}}]');
+            return;
+          }
+          try {
+            const steps: PipelineStep[] = JSON.parse(ctx.args);
+            if (!Array.isArray(steps) || steps.length === 0) {
+              await ctx.reply('Pipeline steps must be a non-empty JSON array.');
+              return;
+            }
+            const pipeline: Pipeline = {
+              id: `pipeline-${Date.now()}`,
+              steps,
+              context: { results: {} },
+              createdAt: Date.now(),
+            };
+            await ctx.reply(`Starting pipeline "${pipeline.id}" with ${steps.length} step(s)...`);
+            const result = await pipelineExecutor.execute(pipeline);
+            if (result.status === 'completed') {
+              await ctx.reply(`Pipeline completed (${result.completedSteps}/${result.totalSteps} steps).`);
+            } else if (result.status === 'halted') {
+              await ctx.reply(
+                `Pipeline halted at step ${result.resumeFrom}/${result.totalSteps}. ` +
+                `Use /resume ${pipeline.id} to continue.`,
+              );
+            } else {
+              await ctx.reply(`Pipeline failed: ${result.error ?? 'unknown error'}`);
+            }
+          } catch (err) {
+            await ctx.reply(`Invalid pipeline JSON: ${err instanceof Error ? err.message : err}`);
+          }
+        },
+      });
+      commandRegistry.register({
+        name: 'resume',
+        description: 'Resume a halted pipeline',
+        args: '[pipeline-id]',
+        global: true,
+        handler: async (ctx) => {
+          if (!ctx.args) {
+            const active = await pipelineExecutor.listActive();
+            if (active.length === 0) {
+              await ctx.reply('No active pipelines.');
+              return;
+            }
+            const lines = active.map(
+              (cp) => `  ${cp.pipelineId} — step ${cp.stepIndex}/${cp.pipeline.steps.length} (${cp.status})`,
+            );
+            await ctx.reply('Active pipelines:\n' + lines.join('\n'));
+            return;
+          }
+          try {
+            const result = await pipelineExecutor.resume(ctx.args.trim());
+            if (result.status === 'completed') {
+              await ctx.reply(`Pipeline resumed and completed (${result.completedSteps}/${result.totalSteps} steps).`);
+            } else if (result.status === 'halted') {
+              await ctx.reply(`Pipeline halted again at step ${result.resumeFrom}/${result.totalSteps}.`);
+            } else {
+              await ctx.reply(`Pipeline resume failed: ${result.error ?? 'unknown error'}`);
+            }
+          } catch (err) {
+            await ctx.reply(`Resume failed: ${err instanceof Error ? err.message : err}`);
+          }
+        },
+      });
+    }
 
     // Desktop sandbox commands (only when desktop is enabled)
     if (this._desktopManager) {
