@@ -63,6 +63,9 @@ import type { ProactiveCommunicator } from './proactive.js';
 
 const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
 
+/** Minimum confidence score for injecting learned patterns into conversations. */
+const MIN_LEARNING_CONFIDENCE = 0.7;
+
 interface WebChatSkillSummary {
   name: string;
   description: string;
@@ -391,6 +394,7 @@ export class DaemonManager {
           desktopManager,
           bridges: desktopBridges,
           logger: desktopLogger,
+          autoScreenshot: true,
         });
     }
 
@@ -455,11 +459,47 @@ export class DaemonManager {
       this.logger.info('Semantic memory unavailable — using basic history retriever');
     }
 
+    // Learning context provider — reads self-learning patterns per message
+    const learningProvider: MemoryRetriever = {
+      async retrieve(): Promise<string | undefined> {
+        if (!memoryBackend) return undefined;
+        try {
+          const learning = await memoryBackend.get<{
+            patterns: Array<{ type: string; description: string; lesson: string; confidence: number }>;
+            strategies: Array<{ name: string; description: string; steps: string[] }>;
+            preferences: Record<string, string>;
+          }>('learning:latest');
+          if (!learning) return undefined;
+
+          const parts: string[] = [];
+          const lessons = (learning.patterns ?? [])
+            .filter((p) => p.confidence >= MIN_LEARNING_CONFIDENCE)
+            .slice(0, 10)
+            .map((p) => `- ${p.lesson}`);
+          if (lessons.length > 0) parts.push('Lessons:\n' + lessons.join('\n'));
+
+          const strats = (learning.strategies ?? []).slice(0, 5)
+            .map((s) => `- ${s.name}: ${s.description}`);
+          if (strats.length > 0) parts.push('Strategies:\n' + strats.join('\n'));
+
+          const prefs = Object.entries(learning.preferences ?? {}).slice(0, 5)
+            .map(([k, v]) => `- ${k}: ${v}`);
+          if (prefs.length > 0) parts.push('Preferences:\n' + prefs.join('\n'));
+
+          if (parts.length === 0) return undefined;
+          return '## Learned Patterns\n\n' + parts.join('\n\n');
+        } catch {
+          return undefined;
+        }
+      },
+    };
+
     this._chatExecutor = providers.length > 0 ? new ChatExecutor({
       providers,
       toolHandler: baseToolHandler,
       skillInjector,
       memoryRetriever,
+      learningProvider,
       maxToolRounds: config.llm?.maxToolRounds ?? (config.desktop?.enabled ? 20 : 3),
       sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
       onCompaction: this.handleCompaction,
@@ -518,7 +558,7 @@ export class DaemonManager {
       const diff = args[0] as ConfigDiff;
       const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
       if (llmChanged) {
-        void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever);
+        void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever, learningProvider);
       }
       const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
       if (voiceChanged) {
@@ -1144,6 +1184,7 @@ export class DaemonManager {
     newConfig: GatewayConfig,
     skillInjector: SkillInjector,
     memoryRetriever: MemoryRetriever,
+    learningProvider?: MemoryRetriever,
   ): Promise<void> {
     try {
       const providers = await this.createLLMProviders(newConfig, this._llmTools);
@@ -1152,6 +1193,7 @@ export class DaemonManager {
         toolHandler: this._baseToolHandler!,
         skillInjector,
         memoryRetriever,
+        learningProvider,
         maxToolRounds: newConfig.llm?.maxToolRounds ?? (newConfig.desktop?.enabled ? 20 : 3),
         sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
         onCompaction: this.handleCompaction,

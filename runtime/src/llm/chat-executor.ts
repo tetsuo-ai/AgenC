@@ -25,6 +25,7 @@ import {
   LLMTimeoutError,
 } from "./errors.js";
 import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
+import { safeStringify } from "../tools/types.js";
 
 // ============================================================================
 // Error classes
@@ -101,6 +102,8 @@ export interface ChatExecutorResult {
   readonly durationMs: number;
   /** True if conversation history was compacted during this execution. */
   readonly compacted: boolean;
+  /** Result of response evaluation, if evaluator is configured. */
+  readonly evaluation?: EvaluationResult;
 }
 
 /** Configuration for ChatExecutor construction. */
@@ -122,12 +125,37 @@ export interface ChatExecutorConfig {
   readonly sessionTokenBudget?: number;
   /** Callback when context compaction occurs (budget recovery). */
   readonly onCompaction?: (sessionId: string, summary: string) => void;
+  /** Optional response evaluator/critic configuration. */
+  readonly evaluator?: EvaluatorConfig;
+  /** Optional provider that injects self-learning context per message. */
+  readonly learningProvider?: MemoryRetriever;
   /** Base cooldown period for failed providers in ms (default: 60_000). */
   readonly providerCooldownMs?: number;
   /** Maximum cooldown period in ms (default: 300_000). */
   readonly maxCooldownMs?: number;
   /** Maximum tracked sessions before eviction (default: 10_000). */
   readonly maxTrackedSessions?: number;
+}
+
+// ============================================================================
+// Evaluator types
+// ============================================================================
+
+/** Configuration for optional response evaluation/critic. */
+export interface EvaluatorConfig {
+  readonly rubric?: string;
+  /** Minimum score (0.0–1.0) to accept the response. Default: 0.7. */
+  readonly minScore?: number;
+  /** Maximum retry attempts when score is below threshold. Default: 1. */
+  readonly maxRetries?: number;
+}
+
+/** Result of a response evaluation. */
+export interface EvaluationResult {
+  readonly score: number;
+  readonly feedback: string;
+  readonly passed: boolean;
+  readonly retryCount: number;
 }
 
 // ============================================================================
@@ -144,6 +172,27 @@ interface FallbackResult {
   providerName: string;
   usedFallback: boolean;
 }
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Max chars for URL preview in tool summaries. */
+const MAX_URL_PREVIEW_CHARS = 80;
+/** Max chars for bash output in tool summaries. */
+const MAX_BASH_OUTPUT_CHARS = 2000;
+/** Max chars for command preview in tool summaries. */
+const MAX_COMMAND_PREVIEW_CHARS = 60;
+/** Max chars for JSON result previews. */
+const MAX_RESULT_PREVIEW_CHARS = 500;
+/** Max chars for error message previews. */
+const MAX_ERROR_PREVIEW_CHARS = 300;
+/** Max chars of user message sent to the evaluator. */
+const MAX_EVAL_USER_CHARS = 500;
+/** Max chars of response sent to the evaluator. */
+const MAX_EVAL_RESPONSE_CHARS = 2000;
+/** Tools that cause desktop side-effects — deduplicated across rounds. */
+const SIDE_EFFECT_TOOLS = new Set(["system.open", "system.applescript"]);
 
 // ============================================================================
 // ChatExecutor
@@ -165,7 +214,9 @@ export class ChatExecutor {
   private readonly maxTrackedSessions: number;
   private readonly skillInjector?: SkillInjector;
   private readonly memoryRetriever?: MemoryRetriever;
+  private readonly learningProvider?: MemoryRetriever;
   private readonly onCompaction?: (sessionId: string, summary: string) => void;
+  private readonly evaluator?: EvaluatorConfig;
 
   private readonly cooldowns = new Map<string, CooldownEntry>();
   private readonly sessionTokens = new Map<string, number>();
@@ -187,7 +238,9 @@ export class ChatExecutor {
     this.maxTrackedSessions = Math.max(1, config.maxTrackedSessions ?? 10_000);
     this.skillInjector = config.skillInjector;
     this.memoryRetriever = config.memoryRetriever;
+    this.learningProvider = config.learningProvider;
     this.onCompaction = config.onCompaction;
+    this.evaluator = config.evaluator;
   }
 
   /**
@@ -222,35 +275,11 @@ export class ChatExecutor {
     // Build messages array
     const messages: LLMMessage[] = [{ role: "system", content: systemPrompt }];
 
-    // Skill injection (best-effort)
-    if (this.skillInjector) {
-      try {
-        const skillContext = await this.skillInjector.inject(
-          message.content,
-          sessionId,
-        );
-        if (skillContext) {
-          messages.push({ role: "system", content: skillContext });
-        }
-      } catch {
-        // Skill injection failure is non-blocking
-      }
-    }
-
-    // Memory retrieval (best-effort)
-    if (this.memoryRetriever) {
-      try {
-        const memoryContext = await this.memoryRetriever.retrieve(
-          message.content,
-          sessionId,
-        );
-        if (memoryContext) {
-          messages.push({ role: "system", content: memoryContext });
-        }
-      } catch {
-        // Memory retrieval failure is non-blocking
-      }
-    }
+    // Context injection — skill, memory, and learning (all best-effort)
+    const messageText = ChatExecutor.extractMessageText(message);
+    await this.injectContext(this.skillInjector, messageText, sessionId, messages);
+    await this.injectContext(this.memoryRetriever, messageText, sessionId, messages);
+    await this.injectContext(this.learningProvider, messageText, sessionId, messages);
 
     // Append history and user message
     messages.push(...history);
@@ -290,17 +319,10 @@ export class ChatExecutor {
     );
     this.accumulateUsage(cumulativeUsage, response.usage);
 
-    // Tool call loop
+    // Tool call loop — side-effect deduplication prevents the model from
+    // repeating desktop actions (e.g. opening 3 YouTube tabs). Once ANY
+    // side-effect tool executes, all others are skipped for this request.
     let rounds = 0;
-    // Deduplicate side-effect tools across ALL rounds: prevent the model
-    // from opening 3 YouTube tabs or running the same AppleScript 3 times.
-    // system.open: opening multiple URLs is never desired
-    // system.applescript: one script per request should suffice (multi-step
-    // actions like "open terminal + write hello" belong in a single script)
-    // Group-level dedup: once ANY side-effect tool executes, skip all others.
-    // This prevents the model from opening Terminal 3x via system.open + system.applescript
-    // + system.bash("open Terminal") in a single round with different tool names.
-    const SIDE_EFFECT_TOOLS = new Set(["system.open", "system.applescript"]);
     let sideEffectExecuted = false;
     while (
       response.finishReason === "tool_calls" &&
@@ -317,7 +339,7 @@ export class ChatExecutor {
       messages.push({ role: "assistant", content: response.content });
       for (const toolCall of response.toolCalls) {
         if (SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
-          const skipResult = JSON.stringify({
+          const skipResult = safeStringify({
             error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
           });
           messages.push({
@@ -339,7 +361,7 @@ export class ChatExecutor {
 
         // Allowlist check
         if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
-          const errorResult = JSON.stringify({
+          const errorResult = safeStringify({
             error: `Tool "${toolCall.name}" is not permitted`,
           });
           messages.push({
@@ -371,7 +393,7 @@ export class ChatExecutor {
           }
           args = parsed as Record<string, unknown>;
         } catch (parseErr) {
-          const errorResult = JSON.stringify({
+          const errorResult = safeStringify({
             error: `Invalid tool arguments: ${(parseErr as Error).message}`,
           });
           messages.push({
@@ -397,7 +419,7 @@ export class ChatExecutor {
         try {
           result = await activeToolHandler!(toolCall.name, args);
         } catch (toolErr) {
-          result = JSON.stringify({ error: (toolErr as Error).message });
+          result = safeStringify({ error: (toolErr as Error).message });
           isError = true;
         }
         const toolDuration = Date.now() - toolStart;
@@ -481,7 +503,7 @@ export class ChatExecutor {
                 } else if (target.includes("youtube.com")) {
                   summaries.push(`Opened YouTube`);
                 } else if (target) {
-                  summaries.push(`Opened ${target.slice(0, 80)}`);
+                  summaries.push(`Opened ${target.slice(0, MAX_URL_PREVIEW_CHARS)}`);
                 }
               } else if (tc.name === "system.bash") {
                 // For bash commands, show actual output if available
@@ -489,9 +511,9 @@ export class ChatExecutor {
                   const bashResult = JSON.parse(tc.result);
                   const bashOutput = bashResult.stdout || bashResult.output || "";
                   if (bashOutput.trim()) {
-                    summaries.push(bashOutput.trim().slice(0, 2000));
+                    summaries.push(bashOutput.trim().slice(0, MAX_BASH_OUTPUT_CHARS));
                   } else {
-                    const cmd = String(tc.args?.command ?? "").slice(0, 60);
+                    const cmd = String(tc.args?.command ?? "").slice(0, MAX_COMMAND_PREVIEW_CHARS);
                     if (cmd) summaries.push(`Ran: ${cmd}`);
                   }
                 } catch {
@@ -517,18 +539,66 @@ export class ChatExecutor {
             }
             finalContent = summaries.length > 0 ? summaries.join("\n") : "Done!";
           } else if (parsed.error) {
-            finalContent = `Something went wrong: ${String(parsed.error).slice(0, 300)}`;
+            finalContent = `Something went wrong: ${String(parsed.error).slice(0, MAX_ERROR_PREVIEW_CHARS)}`;
           } else if (parsed.exitCode != null && parsed.exitCode !== 0) {
             const errOutput = parsed.stderr || parsed.stdout || "";
             finalContent = errOutput.trim()
-              ? `Command failed: ${String(errOutput).slice(0, 300)}`
+              ? `Command failed: ${String(errOutput).slice(0, MAX_ERROR_PREVIEW_CHARS)}`
               : "The command failed. Let me try a different approach.";
           } else {
-            finalContent = `Operation completed. Result:\n\`\`\`json\n${lastSuccess.result.slice(0, 500)}\n\`\`\``;
+            finalContent = `Operation completed. Result:\n\`\`\`json\n${lastSuccess.result.slice(0, MAX_RESULT_PREVIEW_CHARS)}\n\`\`\``;
           }
         } catch {
-          finalContent = `Operation completed. Result: ${lastSuccess.result.slice(0, 500)}`;
+          finalContent = `Operation completed. Result: ${lastSuccess.result.slice(0, MAX_RESULT_PREVIEW_CHARS)}`;
         }
+      }
+    }
+
+    // Response evaluation (optional critic)
+    let evaluation: EvaluationResult | undefined;
+    if (this.evaluator && finalContent) {
+      const minScore = this.evaluator.minScore ?? 0.7;
+      const maxRetries = this.evaluator.maxRetries ?? 1;
+      let retryCount = 0;
+      let currentContent = finalContent;
+
+      while (retryCount <= maxRetries) {
+        // Skip evaluation if token budget would be exceeded
+        if (this.sessionTokenBudget !== undefined) {
+          const used = this.sessionTokens.get(sessionId) ?? 0;
+          if (used >= this.sessionTokenBudget) break;
+        }
+
+        const evalResult = await this.evaluateResponse(
+          currentContent,
+          messageText,
+        );
+        this.accumulateUsage(cumulativeUsage, evalResult.usage);
+        this.trackTokenUsage(sessionId, evalResult.usage.totalTokens);
+
+        if (evalResult.score >= minScore || retryCount === maxRetries) {
+          evaluation = {
+            score: evalResult.score,
+            feedback: evalResult.feedback,
+            passed: evalResult.score >= minScore,
+            retryCount,
+          };
+          finalContent = currentContent;
+          break;
+        }
+
+        retryCount++;
+        messages.push(
+          { role: "assistant", content: currentContent },
+          {
+            role: "system",
+            content: `Response scored ${evalResult.score.toFixed(2)}. Feedback: ${evalResult.feedback}\nPlease improve your response.`,
+          },
+        );
+        const retry = await this.callWithFallback(messages, activeStreamCallback);
+        this.accumulateUsage(cumulativeUsage, retry.response.usage);
+        this.trackTokenUsage(sessionId, retry.response.usage.totalTokens);
+        currentContent = retry.response.content || currentContent;
       }
     }
 
@@ -540,6 +610,7 @@ export class ChatExecutor {
       tokenUsage: cumulativeUsage,
       durationMs: Date.now() - startTime,
       compacted,
+      evaluation,
     };
   }
 
@@ -646,6 +717,35 @@ export class ChatExecutor {
     );
   }
 
+  /** Extract plain-text content from a gateway message. */
+  private static extractMessageText(message: GatewayMessage): string {
+    return typeof message.content === "string" ? message.content : "";
+  }
+
+  /**
+   * Best-effort context injection. Supports both SkillInjector (`.inject()`)
+   * and MemoryRetriever (`.retrieve()`) interfaces.
+   */
+  private async injectContext(
+    provider: SkillInjector | MemoryRetriever | undefined,
+    message: string,
+    sessionId: string,
+    messages: LLMMessage[],
+  ): Promise<void> {
+    if (!provider) return;
+    try {
+      const context =
+        "inject" in provider
+          ? await provider.inject(message, sessionId)
+          : await provider.retrieve(message, sessionId);
+      if (context) {
+        messages.push({ role: "system", content: context });
+      }
+    } catch {
+      // Context injection failure is non-blocking
+    }
+  }
+
   private accumulateUsage(cumulative: LLMUsage, usage: LLMUsage): void {
     cumulative.promptTokens += usage.promptTokens;
     cumulative.completionTokens += usage.completionTokens;
@@ -665,6 +765,50 @@ export class ChatExecutor {
       if (oldest !== undefined) {
         this.sessionTokens.delete(oldest);
       }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Response evaluation
+  // --------------------------------------------------------------------------
+
+  private static readonly DEFAULT_EVAL_RUBRIC =
+    "Rate this AI response 0.0-1.0. Consider accuracy, completeness, clarity, " +
+    "and appropriate use of tool results.\n" +
+    'Return ONLY JSON: {"score": 0.0-1.0, "feedback": "brief explanation"}';
+
+  private async evaluateResponse(
+    content: string,
+    userMessage: string,
+  ): Promise<{ score: number; feedback: string; usage: LLMUsage }> {
+    const rubric = this.evaluator?.rubric ?? ChatExecutor.DEFAULT_EVAL_RUBRIC;
+    const { response } = await this.callWithFallback([
+      { role: "system", content: rubric },
+      {
+        role: "user",
+        content: `User request: ${userMessage.slice(0, MAX_EVAL_USER_CHARS)}\n\nResponse: ${content.slice(0, MAX_EVAL_RESPONSE_CHARS)}`,
+      },
+    ]);
+    try {
+      const parsed = JSON.parse(response.content) as {
+        score?: number;
+        feedback?: string;
+      };
+      return {
+        score:
+          typeof parsed.score === "number"
+            ? Math.max(0, Math.min(1, parsed.score))
+            : 0.5,
+        feedback:
+          typeof parsed.feedback === "string" ? parsed.feedback : "",
+        usage: response.usage,
+      };
+    } catch {
+      return {
+        score: 1.0,
+        feedback: "Evaluation parse failed — accepting response",
+        usage: response.usage,
+      };
     }
   }
 

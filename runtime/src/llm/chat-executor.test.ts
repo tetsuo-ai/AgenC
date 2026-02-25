@@ -1108,6 +1108,155 @@ describe("ChatExecutor", () => {
   });
 
   // --------------------------------------------------------------------------
+  // Evaluator
+  // --------------------------------------------------------------------------
+
+  describe("evaluator", () => {
+    it("not called when not configured", async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.evaluation).toBeUndefined();
+      expect(provider.chat).toHaveBeenCalledOnce();
+    });
+
+    it("passes when score meets threshold", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          // Main response
+          .mockResolvedValueOnce(mockResponse({ content: "good answer" }))
+          // Evaluation call
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: '{"score": 0.9, "feedback": "clear and accurate"}',
+            }),
+          ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        evaluator: { minScore: 0.7 },
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.evaluation).toBeDefined();
+      expect(result.evaluation!.score).toBe(0.9);
+      expect(result.evaluation!.passed).toBe(true);
+      expect(result.evaluation!.retryCount).toBe(0);
+      expect(result.evaluation!.feedback).toBe("clear and accurate");
+    });
+
+    it("retries when below threshold then passes", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          // Main response
+          .mockResolvedValueOnce(mockResponse({ content: "weak answer" }))
+          // First evaluation: low score
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: '{"score": 0.3, "feedback": "too vague"}',
+            }),
+          )
+          // Retry response
+          .mockResolvedValueOnce(mockResponse({ content: "improved answer" }))
+          // Second evaluation: passes
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: '{"score": 0.8, "feedback": "much better"}',
+            }),
+          ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        evaluator: { minScore: 0.7, maxRetries: 1 },
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.evaluation!.score).toBe(0.8);
+      expect(result.evaluation!.passed).toBe(true);
+      expect(result.evaluation!.retryCount).toBe(1);
+      expect(result.content).toBe("improved answer");
+    });
+
+    it("accepts after max retries even if still low", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          // Main response
+          .mockResolvedValueOnce(mockResponse({ content: "bad answer" }))
+          // First evaluation: low
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: '{"score": 0.2, "feedback": "needs work"}',
+            }),
+          )
+          // Retry response
+          .mockResolvedValueOnce(mockResponse({ content: "still bad" }))
+          // Second evaluation: still low
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: '{"score": 0.4, "feedback": "slightly better"}',
+            }),
+          ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        evaluator: { minScore: 0.7, maxRetries: 1 },
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.evaluation!.score).toBe(0.4);
+      expect(result.evaluation!.passed).toBe(false);
+      expect(result.evaluation!.retryCount).toBe(1);
+    });
+
+    it("handles invalid JSON gracefully", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(mockResponse({ content: "answer" }))
+          // Evaluation returns invalid JSON
+          .mockResolvedValueOnce(
+            mockResponse({ content: "not valid json" }),
+          ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        evaluator: { minScore: 0.7 },
+      });
+
+      const result = await executor.execute(createParams());
+
+      // Parse failure defaults to score 1.0 — accepts the response
+      expect(result.evaluation!.score).toBe(1.0);
+      expect(result.evaluation!.passed).toBe(true);
+    });
+
+    it("skipped for empty content", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(mockResponse({ content: "" })),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        evaluator: { minScore: 0.7 },
+      });
+
+      const result = await executor.execute(createParams());
+
+      // Empty content => evaluator not triggered
+      expect(result.evaluation).toBeUndefined();
+      // Only the main call, no evaluation call
+      expect(provider.chat).toHaveBeenCalledOnce();
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // Edge cases
   // --------------------------------------------------------------------------
 
