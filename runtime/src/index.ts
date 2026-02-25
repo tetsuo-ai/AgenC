@@ -1122,6 +1122,16 @@ export {
   DAGSubmitter,
   DAGMonitor,
   DAGOrchestrator,
+  // Pipeline executor (resumable workflows)
+  PipelineExecutor,
+  type PipelineStepErrorPolicy,
+  type PipelineStep,
+  type PipelineContext,
+  type Pipeline,
+  type PipelineStatus,
+  type PipelineResult,
+  type PipelineCheckpoint,
+  type PipelineExecutorConfig,
 } from "./workflow/index.js";
 
 // Team Contracts (Phase 12)
@@ -1503,6 +1513,12 @@ export {
   type RemoteChatMessage,
   type OfflineQueueEntry,
   type PushNotification,
+  // Cross-session progress tracker (P3)
+  ProgressTracker,
+  summarizeToolResult,
+  type ProgressEntryType,
+  type ProgressEntry,
+  type ProgressTrackerConfig,
 } from "./gateway/index.js";
 
 // Channel Plugins (Phase 1.5)
