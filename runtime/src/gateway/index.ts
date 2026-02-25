@@ -173,6 +173,15 @@ export {
   type StalePidResult,
 } from "./daemon.js";
 
+// Cross-session progress tracker (P3)
+export {
+  ProgressTracker,
+  summarizeToolResult,
+  type ProgressEntryType,
+  type ProgressEntry,
+  type ProgressTrackerConfig,
+} from "./progress.js";
+
 // Voice Bridge (xAI Realtime)
 export { VoiceBridge, type VoiceBridgeConfig } from "./voice-bridge.js";
 
