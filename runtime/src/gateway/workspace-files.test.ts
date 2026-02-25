@@ -23,9 +23,9 @@ afterEach(async () => {
 });
 
 describe("WORKSPACE_FILES", () => {
-  it("contains all 11 file names", () => {
+  it("contains all 12 file names", () => {
     const values = Object.values(WORKSPACE_FILES);
-    expect(values).toHaveLength(11);
+    expect(values).toHaveLength(12);
     expect(values).toContain("AGENT.md");
     expect(values).toContain("SOUL.md");
     expect(values).toContain("USER.md");
@@ -37,6 +37,7 @@ describe("WORKSPACE_FILES", () => {
     expect(values).toContain("CAPABILITIES.md");
     expect(values).toContain("POLICY.md");
     expect(values).toContain("REPUTATION.md");
+    expect(values).toContain("X.md");
   });
 });
 
@@ -233,7 +234,7 @@ describe("scaffoldWorkspace", () => {
     const wsDir = join(tmpDir, "workspace");
     const created = await scaffoldWorkspace(wsDir);
 
-    expect(created).toHaveLength(11);
+    expect(created).toHaveLength(12);
     for (const fileName of Object.values(WORKSPACE_FILES)) {
       expect(created).toContain(fileName);
     }
@@ -252,7 +253,7 @@ describe("scaffoldWorkspace", () => {
     const created = await scaffoldWorkspace(wsDir);
 
     expect(created).not.toContain("AGENT.md");
-    expect(created).toHaveLength(10);
+    expect(created).toHaveLength(11);
 
     const loader = new WorkspaceLoader(wsDir);
     const agentContent = await loader.loadFile("AGENT");

@@ -68,6 +68,48 @@ const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
 /** Minimum confidence score for injecting learned patterns into conversations. */
 const MIN_LEARNING_CONFIDENCE = 0.7;
 
+/** Default session manager config for external channel plugins. */
+const DEFAULT_CHANNEL_SESSION_CONFIG = {
+  scope: 'per-channel-peer' as const,
+  reset: { mode: 'idle' as const, idleMinutes: 30 },
+  compaction: 'truncate' as const,
+  maxHistoryLength: 100,
+};
+
+/** Hook priority constants — lower numbers run first. */
+const HOOK_PRIORITIES = {
+  POLICY_GATE: 3,
+  APPROVAL_GATE: 5,
+  PROGRESS_TRACKER: 95,
+} as const;
+
+/** Cron schedule expressions for autonomous features. */
+const CRON_SCHEDULES = {
+  CURIOSITY: '0 */2 * * *',
+  SELF_LEARNING: '0 */6 * * *',
+} as const;
+
+/** Semantic memory retriever defaults. */
+const SEMANTIC_MEMORY_DEFAULTS = {
+  MAX_TOKEN_BUDGET: 2000,
+  MAX_RESULTS: 5,
+  RECENCY_WEIGHT: 0.3,
+  RECENCY_HALF_LIFE_MS: 86_400_000,
+  HYBRID_VECTOR_WEIGHT: 0.7,
+  HYBRID_KEYWORD_WEIGHT: 0.3,
+} as const;
+
+/** Result of loadWallet() — either a keypair + wallet adapter or null. */
+interface WalletResult {
+  keypair: import('@solana/web3.js').Keypair;
+  agentId: Uint8Array;
+  wallet: {
+    publicKey: import('@solana/web3.js').PublicKey;
+    signTransaction: (tx: any) => Promise<any>;
+    signAllTransactions: (txs: any[]) => Promise<any[]>;
+  };
+}
+
 interface WebChatSkillSummary {
   name: string;
   description: string;
@@ -226,6 +268,13 @@ export class DaemonManager {
   private _desktopRouterFactory: ((sessionId: string) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private _goalManager: import('../autonomous/goal-manager.js').GoalManager | null = null;
+  private _policyEngine: import('../policy/engine.js').PolicyEngine | null = null;
+  private _marketplace: import('../marketplace/service-marketplace.js').ServiceMarketplace | null = null;
+  private _agentDiscovery: import('../social/discovery.js').AgentDiscovery | null = null;
+  private _agentMessaging: import('../social/messaging.js').AgentMessaging | null = null;
+  private _agentFeed: import('../social/feed.js').AgentFeed | null = null;
+  private _reputationScorer: import('../social/reputation.js').ReputationScorer | null = null;
+  private _collaborationProtocol: import('../social/collaboration.js').CollaborationProtocol | null = null;
   private shutdownInProgress = false;
   private startedAt = 0;
   private signalHandlersRegistered = false;
@@ -305,6 +354,10 @@ export class DaemonManager {
 
     // Wire up autonomous features (curiosity, self-learning, meta-planner, proactive comms)
     await this.wireAutonomousFeatures(gatewayConfig);
+
+    // Wire up subsystems (marketplace, social module)
+    await this.wireMarketplace(gatewayConfig);
+    await this.wireSocial(gatewayConfig);
 
     try {
       await writePidFile(
@@ -446,12 +499,12 @@ export class DaemonManager {
         vectorBackend: vectorStore,
         embeddingProvider,
         curatedMemory,
-        maxTokenBudget: 2000,
-        maxResults: 5,
-        recencyWeight: 0.3,
-        recencyHalfLifeMs: 86_400_000,
-        hybridVectorWeight: 0.7,
-        hybridKeywordWeight: 0.3,
+        maxTokenBudget: SEMANTIC_MEMORY_DEFAULTS.MAX_TOKEN_BUDGET,
+        maxResults: SEMANTIC_MEMORY_DEFAULTS.MAX_RESULTS,
+        recencyWeight: SEMANTIC_MEMORY_DEFAULTS.RECENCY_WEIGHT,
+        recencyHalfLifeMs: SEMANTIC_MEMORY_DEFAULTS.RECENCY_HALF_LIFE_MS,
+        hybridVectorWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_VECTOR_WEIGHT,
+        hybridKeywordWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_KEYWORD_WEIGHT,
         logger: this.logger,
       });
 
@@ -501,7 +554,7 @@ export class DaemonManager {
     hooks.on({
       event: 'tool:after',
       name: 'progress-tracker',
-      priority: 95,
+      priority: HOOK_PRIORITIES.PROGRESS_TRACKER,
       handler: async (ctx) => {
         const { sessionId, toolName, args, result, durationMs } = ctx.payload as {
           sessionId: string; toolName: string; args: Record<string, unknown>;
@@ -515,6 +568,52 @@ export class DaemonManager {
         return { continue: true };
       },
     });
+
+    // Wire PolicyEngine as tool:before hook
+    if (config.policy?.enabled) {
+      try {
+        const { PolicyEngine } = await import('../policy/engine.js');
+        this._policyEngine = new PolicyEngine({
+          policy: {
+            enabled: true,
+            toolAllowList: config.policy.toolAllowList,
+            toolDenyList: config.policy.toolDenyList,
+            actionBudgets: config.policy.actionBudgets,
+            spendBudget: config.policy.spendBudget
+              ? { limitLamports: BigInt(config.policy.spendBudget.limitLamports), windowMs: config.policy.spendBudget.windowMs }
+              : undefined,
+            maxRiskScore: config.policy.maxRiskScore,
+            circuitBreaker: config.policy.circuitBreaker,
+          },
+          logger: this.logger,
+          metrics: telemetry ?? undefined,
+        });
+        hooks.on({
+          event: 'tool:before',
+          name: 'policy-gate',
+          priority: HOOK_PRIORITIES.POLICY_GATE,
+          handler: async (ctx) => {
+            const payload = ctx.payload as Record<string, unknown>;
+            const decision = this._policyEngine!.evaluate({
+              type: 'tool_call',
+              name: payload.toolName as string,
+              access: 'write',
+              metadata: payload,
+            });
+            if (!decision.allowed) {
+              this.logger.warn?.(
+                `Policy blocked tool "${payload.toolName}": ${decision.violations.map((v) => v.message).join('; ')}`,
+              );
+              return { continue: false };
+            }
+            return { continue: true };
+          },
+        });
+        this.logger.info('Policy engine initialized');
+      } catch (err) {
+        this.logger.warn?.('Policy engine initialization failed:', err);
+      }
+    }
 
     this._chatExecutor = providers.length > 0 ? new ChatExecutor({
       providers,
@@ -595,6 +694,24 @@ export class DaemonManager {
       if (llmChanged) {
         void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever, learningProvider, progressTracker);
       }
+      const policyChanged = diff.safe.some((key) => key.startsWith('policy.'));
+      if (policyChanged && this._policyEngine) {
+        const newConfig = gateway.config;
+        if (newConfig.policy?.enabled) {
+          this._policyEngine.setPolicy({
+            enabled: true,
+            toolAllowList: newConfig.policy.toolAllowList,
+            toolDenyList: newConfig.policy.toolDenyList,
+            actionBudgets: newConfig.policy.actionBudgets,
+            spendBudget: newConfig.policy.spendBudget
+              ? { limitLamports: BigInt(newConfig.policy.spendBudget.limitLamports), windowMs: newConfig.policy.spendBudget.windowMs }
+              : undefined,
+            maxRiskScore: newConfig.policy.maxRiskScore,
+            circuitBreaker: newConfig.policy.circuitBreaker,
+          });
+          this.logger.info('Policy engine config reloaded');
+        }
+      }
       const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
       if (voiceChanged) {
         void this._voiceBridge?.stopAll();
@@ -656,12 +773,7 @@ export class DaemonManager {
       `<i>Send any message to get started.</i>`;
 
     const telegram = new TelegramChannel();
-    const sessionMgr = new SessionManager({
-      scope: "per-channel-peer",
-      reset: { mode: "idle", idleMinutes: 30 },
-      compaction: "truncate",
-      maxHistoryLength: 100,
-    });
+    const sessionMgr = new SessionManager(DEFAULT_CHANNEL_SESSION_CONFIG);
     const systemPrompt = await this.buildSystemPrompt(config);
 
     // Telegram allowlist: only these user IDs can interact with the bot.
@@ -794,12 +906,7 @@ export class DaemonManager {
     config: GatewayConfig,
     channelConfig: Record<string, unknown>,
   ): Promise<void> {
-    const sessionMgr = new SessionManager({
-      scope: "per-channel-peer",
-      reset: { mode: "idle", idleMinutes: 30 },
-      compaction: "truncate",
-      maxHistoryLength: 100,
-    });
+    const sessionMgr = new SessionManager(DEFAULT_CHANNEL_SESSION_CONFIG);
     const systemPrompt = await this.buildSystemPrompt(config);
 
     const onMessage = async (msg: GatewayMessage): Promise<void> => {
@@ -872,44 +979,27 @@ export class DaemonManager {
   private async wireExternalChannels(config: GatewayConfig): Promise<void> {
     const channels = config.channels ?? {};
 
-    if (channels.discord) {
-      try {
-        const discord = new DiscordChannel(channels.discord as unknown as ConstructorParameters<typeof DiscordChannel>[0]);
-        await this.wireExternalChannel(discord, "discord", config, channels.discord as unknown as Record<string, unknown>);
-        this._discordChannel = discord;
-      } catch (err) { this.logger.error("Failed to wire Discord channel:", err); }
-    }
+    // Standard channel plugins — identical wiring pattern
+    const standardChannels: Array<{
+      key: string;
+      name: string;
+      create: (cfg: unknown) => ChannelPlugin;
+      field: '_discordChannel' | '_slackChannel' | '_whatsAppChannel' | '_signalChannel' | '_matrixChannel';
+    }> = [
+      { key: 'discord', name: 'discord', create: (cfg) => new DiscordChannel(cfg as ConstructorParameters<typeof DiscordChannel>[0]), field: '_discordChannel' },
+      { key: 'slack', name: 'slack', create: (cfg) => new SlackChannel(cfg as ConstructorParameters<typeof SlackChannel>[0]), field: '_slackChannel' },
+      { key: 'whatsapp', name: 'whatsapp', create: (cfg) => new WhatsAppChannel(cfg as ConstructorParameters<typeof WhatsAppChannel>[0]), field: '_whatsAppChannel' },
+      { key: 'signal', name: 'signal', create: (cfg) => new SignalChannel(cfg as ConstructorParameters<typeof SignalChannel>[0]), field: '_signalChannel' },
+      { key: 'matrix', name: 'matrix', create: (cfg) => new MatrixChannel(cfg as ConstructorParameters<typeof MatrixChannel>[0]), field: '_matrixChannel' },
+    ];
 
-    if (channels.slack) {
+    for (const { key, name, create, field } of standardChannels) {
+      if (!channels[key]) continue;
       try {
-        const slack = new SlackChannel(channels.slack as unknown as ConstructorParameters<typeof SlackChannel>[0]);
-        await this.wireExternalChannel(slack, "slack", config, channels.slack as unknown as Record<string, unknown>);
-        this._slackChannel = slack;
-      } catch (err) { this.logger.error("Failed to wire Slack channel:", err); }
-    }
-
-    if (channels.whatsapp) {
-      try {
-        const whatsapp = new WhatsAppChannel(channels.whatsapp as unknown as ConstructorParameters<typeof WhatsAppChannel>[0]);
-        await this.wireExternalChannel(whatsapp, "whatsapp", config, channels.whatsapp as unknown as Record<string, unknown>);
-        this._whatsAppChannel = whatsapp;
-      } catch (err) { this.logger.error("Failed to wire WhatsApp channel:", err); }
-    }
-
-    if (channels.signal) {
-      try {
-        const signal = new SignalChannel(channels.signal as unknown as ConstructorParameters<typeof SignalChannel>[0]);
-        await this.wireExternalChannel(signal, "signal", config, channels.signal as unknown as Record<string, unknown>);
-        this._signalChannel = signal;
-      } catch (err) { this.logger.error("Failed to wire Signal channel:", err); }
-    }
-
-    if (channels.matrix) {
-      try {
-        const matrix = new MatrixChannel(channels.matrix as unknown as ConstructorParameters<typeof MatrixChannel>[0]);
-        await this.wireExternalChannel(matrix, "matrix", config, channels.matrix as unknown as Record<string, unknown>);
-        this._matrixChannel = matrix;
-      } catch (err) { this.logger.error("Failed to wire Matrix channel:", err); }
+        const plugin = create(channels[key]);
+        await this.wireExternalChannel(plugin, name, config, channels[key] as unknown as Record<string, unknown>);
+        this[field] = plugin as any;
+      } catch (err) { this.logger.error(`Failed to wire ${name} channel:`, err); }
     }
 
     // iMessage: macOS only, lazy-loaded
@@ -921,6 +1011,182 @@ export class DaemonManager {
         this._imessageChannel = imessage;
       } catch (err) { this.logger.error("Failed to wire iMessage channel:", err); }
     }
+  }
+
+  /**
+   * Wire the TaskBidMarketplace + ServiceMarketplace for agent-to-agent task bidding.
+   * Session-scoped, in-memory bid book.
+   */
+  private async wireMarketplace(config: GatewayConfig): Promise<void> {
+    if (!config.marketplace?.enabled) return;
+
+    try {
+      const { TaskBidMarketplace } = await import('../marketplace/engine.js');
+      const { ServiceMarketplace } = await import('../marketplace/service-marketplace.js');
+
+      const bidMarketplace = new TaskBidMarketplace({
+        antiSpam: config.marketplace.antiSpam,
+        defaultPolicy: config.marketplace.defaultMatchingPolicy
+          ? { policy: config.marketplace.defaultMatchingPolicy }
+          : undefined,
+        authorizedSelectorIds: config.marketplace.authorizedSelectorIds,
+      });
+
+      this._marketplace = new ServiceMarketplace({
+        bidMarketplace,
+      });
+
+      this.logger.info('Marketplace initialized (TaskBidMarketplace + ServiceMarketplace)');
+    } catch (err) {
+      this.logger.warn?.('Marketplace initialization failed:', err);
+    }
+  }
+
+  /**
+   * Wire the social module: AgentDiscovery, AgentMessaging, AgentFeed,
+   * ReputationScorer, and CollaborationProtocol.
+   *
+   * Each sub-component is independently enabled/disabled.
+   * CollaborationProtocol only initializes when all its dependencies are available.
+   */
+  private async wireSocial(config: GatewayConfig): Promise<void> {
+    if (!config.social?.enabled) return;
+    if (!this._connectionManager) {
+      this.logger.warn?.('Social module requires connection config — skipping');
+      return;
+    }
+
+    const connection = this._connectionManager.getConnection();
+
+    const walletResult = await this.loadWallet(config);
+    if (!walletResult) {
+      this.logger.warn?.('Social module keypair unavailable — write operations disabled');
+    }
+    const keypair = walletResult?.keypair ?? null;
+    const agentId = walletResult?.agentId ?? null;
+
+    // Create program instance
+    let program: import('@coral-xyz/anchor').Program<import('../types/agenc_coordination.js').AgencCoordination>;
+    try {
+      if (walletResult) {
+        const { AnchorProvider } = await import('@coral-xyz/anchor');
+        const provider = new AnchorProvider(connection, walletResult.wallet as any, {});
+        const { createProgram } = await import('../idl.js');
+        program = createProgram(provider);
+      } else {
+        const { createReadOnlyProgram } = await import('../idl.js');
+        program = createReadOnlyProgram(connection);
+      }
+    } catch (err) {
+      this.logger.warn?.('Social module program creation failed:', err);
+      return;
+    }
+
+    // 1. AgentDiscovery (read-only, no wallet needed)
+    if (config.social.discoveryEnabled !== false) {
+      try {
+        const { AgentDiscovery } = await import('../social/discovery.js');
+        this._agentDiscovery = new AgentDiscovery({
+          program,
+          logger: this.logger,
+          cache: {
+            ttlMs: config.social.discoveryCacheTtlMs ?? 60_000,
+            maxEntries: config.social.discoveryCacheMaxEntries ?? 200,
+          },
+        });
+        this.logger.info('Agent discovery initialized');
+      } catch (err) {
+        this.logger.warn?.('Agent discovery initialization failed:', err);
+      }
+    }
+
+    // 2. AgentMessaging (needs wallet)
+    if (keypair && agentId && config.social.messagingEnabled !== false) {
+      try {
+        const { AgentMessaging } = await import('../social/messaging.js');
+        this._agentMessaging = new AgentMessaging({
+          program,
+          agentId,
+          wallet: keypair,
+          logger: this.logger,
+          config: {
+            defaultMode: config.social.messagingMode ?? 'auto',
+            offChainPort: config.social.messagingPort ?? 0,
+          },
+        });
+        if (config.social.messagingPort) {
+          await this._agentMessaging.startListener(config.social.messagingPort);
+        }
+        this.logger.info('Agent messaging initialized');
+      } catch (err) {
+        this.logger.warn?.('Agent messaging initialization failed:', err);
+      }
+    }
+
+    // 3. AgentFeed (needs wallet)
+    if (keypair && agentId && config.social.feedEnabled !== false) {
+      try {
+        const { AgentFeed } = await import('../social/feed.js');
+        this._agentFeed = new AgentFeed({
+          program,
+          agentId,
+          wallet: keypair,
+          config: { logger: this.logger },
+        });
+        this.logger.info('Agent feed initialized');
+      } catch (err) {
+        this.logger.warn?.('Agent feed initialization failed:', err);
+      }
+    }
+
+    // 4. ReputationScorer (read-only)
+    if (config.social.reputationEnabled !== false) {
+      try {
+        const { ReputationScorer } = await import('../social/reputation.js');
+        this._reputationScorer = new ReputationScorer({
+          program,
+          logger: this.logger,
+        });
+        this.logger.info('Reputation scorer initialized');
+      } catch (err) {
+        this.logger.warn?.('Reputation scorer initialization failed:', err);
+      }
+    }
+
+    // 5. CollaborationProtocol (needs all sub-components + wallet)
+    if (
+      config.social.collaborationEnabled !== false &&
+      keypair && agentId &&
+      this._agentDiscovery && this._agentMessaging && this._agentFeed
+    ) {
+      try {
+        const { CollaborationProtocol } = await import('../social/collaboration.js');
+        const { TeamContractEngine } = await import('../team/engine.js');
+        const teamEngine = new TeamContractEngine();
+        this._collaborationProtocol = new CollaborationProtocol({
+          program,
+          agentId,
+          wallet: keypair,
+          feed: this._agentFeed,
+          messaging: this._agentMessaging,
+          discovery: this._agentDiscovery,
+          teamEngine,
+          config: { logger: this.logger },
+        });
+        this.logger.info('Collaboration protocol initialized');
+      } catch (err) {
+        this.logger.warn?.('Collaboration protocol initialization failed:', err);
+      }
+    }
+
+    const wiredCount = [
+      this._agentDiscovery,
+      this._agentMessaging,
+      this._agentFeed,
+      this._reputationScorer,
+      this._collaborationProtocol,
+    ].filter(Boolean).length;
+    this.logger.info(`Social module wired with ${wiredCount}/5 components`);
   }
 
   /**
@@ -976,7 +1242,7 @@ export class DaemonManager {
       // Get a provider for actions that need direct LLM access
       const llm = this._llmProviders[0];
       if (!llm) {
-        this.logger.warn("No LLM provider — skipping autonomous features");
+        this.logger.warn?.("No LLM provider — skipping autonomous features");
         return;
       }
 
@@ -1162,7 +1428,7 @@ export class DaemonManager {
       const cronScheduler = new CronScheduler({ logger: this.logger });
 
       // Curiosity research every 2 hours
-      cronScheduler.addJob("curiosity", "0 */2 * * *", {
+      cronScheduler.addJob("curiosity", CRON_SCHEDULES.CURIOSITY, {
         name: curiosityAction.name,
         execute: async (ctx) => {
           if (!curiosityAction.enabled) return;
@@ -1177,7 +1443,7 @@ export class DaemonManager {
       });
 
       // Self-learning analysis every 6 hours
-      cronScheduler.addJob("self-learning", "0 */6 * * *", {
+      cronScheduler.addJob("self-learning", CRON_SCHEDULES.SELF_LEARNING, {
         name: selfLearningAction.name,
         execute: async (ctx) => {
           if (!selfLearningAction.enabled) return;
@@ -1333,21 +1599,10 @@ export class DaemonManager {
         this._connectionManager = connMgr;
 
         const { createAgencTools } = await import('../tools/agenc/index.js');
-        // Load wallet so chat agent can sign transactions (createTask, etc.)
-        let wallet: import('../tools/types.js').ToolContext['wallet'] | undefined;
-        try {
-          const { loadKeypairFromFile, getDefaultKeypairPath } = await import('../types/wallet.js');
-          const kpPath = config.connection?.keypairPath ?? getDefaultKeypairPath();
-          const keypair = await loadKeypairFromFile(kpPath);
-          wallet = {
-            publicKey: keypair.publicKey,
-            signTransaction: async (tx: any) => { tx.sign(keypair); return tx; },
-            signAllTransactions: async (txs: any[]) => { txs.forEach(tx => tx.sign(keypair)); return txs; },
-          };
-        } catch { /* wallet unavailable — tools will be read-only */ }
+        const walletResult = await this.loadWallet(config);
         registry.registerAll(createAgencTools({
           connection: connMgr.getConnection(),
-          wallet,
+          wallet: walletResult?.wallet,
           logger: this.logger,
         }));
       } catch (error) {
@@ -2221,7 +2476,7 @@ export class DaemonManager {
         });
       }
       default:
-        this.logger.warn(`Unknown LLM provider: ${provider}`);
+        this.logger.warn?.(`Unknown LLM provider: ${provider}`);
         return null;
     }
   }
@@ -2285,8 +2540,31 @@ export class DaemonManager {
       const discovery = new SkillDiscovery({ builtinSkills, userSkills });
       return await discovery.discoverAll();
     } catch (err) {
-      this.logger.warn('Skill discovery failed:', err);
+      this.logger.warn?.('Skill discovery failed:', err);
       return [];
+    }
+  }
+
+  /**
+   * Load keypair from config and build a wallet adapter.
+   * Returns null when keypair is unavailable (read-only mode).
+   */
+  private async loadWallet(config: GatewayConfig): Promise<WalletResult | null> {
+    try {
+      const { loadKeypairFromFile, getDefaultKeypairPath } = await import('../types/wallet.js');
+      const kpPath = config.connection?.keypairPath ?? getDefaultKeypairPath();
+      const keypair = await loadKeypairFromFile(kpPath);
+      return {
+        keypair,
+        agentId: keypair.publicKey.toBytes(),
+        wallet: {
+          publicKey: keypair.publicKey,
+          signTransaction: async (tx: any) => { tx.sign(keypair); return tx; },
+          signAllTransactions: async (txs: any[]) => { txs.forEach((tx) => tx.sign(keypair)); return txs; },
+        },
+      };
+    } catch {
+      return null;
     }
   }
 
@@ -2308,6 +2586,20 @@ export class DaemonManager {
         await this._voiceBridge.stopAll();
         this._voiceBridge = null;
       }
+      // Stop social module
+      if (this._agentMessaging !== null) {
+        await this._agentMessaging.dispose();
+        this._agentMessaging = null;
+      }
+      if (this._agentDiscovery !== null) {
+        this._agentDiscovery.dispose();
+        this._agentDiscovery = null;
+      }
+      this._agentFeed = null;
+      this._reputationScorer = null;
+      this._collaborationProtocol = null;
+      this._marketplace = null;
+      this._policyEngine = null;
       // Clean up subsystems
       if (this._approvalEngine !== null) {
         this._approvalEngine.dispose();
@@ -2421,6 +2713,18 @@ export class DaemonManager {
 
   get proactiveCommunicator(): ProactiveCommunicator | null {
     return this._proactiveCommunicator;
+  }
+
+  get marketplace(): import('../marketplace/service-marketplace.js').ServiceMarketplace | null {
+    return this._marketplace;
+  }
+
+  get policyEngine(): import('../policy/engine.js').PolicyEngine | null {
+    return this._policyEngine;
+  }
+
+  get agentDiscovery(): import('../social/discovery.js').AgentDiscovery | null {
+    return this._agentDiscovery;
   }
 
   getStatus(): DaemonStatus {
