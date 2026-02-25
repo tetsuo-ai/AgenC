@@ -115,6 +115,46 @@ export interface GatewayMCPServerConfig {
   timeout?: number;
 }
 
+export interface GatewayPolicyConfig {
+  enabled?: boolean;
+  toolAllowList?: string[];
+  toolDenyList?: string[];
+  actionBudgets?: Record<string, { limit: number; windowMs: number }>;
+  /** Spend budget. `limitLamports` is a decimal string for JSON round-trip safety. */
+  spendBudget?: { limitLamports: string; windowMs: number };
+  /** Max risk score in [0, 1]. */
+  maxRiskScore?: number;
+  circuitBreaker?: {
+    enabled?: boolean;
+    threshold: number;
+    windowMs: number;
+    mode: "pause_discovery" | "halt_submissions" | "safe_mode";
+  };
+}
+
+export interface GatewayMarketplaceConfig {
+  enabled?: boolean;
+  defaultMatchingPolicy?: "best_price" | "best_eta" | "weighted_score";
+  antiSpam?: {
+    maxActiveBidsPerBidderPerTask?: number;
+    maxBidsPerTask?: number;
+  };
+  authorizedSelectorIds?: string[];
+}
+
+export interface GatewaySocialConfig {
+  enabled?: boolean;
+  discoveryEnabled?: boolean;
+  discoveryCacheTtlMs?: number;
+  discoveryCacheMaxEntries?: number;
+  messagingEnabled?: boolean;
+  messagingMode?: "on-chain" | "off-chain" | "auto";
+  messagingPort?: number;
+  feedEnabled?: boolean;
+  collaborationEnabled?: boolean;
+  reputationEnabled?: boolean;
+}
+
 export interface GatewayConfig {
   gateway: GatewayBindConfig;
   agent: GatewayAgentConfig;
@@ -129,6 +169,12 @@ export interface GatewayConfig {
   desktop?: DesktopSandboxConfig;
   /** External MCP server connections */
   mcp?: GatewayMCPConfig;
+  /** Policy engine: budget enforcement + circuit breakers on tool calls */
+  policy?: GatewayPolicyConfig;
+  /** Marketplace: task bidding between agents */
+  marketplace?: GatewayMarketplaceConfig;
+  /** Social module: discovery, messaging, feed, reputation, collaboration */
+  social?: GatewaySocialConfig;
 }
 
 // ============================================================================

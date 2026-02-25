@@ -39,3 +39,12 @@ MCP replay tests can fail from environment/runtime import mismatches (for exampl
 
 ### safeStringify vs JSON.stringify
 - Always use `safeStringify()` (from `tools/types.ts`) when serializing objects that could contain `bigint`, `PublicKey`, or other non-JSON types. `JSON.stringify` will throw at runtime. Fixed in `chat-executor.ts` error paths (P2 tech debt cleanup).
+
+## 2026-02-25
+
+### Daemon Subsystem Wiring Patterns
+- **Wallet loading is duplicated** in `wireSocial()` and `createToolRegistry()`. Next time extract to `private async loadWallet(config)` before adding a third copy.
+- **SDK `MatchingPolicy` type** is `"best_price" | "best_eta" | "weighted_score"` — NOT `"best_quality"` or `"weighted"`. Always check SDK source-of-truth types before defining gateway config enums.
+- **`AgentDiscovery` does NOT implement `PeerResolver`** — you can't pass it directly to `AgentMessaging.discovery`. The `discovery` param accepts `PeerResolver` interface, not `AgentDiscovery`. Currently we omit it.
+- **`spendBudget.limitLamports` is a string** in gateway config (for JSON round-trip), converted via `BigInt()` at use-site. Always validate decimal format before `BigInt()` to avoid startup crashes.
+- **UNSAFE_KEYS in config-watcher.ts** must be updated when adding subsystem enable/disable toggles — otherwise hot-reload treats subsystem enablement as a safe change.

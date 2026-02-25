@@ -16,7 +16,7 @@ import {
   requireIntRange,
   requireOneOf,
 } from "../utils/validation.js";
-import { isRecord } from "../utils/type-guards.js";
+import { isRecord, isStringArray } from "../utils/type-guards.js";
 
 // ============================================================================
 // Default config path
@@ -73,6 +73,21 @@ const VALID_MEMORY_BACKENDS: ReadonlySet<string> = new Set([
   "memory",
   "sqlite",
   "redis",
+]);
+const VALID_CIRCUIT_BREAKER_MODES: ReadonlySet<string> = new Set([
+  "pause_discovery",
+  "halt_submissions",
+  "safe_mode",
+]);
+const VALID_MATCHING_POLICIES: ReadonlySet<string> = new Set([
+  "best_price",
+  "best_eta",
+  "weighted_score",
+]);
+const VALID_MESSAGING_MODES: ReadonlySet<string> = new Set([
+  "on-chain",
+  "off-chain",
+  "auto",
 ]);
 
 /** Type predicate — returns true when `obj` satisfies the GatewayConfig shape. */
@@ -232,6 +247,233 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
     }
   }
 
+  // policy (optional)
+  if (obj.policy !== undefined) {
+    if (!isRecord(obj.policy)) {
+      errors.push("policy must be an object");
+    } else {
+      if (
+        obj.policy.enabled !== undefined &&
+        typeof obj.policy.enabled !== "boolean"
+      ) {
+        errors.push("policy.enabled must be a boolean");
+      }
+      if (obj.policy.maxRiskScore !== undefined) {
+        if (
+          typeof obj.policy.maxRiskScore !== "number" ||
+          obj.policy.maxRiskScore < 0 ||
+          obj.policy.maxRiskScore > 1
+        ) {
+          errors.push("policy.maxRiskScore must be a number between 0 and 1");
+        }
+      }
+      if (
+        obj.policy.toolAllowList !== undefined &&
+        !isStringArray(obj.policy.toolAllowList)
+      ) {
+        errors.push("policy.toolAllowList must be an array of strings");
+      }
+      if (
+        obj.policy.toolDenyList !== undefined &&
+        !isStringArray(obj.policy.toolDenyList)
+      ) {
+        errors.push("policy.toolDenyList must be an array of strings");
+      }
+      if (obj.policy.actionBudgets !== undefined) {
+        if (!isRecord(obj.policy.actionBudgets)) {
+          errors.push("policy.actionBudgets must be an object");
+        } else {
+          for (const [key, val] of Object.entries(
+            obj.policy.actionBudgets as Record<string, unknown>,
+          )) {
+            if (!isRecord(val)) {
+              errors.push(`policy.actionBudgets.${key} must be an object`);
+            } else {
+              if (typeof val.limit !== "number") {
+                errors.push(
+                  `policy.actionBudgets.${key}.limit must be a number`,
+                );
+              }
+              if (typeof val.windowMs !== "number") {
+                errors.push(
+                  `policy.actionBudgets.${key}.windowMs must be a number`,
+                );
+              }
+            }
+          }
+        }
+      }
+      if (obj.policy.spendBudget !== undefined) {
+        if (!isRecord(obj.policy.spendBudget)) {
+          errors.push("policy.spendBudget must be an object");
+        } else {
+          if (
+            typeof obj.policy.spendBudget.limitLamports !== "string" ||
+            !/^\d+$/.test(obj.policy.spendBudget.limitLamports)
+          ) {
+            errors.push(
+              "policy.spendBudget.limitLamports must be a decimal string",
+            );
+          }
+          if (typeof obj.policy.spendBudget.windowMs !== "number") {
+            errors.push("policy.spendBudget.windowMs must be a number");
+          }
+        }
+      }
+      if (obj.policy.circuitBreaker !== undefined) {
+        if (!isRecord(obj.policy.circuitBreaker)) {
+          errors.push("policy.circuitBreaker must be an object");
+        } else {
+          if (
+            obj.policy.circuitBreaker.enabled !== undefined &&
+            typeof obj.policy.circuitBreaker.enabled !== "boolean"
+          ) {
+            errors.push(
+              "policy.circuitBreaker.enabled must be a boolean",
+            );
+          }
+          if (
+            obj.policy.circuitBreaker.threshold !== undefined &&
+            typeof obj.policy.circuitBreaker.threshold !== "number"
+          ) {
+            errors.push(
+              "policy.circuitBreaker.threshold must be a number",
+            );
+          }
+          if (
+            obj.policy.circuitBreaker.windowMs !== undefined &&
+            typeof obj.policy.circuitBreaker.windowMs !== "number"
+          ) {
+            errors.push(
+              "policy.circuitBreaker.windowMs must be a number",
+            );
+          }
+          if (obj.policy.circuitBreaker.mode !== undefined) {
+            requireOneOf(
+              obj.policy.circuitBreaker.mode,
+              "policy.circuitBreaker.mode",
+              VALID_CIRCUIT_BREAKER_MODES,
+              errors,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // marketplace (optional)
+  if (obj.marketplace !== undefined) {
+    if (!isRecord(obj.marketplace)) {
+      errors.push("marketplace must be an object");
+    } else {
+      if (
+        obj.marketplace.enabled !== undefined &&
+        typeof obj.marketplace.enabled !== "boolean"
+      ) {
+        errors.push("marketplace.enabled must be a boolean");
+      }
+      if (obj.marketplace.defaultMatchingPolicy !== undefined) {
+        requireOneOf(
+          obj.marketplace.defaultMatchingPolicy,
+          "marketplace.defaultMatchingPolicy",
+          VALID_MATCHING_POLICIES,
+          errors,
+        );
+      }
+      if (obj.marketplace.antiSpam !== undefined) {
+        if (!isRecord(obj.marketplace.antiSpam)) {
+          errors.push("marketplace.antiSpam must be an object");
+        } else {
+          if (
+            obj.marketplace.antiSpam.maxActiveBidsPerBidderPerTask !==
+              undefined &&
+            typeof obj.marketplace.antiSpam.maxActiveBidsPerBidderPerTask !==
+              "number"
+          ) {
+            errors.push(
+              "marketplace.antiSpam.maxActiveBidsPerBidderPerTask must be a number",
+            );
+          }
+          if (
+            obj.marketplace.antiSpam.maxBidsPerTask !== undefined &&
+            typeof obj.marketplace.antiSpam.maxBidsPerTask !== "number"
+          ) {
+            errors.push(
+              "marketplace.antiSpam.maxBidsPerTask must be a number",
+            );
+          }
+        }
+      }
+      if (
+        obj.marketplace.authorizedSelectorIds !== undefined &&
+        !isStringArray(obj.marketplace.authorizedSelectorIds)
+      ) {
+        errors.push(
+          "marketplace.authorizedSelectorIds must be an array of strings",
+        );
+      }
+    }
+  }
+
+  // social (optional)
+  if (obj.social !== undefined) {
+    if (!isRecord(obj.social)) {
+      errors.push("social must be an object");
+    } else {
+      const boolFields = [
+        "enabled",
+        "discoveryEnabled",
+        "messagingEnabled",
+        "feedEnabled",
+        "collaborationEnabled",
+        "reputationEnabled",
+      ];
+      for (const field of boolFields) {
+        if (
+          obj.social[field] !== undefined &&
+          typeof obj.social[field] !== "boolean"
+        ) {
+          errors.push(`social.${field} must be a boolean`);
+        }
+      }
+      if (obj.social.messagingMode !== undefined) {
+        requireOneOf(
+          obj.social.messagingMode,
+          "social.messagingMode",
+          VALID_MESSAGING_MODES,
+          errors,
+        );
+      }
+      if (obj.social.messagingPort !== undefined) {
+        requireIntRange(
+          obj.social.messagingPort,
+          "social.messagingPort",
+          0,
+          65535,
+          errors,
+        );
+      }
+      if (
+        obj.social.discoveryCacheTtlMs !== undefined &&
+        (typeof obj.social.discoveryCacheTtlMs !== "number" ||
+          obj.social.discoveryCacheTtlMs < 0)
+      ) {
+        errors.push(
+          "social.discoveryCacheTtlMs must be a non-negative number",
+        );
+      }
+      if (
+        obj.social.discoveryCacheMaxEntries !== undefined &&
+        (typeof obj.social.discoveryCacheMaxEntries !== "number" ||
+          obj.social.discoveryCacheMaxEntries < 1)
+      ) {
+        errors.push(
+          "social.discoveryCacheMaxEntries must be a positive number",
+        );
+      }
+    }
+  }
+
   return validationResult(errors);
 }
 
@@ -247,6 +489,8 @@ const UNSAFE_KEYS = new Set([
   "agent.capabilities",
   "agent.name",
   "desktop.enabled",
+  "marketplace.enabled",
+  "social.enabled",
 ]);
 
 export function diffGatewayConfig(
