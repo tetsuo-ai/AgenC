@@ -152,6 +152,85 @@ describe("createDesktopAwareToolHandler", () => {
     const parsed = JSON.parse(result);
     expect(parsed.error).toContain("Unknown desktop tool");
   });
+
+  describe("auto-screenshot", () => {
+    it("appends screenshot after action tool", async () => {
+      const manager = mockManager();
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        autoScreenshot: true,
+      });
+
+      const result = await handler("desktop.mouse_click", { x: 100, y: 200 });
+      const parsed = JSON.parse(result);
+      expect(parsed.clicked).toBe(true);
+      expect(parsed._screenshot).toBeDefined();
+      expect(parsed._screenshot.dataUrl).toContain("data:image/png;base64");
+    });
+
+    it("skips for non-action tools", async () => {
+      const manager = mockManager();
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        autoScreenshot: true,
+      });
+
+      const result = await handler("desktop.screenshot", {});
+      const parsed = JSON.parse(result);
+      expect(parsed._screenshot).toBeUndefined();
+    });
+
+    it("returns original result when screenshot fails", async () => {
+      // Override the mock so screenshot throws
+      const failScreenshot = {
+        name: "desktop.screenshot",
+        description: "Take a screenshot",
+        inputSchema: {},
+        execute: vi.fn().mockRejectedValue(new Error("capture failed")),
+      };
+      const clickTool = {
+        name: "desktop.mouse_click",
+        description: "Click mouse",
+        inputSchema: {},
+        execute: vi.fn().mockResolvedValue({ content: '{"clicked":true}' }),
+      };
+
+      const manager = mockManager();
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        autoScreenshot: true,
+      });
+
+      // Pre-populate bridge with failing screenshot tool
+      await handler("desktop.mouse_click", { x: 0, y: 0 });
+      const bridge = bridges.get("sess1")!;
+      (bridge.getTools as ReturnType<typeof vi.fn>).mockReturnValue([
+        failScreenshot,
+        clickTool,
+      ]);
+
+      const result = await handler("desktop.mouse_click", { x: 0, y: 0 });
+      const parsed = JSON.parse(result);
+      expect(parsed.clicked).toBe(true);
+      // No _screenshot since it failed
+      expect(parsed._screenshot).toBeUndefined();
+    });
+
+    it("disabled by default", async () => {
+      const manager = mockManager();
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+      });
+
+      const result = await handler("desktop.mouse_click", { x: 100, y: 200 });
+      const parsed = JSON.parse(result);
+      expect(parsed._screenshot).toBeUndefined();
+    });
+  });
 });
 
 describe("destroySessionBridge", () => {
