@@ -2081,21 +2081,28 @@ export class DaemonManager {
         'Use desktop.* tools when the task involves browsing websites (especially JS-heavy or Cloudflare-protected sites), ' +
         'creating documents in GUI apps, or any visual interaction.\n\n' +
         'Desktop tools:\n' +
+        '- desktop.bash — Run a shell command INSIDE the container. THIS IS YOUR PRIMARY TOOL for all scripting, file creation, package installation, and command execution inside the sandbox.\n' +
         '- desktop.screenshot — Capture the desktop (use to SEE what is on screen)\n' +
-        '- desktop.mouse_click — Click at (x, y)\n' +
-        '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control\n' +
-        '- desktop.keyboard_type — Type text into the focused app\n' +
+        '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
+        '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
+        '- desktop.keyboard_type — Type text into the FOCUSED GUI app (e.g. browser URL bar, search field, text editor). NEVER use this to type into a terminal — use desktop.bash instead.\n' +
         '- desktop.keyboard_key — Press key combos (ctrl+c, alt+Tab, Return, ctrl+l)\n' +
-        '- desktop.bash — Run a shell command INSIDE the container\n' +
         '- desktop.window_list, desktop.window_focus — Window management\n' +
         '- desktop.clipboard_get, desktop.clipboard_set — Clipboard access\n' +
         '- desktop.screen_size — Get resolution\n\n' +
+        'CRITICAL RULES:\n' +
+        '- To write files: use desktop.bash with cat heredoc: cat > file.py << \'PYEOF\'\\n...code...\\nPYEOF\n' +
+        '- To install packages: desktop.bash with "pip install flask" or "apt-get install -y pkg"\n' +
+        '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash to write files and run commands.\n' +
+        '- keyboard_type is ONLY for GUI text fields (browser URL bar, search boxes, GUI text editors like gedit/mousepad).\n\n' +
         'Desktop tips:\n' +
         '- Launch GUI apps: desktop.bash with "app >/dev/null 2>&1 &" (MUST redirect output and background to avoid hanging)\n' +
-        '- Firefox: "firefox --no-remote --new-instance URL >/dev/null 2>&1 &"\n' +
-        '- LibreOffice: "libreoffice --calc >/dev/null 2>&1 &"\n' +
-        '- Take screenshots frequently to verify actions\n' +
-        '- system.bash = host machine; desktop.bash = inside the container\n\n' +
+        '- Firefox: desktop.bash with "firefox --no-remote --new-instance URL >/dev/null 2>&1 &"\n' +
+        '- LibreOffice: desktop.bash with "libreoffice --calc >/dev/null 2>&1 &"\n' +
+        '- Take screenshots frequently to verify actions worked\n' +
+        '- system.bash = host machine; desktop.bash = inside the Docker container\n' +
+        '- nano/vim are NOT installed. Write files with cat heredoc via desktop.bash.\n\n' +
         'Be helpful, direct, and action-oriented. Execute tasks immediately without hesitation.';
     } else if (isMac) {
       ctx +=
