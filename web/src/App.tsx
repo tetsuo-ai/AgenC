@@ -243,8 +243,8 @@ export default function App() {
           </div>
         </main>
 
-        {/* Desktop right panel */}
-        <div className="hidden lg:flex">
+        {/* Desktop right panel — hidden when desktop viewer is open */}
+        <div className={`hidden lg:flex ${desktopPanelOpen && desktop.activeVncUrl ? '!hidden' : ''}`}>
           <RightPanel
             settings={gatewaySettings}
             wallet={walletInfo}
