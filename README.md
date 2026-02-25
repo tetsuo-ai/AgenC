@@ -112,6 +112,18 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 | Solana CLI | 3.0.13 | For program builds |
 | Anchor CLI | 0.32.1 | For program builds |
 | Docker | latest | For desktop sandbox VMs |
+| Ollama | latest | For semantic memory (optional) |
+
+#### Semantic Memory (recommended)
+
+The agent uses [Ollama](https://ollama.com) for local embeddings to power semantic memory — enabling it to recall relevant context from past conversations. Without it, the agent falls back to a basic last-10-messages history.
+
+```bash
+# Install Ollama (https://ollama.com), then:
+ollama pull nomic-embed-text
+```
+
+Semantic memory activates automatically when Ollama is running. No config changes needed.
 
 ### Install & Build
 
@@ -128,7 +140,7 @@ anchor build         # Build the Solana program (optional)
 
 ```bash
 npm run test:fast    # LiteSVM integration tests (~5s)
-npm run test         # SDK + Runtime vitest suites (~4800+ tests)
+npm run test         # SDK + Runtime vitest suites (~4860+ tests)
 npm run test:anchor  # Full Anchor integration tests
 ```
 
@@ -187,7 +199,7 @@ Create `~/.agenc/config.json`:
 | `agent` | Agent metadata | `name`, `capabilities`, `endpoint`, `stake` |
 | `connection` | Solana RPC | `rpcUrl`, `keypairPath`, `endpoints[]` (failover) |
 | `llm` | Primary LLM | `provider` (`grok` / `anthropic` / `ollama`), `apiKey`, `model`, `fallback[]` |
-| `memory` | Session storage | `backend` (`memory` / `sqlite` / `redis`), `dbPath` |
+| `memory` | Session storage + semantic memory | `backend` (`memory` / `sqlite` / `redis`), `dbPath`, `embeddingProvider`, `embeddingModel` |
 | `channels` | Chat integrations | `webchat`, `telegram`, `discord`, `slack`, `whatsapp`, `signal`, `matrix`, `imessage` |
 | `voice` | TTS/STT | `enabled`, `voice`, `mode` (`vad` / `push-to-talk`), `apiKey` |
 | `desktop` | Docker sandbox VMs | `enabled`, `image`, `resolution`, `maxMemory`, `maxCpu`, `maxConcurrent` |
