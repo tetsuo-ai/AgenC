@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build essentials
     build-essential gcc g++ make cmake \
     # Developer tools
-    git vim tmux htop tree jq unzip \
+    git vim nano tmux htop tree jq unzip sudo \
     # Python
     python3 python3-pip python3-venv \
     # Misc utilities
@@ -65,9 +65,11 @@ ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
 # =============================================================================
-# Non-root user (no sudo)
+# Non-root user (passwordless sudo)
 # =============================================================================
-RUN useradd -m -s /bin/bash -d /home/agenc agenc
+RUN useradd -m -s /bin/bash -d /home/agenc agenc \
+    && echo 'agenc ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/agenc \
+    && chmod 0440 /etc/sudoers.d/agenc
 
 # =============================================================================
 # Branding: wallpaper + icon
