@@ -1942,12 +1942,19 @@ export class DaemonManager {
           }
         }
 
+        // Decode HTML entities in string args (some LLMs emit &amp; &lt; &gt; etc.)
+        const cleanArgs = Object.fromEntries(
+          Object.entries(args).map(([k, v]) =>
+            [k, typeof v === 'string' ? v.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'") : v],
+          ),
+        );
+
         const start = Date.now();
         // Use desktop-aware handler if available, otherwise base handler
         const activeHandler = this._desktopRouterFactory
           ? this._desktopRouterFactory(msg.sessionId)
           : baseToolHandler;
-        const result = await activeHandler(name, args);
+        const result = await activeHandler(name, cleanArgs);
         const durationMs = Date.now() - start;
 
         webChat.pushToSession(msg.sessionId, {
