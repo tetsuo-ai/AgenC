@@ -21,6 +21,7 @@ export interface UseDesktopReturn {
   loading: boolean;
   error: string | null;
   activeVncUrl: string | null;
+  vncUrlForSession: (sessionId: string | null | undefined) => string | null;
   refresh: () => void;
   create: (sessionId?: string) => void;
   destroy: (containerId: string) => void;
@@ -79,5 +80,18 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
     [sandboxes],
   );
 
-  return { sandboxes, loading, error, activeVncUrl, refresh, create, destroy, handleMessage } as UseDesktopReturn & { handleMessage: (msg: WSMessage) => void };
+  // Find VNC URL for a specific chat session (the agent's desktop tools
+  // create containers keyed by the chat sessionId, so we match on that).
+  const vncUrlForSession = useCallback(
+    (sessionId: string | null | undefined): string | null => {
+      if (!sessionId) return activeVncUrl;
+      const match = sandboxes.find(
+        (s) => s.status === 'ready' && s.sessionId === sessionId,
+      );
+      return match?.vncUrl ?? activeVncUrl;
+    },
+    [sandboxes, activeVncUrl],
+  );
+
+  return { sandboxes, loading, error, activeVncUrl, vncUrlForSession, refresh, create, destroy, handleMessage } as UseDesktopReturn & { handleMessage: (msg: WSMessage) => void };
 }
