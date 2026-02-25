@@ -142,9 +142,22 @@ export interface LLMProviderConfig {
 }
 
 /**
+ * Decode HTML entities that some LLMs (e.g. Grok) emit in tool call arguments.
+ */
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+/**
  * Validate/sanitize a raw tool call payload.
  *
  * Ensures `id` and `name` are non-empty strings, and `arguments` is a JSON string.
+ * Decodes HTML entities both in the JSON string and in parsed string values.
  */
 export function validateToolCall(raw: unknown): LLMToolCall | null {
   if (typeof raw !== "object" || raw === null) {
@@ -160,23 +173,26 @@ export function validateToolCall(raw: unknown): LLMToolCall | null {
     return null;
   }
 
-  // Decode HTML entities that some LLMs (e.g. Grok) emit in tool call arguments
-  const decoded = argumentsRaw
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+  // Decode the JSON string itself (entities in JSON syntax)
+  const decoded = decodeHtmlEntities(argumentsRaw);
 
+  let parsed: Record<string, unknown>;
   try {
-    JSON.parse(decoded);
+    parsed = JSON.parse(decoded) as Record<string, unknown>;
   } catch {
     return null;
+  }
+
+  // Also decode entities inside parsed string values (entities within JSON values)
+  for (const key of Object.keys(parsed)) {
+    if (typeof parsed[key] === "string") {
+      parsed[key] = decodeHtmlEntities(parsed[key] as string);
+    }
   }
 
   return {
     id,
     name,
-    arguments: decoded,
+    arguments: JSON.stringify(parsed),
   };
 }
