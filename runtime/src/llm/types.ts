@@ -160,8 +160,16 @@ export function validateToolCall(raw: unknown): LLMToolCall | null {
     return null;
   }
 
+  // Decode HTML entities that some LLMs (e.g. Grok) emit in tool call arguments
+  const decoded = argumentsRaw
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
   try {
-    JSON.parse(argumentsRaw);
+    JSON.parse(decoded);
   } catch {
     return null;
   }
@@ -169,6 +177,6 @@ export function validateToolCall(raw: unknown): LLMToolCall | null {
   return {
     id,
     name,
-    arguments: argumentsRaw,
+    arguments: decoded,
   };
 }
