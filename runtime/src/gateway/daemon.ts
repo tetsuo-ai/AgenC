@@ -462,6 +462,7 @@ export class DaemonManager {
       memoryRetriever,
       maxToolRounds: config.llm?.maxToolRounds ?? (config.desktop?.enabled ? 20 : 3),
       sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
+      onCompaction: this.handleCompaction,
     }) : null;
 
     const approvalEngine = new ApprovalEngine();
@@ -1130,6 +1131,15 @@ export class DaemonManager {
    * Hot-swap the LLM provider when config.set changes llm.* fields.
    * Re-creates the provider chain and ChatExecutor without restarting the gateway.
    */
+  private handleCompaction = (sessionId: string, summary: string): void => {
+    this.logger.info(`Context compacted for session ${sessionId} (${summary.length} chars)`);
+    if (this._hookDispatcher) {
+      void this._hookDispatcher.dispatch('session:compact', {
+        sessionId, summary, source: 'budget',
+      });
+    }
+  };
+
   private async hotSwapLLMProvider(
     newConfig: GatewayConfig,
     skillInjector: SkillInjector,
@@ -1144,6 +1154,7 @@ export class DaemonManager {
         memoryRetriever,
         maxToolRounds: newConfig.llm?.maxToolRounds ?? (newConfig.desktop?.enabled ? 20 : 3),
         sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
+        onCompaction: this.handleCompaction,
       }) : null;
 
       const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
@@ -1819,6 +1830,11 @@ export class DaemonManager {
 
         webChat.clearAbortController(msg.sessionId);
 
+        // If ChatExecutor compacted context, also trim session history
+        if (result.compacted) {
+          void sessionMgr.compact(session.id);
+        }
+
         signals.signalIdle(msg.sessionId);
         sessionMgr.appendMessage(session.id, { role: 'user', content: msg.content });
         sessionMgr.appendMessage(session.id, { role: 'assistant', content: result.content });
@@ -1942,7 +1958,17 @@ export class DaemonManager {
   }
 
   private async buildSystemPrompt(config: GatewayConfig): Promise<string> {
-    const additionalContext = this.buildDesktopContext(config);
+    const desktopContext = this.buildDesktopContext(config);
+
+    const planningInstruction =
+      '\n\n## Task Execution Protocol\n\n' +
+      'When given a request that requires multiple steps or tool calls:\n' +
+      '1. First, briefly state your plan as a numbered list (2-6 steps max)\n' +
+      '2. Execute each step in order, confirming the result before proceeding\n' +
+      '3. If a step fails, reassess the plan and adapt\n\n' +
+      'For simple questions or single-step requests, respond directly without a plan.';
+
+    const additionalContext = desktopContext + planningInstruction;
     const workspacePath = getDefaultWorkspacePath();
     const loader = new WorkspaceLoader(workspacePath);
 
