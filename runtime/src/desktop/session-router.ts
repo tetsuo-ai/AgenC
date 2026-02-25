@@ -16,6 +16,24 @@ import type { DesktopSandboxManager } from "./manager.js";
 import { DesktopRESTBridge } from "./rest-bridge.js";
 
 // ============================================================================
+// Auto-screenshot constants
+// ============================================================================
+
+/** Desktop tools that mutate visual state — trigger auto-screenshot. */
+const DESKTOP_ACTION_TOOLS = new Set([
+  "mouse_click",
+  "mouse_move",
+  "mouse_drag",
+  "mouse_scroll",
+  "keyboard_type",
+  "keyboard_key",
+  "bash",
+  "window_focus",
+]);
+
+const AUTO_SCREENSHOT_DELAY_MS = 300;
+
+// ============================================================================
 // Desktop tool definitions (static — same across all containers)
 // ============================================================================
 
@@ -30,6 +48,8 @@ export interface DesktopRouterOptions {
   desktopManager: DesktopSandboxManager;
   bridges: Map<string, DesktopRESTBridge>;
   logger?: Logger;
+  /** Auto-capture screenshot after action tools. Default: false. */
+  autoScreenshot?: boolean;
 }
 
 /**
@@ -46,7 +66,7 @@ export function createDesktopAwareToolHandler(
   sessionId: string,
   options: DesktopRouterOptions,
 ): ToolHandler {
-  const { desktopManager, bridges, logger: log = silentLogger } = options;
+  const { desktopManager, bridges, logger: log = silentLogger, autoScreenshot = false } = options;
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     if (!name.startsWith("desktop.")) {
@@ -76,6 +96,30 @@ export function createDesktopAwareToolHandler(
     }
 
     const result: ToolResult = await tool.execute(args);
+
+    // Auto-capture screenshot after action tools so the LLM can see the result
+    if (autoScreenshot && DESKTOP_ACTION_TOOLS.has(toolName)) {
+      try {
+        await new Promise((r) => setTimeout(r, AUTO_SCREENSHOT_DELAY_MS));
+        const screenshotTool = bridge.getTools().find((t) => t.name === "desktop.screenshot");
+        if (screenshotTool) {
+          const screenshot: ToolResult = await screenshotTool.execute({});
+          try {
+            const actionData = JSON.parse(result.content) as Record<string, unknown>;
+            const shotData = JSON.parse(screenshot.content) as Record<string, unknown>;
+            return safeStringify({
+              ...actionData,
+              _screenshot: { dataUrl: shotData.dataUrl, width: shotData.width, height: shotData.height },
+            });
+          } catch {
+            return result.content + "\n" + screenshot.content;
+          }
+        }
+      } catch (err) {
+        log.debug?.(`Auto-screenshot failed for ${toolName}: ${toErrorMessage(err)}`);
+      }
+    }
+
     return result.content;
   };
 }
