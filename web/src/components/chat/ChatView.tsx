@@ -4,6 +4,7 @@ import type { ChatSessionInfo } from '../../hooks/useChat';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { VoiceOverlay } from './VoiceOverlay';
+import { DesktopPanel } from './DesktopPanel';
 
 interface ChatViewProps {
   messages: ChatMessage[];
@@ -24,6 +25,9 @@ interface ChatViewProps {
   activeSessionId?: string | null;
   onSelectSession?: (sessionId: string) => void;
   onNewChat?: () => void;
+  desktopUrl?: string | null;
+  desktopOpen?: boolean;
+  onToggleDesktop?: () => void;
 }
 
 export function ChatView({
@@ -45,6 +49,9 @@ export function ChatView({
   activeSessionId,
   onSelectSession,
   onNewChat,
+  desktopUrl,
+  desktopOpen = false,
+  onToggleDesktop,
 }: ChatViewProps) {
   const isDark = theme === 'dark';
   const [searchOpen, setSearchOpen] = useState(false);
@@ -159,6 +166,17 @@ export function ChatView({
               </svg>
             )}
           </button>
+          {desktopUrl && onToggleDesktop && (
+            <button
+              onClick={onToggleDesktop}
+              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${desktopOpen ? 'text-accent bg-accent-bg' : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100'}`}
+              title={desktopOpen ? 'Hide desktop viewer' : 'Show desktop viewer'}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={toggleSearch}
             className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${searchOpen ? 'text-accent bg-accent-bg' : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100'}`}
@@ -225,7 +243,15 @@ export function ChatView({
         )}
       </div>
 
-      <MessageList messages={messages} isTyping={isTyping} theme={theme} searchQuery={searchQuery} />
+      {/* Message list + optional desktop panel */}
+      <div className="flex-1 min-h-0 flex">
+        <MessageList messages={messages} isTyping={isTyping} theme={theme} searchQuery={searchQuery} />
+        {desktopOpen && desktopUrl && (
+          <div className="hidden md:flex w-[50%] min-w-[400px]">
+            <DesktopPanel vncUrl={desktopUrl} onClose={onToggleDesktop!} />
+          </div>
+        )}
+      </div>
       <ChatInput
         onSend={onSend}
         onStop={onStop}

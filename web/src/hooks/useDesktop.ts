@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WSMessage } from '../types';
 
 export interface DesktopSandbox {
@@ -20,6 +20,7 @@ export interface UseDesktopReturn {
   sandboxes: DesktopSandbox[];
   loading: boolean;
   error: string | null;
+  activeVncUrl: string | null;
   refresh: () => void;
   create: (sessionId?: string) => void;
   destroy: (containerId: string) => void;
@@ -73,5 +74,10 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
     }
   }, [send]);
 
-  return { sandboxes, loading, error, refresh, create, destroy, handleMessage } as UseDesktopReturn & { handleMessage: (msg: WSMessage) => void };
+  const activeVncUrl = useMemo(
+    () => sandboxes.find((s) => s.status === 'ready')?.vncUrl ?? null,
+    [sandboxes],
+  );
+
+  return { sandboxes, loading, error, activeVncUrl, refresh, create, destroy, handleMessage } as UseDesktopReturn & { handleMessage: (msg: WSMessage) => void };
 }

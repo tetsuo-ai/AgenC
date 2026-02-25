@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ViewId, WSMessage, ApprovalRequest } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
@@ -59,6 +59,20 @@ export default function App() {
   const activityFeed = useActivityFeed({ send, connected }) as WithHandler<ReturnType<typeof useActivityFeed>>;
   const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
   const desktop = useDesktop({ send, connected }) as WithHandler<ReturnType<typeof useDesktop>>;
+  const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
+  const prevVncUrl = useRef<string | null>(null);
+
+  const toggleDesktopPanel = useCallback(() => {
+    setDesktopPanelOpen((prev) => !prev);
+  }, []);
+
+  // Auto-open desktop panel when a sandbox becomes ready
+  useEffect(() => {
+    if (desktop.activeVncUrl && !prevVncUrl.current) {
+      setDesktopPanelOpen(true);
+    }
+    prevVncUrl.current = desktop.activeVncUrl;
+  }, [desktop.activeVncUrl]);
 
   // Voice toggle — start or stop voice session
   const handleVoiceToggle = useCallback(() => {
@@ -166,6 +180,9 @@ export default function App() {
                 activeSessionId={chat.sessionId}
                 onSelectSession={chat.resumeSession}
                 onNewChat={chat.startNewChat}
+                desktopUrl={desktop.activeVncUrl}
+                desktopOpen={desktopPanelOpen}
+                onToggleDesktop={toggleDesktopPanel}
               />
             )}
             {currentView === 'status' && (
