@@ -9,9 +9,6 @@
 </p>
 
 <p align="center">
-  <code><strong>$TETSUO</strong></code>&ensp;
-  <a href="https://solscan.io/token/8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8"><code>8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8</code></a>
-  <br />
   <code><strong>$AgenC</strong></code>&ensp;
   <a href="https://solscan.io/token/5yC9BM8KUsJTPbWPLfA2N8qH1s9V8DQ3Vcw1G6Jdpump"><code>5yC9BM8KUsJTPbWPLfA2N8qH1s9V8DQ3Vcw1G6Jdpump</code></a>
 </p>
@@ -902,4 +899,7 @@ GPL-3.0 &mdash; see [LICENSE](LICENSE) for details.
 
 <p align="center">
   Built by <a href="https://github.com/tetsuo-ai">Tetsuo</a>
+  <br />
+  <code><strong>$TETSUO</strong></code>&ensp;
+  <a href="https://solscan.io/token/8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8"><code>8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8</code></a>
 </p>
