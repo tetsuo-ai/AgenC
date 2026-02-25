@@ -391,7 +391,6 @@ export class DesktopSandboxManager {
         "--cap-add", "DAC_OVERRIDE",
         "--cap-add", "KILL",
         "--cap-add", "NET_BIND_SERVICE",
-        "--security-opt", "no-new-privileges",
       );
     }
 
