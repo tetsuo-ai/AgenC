@@ -2102,7 +2102,8 @@ export class DaemonManager {
         '- LibreOffice: desktop.bash with "libreoffice --calc >/dev/null 2>&1 &"\n' +
         '- Take screenshots frequently to verify actions worked\n' +
         '- system.bash = host machine; desktop.bash = inside the Docker container\n' +
-        '- nano/vim are NOT installed. Write files with cat heredoc via desktop.bash.\n\n' +
+        '- vim and nano are available for editing files inside the container.\n' +
+        '- The user is "agenc" with passwordless sudo — use "sudo apt-get install -y pkg" to install packages.\n\n' +
         'Be helpful, direct, and action-oriented. Execute tasks immediately without hesitation.';
     } else if (isMac) {
       ctx +=
