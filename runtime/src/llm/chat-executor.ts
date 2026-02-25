@@ -99,6 +99,8 @@ export interface ChatExecutorResult {
   readonly toolCalls: readonly ToolCallRecord[];
   readonly tokenUsage: LLMUsage;
   readonly durationMs: number;
+  /** True if conversation history was compacted during this execution. */
+  readonly compacted: boolean;
 }
 
 /** Configuration for ChatExecutor construction. */
@@ -112,12 +114,14 @@ export interface ChatExecutorConfig {
   readonly memoryRetriever?: MemoryRetriever;
   readonly allowedTools?: readonly string[];
   /**
-   * Maximum token budget per session. Checked before each call — if cumulative
-   * usage already meets or exceeds this value, the call is rejected with
-   * `ChatBudgetExceededError`. This is a soft cap: the final call that pushes
-   * usage over the limit will succeed, but subsequent calls will be blocked.
+   * Maximum token budget per session. When cumulative usage meets or exceeds
+   * this value, the executor attempts to compact conversation history by
+   * summarizing older messages. If compaction fails, falls back to
+   * `ChatBudgetExceededError`.
    */
   readonly sessionTokenBudget?: number;
+  /** Callback when context compaction occurs (budget recovery). */
+  readonly onCompaction?: (sessionId: string, summary: string) => void;
   /** Base cooldown period for failed providers in ms (default: 60_000). */
   readonly providerCooldownMs?: number;
   /** Maximum cooldown period in ms (default: 300_000). */
@@ -161,6 +165,7 @@ export class ChatExecutor {
   private readonly maxTrackedSessions: number;
   private readonly skillInjector?: SkillInjector;
   private readonly memoryRetriever?: MemoryRetriever;
+  private readonly onCompaction?: (sessionId: string, summary: string) => void;
 
   private readonly cooldowns = new Map<string, CooldownEntry>();
   private readonly sessionTokens = new Map<string, number>();
@@ -182,26 +187,35 @@ export class ChatExecutor {
     this.maxTrackedSessions = Math.max(1, config.maxTrackedSessions ?? 10_000);
     this.skillInjector = config.skillInjector;
     this.memoryRetriever = config.memoryRetriever;
+    this.onCompaction = config.onCompaction;
   }
 
   /**
    * Execute a chat message against the provider chain.
    */
   async execute(params: ChatExecuteParams): Promise<ChatExecutorResult> {
-    const { message, history, systemPrompt, sessionId, signal } = params;
+    const { message, systemPrompt, sessionId, signal } = params;
+    let { history } = params;
     const activeToolHandler = params.toolHandler ?? this.toolHandler;
     const activeStreamCallback = params.onStreamChunk ?? this.onStreamChunk;
     const startTime = Date.now();
 
-    // Pre-check token budget
+    // Pre-check token budget — attempt compaction instead of hard fail
+    let compacted = false;
     if (this.sessionTokenBudget !== undefined) {
       const used = this.sessionTokens.get(sessionId) ?? 0;
       if (used >= this.sessionTokenBudget) {
-        throw new ChatBudgetExceededError(
-          sessionId,
-          used,
-          this.sessionTokenBudget,
-        );
+        try {
+          history = await this.compactHistory(history, sessionId);
+          this.resetSessionTokens(sessionId);
+          compacted = true;
+        } catch {
+          throw new ChatBudgetExceededError(
+            sessionId,
+            used,
+            this.sessionTokenBudget,
+          );
+        }
       }
     }
 
@@ -525,6 +539,7 @@ export class ChatExecutor {
       toolCalls: allToolCalls,
       tokenUsage: cumulativeUsage,
       durationMs: Date.now() - startTime,
+      compacted,
     };
   }
 
@@ -651,5 +666,72 @@ export class ChatExecutor {
         this.sessionTokens.delete(oldest);
       }
     }
+  }
+
+  // --------------------------------------------------------------------------
+  // Context compaction
+  // --------------------------------------------------------------------------
+
+  /** Max chars of history text sent to the summarization call. */
+  private static readonly MAX_COMPACT_INPUT = 20_000;
+
+  private async compactHistory(
+    history: readonly LLMMessage[],
+    sessionId: string,
+  ): Promise<LLMMessage[]> {
+    if (history.length <= 5) return [...history];
+
+    const keepCount = 5;
+    const toSummarize = history.slice(0, history.length - keepCount);
+    const toKeep = history.slice(-keepCount);
+
+    let historyText = toSummarize
+      .map((m) => {
+        const content =
+          typeof m.content === "string"
+            ? m.content
+            : (m.content as Array<{ type: string; text?: string }>)
+                .filter(
+                  (p): p is { type: "text"; text: string } =>
+                    p.type === "text",
+                )
+                .map((p) => p.text)
+                .join(" ");
+        return `[${m.role}] ${content.slice(0, 500)}`;
+      })
+      .join("\n");
+
+    if (historyText.length > ChatExecutor.MAX_COMPACT_INPUT) {
+      historyText = historyText.slice(-ChatExecutor.MAX_COMPACT_INPUT);
+    }
+
+    const { response } = await this.callWithFallback([
+      {
+        role: "system",
+        content:
+          "Summarize this conversation history concisely. Preserve: key decisions made, " +
+          "tool results and their outcomes, unresolved questions, and important context. " +
+          "Omit pleasantries and redundant exchanges. Output only the summary.",
+      },
+      { role: "user", content: historyText },
+    ]);
+
+    const summary = response.content;
+
+    if (this.onCompaction) {
+      try {
+        this.onCompaction(sessionId, summary);
+      } catch {
+        /* non-blocking */
+      }
+    }
+
+    return [
+      {
+        role: "system" as const,
+        content: `[Conversation summary]\n${summary}`,
+      },
+      ...toKeep,
+    ];
   }
 }
