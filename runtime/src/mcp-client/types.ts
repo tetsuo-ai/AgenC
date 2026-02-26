@@ -25,6 +25,10 @@ export interface MCPServerConfig {
   enabled?: boolean;
   /** Connection timeout in ms. Default: 30000 */
   timeout?: number;
+  /** Route this server into a container instead of running on the host.
+   *  Currently only "desktop" is supported — the MCP server will be spawned
+   *  via `docker exec` inside the desktop sandbox container. */
+  container?: string;
 }
 
 /**
