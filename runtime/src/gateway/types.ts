@@ -86,6 +86,12 @@ export interface GatewayVoiceConfig {
   mode?: "vad" | "push-to-talk";
   /** Separate API key for voice. Falls back to llm.apiKey when not set. */
   apiKey?: string;
+  /** VAD silence threshold (0.0–1.0). Higher = requires louder speech. Default: 0.5 */
+  vadThreshold?: number;
+  /** Silence duration (ms) before turn ends. Higher = more patient. Default: 800 */
+  vadSilenceDurationMs?: number;
+  /** Audio prefix (ms) to include before speech start. Default: 300 */
+  vadPrefixPaddingMs?: number;
 }
 
 export interface GatewayTelemetryConfig {

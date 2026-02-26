@@ -20,6 +20,24 @@ import type { ToolHandler, LLMTool } from "../llm/types.js";
 
 const DEFAULT_MAX_SESSIONS = 10;
 
+/**
+ * Conciseness instructions appended to the voice system prompt.
+ * Prevents the agent from monologuing — keeps responses short and
+ * conversational, matching how Claude, ChatGPT, and Grok handle voice.
+ */
+const VOICE_CONCISENESS_PROMPT =
+  "\n\n## Voice Conversation Rules\n\n" +
+  "You are currently in a VOICE conversation. Follow these rules strictly:\n\n" +
+  "RESPONSE LENGTH: Keep responses to 1-2 sentences. Only give longer responses " +
+  "when the user explicitly asks for detail or explanation.\n\n" +
+  "TONE: Warm, concise, and confident. Speak casually and naturally. " +
+  "Use short sentences and simple words.\n\n" +
+  "PACING: When using tools, say a brief phrase like \"Let me check that\" " +
+  "before the pause. Never narrate every step.\n\n" +
+  "DO NOT: Repeat yourself. Over-explain. Provide unsolicited information. " +
+  "Use markdown, lists, code blocks, or special formatting. " +
+  "Monologue or give long-winded answers.";
+
 export interface VoiceBridgeConfig {
   /** xAI API key. */
   apiKey: string;
@@ -37,6 +55,12 @@ export interface VoiceBridgeConfig {
   model?: string;
   /** VAD mode or push-to-talk. Default: 'vad'. */
   mode?: "vad" | "push-to-talk";
+  /** VAD silence threshold (0.0–1.0). Default: 0.5. */
+  vadThreshold?: number;
+  /** Silence duration (ms) before turn ends. Default: 800. */
+  vadSilenceDurationMs?: number;
+  /** Audio prefix (ms) to include before speech start. Default: 300. */
+  vadPrefixPaddingMs?: number;
   /** Max concurrent voice sessions. Default: 10. */
   maxSessions?: number;
   /** Logger. */
@@ -100,17 +124,26 @@ export class VoiceBridge {
 
     const voiceTools = this.convertTools(this.config.tools);
 
+    const voiceInstructions =
+      this.config.systemPrompt +
+      VOICE_CONCISENESS_PROMPT;
+
     const sessionConfig: VoiceSessionConfig = {
       model: this.config.model ?? "grok-4-1-fast-reasoning",
       voice: this.config.voice ?? "Ara",
       modalities: ["text", "audio"],
-      instructions: this.config.systemPrompt,
+      instructions: voiceInstructions,
       input_audio_format: "pcm16",
       output_audio_format: "pcm16",
       turn_detection:
         this.config.mode === "push-to-talk"
           ? null
-          : { type: "server_vad", threshold: 0.5, silence_duration_ms: 500 },
+          : {
+              type: "server_vad",
+              threshold: this.config.vadThreshold ?? 0.5,
+              silence_duration_ms: this.config.vadSilenceDurationMs ?? 800,
+              prefix_padding_ms: this.config.vadPrefixPaddingMs ?? 300,
+            },
       tools: voiceTools,
     };
 
