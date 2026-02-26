@@ -21,6 +21,8 @@ export interface UseChatReturn {
   messages: ChatMessage[];
   sendMessage: (content: string, attachments?: File[]) => void;
   stopGeneration: () => void;
+  /** Inject a message from an external source (e.g. voice transcript). */
+  injectMessage: (content: string, sender: 'user' | 'agent') => void;
   isTyping: boolean;
   sessionId: string | null;
   sessions: ChatSessionInfo[];
@@ -65,6 +67,11 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     send({ type: 'chat.cancel' });
     setIsTyping(false);
   }, [send]);
+
+  const injectMessage = useCallback((content: string, sender: 'user' | 'agent') => {
+    const id = `${sender}_${++msgCounter}`;
+    setMessages((prev) => [...prev, { id, content, sender, timestamp: Date.now() }]);
+  }, []);
 
   const sendMessage = useCallback((content: string, files?: File[]) => {
     if (!files || files.length === 0) {
@@ -306,7 +313,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, [send]);
 
   return {
-    messages, sendMessage, stopGeneration, isTyping, sessionId,
+    messages, sendMessage, stopGeneration, injectMessage, isTyping, sessionId,
     sessions, refreshSessions, resumeSession, startNewChat,
     handleMessage,
   } as UseChatReturn & { handleMessage: (msg: WSMessage) => void };

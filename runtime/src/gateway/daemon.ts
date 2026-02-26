@@ -2133,6 +2133,9 @@ export class DaemonManager {
       voice: config.voice?.voice ?? 'Ara',
       model: config.llm?.model ?? DEFAULT_GROK_MODEL,
       mode: config.voice?.mode ?? 'vad',
+      vadThreshold: config.voice?.vadThreshold,
+      vadSilenceDurationMs: config.voice?.vadSilenceDurationMs,
+      vadPrefixPaddingMs: config.voice?.vadPrefixPaddingMs,
       logger: this.logger,
     });
   }

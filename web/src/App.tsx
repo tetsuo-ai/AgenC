@@ -110,6 +110,32 @@ export default function App() {
     activityFeed.handleMessage(msg);
     agentsData.handleMessage(msg);
     desktop.handleMessage(msg);
+
+    // Voice → Chat bridge: mirror voice turns as chat messages
+    const payload = (msg.payload ?? {}) as Record<string, unknown>;
+    if (msg.type === 'voice.speech_stopped') {
+      chat.injectMessage('[Voice]', 'user');
+    }
+    if (msg.type === 'voice.transcript' && payload.done && typeof payload.text === 'string') {
+      chat.injectMessage(payload.text, 'agent');
+    }
+    // Bridge voice tool calls to the chat tool call UI
+    if (msg.type === 'voice.tool_call') {
+      const toolName = (payload.toolName as string) ?? 'unknown';
+      const status = payload.status as string;
+      if (status === 'executing') {
+        chat.handleMessage({ type: 'tools.executing', payload: { toolName, args: {} } });
+      } else if (status === 'completed' || status === 'error') {
+        chat.handleMessage({
+          type: 'tools.result',
+          payload: {
+            toolName,
+            result: (payload.result as string) ?? (payload.error as string) ?? '',
+            isError: status === 'error',
+          },
+        });
+      }
+    }
   }
 
   const handleApprove = useCallback(

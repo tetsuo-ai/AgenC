@@ -8,7 +8,7 @@ interface DesktopPanelProps {
 export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
   const [loading, setLoading] = useState(true);
 
-  const iframeSrc = `${vncUrl}?autoconnect=true&resize=scale&view_only=true`;
+  const iframeSrc = `${vncUrl}?autoconnect=true&resize=scale`;
 
   const openFullscreen = useCallback(() => {
     window.open(vncUrl, '_blank', 'noopener');
