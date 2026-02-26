@@ -76,5 +76,9 @@ CURSOR.md
 .surfpool/
 .tmp/
 
-# Techdebt session reports (auto-generated)
-.claude/notes/techdebt-*.md
+# Claude Code (local AI assistant config)
+.claude/
+CLAUDE.md
+claude.md
+AGENTS.md
+agents.md
