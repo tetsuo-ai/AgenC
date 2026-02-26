@@ -50,6 +50,8 @@ function makeJournal(fields: {
   outputCommitment: Uint8Array;
   binding: Uint8Array;
   nullifier: Uint8Array;
+  modelCommitment?: Uint8Array;
+  inputCommitment?: Uint8Array;
 }): Uint8Array {
   const out = new Uint8Array(RISC0_JOURNAL_LEN);
   out.set(fields.taskPda, 0);
@@ -58,6 +60,8 @@ function makeJournal(fields: {
   out.set(fields.outputCommitment, 96);
   out.set(fields.binding, 128);
   out.set(fields.nullifier, 160);
+  if (fields.modelCommitment) out.set(fields.modelCommitment, 192);
+  if (fields.inputCommitment) out.set(fields.inputCommitment, 224);
   return out;
 }
 

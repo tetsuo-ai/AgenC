@@ -910,7 +910,7 @@ describe("TaskExecutor", () => {
         sealBytes.set([0x52, 0x5a, 0x56, 0x4d], 0);
         return {
           sealBytes,
-          journal: new Uint8Array(192).fill(2),
+          journal: new Uint8Array(256).fill(2),
           imageId: new Uint8Array(32).fill(3),
           bindingSeed: new Uint8Array(32).fill(4),
           nullifierSeed: new Uint8Array(32).fill(5),
@@ -973,7 +973,7 @@ describe("TaskExecutor", () => {
 
       const privateResult: PrivateTaskExecutionResult = {
         sealBytes: new Uint8Array(260),
-        journal: new Uint8Array(192),
+        journal: new Uint8Array(256),
         imageId: new Uint8Array(32),
         bindingSeed: new Uint8Array(32),
         nullifierSeed: new Uint8Array(32),

@@ -34,7 +34,7 @@ function createPrivateResult(): PrivateTaskExecutionResult {
   sealBytes.set([0x52, 0x5a, 0x56, 0x4d], 0);
   return {
     sealBytes,
-    journal: new Uint8Array(192).fill(4),
+    journal: new Uint8Array(256).fill(4),
     imageId: new Uint8Array(32).fill(5),
     bindingSeed: new Uint8Array(32).fill(6),
     nullifierSeed: new Uint8Array(32).fill(7),

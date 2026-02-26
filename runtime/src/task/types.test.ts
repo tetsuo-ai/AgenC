@@ -454,7 +454,7 @@ describe("isPrivateExecutionResult", () => {
   it("identifies PrivateTaskExecutionResult by RISC0 payload fields", () => {
     const result: PrivateTaskExecutionResult = {
       sealBytes: new Uint8Array(260),
-      journal: new Uint8Array(192),
+      journal: new Uint8Array(256),
       imageId: new Uint8Array(32),
       bindingSeed: new Uint8Array(32),
       nullifierSeed: new Uint8Array(32),

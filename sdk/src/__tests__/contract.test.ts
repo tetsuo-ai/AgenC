@@ -223,7 +223,7 @@ describe("SDK contract tests", () => {
       nullifierSeed: expect.any(Array),
     });
     expect(proofArg.sealBytes).toHaveLength(260);
-    expect(proofArg.journal).toHaveLength(192);
+    expect(proofArg.journal).toHaveLength(256);
     expect(proofArg.imageId).toHaveLength(32);
     expect(proofArg.bindingSeed).toHaveLength(32);
     expect(proofArg.nullifierSeed).toHaveLength(32);

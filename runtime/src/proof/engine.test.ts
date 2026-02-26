@@ -4,7 +4,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 // Mock @agenc/sdk before imports
 vi.mock("@agenc/sdk", () => {
   const mockSeal = Buffer.alloc(260, 0xab);
-  const mockJournal = Buffer.alloc(192, 0xcd);
+  const mockJournal = Buffer.alloc(256, 0xcd);
   const mockImageId = Buffer.alloc(32, 0xef);
   const mockBindingSeed = Buffer.alloc(32, 0x12);
   const mockNullifierSeed = Buffer.alloc(32, 0x34);
@@ -158,7 +158,7 @@ describe("ProofEngine", () => {
       expect(result.sealBytes).toBeInstanceOf(Uint8Array);
       expect(result.sealBytes.length).toBe(260);
       expect(result.journal).toBeInstanceOf(Uint8Array);
-      expect(result.journal.length).toBe(192);
+      expect(result.journal.length).toBe(256);
       expect(result.imageId).toBeInstanceOf(Uint8Array);
       expect(result.imageId.length).toBe(32);
       expect(result.bindingSeed).toBeInstanceOf(Uint8Array);
@@ -507,7 +507,7 @@ describe("ProofEngine", () => {
       const sealBytes = new Uint8Array(260).fill(0xbb);
       const result = await engine.generatePrivateProof({} as any, {
         sealBytes,
-        journal: new Uint8Array(192),
+        journal: new Uint8Array(256),
         imageId: new Uint8Array(32),
         bindingSeed: new Uint8Array(32),
         nullifierSeed: new Uint8Array(32),
@@ -701,7 +701,7 @@ describe("ProofCache", () => {
   function makeCacheResult(): EngineProofResult {
     return {
       sealBytes: new Uint8Array(260).fill(0x01),
-      journal: new Uint8Array(192).fill(0x02),
+      journal: new Uint8Array(256).fill(0x02),
       imageId: new Uint8Array(32).fill(0x03),
       bindingSeed: new Uint8Array(32).fill(0x04),
       nullifierSeed: new Uint8Array(32).fill(0x05),

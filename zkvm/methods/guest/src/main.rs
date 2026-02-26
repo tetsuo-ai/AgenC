@@ -13,6 +13,8 @@ fn main() {
     let output_commitment: [u8; JOURNAL_FIELD_LEN] = env::read();
     let binding: [u8; JOURNAL_FIELD_LEN] = env::read();
     let nullifier: [u8; JOURNAL_FIELD_LEN] = env::read();
+    let model_commitment: [u8; JOURNAL_FIELD_LEN] = env::read();
+    let input_commitment: [u8; JOURNAL_FIELD_LEN] = env::read();
 
     // Match on-chain non-zero requirements (complete_task_private.rs)
     let zero = [0u8; JOURNAL_FIELD_LEN];
@@ -27,6 +29,8 @@ fn main() {
         output_commitment,
         binding,
         nullifier,
+        model_commitment,
+        input_commitment,
     };
     env::commit_slice(&serialize_journal(&fields));
 }

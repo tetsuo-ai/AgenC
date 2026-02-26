@@ -32,6 +32,8 @@ pub struct ProveRequest {
     pub output_commitment: JournalField,
     pub binding: JournalField,
     pub nullifier: JournalField,
+    pub model_commitment: JournalField,
+    pub input_commitment: JournalField,
 }
 
 impl From<ProveRequest> for JournalFields {
@@ -43,6 +45,8 @@ impl From<ProveRequest> for JournalFields {
             output_commitment: r.output_commitment,
             binding: r.binding,
             nullifier: r.nullifier,
+            model_commitment: r.model_commitment,
+            input_commitment: r.input_commitment,
         }
     }
 }
@@ -124,6 +128,8 @@ pub fn default_prove_request() -> ProveRequest {
         output_commitment: [4_u8; 32],
         binding: [5_u8; 32],
         nullifier: [6_u8; 32],
+        model_commitment: [0_u8; 32],
+        input_commitment: [0_u8; 32],
     }
 }
 
@@ -180,6 +186,8 @@ fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveErr
         ("output_commitment", &request.output_commitment),
         ("binding", &request.binding),
         ("nullifier", &request.nullifier),
+        ("model_commitment", &request.model_commitment),
+        ("input_commitment", &request.input_commitment),
     ];
 
     let mut builder = ExecutorEnv::builder();
@@ -469,6 +477,8 @@ mod tests {
         assert_eq!(fields.output_commitment, request.output_commitment);
         assert_eq!(fields.binding, request.binding);
         assert_eq!(fields.nullifier, request.nullifier);
+        assert_eq!(fields.model_commitment, request.model_commitment);
+        assert_eq!(fields.input_commitment, request.input_commitment);
     }
 
     #[test]

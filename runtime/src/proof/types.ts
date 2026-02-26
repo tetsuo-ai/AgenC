@@ -108,7 +108,7 @@ export interface ProofInputs {
 export interface EngineProofResult {
   /** Router seal bytes (selector + proof, typically 260 bytes) */
   sealBytes: Uint8Array;
-  /** Fixed-size journal bytes (192 bytes) */
+  /** Fixed-size journal bytes (256 bytes) */
   journal: Uint8Array;
   /** RISC0 method id (32 bytes) */
   imageId: Uint8Array;

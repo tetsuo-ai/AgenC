@@ -18,7 +18,7 @@ use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 use solana_sha256_hasher::hashv;
 
-const RISC0_JOURNAL_LEN: usize = 192;
+const RISC0_JOURNAL_LEN: usize = 256;
 const RISC0_SELECTOR_LEN: usize = 4;
 const RISC0_IMAGE_ID_LEN: usize = 32;
 const RISC0_GROTH16_SEAL_LEN: usize = 256;
@@ -31,6 +31,8 @@ const JOURNAL_CONSTRAINT_OFFSET: usize = 2 * HASH_SIZE; // 64
 const JOURNAL_COMMITMENT_OFFSET: usize = 3 * HASH_SIZE; // 96
 const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE; // 128
 const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE; // 160
+const JOURNAL_MODEL_COMMITMENT_OFFSET: usize = 6 * HASH_SIZE; // 192
+const JOURNAL_INPUT_COMMITMENT_OFFSET: usize = 7 * HASH_SIZE; // 224
 const ROUTER_VERIFY_IX_DISCRIMINATOR: [u8; 8] = [133, 161, 141, 48, 120, 198, 88, 150];
 const VERIFIER_ENTRY_DISCRIMINATOR: [u8; 8] = [102, 247, 148, 158, 33, 153, 100, 93];
 const PUBKEY_BYTES: usize = 32;
@@ -382,6 +384,8 @@ struct ParsedJournal {
     output_commitment: [u8; HASH_SIZE],
     binding: [u8; HASH_SIZE],
     nullifier: [u8; HASH_SIZE],
+    model_commitment: [u8; HASH_SIZE],
+    input_commitment: [u8; HASH_SIZE],
 }
 
 fn decode_and_validate_seal(seal_bytes: &[u8]) -> Result<Risc0Seal> {
@@ -413,6 +417,8 @@ fn parse_and_validate_journal(journal: &[u8]) -> Result<ParsedJournal> {
     let output_commitment = read_journal_field(journal, JOURNAL_COMMITMENT_OFFSET)?;
     let binding = read_journal_field(journal, JOURNAL_BINDING_OFFSET)?;
     let nullifier = read_journal_field(journal, JOURNAL_NULLIFIER_OFFSET)?;
+    let model_commitment = read_journal_field(journal, JOURNAL_MODEL_COMMITMENT_OFFSET)?;
+    let input_commitment = read_journal_field(journal, JOURNAL_INPUT_COMMITMENT_OFFSET)?;
 
     require!(
         output_commitment != [0u8; HASH_SIZE],
@@ -446,6 +452,8 @@ fn parse_and_validate_journal(journal: &[u8]) -> Result<ParsedJournal> {
         output_commitment,
         binding,
         nullifier,
+        model_commitment,
+        input_commitment,
     })
 }
 
@@ -617,6 +625,8 @@ mod tests {
         output_commitment: [u8; HASH_SIZE],
         binding: [u8; HASH_SIZE],
         nullifier: [u8; HASH_SIZE],
+        model_commitment: [u8; HASH_SIZE],
+        input_commitment: [u8; HASH_SIZE],
     ) -> Vec<u8> {
         [
             task_pda.as_slice(),
@@ -625,6 +635,8 @@ mod tests {
             output_commitment.as_slice(),
             binding.as_slice(),
             nullifier.as_slice(),
+            model_commitment.as_slice(),
+            input_commitment.as_slice(),
         ]
         .concat()
     }
@@ -661,8 +673,10 @@ mod tests {
         let output = diverse_bytes(130);
         let binding = diverse_bytes(170);
         let nullifier = diverse_bytes(210);
+        let model = diverse_bytes(250);
+        let input = [0u8; HASH_SIZE];
 
-        let journal = sample_journal(task, authority, constraint, output, binding, nullifier);
+        let journal = sample_journal(task, authority, constraint, output, binding, nullifier, model, input);
         let parsed = parse_and_validate_journal(&journal).expect("valid journal");
 
         assert_eq!(parsed.task_pda, task);
@@ -671,6 +685,8 @@ mod tests {
         assert_eq!(parsed.output_commitment, output);
         assert_eq!(parsed.binding, binding);
         assert_eq!(parsed.nullifier, nullifier);
+        assert_eq!(parsed.model_commitment, model);
+        assert_eq!(parsed.input_commitment, input);
     }
 
     #[test]
@@ -781,6 +797,23 @@ mod tests {
     }
 
     #[test]
+    fn journal_accepts_zero_model_and_input_commitments() {
+        let task = diverse_bytes(10);
+        let authority = diverse_bytes(50);
+        let constraint = diverse_bytes(90);
+        let output = diverse_bytes(130);
+        let binding = diverse_bytes(170);
+        let nullifier = diverse_bytes(210);
+        let model_commitment = [0u8; HASH_SIZE];
+        let input_commitment = [0u8; HASH_SIZE];
+
+        let journal = sample_journal(task, authority, constraint, output, binding, nullifier, model_commitment, input_commitment);
+        let parsed = parse_and_validate_journal(&journal).expect("zero model/input must be accepted");
+        assert_eq!(parsed.model_commitment, model_commitment);
+        assert_eq!(parsed.input_commitment, input_commitment);
+    }
+
+    #[test]
     fn journal_rejects_low_entropy_binding() {
         let task = diverse_bytes(10);
         let authority = diverse_bytes(50);
@@ -789,7 +822,7 @@ mod tests {
         let binding = [0xAA_u8; HASH_SIZE]; // constant fill — low entropy
         let nullifier = diverse_bytes(210);
 
-        let journal = sample_journal(task, authority, constraint, output, binding, nullifier);
+        let journal = sample_journal(task, authority, constraint, output, binding, nullifier, [0u8; HASH_SIZE], [0u8; HASH_SIZE]);
         let err = parse_and_validate_journal(&journal).expect_err("must fail");
         assert_error_name(err, "InsufficientSeedEntropy");
     }
@@ -803,7 +836,7 @@ mod tests {
         let binding = diverse_bytes(170);
         let nullifier = [0xBB_u8; HASH_SIZE]; // constant fill — low entropy
 
-        let journal = sample_journal(task, authority, constraint, output, binding, nullifier);
+        let journal = sample_journal(task, authority, constraint, output, binding, nullifier, [0u8; HASH_SIZE], [0u8; HASH_SIZE]);
         let err = parse_and_validate_journal(&journal).expect_err("must fail");
         assert_error_name(err, "InsufficientSeedEntropy");
     }

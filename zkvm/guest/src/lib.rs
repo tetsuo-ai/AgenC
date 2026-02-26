@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub const JOURNAL_FIELD_LEN: usize = 32;
-pub const JOURNAL_FIELD_COUNT: usize = 6;
+pub const JOURNAL_FIELD_COUNT: usize = 8;
 pub const JOURNAL_TOTAL_LEN: usize = JOURNAL_FIELD_LEN * JOURNAL_FIELD_COUNT;
 
 pub type JournalField = [u8; JOURNAL_FIELD_LEN];
@@ -15,6 +15,8 @@ pub struct JournalFields {
     pub output_commitment: JournalField,
     pub binding: JournalField,
     pub nullifier: JournalField,
+    pub model_commitment: JournalField,
+    pub input_commitment: JournalField,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +36,8 @@ impl JournalFields {
         output_commitment: &[u8],
         binding: &[u8],
         nullifier: &[u8],
+        model_commitment: &[u8],
+        input_commitment: &[u8],
     ) -> Result<Self, JournalError> {
         Ok(Self {
             task_pda: copy_field("task_pda", task_pda)?,
@@ -42,6 +46,8 @@ impl JournalFields {
             output_commitment: copy_field("output_commitment", output_commitment)?,
             binding: copy_field("binding", binding)?,
             nullifier: copy_field("nullifier", nullifier)?,
+            model_commitment: copy_field("model_commitment", model_commitment)?,
+            input_commitment: copy_field("input_commitment", input_commitment)?,
         })
     }
 
@@ -54,6 +60,8 @@ impl JournalFields {
             &self.output_commitment,
             &self.binding,
             &self.nullifier,
+            &self.model_commitment,
+            &self.input_commitment,
         ];
         for (i, field) in fields.iter().enumerate() {
             let start = i * JOURNAL_FIELD_LEN;
@@ -74,6 +82,8 @@ pub fn serialize_journal_from_slices(
     output_commitment: &[u8],
     binding: &[u8],
     nullifier: &[u8],
+    model_commitment: &[u8],
+    input_commitment: &[u8],
 ) -> Result<JournalBytes, JournalError> {
     let fields = JournalFields::try_from_slices(
         task_pda,
@@ -82,6 +92,8 @@ pub fn serialize_journal_from_slices(
         output_commitment,
         binding,
         nullifier,
+        model_commitment,
+        input_commitment,
     )?;
     Ok(fields.to_bytes())
 }
@@ -111,8 +123,8 @@ mod tests {
     #[test]
     fn journal_output_length_is_exact() {
         assert_eq!(JOURNAL_FIELD_LEN, 32);
-        assert_eq!(JOURNAL_FIELD_COUNT, 6);
-        assert_eq!(JOURNAL_TOTAL_LEN, 192);
+        assert_eq!(JOURNAL_FIELD_COUNT, 8);
+        assert_eq!(JOURNAL_TOTAL_LEN, 256);
 
         let fields = JournalFields {
             task_pda: [1_u8; JOURNAL_FIELD_LEN],
@@ -121,6 +133,8 @@ mod tests {
             output_commitment: [4_u8; JOURNAL_FIELD_LEN],
             binding: [5_u8; JOURNAL_FIELD_LEN],
             nullifier: [6_u8; JOURNAL_FIELD_LEN],
+            model_commitment: [7_u8; JOURNAL_FIELD_LEN],
+            input_commitment: [8_u8; JOURNAL_FIELD_LEN],
         };
 
         let journal = serialize_journal(&fields);
@@ -136,6 +150,8 @@ mod tests {
             output_commitment: [44_u8; JOURNAL_FIELD_LEN],
             binding: [55_u8; JOURNAL_FIELD_LEN],
             nullifier: [66_u8; JOURNAL_FIELD_LEN],
+            model_commitment: [77_u8; JOURNAL_FIELD_LEN],
+            input_commitment: [88_u8; JOURNAL_FIELD_LEN],
         };
 
         let journal = serialize_journal(&fields);
@@ -146,6 +162,8 @@ mod tests {
         assert_eq!(&journal[96..128], &fields.output_commitment);
         assert_eq!(&journal[128..160], &fields.binding);
         assert_eq!(&journal[160..192], &fields.nullifier);
+        assert_eq!(&journal[192..224], &fields.model_commitment);
+        assert_eq!(&journal[224..256], &fields.input_commitment);
     }
 
     #[test]
@@ -154,7 +172,7 @@ mod tests {
         let short = [9_u8; JOURNAL_FIELD_LEN - 1];
         let long = [8_u8; JOURNAL_FIELD_LEN + 1];
 
-        let err = serialize_journal_from_slices(&short, &ok, &ok, &ok, &ok, &ok)
+        let err = serialize_journal_from_slices(&short, &ok, &ok, &ok, &ok, &ok, &ok, &ok)
             .expect_err("short task_pda must fail");
 
         assert_eq!(
@@ -166,7 +184,7 @@ mod tests {
             }
         );
 
-        let err = serialize_journal_from_slices(&ok, &ok, &ok, &ok, &ok, &long)
+        let err = serialize_journal_from_slices(&ok, &ok, &ok, &ok, &ok, &long, &ok, &ok)
             .expect_err("long nullifier must fail");
 
         assert_eq!(

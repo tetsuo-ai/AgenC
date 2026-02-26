@@ -354,8 +354,10 @@ class TetsuoAgent {
       outputCommitment,
       bindingSeed,
       nullifierSeed,
+      Buffer.alloc(32), // model_commitment (zero = no model binding)
+      Buffer.alloc(32), // input_commitment (zero = no input binding)
     ]);
-    if (journal.length !== 192) {
+    if (journal.length !== 256) {
       throw new Error(`Invalid journal length: ${journal.length}`);
     }
 
@@ -438,8 +440,8 @@ class TetsuoAgent {
     if (payload.sealBytes.length !== 260) {
       throw new Error(`Invalid sealBytes size: expected 260 bytes, got ${payload.sealBytes.length}`);
     }
-    if (payload.journal.length !== 192) {
-      throw new Error(`Invalid journal size: expected 192 bytes, got ${payload.journal.length}`);
+    if (payload.journal.length !== 256) {
+      throw new Error(`Invalid journal size: expected 256 bytes, got ${payload.journal.length}`);
     }
     if (payload.imageId.length !== 32 || payload.bindingSeed.length !== 32 || payload.nullifierSeed.length !== 32) {
       throw new Error('Invalid private payload field lengths');

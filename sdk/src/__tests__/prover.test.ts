@@ -31,6 +31,8 @@ function validInput(): ProverInput {
     outputCommitment: new Uint8Array(32).fill(4),
     binding: new Uint8Array(32).fill(5),
     nullifier: new Uint8Array(32).fill(6),
+    modelCommitment: new Uint8Array(32).fill(0),
+    inputCommitment: new Uint8Array(32).fill(0),
   };
 }
 
@@ -260,7 +262,7 @@ describe("prove — remote backend", () => {
     });
   });
 
-  it("sends correct JSON body with all 6 fields", async () => {
+  it("sends correct JSON body with all 8 fields", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(validOutputPayload()),
@@ -277,6 +279,8 @@ describe("prove — remote backend", () => {
     expect(body.output_commitment).toHaveLength(32);
     expect(body.binding).toHaveLength(32);
     expect(body.nullifier).toHaveLength(32);
+    expect(body.model_commitment).toHaveLength(32);
+    expect(body.input_commitment).toHaveLength(32);
     // Verify values match input
     expect(body.task_pda).toEqual(Array.from(input.taskPda));
     expect(body.nullifier).toEqual(Array.from(input.nullifier));

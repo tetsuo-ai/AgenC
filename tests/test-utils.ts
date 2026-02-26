@@ -712,8 +712,8 @@ export function buildTestSealBytes(): Buffer {
 }
 
 /**
- * Build a 192-byte journal from 6 x 32-byte fields.
- * Field order: taskPda, authority, constraintHash, outputCommitment, binding, nullifier
+ * Build a 256-byte journal from 8 x 32-byte fields.
+ * Field order: taskPda, authority, constraintHash, outputCommitment, binding, nullifier, modelCommitment, inputCommitment
  */
 export function buildTestJournal(fields: {
   taskPda: Buffer | Uint8Array;
@@ -722,6 +722,8 @@ export function buildTestJournal(fields: {
   outputCommitment: Buffer | Uint8Array;
   binding: Buffer | Uint8Array;
   nullifier: Buffer | Uint8Array;
+  modelCommitment?: Buffer | Uint8Array;
+  inputCommitment?: Buffer | Uint8Array;
 }): Buffer {
   return Buffer.concat([
     Buffer.from(fields.taskPda),
@@ -730,6 +732,8 @@ export function buildTestJournal(fields: {
     Buffer.from(fields.outputCommitment),
     Buffer.from(fields.binding),
     Buffer.from(fields.nullifier),
+    Buffer.from(fields.modelCommitment ?? Buffer.alloc(32)),
+    Buffer.from(fields.inputCommitment ?? Buffer.alloc(32)),
   ]);
 }
 

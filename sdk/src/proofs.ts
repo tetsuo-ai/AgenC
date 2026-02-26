@@ -3,7 +3,7 @@
  *
  * Proof generation now emits the router payload shape:
  * - seal_bytes (260 bytes borsh envelope for trusted selector + RISC Zero Groth16 proof)
- * - journal (192 bytes fixed schema)
+ * - journal (256 bytes fixed schema)
  * - image_id (32 bytes)
  * - binding_seed / nullifier_seed (32 bytes each)
  */
@@ -29,7 +29,7 @@ export const FIELD_MODULUS =
 /** Bits per byte for bit shifting */
 const BITS_PER_BYTE = 8n;
 
-const JOURNAL_FIELDS = 6;
+const JOURNAL_FIELDS = 8;
 const NULLIFIER_DOMAIN_TAG = Buffer.from("AGENC_V2_NULLIFIER", "utf8");
 const CONSTRAINT_HASH_DOMAIN_TAG = Buffer.from(
   "AGENC_V2_CONSTRAINT_HASH",
@@ -313,6 +313,8 @@ export function buildJournalBytes(fields: {
   outputCommitment: Uint8Array | Buffer;
   bindingSeed: Uint8Array | Buffer;
   nullifierSeed: Uint8Array | Buffer;
+  modelCommitment?: Uint8Array | Buffer;
+  inputCommitment?: Uint8Array | Buffer;
 }): Buffer {
   const pieces = [
     copyFixedBytes(fields.taskPda, HASH_SIZE, "taskPda"),
@@ -321,6 +323,8 @@ export function buildJournalBytes(fields: {
     copyFixedBytes(fields.outputCommitment, HASH_SIZE, "outputCommitment"),
     copyFixedBytes(fields.bindingSeed, HASH_SIZE, "bindingSeed"),
     copyFixedBytes(fields.nullifierSeed, HASH_SIZE, "nullifierSeed"),
+    copyFixedBytes(fields.modelCommitment ?? Buffer.alloc(HASH_SIZE), HASH_SIZE, "modelCommitment"),
+    copyFixedBytes(fields.inputCommitment ?? Buffer.alloc(HASH_SIZE), HASH_SIZE, "inputCommitment"),
   ];
   const journal = Buffer.concat(pieces);
   const expectedLength = HASH_SIZE * JOURNAL_FIELDS;
@@ -378,6 +382,8 @@ export async function generateProof(
     outputCommitment: new Uint8Array(outputCommitmentBuf),
     binding: new Uint8Array(bindingSeedBuf),
     nullifier: new Uint8Array(nullifierSeedBuf),
+    modelCommitment: new Uint8Array(HASH_SIZE),
+    inputCommitment: new Uint8Array(HASH_SIZE),
   };
 
   const { prove } = await import("./prover.js");

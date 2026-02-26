@@ -49,6 +49,8 @@ export interface ProverInput {
   outputCommitment: Uint8Array;
   binding: Uint8Array;
   nullifier: Uint8Array;
+  modelCommitment: Uint8Array;
+  inputCommitment: Uint8Array;
 }
 
 export class ProverError extends Error {
@@ -88,6 +90,8 @@ function validateProverInput(input: ProverInput): void {
   validateInputField("outputCommitment", input.outputCommitment);
   validateInputField("binding", input.binding);
   validateInputField("nullifier", input.nullifier);
+  validateInputField("modelCommitment", input.modelCommitment);
+  validateInputField("inputCommitment", input.inputCommitment);
 }
 
 interface RawProverOutput {
@@ -144,6 +148,8 @@ function buildInputJson(input: ProverInput): string {
     output_commitment: Array.from(input.outputCommitment),
     binding: Array.from(input.binding),
     nullifier: Array.from(input.nullifier),
+    model_commitment: Array.from(input.modelCommitment),
+    input_commitment: Array.from(input.inputCommitment),
   });
 }
 

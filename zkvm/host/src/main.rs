@@ -39,6 +39,8 @@ struct JsonProveRequest {
     output_commitment: Vec<u8>,
     binding: Vec<u8>,
     nullifier: Vec<u8>,
+    model_commitment: Vec<u8>,
+    input_commitment: Vec<u8>,
 }
 
 fn vec_to_field(name: &str, v: Vec<u8>) -> Result<[u8; 32], String> {
@@ -62,6 +64,8 @@ fn parse_request_from_stdin() -> Result<agenc_zkvm_host::ProveRequest, String> {
         output_commitment: vec_to_field("output_commitment", json.output_commitment)?,
         binding: vec_to_field("binding", json.binding)?,
         nullifier: vec_to_field("nullifier", json.nullifier)?,
+        model_commitment: vec_to_field("model_commitment", json.model_commitment)?,
+        input_commitment: vec_to_field("input_commitment", json.input_commitment)?,
     })
 }
 

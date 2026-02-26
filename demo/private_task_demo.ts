@@ -116,9 +116,11 @@ function buildJournal(
     outputCommitment,
     bindingSeed,
     nullifierSeed,
+    Buffer.alloc(32), // model_commitment (zero = no model binding)
+    Buffer.alloc(32), // input_commitment (zero = no input binding)
   ]);
-  if (journal.length !== 192) {
-    throw new Error(`journal must be 192 bytes, got ${journal.length}`);
+  if (journal.length !== 256) {
+    throw new Error(`journal must be 256 bytes, got ${journal.length}`);
   }
   return journal;
 }

@@ -4,7 +4,7 @@ import StepCard from '../StepCard'
 
 const PAYLOAD_STAGES = [
   { id: 1, label: 'Computing output commitment', duration: 700 },
-  { id: 2, label: 'Building 192-byte journal', duration: 900 },
+  { id: 2, label: 'Building 256-byte journal', duration: 900 },
   { id: 3, label: 'Encoding 260-byte seal_bytes', duration: 1200 },
   { id: 4, label: 'Deriving router and spend PDAs', duration: 700 },
 ]
@@ -44,15 +44,15 @@ export default function Step4GenerateProof({ updateTaskState, onNext, onPrev }: 
 
     const outputCommitment = randomHex(32)
     const sealBytes = randomHex(260)
-    const journal = randomHex(192)
+    const journal = randomHex(256)
     const imageId = randomHex(32)
     const bindingSeed = randomHex(32)
     const nullifierSeed = randomHex(32)
 
     setProofStats({
       sealBytes: 260,
-      journalBytes: 192,
-      totalBytes: 260 + 192 + 32 + 32 + 32,
+      journalBytes: 256,
+      totalBytes: 260 + 256 + 32 + 32 + 32,
     })
 
     updateTaskState({
@@ -146,7 +146,7 @@ export default function Step4GenerateProof({ updateTaskState, onNext, onPrev }: 
             <div className="flex-1">
               <p className="text-green-400 font-medium text-sm">Payload Prepared</p>
               <p className="text-tetsuo-400 text-sm mt-1">
-                Fixed shape: `sealBytes`(260), `journal`(192), `imageId`(32), `bindingSeed`(32), `nullifierSeed`(32).
+                Fixed shape: `sealBytes`(260), `journal`(256), `imageId`(32), `bindingSeed`(32), `nullifierSeed`(32).
               </p>
               {proofStats.totalBytes > 0 && (
                 <div className="mt-3 grid grid-cols-3 gap-4 text-center">

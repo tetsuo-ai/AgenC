@@ -359,7 +359,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     );
 
     // The completeTaskPrivate transaction exceeds the legacy 1232-byte limit
-    // (seal=260 + journal=192 + 16 accounts). Use V0 tx with Address Lookup Table.
+    // (seal=260 + journal=256 + 16 accounts). Use V0 tx with Address Lookup Table.
 
     // 1. Create Address Lookup Table
     const recentSlot = await provider.connection.getSlot("finalized");

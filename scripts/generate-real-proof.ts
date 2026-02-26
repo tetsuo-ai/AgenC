@@ -221,7 +221,7 @@ async function main() {
   if (result.seal_bytes.length !== 260) {
     throw new Error(`Unexpected seal_bytes length: ${result.seal_bytes.length}`);
   }
-  if (result.journal.length !== 192) {
+  if (result.journal.length !== 256) {
     throw new Error(`Unexpected journal length: ${result.journal.length}`);
   }
   if (result.image_id.length !== 32) {

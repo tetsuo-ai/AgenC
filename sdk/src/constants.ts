@@ -68,8 +68,8 @@ export const RISC0_GROTH16_SEAL_LEN = 256;
 /** RISC0 borsh-encoded seal length (selector + proof body) */
 export const RISC0_SEAL_BORSH_LEN = RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
 
-/** RISC0 fixed journal length (6 x 32-byte fields) */
-export const RISC0_JOURNAL_LEN = 192;
+/** RISC0 fixed journal length (8 x 32-byte fields) */
+export const RISC0_JOURNAL_LEN = 256;
 
 /** RISC0 image ID length in bytes */
 export const RISC0_IMAGE_ID_LEN = 32;

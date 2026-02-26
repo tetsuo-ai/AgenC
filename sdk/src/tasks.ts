@@ -116,7 +116,7 @@ export interface TaskStatus {
 export interface PrivateCompletionPayload {
   /** Borsh-encoded router seal bytes (selector + proof = 260 bytes) */
   sealBytes: Buffer | Uint8Array;
-  /** Fixed private journal bytes (192 bytes) */
+  /** Fixed private journal bytes (256 bytes) */
   journal: Buffer | Uint8Array;
   /** RISC0 image ID (32 bytes) */
   imageId: Buffer | Uint8Array;

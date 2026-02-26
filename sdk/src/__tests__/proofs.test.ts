@@ -593,6 +593,8 @@ describe("proofs", () => {
         toBytes32(hashes.outputCommitment),
         toBytes32(hashes.binding),
         toBytes32(hashes.nullifier),
+        Buffer.alloc(32),
+        Buffer.alloc(32),
       ]);
 
       vi.doMock("../prover", () => ({
@@ -649,6 +651,8 @@ describe("proofs", () => {
         toBytes32(hashes.outputCommitment),
         toBytes32(hashes.binding),
         toBytes32(hashes.nullifier),
+        Buffer.alloc(32),
+        Buffer.alloc(32),
       ]);
     }
 

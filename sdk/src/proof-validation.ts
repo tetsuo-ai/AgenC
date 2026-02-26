@@ -25,6 +25,8 @@ const JOURNAL_CONSTRAINT_OFFSET = 64;
 const JOURNAL_COMMITMENT_OFFSET = 96;
 const JOURNAL_BINDING_OFFSET = 128;
 const JOURNAL_NULLIFIER_OFFSET = 160;
+const JOURNAL_MODEL_COMMITMENT_OFFSET = 192;
+const JOURNAL_INPUT_COMMITMENT_OFFSET = 224;
 
 interface ParsedPrivateJournal {
   taskPda: Uint8Array;
@@ -33,6 +35,8 @@ interface ParsedPrivateJournal {
   outputCommitment: Uint8Array;
   binding: Uint8Array;
   nullifier: Uint8Array;
+  modelCommitment: Uint8Array;
+  inputCommitment: Uint8Array;
 }
 
 /**
@@ -150,6 +154,8 @@ function parsePrivateJournal(journal: Uint8Array): ParsedPrivateJournal {
     outputCommitment: readJournalField(journal, JOURNAL_COMMITMENT_OFFSET),
     binding: readJournalField(journal, JOURNAL_BINDING_OFFSET),
     nullifier: readJournalField(journal, JOURNAL_NULLIFIER_OFFSET),
+    modelCommitment: readJournalField(journal, JOURNAL_MODEL_COMMITMENT_OFFSET),
+    inputCommitment: readJournalField(journal, JOURNAL_INPUT_COMMITMENT_OFFSET),
   };
 }
 

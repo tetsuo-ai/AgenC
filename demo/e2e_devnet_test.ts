@@ -71,6 +71,8 @@ function makePayload(taskPda: PublicKey, authority: PublicKey): PrivatePayload {
     outputCommitment,
     bindingSeed,
     nullifierSeed,
+    Buffer.alloc(32), // model_commitment (zero = no model binding)
+    Buffer.alloc(32), // input_commitment (zero = no input binding)
   ]);
   const sealProof = deterministicBytes(sha256(Buffer.from('seal'), journal, TRUSTED_IMAGE_ID), 256);
   const sealBytes = Buffer.concat([TRUSTED_SELECTOR, sealProof]);
@@ -157,7 +159,7 @@ class E2ERouterPreflight {
       );
 
       const lengthsOk = payload.sealBytes.length === 260
-        && payload.journal.length === 192
+        && payload.journal.length === 256
         && payload.imageId.length === 32
         && payload.bindingSeed.length === 32
         && payload.nullifierSeed.length === 32;
