@@ -15,6 +15,7 @@ import { toErrorMessage } from "../utils/async.js";
 import type { DesktopSandboxManager } from "./manager.js";
 import { DesktopRESTBridge } from "./rest-bridge.js";
 import type { MCPServerConfig, MCPToolBridge } from "../mcp-client/types.js";
+import { ResilientMCPBridge } from "../mcp-client/resilient-bridge.js";
 
 // ============================================================================
 // Auto-screenshot constants
@@ -460,7 +461,16 @@ async function ensureContainerMCPBridges(
         log,
       );
 
-      const mcpBridge = await createToolBridge(client, config.name, log);
+      const rawBridge = await createToolBridge(client, config.name, log);
+
+      // Wrap in ResilientMCPBridge with the docker-exec config for auto-reconnection
+      const dockerConfig: MCPServerConfig = {
+        name: config.name,
+        command: "docker",
+        args: dockerArgs,
+        timeout: config.timeout ?? 30_000,
+      };
+      const mcpBridge = new ResilientMCPBridge(dockerConfig, rawBridge, log);
 
       // Cache tool definitions on first connection
       if (!cachedContainerMCPTools.has(config.name) && mcpBridge.tools.length > 0) {
