@@ -6,12 +6,22 @@ import { VOICE_SAMPLE_RATE } from '../constants';
  *
  * Receives base64-encoded PCM16 chunks, decodes them, and queues
  * them for gapless playback via the Web Audio API.
+ *
+ * Drift prevention: `nextStartTimeRef` is reset whenever playback
+ * drains completely (all sources finished), so each new response
+ * starts with a fresh scheduling chain. This prevents floating-point
+ * accumulation from degrading audio quality over long sessions.
  */
 export function useAudioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const contextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef(0);
   const activeSourcesRef = useRef(0);
+  /**
+   * Track live AudioBufferSourceNodes so we can stop + disconnect them
+   * on interrupt (barge-in) without closing the entire AudioContext.
+   */
+  const liveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   const ensureContext = useCallback(() => {
     if (!contextRef.current || contextRef.current.state === 'closed') {
@@ -47,18 +57,59 @@ export function useAudioPlayer() {
     nextStartTimeRef.current = startTime + audioBuffer.duration;
 
     activeSourcesRef.current++;
+    liveSourcesRef.current.add(source);
     setIsPlaying(true);
 
     source.onended = () => {
+      // Disconnect from audio graph to release Web Audio resources immediately
+      // rather than waiting for GC. Prevents graph degradation on long sessions.
+      source.disconnect();
+      liveSourcesRef.current.delete(source);
+
       activeSourcesRef.current--;
       if (activeSourcesRef.current <= 0) {
         activeSourcesRef.current = 0;
+        // Reset scheduling chain so the next response starts fresh.
+        // This prevents floating-point drift from accumulating across responses.
+        nextStartTimeRef.current = 0;
         setIsPlaying(false);
       }
     };
   }, [ensureContext]);
 
+  /**
+   * Interrupt playback immediately (e.g. user barge-in).
+   * Stops all scheduled sources and resets the scheduling chain,
+   * but keeps the AudioContext alive so the next response can play
+   * without the overhead of recreating it.
+   */
+  const interrupt = useCallback(() => {
+    for (const source of liveSourcesRef.current) {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch {
+        // Already stopped or ended — ignore
+      }
+    }
+    liveSourcesRef.current.clear();
+    activeSourcesRef.current = 0;
+    nextStartTimeRef.current = 0;
+    setIsPlaying(false);
+  }, []);
+
   const stop = useCallback(() => {
+    // Stop all live sources before closing context
+    for (const source of liveSourcesRef.current) {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch {
+        // Already stopped — ignore
+      }
+    }
+    liveSourcesRef.current.clear();
+
     if (contextRef.current) {
       void contextRef.current.close();
       contextRef.current = null;
@@ -68,7 +119,7 @@ export function useAudioPlayer() {
     setIsPlaying(false);
   }, []);
 
-  return { isPlaying, enqueue, stop };
+  return { isPlaying, enqueue, interrupt, stop };
 }
 
 // ============================================================================

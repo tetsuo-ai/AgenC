@@ -1,5 +1,13 @@
-import { execFile } from "node:child_process";
-import { readFile, unlink } from "node:fs/promises";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import {
+  readFile,
+  writeFile,
+  unlink,
+  mkdir,
+  stat,
+  access,
+} from "node:fs/promises";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   ToolDefinition,
@@ -7,11 +15,12 @@ import type {
   ScreenshotResult,
   ScreenSizeResult,
   WindowInfo,
+  VideoRecordingState,
 } from "./types.js";
 
 const DISPLAY = process.env.DISPLAY ?? ":1";
 const EXEC_TIMEOUT_MS = 30_000;
-const BASH_TIMEOUT_MS = 120_000;
+const BASH_TIMEOUT_MS = 600_000;
 const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB
 const TYPE_CHUNK_SIZE = 50;
 const TYPE_DELAY_MS = 12;
@@ -335,6 +344,338 @@ async function screenSize(): Promise<ToolResult> {
   }
 }
 
+// --- text_editor tool (str_replace_based_edit_tool pattern) ---
+
+const ALLOWED_PREFIXES = ["/home/agenc", "/tmp"];
+const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+const MAX_UNDO_FILES = 20;
+
+/** LRU undo buffer — stores the single most recent version per file. */
+const undoBuffer = new Map<string, string>();
+
+function isPathAllowed(p: string): boolean {
+  const resolved = p.startsWith("/") ? p : `/home/agenc/${p}`;
+  return ALLOWED_PREFIXES.some((prefix) => resolved.startsWith(prefix));
+}
+
+function numberLines(text: string, startLine = 1): string {
+  return text
+    .split("\n")
+    .map((line, i) => `${String(i + startLine).padStart(6, " ")}\t${line}`)
+    .join("\n");
+}
+
+async function textEditor(
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const command = String(args.command ?? "");
+  const path = String(args.path ?? "");
+
+  if (!command) return fail("command is required");
+  if (!path) return fail("path is required");
+  if (!isPathAllowed(path)) {
+    return fail(`Access denied: path must be under ${ALLOWED_PREFIXES.join(" or ")}`);
+  }
+
+  switch (command) {
+    case "view":
+      return textEditorView(path, args.view_range as unknown);
+    case "create":
+      return textEditorCreate(path, String(args.file_text ?? ""));
+    case "str_replace":
+      return textEditorStrReplace(
+        path,
+        String(args.old_str ?? ""),
+        String(args.new_str ?? ""),
+      );
+    case "insert":
+      return textEditorInsert(
+        path,
+        Number(args.insert_line ?? 0),
+        String(args.new_str ?? ""),
+      );
+    case "undo_edit":
+      return textEditorUndo(path);
+    default:
+      return fail(
+        `Unknown command: ${command}. Must be one of: view, create, str_replace, insert, undo_edit`,
+      );
+  }
+}
+
+async function textEditorView(
+  path: string,
+  viewRange: unknown,
+): Promise<ToolResult> {
+  try {
+    const s = await stat(path);
+    if (s.size > MAX_FILE_SIZE) {
+      return fail(`File too large (${s.size} bytes, max ${MAX_FILE_SIZE})`);
+    }
+    const content = await readFile(path, "utf-8");
+    const lines = content.split("\n");
+
+    if (viewRange && Array.isArray(viewRange) && viewRange.length === 2) {
+      const start = Math.max(1, Number(viewRange[0]));
+      const end = Math.min(lines.length, Number(viewRange[1]));
+      if (start > end) return fail(`Invalid range: [${start}, ${end}]`);
+      const slice = lines.slice(start - 1, end);
+      return ok({ output: numberLines(slice.join("\n"), start) });
+    }
+
+    return ok({ output: numberLines(content) });
+  } catch (e) {
+    return fail(`Failed to read ${path}: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+async function textEditorCreate(
+  path: string,
+  fileText: string,
+): Promise<ToolResult> {
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, fileText, "utf-8");
+    return ok({ output: `File created at ${path} (${fileText.split("\n").length} lines)` });
+  } catch (e) {
+    return fail(`Failed to create ${path}: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+async function textEditorStrReplace(
+  path: string,
+  oldStr: string,
+  newStr: string,
+): Promise<ToolResult> {
+  if (!oldStr) return fail("old_str is required for str_replace");
+
+  try {
+    const content = await readFile(path, "utf-8");
+    const occurrences = content.split(oldStr).length - 1;
+
+    if (occurrences === 0) {
+      return fail(
+        `old_str not found in ${path}. Make sure the string matches exactly, including whitespace.`,
+      );
+    }
+    if (occurrences > 1) {
+      return fail(
+        `old_str found ${occurrences} times in ${path}. Provide more context to make it unique.`,
+      );
+    }
+
+    // Save undo state (LRU eviction)
+    if (undoBuffer.size >= MAX_UNDO_FILES && !undoBuffer.has(path)) {
+      const oldest = undoBuffer.keys().next().value as string;
+      undoBuffer.delete(oldest);
+    }
+    undoBuffer.delete(path); // Re-insert at end for LRU
+    undoBuffer.set(path, content);
+
+    const updated = content.replace(oldStr, newStr);
+    await writeFile(path, updated, "utf-8");
+    return ok({ output: `Replacement applied in ${path}` });
+  } catch (e) {
+    return fail(`str_replace failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+async function textEditorInsert(
+  path: string,
+  insertLine: number,
+  newStr: string,
+): Promise<ToolResult> {
+  try {
+    const content = await readFile(path, "utf-8");
+    const lines = content.split("\n");
+
+    if (insertLine < 0 || insertLine > lines.length) {
+      return fail(
+        `insert_line ${insertLine} out of range (0-${lines.length}). Use 0 to insert at the beginning.`,
+      );
+    }
+
+    // Save undo state (LRU eviction)
+    if (undoBuffer.size >= MAX_UNDO_FILES && !undoBuffer.has(path)) {
+      const oldest = undoBuffer.keys().next().value as string;
+      undoBuffer.delete(oldest);
+    }
+    undoBuffer.delete(path);
+    undoBuffer.set(path, content);
+
+    const newLines = newStr.split("\n");
+    lines.splice(insertLine, 0, ...newLines);
+    await writeFile(path, lines.join("\n"), "utf-8");
+    return ok({
+      output: `Inserted ${newLines.length} line(s) after line ${insertLine} in ${path}`,
+    });
+  } catch (e) {
+    return fail(`insert failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+async function textEditorUndo(path: string): Promise<ToolResult> {
+  const prev = undoBuffer.get(path);
+  if (prev === undefined) {
+    return fail(`No undo history for ${path}`);
+  }
+  try {
+    await writeFile(path, prev, "utf-8");
+    undoBuffer.delete(path);
+    return ok({ output: `Reverted ${path} to previous version` });
+  } catch (e) {
+    return fail(`undo_edit failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+// --- Video recording tools ---
+
+let activeRecording: (VideoRecordingState & { process: ChildProcess }) | null =
+  null;
+const RECORDING_PID_FILE = "/tmp/recording.pid";
+
+/** Kill orphaned ffmpeg recording from a previous server crash. */
+async function cleanupOrphanedRecording(): Promise<void> {
+  try {
+    const pidStr = await readFile(RECORDING_PID_FILE, "utf-8");
+    const pid = parseInt(pidStr.trim(), 10);
+    if (Number.isFinite(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* already dead */
+      }
+    }
+    await unlink(RECORDING_PID_FILE).catch(() => {});
+  } catch {
+    /* no pid file */
+  }
+}
+
+// Run cleanup on module load
+void cleanupOrphanedRecording();
+
+async function videoStart(
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  if (activeRecording) {
+    return fail(
+      `Already recording to ${activeRecording.path}. Stop the current recording first.`,
+    );
+  }
+
+  const framerate = Number(args.framerate ?? 15);
+  if (!Number.isFinite(framerate) || framerate < 1 || framerate > 60) {
+    return fail("framerate must be 1-60");
+  }
+
+  // Get current screen size for recording dimensions
+  const sizeResult = await screenSize();
+  const sizeData = JSON.parse(sizeResult.content) as ScreenSizeResult;
+
+  const path = `/tmp/recording-${randomUUID()}.mp4`;
+
+  try {
+    const ffmpeg = spawn(
+      "ffmpeg",
+      [
+        "-video_size",
+        `${sizeData.width}x${sizeData.height}`,
+        "-framerate",
+        String(framerate),
+        "-f",
+        "x11grab",
+        "-i",
+        DISPLAY,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "28",
+        path,
+      ],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, DISPLAY },
+        detached: false,
+      },
+    );
+
+    if (!ffmpeg.pid) {
+      return fail("Failed to start ffmpeg process");
+    }
+
+    activeRecording = {
+      pid: ffmpeg.pid,
+      path,
+      startedAt: Date.now(),
+      process: ffmpeg,
+    };
+
+    // Write PID file for crash recovery
+    await writeFile(RECORDING_PID_FILE, String(ffmpeg.pid), "utf-8");
+
+    // Auto-cleanup if ffmpeg exits unexpectedly
+    ffmpeg.on("exit", () => {
+      if (activeRecording?.pid === ffmpeg.pid) {
+        activeRecording = null;
+        unlink(RECORDING_PID_FILE).catch(() => {});
+      }
+    });
+
+    return ok({ recording: true, path, pid: ffmpeg.pid, framerate });
+  } catch (e) {
+    return fail(`video_start failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+async function videoStop(): Promise<ToolResult> {
+  if (!activeRecording) {
+    return fail("No active recording");
+  }
+
+  const { process: ffmpeg, path, startedAt } = activeRecording;
+
+  try {
+    // Send SIGINT for graceful ffmpeg shutdown (writes trailer)
+    ffmpeg.kill("SIGINT");
+
+    // Wait for exit with 2s timeout
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        try {
+          ffmpeg.kill("SIGKILL");
+        } catch {
+          /* already dead */
+        }
+        resolve();
+      }, 2000);
+      ffmpeg.on("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+    const durationMs = Date.now() - startedAt;
+    activeRecording = null;
+    await unlink(RECORDING_PID_FILE).catch(() => {});
+
+    // Verify the file exists
+    try {
+      await access(path);
+    } catch {
+      return fail(`Recording file not found at ${path}`);
+    }
+
+    return ok({ stopped: true, path, durationMs });
+  } catch (e) {
+    activeRecording = null;
+    await unlink(RECORDING_PID_FILE).catch(() => {});
+    return fail(`video_stop failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
 // --- Tool registry ---
 
 type ToolHandler = (
@@ -355,6 +696,9 @@ const handlers: Record<string, ToolHandler> = {
   clipboard_get: () => clipboardGet(),
   clipboard_set: clipboardSet,
   screen_size: () => screenSize(),
+  text_editor: textEditor,
+  video_start: videoStart,
+  video_stop: () => videoStop(),
 };
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -469,7 +813,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         timeoutMs: {
           type: "number",
           description: "Timeout in milliseconds",
-          default: 120000,
+          default: 600000,
         },
       },
       required: ["command"],
@@ -514,6 +858,70 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "screen_size",
     description: "Get the current screen resolution.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "text_editor",
+    description:
+      "View, create, and edit files. Commands: view (read file with line numbers), create (write new file), str_replace (find and replace exact string — must be unique), insert (insert text after a line number), undo_edit (revert last edit).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          enum: ["view", "create", "str_replace", "insert", "undo_edit"],
+          description: "The editing command to execute",
+        },
+        path: {
+          type: "string",
+          description: "Absolute file path (must be under /home/agenc or /tmp)",
+        },
+        file_text: {
+          type: "string",
+          description: "File content (for create command)",
+        },
+        old_str: {
+          type: "string",
+          description: "String to find (for str_replace — must match exactly once)",
+        },
+        new_str: {
+          type: "string",
+          description: "Replacement string (for str_replace and insert)",
+        },
+        insert_line: {
+          type: "number",
+          description:
+            "Line number to insert after (0 = beginning of file, for insert command)",
+        },
+        view_range: {
+          type: "array",
+          items: { type: "number" },
+          description:
+            "Optional [startLine, endLine] range for view command (1-indexed)",
+        },
+      },
+      required: ["command", "path"],
+    },
+  },
+  {
+    name: "video_start",
+    description:
+      "Start recording the desktop screen to an MP4 file using ffmpeg. Only one recording at a time. Returns the file path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        framerate: {
+          type: "number",
+          description: "Frames per second (1-60)",
+          default: 15,
+        },
+      },
+    },
+  },
+  {
+    name: "video_stop",
+    description:
+      "Stop the active screen recording. Returns the file path and duration.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
 ];

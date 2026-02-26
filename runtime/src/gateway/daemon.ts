@@ -265,6 +265,7 @@ export class DaemonManager {
   private _baseToolHandler: ToolHandler | null = null;
   private _desktopManager: import('../desktop/manager.js').DesktopSandboxManager | null = null;
   private _desktopBridges: Map<string, import('../desktop/rest-bridge.js').DesktopRESTBridge> = new Map();
+  private _playwrightBridges: Map<string, import('../mcp-client/types.js').MCPToolBridge> = new Map();
   private _desktopRouterFactory: ((sessionId: string) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private _goalManager: import('../autonomous/goal-manager.js').GoalManager | null = null;
@@ -424,7 +425,9 @@ export class DaemonManager {
       const { createDesktopAwareToolHandler } = await import('../desktop/session-router.js');
       const desktopManager = this._desktopManager;
       const desktopBridges = this._desktopBridges;
+      const playwrightBridges = this._playwrightBridges;
       const desktopLogger = this.logger;
+      const playwrightEnabled = config.desktop?.playwright?.enabled !== false;
 
       // Desktop tools are lazily initialized per session via the router.
       // Add static desktop tool definitions to LLM tools so the model knows
@@ -448,6 +451,7 @@ export class DaemonManager {
         createDesktopAwareToolHandler(originalBaseHandler, sessionId, {
           desktopManager,
           bridges: desktopBridges,
+          playwrightBridges: playwrightEnabled ? playwrightBridges : undefined,
           logger: desktopLogger,
           autoScreenshot: true,
         });
@@ -622,7 +626,7 @@ export class DaemonManager {
       memoryRetriever,
       learningProvider,
       progressProvider: progressTracker,
-      maxToolRounds: config.llm?.maxToolRounds ?? (config.desktop?.enabled ? 20 : 3),
+      maxToolRounds: config.llm?.maxToolRounds ?? (config.desktop?.enabled ? 50 : 3),
       sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
       onCompaction: this.handleCompaction,
     }) : null;
@@ -1497,7 +1501,7 @@ export class DaemonManager {
         memoryRetriever,
         learningProvider,
         progressProvider,
-        maxToolRounds: newConfig.llm?.maxToolRounds ?? (newConfig.desktop?.enabled ? 20 : 3),
+        maxToolRounds: newConfig.llm?.maxToolRounds ?? (newConfig.desktop?.enabled ? 50 : 3),
         sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
         onCompaction: this.handleCompaction,
       }) : null;
@@ -1528,8 +1532,12 @@ export class DaemonManager {
     // Security: Only expose necessary environment variables to the bash tool.
     // Never pass the full process.env as it contains secrets (API keys, private key paths, etc.).
     const SAFE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'SOLANA_RPC_URL'];
+    // When desktop containers are enabled (Linux desktop agent mode), the host
+    // needs additional env keys for development tools (gh, docker, npm, cargo).
+    const DESKTOP_ENV_KEYS = ['GITHUB_TOKEN', 'GH_TOKEN', 'DOCKER_HOST', 'NPM_TOKEN', 'CARGO_HOME', 'GOPATH', 'DISPLAY'];
+    const envKeys = config.desktop?.enabled ? [...SAFE_ENV_KEYS, ...DESKTOP_ENV_KEYS] : SAFE_ENV_KEYS;
     const safeEnv: Record<string, string> = {};
-    for (const key of SAFE_ENV_KEYS) {
+    for (const key of envKeys) {
       const value = process.env[key];
       if (value !== undefined) {
         safeEnv[key] = value;
@@ -1539,13 +1547,27 @@ export class DaemonManager {
     // Security: Do NOT use unrestricted mode — the default deny list prevents
     // dangerous commands (rm -rf, curl for exfiltration, etc.) from being
     // executed via LLM tool calling / prompt injection attacks.
-    // On macOS desktop agents, allow process management (killall, pkill) for
-    // closing apps — the security boundary is Telegram user auth (allowedUsers).
-    const isDesktopAgent = process.platform === 'darwin';
+    //
+    // On macOS desktop agents, allow process management (killall, pkill) and
+    // network tools for closing apps — the security boundary is Telegram user auth.
+    //
+    // On Linux with desktop containers enabled, the host needs development tools
+    // (curl, wget, python, node, rm, chmod, etc.) while still blocking shell
+    // re-invocation (bash, sh, env, xargs) to preserve the execFile() security model.
+    const isMacDesktop = process.platform === 'darwin';
+    const isLinuxDesktop = config.desktop?.enabled && process.platform !== 'darwin';
+    const denyExclusions = isMacDesktop
+      ? ['killall', 'pkill', 'curl', 'wget']
+      : isLinuxDesktop
+        ? ['curl', 'wget', 'python', 'python3', 'node', 'rm', 'chmod', 'chown', 'tee', 'awk', 'killall', 'pkill']
+        : undefined;
+
     registry.register(createBashTool({
       logger: this.logger,
       env: safeEnv,
-      denyExclusions: isDesktopAgent ? ['killall', 'pkill', 'curl', 'wget'] : undefined,
+      denyExclusions,
+      timeoutMs: config.desktop?.enabled ? 300_000 : undefined,
+      maxTimeoutMs: config.desktop?.enabled ? 600_000 : undefined,
     }));
     registry.registerAll(createHttpTools({}, this.logger));
 
@@ -1748,7 +1770,7 @@ export class DaemonManager {
         if (this._desktopManager) {
           await this._desktopManager.destroyBySession(sessionId).catch(() => {});
           const { destroySessionBridge } = await import('../desktop/session-router.js');
-          destroySessionBridge(sessionId, this._desktopBridges);
+          destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges);
         }
         await ctx.reply('Session reset. Starting fresh conversation.');
       },
@@ -1764,7 +1786,7 @@ export class DaemonManager {
         if (this._desktopManager) {
           await this._desktopManager.destroyBySession(sessionId).catch(() => {});
           const { destroySessionBridge } = await import('../desktop/session-router.js');
-          destroySessionBridge(sessionId, this._desktopBridges);
+          destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges);
         }
         await ctx.reply('Session and context cleared.');
       },
@@ -1943,7 +1965,7 @@ export class DaemonManager {
           } else if (sub === 'stop') {
             await desktopMgr.destroyBySession(sessionId);
             const { destroySessionBridge } = await import('../desktop/session-router.js');
-            destroySessionBridge(sessionId, this._desktopBridges);
+            destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges);
             await ctx.reply('Desktop sandbox stopped.');
           } else if (sub === 'status') {
             const handle = desktopMgr.getHandleBySession(sessionId);
@@ -2023,11 +2045,19 @@ export class DaemonManager {
       return undefined;
     }
 
+    // When desktop is enabled, append desktop context to voice system prompt
+    // so the voice model knows about desktop.* tools and how to use them.
+    let voicePrompt = systemPrompt;
+    if (config.desktop?.enabled) {
+      voicePrompt += '\n\n' + this.buildDesktopContext(config);
+    }
+
     return new VoiceBridge({
       apiKey: voiceApiKey,
       tools: llmTools,
       toolHandler,
-      systemPrompt,
+      desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+      systemPrompt: voicePrompt,
       voice: config.voice?.voice ?? 'Ara',
       model: config.llm?.model ?? DEFAULT_GROK_MODEL,
       mode: config.voice?.mode ?? 'vad',
@@ -2322,8 +2352,10 @@ export class DaemonManager {
     const isMac = process.platform === 'darwin';
     const desktopEnabled = config.desktop?.enabled === true;
 
-    let ctx = 'You have FULL, UNRESTRICTED access to this machine via the system.bash tool. ' +
-      'You are NOT sandboxed. You can and SHOULD use your tools proactively to fulfill ANY request.\n\n';
+    let ctx = 'You have broad access to this machine via the system.bash tool. ' +
+      'You can run most development commands (curl, wget, python, node, git, rm, chmod, etc.) directly. ' +
+      'Shell re-invocation (bash, sh, env, xargs) is blocked for security — use the tool\'s command argument directly instead. ' +
+      'You should use your tools proactively to fulfill requests.\n\n';
 
     if (desktopEnabled && !isMac) {
       ctx +=
@@ -2336,28 +2368,35 @@ export class DaemonManager {
         'Use desktop.* tools when the task involves browsing websites (especially JS-heavy or Cloudflare-protected sites), ' +
         'creating documents in GUI apps, or any visual interaction.\n\n' +
         'Desktop tools:\n' +
-        '- desktop.bash — Run a shell command INSIDE the container. THIS IS YOUR PRIMARY TOOL for all scripting, file creation, package installation, and command execution inside the sandbox.\n' +
+        '- desktop.bash — Run a shell command INSIDE the container. THIS IS YOUR PRIMARY TOOL for all scripting, package installation, and command execution inside the sandbox.\n' +
+        '- desktop.text_editor — View, create, and precisely edit files without opening a visual editor. Commands: view, create, str_replace, insert, undo_edit. USE THIS instead of cat heredoc for file creation and editing — it is more reliable and supports undo.\n' +
         '- desktop.screenshot — Capture the desktop (use to SEE what is on screen)\n' +
         '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
         '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
-        '- desktop.keyboard_type — Type text into the FOCUSED GUI app (e.g. browser URL bar, search field, text editor). NEVER use this to type into a terminal — use desktop.bash instead.\n' +
+        '- desktop.keyboard_type — Type text into the FOCUSED GUI app (e.g. browser URL bar, search field). NEVER use this to type into a terminal — use desktop.bash instead.\n' +
         '- desktop.keyboard_key — Press key combos (ctrl+c, alt+Tab, Return, ctrl+l)\n' +
         '- desktop.window_list, desktop.window_focus — Window management\n' +
         '- desktop.clipboard_get, desktop.clipboard_set — Clipboard access\n' +
-        '- desktop.screen_size — Get resolution\n\n' +
+        '- desktop.screen_size — Get resolution\n' +
+        '- desktop.video_start, desktop.video_stop — Record the desktop screen to MP4\n\n' +
+        'You also have Playwright browser tools available (prefixed with `playwright.`). ' +
+        'Use `playwright.browser_navigate` to open URLs, `playwright.browser_click` to click elements by text/selector, ' +
+        '`playwright.browser_type` to fill inputs, and `playwright.browser_snapshot` to get the page accessibility tree. ' +
+        'These are more reliable than pixel-clicking for web browsing.\n\n' +
         'CRITICAL RULES:\n' +
-        '- To write files: use desktop.bash with cat heredoc: cat > file.py << \'PYEOF\'\\n...code...\\nPYEOF\n' +
-        '- To install packages: desktop.bash with "pip install flask" or "apt-get install -y pkg"\n' +
+        '- To create/edit files: use desktop.text_editor (preferred) or desktop.bash with cat heredoc\n' +
+        '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
-        '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash to write files and run commands.\n' +
-        '- keyboard_type is ONLY for GUI text fields (browser URL bar, search boxes, GUI text editors like gedit/mousepad).\n\n' +
+        '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash or desktop.text_editor.\n' +
+        '- keyboard_type is ONLY for GUI text fields (browser URL bar, search boxes, GUI text editors like gedit/mousepad).\n' +
+        '- For web browsing, prefer playwright.* tools over pixel-clicking. They work with the DOM/accessibility tree and are more reliable.\n\n' +
         'Desktop tips:\n' +
         '- Launch GUI apps: desktop.bash with "app >/dev/null 2>&1 &" (MUST redirect output and background to avoid hanging)\n' +
         '- Firefox: desktop.bash with "firefox --no-remote --new-instance URL >/dev/null 2>&1 &"\n' +
-        '- LibreOffice: desktop.bash with "libreoffice --calc >/dev/null 2>&1 &"\n' +
+        '- Code search: desktop.bash with "rg pattern /path" (ripgrep), "fdfind filename" (fd-find)\n' +
         '- Take screenshots frequently to verify actions worked\n' +
         '- system.bash = host machine; desktop.bash = inside the Docker container\n' +
-        '- vim and nano are available for editing files inside the container.\n' +
+        '- neovim, ripgrep, fd-find, bat, fzf are pre-installed for development workflows.\n' +
         '- The user is "agenc" with passwordless sudo — use "sudo apt-get install -y pkg" to install packages.\n\n' +
         'Be helpful, direct, and action-oriented. Execute tasks immediately without hesitation.';
     } else if (isMac) {
@@ -2615,6 +2654,11 @@ export class DaemonManager {
         bridge.disconnect();
       }
       this._desktopBridges.clear();
+      // Disconnect Playwright MCP bridges
+      for (const pwBridge of this._playwrightBridges.values()) {
+        await pwBridge.dispose().catch(() => {});
+      }
+      this._playwrightBridges.clear();
       if (this._desktopManager !== null) {
         await this._desktopManager.stop();
         this._desktopManager = null;

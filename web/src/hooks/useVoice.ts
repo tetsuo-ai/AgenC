@@ -108,6 +108,8 @@ export function useVoice({ send }: UseVoiceOptions) {
       }
 
       case 'voice.speech_started':
+        // User barge-in: interrupt agent audio so it doesn't overlap
+        player.interrupt();
         setVoiceState('listening');
         break;
 

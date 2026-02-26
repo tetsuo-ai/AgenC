@@ -1,5 +1,5 @@
 /**
- * Desktop sandbox tool definitions — parameter schemas for the 13 desktop
+ * Desktop sandbox tool definitions — parameter schemas for the 16 desktop
  * automation tools exposed by the container REST API.
  *
  * These are used by the daemon to tell the LLM what parameters each desktop
@@ -127,7 +127,7 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
         timeoutMs: {
           type: "number",
           description: "Timeout in milliseconds",
-          default: 120000,
+          default: 600000,
         },
       },
       required: ["command"],
@@ -172,6 +172,72 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
   {
     name: "screen_size",
     description: "Get the current screen resolution.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "text_editor",
+    description:
+      "View, create, and edit files. Commands: view (read file with line numbers), create (write new file), str_replace (find and replace exact string — must be unique), insert (insert text after a line number), undo_edit (revert last edit).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          enum: ["view", "create", "str_replace", "insert", "undo_edit"],
+          description: "The editing command to execute",
+        },
+        path: {
+          type: "string",
+          description:
+            "Absolute file path (must be under /home/agenc or /tmp)",
+        },
+        file_text: {
+          type: "string",
+          description: "File content (for create command)",
+        },
+        old_str: {
+          type: "string",
+          description:
+            "String to find (for str_replace — must match exactly once)",
+        },
+        new_str: {
+          type: "string",
+          description: "Replacement string (for str_replace and insert)",
+        },
+        insert_line: {
+          type: "number",
+          description:
+            "Line number to insert after (0 = beginning of file, for insert command)",
+        },
+        view_range: {
+          type: "array",
+          items: { type: "number" },
+          description:
+            "Optional [startLine, endLine] range for view command (1-indexed)",
+        },
+      },
+      required: ["command", "path"],
+    },
+  },
+  {
+    name: "video_start",
+    description:
+      "Start recording the desktop screen to an MP4 file using ffmpeg. Only one recording at a time. Returns the file path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        framerate: {
+          type: "number",
+          description: "Frames per second (1-60)",
+          default: 15,
+        },
+      },
+    },
+  },
+  {
+    name: "video_stop",
+    description:
+      "Stop the active screen recording. Returns the file path and duration.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
 ];

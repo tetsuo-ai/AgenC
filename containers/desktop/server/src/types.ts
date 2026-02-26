@@ -30,3 +30,13 @@ export interface HealthResponse {
   display: string;
   uptime: number;
 }
+
+export interface TextEditorResult {
+  output: string;
+}
+
+export interface VideoRecordingState {
+  pid: number;
+  path: string;
+  startedAt: number;
+}
