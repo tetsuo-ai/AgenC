@@ -35,8 +35,8 @@ export interface DisplayResolution {
 }
 
 export const DEFAULT_RESOLUTION: DisplayResolution = {
-  width: 1024,
-  height: 768,
+  width: 1280,
+  height: 1024,
 };
 
 // ============================================================================
@@ -67,6 +67,11 @@ export interface DesktopSandboxConfig {
   readonly securityProfile?: "strict" | "permissive";
   /** Extra Docker labels. */
   readonly labels?: Record<string, string>;
+  /** Playwright MCP browser automation options. */
+  readonly playwright?: {
+    /** Enable Playwright MCP bridge for structured browser automation. Default: true */
+    readonly enabled?: boolean;
+  };
 }
 
 export function defaultDesktopSandboxConfig(): DesktopSandboxConfig {

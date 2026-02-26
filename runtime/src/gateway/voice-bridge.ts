@@ -25,8 +25,10 @@ export interface VoiceBridgeConfig {
   apiKey: string;
   /** Tools available during voice sessions. */
   tools: LLMTool[];
-  /** Tool execution handler. */
+  /** Tool execution handler (fallback when no desktop router). */
   toolHandler: ToolHandler;
+  /** Factory that returns a desktop-aware tool handler scoped to a session. */
+  desktopRouterFactory?: (sessionId: string) => ToolHandler;
   /** System prompt injected into voice sessions. */
   systemPrompt: string;
   /** Default voice persona. */
@@ -44,6 +46,7 @@ export interface VoiceBridgeConfig {
 interface ActiveSession {
   client: XaiRealtimeClient;
   send: (response: ControlResponse) => void;
+  toolHandler: ToolHandler;
 }
 
 /**
@@ -89,6 +92,11 @@ export class VoiceBridge {
       });
       return;
     }
+
+    // Create a session-scoped tool handler that routes desktop.* calls
+    const sessionToolHandler = this.config.desktopRouterFactory
+      ? this.config.desktopRouterFactory(clientId)
+      : this.config.toolHandler;
 
     const voiceTools = this.convertTools(this.config.tools);
 
@@ -138,7 +146,7 @@ export class VoiceBridge {
 
           try {
             const parsed = JSON.parse(args) as Record<string, unknown>;
-            const resultStr = await this.config.toolHandler(name, parsed);
+            const resultStr = await sessionToolHandler(name, parsed);
 
             send({
               type: "voice.tool_call",
@@ -184,7 +192,7 @@ export class VoiceBridge {
       },
     });
 
-    this.sessions.set(clientId, { client, send });
+    this.sessions.set(clientId, { client, send, toolHandler: sessionToolHandler });
 
     try {
       await client.connect();

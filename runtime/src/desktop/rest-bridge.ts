@@ -19,8 +19,8 @@ import { DesktopSandboxConnectionError } from "./errors.js";
 
 /** Timeout for health check and tool-list fetch during connect(). */
 const CONNECT_TIMEOUT_MS = 5_000;
-/** Timeout for individual tool execution calls. */
-const TOOL_EXECUTION_TIMEOUT_MS = 120_000;
+/** Timeout for individual tool execution calls (must exceed container's 600s bash timeout). */
+const TOOL_EXECUTION_TIMEOUT_MS = 660_000;
 
 // ============================================================================
 // Types for REST API responses

@@ -158,6 +158,7 @@ export class DesktopSandboxManager {
       networkMode: config.networkMode ?? defaults.networkMode!,
       securityProfile: config.securityProfile ?? defaults.securityProfile!,
       labels: config.labels,
+      playwright: config.playwright ?? {},
     };
     this.logger = options?.logger ?? silentLogger;
   }

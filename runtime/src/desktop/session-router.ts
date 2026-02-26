@@ -1,6 +1,6 @@
 /**
- * Desktop session router — intercepts `desktop.*` tool calls and routes them
- * to the correct sandbox container's REST bridge.
+ * Desktop session router — intercepts `desktop.*` and `playwright.*` tool calls
+ * and routes them to the correct sandbox container's REST bridge or Playwright MCP bridge.
  *
  * Wraps a base ToolHandler with desktop-awareness. Non-desktop tools pass through
  * to the original handler unchanged.
@@ -14,6 +14,7 @@ import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
 import type { DesktopSandboxManager } from "./manager.js";
 import { DesktopRESTBridge } from "./rest-bridge.js";
+import type { MCPToolBridge } from "../mcp-client/types.js";
 
 // ============================================================================
 // Auto-screenshot constants
@@ -40,6 +41,9 @@ const AUTO_SCREENSHOT_DELAY_MS = 300;
 /** Cached tool schemas fetched from the first bridge connection. */
 let cachedDesktopTools: Tool[] | null = null;
 
+/** Cached Playwright tool schemas from the first MCP bridge connection. */
+let cachedPlaywrightTools: Tool[] | null = null;
+
 // ============================================================================
 // Session-scoped tool handler factory
 // ============================================================================
@@ -47,14 +51,16 @@ let cachedDesktopTools: Tool[] | null = null;
 export interface DesktopRouterOptions {
   desktopManager: DesktopSandboxManager;
   bridges: Map<string, DesktopRESTBridge>;
+  /** Per-session Playwright MCP bridges. Optional — omit to disable Playwright. */
+  playwrightBridges?: Map<string, MCPToolBridge>;
   logger?: Logger;
   /** Auto-capture screenshot after action tools. Default: false. */
   autoScreenshot?: boolean;
 }
 
 /**
- * Creates a session-scoped ToolHandler that intercepts `desktop.*` tool calls
- * and routes them to the appropriate sandbox container.
+ * Creates a session-scoped ToolHandler that intercepts `desktop.*` and
+ * `playwright.*` tool calls and routes them to the appropriate sandbox container.
  *
  * @param baseHandler - The original ToolHandler for non-desktop tools
  * @param sessionId - The current chat session ID
@@ -66,9 +72,28 @@ export function createDesktopAwareToolHandler(
   sessionId: string,
   options: DesktopRouterOptions,
 ): ToolHandler {
-  const { desktopManager, bridges, logger: log = silentLogger, autoScreenshot = false } = options;
+  const {
+    desktopManager,
+    bridges,
+    playwrightBridges,
+    logger: log = silentLogger,
+    autoScreenshot = false,
+  } = options;
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
+    // --- Playwright tool routing ---
+    if (name.startsWith("playwright.") && playwrightBridges) {
+      return handlePlaywrightCall(
+        name,
+        args,
+        sessionId,
+        desktopManager,
+        bridges,
+        playwrightBridges,
+        log,
+      );
+    }
+
     if (!name.startsWith("desktop.")) {
       return baseHandler(name, args);
     }
@@ -136,17 +161,32 @@ export function getCachedDesktopToolDefinitions(): readonly Tool[] | null {
 }
 
 /**
+ * Returns the cached Playwright tool definitions discovered from the first MCP bridge.
+ * Returns null if no Playwright bridge has connected yet.
+ */
+export function getCachedPlaywrightToolDefinitions(): readonly Tool[] | null {
+  return cachedPlaywrightTools;
+}
+
+/**
  * Disconnect and remove the bridge for a session.
  * Called on session reset, /desktop stop, etc.
  */
 export function destroySessionBridge(
   sessionId: string,
   bridges: Map<string, DesktopRESTBridge>,
+  playwrightBridges?: Map<string, MCPToolBridge>,
 ): void {
   const bridge = bridges.get(sessionId);
   if (bridge) {
     bridge.disconnect();
     bridges.delete(sessionId);
+  }
+
+  const pwBridge = playwrightBridges?.get(sessionId);
+  if (pwBridge) {
+    void pwBridge.dispose().catch(() => {});
+    playwrightBridges!.delete(sessionId);
   }
 }
 
@@ -154,7 +194,50 @@ export function destroySessionBridge(
 // Internal
 // ============================================================================
 
-/** Create and connect a bridge for the given session. Returns undefined on failure. */
+/** Route a `playwright.*` tool call to the session's Playwright MCP bridge. */
+async function handlePlaywrightCall(
+  name: string,
+  args: Record<string, unknown>,
+  sessionId: string,
+  desktopManager: DesktopSandboxManager,
+  bridges: Map<string, DesktopRESTBridge>,
+  playwrightBridges: Map<string, MCPToolBridge>,
+  log: Logger,
+): Promise<string> {
+  // Ensure desktop bridge exists first (Playwright needs a running container)
+  let bridge = bridges.get(sessionId);
+  if (!bridge || !bridge.isConnected()) {
+    bridge = await ensureBridge(sessionId, desktopManager, bridges, log);
+    if (!bridge) {
+      return safeStringify({ error: "Desktop sandbox unavailable" });
+    }
+  }
+
+  // Ensure Playwright bridge exists
+  let pwBridge = playwrightBridges.get(sessionId);
+  if (!pwBridge) {
+    pwBridge = await ensurePlaywrightBridge(sessionId, desktopManager, playwrightBridges, log);
+    if (!pwBridge) {
+      return safeStringify({ error: "Playwright browser unavailable — falling back to desktop tools" });
+    }
+  }
+
+  const tool = pwBridge.tools.find((t) => t.name === name);
+  if (!tool) {
+    return safeStringify({ error: `Unknown Playwright tool: ${name}` });
+  }
+
+  // Reset idle timer
+  const handle = desktopManager.getHandleBySession(sessionId);
+  if (handle) {
+    desktopManager.touchActivity(handle.containerId);
+  }
+
+  const result: ToolResult = await tool.execute(args);
+  return result.content;
+}
+
+/** Create and connect a REST bridge for the given session. Returns undefined on failure. */
 async function ensureBridge(
   sessionId: string,
   desktopManager: DesktopSandboxManager,
@@ -179,6 +262,56 @@ async function ensureBridge(
   } catch (err) {
     log.error(
       `Failed to create desktop sandbox for session ${sessionId}: ${toErrorMessage(err)}`,
+    );
+    return undefined;
+  }
+}
+
+/** Create Playwright MCP bridge via docker exec into the session's container. */
+async function ensurePlaywrightBridge(
+  sessionId: string,
+  desktopManager: DesktopSandboxManager,
+  playwrightBridges: Map<string, MCPToolBridge>,
+  log: Logger,
+): Promise<MCPToolBridge | undefined> {
+  try {
+    const handle = desktopManager.getHandleBySession(sessionId);
+    if (!handle) return undefined;
+
+    const { createMCPConnection } = await import("../mcp-client/connection.js");
+    const { createToolBridge } = await import("../mcp-client/tool-bridge.js");
+
+    const client = await createMCPConnection(
+      {
+        name: "playwright",
+        command: "docker",
+        args: [
+          "exec",
+          "-i",
+          "-e",
+          "DISPLAY=:1",
+          handle.containerId,
+          "npx",
+          "@playwright/mcp@1.8.0",
+          "--headless=false",
+        ],
+        timeout: 30_000,
+      },
+      log,
+    );
+
+    const pwBridge = await createToolBridge(client, "playwright", log);
+    playwrightBridges.set(sessionId, pwBridge);
+
+    if (!cachedPlaywrightTools && pwBridge.tools.length > 0) {
+      cachedPlaywrightTools = [...pwBridge.tools];
+    }
+
+    log.info(`Playwright MCP bridge connected for session ${sessionId} (${pwBridge.tools.length} tools)`);
+    return pwBridge;
+  } catch (err) {
+    log.warn?.(
+      `Playwright MCP bridge failed for session ${sessionId}: ${toErrorMessage(err)}. Browser tools unavailable.`,
     );
     return undefined;
   }

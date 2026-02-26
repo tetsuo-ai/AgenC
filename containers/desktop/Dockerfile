@@ -2,8 +2,8 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DISPLAY=:1 \
-    DISPLAY_WIDTH=1024 \
-    DISPLAY_HEIGHT=768 \
+    DISPLAY_WIDTH=1280 \
+    DISPLAY_HEIGHT=1024 \
     DISPLAY_DEPTH=24 \
     PORT=9990 \
     HOME=/home/agenc
@@ -33,7 +33,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build essentials
     build-essential gcc g++ make cmake \
     # Developer tools
-    git vim nano tmux htop tree jq unzip sudo \
+    git vim nano neovim tmux htop tree jq unzip sudo \
+    # Modern CLI tools (agent-optimized)
+    ripgrep fd-find bat fzf \
+    # Video recording
+    ffmpeg \
     # Python
     python3 python3-pip python3-venv \
     # Misc utilities
@@ -57,6 +61,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # =========================================================================
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    # =========================================================================
+    # Playwright MCP + bundled Chromium
+    # =========================================================================
+    && npm install -g @playwright/mcp@1.8.0 \
+    && npx playwright@1.52.0 install --with-deps chromium \
     # Cleanup
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -119,7 +128,7 @@ alias l="ls -CF --color=auto"\n\
 alias grep="grep --color=auto"\n\
 alias ..="cd .."\n\
 alias ...="cd ../.."\n\
-export EDITOR=vim\n\
+export EDITOR=nvim\n\
 export TERM=xterm-256color\n\
 ' >> /home/agenc/.bashrc
 
