@@ -123,10 +123,7 @@ export function ChatView({
           </div>
         </div>
 
-        {/* Spacer below (slightly larger so it sits above center) */}
-        <div className="flex-[1.4]" />
-
-        {/* Voice overlay */}
+        {/* Voice bar */}
         {onVoiceModeChange && onVoiceToggle && (
           <VoiceOverlay
             voiceState={voiceState}
@@ -138,6 +135,9 @@ export function ChatView({
             onPushToTalkStop={onPushToTalkStop}
           />
         )}
+
+        {/* Spacer below (slightly larger so it sits above center) */}
+        <div className="flex-[1.4]" />
       </div>
     );
   }
@@ -252,19 +252,8 @@ export function ChatView({
           </div>
         )}
       </div>
-      <ChatInput
-        onSend={onSend}
-        onStop={onStop}
-        isGenerating={isTyping}
-        disabled={!connected}
-        voiceState={voiceState}
-        voiceMode={voiceMode}
-        onVoiceToggle={onVoiceToggle}
-        onPushToTalkStart={onPushToTalkStart}
-        onPushToTalkStop={onPushToTalkStop}
-      />
 
-      {/* Voice overlay */}
+      {/* Voice bar — between message list and input */}
       {onVoiceModeChange && onVoiceToggle && (
         <VoiceOverlay
           voiceState={voiceState}
@@ -276,6 +265,18 @@ export function ChatView({
           onPushToTalkStop={onPushToTalkStop}
         />
       )}
+
+      <ChatInput
+        onSend={onSend}
+        onStop={onStop}
+        isGenerating={isTyping}
+        disabled={!connected}
+        voiceState={voiceState}
+        voiceMode={voiceMode}
+        onVoiceToggle={onVoiceToggle}
+        onPushToTalkStart={onPushToTalkStart}
+        onPushToTalkStop={onPushToTalkStop}
+      />
 
       {/* Mobile sessions bottom sheet */}
       {sessionsOpen && (

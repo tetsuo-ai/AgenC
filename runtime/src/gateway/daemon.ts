@@ -16,7 +16,7 @@ import { Gateway } from './gateway.js';
 import { loadGatewayConfig } from './config-watcher.js';
 import { GatewayLifecycleError, GatewayStateError } from './errors.js';
 import { toErrorMessage } from '../utils/async.js';
-import type { GatewayConfig, GatewayLLMConfig, GatewayStatus, ConfigDiff } from './types.js';
+import type { GatewayConfig, GatewayLLMConfig, GatewayMCPServerConfig, GatewayStatus, ConfigDiff } from './types.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import { WebChatChannel } from '../channels/webchat/plugin.js';
@@ -266,6 +266,8 @@ export class DaemonManager {
   private _desktopManager: import('../desktop/manager.js').DesktopSandboxManager | null = null;
   private _desktopBridges: Map<string, import('../desktop/rest-bridge.js').DesktopRESTBridge> = new Map();
   private _playwrightBridges: Map<string, import('../mcp-client/types.js').MCPToolBridge> = new Map();
+  private _containerMCPConfigs: GatewayMCPServerConfig[] = [];
+  private _containerMCPBridges: Map<string, import('../mcp-client/types.js').MCPToolBridge[]> = new Map();
   private _desktopRouterFactory: ((sessionId: string) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private _goalManager: import('../autonomous/goal-manager.js').GoalManager | null = null;
@@ -447,11 +449,15 @@ export class DaemonManager {
       // Store the original so per-session wrapping can use it
       const originalBaseHandler = baseToolHandler;
       baseToolHandler = originalBaseHandler;
+      const containerMCPConfigs = this._containerMCPConfigs;
+      const containerMCPBridges = this._containerMCPBridges;
       this._desktopRouterFactory = (sessionId: string) =>
         createDesktopAwareToolHandler(originalBaseHandler, sessionId, {
           desktopManager,
           bridges: desktopBridges,
           playwrightBridges: playwrightEnabled ? playwrightBridges : undefined,
+          containerMCPConfigs: containerMCPConfigs.length > 0 ? containerMCPConfigs : undefined,
+          containerMCPBridges: containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
           logger: desktopLogger,
           autoScreenshot: true,
         });
@@ -1593,13 +1599,26 @@ export class DaemonManager {
 
     // External MCP server tools (Peekaboo, macos-automator, etc.)
     if (config.mcp?.servers?.length) {
-      try {
-        const { MCPManager } = await import('../mcp-client/index.js');
-        this._mcpManager = new MCPManager(config.mcp.servers, this.logger);
-        await this._mcpManager.start();
-        registry.registerAll(this._mcpManager.getTools());
-      } catch (err) {
-        this.logger.error('Failed to initialize MCP servers:', err);
+      // Split: host servers boot now, container servers are per-session (via desktop router)
+      const hostServers = config.mcp.servers.filter((s) => !s.container);
+      const containerServers = config.mcp.servers.filter((s) => s.container === 'desktop');
+      this._containerMCPConfigs = containerServers;
+
+      if (hostServers.length > 0) {
+        try {
+          const { MCPManager } = await import('../mcp-client/index.js');
+          this._mcpManager = new MCPManager(hostServers, this.logger);
+          await this._mcpManager.start();
+          registry.registerAll(this._mcpManager.getTools());
+        } catch (err) {
+          this.logger.error('Failed to initialize MCP servers:', err);
+        }
+      }
+
+      if (containerServers.length > 0) {
+        this.logger.info(
+          `${containerServers.length} MCP server(s) configured for desktop container: ${containerServers.map((s) => s.name).join(', ')}`,
+        );
       }
     }
 
@@ -1770,7 +1789,7 @@ export class DaemonManager {
         if (this._desktopManager) {
           await this._desktopManager.destroyBySession(sessionId).catch(() => {});
           const { destroySessionBridge } = await import('../desktop/session-router.js');
-          destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges);
+          destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges, this._containerMCPBridges);
         }
         await ctx.reply('Session reset. Starting fresh conversation.');
       },
@@ -1786,7 +1805,7 @@ export class DaemonManager {
         if (this._desktopManager) {
           await this._desktopManager.destroyBySession(sessionId).catch(() => {});
           const { destroySessionBridge } = await import('../desktop/session-router.js');
-          destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges);
+          destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges, this._containerMCPBridges);
         }
         await ctx.reply('Session and context cleared.');
       },
@@ -1965,7 +1984,7 @@ export class DaemonManager {
           } else if (sub === 'stop') {
             await desktopMgr.destroyBySession(sessionId);
             const { destroySessionBridge } = await import('../desktop/session-router.js');
-            destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges);
+            destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges, this._containerMCPBridges);
             await ctx.reply('Desktop sandbox stopped.');
           } else if (sub === 'status') {
             const handle = desktopMgr.getHandleBySession(sessionId);
@@ -2659,6 +2678,14 @@ export class DaemonManager {
         await pwBridge.dispose().catch(() => {});
       }
       this._playwrightBridges.clear();
+      // Disconnect container MCP bridges
+      for (const bridges of this._containerMCPBridges.values()) {
+        for (const bridge of bridges) {
+          await bridge.dispose().catch(() => {});
+        }
+      }
+      this._containerMCPBridges.clear();
+      this._containerMCPConfigs = [];
       if (this._desktopManager !== null) {
         await this._desktopManager.stop();
         this._desktopManager = null;

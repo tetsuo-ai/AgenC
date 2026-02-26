@@ -14,7 +14,7 @@ import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
 import type { DesktopSandboxManager } from "./manager.js";
 import { DesktopRESTBridge } from "./rest-bridge.js";
-import type { MCPToolBridge } from "../mcp-client/types.js";
+import type { MCPServerConfig, MCPToolBridge } from "../mcp-client/types.js";
 
 // ============================================================================
 // Auto-screenshot constants
@@ -44,6 +44,9 @@ let cachedDesktopTools: Tool[] | null = null;
 /** Cached Playwright tool schemas from the first MCP bridge connection. */
 let cachedPlaywrightTools: Tool[] | null = null;
 
+/** Cached container MCP tool schemas by server name, from the first bridge connection. */
+const cachedContainerMCPTools: Map<string, Tool[]> = new Map();
+
 // ============================================================================
 // Session-scoped tool handler factory
 // ============================================================================
@@ -53,6 +56,10 @@ export interface DesktopRouterOptions {
   bridges: Map<string, DesktopRESTBridge>;
   /** Per-session Playwright MCP bridges. Optional — omit to disable Playwright. */
   playwrightBridges?: Map<string, MCPToolBridge>;
+  /** MCP server configs that should run inside the desktop container. */
+  containerMCPConfigs?: MCPServerConfig[];
+  /** Per-session container MCP bridges (sessionId → bridge array). */
+  containerMCPBridges?: Map<string, MCPToolBridge[]>;
   logger?: Logger;
   /** Auto-capture screenshot after action tools. Default: false. */
   autoScreenshot?: boolean;
@@ -76,9 +83,14 @@ export function createDesktopAwareToolHandler(
     desktopManager,
     bridges,
     playwrightBridges,
+    containerMCPConfigs,
+    containerMCPBridges,
     logger: log = silentLogger,
     autoScreenshot = false,
   } = options;
+
+  // Build a set of container MCP server names for fast routing checks
+  const containerMCPNames = new Set(containerMCPConfigs?.map((c) => c.name) ?? []);
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     // --- Playwright tool routing ---
@@ -92,6 +104,28 @@ export function createDesktopAwareToolHandler(
         playwrightBridges,
         log,
       );
+    }
+
+    // --- Container MCP routing: mcp.{serverName}.{toolName} ---
+    if (
+      name.startsWith("mcp.") &&
+      containerMCPConfigs &&
+      containerMCPBridges
+    ) {
+      const parts = name.split(".");
+      // mcp.{serverName}.{rest...}
+      if (parts.length >= 3 && containerMCPNames.has(parts[1])) {
+        return handleContainerMCPCall(
+          name,
+          args,
+          sessionId,
+          desktopManager,
+          bridges,
+          containerMCPConfigs,
+          containerMCPBridges,
+          log,
+        );
+      }
     }
 
     if (!name.startsWith("desktop.")) {
@@ -169,6 +203,14 @@ export function getCachedPlaywrightToolDefinitions(): readonly Tool[] | null {
 }
 
 /**
+ * Returns the cached container MCP tool definitions by server name.
+ * Returns null for a given server if no bridge has connected yet.
+ */
+export function getCachedContainerMCPToolDefinitions(): ReadonlyMap<string, readonly Tool[]> {
+  return cachedContainerMCPTools;
+}
+
+/**
  * Disconnect and remove the bridge for a session.
  * Called on session reset, /desktop stop, etc.
  */
@@ -176,6 +218,7 @@ export function destroySessionBridge(
   sessionId: string,
   bridges: Map<string, DesktopRESTBridge>,
   playwrightBridges?: Map<string, MCPToolBridge>,
+  containerMCPBridges?: Map<string, MCPToolBridge[]>,
 ): void {
   const bridge = bridges.get(sessionId);
   if (bridge) {
@@ -187,6 +230,14 @@ export function destroySessionBridge(
   if (pwBridge) {
     void pwBridge.dispose().catch(() => {});
     playwrightBridges!.delete(sessionId);
+  }
+
+  const mcpBridges = containerMCPBridges?.get(sessionId);
+  if (mcpBridges) {
+    for (const b of mcpBridges) {
+      void b.dispose().catch(() => {});
+    }
+    containerMCPBridges!.delete(sessionId);
   }
 }
 
@@ -315,4 +366,126 @@ async function ensurePlaywrightBridge(
     );
     return undefined;
   }
+}
+
+/** Route a container MCP tool call to the session's container MCP bridges. */
+async function handleContainerMCPCall(
+  name: string,
+  args: Record<string, unknown>,
+  sessionId: string,
+  desktopManager: DesktopSandboxManager,
+  bridges: Map<string, DesktopRESTBridge>,
+  containerMCPConfigs: MCPServerConfig[],
+  containerMCPBridges: Map<string, MCPToolBridge[]>,
+  log: Logger,
+): Promise<string> {
+  // Ensure desktop bridge exists first (container MCP needs a running container)
+  let bridge = bridges.get(sessionId);
+  if (!bridge || !bridge.isConnected()) {
+    bridge = await ensureBridge(sessionId, desktopManager, bridges, log);
+    if (!bridge) {
+      return safeStringify({ error: "Desktop sandbox unavailable" });
+    }
+  }
+
+  // Ensure container MCP bridges exist for this session
+  let mcpBridges = containerMCPBridges.get(sessionId);
+  if (!mcpBridges) {
+    mcpBridges = await ensureContainerMCPBridges(
+      sessionId,
+      desktopManager,
+      containerMCPConfigs,
+      containerMCPBridges,
+      log,
+    );
+  }
+
+  // Find the matching tool across all container MCP bridges
+  for (const mcpBridge of mcpBridges) {
+    const tool = mcpBridge.tools.find((t) => t.name === name);
+    if (tool) {
+      // Reset idle timer
+      const handle = desktopManager.getHandleBySession(sessionId);
+      if (handle) {
+        desktopManager.touchActivity(handle.containerId);
+      }
+
+      const result: ToolResult = await tool.execute(args);
+      return result.content;
+    }
+  }
+
+  return safeStringify({ error: `Unknown container MCP tool: ${name}` });
+}
+
+/**
+ * Create MCP bridges for all container-routed servers inside the desktop container.
+ * Each config is rewritten to use `docker exec -i` into the session's container.
+ */
+async function ensureContainerMCPBridges(
+  sessionId: string,
+  desktopManager: DesktopSandboxManager,
+  configs: MCPServerConfig[],
+  containerMCPBridges: Map<string, MCPToolBridge[]>,
+  log: Logger,
+): Promise<MCPToolBridge[]> {
+  const handle = desktopManager.getHandleBySession(sessionId);
+  if (!handle) {
+    log.warn?.(`No desktop container for session ${sessionId} — container MCP unavailable`);
+    containerMCPBridges.set(sessionId, []);
+    return [];
+  }
+
+  const { createMCPConnection } = await import("../mcp-client/connection.js");
+  const { createToolBridge } = await import("../mcp-client/tool-bridge.js");
+
+  const results = await Promise.allSettled(
+    configs.map(async (config) => {
+      // Rewrite config to docker exec
+      const dockerArgs = ["exec", "-i", "-e", "DISPLAY=:1"];
+      if (config.env) {
+        for (const [key, value] of Object.entries(config.env)) {
+          dockerArgs.push("-e", `${key}=${value}`);
+        }
+      }
+      dockerArgs.push(handle.containerId, config.command, ...config.args);
+
+      const client = await createMCPConnection(
+        {
+          name: config.name,
+          command: "docker",
+          args: dockerArgs,
+          timeout: config.timeout ?? 30_000,
+        },
+        log,
+      );
+
+      const mcpBridge = await createToolBridge(client, config.name, log);
+
+      // Cache tool definitions on first connection
+      if (!cachedContainerMCPTools.has(config.name) && mcpBridge.tools.length > 0) {
+        cachedContainerMCPTools.set(config.name, [...mcpBridge.tools]);
+      }
+
+      log.info(
+        `Container MCP "${config.name}" connected for session ${sessionId} (${mcpBridge.tools.length} tools)`,
+      );
+      return mcpBridge;
+    }),
+  );
+
+  const successfulBridges: MCPToolBridge[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status === "fulfilled") {
+      successfulBridges.push(result.value);
+    } else {
+      log.warn?.(
+        `Container MCP "${configs[i].name}" failed for session ${sessionId}: ${toErrorMessage(result.reason)}`,
+      );
+    }
+  }
+
+  containerMCPBridges.set(sessionId, successfulBridges);
+  return successfulBridges;
 }

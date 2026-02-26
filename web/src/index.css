@@ -275,6 +275,12 @@
   100% { opacity: 1; transform: translateY(0);    }
 }
 
+/* Compact voice bar slide-in */
+@keyframes voice-bar-in {
+  0%   { opacity: 0; transform: translateY(-8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-voice-bar-in      { animation: voice-bar-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .animate-voice-overlay-in  { animation: voice-overlay-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .animate-orb-breathe       { animation: orb-breathe 3.2s ease-in-out infinite; }
 .animate-ring-breathe      { animation: ring-breathe 3.2s ease-in-out infinite; }

@@ -10,4 +10,5 @@
 export type { MCPServerConfig, MCPToolBridge } from "./types.js";
 export { createMCPConnection } from "./connection.js";
 export { createToolBridge } from "./tool-bridge.js";
+export { ResilientMCPBridge } from "./resilient-bridge.js";
 export { MCPManager } from "./manager.js";
