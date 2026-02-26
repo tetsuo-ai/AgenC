@@ -1619,6 +1619,59 @@ export class DaemonManager {
         this.logger.info(
           `${containerServers.length} MCP server(s) configured for desktop container: ${containerServers.map((s) => s.name).join(', ')}`,
         );
+
+        // Boot container MCP servers on host temporarily to discover tool schemas.
+        // The LLM needs to know the tools exist (names, descriptions, input schemas).
+        // Actual execution is routed through `docker exec` per-session via the desktop router.
+        try {
+          const { createMCPConnection } = await import('../mcp-client/connection.js');
+          const { createToolBridge } = await import('../mcp-client/tool-bridge.js');
+
+          const discoveryResults = await Promise.allSettled(
+            containerServers.map(async (serverConfig) => {
+              const client = await createMCPConnection(serverConfig, this.logger);
+              const bridge = await createToolBridge(client, serverConfig.name, this.logger);
+              const schemas = bridge.tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                inputSchema: t.inputSchema,
+              }));
+              await bridge.dispose();
+              return schemas;
+            }),
+          );
+
+          let totalDiscovered = 0;
+          for (let i = 0; i < discoveryResults.length; i++) {
+            const result = discoveryResults[i];
+            if (result.status === 'fulfilled') {
+              // Register stub tools — execute is never called because the desktop router
+              // intercepts mcp.{name}.* calls before the base handler
+              for (const schema of result.value) {
+                registry.register({
+                  name: schema.name,
+                  description: schema.description,
+                  inputSchema: schema.inputSchema,
+                  execute: async () => ({
+                    content: 'Container MCP tool — requires desktop session',
+                    isError: true,
+                  }),
+                });
+              }
+              totalDiscovered += result.value.length;
+            } else {
+              this.logger.warn?.(
+                `Container MCP "${containerServers[i].name}" schema discovery failed: ${result.reason}`,
+              );
+            }
+          }
+
+          if (totalDiscovered > 0) {
+            this.logger.info(`Discovered ${totalDiscovered} container MCP tool schemas for LLM`);
+          }
+        } catch (err) {
+          this.logger.warn?.('Container MCP schema discovery failed:', err);
+        }
       }
     }
 
