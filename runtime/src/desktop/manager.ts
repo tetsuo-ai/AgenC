@@ -157,6 +157,7 @@ export class DesktopSandboxManager {
         config.healthCheckIntervalMs ?? defaults.healthCheckIntervalMs!,
       networkMode: config.networkMode ?? defaults.networkMode!,
       securityProfile: config.securityProfile ?? defaults.securityProfile!,
+      autoScreenshot: config.autoScreenshot ?? false,
       labels: config.labels,
       playwright: config.playwright ?? {},
     };

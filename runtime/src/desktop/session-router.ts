@@ -29,7 +29,6 @@ const DESKTOP_ACTION_TOOLS = new Set([
   "mouse_scroll",
   "keyboard_type",
   "keyboard_key",
-  "bash",
   "window_focus",
 ]);
 
