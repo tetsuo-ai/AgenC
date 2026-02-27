@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, VoiceState, VoiceMode } from '../../types';
+
+const APP_DISPLAY_NAME = 'AgenC';
 import type { ChatSessionInfo } from '../../hooks/useChat';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
@@ -19,6 +21,7 @@ interface ChatViewProps {
   onVoiceModeChange?: (mode: VoiceMode) => void;
   onPushToTalkStart?: () => void;
   onPushToTalkStop?: () => void;
+  delegationTask?: string;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
   chatSessions?: ChatSessionInfo[];
@@ -43,6 +46,7 @@ export function ChatView({
   onVoiceModeChange,
   onPushToTalkStart,
   onPushToTalkStop,
+  delegationTask = '',
   theme = 'light',
   onToggleTheme,
   chatSessions = [],
@@ -133,6 +137,7 @@ export function ChatView({
             onStop={onVoiceToggle}
             onPushToTalkStart={onPushToTalkStart}
             onPushToTalkStop={onPushToTalkStop}
+            delegationTask={delegationTask}
           />
         )}
 
@@ -148,7 +153,7 @@ export function ChatView({
       {/* Top header bar — hidden on mobile (MobileHeader used instead) */}
       <div className="hidden md:flex items-center justify-between px-6 py-4 border-b border-tetsuo-200 bg-surface">
         <h1 className="text-xl font-bold text-tetsuo-800 tracking-tight">
-          AgenC 1.0
+          {APP_DISPLAY_NAME}
         </h1>
         <div className="flex items-center gap-1">
           <button
@@ -263,6 +268,7 @@ export function ChatView({
           onStop={onVoiceToggle}
           onPushToTalkStart={onPushToTalkStart}
           onPushToTalkStop={onPushToTalkStop}
+          delegationTask={delegationTask}
         />
       )}
 

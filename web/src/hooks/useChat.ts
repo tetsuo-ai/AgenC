@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ChatMessageAttachment, ToolCall, WSMessage } from '../types';
-
-let msgCounter = 0;
+import {
+  WS_CHAT_MESSAGE,
+  WS_CHAT_TYPING,
+  WS_CHAT_HISTORY,
+  WS_CHAT_SESSION,
+  WS_CHAT_RESUME,
+  WS_CHAT_RESUMED,
+  WS_CHAT_SESSIONS,
+  WS_CHAT_CANCELLED,
+  WS_CHAT_CANCEL,
+  WS_TOOLS_EXECUTING,
+  WS_TOOLS_RESULT,
+} from '../constants';
 
 export interface ChatAttachment {
   filename: string;
@@ -23,12 +34,16 @@ export interface UseChatReturn {
   stopGeneration: () => void;
   /** Inject a message from an external source (e.g. voice transcript). */
   injectMessage: (content: string, sender: 'user' | 'agent') => void;
+  /** Replace the content of the most recent user message (for voice transcript updates). */
+  replaceLastUserMessage: (content: string) => void;
   isTyping: boolean;
   sessionId: string | null;
   sessions: ChatSessionInfo[];
   refreshSessions: () => void;
   resumeSession: (sessionId: string) => void;
   startNewChat: () => void;
+  /** Handle incoming WS messages for the chat domain. */
+  handleMessage: (msg: WSMessage) => void;
 }
 
 interface UseChatOptions {
@@ -43,9 +58,10 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
   // Tracks the placeholder message ID for the current response round
   const pendingMsgIdRef = useRef<string | null>(null);
+  const msgCounterRef = useRef(0);
 
   const refreshSessions = useCallback(() => {
-    send({ type: 'chat.sessions' });
+    send({ type: WS_CHAT_SESSIONS });
   }, [send]);
 
   // Fetch sessions when connected
@@ -54,7 +70,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, [connected, refreshSessions]);
 
   const resumeSession = useCallback((targetSessionId: string) => {
-    send({ type: 'chat.resume', payload: { sessionId: targetSessionId } });
+    send({ type: WS_CHAT_RESUME, payload: { sessionId: targetSessionId } });
   }, [send]);
 
   const startNewChat = useCallback(() => {
@@ -64,28 +80,41 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, []);
 
   const stopGeneration = useCallback(() => {
-    send({ type: 'chat.cancel' });
+    send({ type: WS_CHAT_CANCEL });
     setIsTyping(false);
   }, [send]);
 
   const injectMessage = useCallback((content: string, sender: 'user' | 'agent') => {
-    const id = `${sender}_${++msgCounter}`;
+    const id = `${sender}_${++msgCounterRef.current}`;
     setMessages((prev) => [...prev, { id, content, sender, timestamp: Date.now() }]);
+  }, []);
+
+  const replaceLastUserMessage = useCallback((content: string) => {
+    setMessages((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].sender === 'user') {
+          const updated = [...prev];
+          updated[i] = { ...updated[i], content };
+          return updated;
+        }
+      }
+      return prev;
+    });
   }, []);
 
   const sendMessage = useCallback((content: string, files?: File[]) => {
     if (!files || files.length === 0) {
-      const id = `user_${++msgCounter}`;
+      const id = `user_${++msgCounterRef.current}`;
       const userMsg: ChatMessage = { id, content, sender: 'user', timestamp: Date.now() };
       setMessages((prev) => [...prev, userMsg]);
-      send({ type: 'chat.message', payload: { content } });
+      send({ type: WS_CHAT_MESSAGE, payload: { content } });
       return;
     }
 
     // Read files as base64, build display attachments, then send
     const readers = files.map(
       (file) =>
-        new Promise<{ wire: ChatAttachment; display: ChatMessageAttachment & { dataUrl: string } }>((resolve, reject) => {
+        new Promise<{ wire: ChatAttachment; display: ChatMessageAttachment }>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
             const dataUrl = reader.result as string;
@@ -100,7 +129,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
               display: {
                 filename: file.name,
                 mimeType: file.type || 'application/octet-stream',
-                dataUrl: file.type.startsWith('image/') ? dataUrl : undefined!,
+                ...(file.type.startsWith('image/') && { dataUrl }),
               },
             });
           };
@@ -110,7 +139,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     );
 
     void Promise.all(readers).then((results) => {
-      const id = `user_${++msgCounter}`;
+      const id = `user_${++msgCounterRef.current}`;
       const displayAttachments: ChatMessageAttachment[] = results.map((r) => ({
         filename: r.display.filename,
         mimeType: r.display.mimeType,
@@ -125,7 +154,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
       };
       setMessages((prev) => [...prev, userMsg]);
       send({
-        type: 'chat.message',
+        type: WS_CHAT_MESSAGE,
         payload: {
           content,
           attachments: results.map((r) => r.wire),
@@ -136,7 +165,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
 
   const handleMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {
-      case 'chat.message': {
+      case WS_CHAT_MESSAGE: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const content = (payload.content as string) ?? '';
         const timestamp = (payload.timestamp as number) ?? Date.now();
@@ -158,7 +187,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
             return prev;
           }
           copy.push({
-            id: `agent_${++msgCounter}`,
+            id: `agent_${++msgCounterRef.current}`,
             content,
             sender: 'agent',
             timestamp,
@@ -170,13 +199,13 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
-      case 'chat.typing': {
+      case WS_CHAT_TYPING: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         setIsTyping(!!payload.active);
         break;
       }
 
-      case 'chat.history': {
+      case WS_CHAT_HISTORY: {
         const payload = msg.payload as Array<{ content: string; sender: 'user' | 'agent'; timestamp: number }>;
         if (Array.isArray(payload)) {
           const historyMsgs = payload.map((m, i) => ({
@@ -190,25 +219,25 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
-      case 'chat.session': {
+      case WS_CHAT_SESSION: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const id = (payload.sessionId as string) ?? null;
         if (id) setSessionId(id);
         break;
       }
 
-      case 'chat.resumed': {
+      case WS_CHAT_RESUMED: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const resumedId = (payload.sessionId as string) ?? null;
         setSessionId(resumedId);
         // Fetch history for the resumed session
         if (resumedId) {
-          send({ type: 'chat.history' });
+          send({ type: WS_CHAT_HISTORY });
         }
         break;
       }
 
-      case 'chat.sessions': {
+      case WS_CHAT_SESSIONS: {
         const payload = msg.payload as ChatSessionInfo[];
         if (Array.isArray(payload)) {
           setSessions(payload);
@@ -216,12 +245,12 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
-      case 'chat.cancelled': {
+      case WS_CHAT_CANCELLED: {
         setIsTyping(false);
         break;
       }
 
-      case 'tools.executing': {
+      case WS_TOOLS_EXECUTING: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const toolCall: ToolCall = {
           toolName: (payload.toolName as string) ?? 'unknown',
@@ -256,7 +285,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
           // If user sent a message AFTER the last agent message, this is a
           // new response round — create a placeholder agent message for it.
           if (lastUserIdx > lastAgentIdx) {
-            const newId = `agent_${++msgCounter}`;
+            const newId = `agent_${++msgCounterRef.current}`;
             pendingMsgIdRef.current = newId;
             copy.push({
               id: newId,
@@ -271,7 +300,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
               toolCalls: [...(copy[lastAgentIdx].toolCalls ?? []), toolCall],
             };
           } else {
-            const newId = `agent_${++msgCounter}`;
+            const newId = `agent_${++msgCounterRef.current}`;
             pendingMsgIdRef.current = newId;
             copy.push({
               id: newId,
@@ -286,7 +315,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
-      case 'tools.result': {
+      case WS_TOOLS_RESULT: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         setMessages((prev) => {
           const copy = [...prev];
@@ -313,8 +342,8 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, [send]);
 
   return {
-    messages, sendMessage, stopGeneration, injectMessage, isTyping, sessionId,
+    messages, sendMessage, stopGeneration, injectMessage, replaceLastUserMessage, isTyping, sessionId,
     sessions, refreshSessions, resumeSession, startNewChat,
     handleMessage,
-  } as UseChatReturn & { handleMessage: (msg: WSMessage) => void };
+  };
 }

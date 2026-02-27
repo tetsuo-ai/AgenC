@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WSMessage } from '../types';
+import {
+  WS_DESKTOP_LIST,
+  WS_DESKTOP_CREATE,
+  WS_DESKTOP_DESTROY,
+  WS_DESKTOP_CREATED,
+  WS_DESKTOP_DESTROYED,
+  WS_DESKTOP_ERROR,
+} from '../constants';
 
 export interface DesktopSandbox {
   containerId: string;
@@ -25,6 +33,7 @@ export interface UseDesktopReturn {
   refresh: () => void;
   create: (sessionId?: string) => void;
   destroy: (containerId: string) => void;
+  handleMessage: (msg: WSMessage) => void;
 }
 
 export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopReturn {
@@ -35,17 +44,17 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
-    send({ type: 'desktop.list' });
+    send({ type: WS_DESKTOP_LIST });
   }, [send]);
 
   const create = useCallback((sessionId?: string) => {
     setLoading(true);
     setError(null);
-    send({ type: 'desktop.create', payload: { sessionId } });
+    send({ type: WS_DESKTOP_CREATE, payload: { sessionId } });
   }, [send]);
 
   const destroy = useCallback((containerId: string) => {
-    send({ type: 'desktop.destroy', payload: { containerId } });
+    send({ type: WS_DESKTOP_DESTROY, payload: { containerId } });
   }, [send]);
 
   // Auto-refresh on mount when connected
@@ -56,20 +65,20 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
   }, [connected, refresh]);
 
   const handleMessage = useCallback((msg: WSMessage) => {
-    if (msg.type === 'desktop.list') {
+    if (msg.type === WS_DESKTOP_LIST) {
       setSandboxes((msg.payload as DesktopSandbox[]) ?? []);
       setLoading(false);
-    } else if (msg.type === 'desktop.created') {
+    } else if (msg.type === WS_DESKTOP_CREATED) {
       // Refresh the full list to get accurate state
       setLoading(false);
-      send({ type: 'desktop.list' });
-    } else if (msg.type === 'desktop.destroyed') {
+      send({ type: WS_DESKTOP_LIST });
+    } else if (msg.type === WS_DESKTOP_DESTROYED) {
       const destroyed = msg.payload as { containerId: string } | undefined;
       if (destroyed?.containerId) {
         setSandboxes((prev) => prev.filter((s) => s.containerId !== destroyed.containerId));
       }
       setLoading(false);
-    } else if (msg.type === 'desktop.error') {
+    } else if (msg.type === WS_DESKTOP_ERROR) {
       setError(msg.error ?? 'Unknown desktop error');
       setLoading(false);
     }
@@ -95,5 +104,5 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
     [sandboxes],
   );
 
-  return { sandboxes, loading, error, activeVncUrl, vncUrlForSession, refresh, create, destroy, handleMessage } as UseDesktopReturn & { handleMessage: (msg: WSMessage) => void };
+  return { sandboxes, loading, error, activeVncUrl, vncUrlForSession, refresh, create, destroy, handleMessage };
 }
