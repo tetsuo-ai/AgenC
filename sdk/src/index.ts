@@ -18,6 +18,8 @@ export {
   computeConstraintHash,
   computeNullifierFromAgentSecret,
   computeCommitmentFromOutput,
+  computeModelCommitment,
+  computeInputCommitment,
   // Byte helpers
   bigintToBytes32,
   buildJournalBytes,
@@ -316,6 +318,8 @@ export { PrivacyClient, type PrivacyClientConfig } from "./client";
 export {
   validateProverEndpoint,
   validateRisc0PayloadShape,
+  validateModelCommitment,
+  validateInputCommitment,
   type Risc0PayloadLike,
 } from "./validation";
 

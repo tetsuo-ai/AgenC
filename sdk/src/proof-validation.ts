@@ -278,6 +278,28 @@ export async function runProofSubmissionPreflight(
       });
     }
 
+    if (
+      !isAllZeros(journal.modelCommitment) &&
+      !hasSufficientByteDiversity(journal.modelCommitment)
+    ) {
+      failures.push({
+        check: "model_commitment_entropy",
+        message: `journal model commitment has insufficient byte diversity (min ${MIN_DISTINCT_BYTES} distinct byte values required)`,
+        retriable: false,
+      });
+    }
+
+    if (
+      !isAllZeros(journal.inputCommitment) &&
+      !hasSufficientByteDiversity(journal.inputCommitment)
+    ) {
+      failures.push({
+        check: "input_commitment_entropy",
+        message: `journal input commitment has insufficient byte diversity (min ${MIN_DISTINCT_BYTES} distinct byte values required)`,
+        retriable: false,
+      });
+    }
+
     if (!bytesEqual(journal.taskPda, params.taskPda.toBytes())) {
       failures.push({
         check: "journal_task_match",

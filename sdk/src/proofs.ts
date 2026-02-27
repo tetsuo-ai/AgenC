@@ -41,6 +41,14 @@ const OUTPUT_COMMITMENT_DOMAIN_TAG = Buffer.from(
 );
 const BINDING_BASE_DOMAIN_TAG = Buffer.from("AGENC_V2_BINDING_BASE", "utf8");
 const BINDING_DOMAIN_TAG = Buffer.from("AGENC_V2_BINDING", "utf8");
+const MODEL_COMMITMENT_DOMAIN_TAG = Buffer.from(
+  "AGENC_V2_MODEL_COMMITMENT",
+  "utf8",
+);
+const INPUT_COMMITMENT_DOMAIN_TAG = Buffer.from(
+  "AGENC_V2_INPUT_COMMITMENT",
+  "utf8",
+);
 const MAX_U256 = (1n << 256n) - 1n;
 
 /**
@@ -78,6 +86,24 @@ export interface ProofGenerationParams {
    * Must match the pinned trusted selector.
    */
   sealSelector?: Uint8Array | Buffer;
+  /**
+   * Optional model identifier string (e.g. "llama-3-8b") for inference
+   * attestation. Combined with `weightsHash` to produce `modelCommitment`.
+   * Both fields must be provided together; omitting either leaves the journal
+   * field zero-filled (no model binding).
+   */
+  modelId?: string;
+  /**
+   * Optional SHA-256 hash of the model weights (32 bytes).
+   * Required when `modelId` is provided.
+   */
+  weightsHash?: Uint8Array | Buffer;
+  /**
+   * Optional raw input bytes for inference attestation. Combined with `salt`
+   * to produce `inputCommitment`. Omitting leaves the journal field
+   * zero-filled (no input binding).
+   */
+  inputData?: Uint8Array | Buffer;
 }
 
 export interface ProofResult {
@@ -235,6 +261,53 @@ export function computeNullifierFromAgentSecret(
 }
 
 /**
+ * Compute a model commitment from a model ID string and its weights hash.
+ *
+ * Cryptographically binds a proof to a specific model without revealing the
+ * model weights. The commitment is domain-separated so it cannot be confused
+ * with other commitment types.
+ *
+ * @param modelId - Human-readable model identifier (e.g. "llama-3-8b")
+ * @param weightsHash - SHA-256 hash of the model weights (32 bytes)
+ * @returns A field element commitment in the BN254 scalar field
+ */
+export function computeModelCommitment(
+  modelId: string,
+  weightsHash: Uint8Array,
+): bigint {
+  const digest = createHash("sha256")
+    .update(MODEL_COMMITMENT_DOMAIN_TAG)
+    .update(Buffer.from(modelId, "utf8"))
+    .update(weightsHash)
+    .digest();
+  return BigInt(`0x${digest.toString("hex")}`) % FIELD_MODULUS;
+}
+
+/**
+ * Compute an input commitment from raw input bytes and a salt.
+ *
+ * Cryptographically binds a proof to specific inference inputs without
+ * revealing the inputs. The salt ensures the same input produces different
+ * commitments across proofs, preventing correlation attacks.
+ *
+ * @param inputData - Raw input bytes (e.g. tokenized prompt)
+ * @param salt - Non-zero random salt (reuse of proof salt is fine here)
+ * @returns A field element commitment in the BN254 scalar field
+ */
+export function computeInputCommitment(
+  inputData: Uint8Array,
+  salt: bigint,
+): bigint {
+  const s = normalizeFieldElement(salt);
+  const digest = createHash("sha256")
+    .update(INPUT_COMMITMENT_DOMAIN_TAG)
+    .update(inputData)
+    .update(bigintToBytes32(s))
+    .digest();
+  return BigInt(`0x${digest.toString("hex")}`) % FIELD_MODULUS;
+}
+
+/**
  * Compute all hashes needed for proof generation.
  */
 export function computeHashes(
@@ -375,6 +448,26 @@ export async function generateProof(
   const bindingSeedBuf = bigintToBytes32(hashes.binding);
   const nullifierSeedBuf = bigintToBytes32(hashes.nullifier);
 
+  const modelCommitmentBuf =
+    params.modelId !== undefined && params.weightsHash !== undefined
+      ? bigintToBytes32(
+          computeModelCommitment(
+            params.modelId,
+            new Uint8Array(params.weightsHash),
+          ),
+        )
+      : Buffer.alloc(HASH_SIZE);
+
+  const inputCommitmentBuf =
+    params.inputData !== undefined
+      ? bigintToBytes32(
+          computeInputCommitment(
+            new Uint8Array(params.inputData),
+            params.salt,
+          ),
+        )
+      : Buffer.alloc(HASH_SIZE);
+
   const proverInput = {
     taskPda: new Uint8Array(params.taskPda.toBytes()),
     agentAuthority: new Uint8Array(params.agentPubkey.toBytes()),
@@ -382,8 +475,8 @@ export async function generateProof(
     outputCommitment: new Uint8Array(outputCommitmentBuf),
     binding: new Uint8Array(bindingSeedBuf),
     nullifier: new Uint8Array(nullifierSeedBuf),
-    modelCommitment: new Uint8Array(HASH_SIZE),
-    inputCommitment: new Uint8Array(HASH_SIZE),
+    modelCommitment: new Uint8Array(modelCommitmentBuf),
+    inputCommitment: new Uint8Array(inputCommitmentBuf),
   };
 
   const { prove } = await import("./prover.js");
@@ -400,6 +493,8 @@ export async function generateProof(
     outputCommitment: outputCommitmentBuf,
     bindingSeed: bindingSeedBuf,
     nullifierSeed: nullifierSeedBuf,
+    modelCommitment: modelCommitmentBuf,
+    inputCommitment: inputCommitmentBuf,
   });
   if (!expectedJournal.equals(journal)) {
     throw new Error(

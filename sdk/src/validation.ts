@@ -11,6 +11,9 @@ import {
   TRUSTED_RISC0_SELECTOR,
 } from "./constants";
 
+const MAX_MODEL_ID_LENGTH = 256;
+const MAX_INPUT_DATA_SIZE = 1024 * 1024; // 1 MB
+
 const MAX_INPUT_LENGTH = 512;
 const DANGEROUS_CHARS = /[;&|`$(){}[\]<>!\\\x00\n\r]/;
 
@@ -59,6 +62,56 @@ export interface Risc0PayloadLike {
   imageId: Uint8Array | Buffer;
   bindingSeed: Uint8Array | Buffer;
   nullifierSeed: Uint8Array | Buffer;
+}
+
+/**
+ * Validate inputs before computing a model commitment.
+ *
+ * Ensures `modelId` is a non-empty string within the allowed length and that
+ * `weightsHash` is exactly {@link HASH_SIZE} bytes (32).
+ */
+export function validateModelCommitment(
+  modelId: string,
+  weightsHash: Uint8Array,
+): void {
+  if (!modelId || modelId.trim().length === 0) {
+    throw new Error("Security: modelId cannot be empty");
+  }
+  if (modelId.length > MAX_MODEL_ID_LENGTH) {
+    throw new Error(
+      `Security: modelId exceeds maximum length (${MAX_MODEL_ID_LENGTH} characters)`,
+    );
+  }
+  if (weightsHash.length !== HASH_SIZE) {
+    throw new Error(
+      `Security: weightsHash must be ${HASH_SIZE} bytes, got ${weightsHash.length}`,
+    );
+  }
+}
+
+/**
+ * Validate inputs before computing an input commitment.
+ *
+ * Ensures `inputData` is non-empty and within the 1 MB size limit, and that
+ * `salt` is a positive non-zero bigint (zero salt breaks commitment privacy).
+ */
+export function validateInputCommitment(
+  inputData: Uint8Array,
+  salt: bigint,
+): void {
+  if (inputData.length === 0) {
+    throw new Error("Security: inputData cannot be empty");
+  }
+  if (inputData.length > MAX_INPUT_DATA_SIZE) {
+    throw new Error(
+      `Security: inputData exceeds maximum size (${MAX_INPUT_DATA_SIZE} bytes)`,
+    );
+  }
+  if (salt <= 0n) {
+    throw new Error(
+      "Security: salt must be a positive non-zero bigint for input commitment privacy",
+    );
+  }
 }
 
 /**
