@@ -26,6 +26,14 @@ vi.mock("./rest-bridge.js", () => {
         content: '{"clicked":true}',
       }),
     },
+    {
+      name: "desktop.bash",
+      description: "Run bash command",
+      inputSchema: {},
+      execute: vi.fn().mockResolvedValue({
+        content: '{"stdout":"hello","exitCode":0}',
+      }),
+    },
   ];
 
   return {
@@ -216,6 +224,20 @@ describe("createDesktopAwareToolHandler", () => {
       const parsed = JSON.parse(result);
       expect(parsed.clicked).toBe(true);
       // No _screenshot since it failed
+      expect(parsed._screenshot).toBeUndefined();
+    });
+
+    it("skips for bash commands (not a GUI action)", async () => {
+      const manager = mockManager();
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        autoScreenshot: true,
+      });
+
+      const result = await handler("desktop.bash", { command: "ls" });
+      const parsed = JSON.parse(result);
+      expect(parsed.stdout).toBe("hello");
       expect(parsed._screenshot).toBeUndefined();
     });
 

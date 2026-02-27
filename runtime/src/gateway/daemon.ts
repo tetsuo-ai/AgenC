@@ -459,7 +459,7 @@ export class DaemonManager {
           containerMCPConfigs: containerMCPConfigs.length > 0 ? containerMCPConfigs : undefined,
           containerMCPBridges: containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
           logger: desktopLogger,
-          autoScreenshot: true,
+          autoScreenshot: config.desktop?.autoScreenshot ?? false,
         });
     }
 
