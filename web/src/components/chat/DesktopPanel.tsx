@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface DesktopPanelProps {
   vncUrl: string;
@@ -7,12 +7,24 @@ interface DesktopPanelProps {
 
 export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
   const [loading, setLoading] = useState(true);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const iframeSrc = `${vncUrl}?autoconnect=true&resize=scale`;
 
   const openFullscreen = useCallback(() => {
     window.open(vncUrl, '_blank', 'noopener');
   }, [vncUrl]);
+
+  // Focus the iframe when clicked so it receives keyboard events
+  const handleContainerClick = useCallback(() => {
+    iframeRef.current?.focus();
+  }, []);
+
+  // Safety timeout — hide spinner after 8s even if onLoad doesn't fire
+  useEffect(() => {
+    const timer = setTimeout(() => setLoading(false), 8000);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div className="flex flex-col h-full border-l border-tetsuo-200 bg-surface">
@@ -47,9 +59,9 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
       </div>
 
       {/* iframe container */}
-      <div className="relative flex-1 min-h-0">
+      <div className="relative flex-1 min-h-0" onClick={handleContainerClick}>
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-tetsuo-50">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-tetsuo-50 pointer-events-none">
             <div className="flex flex-col items-center gap-2 text-tetsuo-400">
               <svg className="animate-spin w-6 h-6" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
@@ -60,6 +72,7 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
           </div>
         )}
         <iframe
+          ref={iframeRef}
           src={iframeSrc}
           className="w-full h-full border-0"
           onLoad={() => setLoading(false)}

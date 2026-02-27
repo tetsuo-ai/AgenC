@@ -247,7 +247,7 @@ export function ChatView({
       <div className="flex-1 min-h-0 flex">
         <MessageList messages={messages} isTyping={isTyping} theme={theme} searchQuery={searchQuery} />
         {desktopOpen && desktopUrl && (
-          <div className="hidden md:block w-[55%] min-w-[480px] shrink-0">
+          <div className="hidden md:block w-[55%] min-w-[480px] h-full shrink-0">
             <DesktopPanel vncUrl={desktopUrl} onClose={onToggleDesktop!} />
           </div>
         )}
