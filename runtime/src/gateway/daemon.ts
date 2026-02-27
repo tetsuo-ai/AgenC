@@ -33,6 +33,7 @@ import { createBrowserTools } from '../tools/system/browser.js';
 import { SkillDiscovery } from '../skills/markdown/discovery.js';
 import type { DiscoveredSkill } from '../skills/markdown/discovery.js';
 import { VoiceBridge } from './voice-bridge.js';
+import { createSessionToolHandler } from './tool-handler-factory.js';
 import { InMemoryBackend } from '../memory/in-memory/backend.js';
 import { ApprovalEngine } from './approvals.js';
 import type { MemoryBackend } from '../memory/types.js';
@@ -445,10 +446,8 @@ export class DaemonManager {
       }));
       llmTools.push(...desktopToolDefs);
 
-      // The original handler is wrapped per-session in createWebChatMessageHandler
       // Store the original so per-session wrapping can use it
       const originalBaseHandler = baseToolHandler;
-      baseToolHandler = originalBaseHandler;
       const containerMCPConfigs = this._containerMCPConfigs;
       const containerMCPBridges = this._containerMCPBridges;
       this._desktopRouterFactory = (sessionId: string) =>
@@ -663,7 +662,14 @@ export class DaemonManager {
       progressTracker,
       pipelineExecutor,
     );
-    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt);
+    const voiceDeps = {
+      chatExecutor: this._chatExecutor ?? undefined,
+      sessionManager: sessionMgr,
+      hooks,
+      approvalEngine,
+      memoryBackend,
+    };
+    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt, voiceDeps);
     this._voiceBridge = voiceBridge ?? null;
 
     const webChat = new WebChatChannel({
@@ -725,7 +731,7 @@ export class DaemonManager {
       const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
       if (voiceChanged) {
         void this._voiceBridge?.stopAll();
-        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, systemPrompt);
+        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, systemPrompt, voiceDeps);
         this._voiceBridge = newBridge ?? null;
         if (this._webChatChannel) {
           this._webChatChannel.updateVoiceBridge(newBridge ?? null);
@@ -2111,6 +2117,13 @@ export class DaemonManager {
     llmTools: LLMTool[],
     toolHandler: ToolHandler,
     systemPrompt: string,
+    deps?: {
+      chatExecutor?: ChatExecutor;
+      sessionManager?: SessionManager;
+      hooks?: HookDispatcher;
+      approvalEngine?: ApprovalEngine;
+      memoryBackend?: MemoryBackend;
+    },
   ): VoiceBridge | undefined {
     const voiceApiKey = config.voice?.apiKey || config.llm?.apiKey;
     if (!voiceApiKey || config.voice?.enabled === false) {
@@ -2137,6 +2150,12 @@ export class DaemonManager {
       vadSilenceDurationMs: config.voice?.vadSilenceDurationMs,
       vadPrefixPaddingMs: config.voice?.vadPrefixPaddingMs,
       logger: this.logger,
+      // Chat-Supervisor delegation deps
+      chatExecutor: deps?.chatExecutor,
+      sessionManager: deps?.sessionManager,
+      hooks: deps?.hooks,
+      approvalEngine: deps?.approvalEngine,
+      memoryBackend: deps?.memoryBackend,
     });
   }
 
@@ -2241,100 +2260,40 @@ export class DaemonManager {
       const GREETING_RE = /^(h(i|ello|ey|ola|owdy)|yo|sup|what'?s\s*up|greetings?|good\s*(morning|afternoon|evening)|gm|gn)\s*[!?.,:;\-)*]*$/i;
       const isGreeting = GREETING_RE.test(msg.content.trim());
 
+      const baseSessionHandler = createSessionToolHandler({
+        sessionId: msg.sessionId,
+        baseHandler: baseToolHandler,
+        desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+        routerId: msg.sessionId,
+        send: (m) => webChat.pushToSession(msg.sessionId, m),
+        hooks,
+        approvalEngine,
+        onToolStart: (name) => {
+          webChat.pushToSession(msg.sessionId, {
+            type: 'agent.status',
+            payload: { phase: 'tool_call', detail: `Calling ${name}` },
+          });
+        },
+        onToolEnd: (toolName, _result, durationMs) => {
+          webChat.broadcastEvent('tool.executed', {
+            toolName,
+            durationMs,
+            sessionId: msg.sessionId,
+          });
+          webChat.pushToSession(msg.sessionId, {
+            type: 'agent.status',
+            payload: { phase: 'generating' },
+          });
+        },
+      });
+
       const sessionToolHandler: ToolHandler = async (name, args) => {
         if (isGreeting) {
           return JSON.stringify({
             error: 'This is a greeting message. Respond conversationally without using any tools.',
           });
         }
-
-        const toolBeforeResult = await hooks.dispatch('tool:before', {
-          sessionId: msg.sessionId,
-          toolName: name,
-          args,
-        });
-        if (!toolBeforeResult.completed) {
-          return JSON.stringify({ error: `Tool "${name}" blocked by hook` });
-        }
-
-        webChat.pushToSession(msg.sessionId, {
-          type: 'agent.status',
-          payload: { phase: 'tool_call', detail: `Calling ${name}` },
-        });
-        webChat.pushToSession(msg.sessionId, {
-          type: 'tools.executing',
-          payload: { toolName: name, args },
-        });
-
-        const rule = approvalEngine.requiresApproval(name, args);
-        if (rule && !approvalEngine.isToolElevated(msg.sessionId, name)) {
-          const request = approvalEngine.createRequest(
-            name,
-            args,
-            msg.sessionId,
-            rule.description ?? `Approval required for ${name}`,
-            rule,
-          );
-          webChat.pushToSession(msg.sessionId, {
-            type: 'approval.request',
-            payload: {
-              requestId: request.id,
-              action: name,
-              details: args,
-              message: request.message,
-            },
-          });
-          const response = await approvalEngine.requestApproval(request);
-          if (response.disposition === 'no') {
-            const err = JSON.stringify({ error: `Tool "${name}" denied by user` });
-            webChat.pushToSession(msg.sessionId, {
-              type: 'tools.result',
-              payload: { toolName: name, result: err, durationMs: 0, isError: true },
-            });
-            webChat.pushToSession(msg.sessionId, {
-              type: 'agent.status',
-              payload: { phase: 'generating' },
-            });
-            return err;
-          }
-          if (response.disposition === 'always') {
-            approvalEngine.elevate(msg.sessionId, name);
-          }
-        }
-
-        const start = Date.now();
-        // Use desktop-aware handler if available, otherwise base handler
-        const activeHandler = this._desktopRouterFactory
-          ? this._desktopRouterFactory(msg.sessionId)
-          : baseToolHandler;
-        const result = await activeHandler(name, args);
-        const durationMs = Date.now() - start;
-
-        webChat.pushToSession(msg.sessionId, {
-          type: 'tools.result',
-          payload: { toolName: name, result, durationMs },
-        });
-
-        await hooks.dispatch('tool:after', {
-          sessionId: msg.sessionId,
-          toolName: name,
-          args,
-          result,
-          durationMs,
-        });
-
-        webChat.broadcastEvent('tool.executed', {
-          toolName: name,
-          durationMs,
-          sessionId: msg.sessionId,
-        });
-
-        webChat.pushToSession(msg.sessionId, {
-          type: 'agent.status',
-          payload: { phase: 'generating' },
-        });
-
-        return result;
+        return baseSessionHandler(name, args);
       };
 
       try {

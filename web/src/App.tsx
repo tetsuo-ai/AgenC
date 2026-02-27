@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ViewId, WSMessage, ApprovalRequest } from './types';
+import {
+  WS_VOICE_SPEECH_STOPPED,
+  WS_VOICE_USER_TRANSCRIPT,
+  WS_VOICE_TRANSCRIPT,
+  WS_VOICE_TOOL_CALL,
+  WS_TOOLS_EXECUTING,
+  WS_TOOLS_RESULT,
+} from './constants';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
@@ -30,9 +38,6 @@ import { SettingsView } from './components/settings/SettingsView';
 import { PaymentView } from './components/payment/PaymentView';
 import { DesktopView } from './components/desktop/DesktopView';
 
-// Type helper: extract handleMessage from hook return
-type WithHandler<T> = T & { handleMessage: (msg: WSMessage) => void };
-
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewId>('chat');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
@@ -46,9 +51,20 @@ export default function App() {
 
   const connected = connectionState === 'connected';
 
-  // Hooks (all include handleMessage for routing WS messages)
-  const chat = useChat({ send, connected }) as WithHandler<ReturnType<typeof useChat>>;
-  const voice = useVoice({ send });
+  // Type helper for hooks that expose handleMessage as an extra property
+  // not yet on their return interface. TODO: add handleMessage to each hook's
+  // return interface and remove these casts.
+  type WithHandler<T> = T & { handleMessage: (msg: WSMessage) => void };
+
+  // Hooks — chat and desktop have handleMessage on their return type.
+  // Other hooks still need the WithHandler cast until their interfaces are updated.
+  const chat = useChat({ send, connected });
+  const handleDelegationResult = useCallback((task: string, content: string) => {
+    // Inject delegation result into chat panel so user can read full output
+    chat.injectMessage(`[Voice] ${task}`, 'user');
+    chat.injectMessage(content, 'agent');
+  }, [chat]);
+  const voice = useVoice({ send, onDelegationResult: handleDelegationResult });
   const agentStatus = useAgentStatus({ send, connected }) as WithHandler<ReturnType<typeof useAgentStatus>>;
   const skills = useSkills({ send }) as WithHandler<ReturnType<typeof useSkills>>;
   const tasks = useTasks({ send }) as WithHandler<ReturnType<typeof useTasks>>;
@@ -58,14 +74,17 @@ export default function App() {
   const walletInfo = useWallet({ send, connected });
   const activityFeed = useActivityFeed({ send, connected }) as WithHandler<ReturnType<typeof useActivityFeed>>;
   const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
-  const desktop = useDesktop({ send, connected }) as WithHandler<ReturnType<typeof useDesktop>>;
+  const desktop = useDesktop({ send, connected });
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
   const prevVncUrl = useRef<string | null>(null);
 
-  // Match VNC viewer to the active chat session's container
+  // Match VNC viewer to the active chat session's container.
+  // During voice delegation, sandboxes are keyed by the voice session ID
+  // (not the text chat session), so fall back to any ready sandbox.
   const sessionDesktopUrl = useMemo(
-    () => desktop.vncUrlForSession(chat.sessionId),
-    [desktop, chat.sessionId],
+    () => desktop.vncUrlForSession(chat.sessionId)
+      ?? (voice.isVoiceActive ? desktop.activeVncUrl : null),
+    [desktop, chat.sessionId, voice.isVoiceActive],
   );
 
   const toggleDesktopPanel = useCallback(() => {
@@ -81,11 +100,12 @@ export default function App() {
   }, [sessionDesktopUrl]);
 
   // Periodically refresh sandbox list so we pick up newly-created containers
+  const desktopRefresh = desktop.refresh;
   useEffect(() => {
     if (!connected) return;
-    const id = setInterval(() => desktop.refresh(), 5000);
+    const id = setInterval(() => desktopRefresh(), 5000);
     return () => clearInterval(id);
-  }, [connected, desktop.refresh]);
+  }, [connected, desktopRefresh]);
 
   // Voice toggle — start or stop voice session
   const handleVoiceToggle = useCallback(() => {
@@ -113,21 +133,26 @@ export default function App() {
 
     // Voice → Chat bridge: mirror voice turns as chat messages
     const payload = (msg.payload ?? {}) as Record<string, unknown>;
-    if (msg.type === 'voice.speech_stopped') {
+    if (msg.type === WS_VOICE_SPEECH_STOPPED) {
+      // Inject placeholder immediately — replaced by real transcript if available
       chat.injectMessage('[Voice]', 'user');
     }
-    if (msg.type === 'voice.transcript' && payload.done && typeof payload.text === 'string') {
+    if (msg.type === WS_VOICE_USER_TRANSCRIPT && typeof payload.text === 'string') {
+      // Replace the [Voice] placeholder with actual transcribed text
+      chat.replaceLastUserMessage(payload.text);
+    }
+    if (msg.type === WS_VOICE_TRANSCRIPT && payload.done && typeof payload.text === 'string') {
       chat.injectMessage(payload.text, 'agent');
     }
     // Bridge voice tool calls to the chat tool call UI
-    if (msg.type === 'voice.tool_call') {
+    if (msg.type === WS_VOICE_TOOL_CALL) {
       const toolName = (payload.toolName as string) ?? 'unknown';
       const status = payload.status as string;
       if (status === 'executing') {
-        chat.handleMessage({ type: 'tools.executing', payload: { toolName, args: {} } });
+        chat.handleMessage({ type: WS_TOOLS_EXECUTING, payload: { toolName, args: {} } });
       } else if (status === 'completed' || status === 'error') {
         chat.handleMessage({
-          type: 'tools.result',
+          type: WS_TOOLS_RESULT,
           payload: {
             toolName,
             result: (payload.result as string) ?? (payload.error as string) ?? '',
@@ -213,6 +238,7 @@ export default function App() {
                 onVoiceModeChange={voice.setMode}
                 onPushToTalkStart={voice.pushToTalkStart}
                 onPushToTalkStop={voice.pushToTalkStop}
+                delegationTask={voice.delegationTask}
                 theme={theme}
                 onToggleTheme={toggleTheme}
                 chatSessions={chat.sessions}

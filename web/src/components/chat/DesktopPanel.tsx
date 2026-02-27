@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+/** Safety timeout (ms) — hide spinner even if onLoad doesn't fire. */
+const DESKTOP_IFRAME_LOAD_TIMEOUT_MS = 8_000;
+
 interface DesktopPanelProps {
   vncUrl: string;
   onClose: () => void;
@@ -9,7 +12,7 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
   const [loading, setLoading] = useState(true);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const iframeSrc = `${vncUrl}?autoconnect=true&resize=scale`;
+  const iframeSrc = `${vncUrl}?autoconnect=true&resize=scale&view_only=false&show_dot=true`;
 
   const openFullscreen = useCallback(() => {
     window.open(vncUrl, '_blank', 'noopener');
@@ -20,9 +23,9 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
     iframeRef.current?.focus();
   }, []);
 
-  // Safety timeout — hide spinner after 8s even if onLoad doesn't fire
+  // Safety timeout — hide spinner even if onLoad doesn't fire
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 8000);
+    const timer = setTimeout(() => setLoading(false), DESKTOP_IFRAME_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, []);
 
