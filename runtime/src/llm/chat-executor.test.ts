@@ -454,6 +454,108 @@ describe("ChatExecutor", () => {
       expect(toolHandler).toHaveBeenCalledWith("search", { query: "test" });
     });
 
+    it("sanitizes screenshot tool payloads before follow-up model call", async () => {
+      const hugeBase64 = "A".repeat(90_000);
+      const toolHandler = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          image: hugeBase64,
+          dataUrl: `data:image/png;base64,${hugeBase64}`,
+          width: 1024,
+          height: 768,
+        }),
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                { id: "tc-1", name: "desktop.screenshot", arguments: "{}" },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "done" })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      await executor.execute(createParams());
+
+      const followupMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as LLMMessage[];
+      const toolMessage = followupMessages.find(
+        (m) => m.role === "tool" && m.toolCallId === "tc-1",
+      );
+      expect(toolMessage).toBeDefined();
+      expect(Array.isArray(toolMessage?.content)).toBe(true);
+
+      const parts = toolMessage!.content as Array<
+        { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
+      >;
+      const textPart = parts.find((p) => p.type === "text") as
+        | { type: "text"; text: string }
+        | undefined;
+      const imagePart = parts.find((p) => p.type === "image_url") as
+        | { type: "image_url"; image_url: { url: string } }
+        | undefined;
+
+      expect(imagePart?.image_url.url.startsWith("data:image/png;base64,")).toBe(
+        true,
+      );
+      expect(textPart?.text).toContain("(base64 omitted)");
+      expect(textPart?.text).toContain("(see image)");
+      expect(textPart?.text.length ?? 0).toBeLessThan(13_000);
+    });
+
+    it("drops additional tool screenshots when image prompt budget is exceeded", async () => {
+      const hugeBase64 = "B".repeat(70_000);
+      const screenshotResult = JSON.stringify({
+        dataUrl: `data:image/png;base64,${hugeBase64}`,
+        width: 1024,
+        height: 768,
+      });
+      const toolHandler = vi.fn().mockResolvedValue(screenshotResult);
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                { id: "tc-1", name: "desktop.screenshot", arguments: "{}" },
+                { id: "tc-2", name: "desktop.screenshot", arguments: "{}" },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "done" })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      await executor.execute(createParams());
+
+      const followupMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as LLMMessage[];
+      const toolMessages = followupMessages.filter(
+        (m) => m.role === "tool",
+      );
+      expect(toolMessages).toHaveLength(2);
+
+      const imageCount = toolMessages.reduce((count, msg) => {
+        if (!Array.isArray(msg.content)) return count;
+        return (
+          count +
+          msg.content.filter((p) => p.type === "image_url").length
+        );
+      }, 0);
+      expect(imageCount).toBe(1);
+
+      const secondTool = toolMessages.find((m) => m.toolCallId === "tc-2");
+      expect(typeof secondTool?.content === "string").toBe(true);
+      expect(String(secondTool?.content)).toContain("omitted");
+    });
+
     it("multi-round tool calls chain with context", async () => {
       const toolHandler = vi
         .fn()
@@ -1096,7 +1198,11 @@ describe("ChatExecutor", () => {
         memoryRetriever,
       });
 
-      await executor.execute(createParams());
+      await executor.execute(
+        createParams({
+          history: [{ role: "assistant", content: "Previous turn" }],
+        }),
+      );
 
       const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
         .calls[0][0] as LLMMessage[];
@@ -1118,7 +1224,11 @@ describe("ChatExecutor", () => {
         progressProvider,
       });
 
-      await executor.execute(createParams());
+      await executor.execute(
+        createParams({
+          history: [{ role: "assistant", content: "Previous turn" }],
+        }),
+      );
 
       const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
         .calls[0][0] as LLMMessage[];
@@ -1157,7 +1267,11 @@ describe("ChatExecutor", () => {
         progressProvider,
       });
 
-      await executor.execute(createParams());
+      await executor.execute(
+        createParams({
+          history: [{ role: "assistant", content: "Previous turn" }],
+        }),
+      );
 
       const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
         .calls[0][0] as LLMMessage[];
@@ -1166,6 +1280,25 @@ describe("ChatExecutor", () => {
       expect(systemMessages).toHaveLength(3);
       expect(systemMessages[1].content).toContain("Learned Patterns");
       expect(systemMessages[2].content).toContain("Recent Progress");
+    });
+
+    it("does not inject persistent memory providers on a fresh session", async () => {
+      const memoryRetriever = { retrieve: vi.fn().mockResolvedValue("Memory") };
+      const learningProvider = { retrieve: vi.fn().mockResolvedValue("Learning") };
+      const progressProvider = { retrieve: vi.fn().mockResolvedValue("Progress") };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        memoryRetriever,
+        learningProvider,
+        progressProvider,
+      });
+
+      await executor.execute(createParams({ history: [] }));
+
+      expect(memoryRetriever.retrieve).not.toHaveBeenCalled();
+      expect(learningProvider.retrieve).not.toHaveBeenCalled();
+      expect(progressProvider.retrieve).not.toHaveBeenCalled();
     });
   });
 
@@ -1458,6 +1591,60 @@ describe("ChatExecutor", () => {
       // Should work without errors — negative values clamped to 0
       const result = await executor.execute(createParams());
       expect(result.content).toBe("mock response");
+    });
+
+    it("omits historical image payloads from normalized history", async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+      const hugeImage = `data:image/png;base64,${"A".repeat(120_000)}`;
+
+      await executor.execute(
+        createParams({
+          history: [
+            {
+              role: "assistant",
+              content: [
+                { type: "image_url", image_url: { url: hugeImage } },
+                { type: "text", text: "previous screenshot context" },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as LLMMessage[];
+      const historicalAssistant = messages.find((m) => m.role === "assistant");
+      expect(historicalAssistant).toBeDefined();
+      expect(Array.isArray(historicalAssistant?.content)).toBe(true);
+      const parts = historicalAssistant!.content as Array<
+        { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
+      >;
+      expect(parts.some((p) => p.type === "image_url")).toBe(false);
+      expect(
+        parts.some(
+          (p) => p.type === "text" && p.text.includes("prior image omitted"),
+        ),
+      ).toBe(true);
+    });
+
+    it("truncates oversized user messages before provider call", async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+      const hugeUserMessage = "U".repeat(30_000);
+
+      await executor.execute(
+        createParams({
+          message: createMessage(hugeUserMessage),
+        }),
+      );
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as LLMMessage[];
+      const last = messages[messages.length - 1];
+      expect(last.role).toBe("user");
+      expect(typeof last.content).toBe("string");
+      expect((last.content as string).length).toBeLessThanOrEqual(8_000);
     });
   });
 });

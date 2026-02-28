@@ -174,6 +174,110 @@ describe("WebChatChannel", () => {
       const calls = vi.mocked(context.onMessage).mock.calls;
       expect(calls[0][0].sessionId).not.toBe(calls[1][0].sessionId);
     });
+
+    it("should dedupe replayed chat.message by request id", () => {
+      const send = vi.fn<(response: ControlResponse) => void>();
+      const messageId = "chat_msg_fixed";
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "open terminal" }, messageId),
+        send,
+      );
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "open terminal" }, messageId),
+        send,
+      );
+
+      expect(context.onMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not reuse the same first session ID after channel restart", async () => {
+      const send = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "msg1" }),
+        send,
+      );
+      const firstSessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+
+      // Simulate daemon/plugin restart and a new connection that gets the same
+      // clientId counter value.
+      const context2 = createContext();
+      const channel2 = new WebChatChannel(deps);
+      await channel2.initialize(context2);
+      await channel2.start();
+
+      channel2.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "msg2" }),
+        send,
+      );
+      const secondSessionId = vi.mocked(context2.onMessage).mock.calls[0][0].sessionId;
+
+      expect(secondSessionId).not.toBe(firstSessionId);
+    });
+  });
+
+  describe("chat.new", () => {
+    it("should create a fresh session for the same client", () => {
+      const send = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "old-session-msg" }),
+        send,
+      );
+      const firstSessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+
+      channel.handleMessage("client_1", "chat.new", msg("chat.new", {}, "new-1"), send);
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "new-session-msg" }),
+        send,
+      );
+      const secondSessionId = vi.mocked(context.onMessage).mock.calls[1][0].sessionId;
+
+      expect(secondSessionId).not.toBe(firstSessionId);
+
+      const newSessionCall = send.mock.calls.find(
+        (call) =>
+          (call[0] as ControlResponse).type === "chat.session" &&
+          (call[0] as ControlResponse).id === "new-1",
+      );
+      expect(newSessionCall).toBeDefined();
+    });
+
+    it("should reset backend context for the previous session", async () => {
+      const resetSessionContext = vi.fn().mockResolvedValue(undefined);
+      const context2 = createContext();
+      const channel2 = new WebChatChannel(createDeps({ resetSessionContext }));
+      const send = vi.fn<(response: ControlResponse) => void>();
+
+      await channel2.initialize(context2);
+      await channel2.start();
+
+      channel2.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "old-session-msg" }),
+        send,
+      );
+      const firstSessionId = vi.mocked(context2.onMessage).mock.calls[0][0].sessionId;
+
+      channel2.handleMessage("client_1", "chat.new", msg("chat.new", {}, "new-2"), send);
+
+      expect(resetSessionContext).toHaveBeenCalledWith(firstSessionId);
+    });
   });
 
   // --------------------------------------------------------------------------

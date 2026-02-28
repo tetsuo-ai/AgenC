@@ -185,12 +185,13 @@ export class XaiRealtimeClient {
     messages: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
   ): void {
     for (const msg of messages) {
+      const contentType = msg.role === "assistant" ? "text" : "input_text";
       this.sendEvent({
         type: "conversation.item.create",
         item: {
           type: "message",
           role: msg.role,
-          content: [{ type: "input_text", text: msg.content }],
+          content: [{ type: contentType, text: msg.content }],
         },
       });
     }

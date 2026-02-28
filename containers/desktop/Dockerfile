@@ -8,14 +8,18 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PORT=9990 \
     HOME=/home/agenc
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright
+
 # =============================================================================
 # System packages
 # =============================================================================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Virtual display + desktop environment
-    xvfb xfce4 xfce4-terminal xfce4-whiskermenu-plugin dbus-x11 \
+    xvfb xfce4 xfce4-terminal xfce4-whiskermenu-plugin dbus-x11 xterm kitty \
     # File manager
     thunar \
+    # GUI browser fallback
+    epiphany-browser \
     # VNC
     x11vnc novnc websockify \
     # Input automation
@@ -41,7 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python
     python3 python3-pip python3-venv \
     # Misc utilities
-    bash-completion locales software-properties-common \
+    bash-completion locales software-properties-common sqlite3 \
     && locale-gen en_US.UTF-8 \
     # =========================================================================
     # Playwright MCP uses its own bundled Chromium (installed below).
@@ -56,8 +60,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # =========================================================================
     # Playwright MCP + bundled Chromium
     # =========================================================================
-    && npm install -g @playwright/mcp@1.8.0 \
-    && npx playwright@1.52.0 install --with-deps chromium \
+    && npm install -g @playwright/mcp@0.0.68 tmux-mcp mcp-neovim-server \
+    && mkdir -p ${PLAYWRIGHT_BROWSERS_PATH} \
+    && node /usr/lib/node_modules/@playwright/mcp/node_modules/playwright/cli.js install --with-deps chromium \
+    && CHROME_BIN="$(find ${PLAYWRIGHT_BROWSERS_PATH} -path '*/chrome-linux64/chrome' | head -n1)" \
+    && if [ -n "$CHROME_BIN" ]; then \
+         ln -sf "$CHROME_BIN" /usr/bin/chromium; \
+         ln -sf /usr/bin/chromium /usr/bin/chromium-browser; \
+       fi \
     # Cleanup
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -83,6 +93,36 @@ RUN rsvg-convert -w 1920 -h 1080 /tmp/agenc-wallpaper.svg -o /usr/share/backgrou
     && chmod 644 /usr/share/backgrounds/agenc-wallpaper.png \
     && chmod 644 /usr/share/icons/hicolor/scalable/apps/agenc-logo.svg \
     && (gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true)
+
+# Chromium wrapper: force no-sandbox inside containerized desktop.
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    '' \
+    'CHROME_BIN="$(find /home/agenc/.cache/ms-playwright -path '\''*/chrome-linux64/chrome'\'' | head -n1 || true)"' \
+    'if [ -z "${CHROME_BIN}" ]; then' \
+    '  echo "chromium-wrapper: Chrome binary not found under /home/agenc/.cache/ms-playwright" >&2' \
+    '  exit 1' \
+    'fi' \
+    '' \
+    'has_no_sandbox=0' \
+    'has_disable_setuid=0' \
+    'for arg in "$@"; do' \
+    '  [ "$arg" = "--no-sandbox" ] && has_no_sandbox=1' \
+    '  [ "$arg" = "--disable-setuid-sandbox" ] && has_disable_setuid=1' \
+    'done' \
+    '' \
+    'extra=()' \
+    '[ "$has_no_sandbox" -eq 0 ] && extra+=(--no-sandbox)' \
+    '[ "$has_disable_setuid" -eq 0 ] && extra+=(--disable-setuid-sandbox)' \
+    'extra+=(--disable-gpu --use-gl=swiftshader --disable-dev-shm-usage)' \
+    '' \
+    'exec "${CHROME_BIN}" "${extra[@]}" "$@"' \
+    > /usr/local/bin/chromium-wrapper
+
+RUN chmod +x /usr/local/bin/chromium-wrapper \
+    && ln -sf /usr/local/bin/chromium-wrapper /usr/bin/chromium \
+    && ln -sf /usr/local/bin/chromium-wrapper /usr/bin/chromium-browser
 
 # =============================================================================
 # XFCE configuration (dark theme, branded wallpaper, clean panel, no screensaver)

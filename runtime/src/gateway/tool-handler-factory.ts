@@ -12,6 +12,29 @@ import type { ToolHandler } from '../llm/types.js';
 import type { HookDispatcher } from './hooks.js';
 import type { ApprovalEngine } from './approvals.js';
 
+const DESKTOP_GUI_LAUNCH_RE =
+  /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:xfce4-terminal|gnome-terminal|xterm|kitty|firefox|chromium|chromium-browser|google-chrome|thunar|nautilus|mousepad|gedit)\b/i;
+const DESKTOP_TERMINAL_LAUNCH_RE = /\b(?:xfce4-terminal|gnome-terminal|xterm|kitty)\b/i;
+const DESKTOP_BROWSER_LAUNCH_RE = /\b(?:firefox|chromium|chromium-browser|google-chrome)\b/i;
+const DESKTOP_FILE_MANAGER_LAUNCH_RE = /\b(?:thunar|nautilus)\b/i;
+const DESKTOP_EDITOR_LAUNCH_RE = /\b(?:mousepad|gedit)\b/i;
+
+function normalizeDesktopBashCommand(
+  name: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  if (name !== 'desktop.bash') return undefined;
+  const command =
+    typeof args.command === 'string' ? args.command.trim() : '';
+  if (!command) return undefined;
+  if (!DESKTOP_GUI_LAUNCH_RE.test(command)) return undefined;
+  if (DESKTOP_TERMINAL_LAUNCH_RE.test(command)) return '__gui_terminal__';
+  if (DESKTOP_BROWSER_LAUNCH_RE.test(command)) return '__gui_browser__';
+  if (DESKTOP_FILE_MANAGER_LAUNCH_RE.test(command)) return '__gui_file_manager__';
+  if (DESKTOP_EDITOR_LAUNCH_RE.test(command)) return '__gui_editor__';
+  return command.replace(/\s+/g, ' ').toLowerCase();
+}
+
 // ============================================================================
 // Config
 // ============================================================================
@@ -78,10 +101,27 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     onToolEnd,
   } = config;
   let toolCallSeq = 0;
+  // Per-message duplicate guard to avoid opening the same GUI app twice when
+  // the model emits repeated desktop.bash launch calls in one turn.
+  const seenGuiLaunches = new Set<string>();
   const nextToolCallId = (): string =>
     `tool-${Date.now().toString(36)}-${++toolCallSeq}`;
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
+    const launchKey = normalizeDesktopBashCommand(name, args);
+    if (launchKey) {
+      if (seenGuiLaunches.has(launchKey)) {
+        return JSON.stringify({
+          stdout: '',
+          stderr: '',
+          exitCode: 0,
+          backgrounded: true,
+          skippedDuplicate: true,
+        });
+      }
+      seenGuiLaunches.add(launchKey);
+    }
+
     const toolCallId = nextToolCallId();
 
     // 1. Hook: tool:before (policy gate, progress tracking, etc.)

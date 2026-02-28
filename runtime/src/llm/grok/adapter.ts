@@ -25,11 +25,249 @@ import { withTimeout } from "../timeout.js";
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 const DEFAULT_VISION_MODEL = "grok-4-0709";
+const MAX_MESSAGES_PAYLOAD_CHARS = 80_000;
+const MAX_SYSTEM_MESSAGE_CHARS = 16_000;
+const MAX_MESSAGE_CHARS_PER_ENTRY = 4_000;
+const MAX_TOOL_DESCRIPTION_CHARS = 200;
+const MAX_TOOL_SCHEMA_CHARS_PER_TOOL = 3_000;
+const MAX_TOOL_SCHEMA_CHARS_TOTAL = 40_000;
+const MAX_TOOL_SCHEMA_CHARS_FOLLOWUP = 20_000;
+const TOOL_METADATA_KEYS = new Set([
+  "description",
+  "title",
+  "examples",
+  "default",
+  "$comment",
+  "deprecated",
+  "readOnly",
+  "writeOnly",
+]);
+const PRIORITY_TOOL_NAMES = new Set([
+  "system.bash",
+  "desktop.bash",
+  "desktop.screenshot",
+  "desktop.window_list",
+  "desktop.click",
+  "desktop.type",
+  "desktop.keypress",
+  "desktop.mouse_move",
+  "desktop.scroll",
+]);
 
 /** Vision models known to support function-calling alongside image understanding. */
 const VISION_MODELS_WITH_TOOLS = new Set([
   "grok-4-0709",
 ]);
+
+function truncate(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 3) return value.slice(0, Math.max(0, maxChars));
+  return value.slice(0, maxChars - 3) + "...";
+}
+
+function sanitizeLargeText(value: string): string {
+  return value
+    .replace(
+      /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g,
+      "(image omitted)",
+    )
+    .replace(/[A-Za-z0-9+/=\r\n]{400,}/g, "(base64 omitted)");
+}
+
+function estimateOpenAIContentChars(content: unknown): number {
+  if (typeof content === "string") return content.length;
+  if (Array.isArray(content)) {
+    return content.reduce((sum, part) => {
+      if (!part || typeof part !== "object") return sum;
+      const p = part as Record<string, unknown>;
+      if (p.type === "text") return sum + String(p.text ?? "").length;
+      if (p.type === "image_url") {
+        const imageUrl = p.image_url as Record<string, unknown> | undefined;
+        return sum + String(imageUrl?.url ?? "").length;
+      }
+      return sum;
+    }, 0);
+  }
+  return 0;
+}
+
+function hasImageContent(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const p = part as Record<string, unknown>;
+    return p.type === "image_url";
+  });
+}
+
+function compactOpenAIMessage(
+  msg: Record<string, unknown>,
+  maxChars: number,
+): Record<string, unknown> {
+  const role = String(msg.role ?? "user");
+  const compact = { ...msg };
+  const content = msg.content;
+
+  if (typeof content === "string") {
+    compact.content = truncate(sanitizeLargeText(content), maxChars);
+    return compact;
+  }
+
+  if (Array.isArray(content)) {
+    // In hard-cap mode we collapse multimodal payloads to compact text.
+    const text = content
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        const p = part as Record<string, unknown>;
+        if (p.type === "text") return String(p.text ?? "");
+        if (p.type === "image_url") return "[image omitted]";
+        return "";
+      })
+      .filter((s) => s.length > 0)
+      .join("\n");
+    compact.content = truncate(sanitizeLargeText(text || "[content omitted]"), maxChars);
+    return compact;
+  }
+
+  compact.content = role === "tool" ? "Tool executed." : "";
+  return compact;
+}
+
+function enforceMessageBudget(
+  messages: Record<string, unknown>[],
+  maxChars: number,
+): Record<string, unknown>[] {
+  const total = messages.reduce(
+    (sum, m) => sum + estimateOpenAIContentChars(m.content) + 48,
+    0,
+  );
+  if (total <= maxChars) return messages;
+
+  const firstSystemIndex = messages.findIndex((m) => m.role === "system");
+  const firstSystem =
+    firstSystemIndex >= 0
+      ? compactOpenAIMessage(messages[firstSystemIndex], MAX_SYSTEM_MESSAGE_CHARS)
+      : undefined;
+  const systemChars = firstSystem
+    ? estimateOpenAIContentChars(firstSystem.content) + 48
+    : 0;
+  const nonSystemBudget = Math.max(4_000, maxChars - systemChars);
+
+  const nonSystem = messages.filter((_, idx) => idx !== firstSystemIndex);
+  const selected: Record<string, unknown>[] = [];
+  let used = 0;
+
+  for (let i = nonSystem.length - 1; i >= 0; i--) {
+    const compact = compactOpenAIMessage(
+      nonSystem[i],
+      MAX_MESSAGE_CHARS_PER_ENTRY,
+    );
+    const chars = estimateOpenAIContentChars(compact.content) + 48;
+    if (used + chars <= nonSystemBudget) {
+      selected.push(compact);
+      used += chars;
+      continue;
+    }
+    if (selected.length === 0) {
+      const remaining = Math.max(256, nonSystemBudget - used - 48);
+      selected.push(compactOpenAIMessage(nonSystem[i], remaining));
+    }
+    break;
+  }
+
+  selected.reverse();
+  return firstSystem ? [firstSystem, ...selected] : selected;
+}
+
+function sanitizeSchema(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.slice(0, 64).map((item) => sanitizeSchema(item));
+  }
+  if (value && typeof value === "object") {
+    const input = value as Record<string, unknown>;
+    const output: Record<string, unknown> = {};
+    for (const [key, field] of Object.entries(input)) {
+      if (TOOL_METADATA_KEYS.has(key)) continue;
+      if (key === "enum" && Array.isArray(field)) {
+        output[key] = field.slice(0, 64);
+        continue;
+      }
+      output[key] = sanitizeSchema(field);
+    }
+    return output;
+  }
+  return value;
+}
+
+function toolPriority(name: string): number {
+  if (PRIORITY_TOOL_NAMES.has(name)) return 0;
+  if (name.startsWith("desktop.")) return 1;
+  if (name.startsWith("system.")) return 2;
+  return 3;
+}
+
+function slimTools(tools: LLMTool[]): { tools: LLMTool[]; chars: number } {
+  if (tools.length === 0) return { tools: [], chars: 0 };
+
+  const ordered = [...tools].sort((a, b) => {
+    const pa = toolPriority(a.function.name);
+    const pb = toolPriority(b.function.name);
+    if (pa !== pb) return pa - pb;
+    return a.function.name.localeCompare(b.function.name);
+  });
+
+  const selected: LLMTool[] = [];
+  let usedChars = 0;
+
+  for (const tool of ordered) {
+    const sanitizedParams = sanitizeSchema(tool.function.parameters);
+    let normalizedParams = sanitizedParams;
+    if (
+      JSON.stringify(sanitizedParams).length > MAX_TOOL_SCHEMA_CHARS_PER_TOOL
+    ) {
+      normalizedParams = { type: "object", additionalProperties: true };
+    }
+
+    const slim: LLMTool = {
+      type: "function",
+      function: {
+        name: tool.function.name,
+        description: truncate(
+          tool.function.description ?? "",
+          MAX_TOOL_DESCRIPTION_CHARS,
+        ),
+        parameters: normalizedParams as Record<string, unknown>,
+      },
+    };
+
+    const slimChars = JSON.stringify(slim).length;
+    if (usedChars + slimChars > MAX_TOOL_SCHEMA_CHARS_TOTAL) {
+      continue;
+    }
+    selected.push(slim);
+    usedChars += slimChars;
+  }
+
+  // Always keep at least one tool if any were provided.
+  if (selected.length === 0) {
+    const first = ordered[0];
+    const fallbackTool: LLMTool = {
+      type: "function",
+      function: {
+        name: first.function.name,
+        description: truncate(
+          first.function.description ?? "",
+          MAX_TOOL_DESCRIPTION_CHARS,
+        ),
+        parameters: { type: "object", additionalProperties: true },
+      },
+    };
+    const chars = JSON.stringify(fallbackTool).length;
+    return { tools: [fallbackTool], chars };
+  }
+
+  return { tools: selected, chars: usedChars };
+}
 
 export class GrokProvider implements LLMProvider {
   readonly name = "grok";
@@ -37,6 +275,7 @@ export class GrokProvider implements LLMProvider {
   private client: unknown | null = null;
   private readonly config: GrokProviderConfig;
   private readonly tools: LLMTool[];
+  private readonly toolChars: number;
 
   constructor(config: GrokProviderConfig) {
     this.config = {
@@ -46,9 +285,9 @@ export class GrokProvider implements LLMProvider {
     };
 
     // Build tools list — optionally inject web_search
-    this.tools = [...(config.tools ?? [])];
+    const rawTools = [...(config.tools ?? [])];
     if (config.webSearch) {
-      this.tools.push({
+      rawTools.push({
         type: "function",
         function: {
           name: "web_search",
@@ -57,6 +296,9 @@ export class GrokProvider implements LLMProvider {
         },
       });
     }
+    const slimmed = slimTools(rawTools);
+    this.tools = slimmed.tools;
+    this.toolChars = slimmed.chars;
   }
 
   async chat(messages: LLMMessage[]): Promise<LLMResponse> {
@@ -209,14 +451,7 @@ export class GrokProvider implements LLMProvider {
   }
 
   private buildParams(messages: LLMMessage[]): Record<string, unknown> {
-    // Auto-upgrade to a vision model when messages contain image content
-    const hasImages = messages.some(
-      (m) =>
-        Array.isArray(m.content) &&
-        m.content.some((p) => p.type === "image_url"),
-    );
     const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
-    const model = hasImages ? visionModel : this.config.model;
 
     // Build mapped messages, handling multimodal tool messages.
     // The OpenAI API requires tool message content to be a string.
@@ -269,9 +504,16 @@ export class GrokProvider implements LLMProvider {
       }
     }
 
+    const boundedMessages = enforceMessageBudget(
+      mapped,
+      MAX_MESSAGES_PAYLOAD_CHARS,
+    );
+    const hasImages = boundedMessages.some((m) => hasImageContent(m.content));
+    const model = hasImages ? visionModel : this.config.model;
+
     const params: Record<string, unknown> = {
       model,
-      messages: mapped,
+      messages: boundedMessages,
     };
     if (this.config.temperature !== undefined)
       params.temperature = this.config.temperature;
@@ -279,7 +521,11 @@ export class GrokProvider implements LLMProvider {
       params.max_tokens = this.config.maxTokens;
     // Enable tools unless the vision model is known to not support them
     if (this.tools.length > 0) {
-      if (!hasImages || VISION_MODELS_WITH_TOOLS.has(visionModel)) {
+      const hasToolResults = messages.some((m) => m.role === "tool");
+      if (
+        (!hasImages || VISION_MODELS_WITH_TOOLS.has(visionModel)) &&
+        (!hasToolResults || this.toolChars <= MAX_TOOL_SCHEMA_CHARS_FOLLOWUP)
+      ) {
         params.tools = this.tools;
       }
     }

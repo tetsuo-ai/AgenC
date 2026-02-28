@@ -97,6 +97,15 @@ export function ChatView({
     : 0;
 
   const isEmpty = messages.length === 0 && !isTyping;
+  const tokenUsageRatio =
+    tokenUsage && tokenUsage.budget > 0
+      ? tokenUsage.totalTokens / tokenUsage.budget
+      : 0;
+  const tokenUsagePercent = tokenUsageRatio * 100;
+  const tokenUsageLabel =
+    tokenUsage && tokenUsage.totalTokens > 0 && tokenUsagePercent < 1
+      ? '<1%'
+      : `${Math.round(tokenUsagePercent)}%`;
 
   // ── Welcome / landing state ──
   if (isEmpty) {
@@ -194,15 +203,15 @@ export function ChatView({
           {tokenUsage && tokenUsage.budget > 0 && (
             <div
               className={`px-2 py-0.5 rounded-full text-xs font-mono tabular-nums ${
-                tokenUsage.totalTokens / tokenUsage.budget > 0.85
+                tokenUsageRatio > 0.85
                   ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                  : tokenUsage.totalTokens / tokenUsage.budget > 0.6
+                  : tokenUsageRatio > 0.6
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                     : 'bg-tetsuo-100 text-tetsuo-500 dark:bg-tetsuo-800 dark:text-tetsuo-400'
               }`}
               title={`${tokenUsage.totalTokens.toLocaleString()} / ${tokenUsage.budget.toLocaleString()} tokens${tokenUsage.compacted ? ' (auto-compacted)' : ''}`}
             >
-              {Math.round((tokenUsage.totalTokens / tokenUsage.budget) * 100)}%
+              {tokenUsageLabel}
               {tokenUsage.compacted && ' ~'}
             </div>
           )}

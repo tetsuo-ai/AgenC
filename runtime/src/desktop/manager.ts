@@ -391,6 +391,7 @@ export class DesktopSandboxManager {
         "--cap-add", "SETUID",
         "--cap-add", "SETGID",
         "--cap-add", "DAC_OVERRIDE",
+        "--cap-add", "FOWNER",
         "--cap-add", "KILL",
         "--cap-add", "NET_BIND_SERVICE",
       );

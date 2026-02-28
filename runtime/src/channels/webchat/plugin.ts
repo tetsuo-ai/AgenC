@@ -11,6 +11,7 @@
 
 import { BaseChannelPlugin } from "../../gateway/channel.js";
 import type { ChannelContext } from "../../gateway/channel.js";
+import { randomUUID } from "node:crypto";
 import type {
   OutboundMessage,
   MessageAttachment,
@@ -27,6 +28,9 @@ import type {
 import { HANDLER_MAP } from "./handlers.js";
 import type { SendFn } from "./handlers.js";
 
+const MESSAGE_ID_TTL_MS = 5 * 60_000;
+const MAX_TRACKED_MESSAGE_IDS = 5_000;
+
 // ============================================================================
 // WebChatChannel
 // ============================================================================
@@ -38,8 +42,9 @@ import type { SendFn } from "./handlers.js";
  * WebChatHandler (for Gateway WS message routing).
  *
  * Each WS connection gets a clientId from the Gateway's auto-incrementing
- * counter. This serves as the senderId for deriveSessionId(). Session
- * continuity across reconnects is supported via 'chat.resume'.
+ * counter. WebChat session IDs are intentionally salted with randomness so a
+ * daemon restart cannot accidentally reuse old persisted memory by session ID.
+ * Session continuity across reconnects is supported via explicit 'chat.resume'.
  */
 export class WebChatChannel
   extends BaseChannelPlugin
@@ -66,6 +71,8 @@ export class WebChatChannel
   private readonly eventSubscribers = new Set<string>();
   // sessionId → AbortController for in-flight chat execution
   private readonly sessionAbortControllers = new Map<string, AbortController>();
+  // Dedup replayed chat.message envelopes (e.g. reconnect flush/retry)
+  private readonly seenMessageIds = new Map<string, number>();
 
   private healthy = true;
 
@@ -126,6 +133,7 @@ export class WebChatChannel
     this.sessionOwners.clear();
     this.sessionHistory.clear();
     this.eventSubscribers.clear();
+    this.seenMessageIds.clear();
     this.healthy = false;
     this.context.logger.info("WebChat channel stopped");
   }
@@ -239,6 +247,11 @@ export class WebChatChannel
       return;
     }
 
+    if (type === "chat.new") {
+      this.handleChatNew(clientId, id, send);
+      return;
+    }
+
     if (type === "chat.history") {
       this.handleChatHistory(clientId, payload, id, send);
       return;
@@ -288,9 +301,11 @@ export class WebChatChannel
     const bridge = this.deps.voiceBridge;
     if (!bridge) {
       send({
-        type: "error",
-        error:
-          "Voice not available — no LLM provider with voice support configured",
+        type: "voice.error",
+        payload: {
+          message:
+            "Voice not available — no LLM provider with voice support configured",
+        },
         id,
       });
       return;
@@ -300,13 +315,26 @@ export class WebChatChannel
       case "voice.start": {
         // Pass the client's current sessionId so voice and text share history
         const voiceSessionId = this.ensureSession(clientId);
-        void bridge.startSession(clientId, send, voiceSessionId);
+        void bridge.startSession(clientId, send, voiceSessionId).catch((error) => {
+          this.context.logger?.warn?.("Failed to start voice session:", error);
+          send({
+            type: "voice.error",
+            payload: { message: (error as Error).message },
+            id,
+          });
+        });
         break;
       }
       case "voice.audio": {
         const audio = payload?.audio;
         if (typeof audio === "string") {
           bridge.sendAudio(clientId, audio);
+        } else {
+          send({
+            type: "voice.error",
+            payload: { message: "Invalid voice.audio payload" },
+            id,
+          });
         }
         break;
       }
@@ -318,8 +346,10 @@ export class WebChatChannel
         break;
       default:
         send({
-          type: "error",
-          error: `Unknown voice message type: ${type}`,
+          type: "voice.error",
+          payload: {
+            message: `Unknown voice message type: ${type}`,
+          },
           id,
         });
     }
@@ -353,6 +383,14 @@ export class WebChatChannel
         error: "Missing or empty content in chat.message",
         id,
       });
+      return;
+    }
+
+    if (id && this.isDuplicateMessageId(id)) {
+      const existingSessionId = this.clientSessions.get(clientId);
+      if (existingSessionId) {
+        send({ type: "chat.session", payload: { sessionId: existingSessionId } });
+      }
       return;
     }
 
@@ -427,6 +465,28 @@ export class WebChatChannel
         id,
       });
     });
+  }
+
+  private handleChatNew(
+    clientId: string,
+    id: string | undefined,
+    send: SendFn,
+  ): void {
+    const oldSessionId = this.clientSessions.get(clientId);
+    if (oldSessionId && this.deps.resetSessionContext) {
+      void Promise.resolve(this.deps.resetSessionContext(oldSessionId)).catch(
+        (error) => {
+          this.context.logger.warn?.(
+            `Failed to reset context for session ${oldSessionId}:`,
+            error,
+          );
+        },
+      );
+    }
+
+    const sessionId = this.ensureSession(clientId, { forceNew: true });
+    send({ type: "chat.session", payload: { sessionId }, id });
+    send({ type: "chat.history", payload: [], id });
   }
 
   private handleChatHistory(
@@ -583,14 +643,24 @@ export class WebChatChannel
   // Session management
   // --------------------------------------------------------------------------
 
-  private ensureSession(clientId: string): string {
+  private ensureSession(
+    clientId: string,
+    options?: { forceNew?: boolean },
+  ): string {
     const existing = this.clientSessions.get(clientId);
-    if (existing) return existing;
+    const forceNew = options?.forceNew === true;
+    if (existing && !forceNew) return existing;
 
+    if (existing && forceNew) {
+      this.cancelSession(existing);
+      this.sessionClients.delete(existing);
+    }
+
+    const sessionSalt = `${Date.now().toString(36)}:${randomUUID()}`;
     const sessionId = deriveSessionId(
       {
         channel: "webchat",
-        senderId: clientId,
+        senderId: `${clientId}:${sessionSalt}`,
         scope: "dm",
         workspaceId: DEFAULT_WORKSPACE_ID,
       },
@@ -605,6 +675,29 @@ export class WebChatChannel
     }
 
     return sessionId;
+  }
+
+  private isDuplicateMessageId(messageId: string): boolean {
+    this.pruneMessageIds();
+    if (this.seenMessageIds.has(messageId)) {
+      return true;
+    }
+    this.seenMessageIds.set(messageId, Date.now());
+    if (this.seenMessageIds.size > MAX_TRACKED_MESSAGE_IDS) {
+      const oldest = this.seenMessageIds.keys().next().value;
+      if (typeof oldest === "string") {
+        this.seenMessageIds.delete(oldest);
+      }
+    }
+    return false;
+  }
+
+  private pruneMessageIds(now = Date.now()): void {
+    for (const [id, ts] of this.seenMessageIds) {
+      if (now - ts > MESSAGE_ID_TTL_MS) {
+        this.seenMessageIds.delete(id);
+      }
+    }
   }
 
   private appendHistory(

@@ -5,6 +5,7 @@ import {
   WS_VOICE_DELEGATION,
   WS_VOICE_USER_TRANSCRIPT,
   WS_VOICE_TRANSCRIPT,
+  WS_VOICE_RESPONSE_DONE,
 } from './constants';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
@@ -139,6 +140,9 @@ export default function App() {
       } else if (status === 'started' || status === 'error' || status === 'blocked') {
         suppressNextVoiceTranscript.current = false;
       }
+    }
+    if (msg.type === WS_VOICE_RESPONSE_DONE) {
+      suppressNextVoiceTranscript.current = false;
     }
 
     if (msg.type === WS_VOICE_SPEECH_STOPPED) {

@@ -6,6 +6,11 @@ import {
 import type { DesktopSandboxManager } from "./manager.js";
 import { DesktopRESTBridge } from "./rest-bridge.js";
 import type { ToolHandler } from "../llm/types.js";
+import { createMCPConnection } from "../mcp-client/connection.js";
+import { createToolBridge } from "../mcp-client/tool-bridge.js";
+
+const mockCreateMCPConnection = vi.mocked(createMCPConnection);
+const mockCreateToolBridge = vi.mocked(createToolBridge);
 
 // Mock the DesktopRESTBridge constructor and instances
 vi.mock("./rest-bridge.js", () => {
@@ -45,6 +50,14 @@ vi.mock("./rest-bridge.js", () => {
     })),
   };
 });
+
+vi.mock("../mcp-client/connection.js", () => ({
+  createMCPConnection: vi.fn(),
+}));
+
+vi.mock("../mcp-client/tool-bridge.js", () => ({
+  createToolBridge: vi.fn(),
+}));
 
 function mockManager(overrides: Partial<DesktopSandboxManager> = {}): DesktopSandboxManager {
   return {
@@ -256,6 +269,114 @@ describe("createDesktopAwareToolHandler", () => {
       const result = await handler("desktop.mouse_click", { x: 100, y: 200 });
       const parsed = JSON.parse(result);
       expect(parsed._screenshot).toBeUndefined();
+    });
+  });
+
+  describe("playwright bridge", () => {
+    it("launches the expected Playwright MCP package and browser cache path", async () => {
+      const manager = mockManager();
+      const playwrightBridges = new Map<string, never>();
+      const execute = vi.fn().mockResolvedValue({
+        content: '{"ok":true}',
+      });
+      mockCreateMCPConnection.mockResolvedValue({
+        close: vi.fn(),
+      } as any);
+      mockCreateToolBridge.mockResolvedValue({
+        tools: [
+          {
+            name: "playwright.browser_navigate",
+            description: "Navigate to URL",
+            inputSchema: {},
+            execute,
+          },
+        ],
+        dispose: vi.fn(),
+      } as any);
+
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        playwrightBridges,
+      });
+
+      const result = await handler("playwright.browser_navigate", { url: "https://example.com" });
+
+      expect(result).toBe('{"ok":true}');
+      expect(execute).toHaveBeenCalledWith({ url: "https://example.com" });
+      expect(mockCreateMCPConnection).toHaveBeenCalledTimes(1);
+      const config = mockCreateMCPConnection.mock.calls[0]?.[0];
+      const args = config?.args as string[] | undefined;
+      expect(config?.command).toBe("docker");
+      expect(args).toContain("PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright");
+      expect(args).not.toContain("--headless=false");
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "playwright-mcp",
+        ]),
+      );
+    });
+  });
+
+  describe("container MCP bridge", () => {
+    it("injects browser cache path and forwards env for container MCP", async () => {
+      const manager = mockManager();
+      const containerMCPConfigs = [
+        {
+          name: "browser",
+          command: "npx",
+          args: ["-y", "@playwright/mcp@0.0.68"],
+          env: { FOO: "bar" },
+        },
+      ];
+      const containerMCPBridges = new Map<string, never[]>();
+      const execute = vi.fn().mockResolvedValue({
+        content: '{"ok":true}',
+      });
+      mockCreateMCPConnection.mockResolvedValue({
+        close: vi.fn(),
+      } as any);
+      mockCreateToolBridge.mockResolvedValue({
+        tools: [
+          {
+            name: "mcp.browser.browser_navigate",
+            description: "Navigate in container MCP browser",
+            inputSchema: {},
+            execute,
+          },
+        ],
+        dispose: vi.fn(),
+      } as any);
+
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        containerMCPConfigs,
+        containerMCPBridges,
+      });
+
+      const result = await handler("mcp.browser.browser_navigate", {
+        url: "https://example.com",
+      });
+
+      expect(result).toBe('{"ok":true}');
+      expect(execute).toHaveBeenCalledWith({ url: "https://example.com" });
+      expect(mockCreateMCPConnection).toHaveBeenCalledTimes(1);
+      const config = mockCreateMCPConnection.mock.calls[0]?.[0];
+      expect(config?.command).toBe("docker");
+      const args = config?.args as string[] | undefined;
+      const envIndex = (needle: string): number => args?.indexOf(needle) ?? -1;
+      expect(args?.includes("PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright")).toBe(true);
+      expect(args?.[envIndex("PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright") - 1]).toBe("-e");
+      expect(args?.includes("FOO=bar")).toBe(true);
+      expect(args?.[envIndex("FOO=bar") - 1]).toBe("-e");
+      expect(args?.includes("DISPLAY=:1")).toBe(true);
+      expect(args?.[envIndex("DISPLAY=:1") - 1]).toBe("-e");
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "playwright-mcp",
+        ]),
+      );
     });
   });
 });

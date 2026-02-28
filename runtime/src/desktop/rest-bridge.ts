@@ -157,10 +157,11 @@ export class DesktopRESTBridge {
             def.name === "screenshot" &&
             typeof inner.image === "string"
           ) {
+            const { image, ...rest } = inner;
             return {
               content: safeStringify({
-                ...inner,
-                dataUrl: `data:image/png;base64,${inner.image as string}`,
+                ...rest,
+                dataUrl: `data:image/png;base64,${image}`,
               }),
             };
           }
