@@ -18,7 +18,7 @@ import type {
 } from "../voice/realtime/types.js";
 import type { ControlResponse } from "./types.js";
 import type { Logger } from "../utils/logger.js";
-import type { ToolHandler, LLMTool } from "../llm/types.js";
+import type { ToolHandler } from "../llm/types.js";
 import type { ChatExecutor } from "../llm/chat-executor.js";
 import type { SessionManager } from "./session.js";
 import type { HookDispatcher } from "./hooks.js";
@@ -29,8 +29,28 @@ import { createSessionToolHandler } from "./tool-handler-factory.js";
 
 const DEFAULT_MAX_SESSIONS = 10;
 
-/** Max characters for the spoken summary returned to xAI after delegation. */
-const MAX_VOICE_SUMMARY_CHARS = 500;
+/**
+ * Max tool rounds during voice delegation (prevents runaway desktop loops).
+ * Desktop-enabled text chat gets 50 rounds (set in daemon.ts), but voice
+ * caps at 15 because users can't intervene while the agent is executing.
+ */
+const MAX_DELEGATION_TOOL_ROUNDS = 15;
+
+// Voice WebSocket message types — mirrors web/src/constants.ts
+const VM = {
+  AUDIO: "voice.audio",
+  TRANSCRIPT: "voice.transcript",
+  USER_TRANSCRIPT: "voice.user_transcript",
+  SPEECH_STARTED: "voice.speech_started",
+  SPEECH_STOPPED: "voice.speech_stopped",
+  RESPONSE_DONE: "voice.response_done",
+  DELEGATION: "voice.delegation",
+  STATE: "voice.state",
+  ERROR: "voice.error",
+  STARTED: "voice.started",
+  STOPPED: "voice.stopped",
+  TOOL_CALL: "voice.tool_call",
+} as const;
 
 // ============================================================================
 // Voice instructions
@@ -43,45 +63,32 @@ const MAX_VOICE_SUMMARY_CHARS = 500;
  */
 const VOICE_DELEGATION_PROMPT =
   "\n\n## Voice Conversation Rules\n\n" +
-  "You are currently in a VOICE conversation with access to a powerful agent " +
-  "that can execute tasks. Follow these rules strictly:\n\n" +
-  "RESPONSE LENGTH: Keep spoken responses to 1-3 sentences. Never monologue.\n\n" +
-  "DELEGATION: Use the `execute_with_agent` tool for ANY task that involves:\n" +
-  "- Writing, editing, or reading code or files\n" +
-  "- Running shell commands or scripts\n" +
-  "- Web browsing or searching\n" +
-  "- Desktop automation (clicking, typing, screenshots)\n" +
-  "- Multi-step operations of any kind\n" +
-  "- Looking up specific technical information\n\n" +
-  "BEFORE DELEGATING: Say a brief phrase like \"Let me do that\" or " +
-  "\"Working on it\" so the user knows you heard them.\n\n" +
-  "AFTER DELEGATION: Summarize the result in 1-2 spoken sentences. " +
-  "Say \"The code is on screen now\" or \"Done\" for code/file results. " +
+  "You are in a VOICE conversation. Rules:\n\n" +
+  "RESPONSE LENGTH: 1-2 sentences max. NEVER monologue or list steps.\n\n" +
+  "DELEGATION: Use `execute_with_agent` for ANY task involving code, commands, " +
+  "files, browsing, desktop, or multi-step work.\n\n" +
+  "BEFORE DELEGATING: Say ONLY \"On it.\", \"Working on it.\", or \"Let me " +
+  "handle that.\" — NOTHING ELSE. Do NOT describe your plan. Do NOT list steps. " +
+  "Do NOT explain what you will do. The user sees tool progress in real time.\n\n" +
+  "AFTER DELEGATION: Say \"Done.\" or one short sentence about the result. " +
   "NEVER read code, file contents, or long output aloud.\n\n" +
-  "DIRECT RESPONSE (no delegation): Greetings, simple factual questions, " +
-  "opinions, clarifying questions, acknowledgments, small talk.\n\n" +
-  "DO NOT: Repeat yourself. Over-explain. Use markdown or formatting. " +
-  "Read code aloud. Narrate every step. Give unsolicited information.";
+  "DIRECT RESPONSE (no delegation): Greetings, simple questions, opinions.\n\n" +
+  "FORBIDDEN: Narrating plans. Listing steps. Over-explaining. Repeating yourself. " +
+  "Using markdown. Giving unsolicited information.";
 
-/**
- * Conciseness instructions for legacy mode (no ChatExecutor delegation).
- */
-const VOICE_CONCISENESS_PROMPT =
-  "\n\n## Voice Conversation Rules\n\n" +
-  "You are currently in a VOICE conversation. Follow these rules strictly:\n\n" +
-  "RESPONSE LENGTH: Keep responses to 1-2 sentences. Only give longer responses " +
-  "when the user explicitly asks for detail or explanation.\n\n" +
-  "TONE: Warm, concise, and confident. Speak casually and naturally. " +
-  "Use short sentences and simple words.\n\n" +
-  "PACING: When using tools, say a brief phrase like \"Let me check that\" " +
-  "before the pause. Never narrate every step.\n\n" +
-  "DO NOT: Repeat yourself. Over-explain. Provide unsolicited information. " +
-  "Use markdown, lists, code blocks, or special formatting. " +
-  "Monologue or give long-winded answers.";
 
 // ============================================================================
 // Delegation tool definition
 // ============================================================================
+
+/**
+ * Sanitize xAI function call arguments before JSON.parse.
+ * xAI sometimes sends Python-style "None" or bare "null" instead of "{}".
+ */
+function sanitizeXaiArgs(argsJson: string): string {
+  if (!argsJson || argsJson === "None" || argsJson === "null") return "{}";
+  return argsJson;
+}
 
 /** Single delegation tool sent to xAI Realtime when ChatExecutor is available. */
 const AGENT_DELEGATION_TOOL: VoiceTool = {
@@ -113,8 +120,6 @@ const AGENT_DELEGATION_TOOL: VoiceTool = {
 export interface VoiceBridgeConfig {
   /** xAI API key. */
   apiKey: string;
-  /** Tools available during voice sessions (used in legacy mode). */
-  tools: LLMTool[];
   /** Tool execution handler (fallback when no desktop router). */
   toolHandler: ToolHandler;
   /** Factory that returns a desktop-aware tool handler scoped to a session. */
@@ -138,10 +143,10 @@ export interface VoiceBridgeConfig {
   /** Logger. */
   logger?: Logger;
 
-  // --- Chat-Supervisor delegation (all optional for backwards compat) ---
+  // --- Chat-Supervisor delegation ---
 
-  /** ChatExecutor for delegated task execution. Enables delegation mode. */
-  chatExecutor?: ChatExecutor;
+  /** ChatExecutor for delegated task execution. */
+  chatExecutor: ChatExecutor;
   /** SessionManager for shared voice/text session history. */
   sessionManager?: SessionManager;
   /** HookDispatcher for tool:before/after and message lifecycle hooks. */
@@ -150,14 +155,20 @@ export interface VoiceBridgeConfig {
   approvalEngine?: ApprovalEngine;
   /** MemoryBackend for persisting voice interactions. */
   memoryBackend?: MemoryBackend;
+  /** Session token budget (for reporting usage to the browser). */
+  sessionTokenBudget?: number;
 }
 
 interface ActiveSession {
   client: XaiRealtimeClient;
   send: (response: ControlResponse) => void;
   toolHandler: ToolHandler;
-  /** Shared session ID for voice/text history sharing. */
+  /** Shared session ID for browser/ChatExecutor communication. */
   sessionId: string;
+  /** Derived session ID in SessionManager (hashed key from getOrCreate). */
+  managedSessionId: string;
+  /** Abort controller for the active delegation, if any. */
+  delegationAbort: AbortController | null;
 }
 
 // ============================================================================
@@ -168,23 +179,16 @@ interface ActiveSession {
  * Manages per-client real-time voice sessions bridging browser audio
  * to the xAI Realtime API.
  *
- * When `chatExecutor` is provided in config, operates in delegation mode:
- * xAI Realtime only receives the `execute_with_agent` tool. Complex tasks
- * are routed through ChatExecutor with full context injection.
- *
- * When `chatExecutor` is not provided, falls back to legacy behavior:
- * all tools are passed directly to xAI Realtime.
+ * Uses Chat-Supervisor delegation: xAI Realtime only receives the
+ * `execute_with_agent` tool. Complex tasks are routed through
+ * ChatExecutor with full context injection (memory, learning,
+ * progress, skills, hooks, tools, multi-round loop).
  */
 export class VoiceBridge {
   private readonly sessions = new Map<string, ActiveSession>();
   private readonly config: VoiceBridgeConfig;
   private readonly maxSessions: number;
   private readonly logger: Logger | undefined;
-
-  /** Whether delegation mode is active (ChatExecutor provided). */
-  private get delegationEnabled(): boolean {
-    return this.config.chatExecutor != null;
-  }
 
   constructor(config: VoiceBridgeConfig) {
     this.config = config;
@@ -219,7 +223,7 @@ export class VoiceBridge {
 
     if (this.sessions.size >= this.maxSessions) {
       send({
-        type: "voice.error",
+        type: VM.ERROR,
         payload: { message: "Maximum concurrent voice sessions reached" },
       });
       return;
@@ -227,24 +231,53 @@ export class VoiceBridge {
 
     const effectiveSessionId = sessionId ?? `voice:${clientId}`;
 
-    // Build tool handler — delegation or legacy
+    // Build tool handler for delegation
     const sessionToolHandler = this.buildSessionToolHandler(
       clientId,
       effectiveSessionId,
       send,
     );
 
-    // In delegation mode, only send the delegation tool to xAI.
-    // In legacy mode, send all tools.
-    const voiceTools = this.delegationEnabled
-      ? [AGENT_DELEGATION_TOOL]
-      : this.convertTools(this.config.tools);
+    // Resolve the SessionManager's derived session ID.
+    // getOrCreate hashes channel+senderId to derive the key; we must use
+    // this same key for appendMessage, otherwise recording silently fails.
+    let managedSessionId = effectiveSessionId;
+    if (this.config.sessionManager) {
+      const session = this.config.sessionManager.getOrCreate({
+        channel: "voice",
+        senderId: clientId,
+        scope: "dm",
+        workspaceId: "default",
+      });
+      managedSessionId = session.id;
+    }
+
+    // Load memory context from persistent backend (cross-session awareness)
+    let memoryContext = "";
+    if (this.config.memoryBackend) {
+      try {
+        const recentEntries = await this.config.memoryBackend.getThread(
+          effectiveSessionId,
+          5,
+        );
+        if (recentEntries.length > 0) {
+          const summaries = recentEntries
+            .filter((e) => e.content.trim())
+            .map((e) => `- ${e.role}: ${e.content.slice(0, 200)}`)
+            .join("\n");
+          if (summaries) {
+            memoryContext =
+              "\n\n## Recent Context\nRecent conversation context:\n" +
+              summaries;
+          }
+        }
+      } catch {
+        // Non-critical — voice still works without memory
+      }
+    }
 
     const voiceInstructions =
-      this.config.systemPrompt +
-      (this.delegationEnabled
-        ? VOICE_DELEGATION_PROMPT
-        : VOICE_CONCISENESS_PROMPT);
+      this.config.systemPrompt + memoryContext + VOICE_DELEGATION_PROMPT;
 
     const sessionConfig: VoiceSessionConfig = {
       model: this.config.model ?? "grok-4-1-fast-reasoning",
@@ -263,106 +296,18 @@ export class VoiceBridge {
               silence_duration_ms: this.config.vadSilenceDurationMs ?? 800,
               prefix_padding_ms: this.config.vadPrefixPaddingMs ?? 300,
             },
-      tools: voiceTools,
+      tools: [AGENT_DELEGATION_TOOL],
     };
 
     const client = new XaiRealtimeClient({
       apiKey: this.config.apiKey,
       sessionConfig,
       logger: this.logger,
-      callbacks: {
-        onAudioDeltaBase64: (base64) => {
-          send({
-            type: "voice.audio",
-            payload: { audio: base64 },
-          });
-        },
-        onTranscriptDelta: (text) => {
-          send({
-            type: "voice.transcript",
-            payload: { delta: text, done: false },
-          });
-        },
-        onTranscriptDone: (text) => {
-          send({
-            type: "voice.transcript",
-            payload: { text, done: true },
-          });
-          // Record agent transcript in shared session history
-          this.recordTranscript(effectiveSessionId, "assistant", text);
-        },
-        onFunctionCall: async (name, args, _callId) => {
-          // Route delegation tool to ChatExecutor
-          if (name === "execute_with_agent" && this.delegationEnabled) {
-            return this.handleDelegation(
-              clientId,
-              effectiveSessionId,
-              args,
-              send,
-            );
-          }
-
-          // Legacy tool execution path
-          send({
-            type: "voice.tool_call",
-            payload: { toolName: name, status: "executing" },
-          });
-
-          try {
-            const parsed = JSON.parse(args) as Record<string, unknown>;
-            const resultStr = await sessionToolHandler(name, parsed);
-
-            send({
-              type: "voice.tool_call",
-              payload: {
-                toolName: name,
-                status: "completed",
-                result: resultStr,
-              },
-            });
-
-            return resultStr;
-          } catch (err) {
-            const errorMsg = (err as Error).message;
-            send({
-              type: "voice.tool_call",
-              payload: { toolName: name, status: "error", error: errorMsg },
-            });
-            return JSON.stringify({ error: errorMsg });
-          }
-        },
-        onInputTranscriptDone: (text) => {
-          // Send the user's spoken words as text to the browser
-          send({
-            type: "voice.user_transcript",
-            payload: { text },
-          });
-          // Record user speech in shared session history
-          this.recordTranscript(effectiveSessionId, "user", text);
-        },
-        onSpeechStarted: () => {
-          send({ type: "voice.speech_started" });
-        },
-        onSpeechStopped: () => {
-          send({ type: "voice.speech_stopped" });
-        },
-        onResponseDone: () => {
-          send({ type: "voice.response_done" });
-        },
-        onError: (error) => {
-          this.logger?.warn?.("Voice session error:", error);
-          send({
-            type: "voice.error",
-            payload: { message: error.message, code: error.code },
-          });
-        },
-        onConnectionStateChange: (state) => {
-          send({
-            type: "voice.state",
-            payload: { connectionState: state },
-          });
-        },
-      },
+      callbacks: this.buildClientCallbacks(
+        clientId,
+        effectiveSessionId,
+        send,
+      ),
     });
 
     this.sessions.set(clientId, {
@@ -370,19 +315,24 @@ export class VoiceBridge {
       send,
       toolHandler: sessionToolHandler,
       sessionId: effectiveSessionId,
+      managedSessionId,
+      delegationAbort: null,
     });
 
     try {
       await client.connect();
-      send({ type: "voice.started" });
+
+      // Inject session history so xAI has context on reconnect
+      this.injectSessionContext(client, managedSessionId);
+
+      send({ type: VM.STARTED });
       this.logger?.info?.(
-        `Voice session started for client ${clientId}` +
-          (this.delegationEnabled ? " (delegation mode)" : " (legacy mode)"),
+        `Voice session started for client ${clientId} (delegation mode)`,
       );
     } catch (err) {
       this.sessions.delete(clientId);
       send({
-        type: "voice.error",
+        type: VM.ERROR,
         payload: { message: (err as Error).message },
       });
     }
@@ -411,7 +361,7 @@ export class VoiceBridge {
 
     session.client.close();
     this.sessions.delete(clientId);
-    session.send({ type: "voice.stopped" });
+    session.send({ type: VM.STOPPED });
     this.logger?.info?.(`Voice session stopped for client ${clientId}`);
   }
 
@@ -435,9 +385,7 @@ export class VoiceBridge {
   /**
    * Build a session-scoped tool handler that integrates hooks, approval
    * gating, and desktop routing — mirroring the daemon's text-mode handler.
-   *
-   * Used for legacy (non-delegation) tool calls. In delegation mode,
-   * ChatExecutor brings its own tool handler via the daemon's pipeline.
+   * Used by ChatExecutor during delegation for tool execution.
    */
   private buildSessionToolHandler(
     clientId: string,
@@ -459,6 +407,64 @@ export class VoiceBridge {
   }
 
   // --------------------------------------------------------------------------
+  // Client callbacks
+  // --------------------------------------------------------------------------
+
+  /** Build the XaiRealtimeClient callback set for a session. */
+  private buildClientCallbacks(
+    clientId: string,
+    sessionId: string,
+    send: (response: ControlResponse) => void,
+  ) {
+    return {
+      onAudioDeltaBase64: (base64: string) => {
+        send({ type: VM.AUDIO, payload: { audio: base64 } });
+      },
+      onTranscriptDelta: (text: string) => {
+        send({ type: VM.TRANSCRIPT, payload: { delta: text, done: false } });
+      },
+      onTranscriptDone: (text: string) => {
+        send({ type: VM.TRANSCRIPT, payload: { text, done: true } });
+        this.recordTranscript(sessionId, "assistant", text);
+      },
+      onFunctionCall: async (name: string, args: string, _callId: string) => {
+        if (name === "execute_with_agent") {
+          return this.handleDelegation(clientId, sessionId, args, send);
+        }
+        // xAI hallucinated a tool not in the schema
+        this.logger?.warn?.(
+          `Voice session called unknown tool "${name}" — only execute_with_agent available`,
+        );
+        return JSON.stringify({
+          error: `Unknown tool "${name}". Use execute_with_agent to delegate tasks.`,
+        });
+      },
+      onInputTranscriptDone: (text: string) => {
+        send({ type: VM.USER_TRANSCRIPT, payload: { text } });
+        this.recordTranscript(sessionId, "user", text);
+      },
+      onSpeechStarted: () => {
+        send({ type: VM.SPEECH_STARTED });
+        // During active delegation, clear any buffered audio to prevent
+        // frustrated utterances from queuing as new delegation tasks.
+        const session = this.sessions.get(clientId);
+        if (session?.delegationAbort) {
+          session.client.clearAudio();
+        }
+      },
+      onSpeechStopped: () => { send({ type: VM.SPEECH_STOPPED }); },
+      onResponseDone: () => { send({ type: VM.RESPONSE_DONE }); },
+      onError: (error: { message: string; code?: string }) => {
+        this.logger?.warn?.("Voice session error:", error);
+        send({ type: VM.ERROR, payload: { message: error.message, code: error.code } });
+      },
+      onConnectionStateChange: (state: string) => {
+        send({ type: VM.STATE, payload: { connectionState: state } });
+      },
+    };
+  }
+
+  // --------------------------------------------------------------------------
   // Delegation handler
   // --------------------------------------------------------------------------
 
@@ -476,56 +482,25 @@ export class VoiceBridge {
     argsJson: string,
     send: (response: ControlResponse) => void,
   ): Promise<string> {
-    const { chatExecutor, sessionManager, hooks, memoryBackend } = this.config;
+    const task = this.parseDelegationTask(argsJson);
+    if (typeof task !== "string") return task.error;
 
-    if (!chatExecutor) {
-      return JSON.stringify({ error: "Delegation not available" });
-    }
+    send({ type: VM.DELEGATION, payload: { status: "started", task } });
 
-    // Parse the task description from xAI's function call
-    let task: string;
-    try {
-      const parsed = JSON.parse(argsJson) as Record<string, unknown>;
-      task = typeof parsed.task === "string" ? parsed.task : String(parsed.task);
-    } catch {
-      return JSON.stringify({ error: "Invalid delegation arguments" });
-    }
-
-    if (!task.trim()) {
-      return JSON.stringify({ error: "Empty task description" });
-    }
-
-    // Notify browser that delegation has started
-    send({
-      type: "voice.delegation",
-      payload: { status: "started", task },
-    });
+    // Cancel any stale delegation and set up abort for this one
+    const session = this.sessions.get(clientId);
+    session?.delegationAbort?.abort();
+    const abortController = new AbortController();
+    if (session) session.delegationAbort = abortController;
 
     try {
-      // Dispatch message:inbound hook (policy check)
-      if (hooks) {
-        const inboundResult = await hooks.dispatch("message:inbound", {
-          sessionId,
-          content: task,
-          senderId: clientId,
-          channel: "voice",
-        });
-        if (!inboundResult.completed) {
-          send({
-            type: "voice.delegation",
-            payload: {
-              status: "blocked",
-              task,
-              error: "Message blocked by policy",
-            },
-          });
-          return "Sorry, that request was blocked by the security policy.";
-        }
-      }
+      // Policy check via message:inbound hook
+      const blocked = await this.dispatchPolicyCheck(clientId, sessionId, task, send);
+      if (blocked) return blocked;
 
-      // Get or create shared session from SessionManager
-      const history = sessionManager
-        ? sessionManager.getOrCreate({
+      // Session history
+      const history = this.config.sessionManager
+        ? this.config.sessionManager.getOrCreate({
             channel: "voice",
             senderId: clientId,
             scope: "dm",
@@ -533,7 +508,6 @@ export class VoiceBridge {
           }).history
         : [];
 
-      // Create a GatewayMessage for the ChatExecutor pipeline
       const gatewayMsg = createGatewayMessage({
         channel: "voice",
         senderId: clientId,
@@ -543,65 +517,30 @@ export class VoiceBridge {
         scope: "dm",
       });
 
-      // Stream progress back to the browser during execution
-      const onStreamChunk = (chunk: { content: string; done: boolean }) => {
-        send({
-          type: "voice.delegation",
-          payload: { status: "progress", content: chunk.content },
-        });
-      };
+      // Tool handler sends tools.executing/tools.result to browser (renders
+      // as tool cards in the chat panel). We DON'T wrap with extra delegation
+      // progress messages — the tool cards ARE the progress UI.
+      const delegationToolHandler = this.buildSessionToolHandler(clientId, sessionId, send);
 
-      // Build a session-scoped tool handler with desktop routing, hooks,
-      // and approval gating — same as text-mode gets.
-      const delegationToolHandler = this.buildSessionToolHandler(
-        clientId,
-        sessionId,
-        send,
-      );
-
-      // Execute through the full ChatExecutor pipeline
-      const result = await chatExecutor.execute({
+      const result = await this.config.chatExecutor.execute({
         message: gatewayMsg,
         history,
         systemPrompt: this.config.systemPrompt,
         sessionId,
         toolHandler: delegationToolHandler,
-        onStreamChunk,
+        // No onStreamChunk — streaming LLM text to the voice overlay floods
+        // it with hundreds of words the user can't read. Tool cards in the
+        // chat panel provide progress instead.
+        maxToolRounds: MAX_DELEGATION_TOOL_ROUNDS,
+        signal: abortController.signal,
       });
 
-      // Append messages to shared session history
-      if (sessionManager) {
-        sessionManager.appendMessage(sessionId, {
-          role: "user",
-          content: task,
-        });
-        sessionManager.appendMessage(sessionId, {
-          role: "assistant",
-          content: result.content,
-        });
-      }
+      // Persist results to session history and memory
+      this.persistDelegationResult(sessionId, task, result.content);
 
-      // Persist to memory backend
-      if (memoryBackend) {
-        try {
-          await memoryBackend.addEntry({
-            sessionId,
-            role: "user",
-            content: task,
-          });
-          await memoryBackend.addEntry({
-            sessionId,
-            role: "assistant",
-            content: result.content,
-          });
-        } catch (error) {
-          this.logger?.warn?.("Failed to persist voice delegation to memory:", error);
-        }
-      }
-
-      // Dispatch message:outbound hook
-      if (hooks) {
-        await hooks.dispatch("message:outbound", {
+      // Dispatch outbound hook
+      if (this.config.hooks) {
+        await this.config.hooks.dispatch("message:outbound", {
           sessionId,
           content: result.content,
           provider: result.provider,
@@ -610,9 +549,9 @@ export class VoiceBridge {
         });
       }
 
-      // Send full result to browser (displayed in chat panel)
+      // Send full result to browser chat panel
       send({
-        type: "voice.delegation",
+        type: VM.DELEGATION,
         payload: {
           status: "completed",
           task,
@@ -623,32 +562,114 @@ export class VoiceBridge {
         },
       });
 
+      // Send cumulative token usage to browser chat panel
+      send({
+        type: "chat.usage",
+        payload: {
+          totalTokens: this.config.chatExecutor.getSessionTokenUsage(sessionId),
+          budget: this.config.sessionTokenBudget ?? 0,
+          compacted: result.compacted ?? false,
+        },
+      });
+
       if (result.toolCalls.length > 0) {
         this.logger?.info?.(
           `Voice delegation used ${result.toolCalls.length} tool call(s)`,
-          {
-            tools: result.toolCalls.map((tc) => tc.name),
-            provider: result.provider,
-          },
+          { tools: result.toolCalls.map((tc: { name: string }) => tc.name), provider: result.provider },
         );
       }
 
-      // Return a concise summary for xAI to speak aloud.
-      // Truncate long results to keep the spoken summary brief.
-      const summary = result.content.length > MAX_VOICE_SUMMARY_CHARS
-        ? result.content.slice(0, MAX_VOICE_SUMMARY_CHARS - 3) + "..."
-        : result.content;
-      return summary;
+      // Never return actual content to xAI — it will read it aloud verbatim.
+      // The full result is already in the browser chat panel via voice.delegation.
+      return `Task completed. The result is displayed in the chat panel. Say "Done." or a one-sentence summary of what you did. Do NOT describe the output.`;
     } catch (error) {
       const errorMsg = (error as Error).message;
       this.logger?.error?.("Voice delegation error:", error);
-
-      send({
-        type: "voice.delegation",
-        payload: { status: "error", task, error: errorMsg },
-      });
-
+      send({ type: VM.DELEGATION, payload: { status: "error", task, error: errorMsg } });
       return `Sorry, I ran into an error: ${errorMsg}`;
+    } finally {
+      // Clear abort controller only if it's still ours (not replaced by a newer delegation)
+      if (session?.delegationAbort === abortController) {
+        session.delegationAbort = null;
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Delegation helpers
+  // --------------------------------------------------------------------------
+
+  /** Parse and validate the task description from xAI's function call JSON. */
+  private parseDelegationTask(argsJson: string): string | { error: string } {
+    let task: string;
+    try {
+      const parsed = JSON.parse(sanitizeXaiArgs(argsJson)) as Record<string, unknown>;
+      task = typeof parsed.task === "string" ? parsed.task : String(parsed.task ?? "");
+    } catch {
+      return { error: JSON.stringify({ error: "Invalid delegation arguments" }) };
+    }
+    if (!task.trim()) {
+      return { error: JSON.stringify({ error: "Empty task description" }) };
+    }
+    return task;
+  }
+
+  /** Run policy check via message:inbound hook. Returns spoken error if blocked, null if OK. */
+  private async dispatchPolicyCheck(
+    clientId: string,
+    sessionId: string,
+    task: string,
+    send: (response: ControlResponse) => void,
+  ): Promise<string | null> {
+    const { hooks } = this.config;
+    if (!hooks) return null;
+
+    const result = await hooks.dispatch("message:inbound", {
+      sessionId,
+      content: task,
+      senderId: clientId,
+      channel: "voice",
+    });
+    if (!result.completed) {
+      send({
+        type: VM.DELEGATION,
+        payload: { status: "blocked", task, error: "Message blocked by policy" },
+      });
+      return "Sorry, that request was blocked by the security policy.";
+    }
+    return null;
+  }
+
+  /** Persist delegation messages to session history and memory backend. */
+  private persistDelegationResult(
+    sessionId: string,
+    task: string,
+    content: string,
+  ): void {
+    const { sessionManager, memoryBackend } = this.config;
+
+    if (sessionManager) {
+      // Find managed session ID for correct appendMessage lookup
+      let targetId = sessionId;
+      for (const s of this.sessions.values()) {
+        if (s.sessionId === sessionId) {
+          targetId = s.managedSessionId;
+          break;
+        }
+      }
+      sessionManager.appendMessage(targetId, { role: "user", content: task });
+      sessionManager.appendMessage(targetId, { role: "assistant", content });
+    }
+
+    if (memoryBackend) {
+      // Fire-and-forget — don't block the response
+      // Use effectiveSessionId for memory backend (cross-session persistence)
+      Promise.all([
+        memoryBackend.addEntry({ sessionId, role: "user", content: task }),
+        memoryBackend.addEntry({ sessionId, role: "assistant", content }),
+      ]).catch((error) => {
+        this.logger?.warn?.("Failed to persist voice delegation to memory:", error);
+      });
     }
   }
 
@@ -667,8 +688,18 @@ export class VoiceBridge {
   ): void {
     if (!text.trim() || !this.config.sessionManager) return;
 
+    // Find the managed session ID (derived by SessionManager.getOrCreate)
+    // for this session to ensure appendMessage finds the right entry.
+    let targetId = sessionId;
+    for (const s of this.sessions.values()) {
+      if (s.sessionId === sessionId) {
+        targetId = s.managedSessionId;
+        break;
+      }
+    }
+
     try {
-      this.config.sessionManager.appendMessage(sessionId, {
+      this.config.sessionManager.appendMessage(targetId, {
         role,
         content: text,
       });
@@ -678,20 +709,54 @@ export class VoiceBridge {
   }
 
   // --------------------------------------------------------------------------
-  // Internal
+  // Session context injection
   // --------------------------------------------------------------------------
 
-  /** Convert LLMTool[] to VoiceTool[] for xAI session config. */
-  private convertTools(tools: LLMTool[]): VoiceTool[] {
-    return tools
-      .filter((t) => t.type === "function" && t.function)
-      .map((t) => ({
-        type: "function" as const,
-        function: {
-          name: t.function!.name,
-          description: t.function!.description,
-          parameters: t.function!.parameters as Record<string, unknown>,
-        },
-      }));
+  /**
+   * Inject session history into the xAI Realtime session so the voice
+   * model has conversation context from prior interactions.
+   */
+  private injectSessionContext(
+    client: XaiRealtimeClient,
+    managedSessionId: string,
+  ): void {
+    const { sessionManager } = this.config;
+    if (!sessionManager) return;
+
+    // Read history from the same session that recordTranscript writes to
+    const storedSession = sessionManager.getOrCreate({
+      channel: "voice",
+      senderId:
+        Array.from(this.sessions.values()).find(
+          (s) => s.managedSessionId === managedSessionId,
+        )?.sessionId.replace(/^voice:/, "") ?? managedSessionId,
+      scope: "dm",
+      workspaceId: "default",
+    });
+
+    const history = storedSession.history;
+    if (history.length === 0) return;
+
+    // Filter to user/assistant text messages, cap at last 20
+    const MAX_HISTORY_ITEMS = 20;
+    const eligible = history.filter(
+      (m) =>
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string" &&
+        (m.content as string).trim(),
+    );
+    const recent = eligible.slice(-MAX_HISTORY_ITEMS);
+
+    if (recent.length > 0) {
+      client.injectConversationHistory(
+        recent.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content as string,
+        })),
+      );
+      this.logger?.debug?.(
+        `Injected ${recent.length} history items into voice session`,
+      );
+    }
   }
 }

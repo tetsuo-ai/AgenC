@@ -52,6 +52,8 @@ export class XaiRealtimeClient {
   private ws: unknown | null = null;
   private _state: ConnectionState = "disconnected";
   private reconnectAttempts = 0;
+  /** Serializes function calls so only one executes at a time. */
+  private _fnCallChain: Promise<void> = Promise.resolve();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
 
@@ -174,6 +176,26 @@ export class XaiRealtimeClient {
     this.sendEvent({ type: "response.cancel" });
   }
 
+  /**
+   * Inject conversation history items into the session.
+   * Each item is sent as a `conversation.item.create` event with
+   * `type: "message"` — restores context on reconnect.
+   */
+  injectConversationHistory(
+    messages: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
+  ): void {
+    for (const msg of messages) {
+      this.sendEvent({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: msg.role,
+          content: [{ type: "input_text", text: msg.content }],
+        },
+      });
+    }
+  }
+
   /** Gracefully close the WebSocket connection. */
   close(): void {
     this.intentionalClose = true;
@@ -237,12 +259,23 @@ export class XaiRealtimeClient {
       case "response.function_call_arguments.done":
         if (this.callbacks.onFunctionCall) {
           this.logger?.debug?.("Tool call:", event.name);
-          void this.handleFunctionCall(
-            event.name,
-            event.arguments,
-            event.call_id,
-          );
+          this._fnCallChain = this._fnCallChain.then(
+            () => this.handleFunctionCall(event.name, event.arguments, event.call_id),
+          ).catch(() => {/* error already handled in handleFunctionCall */});
         }
+        break;
+
+      case "conversation.item.input_audio_transcription.completed":
+        if (event.transcript) {
+          this.callbacks.onInputTranscriptDone?.(event.transcript);
+        }
+        break;
+
+      case "conversation.item.input_audio_transcription.failed":
+        this.logger?.debug?.(
+          "Input audio transcription failed:",
+          event.error?.message,
+        );
         break;
 
       case "input_audio_buffer.speech_started":

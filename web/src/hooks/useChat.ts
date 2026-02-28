@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage, ChatMessageAttachment, ToolCall, WSMessage } from '../types';
+import type { ChatMessage, ChatMessageAttachment, TokenUsage, ToolCall, WSMessage } from '../types';
 import {
   WS_CHAT_MESSAGE,
   WS_CHAT_TYPING,
@@ -10,6 +10,7 @@ import {
   WS_CHAT_SESSIONS,
   WS_CHAT_CANCELLED,
   WS_CHAT_CANCEL,
+  WS_CHAT_USAGE,
   WS_TOOLS_EXECUTING,
   WS_TOOLS_RESULT,
 } from '../constants';
@@ -42,6 +43,8 @@ export interface UseChatReturn {
   refreshSessions: () => void;
   resumeSession: (sessionId: string) => void;
   startNewChat: () => void;
+  /** Cumulative token usage for the current session. */
+  tokenUsage: TokenUsage | null;
   /** Handle incoming WS messages for the chat domain. */
   handleMessage: (msg: WSMessage) => void;
 }
@@ -56,6 +59,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   const [isTyping, setIsTyping] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   // Tracks the placeholder message ID for the current response round
   const pendingMsgIdRef = useRef<string | null>(null);
   const msgCounterRef = useRef(0);
@@ -77,6 +81,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     setMessages([]);
     setSessionId(null);
     setIsTyping(false);
+    setTokenUsage(null);
   }, []);
 
   const stopGeneration = useCallback(() => {
@@ -250,6 +255,16 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
+      case WS_CHAT_USAGE: {
+        const payload = (msg.payload ?? msg) as Record<string, unknown>;
+        setTokenUsage({
+          totalTokens: (payload.totalTokens as number) ?? 0,
+          budget: (payload.budget as number) ?? 0,
+          compacted: (payload.compacted as boolean) ?? false,
+        });
+        break;
+      }
+
       case WS_TOOLS_EXECUTING: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const toolCall: ToolCall = {
@@ -343,7 +358,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
 
   return {
     messages, sendMessage, stopGeneration, injectMessage, replaceLastUserMessage, isTyping, sessionId,
-    sessions, refreshSessions, resumeSession, startNewChat,
+    sessions, refreshSessions, resumeSession, startNewChat, tokenUsage,
     handleMessage,
   };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage, VoiceState, VoiceMode } from '../../types';
+import type { ChatMessage, TokenUsage, VoiceState, VoiceMode } from '../../types';
 
 const APP_DISPLAY_NAME = 'AgenC';
 import type { ChatSessionInfo } from '../../hooks/useChat';
@@ -31,6 +31,7 @@ interface ChatViewProps {
   desktopUrl?: string | null;
   desktopOpen?: boolean;
   onToggleDesktop?: () => void;
+  tokenUsage?: TokenUsage | null;
 }
 
 export function ChatView({
@@ -56,6 +57,7 @@ export function ChatView({
   desktopUrl,
   desktopOpen = false,
   onToggleDesktop,
+  tokenUsage,
 }: ChatViewProps) {
   const isDark = theme === 'dark';
   const [searchOpen, setSearchOpen] = useState(false);
@@ -189,6 +191,21 @@ export function ChatView({
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
+          {tokenUsage && tokenUsage.budget > 0 && (
+            <div
+              className={`px-2 py-0.5 rounded-full text-xs font-mono tabular-nums ${
+                tokenUsage.totalTokens / tokenUsage.budget > 0.85
+                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                  : tokenUsage.totalTokens / tokenUsage.budget > 0.6
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                    : 'bg-tetsuo-100 text-tetsuo-500 dark:bg-tetsuo-800 dark:text-tetsuo-400'
+              }`}
+              title={`${tokenUsage.totalTokens.toLocaleString()} / ${tokenUsage.budget.toLocaleString()} tokens${tokenUsage.compacted ? ' (auto-compacted)' : ''}`}
+            >
+              {Math.round((tokenUsage.totalTokens / tokenUsage.budget) * 100)}%
+              {tokenUsage.compacted && ' ~'}
+            </div>
+          )}
           <button className="ml-2 flex items-center gap-2 px-4 py-2 rounded-lg border border-tetsuo-200 text-sm font-medium text-tetsuo-700 hover:bg-tetsuo-50 transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download App

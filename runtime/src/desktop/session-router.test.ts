@@ -227,7 +227,7 @@ describe("createDesktopAwareToolHandler", () => {
       expect(parsed._screenshot).toBeUndefined();
     });
 
-    it("skips for bash commands (not a GUI action)", async () => {
+    it("captures screenshot after bash commands with longer delay", async () => {
       const manager = mockManager();
       const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
         desktopManager: manager,
@@ -235,10 +235,15 @@ describe("createDesktopAwareToolHandler", () => {
         autoScreenshot: true,
       });
 
+      const start = Date.now();
       const result = await handler("desktop.bash", { command: "ls" });
+      const elapsed = Date.now() - start;
       const parsed = JSON.parse(result);
       expect(parsed.stdout).toBe("hello");
-      expect(parsed._screenshot).toBeUndefined();
+      expect(parsed._screenshot).toBeDefined();
+      expect(parsed._screenshot.dataUrl).toBe("data:image/png;base64,abc");
+      // Bash uses a longer delay (1500ms) than regular action tools (300ms)
+      expect(elapsed).toBeGreaterThanOrEqual(1400);
     });
 
     it("disabled by default", async () => {

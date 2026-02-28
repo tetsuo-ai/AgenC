@@ -18,6 +18,7 @@ export const WS_CHAT_SESSIONS = 'chat.sessions' as const;
 export const WS_CHAT_CANCELLED = 'chat.cancelled' as const;
 export const WS_CHAT_CANCEL = 'chat.cancel' as const;
 export const WS_CHAT_RESUME = 'chat.resume' as const;
+export const WS_CHAT_USAGE = 'chat.usage' as const;
 
 // Tools
 export const WS_TOOLS_EXECUTING = 'tools.executing' as const;

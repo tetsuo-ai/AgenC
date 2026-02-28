@@ -90,6 +90,8 @@ export interface ChatExecuteParams {
   readonly onStreamChunk?: StreamProgressCallback;
   /** Abort signal — when aborted, the executor stops after the current tool call. */
   readonly signal?: AbortSignal;
+  /** Per-call tool round limit — overrides the constructor default. */
+  readonly maxToolRounds?: number;
 }
 
 /** Result returned from ChatExecutor.execute(). */
@@ -185,6 +187,12 @@ const MAX_URL_PREVIEW_CHARS = 80;
 const MAX_BASH_OUTPUT_CHARS = 2000;
 /** Max chars for command preview in tool summaries. */
 const MAX_COMMAND_PREVIEW_CHARS = 60;
+/**
+ * Max consecutive identical failing tool calls before the loop is broken.
+ * When the LLM calls the same tool with the same arguments and gets an error
+ * N times in a row, we inject a hint after (N-1) and break after N.
+ */
+const MAX_CONSECUTIVE_IDENTICAL_FAILURES = 3;
 /** Max chars for JSON result previews. */
 const MAX_RESULT_PREVIEW_CHARS = 500;
 /** Max chars for error message previews. */
@@ -193,8 +201,20 @@ const MAX_ERROR_PREVIEW_CHARS = 300;
 const MAX_EVAL_USER_CHARS = 500;
 /** Max chars of response sent to the evaluator. */
 const MAX_EVAL_RESPONSE_CHARS = 2000;
-/** Tools that cause desktop side-effects — deduplicated across rounds. */
-const SIDE_EFFECT_TOOLS = new Set(["system.open", "system.applescript"]);
+/**
+ * macOS native tools that cause visible side-effects (opening apps, running scripts).
+ * Once any tool in this set executes, further calls to ANY tool in the set are
+ * skipped for the remainder of the request. This prevents the model from e.g.
+ * opening 3 YouTube tabs.
+ *
+ * NOTE: Desktop sandbox tools (`desktop.*`) are intentionally excluded — multi-step
+ * desktop automation (click → type → screenshot → verify) needs repeated calls.
+ */
+const MACOS_SIDE_EFFECT_TOOLS = new Set([
+  "system.open",
+  "system.applescript",
+  "system.notification",
+]);
 
 // ============================================================================
 // ChatExecutor
@@ -251,10 +271,11 @@ export class ChatExecutor {
    * Execute a chat message against the provider chain.
    */
   async execute(params: ChatExecuteParams): Promise<ChatExecutorResult> {
-    const { message, systemPrompt, sessionId, signal } = params;
+    const { message, systemPrompt, sessionId, signal, maxToolRounds: paramMaxToolRounds } = params;
     let { history } = params;
     const activeToolHandler = params.toolHandler ?? this.toolHandler;
     const activeStreamCallback = params.onStreamChunk ?? this.onStreamChunk;
+    const effectiveMaxToolRounds = paramMaxToolRounds ?? this.maxToolRounds;
     const startTime = Date.now();
 
     // Pre-check token budget — attempt compaction instead of hard fail
@@ -289,26 +310,7 @@ export class ChatExecutor {
     // Append history and user message
     messages.push(...history);
 
-    // Build user message — multimodal if attachments with image data are present
-    const imageAttachments = (message.attachments ?? []).filter(
-      (a) => a.data && a.mimeType.startsWith("image/"),
-    );
-    if (imageAttachments.length > 0) {
-      const contentParts: import("./types.js").LLMContentPart[] = [];
-      if (message.content) {
-        contentParts.push({ type: "text", text: message.content });
-      }
-      for (const att of imageAttachments) {
-        const base64 = Buffer.from(att.data!).toString("base64");
-        contentParts.push({
-          type: "image_url",
-          image_url: { url: `data:${att.mimeType};base64,${base64}` },
-        });
-      }
-      messages.push({ role: "user", content: contentParts });
-    } else {
-      messages.push({ role: "user", content: message.content });
-    }
+    ChatExecutor.appendUserMessage(messages, message);
 
     // First LLM call
     const cumulativeUsage: LLMUsage = {
@@ -329,11 +331,15 @@ export class ChatExecutor {
     // side-effect tool executes, all others are skipped for this request.
     let rounds = 0;
     let sideEffectExecuted = false;
+    // Track consecutive identical failing calls to break stuck loops
+    // (e.g. LLM calling `desktop.bash mkdir` with no args 5 times in a row).
+    let lastFailKey = "";
+    let consecutiveFailCount = 0;
     while (
       response.finishReason === "tool_calls" &&
       response.toolCalls.length > 0 &&
       activeToolHandler &&
-      rounds < this.maxToolRounds
+      rounds < effectiveMaxToolRounds
     ) {
       // Check for cancellation before each round
       if (signal?.aborted) break;
@@ -343,7 +349,7 @@ export class ChatExecutor {
       // Append the assistant message with tool calls
       messages.push({ role: "assistant", content: response.content });
       for (const toolCall of response.toolCalls) {
-        if (SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
+        if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
           const skipResult = safeStringify({
             error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
           });
@@ -362,7 +368,7 @@ export class ChatExecutor {
           });
           continue;
         }
-        if (SIDE_EFFECT_TOOLS.has(toolCall.name)) sideEffectExecuted = true;
+        if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name)) sideEffectExecuted = true;
 
         // Allowlist check
         if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
@@ -437,6 +443,18 @@ export class ChatExecutor {
           durationMs: toolDuration,
         });
 
+        // Track consecutive identical failures to detect stuck loops.
+        // Key on tool name + JSON args so "mkdir" with no args is distinct
+        // from "mkdir -p crypto-tracker".
+        const failDetected = isError || result.includes('"exitCode":1') || result.includes('"exitCode":2');
+        const failKey = failDetected ? `${toolCall.name}:${toolCall.arguments}` : "";
+        if (failDetected && failKey === lastFailKey) {
+          consecutiveFailCount++;
+        } else {
+          lastFailKey = failKey;
+          consecutiveFailCount = failDetected ? 1 : 0;
+        }
+
         // If the tool result contains a screenshot data URL, create multimodal
         // content parts so vision-capable LLMs can "see" the image.
         const dataUrlMatch = result.match(
@@ -470,6 +488,12 @@ export class ChatExecutor {
       // Check for cancellation before re-calling LLM
       if (signal?.aborted) break;
 
+      // Break stuck loops — if the same tool with the same args has failed
+      // N times consecutively, stop the loop entirely.
+      if (consecutiveFailCount >= MAX_CONSECUTIVE_IDENTICAL_FAILURES) {
+        break;
+      }
+
       // Re-call LLM
       const next = await this.callWithFallback(messages, activeStreamCallback);
       response = next.response;
@@ -486,77 +510,8 @@ export class ChatExecutor {
     // summary from the last successful tool result.
     let finalContent = response.content;
     if (!finalContent && allToolCalls.length > 0) {
-      // Try to build a descriptive summary from the tool calls themselves
-      const successes = allToolCalls.filter((tc) => !tc.isError);
-      const lastSuccess = successes[successes.length - 1];
-      if (lastSuccess) {
-        try {
-          const parsed = JSON.parse(lastSuccess.result);
-          if (parsed.taskPda) {
-            finalContent = `Task created successfully.\n\n**Task PDA:** ${parsed.taskPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
-          } else if (parsed.agentPda) {
-            finalContent = `Agent registered successfully.\n\n**Agent PDA:** ${parsed.agentPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
-          } else if (parsed.success === true || parsed.exitCode === 0 || parsed.output !== undefined) {
-            // System tool succeeded — build a descriptive message from tool calls
-            // Generate context-aware summary from tool names + args
-            const summaries: string[] = [];
-            for (const tc of successes) {
-              if (tc.name === "system.open") {
-                const target = String(tc.args?.target ?? "");
-                if (target.includes("youtube.com/watch")) {
-                  summaries.push(`Opened YouTube video`);
-                } else if (target.includes("youtube.com")) {
-                  summaries.push(`Opened YouTube`);
-                } else if (target) {
-                  summaries.push(`Opened ${target.slice(0, MAX_URL_PREVIEW_CHARS)}`);
-                }
-              } else if (tc.name === "system.bash") {
-                // For bash commands, show actual output if available
-                try {
-                  const bashResult = JSON.parse(tc.result);
-                  const bashOutput = bashResult.stdout || bashResult.output || "";
-                  if (bashOutput.trim()) {
-                    summaries.push(bashOutput.trim().slice(0, MAX_BASH_OUTPUT_CHARS));
-                  } else {
-                    const cmd = String(tc.args?.command ?? "").slice(0, MAX_COMMAND_PREVIEW_CHARS);
-                    if (cmd) summaries.push(`Ran: ${cmd}`);
-                  }
-                } catch {
-                  const cmd = String(tc.args?.command ?? "").slice(0, 60);
-                  if (cmd) summaries.push(`Ran: ${cmd}`);
-                }
-              } else if (tc.name === "system.applescript") {
-                const script = String(tc.args?.script ?? "");
-                if (script.includes("do script")) {
-                  summaries.push("Opened Terminal and ran the command");
-                } else if (script.includes("activate")) {
-                  summaries.push("Brought app to front");
-                } else if (script.includes("quit")) {
-                  summaries.push("Closed the app");
-                } else {
-                  summaries.push("Done");
-                }
-              } else if (tc.name === "system.notification") {
-                summaries.push("Notification sent");
-              } else {
-                summaries.push("Done");
-              }
-            }
-            finalContent = summaries.length > 0 ? summaries.join("\n") : "Done!";
-          } else if (parsed.error) {
-            finalContent = `Something went wrong: ${String(parsed.error).slice(0, MAX_ERROR_PREVIEW_CHARS)}`;
-          } else if (parsed.exitCode != null && parsed.exitCode !== 0) {
-            const errOutput = parsed.stderr || parsed.stdout || "";
-            finalContent = errOutput.trim()
-              ? `Command failed: ${String(errOutput).slice(0, MAX_ERROR_PREVIEW_CHARS)}`
-              : "The command failed. Let me try a different approach.";
-          } else {
-            finalContent = `Operation completed. Result:\n\`\`\`json\n${lastSuccess.result.slice(0, MAX_RESULT_PREVIEW_CHARS)}\n\`\`\``;
-          }
-        } catch {
-          finalContent = `Operation completed. Result: ${lastSuccess.result.slice(0, MAX_RESULT_PREVIEW_CHARS)}`;
-        }
-      }
+      finalContent =
+        ChatExecutor.generateFallbackContent(allToolCalls) ?? finalContent;
     }
 
     // Response evaluation (optional critic)
@@ -725,6 +680,132 @@ export class ChatExecutor {
   /** Extract plain-text content from a gateway message. */
   private static extractMessageText(message: GatewayMessage): string {
     return typeof message.content === "string" ? message.content : "";
+  }
+
+  /** Append a user message, handling multimodal (image) attachments. */
+  private static appendUserMessage(
+    messages: LLMMessage[],
+    message: GatewayMessage,
+  ): void {
+    const imageAttachments = (message.attachments ?? []).filter(
+      (a) => a.data && a.mimeType.startsWith("image/"),
+    );
+    if (imageAttachments.length > 0) {
+      const contentParts: import("./types.js").LLMContentPart[] = [];
+      if (message.content) {
+        contentParts.push({ type: "text", text: message.content });
+      }
+      for (const att of imageAttachments) {
+        const base64 = Buffer.from(att.data!).toString("base64");
+        contentParts.push({
+          type: "image_url",
+          image_url: { url: `data:${att.mimeType};base64,${base64}` },
+        });
+      }
+      messages.push({ role: "user", content: contentParts });
+    } else {
+      messages.push({ role: "user", content: message.content });
+    }
+  }
+
+  /**
+   * Build a human-readable fallback when the LLM returned empty content
+   * after tool calls (e.g. when maxToolRounds is hit mid-loop).
+   */
+  private static generateFallbackContent(
+    allToolCalls: readonly ToolCallRecord[],
+  ): string | undefined {
+    const successes = allToolCalls.filter((tc) => !tc.isError);
+    const lastSuccess = successes[successes.length - 1];
+    if (!lastSuccess) return undefined;
+
+    try {
+      const parsed = JSON.parse(lastSuccess.result);
+      if (parsed.taskPda) {
+        return `Task created successfully.\n\n**Task PDA:** ${parsed.taskPda}\n**Transaction:** ${parsed.transactionSignature ?? "confirmed"}`;
+      }
+      if (parsed.agentPda) {
+        return `Agent registered successfully.\n\n**Agent PDA:** ${parsed.agentPda}\n**Transaction:** ${parsed.transactionSignature ?? "confirmed"}`;
+      }
+      if (
+        parsed.success === true ||
+        parsed.exitCode === 0 ||
+        parsed.output !== undefined
+      ) {
+        return ChatExecutor.summarizeToolCalls(successes);
+      }
+      if (parsed.error) {
+        return `Something went wrong: ${String(parsed.error).slice(0, MAX_ERROR_PREVIEW_CHARS)}`;
+      }
+      if (parsed.exitCode != null && parsed.exitCode !== 0) {
+        const errOutput = parsed.stderr || parsed.stdout || "";
+        return errOutput.trim()
+          ? `Command failed: ${String(errOutput).slice(0, MAX_ERROR_PREVIEW_CHARS)}`
+          : "The command failed. Let me try a different approach.";
+      }
+      return `Operation completed. Result:\n\`\`\`json\n${lastSuccess.result.slice(0, MAX_RESULT_PREVIEW_CHARS)}\n\`\`\``;
+    } catch {
+      return `Operation completed. Result: ${lastSuccess.result.slice(0, MAX_RESULT_PREVIEW_CHARS)}`;
+    }
+  }
+
+  /** Build a human-readable summary from successful tool calls. */
+  private static summarizeToolCalls(
+    successes: readonly ToolCallRecord[],
+  ): string {
+    const summaries: string[] = [];
+    for (const tc of successes) {
+      if (tc.name === "system.open") {
+        const target = String(tc.args?.target ?? "");
+        if (target.includes("youtube.com/watch")) {
+          summaries.push("Opened YouTube video");
+        } else if (target.includes("youtube.com")) {
+          summaries.push("Opened YouTube");
+        } else if (target) {
+          summaries.push(
+            `Opened ${target.slice(0, MAX_URL_PREVIEW_CHARS)}`,
+          );
+        }
+      } else if (tc.name === "system.bash") {
+        try {
+          const bashResult = JSON.parse(tc.result);
+          const bashOutput = bashResult.stdout || bashResult.output || "";
+          if (bashOutput.trim()) {
+            summaries.push(
+              bashOutput.trim().slice(0, MAX_BASH_OUTPUT_CHARS),
+            );
+          } else {
+            const cmd = String(tc.args?.command ?? "").slice(
+              0,
+              MAX_COMMAND_PREVIEW_CHARS,
+            );
+            if (cmd) summaries.push(`Ran: ${cmd}`);
+          }
+        } catch {
+          const cmd = String(tc.args?.command ?? "").slice(
+            0,
+            MAX_COMMAND_PREVIEW_CHARS,
+          );
+          if (cmd) summaries.push(`Ran: ${cmd}`);
+        }
+      } else if (tc.name === "system.applescript") {
+        const script = String(tc.args?.script ?? "");
+        if (script.includes("do script")) {
+          summaries.push("Opened Terminal and ran the command");
+        } else if (script.includes("activate")) {
+          summaries.push("Brought app to front");
+        } else if (script.includes("quit")) {
+          summaries.push("Closed the app");
+        } else {
+          summaries.push("Done");
+        }
+      } else if (tc.name === "system.notification") {
+        summaries.push("Notification sent");
+      } else {
+        summaries.push("Done");
+      }
+    }
+    return summaries.length > 0 ? summaries.join("\n") : "Done!";
   }
 
   /**

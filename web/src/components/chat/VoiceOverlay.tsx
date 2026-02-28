@@ -9,6 +9,7 @@ interface VoiceOverlayProps {
   onStop: () => void;
   onPushToTalkStart?: () => void;
   onPushToTalkStop?: () => void;
+  delegationTask?: string;
 }
 
 const STATE_LABELS: Record<VoiceState, string> = {
@@ -17,6 +18,7 @@ const STATE_LABELS: Record<VoiceState, string> = {
   listening: 'Listening',
   speaking: 'Speaking',
   processing: 'Processing...',
+  delegating: 'Working...',
 };
 
 const STATE_CONFIG: Record<
@@ -52,6 +54,12 @@ const STATE_CONFIG: Record<
     glowColor: 'rgba(245, 158, 11, 0.45)',
     labelColor: 'text-amber-500',
   },
+  delegating: {
+    orbBg: 'bg-purple-500',
+    ringColor: 'border-purple-400',
+    glowColor: 'rgba(168, 85, 247, 0.45)',
+    labelColor: 'text-purple-500',
+  },
 };
 
 export function VoiceOverlay({
@@ -62,6 +70,7 @@ export function VoiceOverlay({
   onStop,
   onPushToTalkStart,
   onPushToTalkStop,
+  delegationTask,
 }: VoiceOverlayProps) {
   const [visible, setVisible] = useState(false);
   const [rendering, setRendering] = useState(false);
@@ -76,7 +85,7 @@ export function VoiceOverlay({
       return () => cancelAnimationFrame(id);
     } else {
       setVisible(false);
-      const t = setTimeout(() => setRendering(false), 220);
+      const t = setTimeout(() => setRendering(false), 200);
       return () => clearTimeout(t);
     }
   }, [isActive]);
@@ -85,6 +94,11 @@ export function VoiceOverlay({
 
   const state = voiceState === 'inactive' ? 'connecting' : voiceState;
   const cfg = STATE_CONFIG[state];
+
+  // During delegation, show progress transcript when available, fall back to task description
+  const displayText = voiceState === 'delegating'
+    ? (transcript || delegationTask || '')
+    : transcript;
 
   return (
     <div
@@ -108,7 +122,7 @@ export function VoiceOverlay({
           ref={transcriptRef}
           className="flex-1 min-w-0 text-sm text-tetsuo-700 truncate"
         >
-          {transcript && <TranscriptWords text={transcript} />}
+          {displayText && <TranscriptWords text={displayText} />}
         </span>
 
         {/* Controls row */}
@@ -151,17 +165,21 @@ export function VoiceOverlay({
 // ---------------------------------------------------------------------------
 // Word-by-word fade-in: recent words are bright, older ones dim
 
+/** Number of trailing words that get progressive opacity fade. */
+const FADE_WINDOW = 8;
+/** Words within this distance from the end play the word-in animation. */
+const NEW_WORD_THRESHOLD = 3;
+
 function TranscriptWords({ text }: { text: string }) {
   const words = useMemo(() => text.split(/\s+/).filter(Boolean), [text]);
   const total = words.length;
-  const fadeWindow = 8;
 
   return (
     <>
       {words.map((word, i) => {
         const distFromEnd = total - 1 - i;
-        const opacity = distFromEnd >= fadeWindow ? 1 : 0.35 + 0.65 * (1 - distFromEnd / fadeWindow);
-        const isNew = distFromEnd < 3;
+        const opacity = distFromEnd >= FADE_WINDOW ? 1 : 0.35 + 0.65 * (1 - distFromEnd / FADE_WINDOW);
+        const isNew = distFromEnd < NEW_WORD_THRESHOLD;
         return (
           <span
             key={`${i}-${word}`}
@@ -213,19 +231,40 @@ function MiniVoiceOrb({
           }}
         />
       )}
+      {voiceState === 'delegating' && (
+        <span
+          className="absolute inset-0 rounded-full animate-ring-shimmer"
+          style={{
+            background: 'conic-gradient(from 0deg, rgba(168,85,247,0.8), rgba(168,85,247,0.05), rgba(168,85,247,0.8))',
+            mask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))',
+            WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))',
+          }}
+        />
+      )}
 
       {/* Core orb */}
       <div
         className={`relative z-10 w-6 h-6 rounded-full ${cfg.orbBg} animate-orb-breathe flex items-center justify-center`}
         style={{ boxShadow: `0 0 12px 2px ${cfg.glowColor}, 0 0 24px 6px ${glowFaint}` }}
       >
-        <svg
-          width="12" height="12" viewBox="0 0 24 24" fill="none"
-          stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-        >
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-        </svg>
+        {voiceState === 'delegating' ? (
+          /* Bolt icon for delegation */
+          <svg
+            width="12" height="12" viewBox="0 0 24 24" fill="white"
+            stroke="none"
+          >
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+          </svg>
+        ) : (
+          /* Mic icon for other states */
+          <svg
+            width="12" height="12" viewBox="0 0 24 24" fill="none"
+            stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+          >
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          </svg>
+        )}
       </div>
     </div>
   );

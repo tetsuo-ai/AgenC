@@ -43,6 +43,12 @@ export interface VoiceTool {
 // Session Configuration
 // ============================================================================
 
+/** Input audio transcription configuration. */
+export interface InputAudioTranscriptionConfig {
+  /** Transcription model. Default: "whisper-1". */
+  readonly model?: string;
+}
+
 /** Configuration sent via session.update event. */
 export interface VoiceSessionConfig {
   readonly model?: string;
@@ -54,6 +60,8 @@ export interface VoiceSessionConfig {
   readonly turn_detection?: VadConfig | null;
   readonly tools?: readonly VoiceTool[];
   readonly temperature?: number;
+  /** Enable transcription of user's spoken input. */
+  readonly input_audio_transcription?: InputAudioTranscriptionConfig | null;
 }
 
 // ============================================================================
@@ -89,7 +97,8 @@ export interface ResponseCancelEvent {
   readonly type: "response.cancel";
 }
 
-export interface ConversationItemCreateEvent {
+/** Conversation item for injecting function call results. */
+export interface ConversationItemCreateFunctionOutputEvent {
   readonly type: "conversation.item.create";
   readonly item: {
     readonly type: "function_call_output";
@@ -97,6 +106,26 @@ export interface ConversationItemCreateEvent {
     readonly output: string;
   };
 }
+
+/** Content part for message conversation items. */
+export interface ConversationItemContentPart {
+  readonly type: "input_text" | "input_audio";
+  readonly text?: string;
+}
+
+/** Conversation item for injecting message history. */
+export interface ConversationItemCreateMessageEvent {
+  readonly type: "conversation.item.create";
+  readonly item: {
+    readonly type: "message";
+    readonly role: "user" | "assistant";
+    readonly content: readonly ConversationItemContentPart[];
+  };
+}
+
+export type ConversationItemCreateEvent =
+  | ConversationItemCreateFunctionOutputEvent
+  | ConversationItemCreateMessageEvent;
 
 export type ClientEvent =
   | SessionUpdateEvent
@@ -205,6 +234,20 @@ export interface ConversationItemCreatedEvent {
   readonly item: Record<string, unknown>;
 }
 
+export interface InputAudioTranscriptionCompletedEvent {
+  readonly type: "conversation.item.input_audio_transcription.completed";
+  readonly item_id: string;
+  readonly content_index: number;
+  readonly transcript: string;
+}
+
+export interface InputAudioTranscriptionFailedEvent {
+  readonly type: "conversation.item.input_audio_transcription.failed";
+  readonly item_id: string;
+  readonly content_index: number;
+  readonly error: { readonly type: string; readonly message: string };
+}
+
 export interface ErrorServerEvent {
   readonly type: "error";
   readonly error: {
@@ -240,6 +283,8 @@ export type ServerEvent =
   | InputAudioBufferSpeechStoppedEvent
   | InputAudioBufferCommittedEvent
   | ConversationItemCreatedEvent
+  | InputAudioTranscriptionCompletedEvent
+  | InputAudioTranscriptionFailedEvent
   | ErrorServerEvent
   | RateLimitsUpdatedEvent;
 
@@ -263,6 +308,8 @@ export interface VoiceSessionCallbacks {
     args: string,
     callId: string,
   ) => Promise<string>;
+  /** Transcription of the user's spoken input (from input_audio_transcription). */
+  onInputTranscriptDone?: (text: string) => void;
   /** VAD detected speech start. */
   onSpeechStarted?: () => void;
   /** VAD detected speech stop. */

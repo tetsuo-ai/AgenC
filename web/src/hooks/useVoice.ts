@@ -16,6 +16,7 @@ import {
   WS_VOICE_DELEGATION,
   WS_VOICE_STATE,
   WS_VOICE_ERROR,
+  WS_TOOLS_EXECUTING,
 } from '../constants';
 
 interface UseVoiceOptions {
@@ -154,19 +155,13 @@ export function useVoice({ send, onDelegationResult }: UseVoiceOptions) {
             setDelegationTask((payload.task as string) ?? '');
             setTranscript('');
             break;
-          case 'progress': {
-            const content = payload.content as string;
-            if (content) {
-              setTranscript(content);
-            }
-            break;
-          }
           case 'completed': {
             const task = (payload.task as string) ?? '';
             const content = (payload.content as string) ?? '';
             // Inject result into chat panel
             onDelegationResult?.(task, content);
-            // Transition back — xAI will speak a summary, triggering 'speaking'
+            setTranscript('');
+            // Transition back — xAI will speak a short summary
             setVoiceState('processing');
             setDelegationTask('');
             break;
@@ -177,6 +172,15 @@ export function useVoice({ send, onDelegationResult }: UseVoiceOptions) {
             setVoiceState('listening');
             setDelegationTask('');
             break;
+        }
+        break;
+      }
+
+      // During delegation, show tool names in the voice overlay bar
+      case WS_TOOLS_EXECUTING: {
+        if (voiceState === 'delegating') {
+          const toolName = (payload.toolName as string) ?? '';
+          setTranscript(toolName);
         }
         break;
       }

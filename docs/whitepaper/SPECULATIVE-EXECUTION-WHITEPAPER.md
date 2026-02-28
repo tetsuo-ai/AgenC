@@ -2,7 +2,7 @@
 
 **Tetsuo Corporation**
 
-**January 2026**
+**February 2026 (Revised)**
 
 ---
 
@@ -10,11 +10,11 @@
 
 Decentralized autonomous agents represent a paradigm shift in distributed computing, enabling trustless coordination across organizational boundaries. However, current agent coordination protocols face a critical performance bottleneck: the sequential nature of cryptographic proof verification creates latency that scales linearly with workflow depth, rendering multi-step agent pipelines impractical for latency-sensitive applications.
 
-This paper introduces *Speculative Execution with Optimistic Proof Deferral*, a novel execution model that enables downstream agents to begin computation before ancestor proofs achieve on-chain finality. Our approach maintains the security guarantees of proof-based verification while reducing end-to-end pipeline latency by 2-3× through strategic parallelization of execution and proof generation.
+This paper introduces *Speculative Execution with Optimistic Proof Deferral*, a novel execution model that enables downstream agents to begin computation before ancestor proofs achieve on-chain finality. Our approach maintains the security guarantees of proof-based verification while reducing end-to-end pipeline latency by 2.65-4.5× for proof-dominant workloads through strategic parallelization of execution and proof generation.
 
 We present a formal model for speculative commitments in directed acyclic task graphs, prove correctness invariants for our proof ordering and rollback mechanisms, and describe an economic model using exponential stake bonding to align incentives and bound systemic risk. The architecture comprises five core components-DependencyGraph, CommitmentLedger, ProofDeferralManager, RollbackController, and SpeculativeTaskScheduler-implemented as extensions to the AgenC protocol on Solana.
 
-Our analysis demonstrates that for an *n*-task pipeline with average execution time *T_exec* and proof generation time *T_proof*, speculative execution reduces total latency from O(*n* × (*T_exec* + *T_proof*)) to O(*T_exec* + *n* × *T_exec*), with proof generation occurring in parallel. We present formal correctness arguments, failure mode analysis, and economic attack resistance properties, establishing speculative execution as a viable approach for high-throughput decentralized agent coordination.
+Our analysis demonstrates that for an *n*-task pipeline with average execution time *T_exec*, proof generation time *T_proof*, and confirmation time *T_confirm*, speculative execution reduces total latency from O(*n* × (*T_exec* + *T_proof* + *T_confirm*)) to *n* × *T_exec* + *T_proof* + *T_confirm*, with all intermediate proof generation fully overlapping subsequent task execution. For typical proof-dominant workloads, this yields 2.65× speedup at pipeline depth 5, approaching (*T_exec* + *T_proof* + *T_confirm*) / *T_exec* asymptotically (4.5× for representative parameters). We present formal correctness arguments, failure mode analysis, economic attack resistance properties, and comparative analysis with alternative approaches including proof composition, incrementally verifiable computation, and hybrid optimistic/ZK models, establishing speculative execution as a practical and complementary approach for high-throughput decentralized agent coordination.
 
 **Keywords:** speculative execution, zero-knowledge proofs, agent coordination, blockchain, optimistic execution, distributed systems, formal verification
 
@@ -64,7 +64,7 @@ The technical challenge lies in maintaining safety: if an ancestor's proof fails
 
 4. **Economic Bonding**: Stake requirements that scale exponentially with speculation depth, bounding systemic risk and aligning incentives.
 
-We prove that our system maintains correctness invariants under all execution scenarios and demonstrate 2-3× latency reduction for typical multi-task pipelines.
+We prove that our system maintains correctness invariants under all execution scenarios and demonstrate 2.65-4.5× latency reduction for typical proof-dominant multi-task pipelines.
 
 ---
 
@@ -94,7 +94,7 @@ Zero-knowledge proofs allow one party (the prover) to convince another party (th
 
 3. **Computational Integrity**: Enabling verification of expensive computations through succinct proofs.
 
-The AgenC protocol employs Groth16 [2], a pairing-based ZKP system offering constant-size proofs (≈388 bytes) and constant-time verification (≈2ms). However, Groth16 proof generation remains computationally intensive, typically requiring 2-10 seconds for moderately complex circuits.
+The AgenC protocol employs RISC Zero's zkVM [14] with Groth16 [2] compression for on-chain verification. RISC Zero proofs are generated using a STARK-based prover and recursively compressed to constant-size Groth16 proofs (260 bytes: 4-byte selector + 256-byte proof) verified via the Verifier Router CPI on Solana [15]. On-chain verification requires approximately 200,000 compute units. However, proof generation remains computationally intensive, typically requiring 2-10 seconds for moderately complex circuits on GPU, with hardware acceleration and proof markets (Section 9.4) rapidly reducing these times.
 
 ### 2.3 The Latency Problem in Proof Pipelines
 
@@ -195,7 +195,7 @@ A *speculative commitment* is a cryptographic commitment to a task's output made
 C_v = SHA-256(H(O_v), r)
 ```
 
-where *H* is a collision-resistant hash function and SHA-256 (via Solana's `hashv` syscall) is used for commitment hashing [3].
+where *H* is a collision-resistant hash function and SHA-256 (via Solana's `hashv` syscall) is used for commitment hashing [3]. This choice leverages Solana's native SHA-256 support for efficient on-chain verification.
 
 The commitment hides the output (through the salt) while binding the agent to a specific value. Upon proof submission, the agent reveals *O_v* and *r*, allowing verifiers to confirm *C_v* = SHA-256(*H*(*O_v*), *r*).
 
@@ -510,19 +510,54 @@ where *P(success)* is the probability of successful confirmation. For typical sc
 
 **Attack Vector:** Malicious agent deliberately fails proofs to trigger cascading rollbacks, wasting honest agents' compute.
 
-**Defense:**
+**Defense (layered):**
 1. Exponential stake bonding makes deep griefing expensive
-2. 50% of slashed stake distributed to affected downstream agents
-3. Reputation tracking identifies chronic griefers
-4. Speculation whitelist based on historical reliability
+2. Slashed stake distributed to affected downstream agents (proportional to wasted compute)
+3. Reputation tracking identifies chronic griefers, reducing their speculation eligibility
+4. Speculation whitelist based on historical reliability scores
+5. Depth-dependent slash escalation (deeper speculation → higher slash percentage)
 
-**Analysis:** For an attacker at depth *d* triggering rollback of *k* descendants:
+**Quantitative Analysis.** Consider an attacker at depth *d* = 0 (root task) triggering rollback of *k* descendants:
+
 ```
-Attacker Cost = B_base × 2^d × 0.10  (10% slash)
-Victim Compensation = 0.5 × (Attacker Cost)
+Attacker Slash     = B_base × slash_rate(d)
+Victim Wasted Cost = k × T_exec × C_compute    (compute cost per second)
 ```
 
-The attacker bears guaranteed loss while victims receive partial compensation, making sustained griefing economically irrational.
+For *B_base* = 0.001 SOL, *slash_rate* = 10%, *k* = 4 descendants, *T_exec* = 2s, and *C_compute* ≈ 0.0001 SOL/s (approximate cloud GPU cost):
+
+```
+Attacker Loss  = 0.001 × 0.10 = 0.0001 SOL
+Victim Compute = 4 × 2 × 0.0001 = 0.0008 SOL
+```
+
+In this scenario, the attacker's loss (0.0001 SOL) is insufficient to compensate victims' wasted compute (0.0008 SOL). This asymmetry is a known limitation of shallow-stake griefing.
+
+**Mitigation: Depth-Dependent Slash Escalation.** We introduce escalating slash rates that account for downstream impact:
+
+**Table 3a.** Enhanced slashing schedule
+
+| Condition | Base Slash | Cascade Multiplier | Effective Slash |
+|-----------|-----------|-------------------|-----------------|
+| Proof failure (depth 0, root) | 10% | 1 + 0.5*k* | 10% × (1 + 0.5*k*) |
+| Proof failure (depth *d* > 0) | 10% | 1 + 0.25*k* | 10% × (1 + 0.25*k*) |
+| Proof timeout | 5% | 1 | 5% |
+| Ancestor failure (cascade) | 0% | 0 | 0% |
+
+With cascade-aware slashing, the root attacker in the above example faces:
+
+```
+Enhanced Slash = 0.001 × 0.10 × (1 + 0.5 × 4) = 0.001 × 0.30 = 0.0003 SOL
+```
+
+Combined with the exponential bond requirement for deeper speculation (where griefing has greater impact), the economics become unfavorable. At depth 3 with 8 descendants:
+
+```
+Bond = 0.001 × 2^3 = 0.008 SOL
+Enhanced Slash = 0.008 × 0.10 × (1 + 0.25 × 8) = 0.008 × 0.30 = 0.0024 SOL
+```
+
+**Remaining Limitation.** For very shallow, low-stake griefing (single root, few descendants), economic deterrence alone is insufficient. The reputation system serves as the primary defense: agents with >2% historical failure rate are excluded from speculating ancestors, effectively quarantining unreliable participants. This two-layer defense (economic + reputational) provides robust griefing resistance across all depth profiles.
 
 #### 6.4.2 Front-Running
 
@@ -566,40 +601,93 @@ Each task must complete its entire cycle before the next begins.
 
 #### 7.1.2 Speculative Model
 
-Under speculative execution, the critical path becomes:
+Under speculative execution, tasks execute sequentially (each uses its predecessor's output), but proof generation begins immediately after each task completes and runs in parallel with subsequent task execution. Proofs are submitted in dependency order once both (a) the proof is generated and (b) all ancestor proofs are confirmed.
+
+**Detailed Timeline.** Task *i* begins execution at time *t_i^exec* and finishes at *t_i^exec* + *T_exec*. Proof generation for task *i* begins immediately upon execution completion and finishes at *t_i^exec* + *T_exec* + *T_proof*. Proof submission for task *i* occurs at:
 
 ```
-L_spec = T_exec + (n-1) × T_exec + T_proof + n × T_confirm
-       = n × T_exec + T_proof + n × T_confirm
+t_i^submit = max(t_i^proof_done, t_{i-1}^confirmed)
+t_i^confirmed = t_i^submit + T_confirm
 ```
 
-Proof generation for all tasks occurs in parallel with execution of subsequent tasks. Only the final proof generation appears on the critical path.
+For a linear pipeline, task *i* begins executing at time (*i*-1) × *T_exec* (since each task must await its predecessor's output, but not its proof). Task *i*'s proof completes at time *i* × *T_exec* + *T_proof*. Task *i* can submit its proof once both (a) its proof is generated and (b) task *i*-1 is confirmed on-chain. This yields the recurrence:
 
-**Simplification:** When *T_exec* ≈ *T_proof* ≈ *T_confirm* = *T*:
+```
+t_i^confirmed = max(i × T_exec + T_proof, t_{i-1}^confirmed) + T_confirm
+```
+
+**Closed-Form Solution.** When *T_exec* ≥ *T_confirm* (which holds whenever execution is not trivially fast compared to block confirmation), proof availability is always the binding constraint. In this regime, each task's proof completes *after* the predecessor is confirmed, and the recurrence resolves to:
+
+```
+t_i^confirmed = i × T_exec + T_proof + T_confirm
+```
+
+The total pipeline latency is therefore:
+
+```
+L_spec = n × T_exec + T_proof + T_confirm
+```
+
+This captures the critical path: all *n* executions in series (each needing its predecessor's output), plus the irreducible cost of the final task's proof generation and on-chain confirmation. Every intermediate proof generation is fully hidden behind subsequent execution and confirmation steps.
+
+**Simplification.** When *T_exec* ≈ *T_proof* ≈ *T_confirm* = *T*:
 
 ```
 L_seq = n × 3T = 3nT
-L_spec ≈ nT + T + nT = (2n+1)T
+L_spec = nT + T + T = (n + 2)T
 ```
 
 **Speedup Factor:**
 ```
-S = L_seq / L_spec = 3nT / (2n+1)T = 3n / (2n+1)
+S = L_seq / L_spec = 3n / (n + 2)
 ```
 
-As *n* → ∞, *S* → 1.5. For typical *n* = 5: *S* = 15/11 ≈ 1.36.
+For *n* = 5: *S* = 15/7 ≈ 2.14×. As *n* → ∞, *S* → 3.0 in the equal-time case.
+
+**Validity condition.** The closed form requires *T_exec* ≥ *T_confirm*. When *T_exec* < *T_confirm*, the confirmation chain becomes the bottleneck at some crossover point, and the latency increases to *L_spec* = *T_exec* + *T_proof* + *n* × *T_confirm* in the extreme case where *T_exec* ≪ *T_confirm*. In practice, Solana slot times (400ms) and typical task execution times (seconds) ensure *T_exec* ≥ *T_confirm* for virtually all workloads.
 
 #### 7.1.3 Accounting for Proof Dominance
 
-In practice, *T_proof* >> *T_exec*. For *T_proof* = 5s, *T_exec* = 2s, *T_confirm* = 2s:
+In practice, *T_proof* >> *T_exec*. For *T_proof* = 5s, *T_exec* = 2s, *T_confirm* = 2s, *n* = 5:
 
+**Sequential:**
 ```
 L_seq = 5 × (2 + 5 + 2) = 45s
-L_spec = 5 × 2 + 5 + 5 × 2 = 10 + 5 + 10 = 25s
-Speedup = 45/25 = 1.8×
 ```
 
-When proof generation dominates, speculative execution provides greater benefit by parallelizing the expensive operation.
+**Speculative (traced timeline):**
+```
+t=0:  Task 1 executes
+t=2:  Task 1 done, proof gen starts. Task 2 executes speculatively.
+t=4:  Task 2 done, proof gen starts. Task 3 executes.
+t=6:  Task 3 done, proof gen starts. Task 4 executes.
+t=7:  Task 1 proof done (2+5). Submit immediately (no ancestors).
+t=8:  Task 4 done, proof gen starts. Task 5 executes.
+t=9:  Task 1 confirmed (7+2). Task 2 proof done (4+5=9). Submit Task 2.
+t=10: Task 5 done, proof gen starts.
+t=11: Task 2 confirmed (9+2). Task 3 proof done (6+5=11). Submit Task 3.
+t=13: Task 3 confirmed. Task 4 proof done (8+5=13). Submit Task 4.
+t=15: Task 4 confirmed. Task 5 proof done (10+5=15). Submit Task 5.
+t=17: Task 5 confirmed. DONE.
+```
+
+```
+L_spec = 17s
+Speedup = 45/17 = 2.65×
+```
+
+The timeline confirms the closed-form: *L_spec* = 5 × 2 + 5 + 2 = 17s. The steady-state cadence is *T_exec* = 2s per step (visible from t=9 onward), because each task's proof finishes exactly when the predecessor is confirmed — proof generation (*T_proof* = 5s) is fully absorbed by the *T_exec* gap between consecutive tasks plus the *T_confirm* of the predecessor.
+
+**Table 4a.** Pipeline latency analysis (*T_proof* = 5s, *T_exec* = 2s, *T_confirm* = 2s)
+
+| Pipeline Depth | Sequential | Speculative | Speedup |
+|---------------|------------|-------------|---------|
+| 3 | 27s | 13s | 2.08× |
+| 5 | 45s | 17s | 2.65× |
+| 10 | 90s | 27s | 3.33× |
+| 20 | 180s | 47s | 3.83× |
+
+As *n* → ∞ with proof-dominant parameters, the speedup approaches (*T_exec* + *T_proof* + *T_confirm*) / *T_exec* = 9/2 = 4.5× for these values. The asymptotic speedup equals the ratio of sequential per-task cost to speculative per-task marginal cost (just *T_exec*), since proof generation and confirmation are entirely hidden in the pipeline's steady state.
 
 ### 7.2 Overhead Analysis
 
@@ -650,18 +738,51 @@ Total coordination overhead is typically <10ms per task, negligible compared to 
 
 ### 7.3 Expected Performance
 
-**Table 4.** Expected performance by scenario
+**Table 4b.** Expected performance by scenario (*T_proof* = 5s, *T_exec* = 2s, *T_confirm* = 2s)
 
 | Scenario | Sequential | Speculative | Speedup |
 |----------|------------|-------------|---------|
-| 3-task pipeline | 27s | 18s | 1.5× |
-| 5-task pipeline | 45s | 25s | 1.8× |
-| 10-task pipeline | 90s | 45s | 2.0× |
-| Diamond DAG (4 tasks) | 36s | 16s | 2.25× |
+| 3-task pipeline | 27s | 13s | 2.08× |
+| 5-task pipeline | 45s | 17s | 2.65× |
+| 10-task pipeline | 90s | 27s | 3.33× |
+| Diamond DAG (4 tasks, 2 parallel branches) | 36s | 13s | 2.77× |
+| Wide fan-out (1 parent, 4 children) | 18s | 9s | 2.00× |
 
-**Best Case:** Parallel branches with shared ancestors achieve maximum speedup (2-3×).
+Diamond DAGs with parallel branches achieve maximum benefit because independent branches execute and prove concurrently. The diamond DAG (A→{B,C}→D) completes B and C in parallel after A, with D starting once both finish — proof generation for B and C overlaps entirely.
+
+**Best Case:** Deep pipelines with proof-dominant workloads approach 4.5× speedup asymptotically. Wide parallel DAGs can exceed this.
 
 **Worst Case:** High rollback rates (>10%) can eliminate latency benefits. The system automatically falls back to sequential execution when speculation becomes counterproductive.
+
+### 7.4 Impact of Evolving Proof Generation Latency
+
+The performance analysis above uses *T_proof* = 5s, which reflected typical CPU-based proving in early 2025. The proof generation landscape is evolving rapidly:
+
+**Table 4c.** Proof generation latency by platform (2025-2026)
+
+| System | Hardware | Ethereum Block Proving | Simple Circuit (est.) | Source |
+|--------|----------|----------------------|----------------------|--------|
+| SP1 Hypercube (Succinct) | 16× RTX 5090 (~$100K) | 10.3s avg | <1s | [22] |
+| Pico Prism (Brevis) | 16× RTX 5090 (~$32K GPU) | 6.9s avg | <1s | [23] |
+| R0VM 2.0 (RISC Zero) | GPU cluster (~$120K) | 44s | 2-5s | [25] |
+| Airbender (ZKsync) | Single H100 | 35s | 1-3s | — |
+| Fabric VPU (ASIC) | Custom chip | — | Sub-second (projected) | [28] |
+| UniZK (academic) | Custom HW | — | 97× over CPU | [29] |
+
+For AgenC's task completion proofs — which involve a 192-byte journal and relatively simple constraint logic — GPU-accelerated proving or proof market delegation can achieve *T_proof* ≈ 1s. Under these conditions:
+
+```
+T_proof = 1s, T_exec = 2s, T_confirm = 2s, n = 5:
+L_seq  = 5 × (2 + 1 + 2) = 25s
+L_spec = 5 × 2 + 1 + 2 = 13s
+Speedup = 25/13 = 1.92×
+```
+
+Even with fast proofs, speculation still yields meaningful speedup because all proof generation and confirmation (except the final task's) is hidden behind subsequent execution. The speedup diminishes compared to the proof-dominant case (2.65× with *T_proof*=5s) because the sequential per-task cost is lower, but the pipelining benefit persists as long as *T_proof* + *T_confirm* > 0.
+
+For complex proofs (ML inference verification, large dataset processing, multi-step constraint evaluation), *T_proof* remains significant even with hardware acceleration, preserving speculation's full value.
+
+**Key insight:** Speculative execution provides speedup whenever the pipeline has depth. As hardware reduces *T_proof* for simple circuits, the asymptotic speedup shifts from (*T_exec* + *T_proof* + *T_confirm*) / *T_exec* toward a floor of (*T_exec* + *T_confirm*) / *T_exec* (i.e., 2.0× for our parameters). The technique's maximum benefit targets deep pipelines with proof-dominant workloads.
 
 ---
 
@@ -838,6 +959,121 @@ Key differences from our approach:
 
 Our contribution extends these foundations with the novel combination of ZKP-based verification and speculative execution optimized for latency-critical multi-agent workflows.
 
+### 9.4 Alternative Approaches to the Verification Bottleneck
+
+Several emerging technologies offer complementary or alternative approaches to the proof pipeline latency problem. We analyze each in the context of decentralized agent coordination and compare their trade-offs with speculative execution.
+
+#### 9.4.1 Incrementally Verifiable Computation (IVC) and Folding Schemes
+
+Folding schemes, introduced by Nova [16] and extended by SuperNova, HyperNova [17], and MicroNova [18], enable *incrementally verifiable computation* where a prover produces a proof of correct multi-step execution with constant overhead per step. Rather than generating independent proofs for each task, the prover "folds" each step's proof into the previous one via a single multi-scalar multiplication, avoiding full recursive SNARK verification at each step.
+
+**Advantages over speculative execution:**
+- Eliminates the need for independent per-task proofs entirely
+- No rollback risk, as the folded proof is valid at every step
+- MicroNova achieves on-chain verification with O(log *N*) group elements [18]
+
+**The multi-agent trust boundary problem.** IVC folding requires a *continuous prover* — each step's proof is folded into a running accumulator that the prover carries forward. In a multi-agent pipeline where Agent A executes Task 1 and Agent B executes Task 2:
+
+1. **Accumulator handoff requires trust.** Agent B needs Agent A's internal accumulator state to fold Task 2's proof into the chain. This accumulator contains Agent A's prover-internal randomness and intermediate state. Agent A must either (a) hand over its prover secrets — a fundamental trust violation in a decentralized protocol — or (b) run all steps itself, which defeats the purpose of multi-agent coordination.
+
+2. **No folding across trust boundaries.** The folding operation is not decomposable: one party cannot fold a step without the other party's accumulated state. There is no known construction for "trust-minimized" IVC where independent provers contribute to a shared accumulator without revealing their internal state. Split prover techniques [33] address witness partitioning but not accumulator sharing.
+
+3. **Homogeneous proof system requirement.** All agents in a pipeline must use the identical folding-compatible constraint system (R1CS for Nova, CCS for HyperNova). AgenC's design allows agents to use any proving backend that produces a valid RISC Zero Groth16 proof — agents may run different hardware, different prover versions, or future alternative proof systems. Folding forecloses this flexibility.
+
+4. **No production deployment on Solana.** No folding scheme has been deployed on Solana. Adapting RISC Zero's STARK-based pipeline to a folding scheme would require fundamental architectural changes to both the guest program and the on-chain verifier.
+
+**Where IVC excels.** For a *single agent* running a multi-step pipeline internally — for example, an autonomous agent that claims and executes Tasks 1 through 5 sequentially — IVC is strictly superior to speculative execution. The agent holds the accumulator throughout, faces no trust boundary, and produces a single compact proof. However, this is not the primary use case for a decentralized coordination protocol; the interesting and difficult case is cross-agent pipelines.
+
+**Assessment:** IVC is theoretically optimal for single-prover sequential computation but fundamentally inapplicable to multi-agent decentralized coordination, which is the core use case AgenC targets. The trust boundary between independent agents — the defining characteristic of decentralized coordination — is precisely where folding schemes break down and speculative execution with economic bonding provides a viable alternative.
+
+#### 9.4.2 Proof Composition via RISC Zero
+
+RISC Zero's zkVM provides native proof composition through the `env::verify()` guest API [14], allowing one guest program to verify another RISC Zero proof as an "assumption." The recursive proving pipeline resolves these assumptions, compressing a chain of composed proofs into a single Groth16 proof for on-chain verification.
+
+**Relevance to AgenC:** A "batch verifier" guest could call `env::verify()` for each individual task completion proof, producing one aggregated proof that verifies *N* task completions in a single on-chain transaction. This reduces the per-task confirmation overhead from *N* × *T_confirm* to a single *T_confirm*.
+
+**Advantages:**
+- Uses AgenC's existing RISC Zero infrastructure — no proof system migration required
+- Reduces on-chain costs by amortizing verification across multiple tasks
+- Composable with speculative execution: agents speculate and generate proofs in parallel, then batch-compose proofs for submission
+
+**Limitations:**
+- Composition adds prover overhead (each `env::verify()` call increases the outer proof's circuit size)
+- Requires all composed proofs to use the RISC Zero zkVM — cannot aggregate heterogeneous proof systems
+- The batch verifier introduces a coordination point that may add latency for time-critical single-task completions
+
+**Assessment:** Proof composition is a natural near-term enhancement to AgenC's existing architecture and is *complementary* to speculative execution. The optimal design combines both: speculative execution for latency reduction during pipeline execution, proof composition for cost reduction during on-chain settlement.
+
+#### 9.4.3 Hybrid Optimistic/ZK Models
+
+The OP Kailua system [19], deployed in production on BOB (the first Hybrid ZK Rollup), implements a model where transactions execute optimistically by default, with ZK proofs generated only when disputes arise or when users explicitly request fast finality.
+
+**Brevis coChain** [20] extends this pattern to coprocessing: results are submitted as economic claims backed by restaked assets, with ZK fraud proofs serving as the dispute resolution mechanism. The overwhelming majority of operations never incur proof generation costs.
+
+**Comparison with speculative execution:**
+
+| Property | Speculative Execution | Hybrid Optimistic/ZK |
+|----------|----------------------|---------------------|
+| Proof generation | Always (deferred, parallel) | On demand (dispute/request) |
+| Latency | Low (overlapped execution) | Lowest (no proofs in happy path) |
+| Security model | Validity proofs for all tasks | Economic security + validity on dispute |
+| Proving cost | Full (every task proved) | Minimal (most tasks unproved) |
+| Finality | Cryptographic (seconds) | Economic (fast), cryptographic (on dispute) |
+
+**Assessment:** Hybrid models achieve superior latency and cost by deferring proof generation entirely in the common case. However, they weaken the security model from universal validity to economic security with cryptographic fallback. For AgenC's use case — where task outputs may involve financial transactions, sensitive data processing, or high-stakes coordination — universal validity proofs provide stronger guarantees. A graduated approach is promising: use speculative execution for high-value tasks requiring cryptographic finality, and hybrid optimistic/ZK for lower-value tasks where economic security suffices.
+
+#### 9.4.4 Proof Markets and Delegated Proving
+
+Decentralized proof markets — Boundless [21] (RISC Zero), Succinct Prover Network [22] (SP1), Brevis ProverNet [23], and ZkCloud [24] — enable agents to outsource proof generation to specialized GPU operators who compete for proving work.
+
+**Impact on the latency calculus:**
+- Boundless processes 542+ trillion compute cycles with 98-100% order fulfillment
+- SP1 Hypercube proves 99.7% of Ethereum blocks in under 12 seconds on 16 GPUs [22]
+- Brevis Pico Prism achieves 6.9-second average Ethereum block proving [23]
+- RISC Zero's R0VM 2.0 reduced Ethereum block proving from 35 minutes to 44 seconds [25]
+
+For AgenC's relatively simple task completion proofs (192-byte journal, 260-byte seal), delegated proving to a market like Boundless could reduce *T_proof* from 2-10 seconds to sub-second, fundamentally changing the latency equation. When *T_proof* ≈ 0, speculative execution's benefit diminishes — the sequential model approaches *n* × (*T_exec* + *T_confirm*), which may be acceptable for many workloads.
+
+**Assessment:** Proof markets are *complementary* to speculative execution, not alternatives. They reduce *T_proof*, which reduces the absolute latency but preserves the *relative* speedup ratio of speculative execution. The combination of speculative execution (for structural latency reduction) and proof markets (for absolute latency reduction) yields the best overall performance. However, Boundless does not yet support Solana settlement directly [21], limiting near-term applicability for AgenC.
+
+#### 9.4.5 Proof Aggregation
+
+Universal proof aggregation systems — NEBRA UPA [26] on Ethereum, Aligned Layer [27] on EigenLayer — batch multiple proofs from heterogeneous sources into a single on-chain verification, reducing per-proof gas costs by 75-90%.
+
+**Relevance to AgenC:** If AgenC expands to EVM chains, proof aggregation could batch multiple task completions into a single verification, amortizing cost. On Solana, the lower base verification cost (~200K compute units for Groth16) makes aggregation less critical, but it becomes valuable at scale (hundreds of concurrent task completions per block).
+
+#### 9.4.6 Hardware Acceleration
+
+Custom hardware for ZK proving is advancing rapidly:
+- **Fabric VPU** [28] — ASIC-class verifiable processing unit, partnered with both Polygon and RISC Zero, claims 900% more big-integer operations than GPU
+- **UniZK** [29] — Unified hardware accelerator achieving 97× over CPU, 46× over GPU for end-to-end proof generation (ASPLOS 2025)
+- **BatchZK** [30] — Fully pipelined GPU system achieving 259.5× throughput improvement with sub-second batch proving (ASPLOS 2025)
+
+As hardware acceleration matures, *T_proof* could approach milliseconds for simple circuits, potentially eliminating the verification bottleneck entirely for many workloads. Speculative execution would remain valuable for complex proofs (ML inference verification, large dataset processing) where proving time remains significant even with acceleration.
+
+#### 9.4.7 Comparative Summary
+
+**Table 5.** Approach comparison for multi-task proof pipelines
+
+| Approach | Latency Reduction | Proving Cost | Security Model | Multi-Agent | AgenC Fit |
+|----------|-------------------|-------------|----------------|-------------|-----------|
+| Speculative Execution | 2.65-4.5× | Full (deferred) | Validity (universal) | Yes — core design | Native (implemented) |
+| IVC/Folding | Optimal (single proof) | Minimal | Validity | **No** — requires single continuous prover | Single-agent pipelines only |
+| Proof Composition | 1× (reduces confirm cost) | Full + overhead | Validity | Yes — aggregates independent proofs | High (RISC Zero native) |
+| Hybrid Optimistic/ZK | Best (no proofs in happy path) | Minimal | Economic + validity fallback | Yes | Requires architecture change |
+| Proof Markets | Reduces *T_proof* | Delegated | Validity | Yes | Pending (Boundless on Solana) |
+| Hardware Accel. | Reduces *T_proof* | Capital-intensive | Validity | Yes | Transparent benefit |
+
+**Our position:** The verification bottleneck in multi-agent coordination is fundamentally different from the single-prover case. IVC/folding — the theoretically optimal solution for sequential computation — cannot cross the trust boundary between independent agents, which is the defining characteristic of decentralized coordination. Speculative execution addresses precisely this gap: it preserves universal validity guarantees while enabling parallel execution across trust boundaries with economic bonding as the interim security mechanism.
+
+Speculative execution is the right approach for AgenC because it (1) works across mutually distrusting agents without requiring shared prover state, (2) uses existing RISC Zero infrastructure on Solana, (3) preserves universal validity guarantees, and (4) composes well with proof composition (for batch settlement), proof markets (for reduced *T_proof*), and hardware acceleration as they mature.
+
+### 9.5 Speculative Execution in Consensus Protocols
+
+Recent work has applied speculative execution to blockchain consensus itself. *Proof-of-Execution* [31] (ACM TODS 2025) executes transactions before consensus is reached, achieving 86% throughput improvement over standard BFT protocols. *HotStuff-1* [32] introduces one-phase speculation where replicas speculatively execute and update local ledgers upon receiving a prepare-certificate.
+
+These systems validate the core thesis of this paper — that speculative execution, with appropriate rollback mechanisms, provides significant performance benefits in blockchain settings — though they operate at the consensus layer rather than the application layer.
+
 ---
 
 ## 10. Future Work
@@ -865,41 +1101,63 @@ Current speculation policies are static (fixed depth limits, stake ratios). Adap
 
 Machine learning approaches for speculation decision optimization represent a promising direction.
 
-### 10.3 Hardware Acceleration for Proof Generation
+### 10.3 Proof Composition for Batch Settlement
 
-Proof generation latency remains the primary bottleneck. Hardware acceleration through:
+RISC Zero's native proof composition (Section 9.4.2) enables a near-term optimization: rather than submitting *n* individual `complete_task_private` transactions, a batch verifier guest program could compose *n* task proofs into a single Groth16 proof, reducing on-chain verification from *n* × ~200K CU to a single ~200K CU transaction. This requires:
 
-- GPU-based proving (currently 5-10× speedup over CPU)
-- FPGA implementations for specific circuits
-- ASIC development for high-volume proof generation
+- A new `complete_tasks_private_batch` on-chain instruction
+- A batch verifier guest program that calls `env::verify()` for each inner proof
+- SDK wrappers for batch proof submission
 
-Could shift the performance equation, potentially enabling deeper speculation with acceptable risk profiles.
+This is complementary to speculative execution: agents speculate and prove in parallel, then batch-compose completed proofs for amortized on-chain settlement.
 
-### 10.4 Formal Verification
+### 10.4 Proof Market Integration
+
+Integration with decentralized proof markets — particularly Boundless [21] once Solana settlement is available — would allow agents to delegate proof generation to specialized GPU operators. This could reduce *T_proof* from seconds to sub-second for AgenC's relatively simple task completion proofs, dramatically improving both sequential and speculative pipeline latency. Research questions include optimal delegation strategies, prover selection, and latency vs. cost trade-offs.
+
+### 10.5 Competitive Task Speculation
+
+The current analysis assumes cooperative pipelines where tasks have unique executors. In competitive task scenarios — where multiple agents race to complete the same task — speculative execution introduces additional waste: losing agents have generated proofs for outputs that will never be accepted. Future work should analyze the expected waste under competitive speculation and develop mechanisms (e.g., conditional speculation limited to one competitor per task, or pre-commitment auctions) to bound this cost.
+
+### 10.6 Hardware Acceleration
+
+Proof generation latency is rapidly decreasing through hardware acceleration:
+
+- **GPU-based proving**: SP1 Hypercube achieves real-time Ethereum block proving on 16 GPUs [22]; RISC Zero R0VM 2.0 reduced Ethereum block proving from 35 minutes to 44 seconds [25]
+- **Custom ASICs**: Fabric's Verifiable Processing Unit (VPU) [28] demonstrates 900% more big-integer operations than GPU, with direct RISC Zero partnership
+- **FPGA acceleration**: Succinct targets 20× speedup via FPGAs in 2026
+- **Academic advances**: UniZK [29] achieves 97× over CPU, 46× over GPU; BatchZK [30] achieves 259× throughput improvement
+
+As *T_proof* approaches milliseconds, the verification bottleneck may be eliminated for simple circuits, reducing the value proposition of speculative execution for those workloads. However, complex proofs (ML inference verification, multi-step data processing) will continue to benefit from speculative parallelization.
+
+### 10.7 Formal Verification
 
 While we provide proof sketches for key invariants, full formal verification using tools like Coq or Isabelle would strengthen confidence in system correctness. Priority areas include:
 
 - Proof ordering invariant (Theorem 5.1)
 - Rollback completeness (Theorem 5.2)
-- Economic security properties
+- Economic security properties under adaptive adversaries
+- Cascade-aware slashing fairness guarantees
 
 ---
 
 ## 11. Conclusion
 
-This paper presented Speculative Execution with Optimistic Proof Deferral, a novel approach to reducing latency in proof-based decentralized agent coordination. By allowing downstream tasks to execute before ancestor proofs achieve finality-while maintaining strict proof ordering invariants-our system achieves 2-3× latency reduction for typical multi-task pipelines.
+This paper presented Speculative Execution with Optimistic Proof Deferral, a novel approach to reducing latency in proof-based decentralized agent coordination. By allowing downstream tasks to execute before ancestor proofs achieve finality — while maintaining strict proof ordering invariants — our system achieves 2.65-4.5× latency reduction for proof-dominant multi-task pipelines.
 
 The key contributions include:
 
-1. **Formal Model:** A rigorous definition of speculative commitments in task dependency graphs, with precise semantics for execution, proof deferral, and rollback.
+1. **Formal Model:** A rigorous definition of speculative commitments in task dependency graphs, with precise semantics for execution, proof deferral, and rollback. The tight latency bound (Section 7.1.2) corrects earlier simplified analyses and demonstrates stronger speedup than previously reported.
 
-2. **Architecture:** A modular system design with five core components (DependencyGraph, CommitmentLedger, ProofDeferralManager, RollbackController, SpeculativeTaskScheduler) that can be integrated into existing agent protocols.
+2. **Architecture:** A modular system design with five core components (DependencyGraph, CommitmentLedger, ProofDeferralManager, RollbackController, SpeculativeTaskScheduler) that can be integrated into existing agent protocols. The runtime implementation is complete and tested (~200+ dedicated tests).
 
 3. **Safety Guarantees:** Formal proofs of critical invariants ensuring that on-chain state always reflects valid dependency ordering, despite out-of-order off-chain execution.
 
-4. **Economic Model:** Exponential stake bonding that aligns incentives, bounds systemic risk, and provides attack resistance while maintaining capital efficiency for shallow speculation.
+4. **Economic Model:** Exponential stake bonding with cascade-aware slashing that aligns incentives, bounds systemic risk, and provides layered attack resistance (economic + reputational) while maintaining capital efficiency for shallow speculation.
 
-5. **Implementation:** Concrete specifications for Solana/Anchor on-chain programs and TypeScript runtime components, enabling practical deployment.
+5. **Comparative Analysis:** Systematic evaluation against alternative approaches including IVC/folding schemes, proof composition, hybrid optimistic/ZK models, proof markets, and hardware acceleration (Section 9.4), establishing speculative execution as the appropriate technique for heterogeneous multi-agent coordination on Solana.
+
+6. **Implementation:** Concrete specifications for Solana/Anchor on-chain programs and TypeScript runtime components, with the off-chain engine fully implemented and the on-chain integration path clearly defined.
 
 The work establishes that speculative execution, long successful in hardware architectures and distributed databases, can be adapted for decentralized agent coordination while preserving the security guarantees that make such systems valuable.
 
@@ -913,7 +1171,7 @@ As autonomous agents become increasingly prevalent in digital economies, the abi
 
 [2] J. Groth. "On the Size of Pairing-based Non-interactive Arguments." *EUROCRYPT 2016*, pp. 305-326.
 
-[3] L. Grassi, D. Khovratovich, C. Rechberger, A. Roy, and M. Schofnegger. "Poseidon: A New Hash Function for Zero-Knowledge Proof Systems." *USENIX Security 2021*. (Note: AgenC has since migrated to SHA-256 via Solana's `hashv` syscall for commitment hashing.)
+[3] NIST. "Secure Hash Standard (SHS)." FIPS Publication 180-4, 2015. AgenC uses SHA-256 via Solana's `hashv` syscall for commitment hashing.
 
 [4] R. M. Tomasulo. "An Efficient Algorithm for Exploiting Multiple Arithmetic Units." *IBM Journal of Research and Development*, 11(1):25-33, 1967.
 
@@ -934,6 +1192,50 @@ As autonomous agents become increasingly prevalent in digital economies, the abi
 [12] Ethereum Foundation. "EIP-4337: Account Abstraction Using Alt Mempool." Ethereum Improvement Proposal, 2021.
 
 [13] Valory AG. "Autonolas: Unified framework for off-chain services." White Paper, 2023.
+
+[14] RISC Zero, Inc. "RISC Zero zkVM: General Purpose Zero-Knowledge Virtual Machine." https://dev.risczero.com, 2025. See also: Proof Composition documentation, https://dev.risczero.com/api/zkvm/composition.
+
+[15] Boundless (formerly RISC Zero). "risc0-solana: Solana Verifier Router for RISC Zero Groth16 Proofs." https://github.com/boundless-xyz/risc0-solana, v3.0.0, October 2025.
+
+[16] A. Kothapalli and S. Setty. "Nova: Recursive Zero-Knowledge Arguments from Folding Schemes." *CRYPTO 2022*, pp. 235-265.
+
+[17] A. Kothapalli and S. Setty. "HyperNova: Recursive Arguments for Customizable Constraint Systems." *CRYPTO 2024*.
+
+[18] W. Zhao, S. Setty, Y. Cui, and G. Zaverucha. "MicroNova: Folding-based Arguments with Efficient (On-chain) Verification." *IEEE S&P 2025*. ePrint 2024/2099.
+
+[19] RISC Zero, Inc. "OP Kailua: Hybrid ZK Rollup on the OP Stack." https://risczero.com/blog/kailua-how-it-works, 2025.
+
+[20] Brevis Network. "Brevis coChain AVS: Crypto-Economic Security with ZK Fraud Proofs on EigenLayer." https://blog.brevis.network, April 2024.
+
+[21] RISC Zero, Inc. "Boundless: Open Proof Market." Mainnet on Base, September 2025. https://boundless.xyz.
+
+[22] Succinct Labs. "SP1 Hypercube: Real-Time Proving with 16 GPUs." https://blog.succinct.xyz/real-time-proving-16-gpus/, 2025.
+
+[23] Brevis Network. "Brevis ProverNet: Open Marketplace for Zero-Knowledge Proofs." https://blog.brevis.network, 2025.
+
+[24] ZkCloud (formerly Gevulot). "Decentralized Proving Infrastructure." https://zkcloud.com, 2025.
+
+[25] RISC Zero, Inc. "Introducing R0VM 2.0." https://risczero.com/blog/introducing-R0VM-2.0, April 2025.
+
+[26] NEBRA. "Universal Proof Aggregation on Ethereum." https://docs.nebra.one, October 2024. Live on Ethereum mainnet and World Chain.
+
+[27] Aligned Foundation. "Aligned Layer: Proof Verification on EigenLayer." https://whitepaper.alignedlayer.com/, 2024.
+
+[28] Fabric Cryptography. "Verifiable Processing Unit (VPU)." https://www.fabriccryptography.com, 2025. Partnerships with Polygon Labs and RISC Zero.
+
+[29] Y. Zhang et al. "UniZK: Accelerating Zero-Knowledge Proof." *ASPLOS 2025*. 97× over CPU, 46× over GPU for end-to-end proof generation.
+
+[30] C. Lu, J. Chen et al. "BatchZK: A Fully Pipelined GPU-Accelerated System for Batched Generation of Zero-Knowledge Proofs." *ASPLOS 2025*. ePrint 2024/1862.
+
+[31] S. Gupta, J. Hellings et al. "Proof-of-Execution: Low-Latency Consensus via Speculative Execution." *ACM Transactions on Database Systems*, 2025.
+
+[32] "HotStuff-1: Linear Consensus with One-Phase Speculation." NSF, 2025.
+
+[33] S. Garg, A. Goel et al. "Split Prover Zero-Knowledge SNARKs." *EUROCRYPT 2025*. ePrint 2025/373. Enables distributed proof generation by splitting the prover across parties.
+
+[34] ePrint 2024/940. "Scalable Collaborative zk-SNARK and Its Application to Fully Distributed Proof Delegation." 128 servers achieve 30× speedup for joint proof generation.
+
+[35] W. Chen et al. "LatticeFold: A Lattice-based Folding Scheme and its Applications to Succinct Proof Systems." *ASIACRYPT 2025*. ePrint 2024/257. First post-quantum folding protocol.
 
 ---
 
@@ -1139,8 +1441,8 @@ Any missed descendant would fail this assertion.
 
 ---
 
-**Document Version:** 1.0.0  
-**Last Updated:** January 2026  
-**Classification:** Public  
+**Document Version:** 2.0.0
+**Last Updated:** February 2026
+**Classification:** Public
 
 © 2026 Tetsuo Corporation. All rights reserved.

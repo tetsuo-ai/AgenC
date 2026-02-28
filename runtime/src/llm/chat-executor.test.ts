@@ -512,6 +512,33 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls).toHaveLength(3);
     });
 
+    it("per-call maxToolRounds overrides constructor default", async () => {
+      const toolHandler = vi.fn().mockResolvedValue("ok");
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "looping",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+          }),
+        ),
+      });
+
+      // Constructor default is 10, but per-call override caps at 2
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+      });
+      const result = await executor.execute(
+        createParams({ maxToolRounds: 2 }),
+      );
+
+      // 1 initial + 2 rounds = 3 LLM calls
+      expect(provider.chat).toHaveBeenCalledTimes(3);
+      expect(result.toolCalls).toHaveLength(2);
+    });
+
     it("allowedTools rejects disallowed tool name", async () => {
       const toolHandler = vi.fn().mockResolvedValue("should not be called");
       const provider = createMockProvider("primary", {
@@ -596,6 +623,82 @@ describe("ChatExecutor", () => {
         isError: false,
         durationMs: expect.any(Number),
       });
+    });
+
+    it("breaks loop when same tool call fails consecutively", async () => {
+      // Simulate the LLM calling desktop.bash with "mkdir" (no directory),
+      // which returns exitCode:1 every time. Should stop after 3 identical failures.
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stdout":"","stderr":"usage: mkdir dir"}');
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "call-1",
+                name: "desktop.bash",
+                arguments: '{"command":"mkdir"}',
+              },
+            ],
+          }),
+        ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+      });
+      const result = await executor.execute(createParams());
+
+      // Should have stopped after 3 identical failures, not all 10 rounds
+      expect(result.toolCalls.length).toBe(3);
+      expect(result.toolCalls.every((tc) => tc.name === "desktop.bash")).toBe(
+        true,
+      );
+    });
+
+    it("does not break loop when tool calls differ", async () => {
+      let callCount = 0;
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stdout":"","stderr":"err"}');
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation(() => {
+          callCount++;
+          // Return different args each time
+          return Promise.resolve(
+            mockResponse({
+              content: callCount >= 3 ? "gave up" : "",
+              finishReason: callCount >= 3 ? "stop" : "tool_calls",
+              toolCalls:
+                callCount >= 3
+                  ? []
+                  : [
+                      {
+                        id: `call-${callCount}`,
+                        name: "desktop.bash",
+                        arguments: `{"command":"mkdir attempt-${callCount}"}`,
+                      },
+                    ],
+            }),
+          );
+        }),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+      });
+      const result = await executor.execute(createParams());
+
+      // All calls had different args, so loop detection should NOT fire
+      expect(result.toolCalls.length).toBe(2);
+      expect(result.content).toBe("gave up");
     });
   });
 

@@ -33,6 +33,15 @@ export interface ChatMessage {
   attachments?: ChatMessageAttachment[];
 }
 
+export interface TokenUsage {
+  /** Cumulative tokens used this session. */
+  totalTokens: number;
+  /** Session token budget. */
+  budget: number;
+  /** Whether context was auto-compacted this round. */
+  compacted?: boolean;
+}
+
 export interface ToolCall {
   toolName: string;
   args: Record<string, unknown>;
@@ -172,7 +181,7 @@ export interface WSMessage {
 // Keep in sync with runtime/src/channels/webchat/types.ts voice protocol types
 // ============================================================================
 
-export type VoiceState = 'inactive' | 'connecting' | 'listening' | 'speaking' | 'processing';
+export type VoiceState = 'inactive' | 'connecting' | 'listening' | 'speaking' | 'processing' | 'delegating';
 
 export type VoiceMode = 'vad' | 'push-to-talk';
 

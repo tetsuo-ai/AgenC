@@ -100,6 +100,23 @@ const SEMANTIC_MEMORY_DEFAULTS = {
   HYBRID_KEYWORD_WEIGHT: 0.3,
 } as const;
 
+/** Default session token budget — enables auto-compaction out of the box.
+ *  Model-specific: Grok=131K, Claude=200K, Ollama=varies. 120K is conservative. */
+const DEFAULT_SESSION_TOKEN_BUDGET = 120_000;
+
+/**
+ * Default max tool rounds for ChatExecutor based on config.
+ *
+ * Desktop-enabled sessions get 50 rounds because multi-step desktop automation
+ * (open app → type → screenshot → verify → retry) legitimately chains many calls.
+ * Text-only chat gets 3 rounds to keep responses snappy.
+ * Voice delegation uses a separate cap (MAX_DELEGATION_TOOL_ROUNDS = 15) set
+ * per-call in voice-bridge.ts.
+ */
+function getDefaultMaxToolRounds(config: GatewayConfig): number {
+  return config.desktop?.enabled ? 50 : 3;
+}
+
 /** Result of loadWallet() — either a keypair + wallet adapter or null. */
 interface WalletResult {
   keypair: import('@solana/web3.js').Keypair;
@@ -631,8 +648,8 @@ export class DaemonManager {
       memoryRetriever,
       learningProvider,
       progressProvider: progressTracker,
-      maxToolRounds: config.llm?.maxToolRounds ?? (config.desktop?.enabled ? 50 : 3),
-      sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
+      maxToolRounds: config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config),
+      sessionTokenBudget: config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
       onCompaction: this.handleCompaction,
     }) : null;
 
@@ -651,6 +668,7 @@ export class DaemonManager {
     const sessionMgr = this.createSessionManager(hooks);
     const resolveSessionId = this.createSessionIdResolver(sessionMgr);
     const systemPrompt = await this.buildSystemPrompt(config);
+    const voiceSystemPrompt = await this.buildSystemPrompt(config, { forVoice: true });
     const commandRegistry = this.createCommandRegistry(
       sessionMgr,
       resolveSessionId,
@@ -669,7 +687,7 @@ export class DaemonManager {
       approvalEngine,
       memoryBackend,
     };
-    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt, voiceDeps);
+    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt, voiceDeps, voiceSystemPrompt);
     this._voiceBridge = voiceBridge ?? null;
 
     const webChat = new WebChatChannel({
@@ -684,6 +702,7 @@ export class DaemonManager {
       desktopManager: this._desktopManager ?? undefined,
     });
     const signals = this.createWebChatSignals(webChat);
+    const sessionTokenBudget = config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET;
     const onMessage = this.createWebChatMessageHandler({
       webChat,
       commandRegistry,
@@ -695,6 +714,7 @@ export class DaemonManager {
       approvalEngine,
       memoryBackend,
       signals,
+      sessionTokenBudget,
     });
 
     await webChat.initialize({ onMessage, logger: this.logger, config: {} });
@@ -731,7 +751,7 @@ export class DaemonManager {
       const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
       if (voiceChanged) {
         void this._voiceBridge?.stopAll();
-        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, systemPrompt, voiceDeps);
+        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, systemPrompt, voiceDeps, voiceSystemPrompt);
         this._voiceBridge = newBridge ?? null;
         if (this._webChatChannel) {
           this._webChatChannel.updateVoiceBridge(newBridge ?? null);
@@ -750,7 +770,7 @@ export class DaemonManager {
       `, memory=${memoryBackend.name}` +
       `, ${commandRegistry.size} commands` +
       (telemetry ? ', telemetry' : '') +
-      (config.llm?.sessionTokenBudget ? `, budget=${config.llm.sessionTokenBudget}` : '') +
+      `, budget=${config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET}` +
       (voiceBridge ? ', voice' : '') +
       ', hooks, sessions, approvals',
     );
@@ -1513,8 +1533,8 @@ export class DaemonManager {
         memoryRetriever,
         learningProvider,
         progressProvider,
-        maxToolRounds: newConfig.llm?.maxToolRounds ?? (newConfig.desktop?.enabled ? 50 : 3),
-        sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
+        maxToolRounds: newConfig.llm?.maxToolRounds ?? getDefaultMaxToolRounds(newConfig),
+        sessionTokenBudget: newConfig.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
         onCompaction: this.handleCompaction,
       }) : null;
 
@@ -2114,7 +2134,7 @@ export class DaemonManager {
 
   private createOptionalVoiceBridge(
     config: GatewayConfig,
-    llmTools: LLMTool[],
+    _llmTools: LLMTool[],
     toolHandler: ToolHandler,
     systemPrompt: string,
     deps?: {
@@ -2124,22 +2144,22 @@ export class DaemonManager {
       approvalEngine?: ApprovalEngine;
       memoryBackend?: MemoryBackend;
     },
+    voiceSystemPrompt?: string,
   ): VoiceBridge | undefined {
     const voiceApiKey = config.voice?.apiKey || config.llm?.apiKey;
-    if (!voiceApiKey || config.voice?.enabled === false) {
+    if (!voiceApiKey || config.voice?.enabled === false || !deps?.chatExecutor) {
       return undefined;
     }
 
-    // When desktop is enabled, append desktop context to voice system prompt
-    // so the voice model knows about desktop.* tools and how to use them.
-    let voicePrompt = systemPrompt;
+    // Use voice-specific prompt (no planning instruction) when available,
+    // otherwise fall back to the standard system prompt.
+    let voicePrompt = voiceSystemPrompt ?? systemPrompt;
     if (config.desktop?.enabled) {
       voicePrompt += '\n\n' + this.buildDesktopContext(config);
     }
 
     return new VoiceBridge({
       apiKey: voiceApiKey,
-      tools: llmTools,
       toolHandler,
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       systemPrompt: voicePrompt,
@@ -2150,12 +2170,12 @@ export class DaemonManager {
       vadSilenceDurationMs: config.voice?.vadSilenceDurationMs,
       vadPrefixPaddingMs: config.voice?.vadPrefixPaddingMs,
       logger: this.logger,
-      // Chat-Supervisor delegation deps
-      chatExecutor: deps?.chatExecutor,
-      sessionManager: deps?.sessionManager,
-      hooks: deps?.hooks,
-      approvalEngine: deps?.approvalEngine,
-      memoryBackend: deps?.memoryBackend,
+      chatExecutor: deps.chatExecutor,
+      sessionManager: deps.sessionManager,
+      hooks: deps.hooks,
+      approvalEngine: deps.approvalEngine,
+      memoryBackend: deps.memoryBackend,
+      sessionTokenBudget: config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
     });
   }
 
@@ -2195,6 +2215,7 @@ export class DaemonManager {
     approvalEngine: ApprovalEngine;
     memoryBackend: MemoryBackend;
     signals: WebChatSignals;
+    sessionTokenBudget: number;
   }): (msg: GatewayMessage) => Promise<void> {
     const {
       webChat,
@@ -2207,6 +2228,7 @@ export class DaemonManager {
       approvalEngine,
       memoryBackend,
       signals,
+      sessionTokenBudget,
     } = params;
 
     return async (msg: GatewayMessage): Promise<void> => {
@@ -2335,6 +2357,16 @@ export class DaemonManager {
           content: result.content || '(no response)',
         });
 
+        // Send cumulative token usage to browser
+        webChat.pushToSession(msg.sessionId, {
+          type: 'chat.usage',
+          payload: {
+            totalTokens: chatExecutor.getSessionTokenUsage(msg.sessionId),
+            budget: sessionTokenBudget,
+            compacted: result.compacted ?? false,
+          },
+        });
+
         webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
 
         await hooks.dispatch('message:outbound', {
@@ -2397,7 +2429,7 @@ export class DaemonManager {
         '1. Host machine — use system.* tools (system.bash, system.httpGet, etc.) for API calls, file operations, ' +
         'scripting, and anything that does not need a graphical interface.\n\n' +
         '2. Desktop sandbox (Docker) — use desktop.* tools for tasks that need a visual desktop, browser, or GUI applications. ' +
-        'This is a full Ubuntu/XFCE desktop with Firefox, LibreOffice, etc. The user can watch via VNC.\n\n' +
+        'This is a full Ubuntu/XFCE desktop. The user can watch via VNC.\n\n' +
         'Choose the right tools for the job. Use system.* tools for API calls, file I/O, and non-visual work. ' +
         'Use desktop.* tools when the task involves browsing websites (especially JS-heavy or Cloudflare-protected sites), ' +
         'creating documents in GUI apps, or any visual interaction.\n\n' +
@@ -2413,20 +2445,22 @@ export class DaemonManager {
         '- desktop.clipboard_get, desktop.clipboard_set — Clipboard access\n' +
         '- desktop.screen_size — Get resolution\n' +
         '- desktop.video_start, desktop.video_stop — Record the desktop screen to MP4\n\n' +
-        'You also have Playwright browser tools available (prefixed with `playwright.`). ' +
-        'Use `playwright.browser_navigate` to open URLs, `playwright.browser_click` to click elements by text/selector, ' +
-        '`playwright.browser_type` to fill inputs, and `playwright.browser_snapshot` to get the page accessibility tree. ' +
-        'These are more reliable than pixel-clicking for web browsing.\n\n' +
+        'WEB BROWSING — ALWAYS use Playwright tools (prefixed with `playwright.`):\n' +
+        '- playwright.browser_navigate — Open URLs. THIS IS HOW YOU OPEN A BROWSER.\n' +
+        '- playwright.browser_click — Click elements by text or CSS selector\n' +
+        '- playwright.browser_type — Fill form inputs\n' +
+        '- playwright.browser_snapshot — Get the page accessibility tree (read page content)\n' +
+        '- playwright.browser_tabs — List open tabs\n' +
+        'Playwright uses a bundled Chromium — no other browsers are installed.\n\n' +
         'CRITICAL RULES:\n' +
         '- To create/edit files: use desktop.text_editor (preferred) or desktop.bash with cat heredoc\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash or desktop.text_editor.\n' +
-        '- keyboard_type is ONLY for GUI text fields (browser URL bar, search boxes, GUI text editors like gedit/mousepad).\n' +
-        '- For web browsing, prefer playwright.* tools over pixel-clicking. They work with the DOM/accessibility tree and are more reliable.\n\n' +
+        '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
+        '- For web browsing, ALWAYS use playwright.* tools.\n\n' +
         'Desktop tips:\n' +
         '- Launch GUI apps: desktop.bash with "app >/dev/null 2>&1 &" (MUST redirect output and background to avoid hanging)\n' +
-        '- Firefox: desktop.bash with "firefox --no-remote --new-instance URL >/dev/null 2>&1 &"\n' +
         '- Code search: desktop.bash with "rg pattern /path" (ripgrep), "fdfind filename" (fd-find)\n' +
         '- Take screenshots frequently to verify actions worked\n' +
         '- system.bash = host machine; desktop.bash = inside the Docker container\n' +
@@ -2465,16 +2499,22 @@ export class DaemonManager {
     return ctx;
   }
 
-  private async buildSystemPrompt(config: GatewayConfig): Promise<string> {
+  private async buildSystemPrompt(
+    config: GatewayConfig,
+    options?: { forVoice?: boolean },
+  ): Promise<string> {
     const desktopContext = this.buildDesktopContext(config);
 
-    const planningInstruction =
-      '\n\n## Task Execution Protocol\n\n' +
-      'When given a request that requires multiple steps or tool calls:\n' +
-      '1. First, briefly state your plan as a numbered list (2-6 steps max)\n' +
-      '2. Execute each step in order, confirming the result before proceeding\n' +
-      '3. If a step fails, reassess the plan and adapt\n\n' +
-      'For simple questions or single-step requests, respond directly without a plan.';
+    const planningInstruction = options?.forVoice
+      ? '\n\n## Execution Style\n\n' +
+        'Execute tasks immediately without narrating your plan. ' +
+        'Do NOT list steps. Do NOT explain what you will do. Just act.'
+      : '\n\n## Task Execution Protocol\n\n' +
+        'When given a request that requires multiple steps or tool calls:\n' +
+        '1. First, briefly state your plan as a numbered list (2-6 steps max)\n' +
+        '2. Execute each step in order, confirming the result before proceeding\n' +
+        '3. If a step fails, reassess the plan and adapt\n\n' +
+        'For simple questions or single-step requests, respond directly without a plan.';
 
     const additionalContext = desktopContext + planningInstruction;
     const workspacePath = getDefaultWorkspacePath();
