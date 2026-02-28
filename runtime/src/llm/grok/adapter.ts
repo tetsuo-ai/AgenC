@@ -91,6 +91,81 @@ function estimateOpenAIContentChars(content: unknown): number {
   return 0;
 }
 
+function isPromptOverflowErrorMessage(message: string): boolean {
+  return /maximum prompt length|maximum context length|request contains\s+\d+\s+tokens/i.test(
+    message,
+  );
+}
+
+function collectParamDiagnostics(params: Record<string, unknown>): Record<string, number | string> {
+  const messages = Array.isArray(params.messages)
+    ? (params.messages as Array<Record<string, unknown>>)
+    : [];
+  const tools = Array.isArray(params.tools)
+    ? (params.tools as unknown[])
+    : [];
+
+  let totalContentChars = 0;
+  let maxMessageChars = 0;
+  let imageParts = 0;
+  let textParts = 0;
+  let systemMessages = 0;
+  let userMessages = 0;
+  let assistantMessages = 0;
+  let toolMessages = 0;
+
+  for (const msg of messages) {
+    const role = String(msg.role ?? "");
+    if (role === "system") systemMessages++;
+    if (role === "user") userMessages++;
+    if (role === "assistant") assistantMessages++;
+    if (role === "tool") toolMessages++;
+
+    const content = msg.content;
+    const chars = estimateOpenAIContentChars(content);
+    totalContentChars += chars;
+    if (chars > maxMessageChars) maxMessageChars = chars;
+
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (!part || typeof part !== "object") continue;
+        const p = part as Record<string, unknown>;
+        if (p.type === "image_url") imageParts++;
+        if (p.type === "text") textParts++;
+      }
+    }
+  }
+
+  let serializedChars = 0;
+  let toolSchemaChars = 0;
+  try {
+    serializedChars = JSON.stringify(params).length;
+  } catch {
+    serializedChars = -1;
+  }
+  try {
+    toolSchemaChars = JSON.stringify(tools).length;
+  } catch {
+    toolSchemaChars = -1;
+  }
+
+  return {
+    model: String(params.model ?? ""),
+    messageCount: messages.length,
+    systemMessages,
+    userMessages,
+    assistantMessages,
+    toolMessages,
+    totalContentChars,
+    maxMessageChars,
+    textParts,
+    imageParts,
+    toolCount: tools.length,
+    toolSchemaChars,
+    serializedChars,
+  };
+}
+
 function hasImageContent(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   return content.some((part) => {
@@ -314,7 +389,9 @@ export class GrokProvider implements LLMProvider {
       );
       return this.parseResponse(completion);
     } catch (err: unknown) {
-      throw this.mapError(err);
+      const mapped = this.mapError(err);
+      this.logPromptOverflowDiagnostics(mapped, params);
+      throw mapped;
     }
   }
 
@@ -396,8 +473,9 @@ export class GrokProvider implements LLMProvider {
         finishReason,
       };
     } catch (err: unknown) {
+      const mappedError = this.mapError(err);
+      this.logPromptOverflowDiagnostics(mappedError, params);
       if (content.length > 0) {
-        const mappedError = this.mapError(err);
         const partialToolCalls: LLMToolCall[] = Array.from(
           toolCallAccum.values(),
         )
@@ -421,7 +499,7 @@ export class GrokProvider implements LLMProvider {
           partial: true,
         };
       }
-      throw this.mapError(err);
+      throw mappedError;
     }
   }
 
@@ -533,6 +611,21 @@ export class GrokProvider implements LLMProvider {
   }
 
   private toOpenAIMessage(msg: LLMMessage): Record<string, unknown> {
+    if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      return {
+        role: "assistant",
+        content: msg.content,
+        tool_calls: msg.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: {
+            name: tc.name,
+            arguments: tc.arguments,
+          },
+        })),
+      };
+    }
+
     if (msg.role === "tool") {
       // Tool messages require string content per the OpenAI API spec.
       // When content is a multimodal array (e.g. from screenshot tool results),
@@ -607,5 +700,22 @@ export class GrokProvider implements LLMProvider {
 
   private mapError(err: unknown): Error {
     return mapLLMError(this.name, err, this.config.timeoutMs ?? 0);
+  }
+
+  private logPromptOverflowDiagnostics(
+    error: Error,
+    params: Record<string, unknown>,
+  ): void {
+    const statusCode = (error as { statusCode?: unknown }).statusCode;
+    if (statusCode !== 400) return;
+    if (!isPromptOverflowErrorMessage(error.message)) return;
+
+    const diagnostics = collectParamDiagnostics(params);
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[GrokProvider] Prompt overflow diagnostics: ${JSON.stringify(
+        diagnostics,
+      )}`,
+    );
   }
 }

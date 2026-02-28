@@ -452,6 +452,15 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls[0].isError).toBe(false);
       expect(result.toolCalls[0].durationMs).toBeGreaterThanOrEqual(0);
       expect(toolHandler).toHaveBeenCalledWith("search", { query: "test" });
+
+      const followupMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as LLMMessage[];
+      const assistantWithToolCall = followupMessages.find(
+        (m) => m.role === "assistant" && Array.isArray(m.toolCalls),
+      );
+      expect(assistantWithToolCall?.toolCalls).toEqual([
+        { id: "tc-1", name: "search", arguments: '{"query":"test"}' },
+      ]);
     });
 
     it("sanitizes screenshot tool payloads before follow-up model call", async () => {

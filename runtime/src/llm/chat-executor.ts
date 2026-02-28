@@ -373,7 +373,11 @@ export class ChatExecutor {
       rounds++;
 
       // Append the assistant message with tool calls
-      messages.push({ role: "assistant", content: response.content });
+      messages.push({
+        role: "assistant",
+        content: response.content,
+        toolCalls: response.toolCalls,
+      });
       for (const toolCall of response.toolCalls) {
         if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
           const skipResult = safeStringify({

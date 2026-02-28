@@ -152,6 +152,9 @@ export class LLMTaskExecutor implements TaskExecutor {
     const assistantMsg: LLMMessage = {
       role: "assistant",
       content: response.content,
+      ...(response.toolCalls.length > 0
+        ? { toolCalls: response.toolCalls }
+        : {}),
     };
     messages.push(assistantMsg);
     await this.persistMessage(sessionId, assistantMsg, taskPda);
@@ -252,6 +255,9 @@ export class LLMTaskExecutor implements TaskExecutor {
       const nextAssistantMsg: LLMMessage = {
         role: "assistant",
         content: response.content,
+        ...(response.toolCalls.length > 0
+          ? { toolCalls: response.toolCalls }
+          : {}),
       };
       messages.push(nextAssistantMsg);
       await this.persistMessage(sessionId, nextAssistantMsg, taskPda);

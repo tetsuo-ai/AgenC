@@ -29,6 +29,8 @@ export type LLMContentPart =
 export interface LLMMessage {
   role: MessageRole;
   content: string | LLMContentPart[];
+  /** For assistant messages that request tool execution */
+  toolCalls?: LLMToolCall[];
   /** For tool result messages — the ID of the tool call being responded to */
   toolCallId?: string;
   /** For tool result messages — the name of the tool */
