@@ -18,6 +18,7 @@ const DESKTOP_TERMINAL_LAUNCH_RE = /\b(?:xfce4-terminal|gnome-terminal|xterm|kit
 const DESKTOP_BROWSER_LAUNCH_RE = /\b(?:firefox|chromium|chromium-browser|google-chrome)\b/i;
 const DESKTOP_FILE_MANAGER_LAUNCH_RE = /\b(?:thunar|nautilus)\b/i;
 const DESKTOP_EDITOR_LAUNCH_RE = /\b(?:mousepad|gedit)\b/i;
+const COLLAPSE_WHITESPACE_RE = /\s+/g;
 
 function normalizeDesktopBashCommand(
   name: string,
@@ -29,10 +30,35 @@ function normalizeDesktopBashCommand(
   if (!command) return undefined;
   if (!DESKTOP_GUI_LAUNCH_RE.test(command)) return undefined;
   if (DESKTOP_TERMINAL_LAUNCH_RE.test(command)) return '__gui_terminal__';
-  if (DESKTOP_BROWSER_LAUNCH_RE.test(command)) return '__gui_browser__';
+  if (DESKTOP_BROWSER_LAUNCH_RE.test(command)) {
+    // Browser launches can differ materially by URL/flags; only dedupe exact
+    // normalized command strings so recovery launches are not skipped.
+    return `__gui_browser__:${command
+      .replace(COLLAPSE_WHITESPACE_RE, ' ')
+      .toLowerCase()}`;
+  }
   if (DESKTOP_FILE_MANAGER_LAUNCH_RE.test(command)) return '__gui_file_manager__';
   if (DESKTOP_EDITOR_LAUNCH_RE.test(command)) return '__gui_editor__';
-  return command.replace(/\s+/g, ' ').toLowerCase();
+  return command.replace(COLLAPSE_WHITESPACE_RE, ' ').toLowerCase();
+}
+
+function shouldMarkGuiLaunchSeen(result: string): boolean {
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return false;
+    }
+    const payload = parsed as { error?: unknown; exitCode?: unknown };
+    if (typeof payload.error === 'string' && payload.error.trim().length > 0) {
+      return false;
+    }
+    if (typeof payload.exitCode === 'number' && payload.exitCode !== 0) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ============================================================================
@@ -119,7 +145,6 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           skippedDuplicate: true,
         });
       }
-      seenGuiLaunches.add(launchKey);
     }
 
     const toolCallId = nextToolCallId();
@@ -192,6 +217,10 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     const start = Date.now();
     const result = await activeHandler(name, args);
     const durationMs = Date.now() - start;
+
+    if (launchKey && shouldMarkGuiLaunchSeen(result)) {
+      seenGuiLaunches.add(launchKey);
+    }
 
     // 7. Send tools.result to client
     send({

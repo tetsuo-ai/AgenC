@@ -19,8 +19,10 @@ import { DesktopSandboxConnectionError } from "./errors.js";
 
 /** Timeout for health check and tool-list fetch during connect(). */
 const CONNECT_TIMEOUT_MS = 5_000;
-/** Timeout for individual tool execution calls (must exceed container's 600s bash timeout). */
-const TOOL_EXECUTION_TIMEOUT_MS = 660_000;
+/** Default timeout for individual tool execution calls. */
+const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 180_000;
+/** Hard cap for individual tool execution calls (matches container bash upper bound + slack). */
+const MAX_TOOL_EXECUTION_TIMEOUT_MS = 660_000;
 
 // ============================================================================
 // Types for REST API responses
@@ -30,6 +32,19 @@ interface RESTToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+}
+
+function resolveToolExecutionTimeoutMs(args: Record<string, unknown>): number {
+  const requestedTimeoutMs =
+    typeof args.timeoutMs === "number" && Number.isFinite(args.timeoutMs)
+      ? Math.floor(args.timeoutMs)
+      : undefined;
+  if (requestedTimeoutMs === undefined || requestedTimeoutMs <= 0) {
+    return DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
+  }
+  // Add a small transport cushion over the command timeout.
+  const withBuffer = requestedTimeoutMs + 15_000;
+  return Math.min(MAX_TOOL_EXECUTION_TIMEOUT_MS, withBuffer);
 }
 
 // ============================================================================
@@ -118,6 +133,7 @@ export class DesktopRESTBridge {
     const baseUrl = this.baseUrl;
     const containerId = this.containerId;
     const logger = this.logger;
+    const bridgeRef = this;
 
     return {
       name,
@@ -127,11 +143,12 @@ export class DesktopRESTBridge {
         args: Record<string, unknown>,
       ): Promise<ToolResult> {
         try {
+          const timeoutMs = resolveToolExecutionTimeoutMs(args);
           const res = await fetch(`${baseUrl}/tools/${def.name}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(args),
-            signal: AbortSignal.timeout(TOOL_EXECUTION_TIMEOUT_MS),
+            signal: AbortSignal.timeout(timeoutMs),
           });
 
           const raw = await res.json() as Record<string, unknown>;
@@ -171,6 +188,9 @@ export class DesktopRESTBridge {
             isError: raw.isError === true,
           };
         } catch (err) {
+          // Network-level failures usually mean the container API is unhealthy.
+          // Mark disconnected so callers can recycle/reconnect the bridge.
+          bridgeRef.connected = false;
           logger.error(
             `Desktop tool ${name} failed [${containerId}]: ${toErrorMessage(err)}`,
           );

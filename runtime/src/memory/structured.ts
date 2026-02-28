@@ -19,11 +19,24 @@ import { join, basename, dirname } from "node:path";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const MAX_DAILY_LOG_ENTRY_CHARS = 12_000;
+
 function isEnoent(err: unknown): boolean {
   return (
     err instanceof Error &&
     "code" in err &&
     (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}
+
+function truncateDailyLogContent(content: string): string {
+  if (content.length <= MAX_DAILY_LOG_ENTRY_CHARS) return content;
+  if (MAX_DAILY_LOG_ENTRY_CHARS <= 3) {
+    return content.slice(0, Math.max(0, MAX_DAILY_LOG_ENTRY_CHARS));
+  }
+  return (
+    content.slice(0, MAX_DAILY_LOG_ENTRY_CHARS - 3) +
+    "..."
   );
 }
 
@@ -93,7 +106,8 @@ export class DailyLogManager {
     const hh = String(now.getUTCHours()).padStart(2, "0");
     const mm = String(now.getUTCMinutes()).padStart(2, "0");
     const label = role === "user" ? "User" : "Agent";
-    const line = `## ${hh}:${mm} [${sessionId}]\n**${label}:** ${content}\n\n`;
+    const trimmed = truncateDailyLogContent(content);
+    const line = `## ${hh}:${mm} [${sessionId}]\n**${label}:** ${trimmed}\n\n`;
     await appendFile(this.todayPath, line);
   }
 

@@ -266,6 +266,29 @@ describe("MemoryIngestionEngine", () => {
       ).resolves.toBeUndefined();
       expect(logger.error).toHaveBeenCalled();
     });
+
+    it("truncates oversized turn messages before embedding/store/log", async () => {
+      const engine = createEngine();
+      const longUser = "u".repeat(20_000);
+      const longAgent = "a".repeat(20_000);
+
+      await engine.ingestTurn("sess-1", longUser, longAgent);
+
+      const embedArg = (embeddingProvider.embed as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[0] as string;
+      expect(embedArg).toContain("User: ");
+      expect(embedArg).toContain("Assistant: ");
+      expect(embedArg.length).toBeLessThanOrEqual(24_030);
+
+      const stored = (vectorStore.storeWithEmbedding as ReturnType<typeof vi.fn>)
+        .mock.calls[0]?.[0] as { content: string };
+      expect(stored.content.length).toBeLessThanOrEqual(24_030);
+
+      const userLog = (logManager.append as ReturnType<typeof vi.fn>).mock.calls[0]?.[2] as string;
+      const agentLog = (logManager.append as ReturnType<typeof vi.fn>).mock.calls[1]?.[2] as string;
+      expect(userLog.length).toBeLessThanOrEqual(12_000);
+      expect(agentLog.length).toBeLessThanOrEqual(12_000);
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -555,6 +578,26 @@ describe("MemoryIngestionEngine", () => {
       const result = await hooks[2].handler(ctx);
       expect(result.continue).toBe(true);
       expect(compactSpy).toHaveBeenCalledWith("sess-1", "compacted");
+    });
+
+    it("session:compact ignores non-after phases without warning", async () => {
+      const engine = createEngine();
+      const compactSpy = vi
+        .spyOn(engine, "processCompaction")
+        .mockResolvedValue(undefined);
+      const hooks = createIngestionHooks(engine, logger);
+
+      const ctx = createHookContext("session:compact", {
+        sessionId: "sess-1",
+        phase: "before",
+      });
+
+      const result = await hooks[2].handler(ctx);
+      expect(result.continue).toBe(true);
+      expect(compactSpy).not.toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("memory-ingestion-compact"),
+      );
     });
 
     it("all hooks return { continue: true } even on error", async () => {

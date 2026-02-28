@@ -546,16 +546,61 @@ describe("config loading", () => {
     expect(result.errors).toEqual([]);
   });
 
+  it("validateGatewayConfig accepts logging.trace settings", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        logging: {
+          level: "debug",
+          trace: {
+            enabled: true,
+            includeHistory: true,
+            includeSystemPrompt: true,
+            includeToolArgs: true,
+            includeToolResults: true,
+            maxChars: 12_000,
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("validateGatewayConfig rejects invalid logging.trace fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        logging: {
+          level: "debug",
+          trace: {
+            enabled: "yes" as unknown as boolean,
+            maxChars: 100,
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("logging.trace.enabled must be a boolean");
+    expect(result.errors).toContain(
+      "logging.trace.maxChars must be an integer between 256 and 200000",
+    );
+  });
+
   it("diffGatewayConfig detects changed sections", () => {
     const oldConfig = makeConfig();
     const newConfig = makeConfig({
-      logging: { level: "debug" },
+      logging: {
+        level: "debug",
+        trace: { enabled: true },
+      },
       gateway: { port: 9200, bind: "127.0.0.1" },
     });
 
     const diff = diffGatewayConfig(oldConfig, newConfig);
 
     expect(diff.safe).toContain("logging.level");
+    expect(diff.safe).toContain("logging.trace.enabled");
     expect(diff.unsafe).toContain("gateway.port");
   });
 

@@ -142,7 +142,15 @@ export class ResilientMCPBridge implements MCPToolBridge {
       const { createToolBridge } = await import("./tool-bridge.js");
 
       const client = await createMCPConnection(this.config, this.logger);
-      const newBridge = await createToolBridge(client, this.serverName, this.logger);
+      const newBridge = await createToolBridge(
+        client,
+        this.serverName,
+        this.logger,
+        {
+          listToolsTimeoutMs: this.config.timeout,
+          callToolTimeoutMs: this.config.timeout,
+        },
+      );
 
       this.inner = newBridge;
       this.reconnecting = false;

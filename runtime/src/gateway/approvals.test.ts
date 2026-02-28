@@ -128,9 +128,13 @@ describe('ApprovalEngine', () => {
 
   describe('requiresApproval', () => {
     it('matches exact tool name', () => {
-      const rule = engine.requiresApproval('system.bash', {});
+      const rule = engine.requiresApproval('system.delete', {});
       expect(rule).not.toBeNull();
-      expect(rule!.tool).toBe('system.bash');
+      expect(rule!.tool).toBe('system.delete');
+    });
+
+    it('does not require approval for system.bash by default', () => {
+      expect(engine.requiresApproval('system.bash', { command: 'npm' })).toBeNull();
     });
 
     it('returns null for unmatched tool', () => {
@@ -227,7 +231,7 @@ describe('ApprovalEngine', () => {
   describe('approval flow', () => {
     it('resolves with yes — returns approved response', async () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
       const promise = engine.requestApproval(req);
       engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
@@ -238,7 +242,7 @@ describe('ApprovalEngine', () => {
 
     it('resolves with no — returns denied response', async () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
       const promise = engine.requestApproval(req);
       engine.resolve(req.id, { requestId: req.id, disposition: 'no' });
@@ -256,7 +260,7 @@ describe('ApprovalEngine', () => {
           generateId: () => 'timeout-req',
         });
         const rule = DEFAULT_APPROVAL_RULES[0];
-        const req = eng.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+        const req = eng.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
         const promise = eng.requestApproval(req);
         vi.advanceTimersByTime(200);
@@ -270,14 +274,14 @@ describe('ApprovalEngine', () => {
     });
 
     it('always disposition elevates the session', async () => {
-      const rule = DEFAULT_APPROVAL_RULES[0]; // system.bash
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const rule = DEFAULT_APPROVAL_RULES[0]; // system.delete
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
       const promise = engine.requestApproval(req);
       engine.resolve(req.id, { requestId: req.id, disposition: 'always' });
 
       await promise;
-      expect(engine.isToolElevated('sess-1', 'system.bash')).toBe(true);
+      expect(engine.isToolElevated('sess-1', 'system.delete')).toBe(true);
     });
 
     it('resolve of nonexistent request is a no-op', () => {
@@ -296,7 +300,7 @@ describe('ApprovalEngine', () => {
       engine.onResponse(handler);
 
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
       const promise = engine.requestApproval(req);
       const response: ApprovalResponse = { requestId: req.id, disposition: 'yes' };
@@ -318,7 +322,7 @@ describe('ApprovalEngine', () => {
         eng.onResponse(handler);
 
         const rule = DEFAULT_APPROVAL_RULES[0];
-        const req = eng.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+        const req = eng.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
         const promise = eng.requestApproval(req);
         vi.advanceTimersByTime(100);
@@ -377,7 +381,7 @@ describe('ApprovalEngine', () => {
 
     it('returns pending requests', () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       engine.requestApproval(req);
 
       const pending = engine.getPending();
@@ -390,7 +394,7 @@ describe('ApprovalEngine', () => {
 
     it('removes resolved requests from pending', async () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       const promise = engine.requestApproval(req);
       engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
       await promise;
@@ -406,7 +410,7 @@ describe('ApprovalEngine', () => {
   describe('dispose', () => {
     it('clears all pending timers and requests', () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req1 = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req1 = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       const req2 = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       engine.requestApproval(req1);
       engine.requestApproval(req2);
@@ -420,7 +424,7 @@ describe('ApprovalEngine', () => {
 
     it('auto-denies pending requests so promises resolve', async () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       const promise = engine.requestApproval(req);
 
       engine.dispose();
@@ -442,7 +446,7 @@ describe('ApprovalEngine', () => {
       });
 
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+      const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       const promise = engine.requestApproval(req);
       engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
 
@@ -463,7 +467,7 @@ describe('ApprovalEngine', () => {
         });
 
         const rule = DEFAULT_APPROVAL_RULES[0];
-        const req = eng.createRequest('system.bash', {}, 'sess-1', 'Approve?', rule);
+        const req = eng.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
         const promise = eng.requestApproval(req);
         vi.advanceTimersByTime(100);
 
@@ -482,10 +486,10 @@ describe('ApprovalEngine', () => {
   describe('createRequest', () => {
     it('creates a request with injected id and timestamp', () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
-      const req = engine.createRequest('system.bash', { cmd: 'ls' }, 'sess-1', 'Check', rule);
+      const req = engine.createRequest('system.delete', { cmd: 'ls' }, 'sess-1', 'Check', rule);
 
       expect(req.id).toBe('req-1');
-      expect(req.toolName).toBe('system.bash');
+      expect(req.toolName).toBe('system.delete');
       expect(req.args).toEqual({ cmd: 'ls' });
       expect(req.sessionId).toBe('sess-1');
       expect(req.message).toBe('Check');
@@ -499,13 +503,12 @@ describe('ApprovalEngine', () => {
   // ============================================================================
 
   describe('DEFAULT_APPROVAL_RULES', () => {
-    it('has 11 rules', () => {
-      expect(DEFAULT_APPROVAL_RULES).toHaveLength(11);
+    it('has 10 rules', () => {
+      expect(DEFAULT_APPROVAL_RULES).toHaveLength(10);
     });
 
-    it('covers system.bash, system.delete, system.evaluateJs', () => {
+    it('covers system.delete and system.evaluateJs', () => {
       const tools = DEFAULT_APPROVAL_RULES.map((r) => r.tool);
-      expect(tools).toContain('system.bash');
       expect(tools).toContain('system.delete');
       expect(tools).toContain('system.evaluateJs');
     });

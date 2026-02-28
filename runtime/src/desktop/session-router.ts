@@ -24,6 +24,176 @@ const PLAYWRIGHT_MCP_PACKAGE_PREFIX = "@playwright/mcp@";
 const PLAYWRIGHT_MCP_PACKAGE_NAME = "@playwright/mcp";
 const TMUX_MCP_PACKAGE = "tmux-mcp";
 const NEOVIM_MCP_PACKAGE = "mcp-neovim-server";
+const TRANSIENT_DESKTOP_ERROR_PATTERNS = [
+  "fetch failed",
+  "econnreset",
+  "econnrefused",
+  "socket hang up",
+  "networkerror",
+  "connection refused",
+];
+const DESKTOP_BASH_INTERACTIVE_REPL_RE =
+  /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:python(?:\d+(?:\.\d+)?)?|node(?:js)?|bash|sh|zsh|irb|php)\s*$/i;
+const DESKTOP_BASH_SINGLE_COMMAND_RE =
+  /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?([a-zA-Z0-9._+-]+)\s*$/;
+const DESKTOP_BASH_BACKGROUND_RE =
+  /&\s*(?:disown\s*)?(?:(?:;|&&)?\s*echo\s+\$!\s*)?$/;
+const DESKTOP_BROWSER_LAUNCH_RE =
+  /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:chromium|chromium-browser|google-chrome|firefox)\b/i;
+const DESKTOP_CHROMIUM_LAUNCH_RE = /\b(?:chromium|chromium-browser|google-chrome)\b/i;
+const DESKTOP_BROWSER_TARGET_RE = /\b(?:https?:\/\/|file:\/\/|about:|chrome:\/\/)/i;
+const DESKTOP_BROWSER_USER_DATA_DIR_RE = /\b--user-data-dir(?:=|\s+)/i;
+const DESKTOP_BASH_QUOTED_SEGMENT_RE = /'[^']*'|"[^"]*"/g;
+const DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE =
+  /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:pgrep|pkill|ps|grep|ss|lsof|netstat|kill|killall)\b/i;
+const LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE =
+  /\b(?:python(?:\d+(?:\.\d+)?)?\s+-m\s+http\.server|npm\s+run\s+(?:dev|start|serve)|pnpm\s+(?:dev|start|serve)|yarn\s+(?:dev|start|serve)|npx\s+vite|vite|flask\s+run|uvicorn|gunicorn)\b/i;
+const BROWSER_WINDOW_TITLE_RE = /(chromium|chrome|firefox|epiphany|browser|localhost|https?:\/\/|file:\/\/)/i;
+
+const INCOMPLETE_DESKTOP_COMMAND_HINTS: Record<string, string> = {
+  which: 'Use a full command like `which python3`.',
+  apt: 'Use a full command like `sudo apt-get update` or `sudo apt-get install -y <pkg>`.',
+  "apt-get":
+    'Use a full command like `sudo apt-get update` or `sudo apt-get install -y <pkg>`.',
+  sudo:
+    "Include the full command after sudo, for example `sudo apt-get install -y python3`.",
+  curl: "Include a URL, for example `curl -I http://localhost:8000`.",
+  pip: "Include a subcommand, for example `pip install flask` or `pip list`.",
+  pip3: "Include a subcommand, for example `pip3 install flask` or `pip3 list`.",
+  npm: "Include a subcommand, for example `npm run dev` or `npm install`.",
+  pnpm: "Include a subcommand, for example `pnpm dev` or `pnpm install`.",
+  yarn: "Include a subcommand, for example `yarn dev` or `yarn install`.",
+  chromium:
+    "Include a URL target, for example `chromium http://localhost:8000`, or use `playwright.browser_navigate`.",
+  "chromium-browser":
+    "Include a URL target, for example `chromium-browser http://localhost:8000`, or use `playwright.browser_navigate`.",
+  "google-chrome":
+    "Include a URL target, for example `google-chrome https://example.com`, or use `playwright.browser_navigate`.",
+  firefox:
+    "Include a URL target, for example `firefox https://example.com`, or use `playwright.browser_navigate`.",
+};
+
+function stripQuotedSegments(command: string): string {
+  return command.replace(DESKTOP_BASH_QUOTED_SEGMENT_RE, " ");
+}
+
+function getDesktopBashGuardError(
+  name: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  if (name !== "desktop.bash") return undefined;
+  const command = typeof args.command === "string" ? args.command.trim() : "";
+  if (!command) return undefined;
+  const unquotedCommand = stripQuotedSegments(command);
+
+  if (DESKTOP_BASH_INTERACTIVE_REPL_RE.test(command)) {
+    return (
+      `Command "${command}" opens an interactive shell/REPL and will hang in desktop.bash. ` +
+      "Use a non-interactive one-shot command instead (for example `python3 script.py`, `python3 -c \"...\"`, or `node app.js`)."
+    );
+  }
+
+  const singleCommand = command.match(DESKTOP_BASH_SINGLE_COMMAND_RE)?.[1]?.toLowerCase();
+  if (singleCommand) {
+    const hint = INCOMPLETE_DESKTOP_COMMAND_HINTS[singleCommand];
+    if (hint) {
+      return `Command "${command}" is incomplete. ${hint}`;
+    }
+  }
+
+  if (
+    DESKTOP_BROWSER_LAUNCH_RE.test(command) &&
+    !DESKTOP_BROWSER_TARGET_RE.test(command)
+  ) {
+    return (
+      `Browser launch command "${command}" is missing a target URL. ` +
+      "Provide an explicit URL/path (for example `chromium-browser http://localhost:8000`) " +
+      "or use `playwright.browser_navigate`."
+    );
+  }
+
+  if (
+    DESKTOP_BROWSER_LAUNCH_RE.test(command) &&
+    !DESKTOP_BASH_BACKGROUND_RE.test(command)
+  ) {
+    return (
+      `Browser launch command "${command}" should run in background to avoid hanging desktop.bash. ` +
+      "Append `>/dev/null 2>&1 &` or use `playwright.browser_navigate`."
+    );
+  }
+
+  const timeoutMs =
+    typeof args.timeoutMs === "number" && Number.isFinite(args.timeoutMs)
+      ? args.timeoutMs
+      : undefined;
+  if (
+    !DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE.test(command) &&
+    LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE.test(unquotedCommand) &&
+    !DESKTOP_BASH_BACKGROUND_RE.test(command) &&
+    (timeoutMs === undefined || timeoutMs <= 60_000)
+  ) {
+    return (
+      `Command "${command}" is a long-running server process and is likely to timeout in foreground mode. ` +
+      "Start it in background (append `&`) and then verify with curl or logs."
+    );
+  }
+
+  return undefined;
+}
+
+function inferFocusTitleFromWindowList(resultContent: string): string | undefined {
+  try {
+    const parsed = JSON.parse(resultContent) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return undefined;
+    }
+    const windows = (parsed as { windows?: unknown }).windows;
+    if (!Array.isArray(windows)) return undefined;
+    const titles = windows
+      .map((w) => {
+        if (typeof w !== "object" || w === null || Array.isArray(w)) return "";
+        const title = (w as { title?: unknown }).title;
+        return typeof title === "string" ? title.trim() : "";
+      })
+      .filter((title) => title.length > 0 && title !== "(unknown)");
+    if (titles.length === 0) return undefined;
+    return titles.find((title) => BROWSER_WINDOW_TITLE_RE.test(title)) ??
+      (titles.length === 1 ? titles[0] : undefined);
+  } catch {
+    return undefined;
+  }
+}
+
+function rewriteDesktopChromiumLaunchArgs(
+  name: string,
+  args: Record<string, unknown>,
+  sessionId: string,
+  log: Logger,
+): Record<string, unknown> {
+  if (name !== "desktop.bash") return args;
+
+  const command = typeof args.command === "string" ? args.command.trim() : "";
+  if (!command) return args;
+  if (!DESKTOP_CHROMIUM_LAUNCH_RE.test(command)) return args;
+  if (!DESKTOP_BROWSER_TARGET_RE.test(command)) return args;
+  if (DESKTOP_BROWSER_USER_DATA_DIR_RE.test(command)) return args;
+
+  const sessionTag =
+    sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(-16) || "session";
+  const profileDir = `/tmp/agenc-chrome-${sessionTag}-${Date.now().toString(36)}`;
+  const rewrittenCommand = command.replace(
+    DESKTOP_CHROMIUM_LAUNCH_RE,
+    (match) =>
+      `${match} --new-window --incognito --user-data-dir=${profileDir}`,
+  );
+
+  if (rewrittenCommand === command) return args;
+
+  log.info?.(
+    `desktop.bash chromium launch rewritten with isolated profile for session ${sessionId}`,
+  );
+  return { ...args, command: rewrittenCommand };
+}
 
 // ============================================================================
 // Desktop tool definitions (static — same across all containers)
@@ -142,13 +312,76 @@ export function createDesktopAwareToolHandler(
       return safeStringify({ error: `Unknown desktop tool: ${toolName}` });
     }
 
+    let effectiveArgs = args;
+    const guardError = getDesktopBashGuardError(name, effectiveArgs);
+    if (guardError) {
+      return safeStringify({ error: guardError });
+    }
+
+    effectiveArgs = rewriteDesktopChromiumLaunchArgs(
+      name,
+      effectiveArgs,
+      sessionId,
+      log,
+    );
+
+    if (name === "desktop.window_focus") {
+      const title =
+        typeof effectiveArgs.title === "string" ? effectiveArgs.title.trim() : "";
+      if (!title) {
+        const windowListTool = bridge
+          .getTools()
+          .find((t) => t.name === "desktop.window_list");
+        if (windowListTool) {
+          try {
+            const windowListResult = await windowListTool.execute({});
+            const inferredTitle = inferFocusTitleFromWindowList(
+              windowListResult.content,
+            );
+            if (inferredTitle) {
+              effectiveArgs = { ...effectiveArgs, title: inferredTitle };
+              log.info?.(
+                `desktop.window_focus missing title for session ${sessionId}; inferred "${inferredTitle}" from window list`,
+              );
+            }
+          } catch {
+            // fall through and return deterministic validation error below
+          }
+        }
+      }
+
+      const finalTitle =
+        typeof effectiveArgs.title === "string" ? effectiveArgs.title.trim() : "";
+      if (!finalTitle) {
+        return safeStringify({
+          error:
+            "desktop.window_focus requires `title`. Call `desktop.window_list` and pass a non-empty window title.",
+        });
+      }
+      effectiveArgs = { ...effectiveArgs, title: finalTitle };
+    }
+
     // Reset idle timer
     const handle = desktopManager.getHandleBySession(sessionId);
     if (handle) {
       desktopManager.touchActivity(handle.containerId);
     }
 
-    const result: ToolResult = await tool.execute(args);
+    const result: ToolResult = await tool.execute(effectiveArgs);
+    if (result.isError && looksLikeTransientDesktopFailure(result.content)) {
+      log.warn?.(
+        `Desktop tool "${name}" failed with transient error for session ${sessionId}; recycling sandbox and retrying once`,
+      );
+      await recycleDesktopSession(sessionId, desktopManager, bridges, playwrightBridges, containerMCPBridges);
+      const recovered = await ensureBridge(sessionId, desktopManager, bridges, log);
+      if (recovered) {
+        const retryTool = recovered.getTools().find((t) => t.name === `desktop.${toolName}`);
+        if (retryTool) {
+          const retryResult = await retryTool.execute(effectiveArgs);
+          return retryResult.content;
+        }
+      }
+    }
 
     return result.content;
   };
@@ -266,7 +499,7 @@ async function ensureBridge(
   bridges: Map<string, DesktopRESTBridge>,
   log: Logger,
 ): Promise<DesktopRESTBridge | undefined> {
-  try {
+  const connectBridge = async (): Promise<DesktopRESTBridge> => {
     const handle = await desktopManager.getOrCreate(sessionId);
     const bridge = new DesktopRESTBridge({
       apiHostPort: handle.apiHostPort,
@@ -281,11 +514,50 @@ async function ensureBridge(
     }
 
     return bridge;
-  } catch (err) {
-    log.error(
-      `Failed to create desktop sandbox for session ${sessionId}: ${toErrorMessage(err)}`,
+  };
+
+  try {
+    return await connectBridge();
+  } catch (firstErr) {
+    log.warn?.(
+      `Desktop bridge bootstrap failed for session ${sessionId}: ${toErrorMessage(firstErr)}. Recycling sandbox and retrying once.`,
     );
-    return undefined;
+    await recycleDesktopSession(sessionId, desktopManager, bridges);
+    try {
+      return await connectBridge();
+    } catch (secondErr) {
+      log.error(
+        `Failed to create desktop sandbox for session ${sessionId}: ${toErrorMessage(secondErr)}`,
+      );
+      return undefined;
+    }
+  }
+}
+
+function looksLikeTransientDesktopFailure(content: string): boolean {
+  const lower = content.toLowerCase();
+  return TRANSIENT_DESKTOP_ERROR_PATTERNS.some((pattern) =>
+    lower.includes(pattern),
+  );
+}
+
+async function recycleDesktopSession(
+  sessionId: string,
+  desktopManager: DesktopSandboxManager,
+  bridges: Map<string, DesktopRESTBridge>,
+  playwrightBridges?: Map<string, MCPToolBridge>,
+  containerMCPBridges?: Map<string, MCPToolBridge[]>,
+): Promise<void> {
+  destroySessionBridge(
+    sessionId,
+    bridges,
+    playwrightBridges,
+    containerMCPBridges,
+  );
+  try {
+    await desktopManager.destroyBySession(sessionId);
+  } catch {
+    // best-effort cleanup
   }
 }
 
@@ -322,7 +594,10 @@ async function ensurePlaywrightBridge(
       log,
     );
 
-    const pwBridge = await createToolBridge(client, "playwright", log);
+    const pwBridge = await createToolBridge(client, "playwright", log, {
+      listToolsTimeoutMs: 30_000,
+      callToolTimeoutMs: 30_000,
+    });
     playwrightBridges.set(sessionId, pwBridge);
 
     if (!cachedPlaywrightTools && pwBridge.tools.length > 0) {
@@ -450,7 +725,10 @@ async function ensureContainerMCPBridges(
         log,
       );
 
-      const rawBridge = await createToolBridge(client, config.name, log);
+      const rawBridge = await createToolBridge(client, config.name, log, {
+        listToolsTimeoutMs: config.timeout ?? 30_000,
+        callToolTimeoutMs: config.timeout ?? 30_000,
+      });
 
       // Wrap in ResilientMCPBridge with the docker-exec config for auto-reconnection
       const dockerConfig: MCPServerConfig = {

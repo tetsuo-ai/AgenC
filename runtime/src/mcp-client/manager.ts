@@ -59,7 +59,15 @@ export class MCPManager {
       enabledConfigs.map(async (config) => {
         const client = await createMCPConnection(config, this.logger);
         try {
-          const rawBridge = await createToolBridge(client, config.name, this.logger);
+          const rawBridge = await createToolBridge(
+            client,
+            config.name,
+            this.logger,
+            {
+              listToolsTimeoutMs: config.timeout,
+              callToolTimeoutMs: config.timeout,
+            },
+          );
           const bridge = new ResilientMCPBridge(config, rawBridge, this.logger);
           this.bridges.set(config.name, bridge);
           return bridge;

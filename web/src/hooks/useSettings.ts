@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS: GatewaySettings = {
   connection: { rpcUrl: 'https://api.devnet.solana.com' },
   logging: { level: 'info' },
 };
+const SAVE_TIMEOUT_MS = 10_000;
 
 interface UseSettingsOptions {
   send: (msg: Record<string, unknown>) => void;
@@ -61,6 +62,14 @@ export function useSettings({ send, connected }: UseSettingsOptions): UseSetting
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const requestedRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSaveTimeout = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+  }, []);
 
   const refresh = useCallback(() => {
     send({ type: 'config.get' });
@@ -83,10 +92,25 @@ export function useSettings({ send, connected }: UseSettingsOptions): UseSetting
   }, [connected, refresh]);
 
   const save = useCallback((partial: Partial<GatewaySettings>) => {
+    clearSaveTimeout();
     setSaving(true);
     setLastError(null);
     send({ type: 'config.set', payload: partial });
-  }, [send]);
+    saveTimeoutRef.current = setTimeout(() => {
+      setSaving(false);
+      setLastError('Saving settings timed out. Check daemon/WebSocket connection and try again.');
+    }, SAVE_TIMEOUT_MS);
+  }, [clearSaveTimeout, send]);
+
+  useEffect(() => {
+    if (!connected && saving) {
+      clearSaveTimeout();
+      setSaving(false);
+      setLastError('Disconnected while saving settings.');
+    }
+  }, [clearSaveTimeout, connected, saving]);
+
+  useEffect(() => () => clearSaveTimeout(), [clearSaveTimeout]);
 
   const handleMessage = useCallback((msg: WSMessage) => {
     if (msg.type === 'config.get' && !msg.error) {
@@ -97,6 +121,7 @@ export function useSettings({ send, connected }: UseSettingsOptions): UseSetting
       }
     }
     if (msg.type === 'config.set') {
+      clearSaveTimeout();
       setSaving(false);
       if (msg.error) {
         setLastError(msg.error);
@@ -120,7 +145,7 @@ export function useSettings({ send, connected }: UseSettingsOptions): UseSetting
         setOllamaError(models.length === 0 ? 'No models installed in Ollama' : null);
       }
     }
-  }, []);
+  }, [clearSaveTimeout]);
 
   return { settings, loaded, saving, lastError, ollamaModels, ollamaError, refresh, save, fetchOllamaModels, handleMessage };
 }

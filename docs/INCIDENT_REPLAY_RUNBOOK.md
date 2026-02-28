@@ -3,6 +3,9 @@
 This runbook provides a deterministic, command-by-command workflow for replay-based incident reconstruction.
 It covers both the CLI (`agenc-runtime replay ...`) and MCP tool paths (`agenc_replay_*`).
 
+For runtime LLM/tool-pipeline incidents (context growth, tool-turn ordering, desktop hangs), use:
+`docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md`.
+
 ---
 
 ## CLI path
@@ -184,4 +187,3 @@ structuredContent.schema: replay.incident.output.v1
   - `mcp/src/tools/replay-types.ts` for MCP response schemas
   - `runtime/docs/replay-cli.md` for CLI usage
 - Replay outputs may include optional `schema_hash` to detect schema drift.
-

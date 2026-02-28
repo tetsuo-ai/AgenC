@@ -14,8 +14,8 @@ vi.mock("../utils/async.js", () => ({
 vi.mock("../utils/logger.js", () => {
   const noop = () => {};
   return {
-    silentLogger: { debug: noop, info: noop, warn: noop, error: noop },
-    createLogger: () => ({ debug: noop, info: noop, warn: noop, error: noop }),
+    silentLogger: { debug: noop, info: noop, warn: noop, error: noop, setLevel: noop },
+    createLogger: () => ({ debug: noop, info: noop, warn: noop, error: noop, setLevel: noop }),
   };
 });
 
@@ -55,11 +55,105 @@ import {
   pidFileExists,
   isProcessAlive,
   checkStalePid,
+  isCommandUnavailableError,
+  resolveTraceLoggingConfig,
+  summarizeToolFailureForLog,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
 } from "./daemon.js";
 import type { PidFileInfo } from "./daemon.js";
+
+// ============================================================================
+// Command availability classifier
+// ============================================================================
+
+describe("isCommandUnavailableError", () => {
+  it("returns true for ENOENT error code", () => {
+    const err = Object.assign(new Error("spawn tmux-mcp ENOENT"), {
+      code: "ENOENT",
+    });
+    expect(isCommandUnavailableError(err)).toBe(true);
+  });
+
+  it("returns true for command-not-found messages", () => {
+    expect(
+      isCommandUnavailableError(new Error("/bin/sh: playwright-mcp: command not found")),
+    ).toBe(true);
+  });
+
+  it("returns false for non-availability errors", () => {
+    expect(isCommandUnavailableError(new Error("HTTP 500"))).toBe(false);
+  });
+});
+
+describe("summarizeToolFailureForLog", () => {
+  it("summarizes JSON error responses", () => {
+    const summary = summarizeToolFailureForLog({
+      name: "desktop.bash",
+      args: { command: "echo test" },
+      result: JSON.stringify({ error: "fetch failed" }),
+      isError: true,
+      durationMs: 12,
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary?.name).toBe("desktop.bash");
+    expect(summary?.error).toContain("fetch failed");
+    expect(summary?.args).toMatchObject({ command: "echo test" });
+  });
+
+  it("summarizes non-zero exitCode responses", () => {
+    const summary = summarizeToolFailureForLog({
+      name: "desktop.bash",
+      args: { command: "npm run build" },
+      result: JSON.stringify({ exitCode: 1, stderr: "npm ERR!" }),
+      isError: false,
+      durationMs: 85,
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary?.error).toContain("exitCode 1");
+    expect(summary?.error).toContain("npm ERR!");
+  });
+
+  it("returns null for successful tool output", () => {
+    const summary = summarizeToolFailureForLog({
+      name: "desktop.bash",
+      args: { command: "echo ok" },
+      result: JSON.stringify({ stdout: "ok\n", exitCode: 0 }),
+      isError: false,
+      durationMs: 5,
+    });
+
+    expect(summary).toBeNull();
+  });
+});
+
+describe("resolveTraceLoggingConfig", () => {
+  it("returns disabled defaults when trace logging is not configured", () => {
+    const resolved = resolveTraceLoggingConfig(undefined);
+    expect(resolved.enabled).toBe(false);
+    expect(resolved.includeHistory).toBe(true);
+    expect(resolved.includeSystemPrompt).toBe(true);
+    expect(resolved.includeToolArgs).toBe(true);
+    expect(resolved.includeToolResults).toBe(true);
+    expect(resolved.maxChars).toBe(20_000);
+  });
+
+  it("applies configured values and maxChars bounds", () => {
+    const low = resolveTraceLoggingConfig({
+      trace: { enabled: true, maxChars: 10 },
+    });
+    expect(low.enabled).toBe(true);
+    expect(low.maxChars).toBe(256);
+
+    const high = resolveTraceLoggingConfig({
+      trace: { enabled: true, maxChars: 9_999_999 },
+    });
+    expect(high.maxChars).toBe(200_000);
+  });
+});
 
 // ============================================================================
 // PID file operations

@@ -11,13 +11,16 @@ import {
 // Mock the openai module
 const mockCreate = vi.fn();
 const mockModelsListFn = vi.fn();
+const mockOpenAIConstructor = vi.fn();
 
 vi.mock("openai", () => {
   return {
     default: class MockOpenAI {
-      chat = { completions: { create: mockCreate } };
+      responses = { create: mockCreate };
       models = { list: mockModelsListFn };
-      constructor(_opts: any) {}
+      constructor(opts: any) {
+        mockOpenAIConstructor(opts);
+      }
     },
   };
 });
@@ -27,13 +30,15 @@ import { GrokProvider } from "./adapter.js";
 
 function makeCompletion(overrides: Record<string, any> = {}) {
   return {
-    choices: [
+    status: "completed",
+    output_text: "Hello!",
+    output: [
       {
-        message: { content: "Hello!", tool_calls: [] },
-        finish_reason: "stop",
+        type: "message",
+        content: [{ type: "output_text", text: "Hello!" }],
       },
     ],
-    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
     model: "grok-4-1-fast-reasoning",
     ...overrides,
   };
@@ -41,10 +46,30 @@ function makeCompletion(overrides: Record<string, any> = {}) {
 
 describe("GrokProvider", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
-  it("sends messages in OpenAI-compatible format", async () => {
+  it("applies a default request timeout when timeoutMs is omitted", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({ apiKey: "test-key" });
+    await provider.chat([{ role: "user", content: "test" }]);
+
+    expect(mockOpenAIConstructor).toHaveBeenCalledOnce();
+    expect(mockOpenAIConstructor.mock.calls[0][0].timeout).toBe(60_000);
+  });
+
+  it("coerces non-positive timeoutMs to the default request timeout", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({ apiKey: "test-key", timeoutMs: 0 });
+    await provider.chat([{ role: "user", content: "test" }]);
+
+    expect(mockOpenAIConstructor).toHaveBeenCalledOnce();
+    expect(mockOpenAIConstructor.mock.calls[0][0].timeout).toBe(60_000);
+  });
+
+  it("sends messages in Responses-compatible format", async () => {
     mockCreate.mockResolvedValueOnce(makeCompletion());
 
     const provider = new GrokProvider({ apiKey: "test-key" });
@@ -58,28 +83,54 @@ describe("GrokProvider", () => {
     expect(mockCreate).toHaveBeenCalledOnce();
     const params = mockCreate.mock.calls[0][0];
     expect(params.model).toBe("grok-4-1-fast-reasoning");
-    expect(params.messages).toEqual([
+    expect(params.input).toEqual([
       { role: "system", content: "You are helpful." },
       { role: "user", content: "Hello" },
     ]);
     expect(response.content).toBe("Hello!");
     expect(response.finishReason).toBe("stop");
+    expect(response.requestMetrics).toBeDefined();
+    expect(response.requestMetrics?.messageCount).toBeGreaterThan(0);
+    expect(response.requestMetrics?.systemMessages).toBe(1);
+    expect(response.requestMetrics?.userMessages).toBe(1);
+  });
+
+  it("includes tool schema diagnostics in requestMetrics", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+              required: ["command"],
+            },
+          },
+        },
+      ],
+    });
+
+    const response = await provider.chat([{ role: "user", content: "run ls" }]);
+    expect(response.requestMetrics).toBeDefined();
+    expect(response.requestMetrics?.toolCount).toBeGreaterThan(0);
+    expect(response.requestMetrics?.toolSchemaChars).toBeGreaterThan(0);
   });
 
   it("parses tool calls from response", async () => {
     const completion = makeCompletion({
-      choices: [
+      output_text: "",
+      output: [
         {
-          message: {
-            content: "",
-            tool_calls: [
-              {
-                id: "call_1",
-                function: { name: "search", arguments: '{"q":"test"}' },
-              },
-            ],
-          },
-          finish_reason: "tool_calls",
+          type: "function_call",
+          call_id: "call_1",
+          name: "search",
+          arguments: '{"q":"test"}',
         },
       ],
     });
@@ -103,8 +154,54 @@ describe("GrokProvider", () => {
 
     const params = mockCreate.mock.calls[0][0];
     expect(params.tools).toBeDefined();
-    const names = params.tools.map((t: any) => t.function.name);
-    expect(names).toContain("web_search");
+    expect(params.tools.some((t: any) => t.type === "web_search")).toBe(true);
+  });
+
+  it("disables parallel tool calls by default when tools are present", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: { type: "object", properties: { command: { type: "string" } } },
+          },
+        },
+      ],
+    });
+
+    await provider.chat([{ role: "user", content: "run ls" }]);
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.parallel_tool_calls).toBe(false);
+  });
+
+  it("honors parallelToolCalls override when enabled", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      parallelToolCalls: true,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: { type: "object", properties: { command: { type: "string" } } },
+          },
+        },
+      ],
+    });
+
+    await provider.chat([{ role: "user", content: "run ls" }]);
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.parallel_tool_calls).toBe(true);
   });
 
   it("sanitizes oversized tool schemas and strips verbose metadata", async () => {
@@ -137,8 +234,8 @@ describe("GrokProvider", () => {
 
     const params = mockCreate.mock.calls[0][0];
     const tool = params.tools[0];
-    expect(tool.function.description.length).toBeLessThanOrEqual(200);
-    const paramsJson = JSON.stringify(tool.function.parameters);
+    expect(tool.description.length).toBeLessThanOrEqual(200);
+    const paramsJson = JSON.stringify(tool.parameters);
     expect(paramsJson.includes("description")).toBe(false);
   });
 
@@ -172,6 +269,17 @@ describe("GrokProvider", () => {
     await provider.chat([
       { role: "user", content: "run tool" },
       {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call_1",
+            name: "tool_1",
+            arguments: '{"a":"value"}',
+          },
+        ],
+      },
+      {
         role: "tool",
         content: "{\"ok\":true}",
         toolCallId: "call_1",
@@ -198,10 +306,20 @@ describe("GrokProvider", () => {
 
   it("handles streaming", async () => {
     const chunks = [
-      { choices: [{ delta: { content: "Hello" }, finish_reason: null }] },
       {
-        choices: [{ delta: { content: " world" }, finish_reason: "stop" }],
-        model: "grok-3",
+        type: "response.output_text.delta",
+        delta: "Hello",
+      },
+      {
+        type: "response.output_text.delta",
+        delta: " world",
+      },
+      {
+        type: "response.completed",
+        response: makeCompletion({
+          output_text: "Hello world",
+          model: "grok-3",
+        }),
       },
     ];
     mockCreate.mockResolvedValueOnce(
@@ -280,10 +398,12 @@ describe("GrokProvider", () => {
     mockCreate.mockResolvedValueOnce(
       (async function* () {
         yield {
-          choices: [{ delta: { content: "partial " }, finish_reason: null }],
+          type: "response.output_text.delta",
+          delta: "partial ",
         };
         yield {
-          choices: [{ delta: { content: "response" }, finish_reason: null }],
+          type: "response.output_text.delta",
+          delta: "response",
         };
         throw { name: "AbortError", message: "stream interrupted" };
       })(),
@@ -300,6 +420,36 @@ describe("GrokProvider", () => {
     expect(response.partial).toBe(true);
     expect(response.content).toBe("partial response");
     expect(response.error).toBeInstanceOf(LLMTimeoutError);
+  });
+
+  it("times out stalled streaming responses and returns partial output", async () => {
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield {
+          type: "response.output_text.delta",
+          delta: "partial ",
+        };
+        await new Promise(() => undefined);
+      })(),
+    );
+
+    const provider = new GrokProvider({ apiKey: "test-key", timeoutMs: 20 });
+    const onChunk = vi.fn();
+    const response = await provider.chatStream(
+      [{ role: "user", content: "test" }],
+      onChunk,
+    );
+
+    expect(response.finishReason).toBe("error");
+    expect(response.partial).toBe(true);
+    expect(response.content).toBe("partial ");
+    expect(response.error).toBeInstanceOf(LLMTimeoutError);
+    expect(onChunk).toHaveBeenCalledWith({ content: "partial ", done: false });
+    expect(onChunk).toHaveBeenCalledWith({
+      content: "",
+      done: true,
+      toolCalls: [],
+    });
   });
 
   it("throws when stream fails before any content is received", async () => {
@@ -351,6 +501,17 @@ describe("GrokProvider", () => {
     await provider.chat([
       { role: "user", content: "search" },
       {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call_1",
+            name: "search",
+            arguments: '{"query":"test"}',
+          },
+        ],
+      },
+      {
         role: "tool",
         content: "result data",
         toolCallId: "call_1",
@@ -359,10 +520,10 @@ describe("GrokProvider", () => {
     ]);
 
     const params = mockCreate.mock.calls[0][0];
-    expect(params.messages[1]).toEqual({
-      role: "tool",
-      content: "result data",
-      tool_call_id: "call_1",
+    expect(params.input[2]).toEqual({
+      type: "function_call_output",
+      call_id: "call_1",
+      output: "result data",
     });
   });
 
@@ -392,19 +553,52 @@ describe("GrokProvider", () => {
     ]);
 
     const params = mockCreate.mock.calls[0][0];
-    expect(params.messages[1]).toEqual({
-      role: "assistant",
-      content: "",
-      tool_calls: [
-        {
-          id: "call_1",
-          type: "function",
-          function: {
-            name: "desktop.bash",
-            arguments: '{"command":"xfce4-terminal >/dev/null 2>&1 &"}',
-          },
-        },
-      ],
+    expect(params.input[1]).toEqual({
+      type: "function_call",
+      call_id: "call_1",
+      name: "desktop.bash",
+      arguments: '{"command":"xfce4-terminal >/dev/null 2>&1 &"}',
     });
+  });
+
+  it("rejects orphan tool messages without matching assistant tool_calls", async () => {
+    const provider = new GrokProvider({ apiKey: "test-key" });
+
+    await expect(
+      provider.chat([
+        { role: "user", content: "test" },
+        { role: "assistant", content: "" },
+        {
+          role: "tool",
+          content: '{"stdout":"","stderr":"","exitCode":0}',
+          toolCallId: "call_1",
+          toolName: "desktop.bash",
+        },
+      ]),
+    ).rejects.toThrow(LLMProviderError);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-tool messages before pending tool results are resolved", async () => {
+    const provider = new GrokProvider({ apiKey: "test-key" });
+
+    await expect(
+      provider.chat([
+        { role: "user", content: "test" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "desktop.bash",
+              arguments: '{"command":"echo hi"}',
+            },
+          ],
+        },
+        { role: "assistant", content: "done" },
+      ]),
+    ).rejects.toThrow(LLMProviderError);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });

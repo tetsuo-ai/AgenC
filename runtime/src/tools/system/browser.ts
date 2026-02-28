@@ -13,7 +13,7 @@ import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
-import { isDomainAllowed } from "./http.js";
+import { isDomainAllowed, formatDomainBlockReason } from "./http.js";
 import { ensureLazyModule } from "../../utils/lazy-import.js";
 
 // ============================================================================
@@ -69,7 +69,7 @@ function validateUrl(
     config.blockedDomains,
   );
   if (!check.allowed) {
-    return errorResult(check.reason!);
+    return errorResult(formatDomainBlockReason(check.reason!));
   }
   return null;
 }

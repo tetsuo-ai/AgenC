@@ -78,6 +78,14 @@ const COMMAND_PATTERN = /^\/([a-zA-Z][a-zA-Z0-9_-]*)(?:\s+(.*))?$/;
  */
 export function parseCommand(message: string): ParsedCommand {
   const trimmed = message.trim();
+  if (trimmed === "/") {
+    return {
+      isCommand: true,
+      name: "help",
+      args: "",
+      argv: [],
+    };
+  }
   const match = COMMAND_PATTERN.exec(trimmed);
 
   if (!match) {

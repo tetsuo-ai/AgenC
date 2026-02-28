@@ -105,6 +105,17 @@ describe("ChatExecutor", () => {
         completionTokens: 5,
         totalTokens: 15,
       });
+      expect(result.callUsage).toHaveLength(1);
+      expect(result.callUsage[0]).toMatchObject({
+        callIndex: 1,
+        phase: "initial",
+        provider: "primary",
+        model: "mock-model",
+        finishReason: "stop",
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      });
+      expect(result.callUsage[0].beforeBudget.messageCount).toBeGreaterThan(0);
+      expect(result.callUsage[0].afterBudget.messageCount).toBeGreaterThan(0);
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
@@ -452,6 +463,11 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls[0].isError).toBe(false);
       expect(result.toolCalls[0].durationMs).toBeGreaterThanOrEqual(0);
       expect(toolHandler).toHaveBeenCalledWith("search", { query: "test" });
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "initial",
+        "tool_followup",
+      ]);
+      expect(result.callUsage).toHaveLength(2);
 
       const followupMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
         .calls[1][0] as LLMMessage[];
@@ -772,6 +788,90 @@ describe("ChatExecutor", () => {
       );
     });
 
+    it("injects a recovery hint after shell-builtin style system.bash failure", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stdout":"","stderr":"spawn set ENOENT"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments: '{"command":"set","args":["-euo","pipefail"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "moved on" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("system.bash executes one real binary only"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("desktop.bash");
+    });
+
+    it("injects a recovery hint when localhost is blocked by system.browse", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"error":"Private/loopback address blocked: 127.0.0.1"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.browse",
+                  arguments: '{"url":"http://127.0.0.1:8123"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("block localhost/private/internal addresses"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("desktop.bash");
+    });
+
     it("does not break loop when tool calls differ", async () => {
       let callCount = 0;
       const toolHandler = vi
@@ -810,6 +910,103 @@ describe("ChatExecutor", () => {
       // All calls had different args, so loop detection should NOT fire
       expect(result.toolCalls.length).toBe(2);
       expect(result.content).toBe("gave up");
+    });
+
+    it("breaks loop after repeated all-failed rounds even with different args", async () => {
+      let callCount = 0;
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stdout":"","stderr":"err"}');
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation(() => {
+          callCount++;
+          return Promise.resolve(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: `call-${callCount}`,
+                  name: "desktop.bash",
+                  arguments: `{"command":"mkdir attempt-${callCount}"}`,
+                },
+              ],
+            }),
+          );
+        }),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+      });
+      const result = await executor.execute(createParams());
+
+      // Should stop after 3 fully-failed rounds.
+      expect(result.toolCalls.length).toBe(3);
+      expect(toolHandler).toHaveBeenCalledTimes(3);
+    });
+
+    it("marks structured overall result as fail when any tool call fails", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValueOnce('{"error":"command denied"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "desktop.bash", arguments: "{}" }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                '{"overall":"pass","steps":[{"step":1,"tool":"desktop.bash","ok":true}]}',
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+      const parsed = JSON.parse(result.content) as {
+        overall: string;
+      };
+
+      expect(parsed.overall).toBe("fail");
+      expect(result.toolCalls[0].isError).toBe(true);
+    });
+
+    it("marks structured overall result as fail when it claims unexecuted tools", async () => {
+      const toolHandler = vi.fn().mockResolvedValueOnce('{"exitCode":0}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "desktop.bash", arguments: "{}" }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                '{"overall":"pass","steps":[{"step":1,"tool":"playwright.browser_navigate","ok":true}]}',
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+      const parsed = JSON.parse(result.content) as {
+        overall: string;
+      };
+
+      expect(parsed.overall).toBe("fail");
     });
   });
 
@@ -1654,6 +1851,67 @@ describe("ChatExecutor", () => {
       expect(last.role).toBe("user");
       expect(typeof last.content).toBe("string");
       expect((last.content as string).length).toBeLessThanOrEqual(8_000);
+    });
+
+    it("suppresses runaway repetitive assistant output", async () => {
+      const repetitive = Array.from({ length: 120 }, () => "Yes.").join("\n");
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(mockResponse({ content: repetitive })),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toContain("repetitive model output suppressed");
+      expect(result.content.length).toBeLessThan(3_000);
+    });
+
+    it("truncates oversized final assistant output", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValue(mockResponse({ content: "x".repeat(80_000) })),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toContain("oversized model output suppressed");
+      expect(result.content.length).toBeLessThanOrEqual(24_200);
+    });
+
+    it("keeps prompt growth bounded across repeated long turns", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn(async () => mockResponse({ content: "ok" })),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      const promptSizes: number[] = [];
+      let history: LLMMessage[] = [];
+
+      for (let i = 0; i < 12; i++) {
+        const userText = `turn-${i} ` + "x".repeat(6_000);
+        const result = await executor.execute(
+          createParams({
+            history,
+            message: createMessage(userText),
+          }),
+        );
+        promptSizes.push(result.callUsage[0].afterBudget.estimatedChars);
+        history = [
+          ...history,
+          { role: "user", content: userText },
+          { role: "assistant", content: result.content },
+        ];
+      }
+
+      // Hard budget is 100k chars in ChatExecutor; include small metadata overhead.
+      expect(Math.max(...promptSizes)).toBeLessThanOrEqual(110_000);
+
+      // Tail variance should be small once truncation/normalization kicks in.
+      const tail = promptSizes.slice(-4);
+      const tailRange = Math.max(...tail) - Math.min(...tail);
+      expect(tailRange).toBeLessThan(8_000);
     });
   });
 });

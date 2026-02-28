@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ControlResponse } from "./types.js";
 import type { ApprovalEngine } from "./approvals.js";
+import { ApprovalEngine as ApprovalEngineImpl } from "./approvals.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 
 describe("createSessionToolHandler", () => {
@@ -113,6 +114,29 @@ describe("createSessionToolHandler", () => {
       0,
       toolCallId,
     );
+  });
+
+  it("does not emit approval.request for system.bash under default approval rules", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+    const baseHandler = vi.fn(async () => "build-complete");
+    const approvalEngine = new ApprovalEngineImpl();
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+      approvalEngine,
+    });
+
+    const result = await handler("system.bash", { command: "npm", args: ["run", "build"] });
+
+    expect(result).toBe("build-complete");
+    expect(baseHandler).toHaveBeenCalledWith("system.bash", { command: "npm", args: ["run", "build"] });
+    expect(sentMessages.some((msg) => msg.type === "approval.request")).toBe(false);
   });
 
   it("generates a unique toolCallId for each separate invocation", async () => {
@@ -231,6 +255,109 @@ describe("createSessionToolHandler", () => {
     await handler("desktop.bash", { command: "whoami" });
 
     expect(baseHandler).toHaveBeenCalledTimes(2);
+
+    const executingCount = sentMessages.filter((m) => m.type === "tools.executing").length;
+    expect(executingCount).toBe(2);
+  });
+
+  it("does not skip browser launches when target URLs differ", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () =>
+      JSON.stringify({ stdout: "", stderr: "", exitCode: 0, backgrounded: true }),
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const first = await handler("desktop.bash", {
+      command: "chromium-browser http://localhost:8000",
+    });
+    const second = await handler("desktop.bash", {
+      command: "chromium-browser https://example.com",
+    });
+
+    expect(baseHandler).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(first)).toMatchObject({ backgrounded: true });
+    expect(JSON.parse(second)).toMatchObject({ backgrounded: true });
+    expect(JSON.parse(second).skippedDuplicate).toBeUndefined();
+
+    const executingCount = sentMessages.filter((m) => m.type === "tools.executing").length;
+    expect(executingCount).toBe(2);
+  });
+
+  it("still skips identical browser launch commands", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () =>
+      JSON.stringify({ stdout: "", stderr: "", exitCode: 0, backgrounded: true }),
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    await handler("desktop.bash", {
+      command: "chromium-browser http://localhost:8000",
+    });
+    const second = await handler("desktop.bash", {
+      command: "chromium-browser http://localhost:8000",
+    });
+
+    expect(baseHandler).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(second)).toMatchObject({
+      backgrounded: true,
+      skippedDuplicate: true,
+    });
+  });
+
+  it("does not treat failed browser launch as seen for duplicate skipping", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          error:
+            'Command "chromium-browser" is incomplete. Include a URL target.',
+        }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ stdout: "", stderr: "", exitCode: 0, backgrounded: true }),
+      );
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const first = await handler("desktop.bash", {
+      command: "chromium-browser",
+    });
+    const second = await handler("desktop.bash", {
+      command: "chromium-browser",
+    });
+
+    expect(baseHandler).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(first).error).toContain("incomplete");
+    expect(JSON.parse(second).backgrounded).toBe(true);
+    expect(JSON.parse(second).skippedDuplicate).toBeUndefined();
 
     const executingCount = sentMessages.filter((m) => m.type === "tools.executing").length;
     expect(executingCount).toBe(2);

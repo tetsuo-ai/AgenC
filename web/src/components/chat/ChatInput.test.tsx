@@ -1,6 +1,10 @@
-import { fireEvent, render } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ChatInput } from './ChatInput';
+
+afterEach(() => {
+  cleanup();
+});
 
 describe('ChatInput', () => {
   it('sends text messages and clears input', () => {
@@ -65,5 +69,50 @@ describe('ChatInput', () => {
     expect(content).toBe('with files');
     expect(Array.isArray(attachments)).toBe(true);
     expect(attachments).toHaveLength(2);
+  });
+
+  it('shows slash command menu when typing "/"', () => {
+    const onSend = vi.fn();
+    const { container } = render(<ChatInput onSend={onSend} />);
+    const input = container.querySelector(
+      'textarea[placeholder="Message to AgenC..."]',
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: '/' } });
+
+    expect(screen.getByText('Commands')).toBeTruthy();
+    expect(screen.getByText('/help')).toBeTruthy();
+    expect(screen.getByText('/status')).toBeTruthy();
+  });
+
+  it('filters slash commands by typed prefix', () => {
+    const onSend = vi.fn();
+    const { container } = render(<ChatInput onSend={onSend} />);
+    const input = container.querySelector(
+      'textarea[placeholder="Message to AgenC..."]',
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: '/res' } });
+
+    expect(screen.queryByTestId('slash-command-help')).toBeNull();
+    expect(screen.getByTestId('slash-command-reset')).toBeTruthy();
+    expect(screen.getByTestId('slash-command-restart')).toBeTruthy();
+    expect(screen.getByTestId('slash-command-resume')).toBeTruthy();
+  });
+
+  it('selects highlighted slash command with Enter and sends it', () => {
+    const onSend = vi.fn();
+    const { container } = render(<ChatInput onSend={onSend} />);
+    const input = container.querySelector(
+      'textarea[placeholder="Message to AgenC..."]',
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: '/res' } });
+    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith('/restart', undefined);
   });
 });

@@ -49,8 +49,15 @@ describe("parseCommand", () => {
     expect(parseCommand("  ").isCommand).toBe(false);
   });
 
+  it("maps bare slash to help command", () => {
+    const result = parseCommand("/");
+    expect(result.isCommand).toBe(true);
+    expect(result.name).toBe("help");
+    expect(result.args).toBe("");
+    expect(result.argv).toEqual([]);
+  });
+
   it("rejects slash without valid command name", () => {
-    expect(parseCommand("/").isCommand).toBe(false);
     expect(parseCommand("/ help").isCommand).toBe(false);
     expect(parseCommand("/123").isCommand).toBe(false);
   });

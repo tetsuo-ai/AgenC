@@ -9,6 +9,8 @@
  */
 
 import { readPidFile, isProcessAlive } from "../gateway/daemon.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { CliRuntimeContext, CliStatusCode, LogsOptions } from "./types.js";
 
 // ============================================================================
@@ -19,6 +21,9 @@ export async function runLogsCommand(
   context: CliRuntimeContext,
   options: LogsOptions,
 ): Promise<CliStatusCode> {
+  const backgroundLogPath =
+    process.env.AGENC_DAEMON_LOG_PATH ?? join(homedir(), ".agenc", "daemon.log");
+
   const info = await readPidFile(options.pidPath);
 
   if (info === null) {
@@ -50,8 +55,14 @@ export async function runLogsCommand(
     pid: info.pid,
     port: info.port,
     message:
-      "Gateway daemon logs to stdout/stderr. Use one of the following methods to view logs:",
+      "Gateway daemon logging methods:",
     methods: [
+      {
+        mode: "background",
+        command: `tail -f -n ${options.lines ?? 200} ${backgroundLogPath}`,
+        description:
+          "Default detached mode appends daemon stdout/stderr to this log file",
+      },
       {
         mode: "foreground",
         command: `agenc-runtime start --foreground --config ${info.configPath}`,
