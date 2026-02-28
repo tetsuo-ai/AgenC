@@ -44,18 +44,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion locales software-properties-common \
     && locale-gen en_US.UTF-8 \
     # =========================================================================
-    # Firefox (Mozilla PPA — snap doesn't work in Docker)
+    # Playwright MCP uses its own bundled Chromium (installed below).
+    # No need for standalone Firefox or Chromium packages.
     # =========================================================================
-    && add-apt-repository -y ppa:mozillateam/ppa \
-    && printf 'Package: *\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' > /etc/apt/preferences.d/mozilla-firefox \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends firefox \
-    # =========================================================================
-    # Chromium (chromium-team PPA — snap doesn't work in Docker)
-    # =========================================================================
-    && add-apt-repository -y ppa:saiarcot895/chromium-beta \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends chromium-browser \
+    \
     # =========================================================================
     # Node.js 20 LTS
     # =========================================================================
@@ -105,16 +97,6 @@ COPY xfce-config/xfce4-panel.xml /home/agenc/.config/xfce4/xfconf/xfce-perchanne
 
 # Terminal config (dark theme, JetBrains Mono, Tokyo Night palette)
 COPY xfce-config/xfce4-terminal/ /home/agenc/.config/xfce4/terminal/
-
-# =============================================================================
-# Chromium defaults (no first-run, no crash report, dark mode)
-# =============================================================================
-RUN mkdir -p /home/agenc/.config/chromium/Default \
-    && echo '{ "browser": { "has_seen_welcome_page": true, "check_default_browser": false }, "distribution": { "skip_first_run_ui": true, "suppress_first_run_default_browser_prompt": true } }' > /home/agenc/.config/chromium/Default/Preferences \
-    && echo 'CHROMIUM_FLAGS="--no-first-run --disable-sync --disable-background-networking --no-default-browser-check"' > /home/agenc/.chromium-browser.init \
-    # Firefox: disable first-run wizard and telemetry
-    && mkdir -p /usr/lib/firefox/distribution \
-    && echo '{"policies":{"DontCheckDefaultBrowser":true,"OverrideFirstRunPage":"","OverridePostUpdatePage":"","DisableTelemetry":true,"Preferences":{"datareporting.policy.dataSubmissionEnabled":{"Value":false},"browser.shell.checkDefaultBrowser":{"Value":false},"toolkit.telemetry.reportingpolicy.firstRun":{"Value":false},"browser.aboutwelcome.enabled":{"Value":false}}}}' > /usr/lib/firefox/distribution/policies.json
 
 # =============================================================================
 # Shell configuration (nice prompt, aliases)

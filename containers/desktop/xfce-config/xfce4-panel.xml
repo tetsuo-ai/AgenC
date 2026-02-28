@@ -23,8 +23,6 @@
         <value type="int" value="2"/>
         <value type="int" value="3"/>
         <value type="int" value="4"/>
-        <value type="int" value="5"/>
-        <value type="int" value="6"/>
         <value type="int" value="7"/>
         <value type="int" value="8"/>
         <value type="int" value="9"/>
@@ -53,18 +51,6 @@
     <property name="plugin-4" type="string" value="launcher">
       <property name="items" type="array">
         <value type="string" value="thunar.desktop"/>
-      </property>
-    </property>
-    <!-- Launcher: Firefox -->
-    <property name="plugin-5" type="string" value="launcher">
-      <property name="items" type="array">
-        <value type="string" value="firefox.desktop"/>
-      </property>
-    </property>
-    <!-- Launcher: Chromium -->
-    <property name="plugin-6" type="string" value="launcher">
-      <property name="items" type="array">
-        <value type="string" value="chromium-browser.desktop"/>
       </property>
     </property>
     <!-- Expanding separator (pushes clock right) -->

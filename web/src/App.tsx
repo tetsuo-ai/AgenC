@@ -248,6 +248,7 @@ export default function App() {
                 desktopUrl={sessionDesktopUrl}
                 desktopOpen={desktopPanelOpen}
                 onToggleDesktop={toggleDesktopPanel}
+                tokenUsage={chat.tokenUsage}
               />
             )}
             {currentView === 'status' && (

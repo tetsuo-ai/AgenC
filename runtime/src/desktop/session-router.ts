@@ -30,9 +30,12 @@ const DESKTOP_ACTION_TOOLS = new Set([
   "keyboard_type",
   "keyboard_key",
   "window_focus",
+  "bash",
 ]);
 
 const AUTO_SCREENSHOT_DELAY_MS = 300;
+/** GUI apps launched via bash need more time to render. */
+const BASH_SCREENSHOT_DELAY_MS = 1500;
 
 // ============================================================================
 // Desktop tool definitions (static — same across all containers)
@@ -159,7 +162,10 @@ export function createDesktopAwareToolHandler(
     // Auto-capture screenshot after action tools so the LLM can see the result
     if (autoScreenshot && DESKTOP_ACTION_TOOLS.has(toolName)) {
       try {
-        await new Promise((r) => setTimeout(r, AUTO_SCREENSHOT_DELAY_MS));
+        const delay = toolName === "bash"
+          ? BASH_SCREENSHOT_DELAY_MS
+          : AUTO_SCREENSHOT_DELAY_MS;
+        await new Promise((r) => setTimeout(r, delay));
         const screenshotTool = bridge.getTools().find((t) => t.name === "desktop.screenshot");
         if (screenshotTool) {
           const screenshot: ToolResult = await screenshotTool.execute({});
