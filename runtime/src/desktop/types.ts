@@ -67,7 +67,7 @@ export interface DesktopSandboxConfig {
   readonly securityProfile?: "strict" | "permissive";
   /** Extra Docker labels. */
   readonly labels?: Record<string, string>;
-  /** Auto-capture screenshot after GUI action tools (mouse, keyboard). Default: false */
+  /** Deprecated no-op. Automatic screenshot capture is disabled. */
   readonly autoScreenshot?: boolean;
   /** Playwright MCP browser automation options. */
   readonly playwright?: {

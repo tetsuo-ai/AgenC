@@ -474,14 +474,16 @@ export class DaemonManager {
       // Add static desktop tool definitions to LLM tools so the model knows
       // the full schemas (parameter names, types, required fields).
       const { TOOL_DEFINITIONS } = await import('../desktop/tool-definitions.js');
-      const desktopToolDefs: LLMTool[] = TOOL_DEFINITIONS.map((def) => ({
-        type: 'function' as const,
-        function: {
-          name: `desktop.${def.name}`,
-          description: def.description,
-          parameters: def.inputSchema,
-        },
-      }));
+      const desktopToolDefs: LLMTool[] = TOOL_DEFINITIONS
+        .filter((def) => def.name !== 'screenshot')
+        .map((def) => ({
+          type: 'function' as const,
+          function: {
+            name: `desktop.${def.name}`,
+            description: def.description,
+            parameters: def.inputSchema,
+          },
+        }));
       llmTools.push(...desktopToolDefs);
 
       // Store the original so per-session wrapping can use it
@@ -496,7 +498,8 @@ export class DaemonManager {
           containerMCPConfigs: containerMCPConfigs.length > 0 ? containerMCPConfigs : undefined,
           containerMCPBridges: containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
           logger: desktopLogger,
-          autoScreenshot: config.desktop?.autoScreenshot ?? false,
+          // Force-disable automatic screenshot capture for action tools.
+          autoScreenshot: false,
         });
     }
 
@@ -1892,6 +1895,7 @@ export class DaemonManager {
 
     const historySessionId = resolveSessionId(webSessionId);
     sessionMgr.reset(historySessionId);
+    this._chatExecutor?.resetSessionTokens(webSessionId);
     this._sessionModelInfo.delete(webSessionId);
     await progressTracker?.clear(webSessionId);
     await memoryBackend.deleteThread(webSessionId).catch(() => {});
@@ -1962,6 +1966,21 @@ export class DaemonManager {
           progressTracker,
         });
         await ctx.reply('Session and context cleared.');
+      },
+    });
+    commandRegistry.register({
+      name: 'restart',
+      description: 'Restart current chat context (alias for /reset)',
+      global: true,
+      handler: async (ctx) => {
+        await this.resetWebSessionContext({
+          webSessionId: ctx.sessionId,
+          sessionMgr,
+          resolveSessionId,
+          memoryBackend,
+          progressTracker,
+        });
+        await ctx.reply('Session restarted. Context cleared.');
       },
     });
     commandRegistry.register({
@@ -2554,7 +2573,6 @@ export class DaemonManager {
         'Desktop tools:\n' +
         '- desktop.bash — Run a shell command INSIDE the container. THIS IS YOUR PRIMARY TOOL for all scripting, package installation, and command execution inside the sandbox.\n' +
         '- desktop.text_editor — View, create, and precisely edit files without opening a visual editor. Commands: view, create, str_replace, insert, undo_edit. USE THIS instead of cat heredoc for file creation and editing — it is more reliable and supports undo.\n' +
-        '- desktop.screenshot — Capture the desktop (use to SEE what is on screen)\n' +
         '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
         '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
         '- desktop.keyboard_type — Type text into the FOCUSED GUI app (e.g. browser URL bar, search field). NEVER use this to type into a terminal — use desktop.bash instead.\n' +

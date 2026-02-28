@@ -150,6 +150,13 @@ describe("LLMTaskExecutor", () => {
 
     expect(chatFn).toHaveBeenCalledTimes(2);
     expect(toolHandler).toHaveBeenCalledWith("lookup", { key: "val" });
+    const followupMessages = chatFn.mock.calls[1][0] as LLMMessage[];
+    const assistantWithToolCalls = followupMessages.find(
+      (message) => message.role === "assistant" && Array.isArray(message.toolCalls),
+    );
+    expect(assistantWithToolCalls?.toolCalls).toEqual([
+      { id: "call_1", name: "lookup", arguments: '{"key":"val"}' },
+    ]);
     expect(output).toHaveLength(4);
   });
 

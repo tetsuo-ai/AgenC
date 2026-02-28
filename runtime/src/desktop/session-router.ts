@@ -17,25 +17,6 @@ import { DesktopRESTBridge } from "./rest-bridge.js";
 import type { MCPServerConfig, MCPToolBridge } from "../mcp-client/types.js";
 import { ResilientMCPBridge } from "../mcp-client/resilient-bridge.js";
 
-// ============================================================================
-// Auto-screenshot constants
-// ============================================================================
-
-/** Desktop tools that mutate visual state — trigger auto-screenshot. */
-const DESKTOP_ACTION_TOOLS = new Set([
-  "mouse_click",
-  "mouse_move",
-  "mouse_drag",
-  "mouse_scroll",
-  "keyboard_type",
-  "keyboard_key",
-  "window_focus",
-  "bash",
-]);
-
-const AUTO_SCREENSHOT_DELAY_MS = 300;
-/** GUI apps launched via bash need more time to render. */
-const BASH_SCREENSHOT_DELAY_MS = 1500;
 const PLAYWRIGHT_BROWSERS_PATH = "/home/agenc/.cache/ms-playwright";
 const PLAYWRIGHT_MCP_BIN = "playwright-mcp";
 const DEFAULT_PLAYWRIGHT_MCP_PKG = "@playwright/mcp@0.0.68";
@@ -71,7 +52,7 @@ export interface DesktopRouterOptions {
   /** Per-session container MCP bridges (sessionId → bridge array). */
   containerMCPBridges?: Map<string, MCPToolBridge[]>;
   logger?: Logger;
-  /** Auto-capture screenshot after action tools. Default: false. */
+  /** Deprecated no-op. Auto-screenshot capture is disabled. */
   autoScreenshot?: boolean;
 }
 
@@ -96,7 +77,7 @@ export function createDesktopAwareToolHandler(
     containerMCPConfigs,
     containerMCPBridges,
     logger: log = silentLogger,
-    autoScreenshot = false,
+    autoScreenshot: _autoScreenshot = false,
   } = options;
 
   // Build a set of container MCP server names for fast routing checks
@@ -143,6 +124,9 @@ export function createDesktopAwareToolHandler(
     }
 
     const toolName = name.slice("desktop.".length);
+    if (toolName === "screenshot") {
+      return safeStringify({ error: "desktop.screenshot is disabled" });
+    }
 
     // Ensure bridge is connected for this session
     let bridge = bridges.get(sessionId);
@@ -165,32 +149,6 @@ export function createDesktopAwareToolHandler(
     }
 
     const result: ToolResult = await tool.execute(args);
-
-    // Auto-capture screenshot after action tools so the LLM can see the result
-    if (autoScreenshot && DESKTOP_ACTION_TOOLS.has(toolName)) {
-      try {
-        const delay = toolName === "bash"
-          ? BASH_SCREENSHOT_DELAY_MS
-          : AUTO_SCREENSHOT_DELAY_MS;
-        await new Promise((r) => setTimeout(r, delay));
-        const screenshotTool = bridge.getTools().find((t) => t.name === "desktop.screenshot");
-        if (screenshotTool) {
-          const screenshot: ToolResult = await screenshotTool.execute({});
-          try {
-            const actionData = JSON.parse(result.content) as Record<string, unknown>;
-            const shotData = JSON.parse(screenshot.content) as Record<string, unknown>;
-            return safeStringify({
-              ...actionData,
-              _screenshot: { dataUrl: shotData.dataUrl, width: shotData.width, height: shotData.height },
-            });
-          } catch {
-            return result.content + "\n" + screenshot.content;
-          }
-        }
-      } catch (err) {
-        log.debug?.(`Auto-screenshot failed for ${toolName}: ${toErrorMessage(err)}`);
-      }
-    }
 
     return result.content;
   };

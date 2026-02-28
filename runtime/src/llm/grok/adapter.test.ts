@@ -365,4 +365,46 @@ describe("GrokProvider", () => {
       tool_call_id: "call_1",
     });
   });
+
+  it("formats assistant tool_calls for follow-up turns", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({ apiKey: "test-key" });
+    await provider.chat([
+      { role: "user", content: "open terminal" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call_1",
+            name: "desktop.bash",
+            arguments: '{"command":"xfce4-terminal >/dev/null 2>&1 &"}',
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: '{"stdout":"","stderr":"","exitCode":0}',
+        toolCallId: "call_1",
+        toolName: "desktop.bash",
+      },
+    ]);
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.messages[1]).toEqual({
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: {
+            name: "desktop.bash",
+            arguments: '{"command":"xfce4-terminal >/dev/null 2>&1 &"}',
+          },
+        },
+      ],
+    });
+  });
 });
