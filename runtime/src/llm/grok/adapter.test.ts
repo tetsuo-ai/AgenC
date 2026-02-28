@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { LLMMessage, LLMTool } from "../types.js";
 import {
   LLMAuthenticationError,
+  LLMMessageValidationError,
   LLMProviderError,
   LLMRateLimitError,
   LLMServerError,
@@ -575,7 +576,19 @@ describe("GrokProvider", () => {
           toolName: "desktop.bash",
         },
       ]),
-    ).rejects.toThrow(LLMProviderError);
+    ).rejects.toThrow(LLMMessageValidationError);
+    await expect(
+      provider.chat([
+        { role: "user", content: "test" },
+        { role: "assistant", content: "" },
+        {
+          role: "tool",
+          content: '{"stdout":"","stderr":"","exitCode":0}',
+          toolCallId: "call_1",
+          toolName: "desktop.bash",
+        },
+      ]),
+    ).rejects.toThrow(/tool_result_without_assistant_call/);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
@@ -598,7 +611,81 @@ describe("GrokProvider", () => {
         },
         { role: "assistant", content: "done" },
       ]),
-    ).rejects.toThrow(LLMProviderError);
+    ).rejects.toThrow(LLMMessageValidationError);
+    await expect(
+      provider.chat([
+        { role: "user", content: "test" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "desktop.bash",
+              arguments: '{"command":"echo hi"}',
+            },
+          ],
+        },
+        { role: "assistant", content: "done" },
+      ]),
+    ).rejects.toThrow(/tool_result_missing/);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects two malformed orphan pairs without making provider calls", async () => {
+    const provider = new GrokProvider({ apiKey: "test-key" });
+
+    await expect(
+      provider.chat([
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "test" },
+        { role: "assistant", content: "" },
+        {
+          role: "tool",
+          content: '{"stdout":"","exitCode":0}',
+          toolCallId: "call_1",
+        },
+        { role: "assistant", content: "" },
+        {
+          role: "tool",
+          content: '{"stdout":"","exitCode":0}',
+          toolCallId: "call_2",
+        },
+      ]),
+    ).rejects.toThrow(/message\[3\]/);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects mixed valid/invalid tool-turn history", async () => {
+    const provider = new GrokProvider({ apiKey: "test-key" });
+
+    await expect(
+      provider.chat([
+        { role: "user", content: "test" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "desktop.bash",
+              arguments: '{"command":"echo hi"}',
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: '{"stdout":"hi\\n","exitCode":0}',
+          toolCallId: "call_1",
+        },
+        { role: "assistant", content: "" },
+        {
+          role: "tool",
+          content: '{"stdout":"","exitCode":0}',
+          toolCallId: "call_2",
+        },
+      ]),
+    ).rejects.toThrow(/tool_result_without_assistant_call/);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });

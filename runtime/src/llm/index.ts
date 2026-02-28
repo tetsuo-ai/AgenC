@@ -27,6 +27,7 @@ export { validateToolCall } from "./types.js";
 // Error classes
 export {
   LLMAuthenticationError,
+  LLMMessageValidationError,
   LLMProviderError,
   LLMRateLimitError,
   LLMResponseConversionError,
@@ -35,6 +36,29 @@ export {
   LLMTimeoutError,
   mapLLMError,
 } from "./errors.js";
+
+// Policy taxonomy (Phase 1)
+export {
+  DEFAULT_LLM_RETRY_POLICY_MATRIX,
+  toPipelineStopReason,
+} from "./policy.js";
+export type {
+  LLMFailureClass,
+  LLMPipelineStopReason,
+  LLMRetryPolicyRule,
+  LLMRetryPolicyMatrix,
+} from "./policy.js";
+
+// Tool-turn protocol validation (Phase 1)
+export {
+  findToolTurnValidationIssue,
+  validateToolTurnSequence,
+} from "./tool-turn-validator.js";
+export type {
+  ToolTurnValidationCode,
+  ToolTurnValidationIssue,
+  ToolTurnValidationOptions,
+} from "./tool-turn-validator.js";
 
 // Response converter
 export { responseToOutput } from "./response-converter.js";
