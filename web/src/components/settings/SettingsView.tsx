@@ -13,9 +13,9 @@ const LLM_PROVIDERS: LLMProviderDef[] = [
   {
     value: 'grok',
     label: 'Grok (x.ai)',
-    defaultModel: 'grok-4-fast-reasoning',
+    defaultModel: 'grok-4-1-fast-reasoning',
     defaultBaseUrl: 'https://api.x.ai/v1',
-    models: ['grok-4', 'grok-4-fast-reasoning', 'grok-4-fast-non-reasoning', 'grok-code-fast-1', 'grok-3'],
+    models: ['grok-4-1-fast-reasoning', 'grok-4-1-fast-non-reasoning', 'grok-code-fast-1'],
   },
   {
     value: 'ollama',

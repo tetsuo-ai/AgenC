@@ -152,6 +152,7 @@ describe("DesktopRESTBridge", () => {
       const result = await ssTool.execute({});
       const parsed = JSON.parse(result.content);
       expect(parsed.dataUrl).toBe("data:image/png;base64,iVBORw0KGgoAAAAN");
+      expect(parsed.image).toBeUndefined();
       expect(parsed.width).toBe(1024);
       expect(parsed.height).toBe(768);
     });

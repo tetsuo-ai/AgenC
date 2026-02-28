@@ -52,6 +52,8 @@ export interface WebChatDeps {
   broadcastEvent?: (eventType: string, data: Record<string, unknown>) => void;
   /** Optional desktop sandbox manager for desktop.* handlers. */
   desktopManager?: import("../../desktop/manager.js").DesktopSandboxManager;
+  /** Optional callback to fully reset backend context for a web session. */
+  resetSessionContext?: (sessionId: string) => Promise<void> | void;
 }
 
 // ============================================================================
@@ -89,6 +91,11 @@ export interface ChatHistoryRequest {
 export interface ChatResumeRequest {
   type: "chat.resume";
   sessionId: string;
+  id?: string;
+}
+
+export interface ChatNewRequest {
+  type: "chat.new";
   id?: string;
 }
 

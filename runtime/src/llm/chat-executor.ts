@@ -13,6 +13,7 @@ import type { GatewayMessage } from "../gateway/message.js";
 import type {
   LLMProvider,
   LLMMessage,
+  LLMContentPart,
   LLMResponse,
   LLMUsage,
   StreamProgressCallback,
@@ -98,6 +99,8 @@ export interface ChatExecuteParams {
 export interface ChatExecutorResult {
   readonly content: string;
   readonly provider: string;
+  /** Actual model identifier returned by the provider for the final response. */
+  readonly model?: string;
   readonly usedFallback: boolean;
   readonly toolCalls: readonly ToolCallRecord[];
   readonly tokenUsage: LLMUsage;
@@ -201,6 +204,22 @@ const MAX_ERROR_PREVIEW_CHARS = 300;
 const MAX_EVAL_USER_CHARS = 500;
 /** Max chars of response sent to the evaluator. */
 const MAX_EVAL_RESPONSE_CHARS = 2000;
+/** Cap history depth sent to providers per request. */
+const MAX_HISTORY_MESSAGES = 20;
+/** Max chars retained per history message. */
+const MAX_HISTORY_MESSAGE_CHARS = 2_000;
+/** Max chars from a single injected system context block (skills/memory/progress). */
+const MAX_CONTEXT_INJECTION_CHARS = 12_000;
+/** Hard prompt-size guard (approx chars) to avoid provider context-length errors. */
+const MAX_PROMPT_CHARS_BUDGET = 100_000;
+/** Max chars kept from a tool result when feeding it back into the LLM. */
+const MAX_TOOL_RESULT_CHARS = 12_000;
+/** Max chars retained for any single string field inside JSON tool output. */
+const MAX_TOOL_RESULT_FIELD_CHARS = 2_000;
+/** Global image-data budget (chars) for tool results in a single execution. */
+const MAX_TOOL_IMAGE_CHARS_BUDGET = 100_000;
+/** Max chars retained from a single user text message. */
+const MAX_USER_MESSAGE_CHARS = 8_000;
 /**
  * macOS native tools that cause visible side-effects (opening apps, running scripts).
  * Once any tool in this set executes, further calls to ANY tool in the set are
@@ -302,13 +321,18 @@ export class ChatExecutor {
 
     // Context injection — skill, memory, and learning (all best-effort)
     const messageText = ChatExecutor.extractMessageText(message);
+    const hasHistory = history.length > 0;
     await this.injectContext(this.skillInjector, messageText, sessionId, messages);
-    await this.injectContext(this.memoryRetriever, messageText, sessionId, messages);
-    await this.injectContext(this.learningProvider, messageText, sessionId, messages);
-    await this.injectContext(this.progressProvider, messageText, sessionId, messages);
+    // Session-scoped persistence should not bleed into truly fresh chats.
+    // For the first turn, only inject static skill context.
+    if (hasHistory) {
+      await this.injectContext(this.memoryRetriever, messageText, sessionId, messages);
+      await this.injectContext(this.learningProvider, messageText, sessionId, messages);
+      await this.injectContext(this.progressProvider, messageText, sessionId, messages);
+    }
 
     // Append history and user message
-    messages.push(...history);
+    messages.push(...ChatExecutor.normalizeHistory(history));
 
     ChatExecutor.appendUserMessage(messages, message);
 
@@ -324,6 +348,7 @@ export class ChatExecutor {
       messages,
       activeStreamCallback,
     );
+    let responseModel = response.model;
     this.accumulateUsage(cumulativeUsage, response.usage);
 
     // Tool call loop — side-effect deduplication prevents the model from
@@ -331,6 +356,7 @@ export class ChatExecutor {
     // side-effect tool executes, all others are skipped for this request.
     let rounds = 0;
     let sideEffectExecuted = false;
+    let remainingToolImageChars = MAX_TOOL_IMAGE_CHARS_BUDGET;
     // Track consecutive identical failing calls to break stuck loops
     // (e.g. LLM calling `desktop.bash mkdir` with no args 5 times in a row).
     let lastFailKey = "";
@@ -455,34 +481,17 @@ export class ChatExecutor {
           consecutiveFailCount = failDetected ? 1 : 0;
         }
 
-        // If the tool result contains a screenshot data URL, create multimodal
-        // content parts so vision-capable LLMs can "see" the image.
-        const dataUrlMatch = result.match(
-          /data:image\/png;base64,([A-Za-z0-9+/=]+)/,
+        const promptToolContent = ChatExecutor.buildPromptToolContent(
+          result,
+          remainingToolImageChars,
         );
-        if (dataUrlMatch) {
-          const dataUrl = dataUrlMatch[0];
-          // Strip the base64 image from the text result to avoid duplication
-          const textContent = result
-            .replace(/"dataUrl"\s*:\s*"[^"]*"/, '"dataUrl":"(see image)"')
-            .trim();
-          messages.push({
-            role: "tool",
-            content: [
-              { type: "image_url" as const, image_url: { url: dataUrl } },
-              { type: "text" as const, text: textContent },
-            ],
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-          });
-        } else {
-          messages.push({
-            role: "tool",
-            content: result,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-          });
-        }
+        remainingToolImageChars = promptToolContent.remainingImageBudget;
+        messages.push({
+          role: "tool",
+          content: promptToolContent.content,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+        });
       }
 
       // Check for cancellation before re-calling LLM
@@ -498,6 +507,7 @@ export class ChatExecutor {
       const next = await this.callWithFallback(messages, activeStreamCallback);
       response = next.response;
       providerName = next.providerName;
+      responseModel = next.response.model;
       if (next.usedFallback) usedFallback = true;
       this.accumulateUsage(cumulativeUsage, response.usage);
     }
@@ -558,6 +568,9 @@ export class ChatExecutor {
         const retry = await this.callWithFallback(messages, activeStreamCallback);
         this.accumulateUsage(cumulativeUsage, retry.response.usage);
         this.trackTokenUsage(sessionId, retry.response.usage.totalTokens);
+        providerName = retry.providerName;
+        responseModel = retry.response.model;
+        if (retry.usedFallback) usedFallback = true;
         currentContent = retry.response.content || currentContent;
       }
     }
@@ -565,6 +578,7 @@ export class ChatExecutor {
     return {
       content: finalContent,
       provider: providerName,
+      model: responseModel,
       usedFallback,
       toolCalls: allToolCalls,
       tokenUsage: cumulativeUsage,
@@ -602,6 +616,10 @@ export class ChatExecutor {
     messages: LLMMessage[],
     onStreamChunk?: StreamProgressCallback,
   ): Promise<FallbackResult> {
+    const boundedMessages = ChatExecutor.enforcePromptCharBudget(
+      messages,
+      MAX_PROMPT_CHARS_BUDGET,
+    );
     let lastError: Error | undefined;
     const now = Date.now();
 
@@ -616,9 +634,9 @@ export class ChatExecutor {
       try {
         let response: LLMResponse;
         if (onStreamChunk) {
-          response = await provider.chatStream(messages, onStreamChunk);
+          response = await provider.chatStream(boundedMessages, onStreamChunk);
         } else {
-          response = await provider.chat(messages);
+          response = await provider.chat(boundedMessages);
         }
 
         if (response.finishReason === "error") {
@@ -682,6 +700,288 @@ export class ChatExecutor {
     return typeof message.content === "string" ? message.content : "";
   }
 
+  private static truncateText(value: string, maxChars: number): string {
+    if (value.length <= maxChars) return value;
+    if (maxChars <= 3) return value.slice(0, Math.max(0, maxChars));
+    return value.slice(0, maxChars - 3) + "...";
+  }
+
+  private static isBase64Like(value: string): boolean {
+    if (value.length < 128) return false;
+    return /^[A-Za-z0-9+/=\r\n]+$/.test(value);
+  }
+
+  private static estimateContentChars(
+    content: string | LLMContentPart[],
+  ): number {
+    if (typeof content === "string") return content.length;
+    return content.reduce((sum, part) => {
+      if (part.type === "text") return sum + part.text.length;
+      return sum + part.image_url.url.length;
+    }, 0);
+  }
+
+  private static estimateMessageChars(message: LLMMessage): number {
+    // Small role/metadata overhead for rough token approximation.
+    return ChatExecutor.estimateContentChars(message.content) + 64;
+  }
+
+  private static truncateMessageContent(
+    content: string | LLMContentPart[],
+    maxChars: number,
+  ): string | LLMContentPart[] {
+    if (maxChars <= 0) return "";
+    if (typeof content === "string") {
+      return ChatExecutor.truncateText(content, maxChars);
+    }
+
+    const out: LLMContentPart[] = [];
+    let used = 0;
+    for (const part of content) {
+      const remaining = maxChars - used;
+      if (remaining <= 0) break;
+
+      if (part.type === "text") {
+        const text = ChatExecutor.truncateText(part.text, remaining);
+        if (text.length > 0) {
+          out.push({ type: "text", text });
+          used += text.length;
+        }
+        continue;
+      }
+
+      // Never carry prior inline image data when hard-truncating.
+      const placeholder = "[image omitted]";
+      const text = ChatExecutor.truncateText(placeholder, remaining);
+      if (text.length > 0) {
+        out.push({ type: "text", text });
+        used += text.length;
+      }
+    }
+
+    if (out.length === 0) {
+      out.push({ type: "text", text: "" });
+    }
+    return out;
+  }
+
+  private static enforcePromptCharBudget(
+    messages: LLMMessage[],
+    maxChars: number,
+  ): LLMMessage[] {
+    const totalChars = messages.reduce(
+      (sum, message) => sum + ChatExecutor.estimateMessageChars(message),
+      0,
+    );
+    if (totalChars <= maxChars) return messages;
+
+    // Keep only the first system message as anchor; drop additional injected
+    // system blocks when we are in hard-budget mode.
+    const firstSystemIndex = messages.findIndex((m) => m.role === "system");
+    const firstSystem =
+      firstSystemIndex >= 0 ? messages[firstSystemIndex] : undefined;
+    const systemHead = firstSystem
+      ? {
+          ...firstSystem,
+          content: ChatExecutor.truncateMessageContent(
+            firstSystem.content,
+            Math.min(24_000, Math.floor(maxChars * 0.5)),
+          ),
+        }
+      : undefined;
+    const systemHeadChars = systemHead
+      ? ChatExecutor.estimateMessageChars(systemHead)
+      : 0;
+
+    const nonSystemBudget = Math.max(4_000, maxChars - systemHeadChars);
+    const nonSystemMessages = messages.filter((message, idx) =>
+      idx === firstSystemIndex ? false : message.role !== "system");
+
+    const selected: LLMMessage[] = [];
+    let used = 0;
+    for (let i = nonSystemMessages.length - 1; i >= 0; i--) {
+      const message = nonSystemMessages[i];
+      const messageChars = ChatExecutor.estimateMessageChars(message);
+      if (used + messageChars <= nonSystemBudget) {
+        selected.push(message);
+        used += messageChars;
+        continue;
+      }
+
+      // Keep at least the newest non-system message, truncated to fit.
+      if (selected.length === 0) {
+        const remaining = Math.max(256, nonSystemBudget - used);
+        selected.push({
+          ...message,
+          content: ChatExecutor.truncateMessageContent(message.content, remaining),
+        });
+      }
+      break;
+    }
+
+    selected.reverse();
+    return systemHead ? [systemHead, ...selected] : selected;
+  }
+
+  private static normalizeHistory(history: readonly LLMMessage[]): LLMMessage[] {
+    const recent = history.slice(-MAX_HISTORY_MESSAGES);
+    return recent.map((entry) => {
+      if (typeof entry.content === "string") {
+        if (entry.role === "tool") {
+          const prepared = ChatExecutor.prepareToolResultForPrompt(entry.content);
+          return { ...entry, content: prepared.text };
+        }
+        return {
+          ...entry,
+          content: ChatExecutor.truncateText(
+            entry.content,
+            MAX_HISTORY_MESSAGE_CHARS,
+          ),
+        };
+      }
+
+      const parts: LLMContentPart[] = entry.content.map((part) => {
+        if (part.type === "text") {
+          return {
+            type: "text" as const,
+            text: ChatExecutor.truncateText(
+              part.text,
+              MAX_HISTORY_MESSAGE_CHARS,
+            ),
+          };
+        }
+        // Never replay historical inline images into future prompts.
+        return {
+          type: "text" as const,
+          text: "[prior image omitted]",
+        };
+      });
+      return { ...entry, content: parts };
+    });
+  }
+
+  private static sanitizeJsonForPrompt(
+    value: unknown,
+    captureDataUrl: (url: string) => void,
+  ): unknown {
+    if (typeof value === "string") {
+      if (value.startsWith("data:image/")) {
+        captureDataUrl(value);
+        return "(see image)";
+      }
+      if (ChatExecutor.isBase64Like(value)) {
+        return "(base64 omitted)";
+      }
+      return ChatExecutor.truncateText(value, MAX_TOOL_RESULT_FIELD_CHARS);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) =>
+        ChatExecutor.sanitizeJsonForPrompt(item, captureDataUrl),
+      );
+    }
+    if (value && typeof value === "object") {
+      const obj = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [key, field] of Object.entries(obj)) {
+        const keyLower = key.toLowerCase();
+        if (typeof field === "string") {
+          if (field.startsWith("data:image/")) {
+            captureDataUrl(field);
+            out[key] = "(see image)";
+            continue;
+          }
+          if (
+            keyLower === "image" ||
+            keyLower === "dataurl" ||
+            keyLower.endsWith("base64")
+          ) {
+            if (ChatExecutor.isBase64Like(field)) {
+              out[key] = "(base64 omitted)";
+              continue;
+            }
+          }
+          out[key] = ChatExecutor.truncateText(
+            field,
+            MAX_TOOL_RESULT_FIELD_CHARS,
+          );
+          continue;
+        }
+        out[key] = ChatExecutor.sanitizeJsonForPrompt(field, captureDataUrl);
+      }
+      return out;
+    }
+    return value;
+  }
+
+  private static prepareToolResultForPrompt(result: string): {
+    text: string;
+    dataUrl?: string;
+  } {
+    let capturedDataUrl: string | undefined;
+    const setDataUrl = (url: string): void => {
+      if (!capturedDataUrl) capturedDataUrl = url;
+    };
+
+    try {
+      const parsed = JSON.parse(result) as unknown;
+      const sanitized = ChatExecutor.sanitizeJsonForPrompt(parsed, setDataUrl);
+      return {
+        text: ChatExecutor.truncateText(
+          safeStringify(sanitized),
+          MAX_TOOL_RESULT_CHARS,
+        ),
+        ...(capturedDataUrl ? { dataUrl: capturedDataUrl } : {}),
+      };
+    } catch {
+      const dataUrlMatch = result.match(
+        /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/,
+      );
+      const text = result
+        .replace(
+          /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g,
+          "(see image)",
+        )
+        .replace(/"[Ii]mage"\s*:\s*"[A-Za-z0-9+/=\r\n]{128,}"/g, '"image":"(base64 omitted)"')
+        .trim();
+      return {
+        text: ChatExecutor.truncateText(text, MAX_TOOL_RESULT_CHARS),
+        ...(dataUrlMatch ? { dataUrl: dataUrlMatch[0] } : {}),
+      };
+    }
+  }
+
+  private static buildPromptToolContent(
+    result: string,
+    remainingImageBudget: number,
+  ): {
+    content: string | import("./types.js").LLMContentPart[];
+    remainingImageBudget: number;
+  } {
+    const prepared = ChatExecutor.prepareToolResultForPrompt(result);
+    if (!prepared.dataUrl) {
+      return { content: prepared.text, remainingImageBudget };
+    }
+
+    // Prevent huge inline screenshots from blowing up prompt size.
+    if (prepared.dataUrl.length > remainingImageBudget) {
+      const note =
+        prepared.text +
+        "\n\n[Screenshot omitted from prompt due image context budget]";
+      return {
+        content: ChatExecutor.truncateText(note, MAX_TOOL_RESULT_CHARS),
+        remainingImageBudget,
+      };
+    }
+
+    return {
+      content: [
+        { type: "image_url" as const, image_url: { url: prepared.dataUrl } },
+        { type: "text" as const, text: prepared.text },
+      ],
+      remainingImageBudget: remainingImageBudget - prepared.dataUrl.length,
+    };
+  }
+
   /** Append a user message, handling multimodal (image) attachments. */
   private static appendUserMessage(
     messages: LLMMessage[],
@@ -690,10 +990,14 @@ export class ChatExecutor {
     const imageAttachments = (message.attachments ?? []).filter(
       (a) => a.data && a.mimeType.startsWith("image/"),
     );
+    const trimmedUserText = ChatExecutor.truncateText(
+      message.content,
+      MAX_USER_MESSAGE_CHARS,
+    );
     if (imageAttachments.length > 0) {
-      const contentParts: import("./types.js").LLMContentPart[] = [];
-      if (message.content) {
-        contentParts.push({ type: "text", text: message.content });
+      const contentParts: LLMContentPart[] = [];
+      if (trimmedUserText) {
+        contentParts.push({ type: "text", text: trimmedUserText });
       }
       for (const att of imageAttachments) {
         const base64 = Buffer.from(att.data!).toString("base64");
@@ -704,7 +1008,7 @@ export class ChatExecutor {
       }
       messages.push({ role: "user", content: contentParts });
     } else {
-      messages.push({ role: "user", content: message.content });
+      messages.push({ role: "user", content: trimmedUserText });
     }
   }
 
@@ -825,7 +1129,13 @@ export class ChatExecutor {
           ? await provider.inject(message, sessionId)
           : await provider.retrieve(message, sessionId);
       if (context) {
-        messages.push({ role: "system", content: context });
+        messages.push({
+          role: "system",
+          content: ChatExecutor.truncateText(
+            context,
+            MAX_CONTEXT_INJECTION_CHARS,
+          ),
+        });
       }
     } catch {
       // Context injection failure is non-blocking

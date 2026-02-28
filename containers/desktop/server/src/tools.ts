@@ -24,6 +24,10 @@ const BASH_TIMEOUT_MS = 600_000;
 const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB
 const TYPE_CHUNK_SIZE = 50;
 const TYPE_DELAY_MS = 12;
+const GUI_LAUNCH_CMD_RE =
+  /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:xfce4-terminal|gnome-terminal|xterm|kitty|firefox|chromium|chromium-browser|google-chrome|thunar|nautilus|mousepad|gedit)\b/i;
+const APT_PREFIX_RE =
+  /^\s*(?:sudo\s+)?(?:(?:DEBIAN_FRONTEND|APT_LISTCHANGES_FRONTEND)=[^\s]+\s+)*(?:apt-get|apt)\b/i;
 
 function exec(
   cmd: string,
@@ -53,6 +57,42 @@ function ok(content: unknown): ToolResult {
 
 function fail(message: string): ToolResult {
   return { content: JSON.stringify({ error: message }), isError: true };
+}
+
+function normalizeAptCommand(command: string): string {
+  const trimmed = command.trim();
+  if (!APT_PREFIX_RE.test(trimmed)) {
+    return command;
+  }
+
+  let normalized = trimmed;
+  if (!/^sudo\b/i.test(normalized)) {
+    normalized = `sudo ${normalized}`;
+  }
+
+  normalized = normalized.replace(
+    /^sudo\s+((?:DEBIAN_FRONTEND|APT_LISTCHANGES_FRONTEND)=[^\s]+\s+)*apt\s+/i,
+    (_full, envPrefix: string) => `sudo ${envPrefix ?? ""}apt-get `,
+  );
+
+  const isInstall = /^sudo\s+.*apt-get\s+install\b/i.test(normalized);
+  if (!isInstall) {
+    return normalized;
+  }
+
+  const hasYesFlag = /\s(?:-y|--yes)\b/i.test(normalized);
+  if (!hasYesFlag) {
+    normalized = normalized.replace(/\binstall\b/i, "install -y");
+  }
+
+  const alreadyUpdates =
+    /\bapt(?:-get)?\s+update\b/i.test(normalized) ||
+    /\b&&\s*sudo\s+.*apt-get\s+install\b/i.test(normalized);
+  if (alreadyUpdates) {
+    return normalized;
+  }
+
+  return `sudo apt-get update && ${normalized}`;
 }
 
 // --- Tool implementations ---
@@ -224,11 +264,39 @@ async function keyboardKey(
 async function bash(args: Record<string, unknown>): Promise<ToolResult> {
   const command = String(args.command ?? "");
   if (!command) return fail("command is required");
+  const normalizedCommand = normalizeAptCommand(command);
   const timeoutMs = Number(args.timeoutMs ?? BASH_TIMEOUT_MS);
+
+  // GUI launch commands should be detached automatically so the tool call
+  // doesn't block on an interactive app (e.g. `xfce4-terminal`).
+  const trimmed = command.trim();
+  const alreadyBackgrounded = /&\s*(?:disown\s*)?$/.test(trimmed);
+  const autoDetachGui = GUI_LAUNCH_CMD_RE.test(trimmed) && !alreadyBackgrounded;
+
   try {
+    if (autoDetachGui) {
+      const detachedCommand =
+        `mkdir -p /tmp/agenc-gui && ` +
+        `nohup /bin/bash -lc ${JSON.stringify(trimmed)} ` +
+        `>/tmp/agenc-gui/last-launch.log 2>&1 & echo $!`;
+      const { stdout } = await exec(
+        "/bin/bash",
+        ["-c", detachedCommand],
+        15_000,
+      );
+      const pid = Number(stdout.trim());
+      return ok({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        backgrounded: true,
+        ...(Number.isFinite(pid) ? { pid } : {}),
+      });
+    }
+
     const { stdout, stderr } = await exec(
       "/bin/bash",
-      ["-c", command],
+      ["-c", normalizedCommand],
       timeoutMs,
     );
     const output = stdout.length > MAX_OUTPUT_BYTES
@@ -265,7 +333,19 @@ async function windowList(): Promise<ToolResult> {
         windows.push({ id, title: "(unknown)" });
       }
     }
-    return ok({ windows });
+    // Most X11 windows in the desktop session are untitled internal wrappers.
+    // Return only meaningful entries to keep tool output compact for the LLM.
+    const meaningful = windows
+      .filter((w) => {
+        const title = w.title.trim();
+        return title.length > 0 && title !== "(unknown)";
+      })
+      .slice(0, 25);
+    return ok({
+      windows: meaningful,
+      totalWindows: windows.length,
+      omittedUntitled: windows.length - meaningful.length,
+    });
   } catch (e) {
     return fail(`window_list failed: ${e instanceof Error ? e.message : e}`);
   }

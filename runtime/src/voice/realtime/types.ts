@@ -15,7 +15,34 @@
 export type XaiVoice = "Ara" | "Rex" | "Sal" | "Eve" | "Leo";
 
 /** Supported audio wire formats. */
-export type XaiAudioFormat = "pcm16" | "g711_ulaw" | "g711_alaw";
+export type XaiAudioFormat = "audio/pcm" | "audio/pcmu" | "audio/pcma";
+
+/** PCM sample rates supported by xAI realtime session audio config. */
+export type XaiPcmSampleRate =
+  | 8000
+  | 16000
+  | 21050
+  | 24000
+  | 32000
+  | 44100
+  | 48000;
+
+/** Audio format settings for input/output stream configuration. */
+export interface VoiceAudioFormatConfig {
+  readonly type: XaiAudioFormat;
+  /** Only applies to audio/pcm. */
+  readonly rate?: XaiPcmSampleRate;
+}
+
+/** Session audio block used by xAI Voice Agent session.update. */
+export interface VoiceAudioConfig {
+  readonly input?: {
+    readonly format: VoiceAudioFormatConfig;
+  };
+  readonly output?: {
+    readonly format: VoiceAudioFormatConfig;
+  };
+}
 
 /** Voice Activity Detection (VAD) configuration. */
 export interface VadConfig {
@@ -55,8 +82,7 @@ export interface VoiceSessionConfig {
   readonly voice?: XaiVoice;
   readonly modalities?: ReadonlyArray<"text" | "audio">;
   readonly instructions?: string;
-  readonly input_audio_format?: XaiAudioFormat;
-  readonly output_audio_format?: XaiAudioFormat;
+  readonly audio?: VoiceAudioConfig;
   readonly turn_detection?: VadConfig | null;
   readonly tools?: readonly VoiceTool[];
   readonly temperature?: number;
@@ -109,7 +135,7 @@ export interface ConversationItemCreateFunctionOutputEvent {
 
 /** Content part for message conversation items. */
 export interface ConversationItemContentPart {
-  readonly type: "input_text" | "input_audio";
+  readonly type: "input_text" | "text" | "input_audio";
   readonly text?: string;
 }
 

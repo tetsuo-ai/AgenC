@@ -140,4 +140,99 @@ describe("createSessionToolHandler", () => {
     expect(toolCallIds[1]).toBeDefined();
     expect(toolCallIds[0]).not.toBe(toolCallIds[1]);
   });
+
+  it("skips duplicate desktop GUI launches within the same handler turn", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () =>
+      JSON.stringify({ stdout: "", stderr: "", exitCode: 0, backgrounded: true }),
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const first = await handler("desktop.bash", { command: "xfce4-terminal" });
+    const second = await handler("desktop.bash", { command: "xfce4-terminal" });
+
+    expect(baseHandler).toHaveBeenCalledTimes(1);
+    expect(baseHandler).toHaveBeenCalledWith("desktop.bash", {
+      command: "xfce4-terminal",
+    });
+
+    expect(JSON.parse(first)).toMatchObject({ backgrounded: true });
+    expect(JSON.parse(second)).toMatchObject({
+      backgrounded: true,
+      skippedDuplicate: true,
+    });
+
+    const executingCount = sentMessages.filter((m) => m.type === "tools.executing").length;
+    const resultCount = sentMessages.filter((m) => m.type === "tools.result").length;
+    expect(executingCount).toBe(1);
+    expect(resultCount).toBe(1);
+  });
+
+  it("skips alternate terminal launcher commands within the same handler turn", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () =>
+      JSON.stringify({ stdout: "", stderr: "", exitCode: 0, backgrounded: true }),
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const first = await handler("desktop.bash", { command: "xfce4-terminal" });
+    const second = await handler("desktop.bash", { command: "gnome-terminal" });
+
+    expect(baseHandler).toHaveBeenCalledTimes(1);
+    expect(baseHandler).toHaveBeenCalledWith("desktop.bash", {
+      command: "xfce4-terminal",
+    });
+
+    expect(JSON.parse(first)).toMatchObject({ backgrounded: true });
+    expect(JSON.parse(second)).toMatchObject({
+      backgrounded: true,
+      skippedDuplicate: true,
+    });
+
+    const executingCount = sentMessages.filter((m) => m.type === "tools.executing").length;
+    const resultCount = sentMessages.filter((m) => m.type === "tools.result").length;
+    expect(executingCount).toBe(1);
+    expect(resultCount).toBe(1);
+  });
+
+  it("does not skip non-GUI desktop.bash commands", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () => JSON.stringify({ stdout: "ok", exitCode: 0 }));
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    await handler("desktop.bash", { command: "whoami" });
+    await handler("desktop.bash", { command: "whoami" });
+
+    expect(baseHandler).toHaveBeenCalledTimes(2);
+
+    const executingCount = sentMessages.filter((m) => m.type === "tools.executing").length;
+    expect(executingCount).toBe(2);
+  });
 });

@@ -210,12 +210,10 @@ export function useVoice({ send, onDelegationResult }: UseVoiceOptions) {
         const errMsg = (payload.message as string) ?? 'Voice error';
         setTranscript(errMsg);
         // If we were connecting, the session failed to start — go inactive
-        if (voiceState === 'connecting' || awaitingStartRef.current) {
-          recorder.stop();
-          awaitingStartRef.current = false;
-          player.stop();
-          setVoiceState('inactive');
-        }
+        recorder.stop();
+        player.stop();
+        awaitingStartRef.current = false;
+        setVoiceState('inactive');
         break;
       }
 

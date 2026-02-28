@@ -5,6 +5,7 @@ import {
   WS_CHAT_TYPING,
   WS_CHAT_HISTORY,
   WS_CHAT_SESSION,
+  WS_CHAT_NEW,
   WS_CHAT_RESUME,
   WS_CHAT_RESUMED,
   WS_CHAT_SESSIONS,
@@ -63,6 +64,12 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   // Tracks the placeholder message ID for the current response round
   const pendingMsgIdRef = useRef<string | null>(null);
   const msgCounterRef = useRef(0);
+  const requestCounterRef = useRef(0);
+
+  const nextRequestId = useCallback((prefix: string): string => {
+    requestCounterRef.current += 1;
+    return `${prefix}_${Date.now().toString(36)}_${requestCounterRef.current}`;
+  }, []);
 
   const refreshSessions = useCallback(() => {
     send({ type: WS_CHAT_SESSIONS });
@@ -82,7 +89,9 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     setSessionId(null);
     setIsTyping(false);
     setTokenUsage(null);
-  }, []);
+    pendingMsgIdRef.current = null;
+    send({ type: WS_CHAT_NEW, id: nextRequestId('chat_new') });
+  }, [nextRequestId, send]);
 
   const stopGeneration = useCallback(() => {
     send({ type: WS_CHAT_CANCEL });
@@ -112,7 +121,11 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
       const id = `user_${++msgCounterRef.current}`;
       const userMsg: ChatMessage = { id, content, sender: 'user', timestamp: Date.now() };
       setMessages((prev) => [...prev, userMsg]);
-      send({ type: WS_CHAT_MESSAGE, payload: { content } });
+      send({
+        type: WS_CHAT_MESSAGE,
+        id: nextRequestId('chat_msg'),
+        payload: { content },
+      });
       return;
     }
 
@@ -160,13 +173,14 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
       setMessages((prev) => [...prev, userMsg]);
       send({
         type: WS_CHAT_MESSAGE,
+        id: nextRequestId('chat_msg'),
         payload: {
           content,
           attachments: results.map((r) => r.wire),
         },
       });
     });
-  }, [send]);
+  }, [nextRequestId, send]);
 
   const handleMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {

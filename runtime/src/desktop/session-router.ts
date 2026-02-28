@@ -36,6 +36,13 @@ const DESKTOP_ACTION_TOOLS = new Set([
 const AUTO_SCREENSHOT_DELAY_MS = 300;
 /** GUI apps launched via bash need more time to render. */
 const BASH_SCREENSHOT_DELAY_MS = 1500;
+const PLAYWRIGHT_BROWSERS_PATH = "/home/agenc/.cache/ms-playwright";
+const PLAYWRIGHT_MCP_BIN = "playwright-mcp";
+const DEFAULT_PLAYWRIGHT_MCP_PKG = "@playwright/mcp@0.0.68";
+const PLAYWRIGHT_MCP_PACKAGE_PREFIX = "@playwright/mcp@";
+const PLAYWRIGHT_MCP_PACKAGE_NAME = "@playwright/mcp";
+const TMUX_MCP_PACKAGE = "tmux-mcp";
+const NEOVIM_MCP_PACKAGE = "mcp-neovim-server";
 
 // ============================================================================
 // Desktop tool definitions (static — same across all containers)
@@ -347,10 +354,10 @@ async function ensurePlaywrightBridge(
           "-i",
           "-e",
           "DISPLAY=:1",
+          "-e",
+          `PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}`,
           handle.containerId,
-          "npx",
-          "@playwright/mcp@1.8.0",
-          "--headless=false",
+          PLAYWRIGHT_MCP_BIN,
         ],
         timeout: 30_000,
       },
@@ -448,13 +455,32 @@ async function ensureContainerMCPBridges(
   const results = await Promise.allSettled(
     configs.map(async (config) => {
       // Rewrite config to docker exec
-      const dockerArgs = ["exec", "-i", "-e", "DISPLAY=:1"];
+      const dockerArgs = [
+        "exec",
+        "-i",
+        "-e",
+        "DISPLAY=:1",
+      ];
+
+      const hasPlaywrightBrowserPath = config.env
+        ? Object.prototype.hasOwnProperty.call(config.env, "PLAYWRIGHT_BROWSERS_PATH")
+        : false;
       if (config.env) {
         for (const [key, value] of Object.entries(config.env)) {
           dockerArgs.push("-e", `${key}=${value}`);
         }
       }
-      dockerArgs.push(handle.containerId, config.command, ...config.args);
+
+      if (!hasPlaywrightBrowserPath) {
+        // Keep behavior stable for non-browser MCP servers while ensuring
+        // Playwright-based servers inside desktop containers get a valid browser path.
+        dockerArgs.push(
+          "-e",
+          `PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}`,
+        );
+      }
+      const normalized = normalizeContainerMCPCommand(config.command, config.args);
+      dockerArgs.push(handle.containerId, normalized.command, ...normalized.args);
 
       const client = await createMCPConnection(
         {
@@ -503,4 +529,72 @@ async function ensureContainerMCPBridges(
 
   containerMCPBridges.set(sessionId, successfulBridges);
   return successfulBridges;
+}
+
+function normalizePlaywrightArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+
+    if (arg === "--browser") {
+      const value = args[i + 1];
+      if (typeof value === "string" && value.toLowerCase() === "chromium") {
+        // Older MCP configs force a named browser that may not exist in all
+        // container images. Let the bundled MCP/Playwright environment resolve
+        // runtime browser defaults instead.
+        i += 1;
+        continue;
+      }
+      out.push(arg);
+      continue;
+    }
+
+    if (arg.startsWith("--browser=")) {
+      const value = arg.slice("--browser=".length).toLowerCase();
+      if (value !== "chromium") {
+        out.push(arg);
+      }
+      continue;
+    }
+
+    out.push(arg);
+  }
+
+  return out;
+}
+
+function normalizeContainerMCPCommand(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  let normalizedCommand = command;
+  let normalizedArgs = [...args];
+
+  // Convert npx package invocations to direct binaries when available so
+  // session startup does not depend on npm registry/network availability.
+  if (command === "npx") {
+    if (normalizedArgs[0] === "-y") {
+      normalizedArgs = normalizedArgs.slice(1);
+    }
+
+    const pkg = normalizedArgs[0];
+    if (pkg === TMUX_MCP_PACKAGE) {
+      normalizedCommand = TMUX_MCP_PACKAGE;
+      normalizedArgs = normalizedArgs.slice(1);
+    } else if (pkg === NEOVIM_MCP_PACKAGE) {
+      normalizedCommand = NEOVIM_MCP_PACKAGE;
+      normalizedArgs = normalizedArgs.slice(1);
+    } else if (
+      pkg === PLAYWRIGHT_MCP_PACKAGE_NAME ||
+      pkg === DEFAULT_PLAYWRIGHT_MCP_PKG ||
+      (typeof pkg === "string" && pkg.startsWith(PLAYWRIGHT_MCP_PACKAGE_PREFIX))
+    ) {
+      normalizedCommand = PLAYWRIGHT_MCP_BIN;
+      normalizedArgs = normalizePlaywrightArgs(normalizedArgs.slice(1));
+    }
+  } else if (command === PLAYWRIGHT_MCP_BIN) {
+    normalizedArgs = normalizePlaywrightArgs(normalizedArgs);
+  }
+
+  return { command: normalizedCommand, args: normalizedArgs };
 }

@@ -280,8 +280,10 @@ export class VoiceBridge {
       voice: this.config.voice ?? "Ara",
       modalities: ["text", "audio"],
       instructions: voiceInstructions,
-      input_audio_format: "pcm16",
-      output_audio_format: "pcm16",
+      audio: {
+        input: { format: { type: "audio/pcm", rate: 24000 } },
+        output: { format: { type: "audio/pcm", rate: 24000 } },
+      },
       input_audio_transcription: { model: "whisper-1" },
       turn_detection:
         this.config.mode === "push-to-talk"

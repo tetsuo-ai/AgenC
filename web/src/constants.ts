@@ -13,6 +13,7 @@ export const WS_CHAT_MESSAGE = 'chat.message' as const;
 export const WS_CHAT_TYPING = 'chat.typing' as const;
 export const WS_CHAT_HISTORY = 'chat.history' as const;
 export const WS_CHAT_SESSION = 'chat.session' as const;
+export const WS_CHAT_NEW = 'chat.new' as const;
 export const WS_CHAT_RESUMED = 'chat.resumed' as const;
 export const WS_CHAT_SESSIONS = 'chat.sessions' as const;
 export const WS_CHAT_CANCELLED = 'chat.cancelled' as const;

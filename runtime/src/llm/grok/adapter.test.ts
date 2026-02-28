@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { LLMMessage } from "../types.js";
+import type { LLMMessage, LLMTool } from "../types.js";
 import {
   LLMAuthenticationError,
   LLMProviderError,
@@ -105,6 +105,82 @@ describe("GrokProvider", () => {
     expect(params.tools).toBeDefined();
     const names = params.tools.map((t: any) => t.function.name);
     expect(names).toContain("web_search");
+  });
+
+  it("sanitizes oversized tool schemas and strips verbose metadata", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const noisyTool: LLMTool = {
+      type: "function",
+      function: {
+        name: "noisy.tool",
+        description: "D".repeat(800),
+        parameters: {
+          type: "object",
+          description: "Top-level schema description",
+          properties: {
+            command: {
+              type: "string",
+              description: "Very long per-field description",
+            },
+          },
+          required: ["command"],
+        },
+      },
+    };
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [noisyTool],
+    });
+    await provider.chat([{ role: "user", content: "test" }]);
+
+    const params = mockCreate.mock.calls[0][0];
+    const tool = params.tools[0];
+    expect(tool.function.description.length).toBeLessThanOrEqual(200);
+    const paramsJson = JSON.stringify(tool.function.parameters);
+    expect(paramsJson.includes("description")).toBe(false);
+  });
+
+  it("omits tools on follow-up turns when tool payload is large", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const manyTools: LLMTool[] = Array.from({ length: 120 }, (_, i) => ({
+      type: "function",
+      function: {
+        name: `tool_${i}`,
+        description: `Tool ${i}`,
+        parameters: {
+          type: "object",
+          properties: {
+            a: { type: "string" },
+            b: { type: "string" },
+            c: { type: "string" },
+            d: { type: "string" },
+            e: { type: "string" },
+            f: { type: "string" },
+          },
+          required: ["a"],
+        },
+      },
+    }));
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: manyTools,
+    });
+    await provider.chat([
+      { role: "user", content: "run tool" },
+      {
+        role: "tool",
+        content: "{\"ok\":true}",
+        toolCallId: "call_1",
+        toolName: "tool_1",
+      },
+    ]);
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.tools).toBeUndefined();
   });
 
   it("passes usage information", async () => {

@@ -201,3 +201,54 @@ describe("useChat tool result matching", () => {
     });
   });
 });
+
+describe("useChat session lifecycle", () => {
+  it("startNewChat clears local state and requests a new server session", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useChat({ send, connected: true }));
+
+    send.mockClear();
+
+    act(() => {
+      result.current.handleMessage({
+        type: "chat.session",
+        payload: { sessionId: "session-old" },
+      } as WSMessage);
+      result.current.injectMessage("hello", "user");
+      result.current.injectMessage("world", "agent");
+    });
+
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.sessionId).toBe("session-old");
+
+    act(() => {
+      result.current.startNewChat();
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "chat.new",
+        id: expect.any(String),
+      }),
+    );
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.sessionId).toBeNull();
+  });
+
+  it("sendMessage includes a stable request id for replay dedupe", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useChat({ send, connected: true }));
+
+    act(() => {
+      result.current.sendMessage("hello");
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "chat.message",
+        id: expect.any(String),
+        payload: { content: "hello" },
+      }),
+    );
+  });
+});

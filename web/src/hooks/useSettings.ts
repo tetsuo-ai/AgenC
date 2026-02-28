@@ -28,7 +28,7 @@ export interface GatewaySettings {
 }
 
 const DEFAULT_SETTINGS: GatewaySettings = {
-  llm: { provider: 'grok', apiKey: '', model: 'grok-4-fast-reasoning', baseUrl: 'https://api.x.ai/v1' },
+  llm: { provider: 'grok', apiKey: '', model: 'grok-4-1-fast-reasoning', baseUrl: 'https://api.x.ai/v1' },
   voice: { enabled: true, mode: 'vad', voice: 'Ara', apiKey: '' },
   memory: { backend: 'memory' },
   connection: { rpcUrl: 'https://api.devnet.solana.com' },
