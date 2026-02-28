@@ -21,6 +21,7 @@ import type { OllamaProviderConfig } from "./types.js";
 import { LLMProviderError, mapLLMError } from "../errors.js";
 import { ensureLazyImport } from "../lazy-import.js";
 import { withTimeout } from "../timeout.js";
+import { validateToolTurnSequence } from "../tool-turn-validator.js";
 
 const DEFAULT_HOST = "http://localhost:11434";
 const DEFAULT_MODEL = "llama3";
@@ -159,6 +160,8 @@ export class OllamaProvider implements LLMProvider {
   }
 
   private buildParams(messages: LLMMessage[]): Record<string, unknown> {
+    validateToolTurnSequence(messages, { providerName: this.name });
+
     const params: Record<string, unknown> = {
       model: this.config.model,
       messages: messages.map((m) => this.toOllamaMessage(m)),
@@ -183,9 +186,20 @@ export class OllamaProvider implements LLMProvider {
 
   private toOllamaMessage(msg: LLMMessage): Record<string, unknown> {
     if (msg.role === "tool") {
+      let content: string;
+      if (Array.isArray(msg.content)) {
+        content =
+          msg.content
+            .filter((p) => p.type === "text")
+            .map((p) => (p as { type: "text"; text: string }).text)
+            .join("\n") || "Tool executed successfully.";
+      } else {
+        content = msg.content;
+      }
       return {
         role: "tool",
-        content: msg.content,
+        content,
+        tool_call_id: msg.toolCallId,
       };
     }
     return { role: msg.role, content: msg.content };

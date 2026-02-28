@@ -19,15 +19,15 @@ import type {
 } from "../types.js";
 import { validateToolCall } from "../types.js";
 import type { GrokProviderConfig } from "./types.js";
-import { LLMProviderError, mapLLMError } from "../errors.js";
+import { mapLLMError } from "../errors.js";
 import { ensureLazyImport } from "../lazy-import.js";
 import { withTimeout } from "../timeout.js";
+import { validateToolTurnSequence } from "../tool-turn-validator.js";
 
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 const DEFAULT_VISION_MODEL = "grok-4-0709";
 const DEFAULT_TIMEOUT_MS = 60_000;
-const MAX_TOOL_IDS_IN_ERROR = 8;
 const MAX_MESSAGES_PAYLOAD_CHARS = 80_000;
 const MAX_SYSTEM_MESSAGE_CHARS = 16_000;
 const MAX_MESSAGE_CHARS_PER_ENTRY = 4_000;
@@ -85,97 +85,6 @@ function normalizeTimeoutMs(timeoutMs: number | undefined): number {
     return DEFAULT_TIMEOUT_MS;
   }
   return Math.max(1, Math.floor(timeoutMs));
-}
-
-function summarizeToolIds(ids: Iterable<string>): string {
-  const all = Array.from(ids);
-  if (all.length <= MAX_TOOL_IDS_IN_ERROR) {
-    return all.join(", ");
-  }
-  const head = all.slice(0, MAX_TOOL_IDS_IN_ERROR).join(", ");
-  return `${head} ... (+${all.length - MAX_TOOL_IDS_IN_ERROR} more)`;
-}
-
-function validateToolMessageSequence(messages: readonly LLMMessage[]): void {
-  let pendingToolCallIds: Set<string> | null = null;
-  let pendingAssistantIndex = -1;
-
-  const throwMalformed = (index: number, reason: string): never => {
-    const location =
-      index >= 0 ? `message[${index}]` : "conversation";
-    throw new LLMProviderError(
-      "grok",
-      `Invalid tool-turn sequence at ${location}: ${reason}`,
-      400,
-    );
-  };
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    const role = msg.role;
-
-    if (role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
-      if (pendingToolCallIds && pendingToolCallIds.size > 0) {
-        throwMalformed(
-          i,
-          `new assistant tool_calls started before resolving all prior tool results from message[${pendingAssistantIndex}]`,
-        );
-      }
-
-      const ids = new Set<string>();
-      for (const toolCall of msg.toolCalls) {
-        const id = toolCall.id?.trim();
-        if (!id) {
-          throwMalformed(i, "assistant tool_calls contains an empty id");
-        }
-        if (ids.has(id)) {
-          throwMalformed(i, `assistant tool_calls contains duplicate id "${id}"`);
-        }
-        ids.add(id);
-      }
-      pendingToolCallIds = ids;
-      pendingAssistantIndex = i;
-      continue;
-    }
-
-    if (role === "tool") {
-      const parsedToolCallId = msg.toolCallId?.trim();
-      if (!parsedToolCallId) {
-        throwMalformed(i, "tool message is missing toolCallId");
-      }
-      const toolCallId = parsedToolCallId as string;
-      const pending = pendingToolCallIds;
-      if (!pending || pending.size === 0) {
-        throwMalformed(
-          i,
-          `tool message references "${toolCallId}" without a preceding assistant tool_calls message`,
-        );
-      }
-      const pendingRequired = pending as Set<string>;
-      if (!pendingRequired.has(toolCallId)) {
-        throwMalformed(
-          i,
-          `tool message references unknown toolCallId "${toolCallId}" (expected one of: ${summarizeToolIds(pendingRequired)})`,
-        );
-      }
-      pendingRequired.delete(toolCallId);
-      continue;
-    }
-
-    if (pendingToolCallIds && pendingToolCallIds.size > 0) {
-      throwMalformed(
-        i,
-        `missing tool result message(s) for toolCallId(s): ${summarizeToolIds(pendingToolCallIds)}. Tool results must immediately follow assistant tool_calls.`,
-      );
-    }
-  }
-
-  if (pendingToolCallIds && pendingToolCallIds.size > 0) {
-    throwMalformed(
-      -1,
-      `missing tool result message(s) for toolCallId(s): ${summarizeToolIds(pendingToolCallIds)}.`,
-    );
-  }
 }
 
 async function nextStreamChunkWithTimeout<T>(
@@ -689,7 +598,7 @@ export class GrokProvider implements LLMProvider {
 
   private buildParams(messages: LLMMessage[]): Record<string, unknown> {
     const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
-    validateToolMessageSequence(messages);
+    validateToolTurnSequence(messages, { providerName: this.name });
 
     // Build mapped messages, handling multimodal tool messages.
     // The OpenAI API requires tool message content to be a string.

@@ -5,6 +5,7 @@
  */
 
 import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
+import type { LLMFailureClass, LLMPipelineStopReason } from "./policy.js";
 
 /**
  * Error thrown when an LLM provider returns an error response.
@@ -21,6 +22,39 @@ export class LLMProviderError extends RuntimeError {
     this.name = "LLMProviderError";
     this.providerName = providerName;
     this.statusCode = statusCode;
+  }
+}
+
+/**
+ * Error thrown when local tool-turn/message protocol validation fails before
+ * sending a request to an external provider.
+ */
+export class LLMMessageValidationError extends LLMProviderError {
+  public readonly validationCode: string;
+  public readonly messageIndex: number | null;
+  public readonly failureClass: LLMFailureClass = "validation_error";
+  public readonly stopReason: LLMPipelineStopReason = "validation_error";
+
+  constructor(
+    providerName: string,
+    details: {
+      validationCode: string;
+      messageIndex: number | null;
+      reason: string;
+    },
+  ) {
+    const location =
+      details.messageIndex === null
+        ? "conversation"
+        : `message[${details.messageIndex}]`;
+    super(
+      providerName,
+      `Invalid tool-turn sequence (${details.validationCode}) at ${location}: ${details.reason}`,
+      400,
+    );
+    this.name = "LLMMessageValidationError";
+    this.validationCode = details.validationCode;
+    this.messageIndex = details.messageIndex;
   }
 }
 
@@ -164,6 +198,7 @@ export function mapLLMError(
   timeoutMs: number,
 ): Error {
   if (
+    err instanceof LLMMessageValidationError ||
     err instanceof LLMProviderError ||
     err instanceof LLMRateLimitError ||
     err instanceof LLMTimeoutError ||
