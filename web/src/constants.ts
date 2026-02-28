@@ -39,7 +39,6 @@ export const WS_VOICE_RESPONSE_DONE = 'voice.response_done' as const;
 export const WS_VOICE_DELEGATION = 'voice.delegation' as const;
 export const WS_VOICE_STATE = 'voice.state' as const;
 export const WS_VOICE_ERROR = 'voice.error' as const;
-export const WS_VOICE_TOOL_CALL = 'voice.tool_call' as const;
 
 // Desktop
 export const WS_DESKTOP_LIST = 'desktop.list' as const;

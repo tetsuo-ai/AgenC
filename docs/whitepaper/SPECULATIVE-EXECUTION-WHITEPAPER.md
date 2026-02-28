@@ -40,7 +40,7 @@ While cryptographically sound, this model introduces significant latency:
 
 3. **Finality Latency**: Achieving transaction finality requires waiting for block confirmation-approximately 400ms to 13 seconds on Solana, longer on other chains.
 
-4. **Pipeline Multiplier**: For workflows with *n* sequential tasks, these latencies compound multiplicatively.
+4. **Pipeline Multiplier**: For workflows with *n* sequential tasks, these latencies compound serially.
 
 Consider a five-task agent pipeline where each task requires 5 seconds for proof generation and 2 seconds for on-chain confirmation:
 
@@ -110,7 +110,7 @@ In the standard execution model:
 Time 0:    A executes
 Time T:    A generates proof
 Time 2T:   A submits proof, awaits confirmation
-Time 3T:   B executes (using A's confirmed output)
+Time 3T:   B executes (using A's finalized output)
 Time 4T:   B generates proof
 ...
 Time 15T:  E confirms
@@ -135,26 +135,27 @@ We model task workflows as directed acyclic graphs (DAGs), where vertices repres
 **Definition 3.1 (Task Dependency Graph).** A *task dependency graph* is a tuple *G* = (*V*, *E*, *σ*) where:
 - *V* is a finite set of task vertices
 - *E* ⊆ *V* × *V* is a set of directed edges representing dependencies
-- *σ*: *V* → {PENDING, EXECUTING, PROVING, CONFIRMING, CONFIRMED, FAILED} assigns status to each vertex
+- *σ*: *V* → {PENDING, EXECUTING, PROVING, FINALIZING, FINALIZED, FAILED} assigns status to each vertex
 
 An edge (*u*, *v*) ∈ *E* indicates that task *v* depends on the output of task *u*; we call *u* an *ancestor* of *v* and *v* a *descendant* of *u*.
+The formal model supports arbitrary DAGs. The current implementation, by contrast, stores one parent pointer per task (`parentTaskId`), so practical dependency graphs are currently single-parent (tree/forest) structures.
 
-**Definition 3.2 (Confirmation Order).** A valid *confirmation order* for *G* is a total order *π* on *V* such that for all (*u*, *v*) ∈ *E*: *π*(*u*) < *π*(*v*). That is, ancestors must confirm before descendants.
+**Definition 3.2 (Finalization Order).** A valid *finalization order* for *G* is a total order *π* on *V* such that for all (*u*, *v*) ∈ *E*: *π*(*u*) < *π*(*v*). That is, ancestors must finalize before descendants.
 
-**Definition 3.3 (Speculation Depth).** For a task *v* ∈ *V*, the *speculation depth* depth(*v*) is defined as the length of the longest path from any confirmed ancestor to *v*, counting only unconfirmed nodes:
+**Definition 3.3 (Speculation Depth).** For a task *v* ∈ *V*, the *speculation depth* depth(*v*) is defined as the length of the longest path from any finalized ancestor to *v*, counting only unfinalized nodes:
 
 ```
-depth(v) = max { |P| : P is a path from some u to v where σ(u) = CONFIRMED 
-                       and ∀w ∈ P \ {u}: σ(w) ≠ CONFIRMED }
+depth(v) = max { |P| : P is a path from some u to v where σ(u) = FINALIZED 
+                       and ∀w ∈ P \ {u}: σ(w) ≠ FINALIZED }
 ```
 
-If all ancestors of *v* are confirmed, depth(*v*) = 0.
+If all ancestors of *v* are finalized, depth(*v*) = 0.
 
 ### 3.2 Sequential Execution Model
 
 The standard execution model enforces a strict invariant:
 
-**Invariant S1 (Sequential Execution).** A task *v* may only begin execution when all tasks *u* such that (*u*, *v*) ∈ *E* satisfy *σ*(*u*) = CONFIRMED.
+**Invariant S1 (Sequential Execution).** A task *v* may only begin execution when all tasks *u* such that (*u*, *v*) ∈ *E* satisfy *σ*(*u*) = FINALIZED.
 
 While this invariant ensures correctness-no task ever operates on invalid inputs-it serializes execution along dependency chains.
 
@@ -201,9 +202,9 @@ The commitment hides the output (through the salt) while binding the agent to a 
 
 #### 4.1.2 Proof Deferral
 
-*Proof deferral* is the mechanism by which generated proofs await ancestor confirmation before on-chain submission. This preserves the critical invariant:
+*Proof deferral* is the mechanism by which generated proofs await ancestor finalization before on-chain submission. This preserves the critical invariant:
 
-**Invariant P1 (Proof Ordering).** For any task *v* with proof submitted at time *t_s*, all ancestors *u* of *v* have confirmation time *t_c*(*u*) < *t_s*.
+**Invariant P1 (Proof Ordering).** For any task *v* with proof submitted at time *t_s*, all ancestors *u* of *v* have finalization time *t_f*(*u*) < *t_s*.
 
 Proof deferral allows execution and proof generation to proceed speculatively while ensuring that on-chain state transitions respect dependency ordering.
 
@@ -216,7 +217,7 @@ The *speculative task scheduler* determines which tasks can begin speculative ex
 3. **Claim Expiry**: Sufficient time remaining before deadline
 4. **Resource Limits**: Memory, compute, and parallel branch constraints
 
-Tasks exceeding any bound are rejected for speculation and must wait for ancestor confirmation.
+Tasks exceeding any bound are rejected for speculation and must wait for ancestor finality.
 
 ### 4.2 System Architecture
 
@@ -252,9 +253,9 @@ The speculative execution system comprises five core components:
 
 The DependencyGraph maintains the DAG of task dependencies, tracking:
 
-- Parent/child relationships between tasks
+- Parent/child relationships between tasks (single-parent structure in current implementation)
 - Speculation depth for each node
-- Confirmation status (PENDING, SPECULATIVE, CONFIRMED, FAILED)
+- Confirmation/finality status (PENDING, SPECULATIVE, FINALIZED, FAILED)
 
 Key operations include cycle detection (to prevent deadlock), topological sorting (for proof submission ordering), and depth computation (for scheduling decisions).
 
@@ -266,7 +267,7 @@ interface DependencyNode {
   children: Set<string>;        // Dependent task IDs
   status: DependencyStatus;
   depth: number;                // Speculation depth
-  confirmedAt: number | null;
+  finalizedAt: number | null;
 }
 ```
 
@@ -277,11 +278,11 @@ The CommitmentLedger serves as the local source of truth for speculative commitm
 - Commitment creation and lifecycle tracking
 - Stake bonding and release
 - TTL-based expiration
-- State transitions (CREATED → PROOF_GENERATED → SUBMITTED → CONFIRMED)
+- State transitions (CREATED → PROOF_GENERATED → SUBMITTED → FINALIZED)
 
 **State Machine:**
 ```
-CREATED → PROOF_GENERATED → SUBMITTED → CONFIRMED
+CREATED → PROOF_GENERATED → SUBMITTED → FINALIZED
     ↓           ↓              ↓
     └─────────→ EXPIRED ←──────┘
                    ↑
@@ -293,15 +294,15 @@ CREATED → PROOF_GENERATED → SUBMITTED → CONFIRMED
 The ProofDeferralManager implements the proof ordering invariant by:
 
 1. Queueing generated proofs with their ancestor dependencies
-2. Monitoring ancestor confirmation via blockchain events
-3. Releasing proofs for submission when all ancestors confirm
+2. Monitoring ancestor finality via blockchain events
+3. Releasing proofs for submission when all ancestors are finalized
 4. Coordinating with RollbackController on ancestor failures
 
 **Critical Invariant Enforcement:**
 ```typescript
 function checkSubmissionAllowed(taskId: Uint8Array): boolean {
-  const ancestors = dependencyGraph.getUnconfirmedAncestors(taskId);
-  return ancestors.length === 0;  // All ancestors must be confirmed
+  const ancestors = dependencyGraph.getUnfinalizedAncestors(taskId);
+  return ancestors.length === 0;  // All ancestors must be finalized
 }
 ```
 
@@ -348,9 +349,9 @@ The default configuration uses *max_depth* = 5, providing balance between latenc
 
 #### 4.3.2 Proof Ordering Invariant
 
-**Theorem 4.1 (Proof Ordering).** In the speculative execution system, for any task *v* with proof submitted at time *t_s*, all ancestors *u* of *v* satisfy *t_c*(*u*) < *t_s*, where *t_c*(*u*) is the confirmation time of *u*.
+**Theorem 4.1 (Proof Ordering).** In the speculative execution system, for any task *v* with proof submitted at time *t_s*, all ancestors *u* of *v* satisfy *t_f*(*u*) < *t_s*, where *t_f*(*u*) is the finalization time of *u*.
 
-*Proof Sketch.* The ProofDeferralManager maintains a set *pendingAncestors* for each queued proof. A proof transitions to READY status only when this set becomes empty. Submission is gated on READY status. Ancestor confirmation events trigger removal from *pendingAncestors*. By construction, submission occurs only after all ancestors have confirmed. □
+*Proof Sketch.* The ProofDeferralManager maintains a set *pendingAncestors* for each queued proof. A proof transitions to READY status only when this set becomes empty. Submission is gated on READY status. Ancestor finality events trigger removal from *pendingAncestors*. By construction, submission occurs only after all ancestors have finalized. □
 
 See Appendix B for the complete formal proof.
 
@@ -380,7 +381,7 @@ The reverse topological ordering ensures that descendants are rolled back before
 
 The speculative execution system is designed around a single fundamental invariant:
 
-**Fundamental Invariant (FI).** At all times, for any task *v* with on-chain proof confirmation, all ancestors *u* of *v* also have on-chain proof confirmation, and *t_c*(*u*) < *t_c*(*v*).
+**Fundamental Invariant (FI).** At all times, for any task *v* with on-chain proof finalization, all ancestors *u* of *v* also have on-chain proof finalization, and *t_f*(*u*) < *t_f*(*v*).
 
 This invariant ensures that on-chain state remains consistent with dependency ordering, even when off-chain speculative execution proceeds out of order.
 
@@ -388,7 +389,7 @@ This invariant ensures that on-chain state remains consistent with dependency or
 
 We establish correctness through three key theorems:
 
-**Theorem 5.1 (No Premature Submission).** Under the speculative execution protocol, no proof for task *v* is submitted to the blockchain while any ancestor of *v* remains unconfirmed.
+**Theorem 5.1 (No Premature Submission).** Under the speculative execution protocol, no proof for task *v* is submitted to the blockchain while any ancestor of *v* remains unfinalized.
 
 *Proof.* Let *v* be any task with proof *π_v*. The ProofDeferralManager gates submission on the condition:
 
@@ -396,7 +397,7 @@ We establish correctness through three key theorems:
 pendingAncestors(v) = ∅
 ```
 
-Initially, pendingAncestors(*v*) = {*u* : *u* is an ancestor of *v* and *σ*(*u*) ≠ CONFIRMED}. Elements are removed only upon receiving on-chain confirmation events. Therefore, pendingAncestors(*v*) = ∅ implies all ancestors are confirmed. □
+Initially, pendingAncestors(*v*) = {*u* : *u* is an ancestor of *v* and *σ*(*u*) ≠ FINALIZED}. Elements are removed only upon receiving on-chain finality events. Therefore, pendingAncestors(*v*) = ∅ implies all ancestors are finalized. □
 
 **Theorem 5.2 (Rollback Completeness).** If task *u* fails, all descendants of *u* are eventually rolled back.
 
@@ -404,7 +405,7 @@ Initially, pendingAncestors(*v*) = {*u* : *u* is an ancestor of *v* and *σ*(*u*
 
 **Theorem 5.3 (Depth Bound Preservation).** For all tasks *v* in speculative execution, depth(*v*) ≤ *max_depth*.
 
-*Proof.* The SpeculativeTaskScheduler rejects any task *v* where computed depth exceeds *max_depth*. Depth computation follows the definition (longest path of unconfirmed ancestors). The depth check occurs before task acceptance and commitment creation. On-chain commitment creation also validates depth. By defense in depth, no task can enter speculative execution with excessive depth. □
+*Proof.* The SpeculativeTaskScheduler rejects any task *v* where computed depth exceeds *max_depth*. Depth computation follows the definition (longest path of unfinalized ancestors). The depth check occurs before task acceptance and commitment creation. On-chain commitment creation also validates depth. By defense in depth, no task can enter speculative execution with excessive depth. □
 
 ### 5.3 Depth and Stake Bounding
 
@@ -601,25 +602,28 @@ Each task must complete its entire cycle before the next begins.
 
 #### 7.1.2 Speculative Model
 
-Under speculative execution, tasks execute sequentially (each uses its predecessor's output), but proof generation begins immediately after each task completes and runs in parallel with subsequent task execution. Proofs are submitted in dependency order once both (a) the proof is generated and (b) all ancestor proofs are confirmed.
+Under speculative execution, tasks execute sequentially (each uses its predecessor's output), but proof generation begins immediately after each task completes and runs in parallel with subsequent task execution. Proofs are submitted in dependency order once both (a) the proof is generated and (b) all ancestor proofs are finalized.
 
 **Detailed Timeline.** Task *i* begins execution at time *t_i^exec* and finishes at *t_i^exec* + *T_exec*. Proof generation for task *i* begins immediately upon execution completion and finishes at *t_i^exec* + *T_exec* + *T_proof*. Proof submission for task *i* occurs at:
 
 ```
-t_i^submit = max(t_i^proof_done, t_{i-1}^confirmed)
-t_i^confirmed = t_i^submit + T_confirm
+t_i^submit = max(t_i^proof_done, t_{i-1}^finalized) + q_i
+t_i^finalized = t_i^submit + T_confirm
 ```
 
-For a linear pipeline, task *i* begins executing at time (*i*-1) × *T_exec* (since each task must await its predecessor's output, but not its proof). Task *i*'s proof completes at time *i* × *T_exec* + *T_proof*. Task *i* can submit its proof once both (a) its proof is generated and (b) task *i*-1 is confirmed on-chain. This yields the recurrence:
+For a linear pipeline, task *i* begins executing at time (*i*-1) × *T_exec* (since each task must await its predecessor's output, but not its proof). Task *i*'s proof completes at time *i* × *T_exec* + *T_proof*. Task *i* can submit its proof once both (a) its proof is generated and (b) task *i*-1 is finalized on-chain, and then waits *q_i* for dispatch through the deferral queue. This yields the recurrence:
 
 ```
-t_i^confirmed = max(i × T_exec + T_proof, t_{i-1}^confirmed) + T_confirm
+t_i^finalized = max(i × T_exec + T_proof, t_{i-1}^finalized) + T_confirm + q_i
 ```
+with base condition *t_0^finalized* = 0 and *q_1* = 0.
 
-**Closed-Form Solution.** When *T_exec* ≥ *T_confirm* (which holds whenever execution is not trivially fast compared to block confirmation), proof availability is always the binding constraint. In this regime, each task's proof completes *after* the predecessor is confirmed, and the recurrence resolves to:
+where *q_i* ≥ 0 captures proof queue/dispatch delay (e.g., tx scheduling and queue contention). In the baseline model used throughout this paper, *q_i* = 0.
+
+**Closed-Form Solution (q_i = 0).** When *T_exec* ≥ *T_confirm* (which holds whenever execution is not trivially fast compared to block finalization), proof availability is often the binding constraint. In this regime, each task's proof completes *after* the predecessor is finalized, and the recurrence resolves to:
 
 ```
-t_i^confirmed = i × T_exec + T_proof + T_confirm
+t_i^finalized = i × T_exec + T_proof + T_confirm
 ```
 
 The total pipeline latency is therefore:
@@ -663,12 +667,12 @@ t=4:  Task 2 done, proof gen starts. Task 3 executes.
 t=6:  Task 3 done, proof gen starts. Task 4 executes.
 t=7:  Task 1 proof done (2+5). Submit immediately (no ancestors).
 t=8:  Task 4 done, proof gen starts. Task 5 executes.
-t=9:  Task 1 confirmed (7+2). Task 2 proof done (4+5=9). Submit Task 2.
+t=9:  Task 1 finalized (7+2). Task 2 proof done (4+5=9). Submit Task 2.
 t=10: Task 5 done, proof gen starts.
-t=11: Task 2 confirmed (9+2). Task 3 proof done (6+5=11). Submit Task 3.
-t=13: Task 3 confirmed. Task 4 proof done (8+5=13). Submit Task 4.
-t=15: Task 4 confirmed. Task 5 proof done (10+5=15). Submit Task 5.
-t=17: Task 5 confirmed. DONE.
+t=11: Task 2 finalized (9+2). Task 3 proof done (6+5=11). Submit Task 3.
+t=13: Task 3 finalized. Task 4 proof done (8+5=13). Submit Task 4.
+t=15: Task 4 finalized. Task 5 proof done (10+5=15). Submit Task 5.
+t=17: Task 5 finalized. DONE.
 ```
 
 ```
@@ -676,7 +680,7 @@ L_spec = 17s
 Speedup = 45/17 = 2.65×
 ```
 
-The timeline confirms the closed-form: *L_spec* = 5 × 2 + 5 + 2 = 17s. The steady-state cadence is *T_exec* = 2s per step (visible from t=9 onward), because each task's proof finishes exactly when the predecessor is confirmed — proof generation (*T_proof* = 5s) is fully absorbed by the *T_exec* gap between consecutive tasks plus the *T_confirm* of the predecessor.
+The timeline confirms the closed-form: *L_spec* = 5 × 2 + 5 + 2 = 17s. The steady-state cadence is *T_exec* = 2s per step (visible from t=9 onward), because each task's proof finishes exactly when the predecessor is finalized — proof generation (*T_proof* = 5s) is fully absorbed by the *T_exec* gap between consecutive tasks plus the *T_confirm* of the predecessor.
 
 **Table 4a.** Pipeline latency analysis (*T_proof* = 5s, *T_exec* = 2s, *T_confirm* = 2s)
 
@@ -1080,7 +1084,7 @@ These systems validate the core thesis of this paper — that speculative execut
 
 ### 10.1 Cross-Agent Speculation
 
-The current system restricts speculation to single-agent pipelines. Cross-agent speculation-where Agent B speculates on Agent A's uncommitted output-introduces trust requirements:
+The current system restricts speculation to single-parent dependency chains (implemented via `parentTaskId`), not necessarily single-agent pipelines. Cross-agent speculation-where Agent B speculates on Agent A's uncommitted output-introduces trust requirements:
 
 - Agent B must trust Agent A's commitment (or post additional bond)
 - Slashing distribution across agent boundaries requires careful design
@@ -1252,19 +1256,19 @@ As autonomous agents become increasingly prevalent in digital economies, the abi
 - *δ*: *V* → ℕ₀ maps vertices to speculation depth
 - *β*: *V* → ℕ₀ maps vertices to bonded stake (in lamports)
 
-where *Status* = {PENDING, SPECULATIVE, CONFIRMED, FAILED}.
+where *Status* = {PENDING, SPECULATIVE, FINALIZED, FAILED}.
 
 ### A.2 Speculative Commitment
 
-**Definition A.2 (Speculative Commitment).** A speculative commitment is a 7-tuple *C* = (*v*, *h*, *r*, *d*, *b*, *t_c*, *t_e*) where:
+**Definition A.2 (Speculative Commitment).** A speculative commitment is a 7-tuple *C* = (*v*, *h*, *r*, *d*, *b*, *t_create*, *t_expire*) where:
 
 - *v* ∈ *V* is the committed task
 - *h* ∈ {0,1}^256 is the output commitment hash
 - *r* ∈ ℤ_p is the commitment salt
 - *d* ∈ ℕ₀ is the speculation depth
 - *b* ∈ ℕ₀ is the bonded stake
-- *t_c* ∈ ℕ is the creation timestamp
-- *t_e* ∈ ℕ is the expiration timestamp
+- *t_create* ∈ ℕ is the creation timestamp
+- *t_expire* ∈ ℕ is the expiration timestamp
 
 ### A.3 System State
 
@@ -1290,7 +1294,7 @@ where *Status* = {PENDING, SPECULATIVE, CONFIRMED, FAILED}.
 
 ### B.1 Proof of Theorem 5.1 (No Premature Submission)
 
-**Theorem 5.1.** Under the speculative execution protocol, no proof for task *v* is submitted to the blockchain while any ancestor of *v* remains unconfirmed.
+**Theorem 5.1.** Under the speculative execution protocol, no proof for task *v* is submitted to the blockchain while any ancestor of *v* remains unfinalized.
 
 **Proof.** We prove by examining the proof submission pathway.
 
@@ -1307,7 +1311,7 @@ if (proof.pendingAncestors.size === 0) {
 }
 ```
 
-*Claim 3:* `pendingAncestors` is initialized to all unconfirmed ancestors and only decremented upon ancestor confirmation.
+*Claim 3:* `pendingAncestors` is initialized to all unfinalized ancestors and only decremented upon ancestor finalization.
 
 *Evidence:* At proof enqueue:
 ```typescript
@@ -1321,7 +1325,7 @@ Removal occurs only in `onAncestorConfirmed()`:
 proof.pendingAncestors.delete(ancestorHex);
 ```
 
-*Conclusion:* By Claims 1-3, submission occurs only when all ancestors have been confirmed. Since confirmation events are triggered by on-chain finality, all ancestors have on-chain confirmation before any descendant proof is submitted. □
+*Conclusion:* By Claims 1-3, submission occurs only when all ancestors have been finalized. Since finality events are triggered by on-chain finality, all ancestors have on-chain finality before any descendant proof is submitted. □
 
 ### B.2 Proof of Theorem 5.2 (Rollback Completeness)
 
@@ -1361,7 +1365,7 @@ for task in reverseTopologicalSort(affected):
 for task in affected:
   assert status(task) == ROLLED_BACK
   for child in children(task):
-    assert child in affected OR status(child) == NEVER_STARTED
+    assert child in affected OR status(child) == PENDING
 ```
 
 Any missed descendant would fail this assertion.

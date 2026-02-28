@@ -25,17 +25,17 @@
         "mismatch_count": 7,
         "match_rate": 0,
         "anomaly_ids": [
-          "0432da73d04ecdd1",
-          "b6961ff1271e0c48",
-          "986e74b6a2765550",
-          "6c220700b73fad63",
-          "0f3700ab7e6a3bcc",
-          "81b465c6012f2ac2",
-          "2de5e4cbd3ca0d2e"
+          "33f8f2cbf33484ff",
+          "0d17f75e98f59abf",
+          "bdd2bf347d184d56",
+          "c15375b25487482b",
+          "8161b2be10a8d23e",
+          "07b7ffcaed563553",
+          "dc8cbbfd265715d6"
         ],
         "top_anomalies": [
           {
-            "anomaly_id": "0432da73d04ecdd1",
+            "anomaly_id": "33f8f2cbf33484ff",
             "code": "hash_mismatch",
             "severity": "error",
             "message": "projected event hash mismatch",
@@ -44,7 +44,7 @@
             "seq": 1
           },
           {
-            "anomaly_id": "b6961ff1271e0c48",
+            "anomaly_id": "0d17f75e98f59abf",
             "code": "task_id_mismatch",
             "severity": "warning",
             "message": "signature mismatch at seq=1",
@@ -53,7 +53,7 @@
             "seq": 1
           },
           {
-            "anomaly_id": "986e74b6a2765550",
+            "anomaly_id": "bdd2bf347d184d56",
             "code": "hash_mismatch",
             "severity": "error",
             "message": "projected event hash mismatch",
@@ -62,7 +62,7 @@
             "seq": 2
           },
           {
-            "anomaly_id": "6c220700b73fad63",
+            "anomaly_id": "c15375b25487482b",
             "code": "task_id_mismatch",
             "severity": "warning",
             "message": "signature mismatch at seq=2",
@@ -71,7 +71,7 @@
             "seq": 2
           },
           {
-            "anomaly_id": "0f3700ab7e6a3bcc",
+            "anomaly_id": "8161b2be10a8d23e",
             "code": "hash_mismatch",
             "severity": "error",
             "message": "projected event hash mismatch",
@@ -80,7 +80,7 @@
             "seq": 3
           },
           {
-            "anomaly_id": "81b465c6012f2ac2",
+            "anomaly_id": "07b7ffcaed563553",
             "code": "task_id_mismatch",
             "severity": "warning",
             "message": "signature mismatch at seq=3",
@@ -89,7 +89,7 @@
             "seq": 3
           },
           {
-            "anomaly_id": "30366d07cde6ba9d",
+            "anomaly_id": "cfa9f3d1de92b439",
             "code": "hash_mismatch",
             "severity": "error",
             "message": "deterministic replay hash mismatch"
@@ -138,7 +138,7 @@
     }
   },
   "metadata": {
-    "generatedAt": "2026-02-14T20:20:55.075Z",
+    "generatedAt": "2026-02-28T06:38:16.782Z",
     "generatedBy": "contract-validator"
   }
 }

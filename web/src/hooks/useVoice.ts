@@ -39,6 +39,7 @@ export function useVoice({ send, onDelegationResult }: UseVoiceOptions) {
   const [mode, setMode] = useState<VoiceMode>('vad');
   const [delegationTask, setDelegationTask] = useState('');
   const transcriptRef = useRef('');
+  const awaitingStartRef = useRef(false);
 
   const recorder = useAudioRecorder();
   const player = useAudioPlayer();
@@ -52,24 +53,22 @@ export function useVoice({ send, onDelegationResult }: UseVoiceOptions) {
     setTranscript('');
     setDelegationTask('');
     transcriptRef.current = '';
+    awaitingStartRef.current = true;
 
     try {
       // Tell the server to start a voice session
       send({ type: WS_VOICE_START });
-
-      // Start recording and stream audio chunks to the server
-      await recorder.start((base64: string) => {
-        send({ type: WS_VOICE_AUDIO, payload: { audio: base64 } });
-      });
     } catch {
       // getUserMedia permission denied or no mic available
       setVoiceState('inactive');
+      awaitingStartRef.current = false;
       setTranscript('Microphone access denied');
       send({ type: WS_VOICE_STOP });
     }
   }, [isVoiceActive, send, recorder]);
 
   const stopVoice = useCallback(() => {
+    awaitingStartRef.current = false;
     recorder.stop();
     player.stop();
     send({ type: WS_VOICE_STOP });
@@ -100,6 +99,18 @@ export function useVoice({ send, onDelegationResult }: UseVoiceOptions) {
     switch (type) {
       case WS_VOICE_STARTED:
         setVoiceState('listening');
+        if (awaitingStartRef.current && !recorder.isRecording) {
+          awaitingStartRef.current = false;
+          void recorder.start((base64: string) => {
+            send({ type: WS_VOICE_AUDIO, payload: { audio: base64 } });
+          }).catch(() => {
+            recorder.stop();
+            setVoiceState('inactive');
+            setTranscript('Microphone access denied');
+            awaitingStartRef.current = false;
+            send({ type: WS_VOICE_STOP });
+          });
+        }
         break;
 
       case WS_VOICE_STOPPED:
@@ -199,8 +210,9 @@ export function useVoice({ send, onDelegationResult }: UseVoiceOptions) {
         const errMsg = (payload.message as string) ?? 'Voice error';
         setTranscript(errMsg);
         // If we were connecting, the session failed to start — go inactive
-        if (voiceState === 'connecting') {
+        if (voiceState === 'connecting' || awaitingStartRef.current) {
           recorder.stop();
+          awaitingStartRef.current = false;
           player.stop();
           setVoiceState('inactive');
         }

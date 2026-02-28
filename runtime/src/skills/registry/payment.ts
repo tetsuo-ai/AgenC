@@ -12,7 +12,10 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { type Program, BN } from "@coral-xyz/anchor";
+import * as anchor from "@coral-xyz/anchor";
+import type { Program } from "@coral-xyz/anchor";
+
+const { BN } = anchor;
 import type { AgencCoordination } from "../../types/agenc_coordination.js";
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
