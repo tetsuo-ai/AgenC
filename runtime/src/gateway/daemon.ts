@@ -12,19 +12,38 @@ import { mkdir, readFile, unlink, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { Gateway } from './gateway.js';
 import { loadGatewayConfig } from './config-watcher.js';
 import { GatewayLifecycleError, GatewayStateError } from './errors.js';
 import { toErrorMessage } from '../utils/async.js';
-import type { GatewayConfig, GatewayLLMConfig, GatewayMCPServerConfig, GatewayStatus, ConfigDiff } from './types.js';
+import type {
+  GatewayConfig,
+  GatewayLLMConfig,
+  GatewayMCPServerConfig,
+  GatewayStatus,
+  ConfigDiff,
+  GatewayLoggingConfig,
+} from './types.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import { WebChatChannel } from '../channels/webchat/plugin.js';
 import { TelegramChannel } from '../channels/telegram/plugin.js';
-import type { LLMProvider, LLMTool, ToolHandler, StreamProgressCallback } from '../llm/types.js';
+import type {
+  LLMProvider,
+  LLMTool,
+  ToolHandler,
+  StreamProgressCallback,
+  LLMMessage,
+} from '../llm/types.js';
 import type { GatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
-import type { SkillInjector, MemoryRetriever } from '../llm/chat-executor.js';
+import type {
+  SkillInjector,
+  MemoryRetriever,
+  ToolCallRecord,
+  ChatCallUsageRecord,
+} from '../llm/chat-executor.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBashTool } from '../tools/system/bash.js';
 import { createHttpTools } from '../tools/system/http.js';
@@ -112,11 +131,373 @@ const DEFAULT_SESSION_TOKEN_BUDGET = 120_000;
 /** Hard cap for assembled system prompt size to prevent prompt blowups. */
 const MAX_SYSTEM_PROMPT_CHARS = 60_000;
 const MODEL_QUERY_RE = /\b(what|which|actual|current)\b[\s\S]{0,80}(model|llm|provider)\b/i;
+const TOOL_LOG_SNIPPET_MAX_CHARS = 240;
+const TRACE_LOG_DEFAULT_MAX_CHARS = 20_000;
+const TRACE_LOG_MIN_MAX_CHARS = 256;
+const TRACE_LOG_MAX_MAX_CHARS = 200_000;
+const TRACE_SANITIZE_MAX_DEPTH = 4;
+const TRACE_SANITIZE_MAX_ARRAY_ITEMS = 40;
+const TRACE_SANITIZE_MAX_OBJECT_KEYS = 80;
+const TRACE_HISTORY_MAX_MESSAGES = 500;
 
 function normalizeGrokModel(model: string | undefined): string | undefined {
   if (!model) return undefined;
   const trimmed = model.trim();
   return LEGACY_GROK_MODEL_ALIASES[trimmed] ?? trimmed;
+}
+
+export function isCommandUnavailableError(error: unknown): boolean {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  ) {
+    return true;
+  }
+
+  const message = toErrorMessage(error).toLowerCase();
+  return message.includes("enoent") || message.includes("command not found");
+}
+
+function truncateToolLogText(value: string, maxChars = TOOL_LOG_SNIPPET_MAX_CHARS): string {
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 3) return value.slice(0, Math.max(0, maxChars));
+  return value.slice(0, maxChars - 3) + "...";
+}
+
+interface ToolFailureSummary {
+  readonly name: string;
+  readonly durationMs: number;
+  readonly error: string;
+  args?: Record<string, unknown>;
+}
+
+export interface ResolvedTraceLoggingConfig {
+  readonly enabled: boolean;
+  readonly includeHistory: boolean;
+  readonly includeSystemPrompt: boolean;
+  readonly includeToolArgs: boolean;
+  readonly includeToolResults: boolean;
+  readonly maxChars: number;
+}
+
+function clampTraceMaxChars(maxChars: number | undefined): number {
+  if (maxChars === undefined) return TRACE_LOG_DEFAULT_MAX_CHARS;
+  if (!Number.isFinite(maxChars)) return TRACE_LOG_DEFAULT_MAX_CHARS;
+  return Math.min(
+    TRACE_LOG_MAX_MAX_CHARS,
+    Math.max(TRACE_LOG_MIN_MAX_CHARS, Math.floor(maxChars)),
+  );
+}
+
+const DEFAULT_TRACE_LOGGING_CONFIG: ResolvedTraceLoggingConfig = {
+  enabled: false,
+  includeHistory: true,
+  includeSystemPrompt: true,
+  includeToolArgs: true,
+  includeToolResults: true,
+  maxChars: TRACE_LOG_DEFAULT_MAX_CHARS,
+};
+
+export function resolveTraceLoggingConfig(
+  logging?: GatewayLoggingConfig,
+): ResolvedTraceLoggingConfig {
+  const trace = logging?.trace;
+  if (!trace?.enabled) {
+    return DEFAULT_TRACE_LOGGING_CONFIG;
+  }
+
+  return {
+    enabled: true,
+    includeHistory: trace.includeHistory ?? true,
+    includeSystemPrompt: trace.includeSystemPrompt ?? true,
+    includeToolArgs: trace.includeToolArgs ?? true,
+    includeToolResults: trace.includeToolResults ?? true,
+    maxChars: clampTraceMaxChars(trace.maxChars),
+  };
+}
+
+function summarizeTraceValue(
+  value: unknown,
+  maxChars: number,
+  depth = 0,
+): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return truncateToolLogText(value, maxChars);
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (typeof value !== 'object') {
+    return truncateToolLogText(String(value), maxChars);
+  }
+  if (depth >= TRACE_SANITIZE_MAX_DEPTH) {
+    return '[depth-truncated]';
+  }
+  if (Array.isArray(value)) {
+    const limit = Math.min(value.length, TRACE_SANITIZE_MAX_ARRAY_ITEMS);
+    const mapped = value
+      .slice(0, limit)
+      .map((entry) => summarizeTraceValue(entry, maxChars, depth + 1));
+    if (value.length > limit) {
+      mapped.push(`[${value.length - limit} more item(s)]`);
+    }
+    return mapped;
+  }
+
+  const entries = Object.entries(value);
+  const limit = Math.min(entries.length, TRACE_SANITIZE_MAX_OBJECT_KEYS);
+  const output: Record<string, unknown> = {};
+  for (const [key, entryValue] of entries.slice(0, limit)) {
+    output[key] = summarizeTraceValue(entryValue, maxChars, depth + 1);
+  }
+  if (entries.length > limit) {
+    output.__truncatedKeys = entries.length - limit;
+  }
+  return output;
+}
+
+function summarizeLlmContentForTrace(
+  content: LLMMessage['content'],
+  maxChars: number,
+): unknown {
+  if (typeof content === 'string') {
+    return truncateToolLogText(content, maxChars);
+  }
+  if (!Array.isArray(content)) {
+    return summarizeTraceValue(content, maxChars);
+  }
+
+  return content.map((part) => {
+    if (!part || typeof part !== 'object') {
+      return summarizeTraceValue(part, maxChars);
+    }
+
+    if (part.type === 'text') {
+      return {
+        type: 'text',
+        text: truncateToolLogText(part.text, maxChars),
+      };
+    }
+
+    if (part.type === 'image_url') {
+      return {
+        type: 'image_url',
+        image_url: {
+          url: truncateToolLogText(part.image_url.url, maxChars),
+        },
+      };
+    }
+
+    return summarizeTraceValue(part, maxChars);
+  });
+}
+
+function summarizeHistoryForTrace(
+  history: readonly LLMMessage[],
+  traceConfig: ResolvedTraceLoggingConfig,
+): unknown[] {
+  const sliceStart = Math.max(0, history.length - TRACE_HISTORY_MAX_MESSAGES);
+  const entries = history.slice(sliceStart).map((entry) => {
+    const output: Record<string, unknown> = {
+      role: entry.role,
+      content: summarizeLlmContentForTrace(entry.content, traceConfig.maxChars),
+    };
+
+    if (entry.toolCalls && entry.toolCalls.length > 0) {
+      output.toolCalls = entry.toolCalls.map((toolCall) => ({
+        id: toolCall.id,
+        name: toolCall.name,
+        ...(traceConfig.includeToolArgs
+          ? { arguments: truncateToolLogText(toolCall.arguments, traceConfig.maxChars) }
+          : {}),
+      }));
+    }
+
+    if (entry.toolCallId) output.toolCallId = entry.toolCallId;
+    if (entry.toolName) output.toolName = entry.toolName;
+    return output;
+  });
+
+  if (sliceStart > 0) {
+    entries.unshift({
+      notice: `${sliceStart} oldest history message(s) omitted`,
+    });
+  }
+
+  return entries;
+}
+
+function summarizeRoleCounts(messages: readonly LLMMessage[]): Record<string, number> {
+  const counts = {
+    system: 0,
+    user: 0,
+    assistant: 0,
+    tool: 0,
+  };
+  for (const entry of messages) {
+    if (entry.role === "system") counts.system += 1;
+    else if (entry.role === "user") counts.user += 1;
+    else if (entry.role === "assistant") counts.assistant += 1;
+    else if (entry.role === "tool") counts.tool += 1;
+  }
+  return counts;
+}
+
+function createTurnTraceId(msg: GatewayMessage): string {
+  const stamp = Date.now().toString(36);
+  return `${msg.sessionId}:${stamp}:${randomUUID().slice(0, 8)}`;
+}
+
+function summarizeCallUsageForTrace(
+  callUsage: readonly ChatCallUsageRecord[],
+): unknown[] {
+  return callUsage.map((entry) => ({
+    callIndex: entry.callIndex,
+    phase: entry.phase,
+    provider: entry.provider,
+    model: entry.model,
+    finishReason: entry.finishReason,
+    usage: entry.usage,
+    promptShapeBeforeBudget: entry.beforeBudget,
+    promptShapeAfterBudget: entry.afterBudget,
+    providerRequestMetrics: entry.providerRequestMetrics,
+  }));
+}
+
+function summarizeInitialRequestShape(
+  callUsage: readonly ChatCallUsageRecord[],
+): Record<string, unknown> | undefined {
+  const first = callUsage[0];
+  if (!first) return undefined;
+  return {
+    messageCountsBeforeBudget: {
+      system: first.beforeBudget.systemMessages,
+      user: first.beforeBudget.userMessages,
+      assistant: first.beforeBudget.assistantMessages,
+      tool: first.beforeBudget.toolMessages,
+      total: first.beforeBudget.messageCount,
+    },
+    messageCountsAfterBudget: {
+      system: first.afterBudget.systemMessages,
+      user: first.afterBudget.userMessages,
+      assistant: first.afterBudget.assistantMessages,
+      tool: first.afterBudget.toolMessages,
+      total: first.afterBudget.messageCount,
+    },
+    estimatedPromptCharsBeforeBudget: first.beforeBudget.estimatedChars,
+    estimatedPromptCharsAfterBudget: first.afterBudget.estimatedChars,
+    systemPromptCharsAfterBudget: first.afterBudget.systemPromptChars,
+    toolSchemaChars: first.providerRequestMetrics?.toolSchemaChars,
+  };
+}
+
+function summarizeGatewayMessageForTrace(
+  msg: GatewayMessage,
+  maxChars: number,
+): Record<string, unknown> {
+  return {
+    id: msg.id,
+    channel: msg.channel,
+    senderId: msg.senderId,
+    senderName: msg.senderName,
+    sessionId: msg.sessionId,
+    scope: msg.scope,
+    timestamp: msg.timestamp,
+    content: truncateToolLogText(msg.content, maxChars),
+    attachments: msg.attachments?.map((attachment) => ({
+      type: attachment.type,
+      mimeType: attachment.mimeType,
+      filename: attachment.filename,
+      url: attachment.url ? truncateToolLogText(attachment.url, maxChars) : undefined,
+      sizeBytes: attachment.sizeBytes,
+      durationSeconds: attachment.durationSeconds,
+      dataBytes: attachment.data?.byteLength,
+    })),
+    metadata: summarizeTraceValue(msg.metadata, maxChars),
+  };
+}
+
+function summarizeToolResultForTrace(rawResult: string, maxChars: number): unknown {
+  try {
+    const parsed = JSON.parse(rawResult) as unknown;
+    return summarizeTraceValue(parsed, maxChars);
+  } catch {
+    return truncateToolLogText(rawResult, maxChars);
+  }
+}
+
+function summarizeToolArgsForLog(
+  name: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if ((name === "desktop.bash" || name === "system.bash") && typeof args.command === "string") {
+    return {
+      command: truncateToolLogText(args.command, 400),
+    };
+  }
+
+  if (name === "desktop.text_editor") {
+    const summary: Record<string, unknown> = {};
+    if (typeof args.action === "string") summary.action = args.action;
+    if (typeof args.filePath === "string") summary.filePath = args.filePath;
+    if (typeof args.text === "string") {
+      summary.textPreview = truncateToolLogText(args.text, 200);
+    }
+    return Object.keys(summary).length > 0 ? summary : undefined;
+  }
+
+  return undefined;
+}
+
+export function summarizeToolFailureForLog(
+  toolCall: ToolCallRecord,
+): ToolFailureSummary | null {
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const decoded = JSON.parse(toolCall.result) as unknown;
+    if (typeof decoded === "object" && decoded !== null && !Array.isArray(decoded)) {
+      parsed = decoded as Record<string, unknown>;
+    }
+  } catch {
+    // Non-JSON tool result
+  }
+
+  const parsedError =
+    parsed && typeof parsed.error === "string" ? parsed.error : undefined;
+  const exitCode =
+    parsed && typeof parsed.exitCode === "number" ? parsed.exitCode : undefined;
+  const stderr =
+    parsed && typeof parsed.stderr === "string" ? parsed.stderr : undefined;
+
+  let error: string | undefined;
+  if (toolCall.isError) {
+    error = parsedError ?? toolCall.result;
+  } else if (parsedError) {
+    error = parsedError;
+  } else if (exitCode !== undefined && exitCode !== 0) {
+    error =
+      stderr && stderr.trim().length > 0
+        ? `exitCode ${exitCode}: ${stderr}`
+        : `exitCode ${exitCode}`;
+  }
+
+  if (!error) return null;
+
+  const summary: ToolFailureSummary = {
+    name: toolCall.name,
+    durationMs: toolCall.durationMs,
+    error: truncateToolLogText(error),
+  };
+  const args = summarizeToolArgsForLog(toolCall.name, toolCall.args);
+  if (args) summary.args = args;
+  return summary;
 }
 
 /**
@@ -340,6 +721,9 @@ export class DaemonManager {
 
     // Shallow-copy so we don't mutate the loaded config object
     const gatewayConfig = { ...loadedConfig };
+    if (gatewayConfig.logging?.level) {
+      this.logger.setLevel?.(gatewayConfig.logging.level);
+    }
 
     // Auto-configure default MCP servers on macOS when none are specified
     if (process.platform === 'darwin' && !gatewayConfig.mcp?.servers?.length) {
@@ -739,6 +1123,7 @@ export class DaemonManager {
       webChat,
       commandRegistry,
       getChatExecutor: () => this._chatExecutor,
+      getLoggingConfig: () => gateway.config.logging,
       hooks,
       sessionMgr,
       systemPrompt,
@@ -758,6 +1143,11 @@ export class DaemonManager {
     // Hot-swap LLM provider and voice bridge when config changes at runtime
     gateway.on('configReloaded', (...args: unknown[]) => {
       const diff = args[0] as ConfigDiff;
+      const logLevelChanged = diff.safe.includes('logging.level');
+      if (logLevelChanged && gateway.config.logging?.level) {
+        this.logger.setLevel?.(gateway.config.logging.level);
+        this.logger.info(`Logger level updated to ${gateway.config.logging.level}`);
+      }
       const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
       if (llmChanged) {
         void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever, learningProvider, progressTracker);
@@ -851,7 +1241,20 @@ export class DaemonManager {
     ).map(String);
 
     const onMessage = async (msg: GatewayMessage): Promise<void> => {
+      const turnTraceId = createTurnTraceId(msg);
+      const traceConfig = resolveTraceLoggingConfig(
+        this.gateway?.config.logging ?? config.logging,
+      );
+      if (traceConfig.enabled) {
+        this.logger.info('[trace] telegram.inbound', {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          message: summarizeGatewayMessageForTrace(msg, traceConfig.maxChars),
+        });
+      }
+
       this.logger.info("Telegram message received", {
+        traceId: turnTraceId,
         senderId: msg.senderId,
         sessionId: msg.sessionId,
         contentLength: msg.content.length,
@@ -894,13 +1297,103 @@ export class DaemonManager {
       });
 
       try {
+        if (traceConfig.enabled) {
+          this.logger.info('[trace] telegram.chat.request', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            historyLength: session.history.length,
+            historyRoleCounts: summarizeRoleCounts(session.history),
+            systemPromptChars: systemPrompt.length,
+            ...(traceConfig.includeSystemPrompt
+              ? { systemPrompt: truncateToolLogText(systemPrompt, traceConfig.maxChars) }
+              : {}),
+            ...(traceConfig.includeHistory
+              ? {
+                history: summarizeHistoryForTrace(session.history, traceConfig),
+              }
+              : {}),
+          });
+        }
+
+        const toolHandler: ToolHandler = async (name, args) => {
+          if (traceConfig.enabled) {
+            this.logger.info('[trace] telegram.tool.call', {
+              traceId: turnTraceId,
+              sessionId: msg.sessionId,
+              tool: name,
+              ...(traceConfig.includeToolArgs
+                ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
+                : {}),
+            });
+          }
+          const startedAt = Date.now();
+          try {
+            const result = await this._baseToolHandler!(name, args);
+            if (traceConfig.enabled) {
+              this.logger.info('[trace] telegram.tool.result', {
+                traceId: turnTraceId,
+                sessionId: msg.sessionId,
+                tool: name,
+                durationMs: Date.now() - startedAt,
+                ...(traceConfig.includeToolResults
+                  ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
+                  : {}),
+              });
+            }
+            return result;
+          } catch (error) {
+            if (traceConfig.enabled) {
+              this.logger.error('[trace] telegram.tool.error', {
+                traceId: turnTraceId,
+                sessionId: msg.sessionId,
+                tool: name,
+                durationMs: Date.now() - startedAt,
+                error: toErrorMessage(error),
+              });
+            }
+            throw error;
+          }
+        };
+
         const result = await chatExecutor.execute({
           message: msg,
           history: session.history,
           systemPrompt,
           sessionId: msg.sessionId,
-          toolHandler: this._baseToolHandler!,
+          toolHandler,
         });
+
+        if (traceConfig.enabled) {
+          this.logger.info('[trace] telegram.chat.response', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            provider: result.provider,
+            model: result.model,
+            usedFallback: result.usedFallback,
+            durationMs: result.durationMs,
+            compacted: result.compacted,
+            tokenUsage: result.tokenUsage,
+            requestShape: summarizeInitialRequestShape(result.callUsage),
+            callUsage: summarizeCallUsageForTrace(result.callUsage),
+            response: truncateToolLogText(result.content, traceConfig.maxChars),
+            toolCalls: result.toolCalls.map((toolCall) => ({
+              name: toolCall.name,
+              durationMs: toolCall.durationMs,
+              isError: toolCall.isError,
+              ...(traceConfig.includeToolArgs
+                ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
+                : {}),
+              ...(traceConfig.includeToolResults
+                ? {
+                  result: summarizeToolResultForTrace(
+                    toolCall.result,
+                    traceConfig.maxChars,
+                  ),
+                }
+                : {}),
+            })),
+          });
+        }
 
         sessionMgr.appendMessage(session.id, {
           role: "user",
@@ -912,6 +1405,7 @@ export class DaemonManager {
         });
 
         this.logger.debug("Telegram reply ready", {
+          traceId: turnTraceId,
           sessionId: msg.sessionId,
           contentLength: (result.content || "").length,
           contentPreview: (result.content || "(no response)").slice(0, 200),
@@ -944,6 +1438,16 @@ export class DaemonManager {
           }
         }
       } catch (error) {
+        if (traceConfig.enabled) {
+          this.logger.error('[trace] telegram.chat.error', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            error: toErrorMessage(error),
+            ...(error instanceof Error && error.stack
+              ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
+              : {}),
+          });
+        }
         this.logger.error("Telegram LLM error:", error);
         await telegram.send({
           sessionId: msg.sessionId,
@@ -978,6 +1482,17 @@ export class DaemonManager {
     const systemPrompt = await this.buildSystemPrompt(config);
 
     const onMessage = async (msg: GatewayMessage): Promise<void> => {
+      const turnTraceId = createTurnTraceId(msg);
+      const traceConfig = resolveTraceLoggingConfig(
+        this.gateway?.config.logging ?? config.logging,
+      );
+      if (traceConfig.enabled) {
+        this.logger.info(`[trace] ${channelName}.inbound`, {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          message: summarizeGatewayMessageForTrace(msg, traceConfig.maxChars),
+        });
+      }
       if (!msg.content.trim()) return;
 
       const chatExecutor = this._chatExecutor;
@@ -997,13 +1512,103 @@ export class DaemonManager {
       });
 
       try {
+        if (traceConfig.enabled) {
+          this.logger.info(`[trace] ${channelName}.chat.request`, {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            historyLength: session.history.length,
+            historyRoleCounts: summarizeRoleCounts(session.history),
+            systemPromptChars: systemPrompt.length,
+            ...(traceConfig.includeSystemPrompt
+              ? { systemPrompt: truncateToolLogText(systemPrompt, traceConfig.maxChars) }
+              : {}),
+            ...(traceConfig.includeHistory
+              ? {
+                history: summarizeHistoryForTrace(session.history, traceConfig),
+              }
+              : {}),
+          });
+        }
+
+        const toolHandler: ToolHandler = async (name, args) => {
+          if (traceConfig.enabled) {
+            this.logger.info(`[trace] ${channelName}.tool.call`, {
+              traceId: turnTraceId,
+              sessionId: msg.sessionId,
+              tool: name,
+              ...(traceConfig.includeToolArgs
+                ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
+                : {}),
+            });
+          }
+          const startedAt = Date.now();
+          try {
+            const result = await this._baseToolHandler!(name, args);
+            if (traceConfig.enabled) {
+              this.logger.info(`[trace] ${channelName}.tool.result`, {
+                traceId: turnTraceId,
+                sessionId: msg.sessionId,
+                tool: name,
+                durationMs: Date.now() - startedAt,
+                ...(traceConfig.includeToolResults
+                  ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
+                  : {}),
+              });
+            }
+            return result;
+          } catch (error) {
+            if (traceConfig.enabled) {
+              this.logger.error(`[trace] ${channelName}.tool.error`, {
+                traceId: turnTraceId,
+                sessionId: msg.sessionId,
+                tool: name,
+                durationMs: Date.now() - startedAt,
+                error: toErrorMessage(error),
+              });
+            }
+            throw error;
+          }
+        };
+
         const result = await chatExecutor.execute({
           message: msg,
           history: session.history,
           systemPrompt,
           sessionId: msg.sessionId,
-          toolHandler: this._baseToolHandler!,
+          toolHandler,
         });
+
+        if (traceConfig.enabled) {
+          this.logger.info(`[trace] ${channelName}.chat.response`, {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            provider: result.provider,
+            model: result.model,
+            usedFallback: result.usedFallback,
+            durationMs: result.durationMs,
+            compacted: result.compacted,
+            tokenUsage: result.tokenUsage,
+            requestShape: summarizeInitialRequestShape(result.callUsage),
+            callUsage: summarizeCallUsageForTrace(result.callUsage),
+            response: truncateToolLogText(result.content, traceConfig.maxChars),
+            toolCalls: result.toolCalls.map((toolCall) => ({
+              name: toolCall.name,
+              durationMs: toolCall.durationMs,
+              isError: toolCall.isError,
+              ...(traceConfig.includeToolArgs
+                ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
+                : {}),
+              ...(traceConfig.includeToolResults
+                ? {
+                  result: summarizeToolResultForTrace(
+                    toolCall.result,
+                    traceConfig.maxChars,
+                  ),
+                }
+                : {}),
+            })),
+          });
+        }
 
         sessionMgr.appendMessage(session.id, { role: "user", content: msg.content });
         sessionMgr.appendMessage(session.id, { role: "assistant", content: result.content });
@@ -1026,6 +1631,16 @@ export class DaemonManager {
           } catch { /* non-critical */ }
         }
       } catch (error) {
+        if (traceConfig.enabled) {
+          this.logger.error(`[trace] ${channelName}.chat.error`, {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            error: toErrorMessage(error),
+            ...(error instanceof Error && error.stack
+              ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
+              : {}),
+          });
+        }
         this.logger.error(`${channelName} LLM error:`, error);
         const errMsg = formatForChannel(
           `Error: ${(error as Error).message}`,
@@ -1681,6 +2296,8 @@ export class DaemonManager {
         // Boot container MCP servers on host temporarily to discover tool schemas.
         // The LLM needs to know the tools exist (names, descriptions, input schemas).
         // Actual execution is routed through `docker exec` per-session via the desktop router.
+        // Host command availability is best-effort; container-only installs may not
+        // have these MCP binaries on the host PATH.
         try {
           const { createMCPConnection } = await import('../mcp-client/connection.js');
           const { createToolBridge } = await import('../mcp-client/tool-bridge.js');
@@ -1688,7 +2305,15 @@ export class DaemonManager {
           const discoveryResults = await Promise.allSettled(
             containerServers.map(async (serverConfig) => {
               const client = await createMCPConnection(serverConfig, this.logger);
-              const bridge = await createToolBridge(client, serverConfig.name, this.logger);
+              const bridge = await createToolBridge(
+                client,
+                serverConfig.name,
+                this.logger,
+                {
+                  listToolsTimeoutMs: serverConfig.timeout,
+                  callToolTimeoutMs: serverConfig.timeout,
+                },
+              );
               const schemas = bridge.tools.map((t) => ({
                 name: t.name,
                 description: t.description,
@@ -1700,6 +2325,7 @@ export class DaemonManager {
           );
 
           let totalDiscovered = 0;
+          const skippedUnavailable: string[] = [];
           for (let i = 0; i < discoveryResults.length; i++) {
             const result = discoveryResults[i];
             if (result.status === 'fulfilled') {
@@ -1718,14 +2344,29 @@ export class DaemonManager {
               }
               totalDiscovered += result.value.length;
             } else {
-              this.logger.warn?.(
-                `Container MCP "${containerServers[i].name}" schema discovery failed: ${result.reason}`,
-              );
+              const serverName = containerServers[i].name;
+              if (isCommandUnavailableError(result.reason)) {
+                skippedUnavailable.push(serverName);
+              } else {
+                this.logger.warn?.(
+                  `Container MCP "${serverName}" schema discovery failed: ${toErrorMessage(result.reason)}`,
+                );
+              }
             }
+          }
+
+          if (skippedUnavailable.length > 0) {
+            this.logger.info(
+              `Skipped host schema discovery for container MCP server(s): ${skippedUnavailable.join(', ')} (host command unavailable). Schemas will load lazily inside desktop sessions.`,
+            );
           }
 
           if (totalDiscovered > 0) {
             this.logger.info(`Discovered ${totalDiscovered} container MCP tool schemas for LLM`);
+          } else if (skippedUnavailable.length === 0) {
+            this.logger.warn?.(
+              'No container MCP tool schemas discovered at startup; tools will only become visible after successful container bridge initialization.',
+            );
           }
         } catch (err) {
           this.logger.warn?.('Container MCP schema discovery failed:', err);
@@ -2310,6 +2951,7 @@ export class DaemonManager {
     webChat: WebChatChannel;
     commandRegistry: SlashCommandRegistry;
     getChatExecutor: () => ChatExecutor | null;
+    getLoggingConfig: () => GatewayLoggingConfig | undefined;
     hooks: HookDispatcher;
     sessionMgr: SessionManager;
     systemPrompt: string;
@@ -2323,6 +2965,7 @@ export class DaemonManager {
       webChat,
       commandRegistry,
       getChatExecutor,
+      getLoggingConfig,
       hooks,
       sessionMgr,
       systemPrompt,
@@ -2338,8 +2981,25 @@ export class DaemonManager {
       if (!msg.content.trim() && !hasAttachments) {
         return;
       }
+      const turnTraceId = createTurnTraceId(msg);
+
+      const traceConfig = resolveTraceLoggingConfig(getLoggingConfig());
+      if (traceConfig.enabled) {
+        this.logger.info('[trace] webchat.inbound', {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          message: summarizeGatewayMessageForTrace(msg, traceConfig.maxChars),
+        });
+      }
 
       const reply = async (content: string): Promise<void> => {
+        if (traceConfig.enabled) {
+          this.logger.info("[trace] webchat.command.reply", {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            content: truncateToolLogText(content, traceConfig.maxChars),
+          });
+        }
         await webChat.send({ sessionId: msg.sessionId, content });
       };
       const handled = await commandRegistry.dispatch(
@@ -2350,6 +3010,13 @@ export class DaemonManager {
         reply,
       );
       if (handled) {
+        if (traceConfig.enabled) {
+          this.logger.info("[trace] webchat.command.handled", {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            command: truncateToolLogText(msg.content.trim(), traceConfig.maxChars),
+          });
+        }
         return;
       }
 
@@ -2443,7 +3110,44 @@ export class DaemonManager {
             error: 'This is a greeting message. Respond conversationally without using any tools.',
           });
         }
-        return baseSessionHandler(name, args);
+        if (traceConfig.enabled) {
+          this.logger.info('[trace] webchat.tool.call', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            tool: name,
+            ...(traceConfig.includeToolArgs
+              ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
+              : {}),
+          });
+        }
+
+        const toolStart = Date.now();
+        try {
+          const result = await baseSessionHandler(name, args);
+          if (traceConfig.enabled) {
+            this.logger.info('[trace] webchat.tool.result', {
+              traceId: turnTraceId,
+              sessionId: msg.sessionId,
+              tool: name,
+              durationMs: Date.now() - toolStart,
+              ...(traceConfig.includeToolResults
+                ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
+                : {}),
+            });
+          }
+          return result;
+        } catch (error) {
+          if (traceConfig.enabled) {
+            this.logger.error('[trace] webchat.tool.error', {
+              traceId: turnTraceId,
+              sessionId: msg.sessionId,
+              tool: name,
+              durationMs: Date.now() - toolStart,
+              error: toErrorMessage(error),
+            });
+          }
+          throw error;
+        }
       };
 
       try {
@@ -2455,6 +3159,24 @@ export class DaemonManager {
           scope: 'dm',
           workspaceId: 'default',
         });
+
+        if (traceConfig.enabled) {
+          this.logger.info('[trace] webchat.chat.request', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            historyLength: session.history.length,
+            historyRoleCounts: summarizeRoleCounts(session.history),
+            systemPromptChars: systemPrompt.length,
+            ...(traceConfig.includeSystemPrompt
+              ? { systemPrompt: truncateToolLogText(systemPrompt, traceConfig.maxChars) }
+              : {}),
+            ...(traceConfig.includeHistory
+              ? {
+                history: summarizeHistoryForTrace(session.history, traceConfig),
+              }
+              : {}),
+          });
+        }
 
         // Create an AbortController so the user can cancel mid-execution
         const abortController = webChat.createAbortController(msg.sessionId);
@@ -2477,6 +3199,38 @@ export class DaemonManager {
             model: result.model,
             usedFallback: result.usedFallback,
             updatedAt: Date.now(),
+          });
+        }
+
+        if (traceConfig.enabled) {
+          this.logger.info('[trace] webchat.chat.response', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            provider: result.provider,
+            model: result.model,
+            usedFallback: result.usedFallback,
+            durationMs: result.durationMs,
+            compacted: result.compacted,
+            tokenUsage: result.tokenUsage,
+            requestShape: summarizeInitialRequestShape(result.callUsage),
+            callUsage: summarizeCallUsageForTrace(result.callUsage),
+            response: truncateToolLogText(result.content, traceConfig.maxChars),
+            toolCalls: result.toolCalls.map((toolCall) => ({
+              name: toolCall.name,
+              durationMs: toolCall.durationMs,
+              isError: toolCall.isError,
+              ...(traceConfig.includeToolArgs
+                ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
+                : {}),
+              ...(traceConfig.includeToolResults
+                ? {
+                  result: summarizeToolResultForTrace(
+                    toolCall.result,
+                    traceConfig.maxChars,
+                  ),
+                }
+                : {}),
+            })),
           });
         }
 
@@ -2530,14 +3284,31 @@ export class DaemonManager {
         }
 
         if (result.toolCalls.length > 0) {
+          const failures = result.toolCalls
+            .map((toolCall) => summarizeToolFailureForLog(toolCall))
+            .filter((entry): entry is ToolFailureSummary => entry !== null);
+
           this.logger.info(`Chat used ${result.toolCalls.length} tool call(s)`, {
+            traceId: turnTraceId,
             tools: result.toolCalls.map((toolCall) => toolCall.name),
             provider: result.provider,
+            failedToolCalls: failures.length,
+            ...(failures.length > 0 ? { failureDetails: failures } : {}),
           });
         }
       } catch (error) {
         webChat.clearAbortController(msg.sessionId);
         signals.signalIdle(msg.sessionId);
+        if (traceConfig.enabled) {
+          this.logger.error('[trace] webchat.chat.error', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            error: toErrorMessage(error),
+            ...(error instanceof Error && error.stack
+              ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
+              : {}),
+          });
+        }
         this.logger.error('LLM chat error:', error);
         await webChat.send({
           sessionId: msg.sessionId,
@@ -2557,7 +3328,9 @@ export class DaemonManager {
 
     let ctx = 'You have broad access to this machine via the system.bash tool. ' +
       'You can run most development commands (curl, wget, python, node, git, rm, chmod, etc.) directly. ' +
-      'Shell re-invocation (bash, sh, env, xargs) is blocked for security — use the tool\'s command argument directly instead. ' +
+      'system.bash executes exactly one executable (no shell parser): set `command` to a binary and pass flags/operands in `args`. ' +
+      'Do NOT send shell builtins (`set`, `cd`, `export`), pipes/redirection/heredocs, separators (`;`, `&&`, `||`), or multi-line scripts to system.bash. ' +
+      'For shell-style scripts/chaining, use desktop.bash. Shell re-invocation (bash, sh, env, xargs) is blocked for security. ' +
       'You should use your tools proactively to fulfill requests.\n\n';
 
     if (desktopEnabled && !isMac) {
@@ -2592,6 +3365,7 @@ export class DaemonManager {
         '- To create/edit files: use desktop.text_editor (preferred) or desktop.bash with cat heredoc\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- system.http*/system.browse block localhost/private/internal targets by design. For local service checks, use desktop.bash (curl) or Playwright tools.\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash or desktop.text_editor.\n' +
         '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
         '- For web browsing, ALWAYS use playwright.* tools.\n\n' +
@@ -2758,7 +3532,7 @@ export class DaemonManager {
    * Create a single LLM provider from a provider config.
    */
   private async createSingleLLMProvider(llmConfig: GatewayLLMConfig, tools: LLMTool[]): Promise<LLMProvider | null> {
-    const { provider, apiKey, model, baseUrl } = llmConfig;
+    const { provider, apiKey, model, baseUrl, timeoutMs, parallelToolCalls } = llmConfig;
 
     switch (provider) {
       case 'grok': {
@@ -2767,6 +3541,8 @@ export class DaemonManager {
           apiKey: apiKey ?? '',
           model: normalizeGrokModel(model) ?? DEFAULT_GROK_MODEL,
           baseURL: baseUrl,
+          timeoutMs,
+          parallelToolCalls,
           tools,
         });
       }
@@ -2775,6 +3551,7 @@ export class DaemonManager {
         return new OllamaProvider({
           model: model ?? 'llama3',
           host: baseUrl,
+          timeoutMs,
           tools,
         });
       }

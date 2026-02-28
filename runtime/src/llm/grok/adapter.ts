@@ -13,18 +13,21 @@ import type {
   LLMResponse,
   LLMToolCall,
   LLMUsage,
+  LLMRequestMetrics,
   LLMTool,
   StreamProgressCallback,
 } from "../types.js";
 import { validateToolCall } from "../types.js";
 import type { GrokProviderConfig } from "./types.js";
-import { mapLLMError } from "../errors.js";
+import { LLMProviderError, mapLLMError } from "../errors.js";
 import { ensureLazyImport } from "../lazy-import.js";
 import { withTimeout } from "../timeout.js";
 
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 const DEFAULT_VISION_MODEL = "grok-4-0709";
+const DEFAULT_TIMEOUT_MS = 60_000;
+const MAX_TOOL_IDS_IN_ERROR = 8;
 const MAX_MESSAGES_PAYLOAD_CHARS = 80_000;
 const MAX_SYSTEM_MESSAGE_CHARS = 16_000;
 const MAX_MESSAGE_CHARS_PER_ENTRY = 4_000;
@@ -65,6 +68,141 @@ function truncate(value: string, maxChars: number): string {
   return value.slice(0, maxChars - 3) + "...";
 }
 
+function createStreamTimeoutError(providerName: string, timeoutMs: number): Error {
+  const err = new Error(
+    `${providerName} stream stalled after ${timeoutMs}ms without a chunk`,
+  );
+  (err as { name?: string }).name = "AbortError";
+  (err as { code?: string }).code = "ABORT_ERR";
+  return err;
+}
+
+function normalizeTimeoutMs(timeoutMs: number | undefined): number {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+  if (timeoutMs <= 0) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+  return Math.max(1, Math.floor(timeoutMs));
+}
+
+function summarizeToolIds(ids: Iterable<string>): string {
+  const all = Array.from(ids);
+  if (all.length <= MAX_TOOL_IDS_IN_ERROR) {
+    return all.join(", ");
+  }
+  const head = all.slice(0, MAX_TOOL_IDS_IN_ERROR).join(", ");
+  return `${head} ... (+${all.length - MAX_TOOL_IDS_IN_ERROR} more)`;
+}
+
+function validateToolMessageSequence(messages: readonly LLMMessage[]): void {
+  let pendingToolCallIds: Set<string> | null = null;
+  let pendingAssistantIndex = -1;
+
+  const throwMalformed = (index: number, reason: string): never => {
+    const location =
+      index >= 0 ? `message[${index}]` : "conversation";
+    throw new LLMProviderError(
+      "grok",
+      `Invalid tool-turn sequence at ${location}: ${reason}`,
+      400,
+    );
+  };
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const role = msg.role;
+
+    if (role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      if (pendingToolCallIds && pendingToolCallIds.size > 0) {
+        throwMalformed(
+          i,
+          `new assistant tool_calls started before resolving all prior tool results from message[${pendingAssistantIndex}]`,
+        );
+      }
+
+      const ids = new Set<string>();
+      for (const toolCall of msg.toolCalls) {
+        const id = toolCall.id?.trim();
+        if (!id) {
+          throwMalformed(i, "assistant tool_calls contains an empty id");
+        }
+        if (ids.has(id)) {
+          throwMalformed(i, `assistant tool_calls contains duplicate id "${id}"`);
+        }
+        ids.add(id);
+      }
+      pendingToolCallIds = ids;
+      pendingAssistantIndex = i;
+      continue;
+    }
+
+    if (role === "tool") {
+      const parsedToolCallId = msg.toolCallId?.trim();
+      if (!parsedToolCallId) {
+        throwMalformed(i, "tool message is missing toolCallId");
+      }
+      const toolCallId = parsedToolCallId as string;
+      const pending = pendingToolCallIds;
+      if (!pending || pending.size === 0) {
+        throwMalformed(
+          i,
+          `tool message references "${toolCallId}" without a preceding assistant tool_calls message`,
+        );
+      }
+      const pendingRequired = pending as Set<string>;
+      if (!pendingRequired.has(toolCallId)) {
+        throwMalformed(
+          i,
+          `tool message references unknown toolCallId "${toolCallId}" (expected one of: ${summarizeToolIds(pendingRequired)})`,
+        );
+      }
+      pendingRequired.delete(toolCallId);
+      continue;
+    }
+
+    if (pendingToolCallIds && pendingToolCallIds.size > 0) {
+      throwMalformed(
+        i,
+        `missing tool result message(s) for toolCallId(s): ${summarizeToolIds(pendingToolCallIds)}. Tool results must immediately follow assistant tool_calls.`,
+      );
+    }
+  }
+
+  if (pendingToolCallIds && pendingToolCallIds.size > 0) {
+    throwMalformed(
+      -1,
+      `missing tool result message(s) for toolCallId(s): ${summarizeToolIds(pendingToolCallIds)}.`,
+    );
+  }
+}
+
+async function nextStreamChunkWithTimeout<T>(
+  iterator: AsyncIterator<T>,
+  timeoutMs: number | undefined,
+  providerName: string,
+): Promise<IteratorResult<T>> {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return iterator.next();
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(createStreamTimeoutError(providerName, timeoutMs));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([iterator.next(), timeoutPromise]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 function sanitizeLargeText(value: string): string {
   return value
     .replace(
@@ -80,10 +218,15 @@ function estimateOpenAIContentChars(content: unknown): number {
     return content.reduce((sum, part) => {
       if (!part || typeof part !== "object") return sum;
       const p = part as Record<string, unknown>;
-      if (p.type === "text") return sum + String(p.text ?? "").length;
+      if (p.type === "text" || p.type === "input_text") {
+        return sum + String(p.text ?? "").length;
+      }
       if (p.type === "image_url") {
         const imageUrl = p.image_url as Record<string, unknown> | undefined;
         return sum + String(imageUrl?.url ?? "").length;
+      }
+      if (p.type === "input_image") {
+        return sum + String(p.image_url ?? "").length;
       }
       return sum;
     }, 0);
@@ -97,10 +240,18 @@ function isPromptOverflowErrorMessage(message: string): boolean {
   );
 }
 
-function collectParamDiagnostics(params: Record<string, unknown>): Record<string, number | string> {
+function collectParamDiagnostics(
+  params: Record<string, unknown>,
+): LLMRequestMetrics {
   const messages = Array.isArray(params.messages)
     ? (params.messages as Array<Record<string, unknown>>)
     : [];
+  const inputItems = Array.isArray(params.input)
+    ? (params.input as Array<Record<string, unknown>>)
+    : [];
+  const effectiveMessages = messages.length > 0
+    ? messages
+    : inputItems;
   const tools = Array.isArray(params.tools)
     ? (params.tools as unknown[])
     : [];
@@ -114,14 +265,18 @@ function collectParamDiagnostics(params: Record<string, unknown>): Record<string
   let assistantMessages = 0;
   let toolMessages = 0;
 
-  for (const msg of messages) {
+  for (const msg of effectiveMessages) {
     const role = String(msg.role ?? "");
+    const itemType = String(msg.type ?? "");
+
     if (role === "system") systemMessages++;
     if (role === "user") userMessages++;
     if (role === "assistant") assistantMessages++;
-    if (role === "tool") toolMessages++;
+    if (role === "tool" || itemType === "function_call_output") toolMessages++;
 
-    const content = msg.content;
+    const content = itemType === "function_call_output"
+      ? String(msg.output ?? "")
+      : msg.content;
     const chars = estimateOpenAIContentChars(content);
     totalContentChars += chars;
     if (chars > maxMessageChars) maxMessageChars = chars;
@@ -130,8 +285,8 @@ function collectParamDiagnostics(params: Record<string, unknown>): Record<string
       for (const part of content) {
         if (!part || typeof part !== "object") continue;
         const p = part as Record<string, unknown>;
-        if (p.type === "image_url") imageParts++;
-        if (p.type === "text") textParts++;
+        if (p.type === "image_url" || p.type === "input_image") imageParts++;
+        if (p.type === "text" || p.type === "input_text") textParts++;
       }
     }
   }
@@ -150,8 +305,7 @@ function collectParamDiagnostics(params: Record<string, unknown>): Record<string
   }
 
   return {
-    model: String(params.model ?? ""),
-    messageCount: messages.length,
+    messageCount: effectiveMessages.length,
     systemMessages,
     userMessages,
     assistantMessages,
@@ -350,6 +504,7 @@ export class GrokProvider implements LLMProvider {
   private client: unknown | null = null;
   private readonly config: GrokProviderConfig;
   private readonly tools: LLMTool[];
+  private readonly responseTools: Record<string, unknown>[];
   private readonly toolChars: number;
 
   constructor(config: GrokProviderConfig) {
@@ -357,37 +512,35 @@ export class GrokProvider implements LLMProvider {
       ...config,
       model: config.model ?? DEFAULT_MODEL,
       baseURL: config.baseURL ?? DEFAULT_BASE_URL,
+      timeoutMs: normalizeTimeoutMs(config.timeoutMs),
+      parallelToolCalls: config.parallelToolCalls ?? false,
     };
 
     // Build tools list — optionally inject web_search
     const rawTools = [...(config.tools ?? [])];
-    if (config.webSearch) {
-      rawTools.push({
-        type: "function",
-        function: {
-          name: "web_search",
-          description: "Search the web",
-          parameters: {},
-        },
-      });
-    }
     const slimmed = slimTools(rawTools);
     this.tools = slimmed.tools;
-    this.toolChars = slimmed.chars;
+    this.responseTools = this.toResponseTools(this.tools);
+    if (config.webSearch) {
+      this.responseTools.push({ type: "web_search" });
+    }
+    this.toolChars =
+      slimmed.chars + (config.webSearch ? JSON.stringify({ type: "web_search" }).length : 0);
   }
 
   async chat(messages: LLMMessage[]): Promise<LLMResponse> {
     const client = await this.ensureClient();
     const params = this.buildParams(messages);
+    const requestMetrics = collectParamDiagnostics(params);
 
     try {
-      const completion = await withTimeout(
+      const response = await withTimeout(
         async (signal) =>
-          (client as any).chat.completions.create(params, { signal }),
+          (client as any).responses.create(params, { signal }),
         this.config.timeoutMs,
         this.name,
       );
-      return this.parseResponse(completion);
+      return this.parseResponse(response, requestMetrics);
     } catch (err: unknown) {
       const mapped = this.mapError(err);
       this.logPromptOverflowDiagnostics(mapped, params);
@@ -401,99 +554,105 @@ export class GrokProvider implements LLMProvider {
   ): Promise<LLMResponse> {
     const client = await this.ensureClient();
     const params = { ...this.buildParams(messages), stream: true };
+    const requestMetrics = collectParamDiagnostics(params);
     let content = "";
     let model = this.config.model;
     let finishReason: LLMResponse["finishReason"] = "stop";
-    const toolCallAccum = new Map<
-      number,
-      { id: string; name: string; arguments: string }
-    >();
+    let usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const toolCallAccum = new Map<string, LLMToolCall>();
+    let streamIterator: AsyncIterator<any> | null = null;
 
     try {
       const stream = await withTimeout(
         async (signal) =>
-          (client as any).chat.completions.create(params, { signal }),
+          (client as any).responses.create(params, { signal }),
         this.config.timeoutMs,
         this.name,
       );
 
-      for await (const chunk of stream as AsyncIterable<any>) {
-        const delta = chunk.choices?.[0]?.delta;
-        if (!delta) continue;
+      streamIterator = (stream as AsyncIterable<any>)[Symbol.asyncIterator]();
 
-        if (delta.content) {
-          content += delta.content;
-          onChunk({ content: delta.content, done: false });
-        }
+      while (true) {
+        const iterResult = await nextStreamChunkWithTimeout(
+          streamIterator,
+          this.config.timeoutMs,
+          this.name,
+        );
+        if (iterResult.done) break;
+        const event = iterResult.value;
 
-        // Accumulate tool calls from stream deltas
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0;
-            const existing = toolCallAccum.get(idx);
-            if (existing) {
-              if (tc.function?.arguments)
-                existing.arguments += tc.function.arguments;
-            } else {
-              toolCallAccum.set(idx, {
-                id: tc.id ?? `call_${idx}`,
-                name: tc.function?.name ?? "",
-                arguments: tc.function?.arguments ?? "",
-              });
-            }
+        if (event.type === "response.output_text.delta") {
+          const delta = String(event.delta ?? "");
+          if (delta.length > 0) {
+            content += delta;
+            onChunk({ content: delta, done: false });
           }
+          continue;
         }
 
-        if (chunk.choices?.[0]?.finish_reason) {
-          finishReason = this.mapFinishReason(chunk.choices[0].finish_reason);
+        if (event.type === "response.output_item.done") {
+          const toolCall = this.toToolCall(event.item);
+          if (toolCall) {
+            toolCallAccum.set(toolCall.id, toolCall);
+          }
+          continue;
         }
-        if (chunk.model) model = chunk.model;
+
+        if (event.type === "response.completed") {
+          const response = event.response ?? {};
+          model = String(response.model ?? model);
+          usage = this.parseUsage(response);
+          const completedToolCalls = this.extractToolCallsFromOutput(response.output);
+          for (const toolCall of completedToolCalls) {
+            toolCallAccum.set(toolCall.id, toolCall);
+          }
+          finishReason = this.mapResponseFinishReason(response, Array.from(toolCallAccum.values()));
+          const outputText = String(response.output_text ?? "");
+          if (outputText && content.length === 0) {
+            content = outputText;
+          }
+          continue;
+        }
+
+        if (event.type === "response.failed") {
+          finishReason = "error";
+          continue;
+        }
       }
 
-      const toolCalls: LLMToolCall[] = Array.from(toolCallAccum.values())
-        .map((candidate) =>
-          validateToolCall({
-            id: candidate.id,
-            name: candidate.name,
-            arguments: candidate.arguments,
-          }),
-        )
-        .filter((toolCall): toolCall is LLMToolCall => toolCall !== null);
-      if (toolCalls.length > 0 && finishReason === "stop") {
-        finishReason = "tool_calls";
-      }
+      const toolCalls = Array.from(toolCallAccum.values());
+      if (toolCalls.length > 0 && finishReason === "stop") finishReason = "tool_calls";
 
       onChunk({ content: "", done: true, toolCalls });
 
       return {
         content,
         toolCalls,
-        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        usage,
         model,
+        requestMetrics,
         finishReason,
       };
     } catch (err: unknown) {
+      if (streamIterator && typeof streamIterator.return === "function") {
+        try {
+          void streamIterator.return();
+        } catch {
+          // best-effort stream cleanup
+        }
+      }
       const mappedError = this.mapError(err);
       this.logPromptOverflowDiagnostics(mappedError, params);
       if (content.length > 0) {
-        const partialToolCalls: LLMToolCall[] = Array.from(
-          toolCallAccum.values(),
-        )
-          .map((candidate) =>
-            validateToolCall({
-              id: candidate.id,
-              name: candidate.name,
-              arguments: candidate.arguments,
-            }),
-          )
-          .filter((toolCall): toolCall is LLMToolCall => toolCall !== null);
+        const partialToolCalls: LLMToolCall[] = Array.from(toolCallAccum.values());
 
         onChunk({ content: "", done: true, toolCalls: partialToolCalls });
         return {
           content,
           toolCalls: partialToolCalls,
-          usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          usage,
           model,
+          requestMetrics,
           finishReason: "error",
           error: mappedError,
           partial: true,
@@ -530,6 +689,7 @@ export class GrokProvider implements LLMProvider {
 
   private buildParams(messages: LLMMessage[]): Record<string, unknown> {
     const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
+    validateToolMessageSequence(messages);
 
     // Build mapped messages, handling multimodal tool messages.
     // The OpenAI API requires tool message content to be a string.
@@ -588,23 +748,28 @@ export class GrokProvider implements LLMProvider {
     );
     const hasImages = boundedMessages.some((m) => hasImageContent(m.content));
     const model = hasImages ? visionModel : this.config.model;
+    const input = boundedMessages.flatMap((message) =>
+      this.toResponseInputItems(message),
+    );
 
     const params: Record<string, unknown> = {
       model,
-      messages: boundedMessages,
+      input,
+      store: false,
     };
     if (this.config.temperature !== undefined)
       params.temperature = this.config.temperature;
     if (this.config.maxTokens !== undefined)
-      params.max_tokens = this.config.maxTokens;
+      params.max_output_tokens = this.config.maxTokens;
     // Enable tools unless the vision model is known to not support them
-    if (this.tools.length > 0) {
+    if (this.responseTools.length > 0) {
       const hasToolResults = messages.some((m) => m.role === "tool");
       if (
         (!hasImages || VISION_MODELS_WITH_TOOLS.has(visionModel)) &&
         (!hasToolResults || this.toolChars <= MAX_TOOL_SCHEMA_CHARS_FOLLOWUP)
       ) {
-        params.tools = this.tools;
+        params.tools = this.responseTools;
+        params.parallel_tool_calls = this.config.parallelToolCalls;
       }
     }
     return params;
@@ -649,53 +814,200 @@ export class GrokProvider implements LLMProvider {
     return { role: msg.role, content: msg.content };
   }
 
-  private parseResponse(completion: any): LLMResponse {
-    const choice = completion.choices?.[0];
-    const message = choice?.message ?? {};
+  private toResponseTools(tools: readonly LLMTool[]): Record<string, unknown>[] {
+    return tools.map((tool) => ({
+      type: "function",
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+    }));
+  }
 
-    const toolCalls: LLMToolCall[] = (message.tool_calls ?? [])
-      .map((tc: any) =>
-        validateToolCall({
-          id: tc.id,
-          name: tc.function?.name ?? "",
-          arguments: tc.function?.arguments ?? "",
-        }),
-      )
-      .filter(
-        (toolCall: LLMToolCall | null): toolCall is LLMToolCall =>
-          toolCall !== null,
-      );
+  private toResponseInputItems(
+    message: Record<string, unknown>,
+  ): Record<string, unknown>[] {
+    const role = String(message.role ?? "");
+    const content = message.content;
 
-    const usage: LLMUsage = {
-      promptTokens: completion.usage?.prompt_tokens ?? 0,
-      completionTokens: completion.usage?.completion_tokens ?? 0,
-      totalTokens: completion.usage?.total_tokens ?? 0,
-    };
+    if (role === "tool") {
+      const toolCallId = String(message.tool_call_id ?? "").trim();
+      if (!toolCallId) return [];
+      let output: string;
+      if (typeof content === "string") {
+        output = content;
+      } else {
+        try {
+          output = JSON.stringify(content);
+        } catch {
+          output = String(content ?? "");
+        }
+      }
+      return [
+        {
+          type: "function_call_output",
+          call_id: toolCallId,
+          output,
+        },
+      ];
+    }
+
+    if (role === "assistant") {
+      const toolCalls = Array.isArray(message.tool_calls)
+        ? (message.tool_calls as Array<Record<string, unknown>>)
+        : [];
+      const items: Record<string, unknown>[] = [];
+      const normalizedContent = this.normalizeResponseMessageContent(content);
+      if (normalizedContent !== undefined) {
+        items.push({ role, content: normalizedContent });
+      }
+      for (const tc of toolCalls) {
+        const functionData = (tc.function as Record<string, unknown> | undefined) ?? {};
+        const callId = String(tc.id ?? "").trim();
+        const name = String(functionData.name ?? "").trim();
+        const args = String(functionData.arguments ?? "");
+        if (!callId || !name) continue;
+        items.push({
+          type: "function_call",
+          call_id: callId,
+          name,
+          arguments: args,
+        });
+      }
+      return items;
+    }
+
+    if (role === "system" || role === "user") {
+      const normalizedContent = this.normalizeResponseMessageContent(content);
+      if (normalizedContent === undefined) return [];
+      return [{ role, content: normalizedContent }];
+    }
+
+    const normalizedContent = this.normalizeResponseMessageContent(content);
+    if (normalizedContent === undefined) return [];
+    return [{ role, content: normalizedContent }];
+  }
+
+  private normalizeResponseMessageContent(
+    content: unknown,
+  ): string | Array<Record<string, unknown>> | undefined {
+    if (typeof content === "string") {
+      if (content.length === 0) return undefined;
+      return content;
+    }
+    if (!Array.isArray(content)) {
+      return undefined;
+    }
+    const parts: Array<Record<string, unknown>> = [];
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const entry = part as Record<string, unknown>;
+      if (entry.type === "text") {
+        const text = String(entry.text ?? "");
+        if (text.length > 0) {
+          parts.push({ type: "input_text", text });
+        }
+      } else if (entry.type === "image_url") {
+        const image = (entry.image_url as Record<string, unknown> | undefined) ?? {};
+        const url = String(image.url ?? "");
+        if (url.length > 0) {
+          parts.push({ type: "input_image", image_url: url });
+        }
+      }
+    }
+    if (parts.length === 0) return undefined;
+    return parts;
+  }
+
+  private parseResponse(
+    response: any,
+    requestMetrics?: LLMRequestMetrics,
+  ): LLMResponse {
+    const toolCalls = this.extractToolCallsFromOutput(response.output);
+    const finishReason = this.mapResponseFinishReason(response, toolCalls);
 
     return {
-      content: message.content ?? "",
+      content: this.extractOutputText(response),
       toolCalls,
-      usage,
-      model: completion.model ?? this.config.model,
-      finishReason: this.mapFinishReason(choice?.finish_reason),
+      usage: this.parseUsage(response),
+      model: String(response.model ?? this.config.model),
+      requestMetrics,
+      finishReason,
     };
   }
 
-  private mapFinishReason(
-    reason: string | undefined,
-  ): LLMResponse["finishReason"] {
-    switch (reason) {
-      case "stop":
-        return "stop";
-      case "tool_calls":
-        return "tool_calls";
-      case "length":
-        return "length";
-      case "content_filter":
-        return "content_filter";
-      default:
-        return "stop";
+  private extractOutputText(response: Record<string, unknown>): string {
+    const direct = response.output_text;
+    if (typeof direct === "string") return direct;
+
+    const output = Array.isArray(response.output)
+      ? (response.output as Array<Record<string, unknown>>)
+      : [];
+    const chunks: string[] = [];
+    for (const item of output) {
+      if (item.type !== "message") continue;
+      const content = Array.isArray(item.content)
+        ? (item.content as Array<Record<string, unknown>>)
+        : [];
+      for (const part of content) {
+        if (part.type === "output_text") {
+          const text = part.text;
+          if (typeof text === "string" && text.length > 0) {
+            chunks.push(text);
+          }
+        }
+      }
     }
+    return chunks.join("");
+  }
+
+  private parseUsage(response: Record<string, unknown>): LLMUsage {
+    const usage = response.usage as Record<string, unknown> | undefined;
+    return {
+      promptTokens: Number(usage?.input_tokens ?? 0),
+      completionTokens: Number(usage?.output_tokens ?? 0),
+      totalTokens: Number(usage?.total_tokens ?? 0),
+    };
+  }
+
+  private toToolCall(item: unknown): LLMToolCall | null {
+    if (!item || typeof item !== "object") return null;
+    const candidate = item as Record<string, unknown>;
+    if (candidate.type !== "function_call") return null;
+    return validateToolCall({
+      id: String(candidate.call_id ?? candidate.id ?? ""),
+      name: String(candidate.name ?? ""),
+      arguments: String(candidate.arguments ?? ""),
+    });
+  }
+
+  private extractToolCallsFromOutput(output: unknown): LLMToolCall[] {
+    if (!Array.isArray(output)) return [];
+    const toolCalls: LLMToolCall[] = [];
+    for (const item of output) {
+      const toolCall = this.toToolCall(item);
+      if (toolCall) toolCalls.push(toolCall);
+    }
+    return toolCalls;
+  }
+
+  private mapResponseFinishReason(
+    response: Record<string, unknown>,
+    toolCalls: readonly LLMToolCall[],
+  ): LLMResponse["finishReason"] {
+    if (toolCalls.length > 0) return "tool_calls";
+
+    const status = String(response.status ?? "");
+    if (status === "failed") return "error";
+    if (status === "incomplete") {
+      const details =
+        (response.incomplete_details as Record<string, unknown> | undefined) ??
+        {};
+      const reason = String(details.reason ?? "");
+      if (reason.includes("content_filter")) return "content_filter";
+      if (reason.includes("max_output_tokens")) return "length";
+      return "length";
+    }
+    return "stop";
   }
 
   private mapError(err: unknown): Error {

@@ -15,6 +15,8 @@ export interface GrokProviderConfig extends LLMProviderConfig {
   apiKey: string;
   /** Base URL for the xAI API (default: 'https://api.x.ai/v1') */
   baseURL?: string;
+  /** Allow the model to emit multiple tool calls in parallel (default: false). */
+  parallelToolCalls?: boolean;
   /** Enable web search tool (injects a web_search tool) */
   webSearch?: boolean;
   /** Search mode when web search is enabled */

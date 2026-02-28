@@ -4,8 +4,10 @@
  * @module
  */
 
-import { fork } from "node:child_process";
-import { resolve, dirname } from "node:path";
+import { execFile, fork } from "node:child_process";
+import { closeSync, mkdirSync, openSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve, dirname, join } from "node:path";
 import {
   checkStalePid,
   readPidFile,
@@ -35,11 +37,111 @@ const STARTUP_POLL_TIMEOUT_MS = 3_000;
 const STOP_POLL_INTERVAL_MS = 200;
 const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 const CONTROL_PLANE_TIMEOUT_MS = 3_000;
+const DEFAULT_DAEMON_LOG_FILE = "daemon.log";
+const PROCESS_SCAN_TIMEOUT_MS = 5_000;
 
 function getDaemonEntryPath(): string {
   // Requires tsup's __filename shim when built as ESM (see tsup.config).
   // Running source directly with tsx/ts-node also provides __filename.
   return resolve(dirname(__filename), "..", "bin", "daemon.js");
+}
+
+function getDaemonLogPath(): string {
+  return process.env.AGENC_DAEMON_LOG_PATH ??
+    join(homedir(), ".agenc", DEFAULT_DAEMON_LOG_FILE);
+}
+
+interface DaemonProcessEntry {
+  readonly pid: number;
+  readonly args: string;
+}
+
+async function listProcesses(): Promise<readonly DaemonProcessEntry[]> {
+  return new Promise((resolvePromise) => {
+    execFile(
+      "ps",
+      ["-eo", "pid=,args="],
+      { timeout: PROCESS_SCAN_TIMEOUT_MS },
+      (error, stdout) => {
+        if (error) {
+          resolvePromise([]);
+          return;
+        }
+
+        const rows = stdout
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+
+        const entries: DaemonProcessEntry[] = [];
+        for (const row of rows) {
+          const match = /^(\d+)\s+(.+)$/.exec(row);
+          if (!match) continue;
+          const pid = Number.parseInt(match[1], 10);
+          if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) continue;
+          entries.push({ pid, args: match[2] });
+        }
+
+        resolvePromise(entries);
+      },
+    );
+  });
+}
+
+function looksLikeRuntimeDaemonProcess(args: string): boolean {
+  return (
+    args.includes("/runtime/dist/bin/daemon.js") ||
+    args.includes("/runtime/src/bin/daemon.ts")
+  );
+}
+
+function commandLineHasFlagValue(args: string, flag: string, value: string): boolean {
+  if (!value) return false;
+  return (
+    args.includes(`${flag} ${value}`) ||
+    args.includes(`${flag}=${value}`)
+  );
+}
+
+async function findDaemonPidsByIdentity(params: {
+  pidPath?: string;
+  configPath?: string;
+}): Promise<readonly number[]> {
+  const entries = await listProcesses();
+  const matching = entries.filter((entry) => {
+    if (!looksLikeRuntimeDaemonProcess(entry.args)) return false;
+    if (
+      params.pidPath &&
+      commandLineHasFlagValue(entry.args, "--pid-path", params.pidPath)
+    ) {
+      return true;
+    }
+    if (
+      params.configPath &&
+      commandLineHasFlagValue(entry.args, "--config", params.configPath)
+    ) {
+      return true;
+    }
+    return false;
+  });
+  return matching.map((entry) => entry.pid);
+}
+
+async function signalPids(
+  pids: readonly number[],
+  signal: NodeJS.Signals,
+): Promise<void> {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // Ignore races (already exited)
+    }
+  }
+}
+
+function uniquePids(pids: readonly number[]): number[] {
+  return Array.from(new Set(pids.filter((pid) => Number.isFinite(pid) && pid > 0)));
 }
 
 // ============================================================================
@@ -51,6 +153,21 @@ export async function runStartCommand(
   options: DaemonStartOptions,
 ): Promise<CliStatusCode> {
   const configPath = resolve(options.configPath);
+
+  const conflicting = await findDaemonPidsByIdentity({
+    pidPath: options.pidPath,
+    configPath,
+  });
+  if (conflicting.length > 0) {
+    context.error({
+      status: "error",
+      command: "start",
+      message:
+        `Detected existing daemon process(es) for this config/pid-path: ${conflicting.join(", ")}. ` +
+        "Run `stop` or `restart` first to avoid duplicate daemons.",
+    });
+    return 1;
+  }
 
   // Check for existing daemon
   const stale = await checkStalePid(options.pidPath);
@@ -137,11 +254,37 @@ async function runDaemonized(
     args.push("--log-level", options.logLevel);
   }
 
+  let logFd: number | undefined;
+  const logPath = getDaemonLogPath();
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    logFd = openSync(logPath, "a");
+  } catch (error) {
+    context.logger.warn(
+      `Failed to open daemon log at ${logPath}: ${toErrorMessage(error)}; falling back to stdio=ignore`,
+    );
+  }
+
   const child = fork(daemonEntry, args, {
     detached: true,
-    stdio: "ignore",
+    // Keep IPC for exit tracking and attach stdout/stderr to a persistent log file.
+    stdio: logFd === undefined ? "ignore" : ["ignore", logFd, logFd, "ipc"],
   });
+  if (logFd !== undefined) {
+    closeSync(logFd);
+  }
   child.unref();
+
+  const closeIpc = (): void => {
+    try {
+      child.removeAllListeners("exit");
+      if (child.connected) {
+        child.disconnect();
+      }
+    } catch {
+      // best effort
+    }
+  };
 
   const childPid = child.pid;
   if (childPid === undefined) {
@@ -163,10 +306,12 @@ async function runDaemonized(
 
   // Poll for PID file to confirm startup
   const deadline = Date.now() + STARTUP_POLL_TIMEOUT_MS;
+  let observedForeignPid: number | undefined;
   while (Date.now() < deadline) {
     await sleep(STARTUP_POLL_INTERVAL_MS);
 
     if (childExited) {
+      closeIpc();
       context.error({
         status: "error",
         command: "start",
@@ -178,22 +323,33 @@ async function runDaemonized(
     if (await pidFileExists(options.pidPath)) {
       const info = await readPidFile(options.pidPath);
       if (info !== null) {
+        if (info.pid !== childPid) {
+          if (isProcessAlive(info.pid)) {
+            observedForeignPid = info.pid;
+          }
+          continue;
+        }
+        closeIpc();
         context.output({
           status: "ok",
           command: "start",
           mode: "daemon",
           pid: info.pid,
           port: info.port,
+          ...(logFd !== undefined ? { logPath } : {}),
         });
         return 0;
       }
     }
   }
 
+  closeIpc();
   context.error({
     status: "error",
     command: "start",
-    message: `Daemon forked (pid ${childPid}) but PID file not found within ${STARTUP_POLL_TIMEOUT_MS}ms`,
+    message: observedForeignPid
+      ? `Daemon forked (pid ${childPid}) but PID file stayed bound to a different live process (pid ${observedForeignPid}).`
+      : `Daemon forked (pid ${childPid}) but PID file not found within ${STARTUP_POLL_TIMEOUT_MS}ms`,
   });
   return 1;
 }
@@ -207,7 +363,17 @@ export async function runStopCommand(
   options: DaemonStopOptions,
 ): Promise<CliStatusCode> {
   const info = await readPidFile(options.pidPath);
-  if (info === null || !isProcessAlive(info.pid)) {
+  const pidFromFile = info?.pid;
+  const siblingPids = await findDaemonPidsByIdentity({
+    pidPath: options.pidPath,
+    configPath: info?.configPath,
+  });
+  const targetPids = uniquePids([
+    ...(pidFromFile !== undefined ? [pidFromFile] : []),
+    ...siblingPids,
+  ]);
+  const aliveTargetPids = targetPids.filter((pid) => isProcessAlive(pid));
+  if (aliveTargetPids.length === 0) {
     if (info !== null) {
       await removePidFile(options.pidPath);
     }
@@ -220,32 +386,22 @@ export async function runStopCommand(
     return 0;
   }
 
-  const pid = info.pid;
   const timeout = options.timeout ?? DEFAULT_STOP_TIMEOUT_MS;
-
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    await removePidFile(options.pidPath);
-    context.output({
-      status: "ok",
-      command: "stop",
-      pid,
-      message: "Process already exited",
-      wasRunning: false,
-    });
-    return 0;
-  }
+  await signalPids(aliveTargetPids, "SIGTERM");
 
   // Poll until process exits — immediate first check, then periodic
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    if (!isProcessAlive(pid)) {
+    const remaining = aliveTargetPids.filter((candidatePid) =>
+      isProcessAlive(candidatePid),
+    );
+    if (remaining.length === 0) {
       await removePidFile(options.pidPath);
       context.output({
         status: "ok",
         command: "stop",
-        pid,
+        pid: pidFromFile ?? aliveTargetPids[0],
+        pids: aliveTargetPids,
         wasRunning: true,
       });
       return 0;
@@ -254,17 +410,14 @@ export async function runStopCommand(
   }
 
   // Timeout: force kill
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // ESRCH — already dead
-  }
+  await signalPids(aliveTargetPids, "SIGKILL");
   await removePidFile(options.pidPath);
 
   context.output({
     status: "ok",
     command: "stop",
-    pid,
+    pid: pidFromFile ?? aliveTargetPids[0],
+    pids: aliveTargetPids,
     message: "Process did not exit gracefully; sent SIGKILL",
     wasRunning: true,
     forced: true,

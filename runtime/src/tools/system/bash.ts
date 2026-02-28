@@ -27,8 +27,81 @@ import {
 import { silentLogger } from "../../utils/logger.js";
 import type { Logger } from "../../utils/logger.js";
 
+const SHELL_WRAPPER_COMMANDS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "csh",
+  "fish",
+  "ksh",
+  "tcsh",
+]);
+const SHELL_BUILTIN_COMMANDS = new Set([
+  "set",
+  "cd",
+  "export",
+  "source",
+  "alias",
+  "unalias",
+  "unset",
+  "shopt",
+  "ulimit",
+  "umask",
+  "readonly",
+  "declare",
+  "typeset",
+  "builtin",
+]);
+const SINGLE_EXECUTABLE_RE = /^[A-Za-z0-9_./+-]+$/;
+const SHELL_OPERATOR_RE = /[|&;<>()`$\\\r\n]/;
+
 function errorResult(message: string): ToolResult {
   return { content: safeStringify({ error: message }), isError: true };
+}
+
+function toText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Buffer.isBuffer(value)) return value.toString("utf-8");
+  return "";
+}
+
+function validateCommandShape(command: string): string | undefined {
+  if (command.length === 0) {
+    return "command must be a non-empty string";
+  }
+  if (SHELL_OPERATOR_RE.test(command)) {
+    return (
+      `Invalid command "${command}". Shell operators/newlines are not allowed in \`command\`. ` +
+      "Use a direct executable plus args instead."
+    );
+  }
+  if (/\s/.test(command)) {
+    return (
+      `Invalid command "${command}". system.bash expects one executable token in \`command\` ` +
+      `(for example "ls" or "/usr/bin/git"). Put flags and operands in \`args\`.`
+    );
+  }
+  if (!SINGLE_EXECUTABLE_RE.test(command)) {
+    return (
+      `Invalid command "${command}". Use a direct executable path/name ` +
+      'matching `[A-Za-z0-9_./+-]+` and pass flags via `args`.'
+    );
+  }
+  return undefined;
+}
+
+function validateShellBuiltin(command: string): string | undefined {
+  const base = basename(command).toLowerCase();
+  if (!SHELL_BUILTIN_COMMANDS.has(base)) {
+    return undefined;
+  }
+
+  return (
+    `Invalid command "${command}". "${base}" is a shell builtin, not a standalone executable. ` +
+    "system.bash runs one executable directly. Use a real binary in `command` with `args`, " +
+    "or use `desktop.bash` for shell-style scripts/heredocs/chaining."
+  );
 }
 
 function truncate(
@@ -99,16 +172,30 @@ export function isCommandAllowed(
   command: string,
   denySet: ReadonlySet<string>,
   allowSet: ReadonlySet<string> | null,
+  denyExclusions?: ReadonlySet<string> | null,
 ): { allowed: true } | { allowed: false; reason: string } {
   const base = basename(command);
+  const exclusionSet = denyExclusions ?? null;
+  const isExcluded =
+    exclusionSet !== null &&
+    (exclusionSet.has(command) || exclusionSet.has(base));
 
   // Exact deny list takes precedence
-  if (denySet.has(command) || denySet.has(base)) {
+  if (!isExcluded && (denySet.has(command) || denySet.has(base))) {
+    if (SHELL_WRAPPER_COMMANDS.has(base)) {
+      return {
+        allowed: false,
+        reason:
+          `Command "${command}" is denied. Do not use shell wrappers like "bash -c". ` +
+          `Call the executable directly with \`command\` + \`args\` (e.g. \`command:"curl", args:["-sSf","http://..."]\`). ` +
+          `For multi-step logic, write a script file and execute that file path directly.`,
+      };
+    }
     return { allowed: false, reason: `Command "${command}" is denied` };
   }
 
   // Prefix deny list catches version-specific binaries (python3.11, pypy3, etc.)
-  if (matchesDenyPrefix(base)) {
+  if (!isExcluded && matchesDenyPrefix(base)) {
     return {
       allowed: false,
       reason: `Command "${command}" is denied (matches deny prefix)`,
@@ -141,6 +228,10 @@ export function createBashTool(config?: BashToolConfig): Tool {
     !unrestricted && config?.allowList && config.allowList.length > 0
       ? new Set<string>(config.allowList)
       : null;
+  const denyExclusionSet =
+    !unrestricted && config?.denyExclusions && config.denyExclusions.length > 0
+      ? new Set<string>(config.denyExclusions)
+      : null;
   const defaultCwd = config?.cwd ?? process.cwd();
   const defaultTimeout = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxTimeoutMs = config?.maxTimeoutMs ?? defaultTimeout;
@@ -152,14 +243,16 @@ export function createBashTool(config?: BashToolConfig): Tool {
   return {
     name: "system.bash",
     description:
-      'Execute a command. The command argument is the executable name (e.g. "ls", "git"), ' +
-      "and args is an array of arguments. Shell expansion is disabled for security.",
+      'Execute one executable directly (no shell). Set `command` to the binary name (e.g. "ls", "git") ' +
+      "and `args` to an array of arguments. Do NOT use shell wrappers like `bash -c` or shell operators (pipes, redirects, heredocs) as command text.",
     inputSchema: {
       type: "object",
       properties: {
         command: {
           type: "string",
-          description: 'Executable name (e.g. "ls", "git", "node")',
+          pattern: "^[A-Za-z0-9_./+-]+$",
+          description:
+            'Executable token/path only (e.g. "ls", "/usr/bin/git", "curl"). No spaces/newlines/shell operators. Do not pass "bash -c ..." or combined shell strings.',
         },
         args: {
           type: "array",
@@ -190,10 +283,23 @@ export function createBashTool(config?: BashToolConfig): Tool {
       }
 
       const command = input.command.trim();
+      const commandShapeError = validateCommandShape(command);
+      if (commandShapeError) {
+        return errorResult(commandShapeError);
+      }
+      const shellBuiltinError = validateShellBuiltin(command);
+      if (shellBuiltinError) {
+        return errorResult(shellBuiltinError);
+      }
 
       // Check deny/allow lists (skipped in unrestricted mode)
       if (!unrestricted) {
-        const check = isCommandAllowed(command, denySet, allowSet);
+        const check = isCommandAllowed(
+          command,
+          denySet,
+          allowSet,
+          denyExclusionSet,
+        );
         if (!check.allowed) {
           logger.warn(`Bash tool denied: ${check.reason}`);
           return errorResult(check.reason);
@@ -256,9 +362,14 @@ export function createBashTool(config?: BashToolConfig): Tool {
                     ? null
                     : 1;
 
-              const stdoutResult = truncate(stdout ?? "", maxOutputBytes);
+              const stdoutText = toText(stdout);
+              const stderrText = toText(stderr);
+              const fallbackErrorText =
+                error.message || `Command "${command}" failed`;
+
+              const stdoutResult = truncate(stdoutText, maxOutputBytes);
               const stderrResult = truncate(
-                stderr ?? error.message,
+                stderrText.trim().length > 0 ? stderrText : fallbackErrorText,
                 maxOutputBytes,
               );
 
@@ -293,8 +404,8 @@ export function createBashTool(config?: BashToolConfig): Tool {
               return;
             }
 
-            const stdoutResult = truncate(stdout, maxOutputBytes);
-            const stderrResult = truncate(stderr, maxOutputBytes);
+            const stdoutResult = truncate(toText(stdout), maxOutputBytes);
+            const stderrResult = truncate(toText(stderr), maxOutputBytes);
 
             logger.debug(`Bash tool success (${durationMs}ms): ${command}`);
 

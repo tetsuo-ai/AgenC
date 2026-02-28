@@ -60,6 +60,19 @@ export interface SessionEndResult {
 
 const SUMMARY_PROMPT =
   "Summarize this conversation in 2-3 sentences, focusing on key decisions and learnings.";
+/** Maximum chars retained per turn message during ingestion. */
+const MAX_INGEST_MESSAGE_CHARS = 12_000;
+
+function truncateForIngestion(text: string): string {
+  if (text.length <= MAX_INGEST_MESSAGE_CHARS) return text;
+  if (MAX_INGEST_MESSAGE_CHARS <= 3) {
+    return text.slice(0, Math.max(0, MAX_INGEST_MESSAGE_CHARS));
+  }
+  return (
+    text.slice(0, MAX_INGEST_MESSAGE_CHARS - 3) +
+    "..."
+  );
+}
 
 // ============================================================================
 // MemoryIngestionEngine
@@ -102,7 +115,10 @@ export class MemoryIngestionEngine {
     userMessage: string,
     agentResponse: string,
   ): Promise<void> {
-    const combinedText = `User: ${userMessage}\nAssistant: ${agentResponse}`;
+    const safeUserMessage = truncateForIngestion(userMessage);
+    const safeAgentResponse = truncateForIngestion(agentResponse);
+    const combinedText =
+      `User: ${safeUserMessage}\nAssistant: ${safeAgentResponse}`;
 
     // 1. Generate embedding
     let embedding: number[] | undefined;
@@ -132,13 +148,13 @@ export class MemoryIngestionEngine {
     // 3. Append to daily log
     if (this.enableDailyLogs) {
       try {
-        await this.logManager.append(sessionId, "user", userMessage);
+        await this.logManager.append(sessionId, "user", safeUserMessage);
       } catch (err) {
         this.logger.error("Failed to append user message to daily log", err);
       }
 
       try {
-        await this.logManager.append(sessionId, "assistant", agentResponse);
+        await this.logManager.append(sessionId, "assistant", safeAgentResponse);
       } catch (err) {
         this.logger.error("Failed to append agent response to daily log", err);
       }
@@ -322,6 +338,15 @@ export function createIngestionHooks(
     priority: 200,
     handler: async (ctx: HookContext): Promise<HookResult> => {
       try {
+        const phase = typeof ctx.payload.phase === "string"
+          ? ctx.payload.phase
+          : undefined;
+        // SessionManager emits compaction hooks for before/after/error phases.
+        // Only "after" can carry a usable summary for ingestion.
+        if (phase && phase !== "after") {
+          return { continue: true };
+        }
+
         const { sessionId, summary } = ctx.payload;
         if (typeof sessionId !== "string" || typeof summary !== "string") {
           log.warn(

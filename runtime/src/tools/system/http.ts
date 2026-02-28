@@ -216,6 +216,25 @@ export function isDomainAllowed(
   return { allowed: true };
 }
 
+const LOCAL_ADDRESS_BLOCK_RE =
+  /(Private\/loopback address blocked:|SSRF target blocked:)\s*(.+)$/i;
+
+/**
+ * Attach remediation guidance for blocked localhost/private/internal targets.
+ * Keeps raw validation reason intact while steering the agent to the right tool path.
+ */
+export function formatDomainBlockReason(reason: string): string {
+  const trimmed = reason.trim();
+  if (!LOCAL_ADDRESS_BLOCK_RE.test(trimmed)) {
+    return trimmed;
+  }
+  return (
+    `${trimmed}. ` +
+    "system.http*/system.browse intentionally block localhost/private/internal addresses. " +
+    "For local checks, use desktop tools (`desktop.bash` with curl or Playwright tools)."
+  );
+}
+
 // ============================================================================
 // Private Helpers
 // ============================================================================
@@ -333,7 +352,7 @@ async function doFetch(
     config.blockedDomains,
   );
   if (!domainCheck.allowed) {
-    return errorResult(domainCheck.reason!);
+    return errorResult(formatDomainBlockReason(domainCheck.reason!));
   }
 
   // Merge headers: defaults → caller → auth (auth wins, cannot be overridden)

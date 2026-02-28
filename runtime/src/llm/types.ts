@@ -68,6 +68,26 @@ export interface LLMUsage {
 }
 
 /**
+ * Provider-specific request-shape diagnostics for one LLM call.
+ *
+ * These values are intended for observability/debugging (not billing).
+ */
+export interface LLMRequestMetrics {
+  messageCount: number;
+  systemMessages: number;
+  userMessages: number;
+  assistantMessages: number;
+  toolMessages: number;
+  totalContentChars: number;
+  maxMessageChars: number;
+  textParts: number;
+  imageParts: number;
+  toolCount: number;
+  toolSchemaChars: number;
+  serializedChars: number;
+}
+
+/**
  * Response from an LLM provider
  */
 export interface LLMResponse {
@@ -75,6 +95,8 @@ export interface LLMResponse {
   toolCalls: LLMToolCall[];
   usage: LLMUsage;
   model: string;
+  /** Provider-computed request diagnostics for this call. */
+  requestMetrics?: LLMRequestMetrics;
   finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "error";
   /** Underlying error when finishReason is "error". */
   error?: Error;

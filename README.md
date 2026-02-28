@@ -185,7 +185,11 @@ Create `~/.agenc/config.json`:
     "dbPath": "~/.agenc/memory.db"
   },
   "logging": {
-    "level": "info"
+    "level": "info",
+    "trace": {
+      "enabled": false,
+      "maxChars": 20000
+    }
   }
 }
 ```
@@ -206,7 +210,7 @@ Create `~/.agenc/config.json`:
 | `mcp` | External MCP servers | `servers[]` with `name`, `command`, `args`, `env` |
 | `auth` | JWT/auth | `jwtSecret` |
 | `telemetry` | Metrics | `enabled`, `flushIntervalMs` |
-| `logging` | Log level | `level` (`debug` / `info` / `warn` / `error`) |
+| `logging` | Runtime logging + trace verbosity | `level` (`debug` / `info` / `warn` / `error`), `trace.enabled`, `trace.includeHistory`, `trace.includeSystemPrompt`, `trace.includeToolArgs`, `trace.includeToolResults`, `trace.maxChars` |
 
 </details>
 
@@ -232,6 +236,28 @@ npx agenc-runtime daemon restart --config ~/.agenc/config.json     # Restart
 ```
 
 The daemon writes a PID file to `~/.agenc/daemon.pid` and handles SIGTERM/SIGINT for graceful shutdown.
+
+### Full Chat/Tool Trace Logging
+
+When debugging tool-turn sequencing, context carryover, or sandbox/tool failures, enable full trace logs:
+
+```json
+{
+  "logging": {
+    "level": "info",
+    "trace": {
+      "enabled": true,
+      "includeHistory": true,
+      "includeSystemPrompt": true,
+      "includeToolArgs": true,
+      "includeToolResults": true,
+      "maxChars": 20000
+    }
+  }
+}
+```
+
+Trace output includes inbound messages, serialized session history, per-tool args/results, final LLM response metadata, and errors in `~/.agenc/daemon.log`.
 
 ### What Happens on Startup
 

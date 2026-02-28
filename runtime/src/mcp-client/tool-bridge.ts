@@ -12,6 +12,57 @@ import type { MCPToolBridge } from "./types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 
+const DEFAULT_MCP_LIST_TOOLS_TIMEOUT_MS = 30_000;
+const DEFAULT_MCP_CALL_TIMEOUT_MS = 45_000;
+
+interface ToolBridgeOptions {
+  listToolsTimeoutMs?: number;
+  callToolTimeoutMs?: number;
+}
+
+interface MCPToolDescriptor {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+}
+
+interface MCPListToolsResponse {
+  tools?: MCPToolDescriptor[];
+}
+
+interface MCPCallToolResponse {
+  content?: unknown;
+  isError?: boolean;
+}
+
+function normalizeTimeoutMs(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+async function withRPCDeadline<T>(
+  operation: string,
+  timeoutMs: number,
+  task: () => Promise<T>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([task(), timeoutPromise]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 /**
  * Create a tool bridge from an MCP client connection.
  *
@@ -29,17 +80,30 @@ export async function createToolBridge(
   client: any,
   serverName: string,
   logger: Logger = silentLogger,
+  options: ToolBridgeOptions = {},
 ): Promise<MCPToolBridge> {
-  const response = await client.listTools();
-  const mcpTools = response.tools ?? [];
+  const listToolsTimeoutMs = normalizeTimeoutMs(
+    options.listToolsTimeoutMs,
+    DEFAULT_MCP_LIST_TOOLS_TIMEOUT_MS,
+  );
+  const callToolTimeoutMs = normalizeTimeoutMs(
+    options.callToolTimeoutMs,
+    DEFAULT_MCP_CALL_TIMEOUT_MS,
+  );
+
+  const response = await withRPCDeadline<MCPListToolsResponse>(
+    `MCP server "${serverName}" listTools`,
+    listToolsTimeoutMs,
+    () => client.listTools(),
+  );
+  const mcpTools = Array.isArray(response.tools) ? response.tools : [];
 
   logger.info(`MCP server "${serverName}" exposes ${mcpTools.length} tools`);
 
   // Track disposal to prevent use-after-close
   let disposed = false;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tools: Tool[] = mcpTools.map((mcpTool: any) => {
+  const tools: Tool[] = mcpTools.map((mcpTool) => {
     const namespacedName = `mcp.${serverName}.${mcpTool.name}`;
 
     return {
@@ -56,10 +120,15 @@ export async function createToolBridge(
         }
 
         try {
-          const result = await client.callTool({
-            name: mcpTool.name,
-            arguments: args,
-          });
+          const result = await withRPCDeadline<MCPCallToolResponse>(
+            `MCP tool "${mcpTool.name}" callTool`,
+            callToolTimeoutMs,
+            () =>
+              client.callTool({
+                name: mcpTool.name,
+                arguments: args,
+              }),
+          );
 
           // MCP tool results contain a content array
           const content = Array.isArray(result.content)

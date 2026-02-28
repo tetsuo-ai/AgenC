@@ -39,7 +39,7 @@ export function ChatView({
   isTyping,
   onSend,
   onStop,
-  connected,
+  connected: _connected,
   voiceState = 'inactive',
   voiceTranscript = '',
   voiceMode = 'vad',
@@ -128,7 +128,6 @@ export function ChatView({
               onSend={onSend}
               onStop={onStop}
               isGenerating={isTyping}
-              disabled={!connected}
               voiceState={voiceState}
               voiceMode={voiceMode}
               onVoiceToggle={onVoiceToggle}
@@ -302,7 +301,6 @@ export function ChatView({
         onSend={onSend}
         onStop={onStop}
         isGenerating={isTyping}
-        disabled={!connected}
         voiceState={voiceState}
         voiceMode={voiceMode}
         onVoiceToggle={onVoiceToggle}

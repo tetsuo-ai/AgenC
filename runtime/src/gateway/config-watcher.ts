@@ -143,13 +143,45 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
   if (obj.logging !== undefined) {
     if (!isRecord(obj.logging)) {
       errors.push("logging must be an object");
-    } else if (obj.logging.level !== undefined) {
-      requireOneOf(
-        obj.logging.level,
-        "logging.level",
-        VALID_LOG_LEVELS,
-        errors,
-      );
+    } else {
+      if (obj.logging.level !== undefined) {
+        requireOneOf(
+          obj.logging.level,
+          "logging.level",
+          VALID_LOG_LEVELS,
+          errors,
+        );
+      }
+      if (obj.logging.trace !== undefined) {
+        if (!isRecord(obj.logging.trace)) {
+          errors.push("logging.trace must be an object");
+        } else {
+          const boolFields = [
+            "enabled",
+            "includeHistory",
+            "includeSystemPrompt",
+            "includeToolArgs",
+            "includeToolResults",
+          ];
+          for (const field of boolFields) {
+            if (
+              obj.logging.trace[field] !== undefined &&
+              typeof obj.logging.trace[field] !== "boolean"
+            ) {
+              errors.push(`logging.trace.${field} must be a boolean`);
+            }
+          }
+          if (obj.logging.trace.maxChars !== undefined) {
+            requireIntRange(
+              obj.logging.trace.maxChars,
+              "logging.trace.maxChars",
+              256,
+              200_000,
+              errors,
+            );
+          }
+        }
+      }
     }
   }
 
@@ -164,6 +196,21 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
         VALID_LLM_PROVIDERS,
         errors,
       );
+      if (obj.llm.timeoutMs !== undefined) {
+        requireIntRange(
+          obj.llm.timeoutMs,
+          "llm.timeoutMs",
+          1_000,
+          3_600_000,
+          errors,
+        );
+      }
+      if (
+        obj.llm.parallelToolCalls !== undefined &&
+        typeof obj.llm.parallelToolCalls !== "boolean"
+      ) {
+        errors.push("llm.parallelToolCalls must be a boolean");
+      }
     }
   }
 

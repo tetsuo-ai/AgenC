@@ -93,7 +93,10 @@ describe("logs: runLogsCommand", () => {
     expect(payload.pid).toBe(process.pid);
     expect(payload.port).toBe(3100);
     expect(Array.isArray(payload.methods)).toBe(true);
-    expect((payload.methods as Array<unknown>).length).toBe(3);
+    expect((payload.methods as Array<unknown>).length).toBe(4);
+    const methods = payload.methods as Array<{ mode: string; command: string }>;
+    const backgroundMethod = methods.find((m) => m.mode === "background");
+    expect(backgroundMethod?.command).toContain("daemon.log");
   });
 
   it("includes session filter when sessionId is provided", async () => {
@@ -138,5 +141,7 @@ describe("logs: runLogsCommand", () => {
     const methods = payload.methods as Array<{ mode: string; command: string }>;
     const systemdMethod = methods.find((m) => m.mode === "systemd");
     expect(systemdMethod?.command).toContain("-n 50");
+    const backgroundMethod = methods.find((m) => m.mode === "background");
+    expect(backgroundMethod?.command).toContain("-n 50");
   });
 });

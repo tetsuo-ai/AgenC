@@ -29,6 +29,7 @@
     "pretest": "npm run build --prefix ../sdk",
     "test": "vitest run",
     "test:watch": "vitest",
+    "repro:pipeline:http": "npx tsx scripts/repro-pipeline-http.ts",
     "benchmark": "npx tsx scripts/run-benchmarks.ts",
     "benchmark:ci": "npx tsx scripts/run-benchmarks.ts --output benchmarks/artifacts/ci.json",
     "mutation": "npx tsx scripts/run-mutations.ts",

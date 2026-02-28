@@ -124,12 +124,14 @@ export function extractAmount(
 // Default Rules
 // ============================================================================
 
-/** Built-in approval rules for common dangerous operations. */
+/**
+ * Built-in approval rules for common dangerous operations.
+ *
+ * Note: `system.bash` is intentionally not included by default. The bash tool
+ * already enforces a deny-list policy at execution time, and requiring manual
+ * approval for every shell command can deadlock non-interactive channels.
+ */
 export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
-  {
-    tool: "system.bash",
-    description: "Shell command execution",
-  },
   {
     tool: "system.delete",
     description: "File deletion",

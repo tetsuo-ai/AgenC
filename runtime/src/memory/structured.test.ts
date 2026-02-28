@@ -133,6 +133,16 @@ describe("DailyLogManager", () => {
     expect(mgr.todayPath).toContain(formatLogDate());
     expect(mgr.todayPath).toMatch(/\.md$/);
   });
+
+  it("truncates oversized log entries", async () => {
+    const mgr = new DailyLogManager(logDir);
+    const huge = "x".repeat(20_000);
+    await mgr.append("sess-1", "assistant", huge);
+    const content = await mgr.readLog(formatLogDate());
+    expect(content).toBeDefined();
+    expect(content!.length).toBeLessThan(13_000);
+    expect(content).toContain("...");
+  });
 });
 
 // ---------------------------------------------------------------------------

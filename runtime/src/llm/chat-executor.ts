@@ -16,6 +16,7 @@ import type {
   LLMContentPart,
   LLMResponse,
   LLMUsage,
+  LLMRequestMetrics,
   StreamProgressCallback,
   ToolHandler,
 } from "./types.js";
@@ -95,6 +96,36 @@ export interface ChatExecuteParams {
   readonly maxToolRounds?: number;
 }
 
+/** Estimated prompt-shape statistics for one provider call. */
+export interface ChatPromptShape {
+  readonly messageCount: number;
+  readonly systemMessages: number;
+  readonly userMessages: number;
+  readonly assistantMessages: number;
+  readonly toolMessages: number;
+  readonly estimatedChars: number;
+  readonly systemPromptChars: number;
+}
+
+/** Per-provider-call usage attribution for one ChatExecutor execution. */
+export interface ChatCallUsageRecord {
+  /** 1-based call index within a single execute() invocation. */
+  readonly callIndex: number;
+  readonly phase:
+    | "initial"
+    | "tool_followup"
+    | "evaluator"
+    | "evaluator_retry";
+  readonly provider: string;
+  readonly model?: string;
+  readonly finishReason: LLMResponse["finishReason"];
+  readonly usage: LLMUsage;
+  readonly beforeBudget: ChatPromptShape;
+  readonly afterBudget: ChatPromptShape;
+  /** Provider-specific request metrics (e.g. toolSchemaChars for Grok). */
+  readonly providerRequestMetrics?: LLMRequestMetrics;
+}
+
 /** Result returned from ChatExecutor.execute(). */
 export interface ChatExecutorResult {
   readonly content: string;
@@ -104,6 +135,8 @@ export interface ChatExecutorResult {
   readonly usedFallback: boolean;
   readonly toolCalls: readonly ToolCallRecord[];
   readonly tokenUsage: LLMUsage;
+  /** Per-call token and prompt-shape attribution for this execution. */
+  readonly callUsage: readonly ChatCallUsageRecord[];
   readonly durationMs: number;
   /** True if conversation history was compacted during this execution. */
   readonly compacted: boolean;
@@ -178,6 +211,13 @@ interface FallbackResult {
   response: LLMResponse;
   providerName: string;
   usedFallback: boolean;
+  beforeBudget: ChatPromptShape;
+  afterBudget: ChatPromptShape;
+}
+
+interface RecoveryHint {
+  key: string;
+  message: string;
 }
 
 // ============================================================================
@@ -196,6 +236,25 @@ const MAX_COMMAND_PREVIEW_CHARS = 60;
  * N times in a row, we inject a hint after (N-1) and break after N.
  */
 const MAX_CONSECUTIVE_IDENTICAL_FAILURES = 3;
+/** Break tool loop after N rounds where every tool call failed. */
+const MAX_CONSECUTIVE_ALL_FAILED_ROUNDS = 3;
+const RECOVERY_HINT_PREFIX = "Tool recovery hint:";
+const SHELL_BUILTIN_COMMANDS = new Set([
+  "set",
+  "cd",
+  "export",
+  "source",
+  "alias",
+  "unalias",
+  "unset",
+  "shopt",
+  "ulimit",
+  "umask",
+  "readonly",
+  "declare",
+  "typeset",
+  "builtin",
+]);
 /** Max chars for JSON result previews. */
 const MAX_RESULT_PREVIEW_CHARS = 500;
 /** Max chars for error message previews. */
@@ -220,6 +279,14 @@ const MAX_TOOL_RESULT_FIELD_CHARS = 2_000;
 const MAX_TOOL_IMAGE_CHARS_BUDGET = 100_000;
 /** Max chars retained from a single user text message. */
 const MAX_USER_MESSAGE_CHARS = 8_000;
+/** Hard cap for final assistant response size (protects against runaway output). */
+const MAX_FINAL_RESPONSE_CHARS = 24_000;
+/** Minimum line count before repetitive-output suppression is evaluated. */
+const REPETITIVE_LINE_MIN_COUNT = 40;
+/** Dominant-line repetition threshold for runaway detection. */
+const REPETITIVE_LINE_MIN_REPEATS = 20;
+/** Unique-line ratio threshold for runaway detection. */
+const REPETITIVE_LINE_MAX_UNIQUE_RATIO = 0.35;
 /**
  * macOS native tools that cause visible side-effects (opening apps, running scripts).
  * Once any tool in this set executes, further calls to ANY tool in the set are
@@ -234,6 +301,51 @@ const MACOS_SIDE_EFFECT_TOOLS = new Set([
   "system.applescript",
   "system.notification",
 ]);
+
+function didToolCallFail(isError: boolean, result: string): boolean {
+  if (isError) return true;
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return false;
+    }
+    const obj = parsed as Record<string, unknown>;
+    if (typeof obj.error === "string" && obj.error.trim().length > 0) return true;
+    if (typeof obj.exitCode === "number" && obj.exitCode !== 0) return true;
+  } catch {
+    // Non-JSON tool output — treat as non-failure unless isError=true.
+  }
+  return false;
+}
+
+function parseToolResultObject(
+  result: string,
+): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function extractToolFailureText(record: ToolCallRecord): string {
+  const parsed = parseToolResultObject(record.result);
+  if (!parsed) return record.result;
+
+  const pieces: string[] = [];
+  if (typeof parsed.error === "string" && parsed.error.trim().length > 0) {
+    pieces.push(parsed.error.trim());
+  }
+  if (typeof parsed.stderr === "string" && parsed.stderr.trim().length > 0) {
+    pieces.push(parsed.stderr.trim());
+  }
+  if (pieces.length > 0) return pieces.join("\n");
+  return record.result;
+}
 
 // ============================================================================
 // ChatExecutor
@@ -342,14 +454,29 @@ export class ChatExecutor {
       completionTokens: 0,
       totalTokens: 0,
     };
+    const callUsage: ChatCallUsageRecord[] = [];
+    let callIndex = 0;
     const allToolCalls: ToolCallRecord[] = [];
 
-    let { response, providerName, usedFallback } = await this.callWithFallback(
-      messages,
-      activeStreamCallback,
-    );
+    let {
+      response,
+      providerName,
+      usedFallback,
+      beforeBudget,
+      afterBudget,
+    } = await this.callWithFallback(messages, activeStreamCallback);
     let responseModel = response.model;
     this.accumulateUsage(cumulativeUsage, response.usage);
+    callUsage.push(
+      this.createCallUsageRecord({
+        callIndex: ++callIndex,
+        phase: "initial",
+        providerName,
+        response,
+        beforeBudget,
+        afterBudget,
+      }),
+    );
 
     // Tool call loop — side-effect deduplication prevents the model from
     // repeating desktop actions (e.g. opening 3 YouTube tabs). Once ANY
@@ -357,10 +484,12 @@ export class ChatExecutor {
     let rounds = 0;
     let sideEffectExecuted = false;
     let remainingToolImageChars = MAX_TOOL_IMAGE_CHARS_BUDGET;
+    const emittedRecoveryHints = new Set<string>();
     // Track consecutive identical failing calls to break stuck loops
     // (e.g. LLM calling `desktop.bash mkdir` with no args 5 times in a row).
     let lastFailKey = "";
     let consecutiveFailCount = 0;
+    let consecutiveAllFailedRounds = 0;
     while (
       response.finishReason === "tool_calls" &&
       response.toolCalls.length > 0 &&
@@ -371,6 +500,7 @@ export class ChatExecutor {
       if (signal?.aborted) break;
 
       rounds++;
+      const roundToolCallStart = allToolCalls.length;
 
       // Append the assistant message with tool calls
       messages.push({
@@ -464,19 +594,20 @@ export class ChatExecutor {
           isError = true;
         }
         const toolDuration = Date.now() - toolStart;
+        const toolFailed = didToolCallFail(isError, result);
 
         allToolCalls.push({
           name: toolCall.name,
           args,
           result,
-          isError,
+          isError: toolFailed,
           durationMs: toolDuration,
         });
 
         // Track consecutive identical failures to detect stuck loops.
         // Key on tool name + JSON args so "mkdir" with no args is distinct
         // from "mkdir -p crypto-tracker".
-        const failDetected = isError || result.includes('"exitCode":1') || result.includes('"exitCode":2');
+        const failDetected = toolFailed;
         const failKey = failDetected ? `${toolCall.name}:${toolCall.arguments}` : "";
         if (failDetected && failKey === lastFailKey) {
           consecutiveFailCount++;
@@ -507,13 +638,53 @@ export class ChatExecutor {
         break;
       }
 
+      // Break stuck loops — if all tool calls fail for multiple consecutive
+      // rounds, stop retrying and let the model respond with what it learned.
+      const roundCalls = allToolCalls.slice(roundToolCallStart);
+      if (roundCalls.length > 0) {
+        const roundFailures = roundCalls.filter((call) =>
+          didToolCallFail(call.isError, call.result),
+        ).length;
+        if (roundFailures === roundCalls.length) {
+          consecutiveAllFailedRounds++;
+        } else {
+          consecutiveAllFailedRounds = 0;
+        }
+        if (consecutiveAllFailedRounds >= MAX_CONSECUTIVE_ALL_FAILED_ROUNDS) {
+          break;
+        }
+      }
+
+      const recoveryHints = ChatExecutor.buildRecoveryHints(
+        roundCalls,
+        emittedRecoveryHints,
+      );
+      for (const hint of recoveryHints) {
+        messages.push({
+          role: "system",
+          content: `${RECOVERY_HINT_PREFIX} ${hint.message}`,
+        });
+      }
+
       // Re-call LLM
       const next = await this.callWithFallback(messages, activeStreamCallback);
       response = next.response;
       providerName = next.providerName;
       responseModel = next.response.model;
+      beforeBudget = next.beforeBudget;
+      afterBudget = next.afterBudget;
       if (next.usedFallback) usedFallback = true;
       this.accumulateUsage(cumulativeUsage, response.usage);
+      callUsage.push(
+        this.createCallUsageRecord({
+          callIndex: ++callIndex,
+          phase: "tool_followup",
+          providerName,
+          response,
+          beforeBudget,
+          afterBudget,
+        }),
+      );
     }
 
     // Update session token budget
@@ -547,8 +718,18 @@ export class ChatExecutor {
           currentContent,
           messageText,
         );
-        this.accumulateUsage(cumulativeUsage, evalResult.usage);
-        this.trackTokenUsage(sessionId, evalResult.usage.totalTokens);
+        this.accumulateUsage(cumulativeUsage, evalResult.response.usage);
+        this.trackTokenUsage(sessionId, evalResult.response.usage.totalTokens);
+        callUsage.push(
+          this.createCallUsageRecord({
+            callIndex: ++callIndex,
+            phase: "evaluator",
+            providerName: evalResult.providerName,
+            response: evalResult.response,
+            beforeBudget: evalResult.beforeBudget,
+            afterBudget: evalResult.afterBudget,
+          }),
+        );
 
         if (evalResult.score >= minScore || retryCount === maxRetries) {
           evaluation = {
@@ -572,12 +753,28 @@ export class ChatExecutor {
         const retry = await this.callWithFallback(messages, activeStreamCallback);
         this.accumulateUsage(cumulativeUsage, retry.response.usage);
         this.trackTokenUsage(sessionId, retry.response.usage.totalTokens);
+        callUsage.push(
+          this.createCallUsageRecord({
+            callIndex: ++callIndex,
+            phase: "evaluator_retry",
+            providerName: retry.providerName,
+            response: retry.response,
+            beforeBudget: retry.beforeBudget,
+            afterBudget: retry.afterBudget,
+          }),
+        );
         providerName = retry.providerName;
         responseModel = retry.response.model;
         if (retry.usedFallback) usedFallback = true;
         currentContent = retry.response.content || currentContent;
       }
     }
+
+    finalContent = ChatExecutor.sanitizeFinalContent(finalContent);
+    finalContent = ChatExecutor.reconcileStructuredToolOutcome(
+      finalContent,
+      allToolCalls,
+    );
 
     return {
       content: finalContent,
@@ -586,6 +783,7 @@ export class ChatExecutor {
       usedFallback,
       toolCalls: allToolCalls,
       tokenUsage: cumulativeUsage,
+      callUsage,
       durationMs: Date.now() - startTime,
       compacted,
       evaluation,
@@ -620,10 +818,12 @@ export class ChatExecutor {
     messages: LLMMessage[],
     onStreamChunk?: StreamProgressCallback,
   ): Promise<FallbackResult> {
+    const beforeBudget = ChatExecutor.estimatePromptShape(messages);
     const boundedMessages = ChatExecutor.enforcePromptCharBudget(
       messages,
       MAX_PROMPT_CHARS_BUDGET,
     );
+    const afterBudget = ChatExecutor.estimatePromptShape(boundedMessages);
     let lastError: Error | undefined;
     const now = Date.now();
 
@@ -657,6 +857,8 @@ export class ChatExecutor {
           response,
           providerName: provider.name,
           usedFallback: i > 0,
+          beforeBudget,
+          afterBudget,
         };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -699,6 +901,79 @@ export class ChatExecutor {
     );
   }
 
+  private static buildRecoveryHints(
+    roundCalls: readonly ToolCallRecord[],
+    emittedHints: Set<string>,
+  ): RecoveryHint[] {
+    const hints: RecoveryHint[] = [];
+    for (const call of roundCalls) {
+      const hint = ChatExecutor.inferRecoveryHint(call);
+      if (!hint) continue;
+      if (emittedHints.has(hint.key)) continue;
+      emittedHints.add(hint.key);
+      hints.push(hint);
+    }
+    return hints;
+  }
+
+  private static inferRecoveryHint(
+    call: ToolCallRecord,
+  ): RecoveryHint | undefined {
+    if (!didToolCallFail(call.isError, call.result)) return undefined;
+
+    const failureText = extractToolFailureText(call);
+    const failureTextLower = failureText.toLowerCase();
+
+    if (call.name === "system.bash") {
+      const command = String(call.args?.command ?? "").trim().toLowerCase();
+      const isBuiltin = command.length > 0 && SHELL_BUILTIN_COMMANDS.has(command);
+      if (
+        isBuiltin ||
+        failureTextLower.includes("shell builtin") ||
+        /spawn\s+\S+\s+enoent/i.test(failureText)
+      ) {
+        return {
+          key: "system-bash-shell-builtin",
+          message:
+            "system.bash executes one real binary only. Shell builtins (for example `set`, `cd`, `export`) " +
+            "and script-style command chains do not work there. Use executable + args, or move multi-line/chained logic to `desktop.bash`.",
+        };
+      }
+      if (
+        failureTextLower.includes("one executable token") ||
+        failureTextLower.includes("shell operators/newlines")
+      ) {
+        return {
+          key: "system-bash-command-shape",
+          message:
+            "system.bash `command` must be a single executable token. Put flags/operands in `args`. " +
+            "For pipes/redirection/heredocs or multi-line shell scripts, use `desktop.bash`.",
+        };
+      }
+    }
+
+    if (
+      call.name === "system.browse" ||
+      call.name === "system.httpGet" ||
+      call.name === "system.httpPost" ||
+      call.name === "system.httpFetch"
+    ) {
+      if (
+        failureTextLower.includes("private/loopback address blocked") ||
+        failureTextLower.includes("ssrf target blocked")
+      ) {
+        return {
+          key: "localhost-ssrf-blocked",
+          message:
+            "system.browse/system.http* block localhost/private/internal addresses by design. " +
+            "For local service checks, use `desktop.bash` (curl inside the sandbox) or Playwright desktop tools.",
+        };
+      }
+    }
+
+    return undefined;
+  }
+
   /** Extract plain-text content from a gateway message. */
   private static extractMessageText(message: GatewayMessage): string {
     return typeof message.content === "string" ? message.content : "";
@@ -708,6 +983,109 @@ export class ChatExecutor {
     if (value.length <= maxChars) return value;
     if (maxChars <= 3) return value.slice(0, Math.max(0, maxChars));
     return value.slice(0, maxChars - 3) + "...";
+  }
+
+  private static sanitizeFinalContent(content: string): string {
+    if (!content) return content;
+    const collapsed = ChatExecutor.collapseRunawayRepetition(content);
+    if (collapsed.length <= MAX_FINAL_RESPONSE_CHARS) return collapsed;
+    return (
+      ChatExecutor.truncateText(collapsed, MAX_FINAL_RESPONSE_CHARS) +
+      "\n\n[response truncated: oversized model output suppressed]"
+    );
+  }
+
+  private static reconcileStructuredToolOutcome(
+    content: string,
+    toolCalls: readonly ToolCallRecord[],
+  ): string {
+    if (!content || toolCalls.length === 0) return content;
+    const trimmed = content.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return content;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      return content;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return content;
+    }
+
+    const payload = parsed as Record<string, unknown>;
+    if (typeof payload.overall !== "string" || !Array.isArray(payload.steps)) {
+      return content;
+    }
+
+    const normalizedOverall = payload.overall.trim().toLowerCase();
+    if (normalizedOverall !== "pass") {
+      return content;
+    }
+
+    const hasToolFailure = toolCalls.some((toolCall) =>
+      didToolCallFail(toolCall.isError, toolCall.result),
+    );
+
+    const executedTools = new Set(
+      toolCalls
+        .map((toolCall) => toolCall.name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    );
+    const claimedTools = new Set<string>();
+    for (const step of payload.steps) {
+      if (typeof step !== "object" || step === null || Array.isArray(step)) {
+        continue;
+      }
+      const toolName = (step as { tool?: unknown }).tool;
+      if (typeof toolName === "string" && toolName.trim().length > 0) {
+        claimedTools.add(toolName.trim());
+      }
+    }
+
+    const claimsUnexecutedTool = Array.from(claimedTools).some(
+      (toolName) => !executedTools.has(toolName),
+    );
+
+    if (!hasToolFailure && !claimsUnexecutedTool) {
+      return content;
+    }
+
+    payload.overall = "fail";
+    return safeStringify(payload);
+  }
+
+  private static collapseRunawayRepetition(content: string): string {
+    const lines = content.split(/\r?\n/);
+    if (lines.length < REPETITIVE_LINE_MIN_COUNT) return content;
+
+    const normalized = lines.map((line) =>
+      line.trim().replace(/\s+/g, " ").toLowerCase(),
+    );
+    const nonEmpty = normalized.filter((line) => line.length > 0);
+    if (nonEmpty.length < REPETITIVE_LINE_MIN_COUNT) return content;
+
+    const freq = new Map<string, number>();
+    for (const line of nonEmpty) {
+      if (line.length > 80) continue;
+      freq.set(line, (freq.get(line) ?? 0) + 1);
+    }
+
+    let topCount = 0;
+    for (const count of freq.values()) {
+      if (count > topCount) topCount = count;
+    }
+
+    const uniqueRatio = new Set(nonEmpty).size / nonEmpty.length;
+    if (
+      topCount < REPETITIVE_LINE_MIN_REPEATS ||
+      uniqueRatio > REPETITIVE_LINE_MAX_UNIQUE_RATIO
+    ) {
+      return content;
+    }
+
+    const preview = lines.slice(0, 24).join("\n");
+    return `${preview}\n\n[response truncated: repetitive model output suppressed]`;
   }
 
   private static isBase64Like(value: string): boolean {
@@ -825,6 +1203,41 @@ export class ChatExecutor {
 
     selected.reverse();
     return systemHead ? [systemHead, ...selected] : selected;
+  }
+
+  private static estimatePromptShape(
+    messages: readonly LLMMessage[],
+  ): ChatPromptShape {
+    let systemMessages = 0;
+    let userMessages = 0;
+    let assistantMessages = 0;
+    let toolMessages = 0;
+    let estimatedChars = 0;
+    let systemPromptChars = 0;
+
+    for (const message of messages) {
+      estimatedChars += ChatExecutor.estimateMessageChars(message);
+      if (message.role === "system") {
+        systemMessages++;
+        systemPromptChars += ChatExecutor.estimateContentChars(message.content);
+      } else if (message.role === "user") {
+        userMessages++;
+      } else if (message.role === "assistant") {
+        assistantMessages++;
+      } else if (message.role === "tool") {
+        toolMessages++;
+      }
+    }
+
+    return {
+      messageCount: messages.length,
+      systemMessages,
+      userMessages,
+      assistantMessages,
+      toolMessages,
+      estimatedChars,
+      systemPromptChars,
+    };
   }
 
   private static normalizeHistory(history: readonly LLMMessage[]): LLMMessage[] {
@@ -1168,6 +1581,27 @@ export class ChatExecutor {
     }
   }
 
+  private createCallUsageRecord(input: {
+    callIndex: number;
+    phase: ChatCallUsageRecord["phase"];
+    providerName: string;
+    response: LLMResponse;
+    beforeBudget: ChatPromptShape;
+    afterBudget: ChatPromptShape;
+  }): ChatCallUsageRecord {
+    return {
+      callIndex: input.callIndex,
+      phase: input.phase,
+      provider: input.providerName,
+      model: input.response.model,
+      finishReason: input.response.finishReason,
+      usage: input.response.usage,
+      beforeBudget: input.beforeBudget,
+      afterBudget: input.afterBudget,
+      providerRequestMetrics: input.response.requestMetrics,
+    };
+  }
+
   // --------------------------------------------------------------------------
   // Response evaluation
   // --------------------------------------------------------------------------
@@ -1180,9 +1614,21 @@ export class ChatExecutor {
   private async evaluateResponse(
     content: string,
     userMessage: string,
-  ): Promise<{ score: number; feedback: string; usage: LLMUsage }> {
+  ): Promise<{
+    score: number;
+    feedback: string;
+    response: LLMResponse;
+    providerName: string;
+    beforeBudget: ChatPromptShape;
+    afterBudget: ChatPromptShape;
+  }> {
     const rubric = this.evaluator?.rubric ?? ChatExecutor.DEFAULT_EVAL_RUBRIC;
-    const { response } = await this.callWithFallback([
+    const {
+      response,
+      providerName,
+      beforeBudget,
+      afterBudget,
+    } = await this.callWithFallback([
       { role: "system", content: rubric },
       {
         role: "user",
@@ -1201,13 +1647,19 @@ export class ChatExecutor {
             : 0.5,
         feedback:
           typeof parsed.feedback === "string" ? parsed.feedback : "",
-        usage: response.usage,
+        response,
+        providerName,
+        beforeBudget,
+        afterBudget,
       };
     } catch {
       return {
         score: 1.0,
         feedback: "Evaluation parse failed — accepting response",
-        usage: response.usage,
+        response,
+        providerName,
+        beforeBudget,
+        afterBudget,
       };
     }
   }

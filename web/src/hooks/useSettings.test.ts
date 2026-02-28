@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useSettings } from './useSettings';
 
 describe('useSettings', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('auto-requests config when connected', () => {
     const send = vi.fn();
 
@@ -127,5 +131,40 @@ describe('useSettings', () => {
 
     expect(result.current.saving).toBe(false);
     expect(result.current.lastError).toBe('invalid config');
+  });
+
+  it('clears saving and reports error when disconnected mid-save', () => {
+    const send = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ connected }) => useSettings({ send, connected }),
+      { initialProps: { connected: true } },
+    );
+
+    act(() => {
+      result.current.save({});
+    });
+    expect(result.current.saving).toBe(true);
+
+    rerender({ connected: false });
+    expect(result.current.saving).toBe(false);
+    expect(result.current.lastError).toBe('Disconnected while saving settings.');
+  });
+
+  it('times out a save request that never receives config.set response', () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const { result } = renderHook(() => useSettings({ send, connected: true }));
+
+    act(() => {
+      result.current.save({});
+    });
+    expect(result.current.saving).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(result.current.saving).toBe(false);
+    expect(result.current.lastError).toContain('Saving settings timed out');
   });
 });

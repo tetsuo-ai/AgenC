@@ -182,6 +182,19 @@ describe("system.bash tool", () => {
     expect(mockExecFile).not.toHaveBeenCalled();
   });
 
+  it("returns remediation guidance when shell wrapper commands are denied", async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({
+      command: "bash",
+      args: ["-c", "echo hi"],
+    });
+    expect(result.isError).toBe(true);
+    const parsed = parseContent(result);
+    expect(parsed.error).toContain("Do not use shell wrappers like \"bash -c\"");
+    expect(parsed.error).toContain("Call the executable directly");
+  });
+
   // ---- Privilege escalation prevention ----
 
   it("blocks sudo and su", async () => {
@@ -283,6 +296,30 @@ describe("system.bash tool", () => {
     const result = await tool.execute({ command: "/usr/bin/python3.11" });
     expect(result.isError).toBe(true);
     expect(parseContent(result).error).toContain("denied");
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("allows exact interpreter commands when explicitly excluded from deny list", async () => {
+    const tool = createBashTool({ denyExclusions: ["python3"] });
+    mockSuccess("Python 3.11.9\n");
+
+    const result = await tool.execute({
+      command: "python3",
+      args: ["--version"],
+    });
+
+    expect(result.isError).toBeUndefined();
+    const parsed = parseContent(result);
+    expect(parsed.exitCode).toBe(0);
+    expect(parsed.stdout).toContain("Python");
+  });
+
+  it("still blocks versioned interpreter binaries when only base command is excluded", async () => {
+    const tool = createBashTool({ denyExclusions: ["python3"] });
+
+    const result = await tool.execute({ command: "python3.11" });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain("matches deny prefix");
     expect(mockExecFile).not.toHaveBeenCalled();
   });
 
@@ -546,6 +583,43 @@ describe("system.bash tool", () => {
     expect(parseContent(result).error).toContain("array of strings");
   });
 
+  it("rejects shell-like command strings in command field", async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({
+      command: "ls -la /tmp",
+    });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain("one executable token");
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects newline-delimited script content in command field", async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({
+      command: "cd /tmp\npython3 -m http.server 8123",
+    });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain("Shell operators/newlines");
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects shell builtin commands with actionable guidance", async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({
+      command: "set",
+      args: ["-euo", "pipefail"],
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = parseContent(result);
+    expect(parsed.error).toContain("shell builtin");
+    expect(parsed.error).toContain("desktop.bash");
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
   it("returns error for non-string elements in args array", async () => {
     const tool = createBashTool();
 
@@ -569,6 +643,9 @@ describe("system.bash tool", () => {
     expect(schema.required).toEqual(["command"]);
     const props = schema.properties as Record<string, unknown>;
     expect(props.command).toBeDefined();
+    expect((props.command as Record<string, unknown>).pattern).toBe(
+      "^[A-Za-z0-9_./+-]+$",
+    );
     expect(props.args).toBeDefined();
     expect(props.cwd).toBeDefined();
     expect(props.timeoutMs).toBeDefined();
@@ -589,6 +666,20 @@ describe("system.bash tool", () => {
     const parsed = parseContent(result);
     expect(parsed.exitCode).toBe(127);
     expect(parsed.timedOut).toBe(false);
+  });
+
+  it("falls back to error.message when stderr is empty", async () => {
+    const tool = createBashTool();
+    mockError(
+      { message: "spawn does-not-exist ENOENT", code: "ENOENT" },
+      "",
+      "",
+    );
+
+    const result = await tool.execute({ command: "does-not-exist" });
+    expect(result.isError).toBe(true);
+    const parsed = parseContent(result);
+    expect(parsed.stderr).toContain("ENOENT");
   });
 
   // ---- Logging ----
@@ -691,6 +782,27 @@ describe("isCommandAllowed", () => {
   it("denies absolute path to version-specific binary via prefix matching", () => {
     const result = isCommandAllowed("/usr/bin/ruby3.2", new Set(), null);
     expect(result.allowed).toBe(false);
+  });
+
+  it("allows exact excluded command even if it matches deny prefix", () => {
+    const result = isCommandAllowed(
+      "python3",
+      new Set(),
+      null,
+      new Set(["python3"]),
+    );
+    expect(result.allowed).toBe(true);
+  });
+
+  it("still denies versioned command when only exact base is excluded", () => {
+    const result = isCommandAllowed(
+      "python3.11",
+      new Set(),
+      null,
+      new Set(["python3"]),
+    );
+    expect(result.allowed).toBe(false);
+    expect((result as { reason: string }).reason).toContain("deny prefix");
   });
 
   it("allows commands that do not match any deny prefix", () => {

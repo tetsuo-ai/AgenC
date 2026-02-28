@@ -1,20 +1,23 @@
 import { execFile, spawn } from "node:child_process";
 import { readFile, writeFile, unlink, mkdir, stat, access, } from "node:fs/promises";
+import { closeSync, openSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 const DISPLAY = process.env.DISPLAY ?? ":1";
 const EXEC_TIMEOUT_MS = 30_000;
 const BASH_TIMEOUT_MS = 600_000;
 const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB
+const MAX_EXEC_BUFFER_BYTES = 1024 * 1024; // 1MB capture headroom
 const TYPE_CHUNK_SIZE = 50;
 const TYPE_DELAY_MS = 12;
 const GUI_LAUNCH_CMD_RE = /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:xfce4-terminal|gnome-terminal|xterm|kitty|firefox|chromium|chromium-browser|google-chrome|thunar|nautilus|mousepad|gedit)\b/i;
+const BACKGROUND_COMMAND_RE = /(.*?)(?:&\s*(?:disown\s*)?(?:(?:;|&&)?\s*echo\s+\$!\s*)?)$/;
 const APT_PREFIX_RE = /^\s*(?:sudo\s+)?(?:(?:DEBIAN_FRONTEND|APT_LISTCHANGES_FRONTEND)=[^\s]+\s+)*(?:apt-get|apt)\b/i;
 function exec(cmd, args, timeoutMs = EXEC_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         execFile(cmd, args, {
             timeout: timeoutMs,
-            maxBuffer: MAX_OUTPUT_BYTES,
+            maxBuffer: MAX_EXEC_BUFFER_BYTES,
             env: { ...process.env, DISPLAY },
         }, (err, stdout, stderr) => {
             if (err)
@@ -29,6 +32,11 @@ function ok(content) {
 }
 function fail(message) {
     return { content: JSON.stringify({ error: message }), isError: true };
+}
+function truncateOutput(text) {
+    if (text.length <= MAX_OUTPUT_BYTES)
+        return text;
+    return text.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
 }
 function normalizeAptCommand(command) {
     const trimmed = command.trim();
@@ -218,6 +226,23 @@ async function keyboardKey(args) {
         return fail(`keyboard_key failed: ${e instanceof Error ? e.message : e}`);
     }
 }
+function spawnDetachedCommand(command, logPath) {
+    const stdoutFd = openSync(logPath, "a");
+    const stderrFd = openSync(logPath, "a");
+    try {
+        const child = spawn("/bin/bash", ["-lc", command], {
+            env: { ...process.env, DISPLAY },
+            detached: true,
+            stdio: ["ignore", stdoutFd, stderrFd],
+        });
+        child.unref();
+        return { pid: child.pid };
+    }
+    finally {
+        closeSync(stdoutFd);
+        closeSync(stderrFd);
+    }
+}
 async function bash(args) {
     const command = String(args.command ?? "");
     if (!command)
@@ -227,15 +252,29 @@ async function bash(args) {
     // GUI launch commands should be detached automatically so the tool call
     // doesn't block on an interactive app (e.g. `xfce4-terminal`).
     const trimmed = command.trim();
-    const alreadyBackgrounded = /&\s*(?:disown\s*)?$/.test(trimmed);
+    const backgroundMatch = trimmed.match(BACKGROUND_COMMAND_RE);
+    const alreadyBackgrounded = Boolean(backgroundMatch);
     const autoDetachGui = GUI_LAUNCH_CMD_RE.test(trimmed) && !alreadyBackgrounded;
     try {
+        // For explicit background commands, run via a detached wrapper so the tool
+        // returns immediately instead of waiting on inherited pipes/job control.
+        if (alreadyBackgrounded) {
+            const commandBody = (backgroundMatch?.[1] ?? "").trim();
+            if (!commandBody)
+                return fail("background command is empty");
+            await mkdir("/tmp/agenc-bg", { recursive: true });
+            const { pid } = spawnDetachedCommand(commandBody, "/tmp/agenc-bg/last-background.log");
+            return ok({
+                stdout: "",
+                stderr: "",
+                exitCode: 0,
+                backgrounded: true,
+                ...(Number.isFinite(pid) ? { pid } : {}),
+            });
+        }
         if (autoDetachGui) {
-            const detachedCommand = `mkdir -p /tmp/agenc-gui && ` +
-                `nohup /bin/bash -lc ${JSON.stringify(trimmed)} ` +
-                `>/tmp/agenc-gui/last-launch.log 2>&1 & echo $!`;
-            const { stdout } = await exec("/bin/bash", ["-c", detachedCommand], 15_000);
-            const pid = Number(stdout.trim());
+            await mkdir("/tmp/agenc-gui", { recursive: true });
+            const { pid } = spawnDetachedCommand(trimmed, "/tmp/agenc-gui/last-launch.log");
             return ok({
                 stdout: "",
                 stderr: "",
@@ -245,19 +284,30 @@ async function bash(args) {
             });
         }
         const { stdout, stderr } = await exec("/bin/bash", ["-c", normalizedCommand], timeoutMs);
-        const output = stdout.length > MAX_OUTPUT_BYTES
-            ? stdout.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)"
-            : stdout;
-        return ok({ stdout: output, stderr, exitCode: 0 });
+        return ok({
+            stdout: truncateOutput(stdout),
+            stderr: truncateOutput(stderr),
+            exitCode: 0,
+        });
     }
     catch (e) {
         // Non-zero exit codes are reported, not thrown
         const err = e;
         if (err.code !== undefined && typeof err.code === "number") {
             return ok({
-                stdout: err.stdout ?? "",
-                stderr: err.stderr ?? "",
+                stdout: truncateOutput(err.stdout ?? ""),
+                stderr: truncateOutput(err.stderr ?? ""),
                 exitCode: err.code,
+            });
+        }
+        const message = String(err.message ?? e ?? "");
+        if (err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ||
+            message.includes("maxBuffer length exceeded")) {
+            return ok({
+                stdout: truncateOutput(err.stdout ?? ""),
+                stderr: truncateOutput(err.stderr ?? ""),
+                exitCode: 0,
+                truncated: true,
             });
         }
         return fail(`bash failed: ${e instanceof Error ? e.message : e}`);

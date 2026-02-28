@@ -66,6 +66,7 @@ function mockManager(overrides: Partial<DesktopSandboxManager> = {}): DesktopSan
       apiHostPort: 32769,
       vncHostPort: 32768,
     }),
+    destroyBySession: vi.fn().mockResolvedValue(undefined),
     getHandleBySession: vi.fn().mockReturnValue({
       containerId: "test-container",
     }),
@@ -185,6 +186,319 @@ describe("createDesktopAwareToolHandler", () => {
     const result = await handler("desktop.nonexistent", {});
     const parsed = JSON.parse(result);
     expect(parsed.error).toContain("Unknown desktop tool");
+  });
+
+  it("guards desktop.bash against interactive REPL commands", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", { command: "python3" });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("interactive shell/REPL");
+  });
+
+  it("guards desktop.bash against incomplete single-word commands", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", { command: "which" });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("incomplete");
+    expect(parsed.error).toContain("which python3");
+  });
+
+  it("guards browser launch commands without a URL target", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", { command: "chromium-browser" });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("chromium-browser http://localhost:8000");
+    expect(parsed.error).toContain("playwright.browser_navigate");
+  });
+
+  it("guards browser launch commands that are not backgrounded", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "chromium-browser http://localhost:8000",
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("run in background");
+    expect(parsed.error).toContain("playwright.browser_navigate");
+  });
+
+  it("allows backgrounded browser launches without output redirection", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "chromium-browser http://localhost:8000 &",
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
+  it("rewrites chromium launch commands with an isolated user-data-dir", async () => {
+    const manager = mockManager();
+    const bridgeCtor = vi.mocked(DesktopRESTBridge);
+    const bashExecute = vi.fn().mockResolvedValue({
+      content: '{"stdout":"","stderr":"","exitCode":0}',
+      isError: false,
+    });
+
+    bridgeCtor.mockImplementationOnce(
+      () =>
+        ({
+          connect: vi.fn().mockResolvedValue(undefined),
+          disconnect: vi.fn(),
+          isConnected: vi.fn().mockReturnValue(true),
+          getTools: vi.fn().mockReturnValue([
+            {
+              name: "desktop.bash",
+              description: "Run bash command",
+              inputSchema: {},
+              execute: bashExecute,
+            },
+          ]),
+        }) as unknown as DesktopRESTBridge,
+    );
+
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    await handler("desktop.bash", {
+      command: "chromium-browser http://localhost:8000 >/dev/null 2>&1 &",
+    });
+
+    expect(bashExecute).toHaveBeenCalledTimes(1);
+    const callArgs = bashExecute.mock.calls[0][0] as { command?: string };
+    expect(callArgs.command).toContain("--new-window");
+    expect(callArgs.command).toContain("--incognito");
+    expect(callArgs.command).toContain("--user-data-dir=/tmp/agenc-chrome-");
+    expect(callArgs.command).toContain("http://localhost:8000");
+  });
+
+  it("guards long-running foreground server commands with short timeout", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "python3 -m http.server 8000",
+      timeoutMs: 5_000,
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("long-running server process");
+    expect(parsed.error).toContain("append `&`");
+  });
+
+  it("guards long-running server commands even when prefixed with cd &&", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "cd /home/agenc && python3 -m http.server 8000",
+      timeoutMs: 5_000,
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("long-running server process");
+    expect(parsed.error).toContain("append `&`");
+  });
+
+  it("allows long-running server commands when already backgrounded", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "python3 -m http.server 8000 >/tmp/server.log 2>&1 &",
+      timeoutMs: 5_000,
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
+  it("allows backgrounded long-running servers when command ends with '& echo $!'", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "python3 -m http.server 8000 >/tmp/server.log 2>&1 & echo $!",
+      timeoutMs: 5_000,
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
+  it("allows backgrounded long-running servers without output redirection", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "python3 -m http.server 8000 &",
+      timeoutMs: 5_000,
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
+  it("does not flag pgrep checks as long-running server launches", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "pgrep -fa 'python3 -m http.server 8000'",
+      timeoutMs: 5_000,
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
+  it("does not flag pkill teardown checks as long-running server launches", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command:
+        "pkill -f 'python3 -m http.server 8000' || true\nsleep 1\nss -ltn '( sport = :8000 )' | tail -n +2 | wc -l || true",
+      timeoutMs: 5_000,
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
+  it("infers window_focus title from window_list when title is omitted", async () => {
+    const manager = mockManager();
+    const bridgeCtor = vi.mocked(DesktopRESTBridge);
+    const windowListExecute = vi.fn().mockResolvedValue({
+      content:
+        '{"windows":[{"id":"11","title":"Chromium - http://localhost:8000"}],"totalWindows":1}',
+      isError: false,
+    });
+    const windowFocusExecute = vi.fn().mockResolvedValue({
+      content: '{"focused":true,"windowId":"11"}',
+      isError: false,
+    });
+
+    bridgeCtor.mockImplementationOnce(
+      () =>
+        ({
+          connect: vi.fn().mockResolvedValue(undefined),
+          disconnect: vi.fn(),
+          isConnected: vi.fn().mockReturnValue(true),
+          getTools: vi.fn().mockReturnValue([
+            {
+              name: "desktop.window_list",
+              description: "List windows",
+              inputSchema: {},
+              execute: windowListExecute,
+            },
+            {
+              name: "desktop.window_focus",
+              description: "Focus window",
+              inputSchema: {},
+              execute: windowFocusExecute,
+            },
+          ]),
+        }) as unknown as DesktopRESTBridge,
+    );
+
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+    const result = await handler("desktop.window_focus", {});
+
+    expect(JSON.parse(result)).toMatchObject({ focused: true, windowId: "11" });
+    expect(windowFocusExecute).toHaveBeenCalledWith({
+      title: "Chromium - http://localhost:8000",
+    });
+  });
+
+  it("recycles sandbox and retries once when desktop tool reports transient fetch failure", async () => {
+    const manager = mockManager();
+    const bridgeCtor = vi.mocked(DesktopRESTBridge);
+
+    const failingBridge = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn(),
+      isConnected: vi.fn().mockReturnValue(true),
+      getTools: vi.fn().mockReturnValue([
+        {
+          name: "desktop.bash",
+          description: "Run bash command",
+          inputSchema: {},
+          execute: vi.fn().mockResolvedValue({
+            content: '{"error":"Tool execution failed: fetch failed"}',
+            isError: true,
+          }),
+        },
+      ]),
+    } as unknown as DesktopRESTBridge;
+
+    const recoveredBridge = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn(),
+      isConnected: vi.fn().mockReturnValue(true),
+      getTools: vi.fn().mockReturnValue([
+        {
+          name: "desktop.bash",
+          description: "Run bash command",
+          inputSchema: {},
+          execute: vi.fn().mockResolvedValue({
+            content: '{"stdout":"recovered","exitCode":0}',
+            isError: false,
+          }),
+        },
+      ]),
+    } as unknown as DesktopRESTBridge;
+
+    bridgeCtor
+      .mockImplementationOnce(() => failingBridge)
+      .mockImplementationOnce(() => recoveredBridge);
+
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", { command: "echo hi" });
+
+    expect(JSON.parse(result)).toMatchObject({ stdout: "recovered", exitCode: 0 });
+    expect((manager.destroyBySession as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("sess1");
+    expect(bridgeCtor).toHaveBeenCalledTimes(2);
   });
 
   describe("auto-screenshot", () => {

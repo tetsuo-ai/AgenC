@@ -19,10 +19,14 @@ export interface GatewayLLMConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  /** Request timeout in milliseconds for provider calls (default: provider-specific). */
+  timeoutMs?: number;
   /** Maximum token budget per session. 0 or undefined = unlimited. */
   sessionTokenBudget?: number;
   /** Maximum tool call rounds per message. Default: 5. */
   maxToolRounds?: number;
+  /** Allow model-emitted parallel tool calls. Default: false (serialized). */
+  parallelToolCalls?: boolean;
   /** Additional LLM providers for fallback (tried in order after primary fails). */
   fallback?: GatewayLLMConfig[];
 }
@@ -73,6 +77,20 @@ export interface GatewayConnectionConfig {
 
 export interface GatewayLoggingConfig {
   level?: "debug" | "info" | "warn" | "error";
+  trace?: {
+    /** Enable verbose per-turn chat/tool tracing in daemon logs. */
+    enabled?: boolean;
+    /** Include serialized session history in trace output. */
+    includeHistory?: boolean;
+    /** Include the assembled system prompt in trace output. */
+    includeSystemPrompt?: boolean;
+    /** Include raw tool-call arguments in trace output. */
+    includeToolArgs?: boolean;
+    /** Include raw tool-call results in trace output. */
+    includeToolResults?: boolean;
+    /** Max characters retained for any traced text field. */
+    maxChars?: number;
+  };
 }
 
 export interface GatewayBindConfig {

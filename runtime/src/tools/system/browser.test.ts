@@ -1078,6 +1078,7 @@ describe("domain validation", () => {
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content);
     expect(parsed.error).toContain("blocked");
+    expect(parsed.error).toContain("desktop.bash");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VoiceState, VoiceMode } from '../../types';
 import { VoiceButton } from './VoiceButton';
 
@@ -12,6 +12,43 @@ interface ChatInputProps {
   onVoiceToggle?: () => void;
   onPushToTalkStart?: () => void;
   onPushToTalkStop?: () => void;
+}
+
+interface SlashCommandOption {
+  name: string;
+  description: string;
+  args?: string;
+}
+
+const SLASH_COMMANDS: SlashCommandOption[] = [
+  { name: 'help', description: 'Show available commands' },
+  { name: 'status', description: 'Show agent status' },
+  { name: 'new', description: 'Start a new session' },
+  { name: 'reset', description: 'Reset session and clear context' },
+  { name: 'restart', description: 'Restart current chat context' },
+  { name: 'stop', description: 'Pause the agent' },
+  { name: 'start', description: 'Resume the agent' },
+  { name: 'context', description: 'Show context window usage' },
+  { name: 'compact', description: 'Force conversation compaction' },
+  { name: 'model', description: 'Show current model', args: '[name]' },
+  { name: 'skills', description: 'List available skills' },
+  { name: 'task', description: 'Show current task status' },
+  { name: 'tasks', description: 'List tasks' },
+  { name: 'balance', description: 'Show token balance' },
+  { name: 'reputation', description: 'Show reputation score' },
+  { name: 'progress', description: 'Show recent task progress' },
+  { name: 'pipeline', description: 'Run pipeline from JSON steps', args: '<json>' },
+  { name: 'resume', description: 'Resume halted pipeline', args: '[pipeline-id]' },
+  { name: 'goal', description: 'Create or list goals', args: '[description]' },
+  { name: 'desktop', description: 'Desktop sandbox control', args: '<start|stop|status|vnc>' },
+];
+
+function getSlashQuery(value: string): string | null {
+  if (!value.startsWith('/')) return null;
+  if (value.includes('\n')) return null;
+  const spaceIndex = value.indexOf(' ');
+  if (spaceIndex !== -1) return null;
+  return value.slice(1).toLowerCase();
 }
 
 export function ChatInput({
@@ -28,9 +65,28 @@ export function ChatInput({
   const [value, setValue] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const slashQuery = useMemo(() => getSlashQuery(value), [value]);
+  const visibleCommands = useMemo(() => {
+    if (slashQuery === null) return [];
+    if (!slashQuery) return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter((cmd) => cmd.name.startsWith(slashQuery));
+  }, [slashQuery]);
+  const showCommandMenu = visibleCommands.length > 0;
+
+  useEffect(() => {
+    setActiveCommandIndex(0);
+  }, [slashQuery]);
+
+  const applyCommand = useCallback((cmd: SlashCommandOption) => {
+    const nextValue = `/${cmd.name} `;
+    setValue(nextValue);
+    setActiveCommandIndex(0);
+    textareaRef.current?.focus();
+  }, []);
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
@@ -60,12 +116,30 @@ export function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (showCommandMenu) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setActiveCommandIndex((prev) => (prev + 1) % visibleCommands.length);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setActiveCommandIndex((prev) => (prev - 1 + visibleCommands.length) % visibleCommands.length);
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          const selected = visibleCommands[activeCommandIndex];
+          if (selected) applyCommand(selected);
+          return;
+        }
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [handleSubmit],
+    [activeCommandIndex, applyCommand, handleSubmit, showCommandMenu, visibleCommands],
   );
 
   const handleInput = useCallback(() => {
@@ -161,6 +235,36 @@ export function ChatInput({
             className="flex-1 text-sm text-tetsuo-900 resize-none focus:outline-none placeholder:text-tetsuo-500 disabled:opacity-50 bg-transparent leading-relaxed caret-tetsuo-900"
           />
         </div>
+
+        {showCommandMenu && (
+          <div
+            data-testid="slash-command-menu"
+            className="mx-4 mb-2 border border-tetsuo-200 rounded-xl bg-surface shadow-sm overflow-hidden"
+          >
+            <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-tetsuo-400 border-b border-tetsuo-100">
+              Commands
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              {visibleCommands.map((cmd, idx) => (
+                <button
+                  key={cmd.name}
+                  type="button"
+                  data-testid={`slash-command-${cmd.name}`}
+                  onClick={() => applyCommand(cmd)}
+                  className={`w-full text-left px-3 py-2.5 transition-colors ${
+                    idx === activeCommandIndex ? 'bg-tetsuo-100' : 'hover:bg-tetsuo-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-accent">/{cmd.name}</span>
+                    {cmd.args && <span className="text-[11px] text-tetsuo-500 font-mono">{cmd.args}</span>}
+                  </div>
+                  <div className="mt-0.5 text-xs text-tetsuo-500">{cmd.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Bottom row: emoji, mic, send */}
         <div className="flex items-center justify-end gap-2 px-4 pb-2.5">

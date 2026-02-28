@@ -106,15 +106,12 @@ RUN printf '%s\n' \
     'fi' \
     '' \
     'has_no_sandbox=0' \
-    'has_disable_setuid=0' \
     'for arg in "$@"; do' \
     '  [ "$arg" = "--no-sandbox" ] && has_no_sandbox=1' \
-    '  [ "$arg" = "--disable-setuid-sandbox" ] && has_disable_setuid=1' \
     'done' \
     '' \
     'extra=()' \
     '[ "$has_no_sandbox" -eq 0 ] && extra+=(--no-sandbox)' \
-    '[ "$has_disable_setuid" -eq 0 ] && extra+=(--disable-setuid-sandbox)' \
     'extra+=(--disable-gpu --use-gl=swiftshader --disable-dev-shm-usage)' \
     '' \
     'exec "${CHROME_BIN}" "${extra[@]}" "$@"' \
