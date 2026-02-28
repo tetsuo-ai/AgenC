@@ -299,7 +299,7 @@ export class WebChatChannel
     switch (type) {
       case "voice.start": {
         // Pass the client's current sessionId so voice and text share history
-        const voiceSessionId = this.clientSessions.get(clientId);
+        const voiceSessionId = this.ensureSession(clientId);
         void bridge.startSession(clientId, send, voiceSessionId);
         break;
       }

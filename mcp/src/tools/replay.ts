@@ -1041,15 +1041,23 @@ async function withReplayPolicyControl(
   }
 
   activeReplayJobs += 1;
+  let timeoutController: AbortController | null = null;
   const timeout = effectiveCaps.timeoutMs > 0 ? effectiveCaps.timeoutMs : null;
   const timeoutPromise =
     timeout === null
       ? Promise.resolve<ReplayToolOutput | never>(undefined as never)
-      : nodeSetTimeout(timeout).then(() => {
-          throw new Error(
-            `replay tool ${toolName} timed out after ${timeout}ms`,
-          );
-        });
+      : (() => {
+          timeoutController = new AbortController();
+          return nodeSetTimeout(
+            timeout,
+            undefined,
+            { signal: timeoutController.signal },
+          ).then(() => {
+            throw new Error(
+              `replay tool ${toolName} timed out after ${timeout}ms`,
+            );
+          });
+        })();
   let removeAbortListener = () => {};
   const abortPromise = new Promise<ReplayToolOutput | never>((_, reject) => {
     const signal = extra?.signal;
@@ -1122,6 +1130,7 @@ async function withReplayPolicyControl(
   } finally {
     activeReplayJobs = Math.max(0, activeReplayJobs - 1);
     removeAbortListener();
+    timeoutController?.abort();
     if (policy.auditEnabled) {
       emitAuditEntry({
         timestamp: new Date().toISOString(),

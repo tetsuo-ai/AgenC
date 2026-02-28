@@ -267,7 +267,11 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
 
       case WS_TOOLS_EXECUTING: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
+        const toolCallId = payload.toolCallId
+          ? `${payload.toolCallId}`
+          : undefined;
         const toolCall: ToolCall = {
+          toolCallId,
           toolName: (payload.toolName as string) ?? 'unknown',
           args: (payload.args as Record<string, unknown>) ?? {},
           status: 'executing',
@@ -332,14 +336,23 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
 
       case WS_TOOLS_RESULT: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
+        const toolCallId = payload.toolCallId
+          ? `${payload.toolCallId}`
+          : undefined;
         setMessages((prev) => {
           const copy = [...prev];
           for (let i = copy.length - 1; i >= 0; i--) {
             const tc = copy[i].toolCalls;
             if (tc) {
-              const executing = tc.find(
-                (t) => t.toolName === payload.toolName && t.status === 'executing',
-              );
+              const executing = tc.find((t) => {
+                if (toolCallId) {
+                  return t.toolCallId === toolCallId && t.status === 'executing';
+                }
+                return (
+                  t.toolName === (payload.toolName as string)
+                  && t.status === 'executing'
+                );
+              });
               if (executing) {
                 executing.result = (payload.result as string) ?? '';
                 executing.durationMs = payload.durationMs as number;

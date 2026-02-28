@@ -2,11 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ViewId, WSMessage, ApprovalRequest } from './types';
 import {
   WS_VOICE_SPEECH_STOPPED,
+  WS_VOICE_DELEGATION,
   WS_VOICE_USER_TRANSCRIPT,
   WS_VOICE_TRANSCRIPT,
-  WS_VOICE_TOOL_CALL,
-  WS_TOOLS_EXECUTING,
-  WS_TOOLS_RESULT,
 } from './constants';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
@@ -77,6 +75,7 @@ export default function App() {
   const desktop = useDesktop({ send, connected });
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
   const prevVncUrl = useRef<string | null>(null);
+  const suppressNextVoiceTranscript = useRef(false);
 
   // Match VNC viewer to the active chat session's container.
   // During voice delegation, sandboxes are keyed by the voice session ID
@@ -133,6 +132,15 @@ export default function App() {
 
     // Voice → Chat bridge: mirror voice turns as chat messages
     const payload = (msg.payload ?? {}) as Record<string, unknown>;
+    if (msg.type === WS_VOICE_DELEGATION) {
+      const status = payload.status as string;
+      if (status === 'completed') {
+        suppressNextVoiceTranscript.current = true;
+      } else if (status === 'started' || status === 'error' || status === 'blocked') {
+        suppressNextVoiceTranscript.current = false;
+      }
+    }
+
     if (msg.type === WS_VOICE_SPEECH_STOPPED) {
       // Inject placeholder immediately — replaced by real transcript if available
       chat.injectMessage('[Voice]', 'user');
@@ -142,24 +150,11 @@ export default function App() {
       chat.replaceLastUserMessage(payload.text);
     }
     if (msg.type === WS_VOICE_TRANSCRIPT && payload.done && typeof payload.text === 'string') {
-      chat.injectMessage(payload.text, 'agent');
-    }
-    // Bridge voice tool calls to the chat tool call UI
-    if (msg.type === WS_VOICE_TOOL_CALL) {
-      const toolName = (payload.toolName as string) ?? 'unknown';
-      const status = payload.status as string;
-      if (status === 'executing') {
-        chat.handleMessage({ type: WS_TOOLS_EXECUTING, payload: { toolName, args: {} } });
-      } else if (status === 'completed' || status === 'error') {
-        chat.handleMessage({
-          type: WS_TOOLS_RESULT,
-          payload: {
-            toolName,
-            result: (payload.result as string) ?? (payload.error as string) ?? '',
-            isError: status === 'error',
-          },
-        });
+      if (suppressNextVoiceTranscript.current) {
+        suppressNextVoiceTranscript.current = false;
+        return;
       }
+      chat.injectMessage(payload.text, 'agent');
     }
   }
 

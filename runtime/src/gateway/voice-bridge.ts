@@ -49,7 +49,6 @@ const VM = {
   ERROR: "voice.error",
   STARTED: "voice.started",
   STOPPED: "voice.stopped",
-  TOOL_CALL: "voice.tool_call",
 } as const;
 
 // ============================================================================
@@ -238,19 +237,16 @@ export class VoiceBridge {
       send,
     );
 
-    // Resolve the SessionManager's derived session ID.
-    // getOrCreate hashes channel+senderId to derive the key; we must use
-    // this same key for appendMessage, otherwise recording silently fails.
-    let managedSessionId = effectiveSessionId;
-    if (this.config.sessionManager) {
-      const session = this.config.sessionManager.getOrCreate({
-        channel: "voice",
+    // Resolve the SessionManager's canonical session ID for this webchat client.
+    // This keeps voice transcripts and delegated tool calls aligned with the
+    // text session history.
+    const managedSessionId =
+      this.config.sessionManager?.getOrCreate({
+        channel: "webchat",
         senderId: clientId,
         scope: "dm",
         workspaceId: "default",
-      });
-      managedSessionId = session.id;
-    }
+      }).id ?? effectiveSessionId;
 
     // Load memory context from persistent backend (cross-session awareness)
     let memoryContext = "";
@@ -359,6 +355,7 @@ export class VoiceBridge {
     const session = this.sessions.get(clientId);
     if (!session) return;
 
+    session.delegationAbort?.abort();
     session.client.close();
     this.sessions.delete(clientId);
     session.send({ type: VM.STOPPED });
@@ -425,7 +422,7 @@ export class VoiceBridge {
       },
       onTranscriptDone: (text: string) => {
         send({ type: VM.TRANSCRIPT, payload: { text, done: true } });
-        this.recordTranscript(sessionId, "assistant", text);
+        this.recordTranscript(clientId, "assistant", text);
       },
       onFunctionCall: async (name: string, args: string, _callId: string) => {
         if (name === "execute_with_agent") {
@@ -441,7 +438,7 @@ export class VoiceBridge {
       },
       onInputTranscriptDone: (text: string) => {
         send({ type: VM.USER_TRANSCRIPT, payload: { text } });
-        this.recordTranscript(sessionId, "user", text);
+        this.recordTranscript(clientId, "user", text);
       },
       onSpeechStarted: () => {
         send({ type: VM.SPEECH_STARTED });
@@ -485,10 +482,10 @@ export class VoiceBridge {
     const task = this.parseDelegationTask(argsJson);
     if (typeof task !== "string") return task.error;
 
+    const session = this.sessions.get(clientId);
     send({ type: VM.DELEGATION, payload: { status: "started", task } });
 
     // Cancel any stale delegation and set up abort for this one
-    const session = this.sessions.get(clientId);
     session?.delegationAbort?.abort();
     const abortController = new AbortController();
     if (session) session.delegationAbort = abortController;
@@ -499,9 +496,11 @@ export class VoiceBridge {
       if (blocked) return blocked;
 
       // Session history
+      const managedSessionId = session?.managedSessionId ?? sessionId;
       const history = this.config.sessionManager
-        ? this.config.sessionManager.getOrCreate({
-            channel: "voice",
+        ? this.config.sessionManager.get(managedSessionId)?.history ??
+          this.config.sessionManager.getOrCreate({
+            channel: "webchat",
             senderId: clientId,
             scope: "dm",
             workspaceId: "default",
@@ -536,7 +535,12 @@ export class VoiceBridge {
       });
 
       // Persist results to session history and memory
-      this.persistDelegationResult(sessionId, task, result.content);
+      this.persistDelegationResult(
+        sessionId,
+        managedSessionId,
+        task,
+        result.content,
+      );
 
       // Dispatch outbound hook
       if (this.config.hooks) {
@@ -643,22 +647,18 @@ export class VoiceBridge {
   /** Persist delegation messages to session history and memory backend. */
   private persistDelegationResult(
     sessionId: string,
+    managedSessionId: string,
     task: string,
     content: string,
   ): void {
     const { sessionManager, memoryBackend } = this.config;
 
     if (sessionManager) {
-      // Find managed session ID for correct appendMessage lookup
-      let targetId = sessionId;
-      for (const s of this.sessions.values()) {
-        if (s.sessionId === sessionId) {
-          targetId = s.managedSessionId;
-          break;
-        }
-      }
-      sessionManager.appendMessage(targetId, { role: "user", content: task });
-      sessionManager.appendMessage(targetId, { role: "assistant", content });
+      sessionManager.appendMessage(managedSessionId, { role: "user", content: task });
+      sessionManager.appendMessage(managedSessionId, {
+        role: "assistant",
+        content,
+      });
     }
 
     if (memoryBackend) {
@@ -682,24 +682,16 @@ export class VoiceBridge {
    * Non-blocking — catches errors silently to avoid disrupting voice flow.
    */
   private recordTranscript(
-    sessionId: string,
+    clientId: string,
     role: "user" | "assistant",
     text: string,
   ): void {
     if (!text.trim() || !this.config.sessionManager) return;
-
-    // Find the managed session ID (derived by SessionManager.getOrCreate)
-    // for this session to ensure appendMessage finds the right entry.
-    let targetId = sessionId;
-    for (const s of this.sessions.values()) {
-      if (s.sessionId === sessionId) {
-        targetId = s.managedSessionId;
-        break;
-      }
-    }
+    const session = this.sessions.get(clientId);
+    if (!session) return;
 
     try {
-      this.config.sessionManager.appendMessage(targetId, {
+      this.config.sessionManager.appendMessage(session.managedSessionId, {
         role,
         content: text,
       });
@@ -723,16 +715,8 @@ export class VoiceBridge {
     const { sessionManager } = this.config;
     if (!sessionManager) return;
 
-    // Read history from the same session that recordTranscript writes to
-    const storedSession = sessionManager.getOrCreate({
-      channel: "voice",
-      senderId:
-        Array.from(this.sessions.values()).find(
-          (s) => s.managedSessionId === managedSessionId,
-        )?.sessionId.replace(/^voice:/, "") ?? managedSessionId,
-      scope: "dm",
-      workspaceId: "default",
-    });
+    const storedSession = sessionManager.get(managedSessionId);
+    if (!storedSession) return;
 
     const history = storedSession.history;
     if (history.length === 0) return;

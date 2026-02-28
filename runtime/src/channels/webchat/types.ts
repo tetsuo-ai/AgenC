@@ -211,12 +211,14 @@ export interface ChatResumedResponse {
 export interface ToolExecutingResponse {
   type: "tools.executing";
   toolName: string;
+  toolCallId?: string;
   args: Record<string, unknown>;
 }
 
 export interface ToolResultResponse {
   type: "tools.result";
   toolName: string;
+  toolCallId?: string;
   result: string;
   durationMs: number;
   isError?: boolean;

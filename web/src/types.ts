@@ -44,6 +44,7 @@ export interface TokenUsage {
 
 export interface ToolCall {
   toolName: string;
+  toolCallId?: string;
   args: Record<string, unknown>;
   result?: string;
   durationMs?: number;
@@ -159,6 +160,7 @@ export interface WSMessage {
   timestamp?: number;
   // Tool fields
   toolName?: string;
+  toolCallId?: string;
   args?: Record<string, unknown>;
   result?: string;
   durationMs?: number;

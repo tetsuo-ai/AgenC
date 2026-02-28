@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionState, WSMessage } from '../types';
 
-const DEFAULT_URL = 'ws://127.0.0.1:3100';
+function getDefaultWsUrl(): string {
+  if (typeof window !== 'undefined') {
+    const query = new URLSearchParams(window.location.search);
+    const queryWsUrl = query.get('ws');
+    if (queryWsUrl) return queryWsUrl;
+  }
+
+  return (import.meta as { env?: Record<string, string | undefined> })?.env?.VITE_WEBCHAT_WS_URL
+    ?? 'ws://127.0.0.1:3100';
+}
+
+const DEFAULT_URL = getDefaultWsUrl();
 const PING_INTERVAL_MS = 30_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;

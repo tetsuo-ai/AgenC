@@ -32,9 +32,18 @@ export interface SessionToolHandlerConfig {
   /** Approval engine for tool gating. */
   approvalEngine?: ApprovalEngine;
   /** Called when tool execution starts (before hooks). */
-  onToolStart?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolStart?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    toolCallId: string,
+  ) => void;
   /** Called when tool execution finishes (after hooks). */
-  onToolEnd?: (toolName: string, result: string, durationMs: number) => void;
+  onToolEnd?: (
+    toolName: string,
+    result: string,
+    durationMs: number,
+    toolCallId: string,
+  ) => void;
 }
 
 // ============================================================================
@@ -68,8 +77,13 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     onToolStart,
     onToolEnd,
   } = config;
+  let toolCallSeq = 0;
+  const nextToolCallId = (): string =>
+    `tool-${Date.now().toString(36)}-${++toolCallSeq}`;
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
+    const toolCallId = nextToolCallId();
+
     // 1. Hook: tool:before (policy gate, progress tracking, etc.)
     if (hooks) {
       const beforeResult = await hooks.dispatch('tool:before', {
@@ -85,10 +99,13 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     }
 
     // 2. Notify caller: tool execution starting
-    onToolStart?.(name, args);
+    onToolStart?.(name, args, toolCallId);
 
     // 3. Send tools.executing to client
-    send({ type: 'tools.executing', payload: { toolName: name, args } });
+    send({
+      type: 'tools.executing',
+      payload: { toolName: name, args, toolCallId },
+    });
 
     // 4. Approval gate
     if (approvalEngine) {
@@ -113,8 +130,11 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         const response = await approvalEngine.requestApproval(request);
         if (response.disposition === 'no') {
           const err = JSON.stringify({ error: `Tool "${name}" denied by user` });
-          send({ type: 'tools.result', payload: { toolName: name, result: err, durationMs: 0, isError: true } });
-          onToolEnd?.(name, err, 0);
+          send({
+            type: 'tools.result',
+            payload: { toolName: name, result: err, durationMs: 0, isError: true, toolCallId },
+          });
+          onToolEnd?.(name, err, 0, toolCallId);
           return err;
         }
         if (response.disposition === 'always') {
@@ -134,7 +154,10 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     const durationMs = Date.now() - start;
 
     // 7. Send tools.result to client
-    send({ type: 'tools.result', payload: { toolName: name, result, durationMs } });
+    send({
+      type: 'tools.result',
+      payload: { toolName: name, result, durationMs, toolCallId },
+    });
 
     // 8. Hook: tool:after (progress tracking)
     if (hooks) {
@@ -148,7 +171,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     }
 
     // 9. Notify caller: tool execution finished
-    onToolEnd?.(name, result, durationMs);
+    onToolEnd?.(name, result, durationMs, toolCallId);
 
     return result;
   };
