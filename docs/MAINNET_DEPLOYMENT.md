@@ -37,7 +37,11 @@ Complete all items before proceeding with mainnet deployment:
    ```bash
    cd runtime && npm run mutation:ci && npm run mutation:gates
    ```
-5. Build verifiable program and record executable hash:
+5. Run runtime pipeline quality suite + gates:
+   ```bash
+   cd runtime && npm run benchmark:pipeline:ci && npm run benchmark:pipeline:gates
+   ```
+6. Build verifiable program and record executable hash:
    ```bash
    anchor build --verifiable
    solana-verify get-executable-hash target/deploy/agenc_coordination.so
@@ -49,7 +53,8 @@ Complete all items before proceeding with mainnet deployment:
 # 2) npm run test:fast: 160+ tests passing (~5s)
 # 3) runtime tests: ~1800+ tests passing
 # 4) mutation gates: exit code 0
-# 5) solana-verify prints an executable hash (record it)
+# 5) pipeline quality gates: PASS
+# 6) solana-verify prints an executable hash (record it)
 ```
 
 **Troubleshooting**
@@ -58,6 +63,7 @@ Complete all items before proceeding with mainnet deployment:
 | readiness check fails | missing env/toolchain/config | follow the printed remediation and rerun |
 | `npm run test:fast` fails | regression in on-chain/LiteSVM flows | fix failing test before deploy |
 | mutation gate fails | behavior drift or insufficient coverage | investigate mutation report; fix or update gates intentionally |
+| pipeline quality gate fails | context growth/tool-turn/desktop/token-efficiency regression | inspect `runtime/benchmarks/artifacts/pipeline-quality.ci.json`, fix runtime pipeline, rerun gates |
 | `solana-verify` missing | solana-verify not installed | install solana-verify and rerun |
 
 ### Security Requirements

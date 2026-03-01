@@ -325,6 +325,140 @@ Provider-specific additions:
 | `cache.ttlMs` | `number` | No | `300_000` |
 | `cache.maxEntries` | `number` | No | `100` |
 
+## Runtime Pipeline Config Profiles
+
+These profiles target the gateway runtime pipeline (`ChatExecutor` + provider adapters). Copy into `~/.agenc/config.json` and adjust secrets/ports/RPC URLs.
+
+### Profile 1: Safe Defaults (recommended)
+
+Use for most production channels where correctness and predictable behavior matter more than raw throughput.
+
+```json
+{
+  "llm": {
+    "provider": "grok",
+    "apiKey": "${XAI_API_KEY}",
+    "model": "grok-3",
+    "timeoutMs": 60000,
+    "toolCallTimeoutMs": 180000,
+    "requestTimeoutMs": 600000,
+    "parallelToolCalls": false,
+    "contextWindowTokens": 131072,
+    "promptSafetyMarginTokens": 2048,
+    "promptHardMaxChars": 12000,
+    "maxRuntimeHints": 4,
+    "plannerEnabled": true,
+    "plannerMaxTokens": 320,
+    "maxToolRounds": 5,
+    "toolBudgetPerRequest": 10,
+    "maxModelRecallsPerRequest": 2,
+    "maxFailureBudgetPerRequest": 3,
+    "retryPolicy": {
+      "timeout": { "maxRetries": 2 },
+      "provider_error": { "maxRetries": 2 },
+      "rate_limited": { "maxRetries": 3 }
+    },
+    "toolFailureCircuitBreaker": {
+      "enabled": true,
+      "threshold": 5,
+      "windowMs": 300000,
+      "cooldownMs": 120000
+    },
+    "statefulResponses": {
+      "enabled": false,
+      "store": false,
+      "fallbackToStateless": true
+    }
+  }
+}
+```
+
+### Profile 2: High Throughput
+
+Use for high-volume low-latency channels where strict retries are less valuable than fast turn completion.
+
+```json
+{
+  "llm": {
+    "provider": "grok",
+    "apiKey": "${XAI_API_KEY}",
+    "model": "grok-3",
+    "timeoutMs": 30000,
+    "toolCallTimeoutMs": 90000,
+    "requestTimeoutMs": 180000,
+    "parallelToolCalls": false,
+    "contextWindowTokens": 131072,
+    "promptSafetyMarginTokens": 2048,
+    "promptHardMaxChars": 10000,
+    "maxRuntimeHints": 2,
+    "plannerEnabled": false,
+    "maxToolRounds": 4,
+    "toolBudgetPerRequest": 8,
+    "maxModelRecallsPerRequest": 1,
+    "maxFailureBudgetPerRequest": 2,
+    "statefulResponses": {
+      "enabled": true,
+      "store": false,
+      "fallbackToStateless": true
+    },
+    "toolRouting": {
+      "enabled": true,
+      "minToolsPerTurn": 8,
+      "maxToolsPerTurn": 24,
+      "maxExpandedToolsPerTurn": 32
+    }
+  }
+}
+```
+
+### Profile 3: Local Debug
+
+Use during incident triage. This profile prioritizes observability and reproducibility over cost/latency.
+
+```json
+{
+  "llm": {
+    "provider": "grok",
+    "apiKey": "${XAI_API_KEY}",
+    "model": "grok-3",
+    "timeoutMs": 60000,
+    "toolCallTimeoutMs": 240000,
+    "requestTimeoutMs": 900000,
+    "parallelToolCalls": false,
+    "plannerEnabled": true,
+    "plannerMaxTokens": 320,
+    "maxToolRounds": 6,
+    "toolBudgetPerRequest": 12,
+    "maxModelRecallsPerRequest": 3,
+    "maxFailureBudgetPerRequest": 4,
+    "statefulResponses": {
+      "enabled": false,
+      "store": false,
+      "fallbackToStateless": true
+    }
+  },
+  "logging": {
+    "level": "info",
+    "trace": {
+      "enabled": true,
+      "includeHistory": true,
+      "includeSystemPrompt": true,
+      "includeToolArgs": true,
+      "includeToolResults": true,
+      "maxChars": 20000
+    }
+  }
+}
+```
+
+### Profile Selection Guide
+
+| Profile | Best For | Tradeoff |
+|---------|----------|----------|
+| Safe defaults | General production | Higher latency than throughput profile |
+| High throughput | High-turnover chat workloads | Less retry depth and tighter budgets |
+| Local debug | Incident triage and reproductions | Large logs and higher token spend |
+
 ## Capability Constants
 
 ```typescript

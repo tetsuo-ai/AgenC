@@ -6,6 +6,7 @@
  * Uses fetch() (Node.js 18+ built-in) — no new dependencies.
  */
 
+import { createHash } from "node:crypto";
 import type { Tool, ToolResult } from "../tools/types.js";
 import { safeStringify } from "../tools/types.js";
 import type { Logger } from "../utils/logger.js";
@@ -169,16 +170,21 @@ export class DesktopRESTBridge {
             inner = raw;
           }
 
-          // Special handling for screenshot — include data URL for vision LLMs
+          // Special handling for screenshot — keep raw image out-of-band.
           if (
             def.name === "screenshot" &&
             typeof inner.image === "string"
           ) {
             const { image, ...rest } = inner;
+            const imageBuffer = Buffer.from(image, "base64");
+            const digest = createHash("sha256").update(imageBuffer).digest("hex");
             return {
               content: safeStringify({
                 ...rest,
-                dataUrl: `data:image/png;base64,${image}`,
+                imageDigest: `sha256:${digest}`,
+                imageBytes: imageBuffer.byteLength,
+                imageMimeType: "image/png",
+                artifactExternalized: true,
               }),
             };
           }

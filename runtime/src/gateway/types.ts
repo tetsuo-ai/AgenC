@@ -33,6 +33,37 @@ export interface GatewayLLMConfig {
   maxRuntimeHints?: number;
   /** Request timeout in milliseconds for provider calls (default: provider-specific). */
   timeoutMs?: number;
+  /** End-to-end timeout in milliseconds for one chat request execution. */
+  requestTimeoutMs?: number;
+  /** Timeout in milliseconds for a single tool execution call. */
+  toolCallTimeoutMs?: number;
+  /** Optional overrides for LLM failure-class retry policy matrix. */
+  retryPolicy?: Partial<Record<
+    | "validation_error"
+    | "provider_error"
+    | "authentication_error"
+    | "rate_limited"
+    | "timeout"
+    | "tool_error"
+    | "budget_exceeded"
+    | "no_progress"
+    | "cancelled"
+    | "unknown",
+    {
+      maxRetries?: number;
+      baseDelayMs?: number;
+      maxDelayMs?: number;
+      jitter?: boolean;
+      circuitBreakerEligible?: boolean;
+    }
+  >>;
+  /** Session-level circuit breaker for repeated failing tool patterns. */
+  toolFailureCircuitBreaker?: {
+    enabled?: boolean;
+    threshold?: number;
+    windowMs?: number;
+    cooldownMs?: number;
+  };
   /** Maximum token budget per session. 0 or undefined = unlimited. */
   sessionTokenBudget?: number;
   /** Maximum tool call rounds per message. Default: 5. */

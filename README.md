@@ -191,7 +191,19 @@ Create `~/.agenc/config.json`:
   "llm": {
     "provider": "grok",
     "apiKey": "your-xai-api-key",
-    "model": "grok-3"
+    "model": "grok-3",
+    "timeoutMs": 60000,
+    "toolCallTimeoutMs": 180000,
+    "requestTimeoutMs": 600000,
+    "toolFailureCircuitBreaker": {
+      "enabled": true,
+      "threshold": 5,
+      "windowMs": 300000,
+      "cooldownMs": 120000
+    },
+    "retryPolicy": {
+      "timeout": { "maxRetries": 1 }
+    }
   },
   "memory": {
     "backend": "sqlite",
@@ -215,7 +227,7 @@ Create `~/.agenc/config.json`:
 | `gateway` | WebSocket control plane | `port` (default 3100), `host` |
 | `agent` | Agent metadata | `name`, `capabilities`, `endpoint`, `stake` |
 | `connection` | Solana RPC | `rpcUrl`, `keypairPath`, `endpoints[]` (failover) |
-| `llm` | Primary LLM | `provider` (`grok` / `anthropic` / `ollama`), `apiKey`, `model`, `fallback[]` |
+| `llm` | Primary LLM | `provider` (`grok` / `anthropic` / `ollama`), `apiKey`, `model`, `timeoutMs`, `toolCallTimeoutMs`, `requestTimeoutMs`, `retryPolicy`, `toolFailureCircuitBreaker`, `fallback[]` |
 | `memory` | Session storage + semantic memory | `backend` (`memory` / `sqlite` / `redis`), `dbPath`, `embeddingProvider`, `embeddingModel` |
 | `channels` | Chat integrations | `webchat`, `telegram`, `discord`, `slack`, `whatsapp`, `signal`, `matrix`, `imessage` |
 | `voice` | TTS/STT | `enabled`, `voice`, `mode` (`vad` / `push-to-talk`), `apiKey` |
@@ -226,6 +238,14 @@ Create `~/.agenc/config.json`:
 | `logging` | Runtime logging + trace verbosity | `level` (`debug` / `info` / `warn` / `error`), `trace.enabled`, `trace.includeHistory`, `trace.includeSystemPrompt`, `trace.includeToolArgs`, `trace.includeToolResults`, `trace.maxChars` |
 
 </details>
+
+### Recommended Config Profiles
+
+Use one of the tested pipeline profiles in [docs/RUNTIME_API.md](docs/RUNTIME_API.md):
+
+- `Safe Defaults` (recommended baseline)
+- `High Throughput` (lower latency, tighter budgets)
+- `Local Debug` (trace-heavy incident triage)
 
 ### 2. Start the Daemon
 
@@ -873,6 +893,8 @@ cargo fuzz run task_lifecycle
 ```bash
 cd runtime
 npm run benchmark          # Deterministic benchmark corpus
+npm run benchmark:pipeline # Phase 9 pipeline quality suite
+npm run benchmark:pipeline:gates # Enforce pipeline quality gates
 npm run mutation           # Mutation test suite
 npm run mutation:gates     # Enforce regression gates
 ```
@@ -890,8 +912,8 @@ anchor deploy --provider.cluster devnet
 | Job | Purpose |
 |-----|---------|
 | `runtime_checks` | Tests, typecheck, build for all TS packages |
-| `reliability_regression` | Benchmark corpus + mutation suite + gate enforcement |
-| `nightly_reliability` | Extended benchmarks with 30-day artifact retention |
+| `reliability_regression` | Benchmark corpus + mutation suite + pipeline quality suite + gate enforcement |
+| `nightly_reliability` | Extended benchmark + mutation + pipeline quality artifacts with 30-day retention |
 
 ### Key File Paths
 
@@ -909,7 +931,9 @@ anchor deploy --provider.cluster devnet
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System architecture |
+| [Runtime Chat Pipeline](docs/architecture/flows/runtime-chat-pipeline.md) | Pipeline states, budgets, fallback and stop reasons |
 | [Runtime API](docs/RUNTIME_API.md) | Runtime package API reference |
+| [Runtime Pipeline Debug](docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md) | Trace bundle capture + minimal repro workflow |
 | [Privacy Guide](docs/PRIVACY_README.md) | Privacy features deep-dive |
 | [Deployment Guide](docs/DEPLOYMENT.md) | Build, deploy, and verify |
 | [Upgrade Guide](docs/UPGRADE_GUIDE.md) | Protocol version migration |

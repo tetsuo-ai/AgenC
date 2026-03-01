@@ -40,6 +40,7 @@ export {
   LLMServerError,
   LLMToolCallError,
   LLMTimeoutError,
+  classifyLLMFailure,
   mapLLMError,
 } from "./errors.js";
 

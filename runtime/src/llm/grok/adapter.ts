@@ -654,6 +654,7 @@ export class GrokProvider implements LLMProvider {
     let content = "";
     let model = this.config.model;
     let finishReason: LLMResponse["finishReason"] = "stop";
+    let responseError: Error | undefined;
     let usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     const toolCallAccum = new Map<string, LLMToolCall>();
     let streamIterator: AsyncIterator<any> | null = null;
@@ -725,6 +726,7 @@ export class GrokProvider implements LLMProvider {
             toolCallAccum.set(toolCall.id, toolCall);
           }
           finishReason = this.mapResponseFinishReason(response, Array.from(toolCallAccum.values()));
+          responseError = this.extractResponseError(response, finishReason);
           const outputText = String(response.output_text ?? "");
           if (outputText && content.length === 0) {
             content = outputText;
@@ -740,7 +742,14 @@ export class GrokProvider implements LLMProvider {
         }
 
         if (event.type === "response.failed") {
+          const failedResponse =
+            event.response && typeof event.response === "object"
+              ? (event.response as Record<string, unknown>)
+              : {};
           finishReason = "error";
+          responseError =
+            this.extractResponseError(failedResponse, "error") ??
+            new LLMProviderError(this.name, "Provider returned status failed");
           continue;
         }
       }
@@ -758,6 +767,7 @@ export class GrokProvider implements LLMProvider {
         requestMetrics,
         stateful: statefulDiagnostics,
         finishReason,
+        ...(responseError ? { error: responseError } : {}),
       };
       this.persistStatefulAnchor(plan, parsed);
       return parsed;
@@ -1271,6 +1281,7 @@ export class GrokProvider implements LLMProvider {
         responseId,
       }
       : undefined;
+    const parsedError = this.extractResponseError(response, finishReason);
 
     return {
       content: this.extractOutputText(response),
@@ -1280,6 +1291,7 @@ export class GrokProvider implements LLMProvider {
       requestMetrics,
       stateful,
       finishReason,
+      ...(parsedError ? { error: parsedError } : {}),
     };
   }
 
@@ -1356,6 +1368,35 @@ export class GrokProvider implements LLMProvider {
       return "length";
     }
     return "stop";
+  }
+
+  private extractResponseError(
+    response: Record<string, unknown>,
+    finishReason: LLMResponse["finishReason"],
+  ): Error | undefined {
+    if (finishReason !== "error") return undefined;
+    const status = String(response.status ?? "");
+    const rawError = response.error;
+    const errorObj =
+      rawError && typeof rawError === "object" && !Array.isArray(rawError)
+        ? (rawError as Record<string, unknown>)
+        : undefined;
+    const message = (
+      typeof errorObj?.message === "string" && errorObj.message.length > 0
+        ? errorObj.message
+        : (status === "failed"
+            ? "Provider returned failed response status"
+            : "Provider returned error response")
+    );
+    const codeRaw = errorObj?.code ?? errorObj?.status ?? errorObj?.statusCode;
+    const statusCode = typeof codeRaw === "number"
+      ? codeRaw
+      : Number.parseInt(String(codeRaw ?? ""), 10);
+    return new LLMProviderError(
+      this.name,
+      message,
+      Number.isFinite(statusCode) ? statusCode : undefined,
+    );
   }
 
   private mapError(err: unknown): Error {

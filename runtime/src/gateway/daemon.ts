@@ -12,7 +12,7 @@ import { mkdir, readFile, unlink, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { homedir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Gateway } from './gateway.js';
 import { loadGatewayConfig } from './config-watcher.js';
 import { GatewayLifecycleError, GatewayStateError } from './errors.js';
@@ -36,6 +36,9 @@ import type {
   StreamProgressCallback,
   LLMMessage,
 } from '../llm/types.js';
+import { classifyLLMFailure } from '../llm/errors.js';
+import { toPipelineStopReason } from '../llm/policy.js';
+import type { LLMPipelineStopReason } from '../llm/policy.js';
 import type { GatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
 import type {
@@ -206,6 +209,36 @@ function truncateToolLogText(value: string, maxChars = TOOL_LOG_SNIPPET_MAX_CHAR
   return value.slice(0, maxChars - 3) + "...";
 }
 
+function summarizeArtifactText(value: string, maxChars: number): unknown {
+  const imagePrefix = "data:image/";
+  if (value.startsWith(imagePrefix)) {
+    const commaIndex = value.indexOf(",");
+    const mime = value.slice(5, commaIndex > 0 ? commaIndex : imagePrefix.length);
+    const base64 = commaIndex > 0 ? value.slice(commaIndex + 1) : "";
+    const digest = createHash("sha256").update(base64).digest("hex");
+    const byteLength = Math.floor((base64.length * 3) / 4);
+    return {
+      artifactType: "image_data_url",
+      mimeType: mime,
+      digest: `sha256:${digest}`,
+      bytes: Math.max(0, byteLength),
+      externalized: true,
+    };
+  }
+
+  if (/^[A-Za-z0-9+/=\r\n]{512,}$/.test(value)) {
+    const digest = createHash("sha256").update(value).digest("hex");
+    return {
+      artifactType: "base64_blob",
+      digest: `sha256:${digest}`,
+      chars: value.length,
+      externalized: true,
+    };
+  }
+
+  return truncateToolLogText(value, maxChars);
+}
+
 interface ToolFailureSummary {
   readonly name: string;
   readonly durationMs: number;
@@ -264,7 +297,7 @@ function summarizeTraceValue(
   depth = 0,
 ): unknown {
   if (value === null || value === undefined) return value;
-  if (typeof value === 'string') return truncateToolLogText(value, maxChars);
+  if (typeof value === 'string') return summarizeArtifactText(value, maxChars);
   if (
     typeof value === 'number' ||
     typeof value === 'boolean'
@@ -275,7 +308,7 @@ function summarizeTraceValue(
     return value.toString();
   }
   if (typeof value !== 'object') {
-    return truncateToolLogText(String(value), maxChars);
+    return summarizeArtifactText(String(value), maxChars);
   }
   if (depth >= TRACE_SANITIZE_MAX_DEPTH) {
     return '[depth-truncated]';
@@ -330,7 +363,7 @@ function summarizeLlmContentForTrace(
       return {
         type: 'image_url',
         image_url: {
-          url: truncateToolLogText(part.image_url.url, maxChars),
+          url: summarizeArtifactText(part.image_url.url, maxChars),
         },
       };
     }
@@ -627,6 +660,34 @@ export function summarizeToolFailureForLog(
   const args = summarizeToolArgsForLog(toolCall.name, toolCall.args);
   if (args) summary.args = args;
   return summary;
+}
+
+export interface LLMFailureSurfaceSummary {
+  stopReason: LLMPipelineStopReason;
+  stopReasonDetail: string;
+  userMessage: string;
+}
+
+export function summarizeLLMFailureForSurface(
+  error: unknown,
+): LLMFailureSurfaceSummary {
+  const fallbackDetail =
+    error instanceof Error ? error.message : String(error ?? "Unknown error");
+  const annotated = error as {
+    stopReason?: unknown;
+    stopReasonDetail?: unknown;
+  };
+  const stopReason = typeof annotated.stopReason === "string"
+    ? (annotated.stopReason as LLMPipelineStopReason)
+    : toPipelineStopReason(classifyLLMFailure(error));
+  const stopReasonDetail = typeof annotated.stopReasonDetail === "string"
+    ? annotated.stopReasonDetail
+    : fallbackDetail;
+  return {
+    stopReason,
+    stopReasonDetail,
+    userMessage: `Error (${stopReason}): ${stopReasonDetail}`,
+  };
 }
 
 /**
@@ -1210,6 +1271,10 @@ export class DaemonManager {
       toolBudgetPerRequest: config.llm?.toolBudgetPerRequest,
       maxModelRecallsPerRequest: config.llm?.maxModelRecallsPerRequest,
       maxFailureBudgetPerRequest: config.llm?.maxFailureBudgetPerRequest,
+      toolCallTimeoutMs: config.llm?.toolCallTimeoutMs,
+      requestTimeoutMs: config.llm?.requestTimeoutMs,
+      retryPolicyMatrix: config.llm?.retryPolicy,
+      toolFailureCircuitBreaker: config.llm?.toolFailureCircuitBreaker,
       pipelineExecutor,
       sessionTokenBudget: config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
       onCompaction: this.handleCompaction,
@@ -1627,20 +1692,27 @@ export class DaemonManager {
           }
         }
       } catch (error) {
+        const failure = summarizeLLMFailureForSurface(error);
         if (traceConfig.enabled) {
           this.logger.error('[trace] telegram.chat.error', {
             traceId: turnTraceId,
             sessionId: msg.sessionId,
+            stopReason: failure.stopReason,
+            stopReasonDetail: failure.stopReasonDetail,
             error: toErrorMessage(error),
             ...(error instanceof Error && error.stack
               ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
               : {}),
           });
         }
-        this.logger.error("Telegram LLM error:", error);
+        this.logger.error("Telegram LLM error:", {
+          stopReason: failure.stopReason,
+          stopReasonDetail: failure.stopReasonDetail,
+          error: toErrorMessage(error),
+        });
         await telegram.send({
           sessionId: msg.sessionId,
-          content: `\u{274C} Error: ${escapeHtml((error as Error).message)}`,
+          content: `\u{274C} ${escapeHtml(failure.userMessage)}`,
         });
       }
     };
@@ -1809,6 +1881,8 @@ export class DaemonManager {
             toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
               result.toolRoutingSummary,
             ),
+            stopReason: result.stopReason,
+            stopReasonDetail: result.stopReasonDetail,
             response: truncateToolLogText(result.content, traceConfig.maxChars),
             toolCalls: result.toolCalls.map((toolCall) => ({
               name: toolCall.name,
@@ -1857,19 +1931,26 @@ export class DaemonManager {
           } catch { /* non-critical */ }
         }
       } catch (error) {
+        const failure = summarizeLLMFailureForSurface(error);
         if (traceConfig.enabled) {
           this.logger.error(`[trace] ${channelName}.chat.error`, {
             traceId: turnTraceId,
             sessionId: msg.sessionId,
+            stopReason: failure.stopReason,
+            stopReasonDetail: failure.stopReasonDetail,
             error: toErrorMessage(error),
             ...(error instanceof Error && error.stack
               ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
               : {}),
           });
         }
-        this.logger.error(`${channelName} LLM error:`, error);
+        this.logger.error(`${channelName} LLM error:`, {
+          stopReason: failure.stopReason,
+          stopReasonDetail: failure.stopReasonDetail,
+          error: toErrorMessage(error),
+        });
         const errMsg = formatForChannel(
-          `Error: ${(error as Error).message}`,
+          failure.userMessage,
           channelName,
         );
         await channel.send({ sessionId: msg.sessionId, content: errMsg });
@@ -2419,6 +2500,10 @@ export class DaemonManager {
         toolBudgetPerRequest: newConfig.llm?.toolBudgetPerRequest,
         maxModelRecallsPerRequest: newConfig.llm?.maxModelRecallsPerRequest,
         maxFailureBudgetPerRequest: newConfig.llm?.maxFailureBudgetPerRequest,
+        toolCallTimeoutMs: newConfig.llm?.toolCallTimeoutMs,
+        requestTimeoutMs: newConfig.llm?.requestTimeoutMs,
+        retryPolicyMatrix: newConfig.llm?.retryPolicy,
+        toolFailureCircuitBreaker: newConfig.llm?.toolFailureCircuitBreaker,
         pipelineExecutor,
         sessionTokenBudget: newConfig.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
         onCompaction: this.handleCompaction,
@@ -3513,6 +3598,8 @@ export class DaemonManager {
             toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
               result.toolRoutingSummary,
             ),
+            stopReason: result.stopReason,
+            stopReasonDetail: result.stopReasonDetail,
             response: truncateToolLogText(result.content, traceConfig.maxChars),
             toolCalls: result.toolCalls.map((toolCall) => ({
               name: toolCall.name,
@@ -3603,22 +3690,29 @@ export class DaemonManager {
           });
         }
       } catch (error) {
+        const failure = summarizeLLMFailureForSurface(error);
         webChat.clearAbortController(msg.sessionId);
         signals.signalIdle(msg.sessionId);
         if (traceConfig.enabled) {
           this.logger.error('[trace] webchat.chat.error', {
             traceId: turnTraceId,
             sessionId: msg.sessionId,
+            stopReason: failure.stopReason,
+            stopReasonDetail: failure.stopReasonDetail,
             error: toErrorMessage(error),
             ...(error instanceof Error && error.stack
               ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
               : {}),
           });
         }
-        this.logger.error('LLM chat error:', error);
+        this.logger.error('LLM chat error:', {
+          stopReason: failure.stopReason,
+          stopReasonDetail: failure.stopReasonDetail,
+          error: toErrorMessage(error),
+        });
         await webChat.send({
           sessionId: msg.sessionId,
-          content: `Error: ${(error as Error).message}`,
+          content: failure.userMessage,
         });
       }
     };

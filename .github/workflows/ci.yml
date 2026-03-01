@@ -17,6 +17,14 @@ env:
   MUTATION_MAX_AGGREGATE_COST_UTILITY_DROP: '0.45'
   MUTATION_MAX_SCENARIO_PASS_RATE_DROP: '1.00'
   MUTATION_MAX_OPERATOR_PASS_RATE_DROP: '0.60'
+  PIPELINE_MAX_CONTEXT_GROWTH_SLOPE: '120'
+  PIPELINE_MAX_CONTEXT_GROWTH_DELTA: '220'
+  PIPELINE_MAX_TOKENS_PER_COMPLETED_TASK: '2000'
+  PIPELINE_MAX_MALFORMED_TOOL_TURN_FORWARDED: '0'
+  PIPELINE_MIN_MALFORMED_TOOL_TURN_REJECTED_RATE: '1'
+  PIPELINE_MAX_DESKTOP_FAILED_RUNS: '0'
+  PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS: '0'
+  PIPELINE_MAX_OFFLINE_REPLAY_FAILURES: '0'
 
 jobs:
   runtime_checks:
@@ -92,6 +100,22 @@ jobs:
             --max-scenario-pass-rate-drop "${MUTATION_MAX_SCENARIO_PASS_RATE_DROP}" \
             --max-operator-pass-rate-drop "${MUTATION_MAX_OPERATOR_PASS_RATE_DROP}"
 
+      - name: Run pipeline quality suite
+        run: npm run benchmark:pipeline:ci --prefix runtime
+
+      - name: Enforce pipeline quality gates
+        run: |
+          npx tsx runtime/scripts/check-pipeline-gates.ts \
+            --artifact runtime/benchmarks/artifacts/pipeline-quality.ci.json \
+            --max-context-growth-slope "${PIPELINE_MAX_CONTEXT_GROWTH_SLOPE}" \
+            --max-context-growth-delta "${PIPELINE_MAX_CONTEXT_GROWTH_DELTA}" \
+            --max-tokens-per-completed-task "${PIPELINE_MAX_TOKENS_PER_COMPLETED_TASK}" \
+            --max-malformed-tool-turn-forwarded "${PIPELINE_MAX_MALFORMED_TOOL_TURN_FORWARDED}" \
+            --min-malformed-tool-turn-rejected-rate "${PIPELINE_MIN_MALFORMED_TOOL_TURN_REJECTED_RATE}" \
+            --max-desktop-failed-runs "${PIPELINE_MAX_DESKTOP_FAILED_RUNS}" \
+            --max-desktop-timeout-runs "${PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS}" \
+            --max-offline-replay-failures "${PIPELINE_MAX_OFFLINE_REPLAY_FAILURES}"
+
       - name: Upload reliability artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -101,6 +125,7 @@ jobs:
             runtime/benchmarks/artifacts/ci.json
             runtime/benchmarks/artifacts/mutation.ci.json
             runtime/benchmarks/artifacts/mutation-trend.ci.json
+            runtime/benchmarks/artifacts/pipeline-quality.ci.json
 
   nightly_reliability:
     if: github.event_name == 'schedule'
@@ -131,6 +156,11 @@ jobs:
             --output runtime/benchmarks/artifacts/nightly-mutation.json \
             --trend-output runtime/benchmarks/artifacts/nightly-mutation-trend.json
 
+      - name: Run nightly pipeline quality suite
+        run: |
+          npx tsx runtime/scripts/run-pipeline-quality.ts \
+            --output runtime/benchmarks/artifacts/nightly-pipeline-quality.json
+
       - name: Nightly gate report (dry-run)
         run: |
           npx tsx runtime/scripts/check-mutation-gates.ts \
@@ -142,6 +172,20 @@ jobs:
             --max-operator-pass-rate-drop "${MUTATION_MAX_OPERATOR_PASS_RATE_DROP}" \
             --dry-run
 
+      - name: Nightly pipeline gate report (dry-run)
+        run: |
+          npx tsx runtime/scripts/check-pipeline-gates.ts \
+            --artifact runtime/benchmarks/artifacts/nightly-pipeline-quality.json \
+            --max-context-growth-slope "${PIPELINE_MAX_CONTEXT_GROWTH_SLOPE}" \
+            --max-context-growth-delta "${PIPELINE_MAX_CONTEXT_GROWTH_DELTA}" \
+            --max-tokens-per-completed-task "${PIPELINE_MAX_TOKENS_PER_COMPLETED_TASK}" \
+            --max-malformed-tool-turn-forwarded "${PIPELINE_MAX_MALFORMED_TOOL_TURN_FORWARDED}" \
+            --min-malformed-tool-turn-rejected-rate "${PIPELINE_MIN_MALFORMED_TOOL_TURN_REJECTED_RATE}" \
+            --max-desktop-failed-runs "${PIPELINE_MAX_DESKTOP_FAILED_RUNS}" \
+            --max-desktop-timeout-runs "${PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS}" \
+            --max-offline-replay-failures "${PIPELINE_MAX_OFFLINE_REPLAY_FAILURES}" \
+            --dry-run
+
       - name: Upload nightly reliability artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -151,3 +195,4 @@ jobs:
             runtime/benchmarks/artifacts/nightly-benchmark.json
             runtime/benchmarks/artifacts/nightly-mutation.json
             runtime/benchmarks/artifacts/nightly-mutation-trend.json
+            runtime/benchmarks/artifacts/nightly-pipeline-quality.json

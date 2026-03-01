@@ -67,6 +67,10 @@ All checks PASS
    ```bash
    cd runtime && npm run mutation:ci && npm run mutation:gates
    ```
+4. Runtime pipeline quality suite + gates:
+   ```bash
+   cd runtime && npm run benchmark:pipeline:ci && npm run benchmark:pipeline:gates
+   ```
 
 ### Build artifact verification (verifiable build)
 
@@ -90,6 +94,8 @@ All checks PASS
 - [ ] Runtime completion path passes router/verifier-entry accounts
 - [ ] Replay failure is observed when either `bindingSpend` or `nullifierSpend` already exists
 - [ ] Trusted-selector mismatch and trusted-image mismatch fail closed
+- [ ] Pipeline quality artifact (`runtime/benchmarks/artifacts/pipeline-quality.ci.json`) is generated and reviewed
+- [ ] Pipeline gates report `PASS` for context growth, tool-turn forwarding, desktop timeout regressions, and token-efficiency thresholds
 
 ## Rollback plan
 

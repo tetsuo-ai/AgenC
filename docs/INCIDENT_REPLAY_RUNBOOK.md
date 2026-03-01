@@ -8,6 +8,112 @@ For runtime LLM/tool-pipeline incidents (context growth, tool-turn ordering, des
 
 ---
 
+## Runtime Pipeline How-To Debug (Minimal Repro Templates)
+
+Use these minimal templates before deep replay analysis. They are designed to fail fast and isolate one class of issue.
+
+### 1) Context growth regression template
+
+```bash
+cd runtime
+npm run benchmark:pipeline:ci
+npm run benchmark:pipeline:gates
+```
+
+Expected:
+
+- `Pipeline quality gates: PASS`
+- `context growth slope` and `max delta` stay under CI thresholds.
+
+### 2) Tool-turn ordering validation template
+
+Malformed sequence (must be rejected locally with `validation_error`, not forwarded):
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "test" },
+    { "role": "assistant", "content": "" },
+    { "role": "tool", "tool_call_id": "call_1", "content": "{\"stdout\":\"\",\"exitCode\":0}" }
+  ]
+}
+```
+
+Control sequence (must pass):
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "test" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_1",
+          "type": "function",
+          "function": { "name": "system.bash", "arguments": "{\"command\":\"echo\",\"args\":[\"hi\"]}" }
+        }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "call_1", "content": "{\"stdout\":\"hi\\n\",\"exitCode\":0}" }
+  ]
+}
+```
+
+### 3) Desktop hang/timeout template
+
+```bash
+npm --prefix runtime run repro:pipeline:http
+```
+
+Expected output shape:
+
+- JSON with `overall`
+- ordered `steps[]`
+- no indefinite stall between server-start and teardown steps.
+
+### 4) Stateful continuation mismatch template
+
+Symptoms:
+
+- `statefulResponses.enabled: true`
+- `statefulSummary.fallbackCalls > 0`
+- explicit fallback reason appears (`missing_previous_response_id`, `provider_retrieval_failure`, `state_reconciliation_mismatch`)
+
+Expected:
+
+- Runtime falls back deterministically (if configured) and does not silently reuse stale anchors.
+
+### 5) Trace capture template
+
+Enable:
+
+```json
+{
+  "logging": {
+    "trace": {
+      "enabled": true,
+      "includeHistory": true,
+      "includeSystemPrompt": true,
+      "includeToolArgs": true,
+      "includeToolResults": true
+    }
+  }
+}
+```
+
+Capture one `traceId`-correlated chain:
+
+- `*.inbound`
+- `*.chat.request`
+- `*.tool.call`/`*.tool.result`/`*.tool.error`
+- `*.chat.response`
+
+Then disable trace again after triage.
+
+---
+
 ## CLI path
 
 ### Backfill replay events for the incident window

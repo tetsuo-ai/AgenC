@@ -146,4 +146,79 @@ describe("tool-turn validator", () => {
       index: 3,
     });
   });
+
+  it("rejects deterministic message-order/tool-id mutation set", () => {
+    const base: LLMMessage[] = [
+      { role: "user", content: "run task" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "call_1", name: "desktop.bash", arguments: '{"command":"echo ok"}' },
+          { id: "call_2", name: "desktop.bash", arguments: '{"command":"pwd"}' },
+        ],
+      },
+      { role: "tool", content: '{"stdout":"ok\\n"}', toolCallId: "call_1" },
+      { role: "tool", content: '{"stdout":"/tmp\\n"}', toolCallId: "call_2" },
+      { role: "assistant", content: "done" },
+    ];
+
+    const mutations: Array<{ name: string; messages: LLMMessage[] }> = [
+      {
+        name: "tool-before-assistant",
+        messages: [
+          base[0]!,
+          base[2]!,
+          base[1]!,
+          base[3]!,
+          base[4]!,
+        ],
+      },
+      {
+        name: "unknown-tool-call-id",
+        messages: [
+          base[0]!,
+          base[1]!,
+          { role: "tool", content: '{"stdout":"x"}', toolCallId: "call_x" },
+          base[3]!,
+          base[4]!,
+        ],
+      },
+      {
+        name: "missing-second-tool-result",
+        messages: [
+          base[0]!,
+          base[1]!,
+          base[2]!,
+          base[4]!,
+        ],
+      },
+      {
+        name: "duplicate-tool-result-id",
+        messages: [
+          base[0]!,
+          base[1]!,
+          base[2]!,
+          { role: "tool", content: '{"stdout":"dupe"}', toolCallId: "call_1" },
+          base[4]!,
+        ],
+      },
+      {
+        name: "interleaved-user-before-tool-results-finish",
+        messages: [
+          base[0]!,
+          base[1]!,
+          base[2]!,
+          { role: "user", content: "interrupt" },
+          base[3]!,
+          base[4]!,
+        ],
+      },
+    ];
+
+    for (const mutation of mutations) {
+      const issue = findToolTurnValidationIssue(mutation.messages);
+      expect(issue, mutation.name).not.toBeNull();
+    }
+  });
 });

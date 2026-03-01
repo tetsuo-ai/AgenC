@@ -78,6 +78,13 @@ Program emits event → WebSocket subscription → Runtime EventMonitor → Pars
 Agent computes output → SDK generates RISC Zero proof → SDK submits via complete_task_private → Program validates via Groth16 CPI → Reward distributed
 ```
 
+### Runtime Chat/Tool Path
+```
+Inbound message → ChatExecutor prompt assembly + budget → tool-turn validation → provider call(s) + tool loop → stop reason + diagnostics
+```
+
+Reference: `docs/architecture/flows/runtime-chat-pipeline.md`
+
 ## Key Accounts (On-Chain State)
 
 | Account | PDA Seeds | Purpose |

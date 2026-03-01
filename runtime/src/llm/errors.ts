@@ -243,3 +243,43 @@ export function mapLLMError(
 
   return new LLMProviderError(providerName, message, status);
 }
+
+/**
+ * Classify an LLM-layer error into the shared pipeline failure taxonomy.
+ */
+export function classifyLLMFailure(error: unknown): LLMFailureClass {
+  if (error instanceof LLMMessageValidationError) return "validation_error";
+  if (error instanceof LLMAuthenticationError) return "authentication_error";
+  if (error instanceof LLMRateLimitError) return "rate_limited";
+  if (error instanceof LLMTimeoutError) return "timeout";
+  if (error instanceof LLMToolCallError) return "tool_error";
+  if (error instanceof LLMServerError || error instanceof LLMProviderError) {
+    return "provider_error";
+  }
+
+  if (error instanceof RuntimeError) {
+    if (error.code === RuntimeErrorCodes.CHAT_BUDGET_EXCEEDED) {
+      return "budget_exceeded";
+    }
+    if (error.code === RuntimeErrorCodes.LLM_TOOL_CALL_ERROR) {
+      return "tool_error";
+    }
+    if (error.code === RuntimeErrorCodes.LLM_TIMEOUT) {
+      return "timeout";
+    }
+    if (error.code === RuntimeErrorCodes.LLM_RATE_LIMIT) {
+      return "rate_limited";
+    }
+    if (error.code === RuntimeErrorCodes.LLM_PROVIDER_ERROR) {
+      return "provider_error";
+    }
+  }
+
+  const rawMessage =
+    error instanceof Error ? error.message : String(error ?? "");
+  const message = rawMessage.toLowerCase();
+  if (message.includes("cancel") || message.includes("abort")) {
+    return "cancelled";
+  }
+  return "unknown";
+}

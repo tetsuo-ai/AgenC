@@ -241,7 +241,7 @@ describe("createDesktopAwareToolHandler", () => {
     expect(parsed.error).toContain("playwright.browser_navigate");
   });
 
-  it("allows backgrounded browser launches without output redirection", async () => {
+  it("guards backgrounded browser launches without explicit stdout/stderr redirection", async () => {
     const manager = mockManager();
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
       desktopManager: manager,
@@ -251,7 +251,9 @@ describe("createDesktopAwareToolHandler", () => {
     const result = await handler("desktop.bash", {
       command: "chromium-browser http://localhost:8000 &",
     });
-    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("missing explicit stdout/stderr redirection");
+    expect(parsed.error).toContain(">/tmp/browser.log 2>&1 &");
   });
 
   it("rewrites chromium launch commands with an isolated user-data-dir", async () => {
@@ -292,8 +294,52 @@ describe("createDesktopAwareToolHandler", () => {
     const callArgs = bashExecute.mock.calls[0][0] as { command?: string };
     expect(callArgs.command).toContain("--new-window");
     expect(callArgs.command).toContain("--incognito");
+    expect(callArgs.command).toContain("--no-first-run");
+    expect(callArgs.command).toContain("--no-default-browser-check");
+    expect(callArgs.command).toContain("--disable-default-apps");
+    expect(callArgs.command).toContain("--disable-sync");
     expect(callArgs.command).toContain("--user-data-dir=/tmp/agenc-chrome-");
     expect(callArgs.command).toContain("http://localhost:8000");
+  });
+
+  it("strips unsupported chromium sandbox flags from desktop.bash launch commands", async () => {
+    const manager = mockManager();
+    const bridgeCtor = vi.mocked(DesktopRESTBridge);
+    const bashExecute = vi.fn().mockResolvedValue({
+      content: '{"stdout":"","stderr":"","exitCode":0}',
+      isError: false,
+    });
+
+    bridgeCtor.mockImplementationOnce(
+      () =>
+        ({
+          connect: vi.fn().mockResolvedValue(undefined),
+          disconnect: vi.fn(),
+          isConnected: vi.fn().mockReturnValue(true),
+          getTools: vi.fn().mockReturnValue([
+            {
+              name: "desktop.bash",
+              description: "Run bash command",
+              inputSchema: {},
+              execute: bashExecute,
+            },
+          ]),
+        }) as unknown as DesktopRESTBridge,
+    );
+
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    await handler("desktop.bash", {
+      command:
+        "chromium-browser --disable-setuid-sandbox --no-sandbox http://localhost:8000 >/tmp/browser.log 2>&1 &",
+    });
+
+    const callArgs = bashExecute.mock.calls[0][0] as { command?: string };
+    expect(callArgs.command).not.toContain("--disable-setuid-sandbox");
+    expect(callArgs.command).not.toContain("--no-sandbox");
   });
 
   it("guards long-running foreground server commands with short timeout", async () => {
@@ -356,7 +402,7 @@ describe("createDesktopAwareToolHandler", () => {
     expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
   });
 
-  it("allows backgrounded long-running servers without output redirection", async () => {
+  it("guards backgrounded long-running servers without output redirection", async () => {
     const manager = mockManager();
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
       desktopManager: manager,
@@ -367,7 +413,25 @@ describe("createDesktopAwareToolHandler", () => {
       command: "python3 -m http.server 8000 &",
       timeoutMs: 5_000,
     });
-    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("does not redirect both stdout/stderr");
+    expect(parsed.error).toContain(">/tmp/server.log 2>&1 &");
+  });
+
+  it("adds low-token verification guidance to successful browser launch results", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "chromium-browser http://localhost:8000 >/tmp/browser.log 2>&1 &",
+    });
+
+    const parsed = JSON.parse(result) as { verification?: { strategy?: string; checks?: string[] } };
+    expect(parsed.verification?.strategy).toBe("low_token_first");
+    expect(parsed.verification?.checks?.length).toBeGreaterThan(0);
   });
 
   it("does not flag pgrep checks as long-running server launches", async () => {
@@ -499,6 +563,121 @@ describe("createDesktopAwareToolHandler", () => {
     expect(JSON.parse(result)).toMatchObject({ stdout: "recovered", exitCode: 0 });
     expect((manager.destroyBySession as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("sess1");
     expect(bridgeCtor).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs a desktop pipeline flow (start, navigate, input, verify, teardown) without hanging", async () => {
+    const manager = mockManager();
+    const bridgeCtor = vi.mocked(DesktopRESTBridge);
+    const bashExecute = vi.fn().mockImplementation(
+      async ({ command }: { command?: string }) => {
+        const cmd = command ?? "";
+        if (cmd.includes("python3 -m http.server")) {
+          return {
+            content: '{"stdout":"","stderr":"","exitCode":0,"backgrounded":true,"pid":1234}',
+            isError: false,
+          };
+        }
+        if (cmd.includes("curl -sSf")) {
+          return {
+            content: '{"stdout":"HTTP_OK\\n","stderr":"","exitCode":0}',
+            isError: false,
+          };
+        }
+        if (cmd.includes("pkill -f")) {
+          return {
+            content: '{"stdout":"0\\n","stderr":"","exitCode":0}',
+            isError: false,
+          };
+        }
+        return {
+          content: '{"stdout":"","stderr":"","exitCode":0}',
+          isError: false,
+        };
+      },
+    );
+    const keyboardExecute = vi.fn().mockResolvedValue({
+      content: '{"typed":true,"length":12}',
+      isError: false,
+    });
+
+    bridgeCtor.mockImplementationOnce(
+      () =>
+        ({
+          connect: vi.fn().mockResolvedValue(undefined),
+          disconnect: vi.fn(),
+          isConnected: vi.fn().mockReturnValue(true),
+          getTools: vi.fn().mockReturnValue([
+            {
+              name: "desktop.bash",
+              description: "Run bash command",
+              inputSchema: {},
+              execute: bashExecute,
+            },
+            {
+              name: "desktop.keyboard_type",
+              description: "Type text",
+              inputSchema: {},
+              execute: keyboardExecute,
+            },
+          ]),
+        }) as unknown as DesktopRESTBridge,
+    );
+
+    const navigateExecute = vi.fn().mockResolvedValue({
+      content: '{"ok":true}',
+    });
+    mockCreateMCPConnection.mockResolvedValue({
+      close: vi.fn(),
+    } as any);
+    mockCreateToolBridge.mockResolvedValue({
+      tools: [
+        {
+          name: "playwright.browser_navigate",
+          description: "Navigate to URL",
+          inputSchema: {},
+          execute: navigateExecute,
+        },
+      ],
+      dispose: vi.fn(),
+    } as any);
+
+    const playwrightBridges = new Map<string, never>();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+      playwrightBridges,
+    });
+
+    const fixture = await handler("desktop.bash", {
+      command:
+        "rm -rf /tmp/agenc-pipeline-test && mkdir -p /tmp/agenc-pipeline-test && echo ok >/tmp/agenc-pipeline-test/index.html",
+    });
+    expect(JSON.parse(fixture)).toMatchObject({ exitCode: 0 });
+
+    const started = await handler("desktop.bash", {
+      command:
+        "cd /tmp/agenc-pipeline-test && python3 -m http.server 8123 >/tmp/agenc-http.log 2>&1 & echo $!",
+      timeoutMs: 60_000,
+    });
+    expect(JSON.parse(started)).toMatchObject({ exitCode: 0, backgrounded: true });
+
+    const navigated = await handler("playwright.browser_navigate", {
+      url: "http://127.0.0.1:8123",
+    });
+    expect(JSON.parse(navigated)).toMatchObject({ ok: true });
+
+    const typed = await handler("desktop.keyboard_type", { text: "pipeline ok" });
+    expect(JSON.parse(typed)).toMatchObject({ typed: true });
+
+    const verified = await handler("desktop.bash", {
+      command: "curl -sSf http://127.0.0.1:8123 | grep -q 'ok' && echo HTTP_OK",
+    });
+    expect(JSON.parse(verified)).toMatchObject({ stdout: "HTTP_OK\n", exitCode: 0 });
+
+    const teardown = await handler("desktop.bash", {
+      command: "pkill -f 'python3 -m http.server 8123' || true",
+    });
+    expect(JSON.parse(teardown)).toMatchObject({ exitCode: 0 });
   });
 
   describe("auto-screenshot", () => {
