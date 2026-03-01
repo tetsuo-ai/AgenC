@@ -810,6 +810,10 @@ describe("AgenC Devnet Smoke Tests", () => {
     it("should create a task for cancellation test", async () => {
       console.log("\n[TEST] Creating task for cancellation...");
 
+      // Task creation cooldown can still be active from prior task-creation
+      // flows in this suite. Sleep past the minimum cooldown to avoid flakes.
+      await sleep(2_200);
+
       await program.methods
         .createTask(
           Array.from(cancelTaskId),

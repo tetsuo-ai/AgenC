@@ -421,6 +421,11 @@ describe("AgenC Integration Tests", () => {
       taskPda = deriveTaskPdaUtil(creator.publicKey, taskId, program.programId);
       claimPda = deriveClaimPdaUtil(taskPda, workerAgentPda, program.programId);
 
+      // disableRateLimitsForTests keeps task_creation_cooldown at 1s (minimum).
+      // Wait here to avoid cross-suite flakiness when createTask calls happen
+      // back-to-back across adjacent describe blocks.
+      await sleep(2_200);
+
       // Create a new task for claiming test
       try {
         await program.methods
