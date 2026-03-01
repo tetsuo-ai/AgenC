@@ -41,6 +41,8 @@ export interface VectorSearchOptions {
   before?: number;
   /** Filter entries that have ALL of these tags (entry.metadata.tags). */
   tags?: string[];
+  /** Filter entries by memory role metadata (`memoryRole` or `memoryRoles[]`). */
+  memoryRoles?: readonly ("working" | "episodic" | "semantic")[];
 }
 
 /** Options for hybrid vector + keyword search. */
@@ -111,6 +113,28 @@ interface CorpusStats {
   avgDocLen: number;
   docCount: number;
   termDocFreq: Map<string, number>;
+}
+
+function extractEntryMemoryRoles(entry: MemoryEntry): Set<string> {
+  const roles = new Set<string>();
+  const metadata = entry.metadata;
+  if (!metadata) return roles;
+
+  const primary = metadata.memoryRole;
+  if (typeof primary === "string" && primary.trim().length > 0) {
+    roles.add(primary.trim());
+  }
+
+  const secondary = metadata.memoryRoles;
+  if (Array.isArray(secondary)) {
+    for (const value of secondary) {
+      if (typeof value === "string" && value.trim().length > 0) {
+        roles.add(value.trim());
+      }
+    }
+  }
+
+  return roles;
 }
 
 /** Compute corpus-level statistics for BM25 scoring. */
@@ -497,6 +521,20 @@ export class InMemoryVectorStore implements VectorMemoryBackend {
         if (!Array.isArray(entryTags)) continue;
         const tagSet = new Set(entryTags as string[]);
         if (!options.tags.every((t) => tagSet.has(t))) continue;
+      }
+
+      // Memory role filter
+      if (options.memoryRoles && options.memoryRoles.length > 0) {
+        const entryRoles = extractEntryMemoryRoles(entry);
+        if (entryRoles.size === 0) continue;
+        let roleMatch = false;
+        for (const role of options.memoryRoles) {
+          if (entryRoles.has(role)) {
+            roleMatch = true;
+            break;
+          }
+        }
+        if (!roleMatch) continue;
       }
 
       entries.push(entry);

@@ -19,6 +19,7 @@ import type {
   LLMProvider,
   LLMResponse,
   LLMMessage,
+  LLMChatOptions,
   StreamProgressCallback,
 } from "../llm/types.js";
 import type { MarkdownSkill } from "../skills/markdown/types.js";
@@ -76,7 +77,10 @@ class NoopLLMProvider implements LLMProvider {
     this.workspaceId = workspaceId;
   }
 
-  async chat(_messages: LLMMessage[]): Promise<LLMResponse> {
+  async chat(
+    _messages: LLMMessage[],
+    _options?: LLMChatOptions,
+  ): Promise<LLMResponse> {
     throw new Error(
       `No LLM provider configured for workspace '${this.workspaceId}'`,
     );
@@ -85,6 +89,7 @@ class NoopLLMProvider implements LLMProvider {
   async chatStream(
     _messages: LLMMessage[],
     _onChunk: StreamProgressCallback,
+    _options?: LLMChatOptions,
   ): Promise<LLMResponse> {
     throw new Error(
       `No LLM provider configured for workspace '${this.workspaceId}'`,

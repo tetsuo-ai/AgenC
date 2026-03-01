@@ -145,6 +145,13 @@ npm run test:anchor  # Full Anchor integration tests
 npm run test:matrix:phase01 # Full Phase 0/1 verification matrix (fast + runtime + anchor integration/smoke)
 ```
 
+Anchor-based tests require these env vars:
+
+```bash
+export ANCHOR_PROVIDER_URL=http://127.0.0.1:8899
+export ANCHOR_WALLET=~/.config/solana/id.json
+```
+
 `test:matrix:phase01` bootstrap behavior:
 - defaults: `ANCHOR_PROVIDER_URL=http://127.0.0.1:8899`, `ANCHOR_WALLET=~/.config/solana/id.json`
 - on local provider URLs, starts `solana-test-validator` if needed, then runs `anchor build` + `anchor deploy` before integration/smoke tests

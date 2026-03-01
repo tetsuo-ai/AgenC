@@ -123,6 +123,48 @@ describe("GrokProvider", () => {
     expect(response.requestMetrics?.toolSchemaChars).toBeGreaterThan(0);
   });
 
+  it("applies per-call routed tool subset when provided", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "system.httpGet",
+            description: "http get",
+            parameters: {
+              type: "object",
+              properties: { url: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "run ls" }],
+      { toolRouting: { allowedToolNames: ["system.bash"] } },
+    );
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.tools).toBeDefined();
+    expect(params.tools).toHaveLength(1);
+    expect(params.tools[0].name).toBe("system.bash");
+  });
+
   it("parses tool calls from response", async () => {
     const completion = makeCompletion({
       output_text: "",
@@ -687,5 +729,191 @@ describe("GrokProvider", () => {
       ]),
     ).rejects.toThrow(/tool_result_without_assistant_call/);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("uses previous_response_id for safe stateful continuation", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_1",
+          output_text: "Hello",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_2",
+          output_text: "Follow-up",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+      ],
+      { stateful: { sessionId: "sess-1" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "Hello" },
+        { role: "user", content: "follow up" },
+      ],
+      { stateful: { sessionId: "sess-1" } },
+    );
+
+    const firstParams = mockCreate.mock.calls[0][0];
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(firstParams.previous_response_id).toBeUndefined();
+    expect(firstParams.store).toBe(true);
+    expect(secondParams.previous_response_id).toBe("resp_1");
+    expect(second.stateful?.continued).toBe(true);
+    expect(second.stateful?.responseId).toBe("resp_2");
+  });
+
+  it("falls back stateless on reconciliation mismatch and emits mismatch diagnostics", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_1",
+          output_text: "First",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_2",
+          output_text: "Fresh",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "first turn" },
+      ],
+      { stateful: { sessionId: "sess-mismatch" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "totally different turn" },
+      ],
+      { stateful: { sessionId: "sess-mismatch" } },
+    );
+
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(secondParams.previous_response_id).toBeUndefined();
+    expect(second.stateful?.fallbackReason).toBe("state_reconciliation_mismatch");
+    expect(second.stateful?.events?.some((event) =>
+      event.type === "state_reconciliation_mismatch"
+    )).toBe(true);
+  });
+
+  it("retries stateless when previous_response_id retrieval fails", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_1",
+          output_text: "First",
+        }),
+      )
+      .mockRejectedValueOnce({
+        status: 404,
+        message: "previous_response_id not found",
+      })
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_3",
+          output_text: "Recovered",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+      ],
+      { stateful: { sessionId: "sess-stale" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hello back" },
+        { role: "user", content: "continue" },
+      ],
+      { stateful: { sessionId: "sess-stale" } },
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(3);
+    const attemptedParams = mockCreate.mock.calls[1][0];
+    const retryParams = mockCreate.mock.calls[2][0];
+    expect(attemptedParams.previous_response_id).toBe("resp_1");
+    expect(retryParams.previous_response_id).toBeUndefined();
+    expect(second.stateful?.fallbackReason).toBe("provider_retrieval_failure");
+    expect(second.stateful?.events?.some((event) =>
+      event.reason === "provider_retrieval_failure"
+    )).toBe(true);
+  });
+
+  it("falls back with missing_previous_response_id after provider restart", async () => {
+    mockCreate.mockResolvedValue(
+      makeCompletion({
+        id: "resp_restart",
+        output_text: "Stateless",
+      }),
+    );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    const response = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "assistant", content: "previous local history only" },
+        { role: "user", content: "continue after restart" },
+      ],
+      { stateful: { sessionId: "sess-restart" } },
+    );
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.previous_response_id).toBeUndefined();
+    expect(response.stateful?.fallbackReason).toBe(
+      "missing_previous_response_id",
+    );
   });
 });

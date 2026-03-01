@@ -5,4 +5,7 @@
  */
 
 export { GrokProvider } from "./adapter.js";
-export type { GrokProviderConfig } from "./types.js";
+export type {
+  GrokProviderConfig,
+  GrokStatefulResponsesConfig,
+} from "./types.js";

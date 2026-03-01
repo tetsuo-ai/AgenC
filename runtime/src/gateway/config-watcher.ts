@@ -205,11 +205,272 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
           errors,
         );
       }
+      if (obj.llm.maxTokens !== undefined) {
+        requireIntRange(
+          obj.llm.maxTokens,
+          "llm.maxTokens",
+          1,
+          262_144,
+          errors,
+        );
+      }
+      if (obj.llm.contextWindowTokens !== undefined) {
+        requireIntRange(
+          obj.llm.contextWindowTokens,
+          "llm.contextWindowTokens",
+          2_048,
+          2_000_000,
+          errors,
+        );
+      }
+      if (obj.llm.promptHardMaxChars !== undefined) {
+        requireIntRange(
+          obj.llm.promptHardMaxChars,
+          "llm.promptHardMaxChars",
+          8_000,
+          1_500_000,
+          errors,
+        );
+      }
+      if (obj.llm.promptSafetyMarginTokens !== undefined) {
+        requireIntRange(
+          obj.llm.promptSafetyMarginTokens,
+          "llm.promptSafetyMarginTokens",
+          128,
+          200_000,
+          errors,
+        );
+      }
+      if (obj.llm.promptCharPerToken !== undefined) {
+        requireIntRange(
+          obj.llm.promptCharPerToken,
+          "llm.promptCharPerToken",
+          1,
+          12,
+          errors,
+        );
+      }
+      if (obj.llm.maxRuntimeHints !== undefined) {
+        requireIntRange(
+          obj.llm.maxRuntimeHints,
+          "llm.maxRuntimeHints",
+          0,
+          32,
+          errors,
+        );
+      }
+      if (obj.llm.maxToolRounds !== undefined) {
+        requireIntRange(
+          obj.llm.maxToolRounds,
+          "llm.maxToolRounds",
+          1,
+          64,
+          errors,
+        );
+      }
+      if (
+        obj.llm.plannerEnabled !== undefined &&
+        typeof obj.llm.plannerEnabled !== "boolean"
+      ) {
+        errors.push("llm.plannerEnabled must be a boolean");
+      }
+      if (obj.llm.plannerMaxTokens !== undefined) {
+        requireIntRange(
+          obj.llm.plannerMaxTokens,
+          "llm.plannerMaxTokens",
+          16,
+          8_192,
+          errors,
+        );
+      }
+      if (obj.llm.toolBudgetPerRequest !== undefined) {
+        requireIntRange(
+          obj.llm.toolBudgetPerRequest,
+          "llm.toolBudgetPerRequest",
+          1,
+          256,
+          errors,
+        );
+      }
+      if (obj.llm.maxModelRecallsPerRequest !== undefined) {
+        requireIntRange(
+          obj.llm.maxModelRecallsPerRequest,
+          "llm.maxModelRecallsPerRequest",
+          0,
+          128,
+          errors,
+        );
+      }
+      if (obj.llm.maxFailureBudgetPerRequest !== undefined) {
+        requireIntRange(
+          obj.llm.maxFailureBudgetPerRequest,
+          "llm.maxFailureBudgetPerRequest",
+          1,
+          256,
+          errors,
+        );
+      }
       if (
         obj.llm.parallelToolCalls !== undefined &&
         typeof obj.llm.parallelToolCalls !== "boolean"
       ) {
         errors.push("llm.parallelToolCalls must be a boolean");
+      }
+      if (obj.llm.statefulResponses !== undefined) {
+        if (!isRecord(obj.llm.statefulResponses)) {
+          errors.push("llm.statefulResponses must be an object");
+        } else {
+          if (
+            obj.llm.statefulResponses.enabled !== undefined &&
+            typeof obj.llm.statefulResponses.enabled !== "boolean"
+          ) {
+            errors.push("llm.statefulResponses.enabled must be a boolean");
+          }
+          if (
+            obj.llm.statefulResponses.store !== undefined &&
+            typeof obj.llm.statefulResponses.store !== "boolean"
+          ) {
+            errors.push("llm.statefulResponses.store must be a boolean");
+          }
+          if (
+            obj.llm.statefulResponses.fallbackToStateless !== undefined &&
+            typeof obj.llm.statefulResponses.fallbackToStateless !== "boolean"
+          ) {
+            errors.push("llm.statefulResponses.fallbackToStateless must be a boolean");
+          }
+        }
+      }
+      if (obj.llm.toolRouting !== undefined) {
+        if (!isRecord(obj.llm.toolRouting)) {
+          errors.push("llm.toolRouting must be an object");
+        } else {
+          if (
+            obj.llm.toolRouting.enabled !== undefined &&
+            typeof obj.llm.toolRouting.enabled !== "boolean"
+          ) {
+            errors.push("llm.toolRouting.enabled must be a boolean");
+          }
+          if (obj.llm.toolRouting.minToolsPerTurn !== undefined) {
+            requireIntRange(
+              obj.llm.toolRouting.minToolsPerTurn,
+              "llm.toolRouting.minToolsPerTurn",
+              1,
+              256,
+              errors,
+            );
+          }
+          if (obj.llm.toolRouting.maxToolsPerTurn !== undefined) {
+            requireIntRange(
+              obj.llm.toolRouting.maxToolsPerTurn,
+              "llm.toolRouting.maxToolsPerTurn",
+              1,
+              256,
+              errors,
+            );
+          }
+          if (obj.llm.toolRouting.maxExpandedToolsPerTurn !== undefined) {
+            requireIntRange(
+              obj.llm.toolRouting.maxExpandedToolsPerTurn,
+              "llm.toolRouting.maxExpandedToolsPerTurn",
+              1,
+              256,
+              errors,
+            );
+          }
+          if (obj.llm.toolRouting.cacheTtlMs !== undefined) {
+            requireIntRange(
+              obj.llm.toolRouting.cacheTtlMs,
+              "llm.toolRouting.cacheTtlMs",
+              10_000,
+              86_400_000,
+              errors,
+            );
+          }
+          if (obj.llm.toolRouting.minCacheConfidence !== undefined) {
+            if (
+              typeof obj.llm.toolRouting.minCacheConfidence !== "number" ||
+              !Number.isFinite(obj.llm.toolRouting.minCacheConfidence) ||
+              obj.llm.toolRouting.minCacheConfidence < 0 ||
+              obj.llm.toolRouting.minCacheConfidence > 1
+            ) {
+              errors.push(
+                "llm.toolRouting.minCacheConfidence must be a number between 0 and 1",
+              );
+            }
+          }
+          if (obj.llm.toolRouting.pivotSimilarityThreshold !== undefined) {
+            if (
+              typeof obj.llm.toolRouting.pivotSimilarityThreshold !== "number" ||
+              !Number.isFinite(obj.llm.toolRouting.pivotSimilarityThreshold) ||
+              obj.llm.toolRouting.pivotSimilarityThreshold < 0 ||
+              obj.llm.toolRouting.pivotSimilarityThreshold > 1
+            ) {
+              errors.push(
+                "llm.toolRouting.pivotSimilarityThreshold must be a number between 0 and 1",
+              );
+            }
+          }
+          if (obj.llm.toolRouting.pivotMissThreshold !== undefined) {
+            requireIntRange(
+              obj.llm.toolRouting.pivotMissThreshold,
+              "llm.toolRouting.pivotMissThreshold",
+              1,
+              64,
+              errors,
+            );
+          }
+          if (
+            obj.llm.toolRouting.mandatoryTools !== undefined &&
+            !isStringArray(obj.llm.toolRouting.mandatoryTools)
+          ) {
+            errors.push("llm.toolRouting.mandatoryTools must be a string array");
+          }
+          if (obj.llm.toolRouting.familyCaps !== undefined) {
+            if (!isRecord(obj.llm.toolRouting.familyCaps)) {
+              errors.push("llm.toolRouting.familyCaps must be an object");
+            } else {
+              for (const [family, cap] of Object.entries(
+                obj.llm.toolRouting.familyCaps,
+              )) {
+                if (
+                  typeof cap !== "number" ||
+                  !Number.isFinite(cap) ||
+                  cap < 1 ||
+                  cap > 256 ||
+                  !Number.isInteger(cap)
+                ) {
+                  errors.push(
+                    `llm.toolRouting.familyCaps.${family} must be an integer between 1 and 256`,
+                  );
+                }
+              }
+            }
+          }
+          if (
+            obj.llm.toolRouting.minToolsPerTurn !== undefined &&
+            obj.llm.toolRouting.maxToolsPerTurn !== undefined &&
+            typeof obj.llm.toolRouting.minToolsPerTurn === "number" &&
+            typeof obj.llm.toolRouting.maxToolsPerTurn === "number" &&
+            obj.llm.toolRouting.minToolsPerTurn >
+              obj.llm.toolRouting.maxToolsPerTurn
+          ) {
+            errors.push(
+              "llm.toolRouting.minToolsPerTurn must be less than or equal to llm.toolRouting.maxToolsPerTurn",
+            );
+          }
+          if (
+            obj.llm.toolRouting.maxToolsPerTurn !== undefined &&
+            obj.llm.toolRouting.maxExpandedToolsPerTurn !== undefined &&
+            typeof obj.llm.toolRouting.maxToolsPerTurn === "number" &&
+            typeof obj.llm.toolRouting.maxExpandedToolsPerTurn === "number" &&
+            obj.llm.toolRouting.maxExpandedToolsPerTurn <
+              obj.llm.toolRouting.maxToolsPerTurn
+          ) {
+            errors.push(
+              "llm.toolRouting.maxExpandedToolsPerTurn must be greater than or equal to llm.toolRouting.maxToolsPerTurn",
+            );
+          }
+        }
       }
     }
   }

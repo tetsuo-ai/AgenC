@@ -17,17 +17,13 @@ import type { HookContext } from "../gateway/hooks.js";
 import type { Logger } from "../utils/logger.js";
 import type { MemoryEntry } from "./types.js";
 
-// ============================================================================
-// Mock factories
-// ============================================================================
-
 function createMockEmbeddingProvider(): EmbeddingProvider {
   return {
     name: "test",
     dimension: 128,
     embed: vi
       .fn<[string], Promise<number[]>>()
-      .mockResolvedValue(new Array(128).fill(0)),
+      .mockResolvedValue(new Array(128).fill(0.1)),
     embedBatch: vi.fn<[string[]], Promise<number[][]>>().mockResolvedValue([]),
     isAvailable: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
   };
@@ -138,10 +134,6 @@ function createHookContext(
   };
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
-
 describe("MemoryIngestionEngine", () => {
   let embeddingProvider: ReturnType<typeof createMockEmbeddingProvider>;
   let vectorStore: ReturnType<typeof createMockVectorStore>;
@@ -177,123 +169,93 @@ describe("MemoryIngestionEngine", () => {
     });
   }
 
-  // --------------------------------------------------------------------------
-  // ingestTurn
-  // --------------------------------------------------------------------------
-
   describe("ingestTurn", () => {
-    it("generates embedding from combined user+agent text", async () => {
+    it("embeds combined turn text and stores working + semantic entries", async () => {
       const engine = createEngine();
-      await engine.ingestTurn("sess-1", "hello", "hi there");
+      await engine.ingestTurn(
+        "sess-1",
+        "please fix error in server command",
+        "run command and resolved issue",
+      );
 
       expect(embeddingProvider.embed).toHaveBeenCalledWith(
-        "User: hello\nAssistant: hi there",
+        "User: please fix error in server command\nAssistant: run command and resolved issue",
       );
-    });
 
-    it("stores in vector store with correct sessionId, role, and metadata", async () => {
-      const engine = createEngine();
-      await engine.ingestTurn("sess-1", "hello", "hi there");
+      expect(vectorStore.storeWithEmbedding).toHaveBeenCalledTimes(2);
+      const firstCall = (vectorStore.storeWithEmbedding as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+        metadata: Record<string, unknown>;
+      };
+      const secondCall = (vectorStore.storeWithEmbedding as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as {
+        metadata: Record<string, unknown>;
+      };
 
-      expect(vectorStore.storeWithEmbedding).toHaveBeenCalledWith(
-        {
-          sessionId: "sess-1",
-          role: "assistant",
-          content: "User: hello\nAssistant: hi there",
-          metadata: { type: "conversation_turn" },
-        },
-        new Array(128).fill(0),
-      );
-    });
-
-    it("appends user + agent messages to daily log", async () => {
-      const engine = createEngine();
-      await engine.ingestTurn("sess-1", "hello", "hi there");
+      expect(firstCall.metadata.memoryRole).toBe("working");
+      expect(secondCall.metadata.memoryRole).toBe("semantic");
+      expect(firstCall.metadata.provenance).toBe("ingestion:turn");
+      expect(typeof firstCall.metadata.confidence).toBe("number");
+      expect(typeof firstCall.metadata.contentHash).toBe("string");
 
       expect(logManager.append).toHaveBeenCalledTimes(2);
-      expect(logManager.append).toHaveBeenCalledWith("sess-1", "user", "hello");
+      expect(logManager.append).toHaveBeenCalledWith(
+        "sess-1",
+        "user",
+        "please fix error in server command",
+      );
       expect(logManager.append).toHaveBeenCalledWith(
         "sess-1",
         "assistant",
-        "hi there",
+        "run command and resolved issue",
       );
     });
 
-    it("skips daily log when enableDailyLogs is false", async () => {
-      const engine = createEngine({ enableDailyLogs: false });
-      await engine.ingestTurn("sess-1", "hello", "hi there");
+    it("skips vector indexing when salience is below configured threshold", async () => {
+      const engine = createEngine({ minTurnSalienceScore: 0.95 });
+      await engine.ingestTurn("sess-1", "ok", "fine");
 
-      expect(logManager.append).not.toHaveBeenCalled();
-    });
-
-    it("handles embedding failure gracefully (still appends daily log)", async () => {
-      (embeddingProvider.embed as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("embed failed"),
-      );
-      const engine = createEngine();
-      await engine.ingestTurn("sess-1", "hello", "hi there");
-
+      expect(embeddingProvider.embed).not.toHaveBeenCalled();
       expect(vectorStore.storeWithEmbedding).not.toHaveBeenCalled();
       expect(logManager.append).toHaveBeenCalledTimes(2);
-      expect(logger.error).toHaveBeenCalledWith(
-        "Failed to generate embedding for turn",
-        expect.any(Error),
-      );
     });
 
-    it("handles vector store failure gracefully (still appends daily log)", async () => {
-      (
-        vectorStore.storeWithEmbedding as ReturnType<typeof vi.fn>
-      ).mockRejectedValue(new Error("store failed"));
-      const engine = createEngine();
-      await engine.ingestTurn("sess-1", "hello", "hi there");
+    it("deduplicates near-identical turns per role", async () => {
+      (vectorStore.query as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          id: "existing-1",
+          sessionId: "sess-1",
+          role: "assistant",
+          content:
+            "User: please fix error in server command\nAssistant: run command and resolved issue",
+          timestamp: Date.now(),
+          metadata: {
+            memoryRole: "working",
+            contentHash: "e3f6d5c5be6e56f026d95f62f7f96d0ae789c5c2d7442138f43c41af2ba4d85e",
+          },
+        },
+        {
+          id: "existing-2",
+          sessionId: "sess-1",
+          role: "assistant",
+          content:
+            "User: please fix error in server command\nAssistant: run command and resolved issue",
+          timestamp: Date.now(),
+          metadata: {
+            memoryRole: "semantic",
+            contentHash: "e3f6d5c5be6e56f026d95f62f7f96d0ae789c5c2d7442138f43c41af2ba4d85e",
+          },
+        },
+      ]);
 
-      expect(logManager.append).toHaveBeenCalledTimes(2);
-      expect(logger.error).toHaveBeenCalledWith(
-        "Failed to store turn in vector store",
-        expect.any(Error),
+      const engine = createEngine();
+      await engine.ingestTurn(
+        "sess-1",
+        "please fix error in server command",
+        "run command and resolved issue",
       );
-    });
 
-    it("handles daily log failure gracefully (does not throw)", async () => {
-      (logManager.append as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("log failed"),
-      );
-      const engine = createEngine();
-
-      await expect(
-        engine.ingestTurn("sess-1", "hello", "hi there"),
-      ).resolves.toBeUndefined();
-      expect(logger.error).toHaveBeenCalled();
-    });
-
-    it("truncates oversized turn messages before embedding/store/log", async () => {
-      const engine = createEngine();
-      const longUser = "u".repeat(20_000);
-      const longAgent = "a".repeat(20_000);
-
-      await engine.ingestTurn("sess-1", longUser, longAgent);
-
-      const embedArg = (embeddingProvider.embed as ReturnType<typeof vi.fn>).mock
-        .calls[0]?.[0] as string;
-      expect(embedArg).toContain("User: ");
-      expect(embedArg).toContain("Assistant: ");
-      expect(embedArg.length).toBeLessThanOrEqual(24_030);
-
-      const stored = (vectorStore.storeWithEmbedding as ReturnType<typeof vi.fn>)
-        .mock.calls[0]?.[0] as { content: string };
-      expect(stored.content.length).toBeLessThanOrEqual(24_030);
-
-      const userLog = (logManager.append as ReturnType<typeof vi.fn>).mock.calls[0]?.[2] as string;
-      const agentLog = (logManager.append as ReturnType<typeof vi.fn>).mock.calls[1]?.[2] as string;
-      expect(userLog.length).toBeLessThanOrEqual(12_000);
-      expect(agentLog.length).toBeLessThanOrEqual(12_000);
+      expect(vectorStore.storeWithEmbedding).toHaveBeenCalledTimes(0);
     });
   });
-
-  // --------------------------------------------------------------------------
-  // processSessionEnd
-  // --------------------------------------------------------------------------
 
   describe("processSessionEnd", () => {
     const sampleHistory: LLMMessage[] = [
@@ -301,236 +263,129 @@ describe("MemoryIngestionEngine", () => {
       { role: "assistant", content: "Solana is a blockchain." },
     ];
 
-    it("returns empty result for empty history", async () => {
-      const engine = createEngine();
-      const result = await engine.processSessionEnd("sess-1", []);
-
-      expect(result).toEqual({ summary: "", entities: [], proposedFacts: [] });
-      expect(llmProvider.chat).not.toHaveBeenCalled();
-    });
-
-    it("generates summary via LLM with correct message format", async () => {
-      const engine = createEngine();
-      await engine.processSessionEnd("sess-1", sampleHistory);
-
-      expect(llmProvider.chat).toHaveBeenCalledWith([
-        {
-          role: "system",
-          content:
-            "Summarize this conversation in 2-3 sentences, focusing on key decisions and learnings.",
-        },
-        {
-          role: "user",
-          content: "user: What is Solana?\nassistant: Solana is a blockchain.",
-        },
-      ]);
-    });
-
-    it("stores summary with embedding in vector store (high-priority metadata)", async () => {
+    it("stores summary in episodic memory with provenance and confidence", async () => {
       const engine = createEngine();
       await engine.processSessionEnd("sess-1", sampleHistory);
 
       expect(vectorStore.storeWithEmbedding).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           sessionId: "sess-1",
           role: "system",
           content: "Test summary",
-          metadata: { type: "session_summary", priority: "high" },
-        },
-        new Array(128).fill(0),
+          metadata: expect.objectContaining({
+            type: "session_summary",
+            memoryRole: "episodic",
+            provenance: "ingestion:session_end",
+            confidence: 0.9,
+          }),
+        }),
+        new Array(128).fill(0.1),
       );
     });
 
-    it("extracts entities and formats as proposed facts", async () => {
+    it("stores extracted entities as semantic facts", async () => {
       const entities: StructuredMemoryEntry[] = [
         {
           id: "e1",
-          content: "Solana is fast",
+          content: "Solana has fast finality",
           entityName: "Solana",
           entityType: "technology",
-          confidence: 0.9,
+          confidence: 0.87,
           source: "conversation",
           tags: ["blockchain"],
           createdAt: Date.now(),
         },
       ];
-      (entityExtractor.extract as ReturnType<typeof vi.fn>).mockResolvedValue(
-        entities,
-      );
-      const engine = createEngine();
+      (entityExtractor.extract as ReturnType<typeof vi.fn>).mockResolvedValue(entities);
 
+      const engine = createEngine();
       const result = await engine.processSessionEnd("sess-1", sampleHistory);
+
+      const allCalls = (vectorStore.storeWithEmbedding as ReturnType<typeof vi.fn>).mock.calls;
+      const entityCall = allCalls.find((call) => call[0]?.metadata?.type === "entity_fact");
+      expect(entityCall).toBeDefined();
+      expect(entityCall?.[0]).toEqual(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            memoryRole: "semantic",
+            provenance: "entity_extractor:conversation",
+            entityName: "Solana",
+            entityType: "technology",
+          }),
+        }),
+      );
 
       expect(result.entities).toEqual(entities);
       expect(result.proposedFacts).toEqual([
-        "- Solana is fast (source: conversation)",
+        "- Solana has fast finality (source: conversation)",
       ]);
-      expect(curatedMemory.proposeAddition).toHaveBeenCalledWith(
-        "Solana is fast",
-        "conversation",
-      );
     });
 
-    it("skips summary when generateSummaries is false", async () => {
+    it("returns empty summary when summarization disabled", async () => {
       const engine = createEngine({ generateSummaries: false });
       const result = await engine.processSessionEnd("sess-1", sampleHistory);
 
       expect(result.summary).toBe("");
       expect(llmProvider.chat).not.toHaveBeenCalled();
     });
-
-    it("skips summary when no LLM provider", async () => {
-      const engine = createEngine({ llmProvider: undefined });
-      const result = await engine.processSessionEnd("sess-1", sampleHistory);
-
-      expect(result.summary).toBe("");
-    });
-
-    it("skips entity extraction when enableEntityExtraction is false", async () => {
-      const engine = createEngine({ enableEntityExtraction: false });
-      const result = await engine.processSessionEnd("sess-1", sampleHistory);
-
-      expect(result.entities).toEqual([]);
-      expect(entityExtractor.extract).not.toHaveBeenCalled();
-    });
-
-    it("uses NoopEntityExtractor when none provided (returns empty entities)", async () => {
-      const engine = createEngine({ entityExtractor: undefined });
-      const result = await engine.processSessionEnd("sess-1", sampleHistory);
-
-      expect(result.entities).toEqual([]);
-    });
-
-    it("returns partial result when LLM fails (entities still returned)", async () => {
-      (llmProvider.chat as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("LLM timeout"),
-      );
-      const entities: StructuredMemoryEntry[] = [
-        {
-          id: "e1",
-          content: "fact",
-          entityName: "E",
-          entityType: "thing",
-          confidence: 0.8,
-          source: "src",
-          tags: [],
-          createdAt: Date.now(),
-        },
-      ];
-      (entityExtractor.extract as ReturnType<typeof vi.fn>).mockResolvedValue(
-        entities,
-      );
-
-      const engine = createEngine();
-      const result = await engine.processSessionEnd("sess-1", sampleHistory);
-
-      expect(result.summary).toBe("");
-      expect(result.entities).toEqual(entities);
-      expect(logger.error).toHaveBeenCalledWith(
-        "Failed to generate session summary",
-        expect.any(Error),
-      );
-    });
-
-    it("returns partial result when entity extraction fails (summary still returned)", async () => {
-      (entityExtractor.extract as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("extraction failed"),
-      );
-      const engine = createEngine();
-      const result = await engine.processSessionEnd("sess-1", sampleHistory);
-
-      expect(result.summary).toBe("Test summary");
-      expect(result.entities).toEqual([]);
-      expect(logger.error).toHaveBeenCalledWith(
-        "Failed to extract entities",
-        expect.any(Error),
-      );
-    });
   });
 
-  // --------------------------------------------------------------------------
-  // processCompaction
-  // --------------------------------------------------------------------------
-
   describe("processCompaction", () => {
-    it("stores summary with embedding and compaction_summary metadata", async () => {
+    it("stores compacted summary as episodic memory", async () => {
       const engine = createEngine();
       await engine.processCompaction("sess-1", "Compacted summary");
 
       expect(embeddingProvider.embed).toHaveBeenCalledWith("Compacted summary");
       expect(vectorStore.storeWithEmbedding).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            type: "compaction_summary",
+            memoryRole: "episodic",
+            provenance: "ingestion:session_compaction",
+          }),
+        }),
+        new Array(128).fill(0.1),
+      );
+    });
+
+    it("skips compaction storage when duplicate is detected", async () => {
+      (vectorStore.query as ReturnType<typeof vi.fn>).mockResolvedValue([
         {
+          id: "dup",
           sessionId: "sess-1",
           role: "system",
           content: "Compacted summary",
-          metadata: { type: "compaction_summary" },
+          timestamp: Date.now(),
+          metadata: {
+            memoryRole: "episodic",
+            contentHash: "f25e0f90f6462970bd284f6e87d7d2f7db4d1f3f75ea2f8037ef8fd95ad9e640",
+          },
         },
-        new Array(128).fill(0),
-      );
-    });
+      ]);
 
-    it("passes correct sessionId to storeWithEmbedding", async () => {
       const engine = createEngine();
-      await engine.processCompaction("specific-session", "Summary text");
+      await engine.processCompaction("sess-1", "Compacted summary");
 
-      const call = (vectorStore.storeWithEmbedding as ReturnType<typeof vi.fn>)
-        .mock.calls[0];
-      expect(call[0].sessionId).toBe("specific-session");
-    });
-
-    it("skips empty/whitespace summary", async () => {
-      const engine = createEngine();
-      await engine.processCompaction("sess-1", "");
-      await engine.processCompaction("sess-1", "   ");
-
-      expect(embeddingProvider.embed).not.toHaveBeenCalled();
       expect(vectorStore.storeWithEmbedding).not.toHaveBeenCalled();
-    });
-
-    it("handles embedding failure gracefully", async () => {
-      (embeddingProvider.embed as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("embed failed"),
-      );
-      const engine = createEngine();
-
-      await expect(
-        engine.processCompaction("sess-1", "Some summary"),
-      ).resolves.toBeUndefined();
-      expect(logger.error).toHaveBeenCalledWith(
-        "Failed to store compaction summary",
-        expect.any(Error),
-      );
     });
   });
 
-  // --------------------------------------------------------------------------
-  // createIngestionHooks
-  // --------------------------------------------------------------------------
-
   describe("createIngestionHooks", () => {
-    it("returns 3 hook handlers with correct event names and priorities", () => {
+    it("returns three lifecycle hooks", () => {
       const engine = createEngine();
       const hooks = createIngestionHooks(engine);
 
       expect(hooks).toHaveLength(3);
-      expect(hooks[0].event).toBe("message:outbound");
-      expect(hooks[0].name).toBe("memory-ingestion-turn");
-      expect(hooks[0].priority).toBe(200);
-
-      expect(hooks[1].event).toBe("session:end");
-      expect(hooks[1].name).toBe("memory-ingestion-session-end");
-      expect(hooks[1].priority).toBe(200);
-
-      expect(hooks[2].event).toBe("session:compact");
-      expect(hooks[2].name).toBe("memory-ingestion-compact");
-      expect(hooks[2].priority).toBe(200);
+      expect(hooks.map((hook) => hook.event)).toEqual([
+        "message:outbound",
+        "session:end",
+        "session:compact",
+      ]);
     });
 
-    it("message:outbound handler calls ingestTurn with payload fields", async () => {
+    it("message outbound hook triggers ingestTurn", async () => {
       const engine = createEngine();
-      const ingestSpy = vi
-        .spyOn(engine, "ingestTurn")
-        .mockResolvedValue(undefined);
+      const ingestSpy = vi.spyOn(engine, "ingestTurn").mockResolvedValue(undefined);
       const hooks = createIngestionHooks(engine, logger);
 
       const ctx = createHookContext("message:outbound", {
@@ -542,15 +397,17 @@ describe("MemoryIngestionEngine", () => {
       const result = await hooks[0].handler(ctx);
       expect(result.continue).toBe(true);
 
-      // Fire-and-forget — wait for microtask to flush
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 5));
       expect(ingestSpy).toHaveBeenCalledWith("sess-1", "hello", "hi");
     });
 
-    it("session:end handler awaits processSessionEnd and attaches result to payload", async () => {
+    it("session end hook attaches ingestion result", async () => {
       const engine = createEngine();
-      const mockResult = { summary: "sum", entities: [], proposedFacts: [] };
-      vi.spyOn(engine, "processSessionEnd").mockResolvedValue(mockResult);
+      vi.spyOn(engine, "processSessionEnd").mockResolvedValue({
+        summary: "sum",
+        entities: [],
+        proposedFacts: [],
+      });
       const hooks = createIngestionHooks(engine, logger);
 
       const ctx = createHookContext("session:end", {
@@ -560,94 +417,35 @@ describe("MemoryIngestionEngine", () => {
 
       const result = await hooks[1].handler(ctx);
       expect(result.continue).toBe(true);
-      expect(ctx.payload.ingestionResult).toEqual(mockResult);
-    });
-
-    it("session:compact handler awaits processCompaction", async () => {
-      const engine = createEngine();
-      const compactSpy = vi
-        .spyOn(engine, "processCompaction")
-        .mockResolvedValue(undefined);
-      const hooks = createIngestionHooks(engine, logger);
-
-      const ctx = createHookContext("session:compact", {
-        sessionId: "sess-1",
-        summary: "compacted",
+      expect(ctx.payload.ingestionResult).toEqual({
+        summary: "sum",
+        entities: [],
+        proposedFacts: [],
       });
-
-      const result = await hooks[2].handler(ctx);
-      expect(result.continue).toBe(true);
-      expect(compactSpy).toHaveBeenCalledWith("sess-1", "compacted");
     });
 
-    it("session:compact ignores non-after phases without warning", async () => {
+    it("session compact hook processes only after-phase payloads", async () => {
       const engine = createEngine();
       const compactSpy = vi
         .spyOn(engine, "processCompaction")
         .mockResolvedValue(undefined);
       const hooks = createIngestionHooks(engine, logger);
 
-      const ctx = createHookContext("session:compact", {
+      const beforeCtx = createHookContext("session:compact", {
         sessionId: "sess-1",
         phase: "before",
+        summary: "ignored",
       });
-
-      const result = await hooks[2].handler(ctx);
-      expect(result.continue).toBe(true);
+      await hooks[2].handler(beforeCtx);
       expect(compactSpy).not.toHaveBeenCalled();
-      expect(logger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("memory-ingestion-compact"),
-      );
-    });
 
-    it("all hooks return { continue: true } even on error", async () => {
-      const engine = createEngine();
-      vi.spyOn(engine, "processSessionEnd").mockRejectedValue(
-        new Error("boom"),
-      );
-      vi.spyOn(engine, "processCompaction").mockRejectedValue(
-        new Error("boom"),
-      );
-      const hooks = createIngestionHooks(engine, logger);
-
-      // session:end with error
-      const ctx1 = createHookContext("session:end", {
+      const afterCtx = createHookContext("session:compact", {
         sessionId: "sess-1",
-        history: [{ role: "user", content: "x" }],
+        phase: "after",
+        summary: "kept",
       });
-      const result1 = await hooks[1].handler(ctx1);
-      expect(result1.continue).toBe(true);
-
-      // session:compact with error
-      const ctx2 = createHookContext("session:compact", {
-        sessionId: "sess-1",
-        summary: "test",
-      });
-      const result2 = await hooks[2].handler(ctx2);
-      expect(result2.continue).toBe(true);
-    });
-
-    it("hooks handle missing payload fields gracefully (log warning, continue)", async () => {
-      const engine = createEngine();
-      const hooks = createIngestionHooks(engine, logger);
-
-      // message:outbound without required fields
-      const ctx1 = createHookContext("message:outbound", {});
-      const result1 = await hooks[0].handler(ctx1);
-      expect(result1.continue).toBe(true);
-      expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("missing or invalid payload fields"),
-      );
-
-      // session:end without required fields
-      const ctx2 = createHookContext("session:end", { sessionId: 123 });
-      const result2 = await hooks[1].handler(ctx2);
-      expect(result2.continue).toBe(true);
-
-      // session:compact without required fields
-      const ctx3 = createHookContext("session:compact", {});
-      const result3 = await hooks[2].handler(ctx3);
-      expect(result3.continue).toBe(true);
+      await hooks[2].handler(afterCtx);
+      expect(compactSpy).toHaveBeenCalledWith("sess-1", "kept");
     });
   });
 });

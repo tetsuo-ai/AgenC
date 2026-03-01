@@ -587,6 +587,186 @@ describe("config loading", () => {
     );
   });
 
+  it("validateGatewayConfig accepts llm.statefulResponses booleans", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          statefulResponses: {
+            enabled: true,
+            store: true,
+            fallbackToStateless: true,
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("validateGatewayConfig rejects invalid llm.statefulResponses fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          statefulResponses: {
+            enabled: "yes" as unknown as boolean,
+            store: 1 as unknown as boolean,
+            fallbackToStateless: "no" as unknown as boolean,
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "llm.statefulResponses.enabled must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.statefulResponses.store must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.statefulResponses.fallbackToStateless must be a boolean",
+    );
+  });
+
+  it("validateGatewayConfig accepts llm.toolRouting fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          toolRouting: {
+            enabled: true,
+            minToolsPerTurn: 4,
+            maxToolsPerTurn: 20,
+            maxExpandedToolsPerTurn: 40,
+            cacheTtlMs: 120_000,
+            minCacheConfidence: 0.6,
+            pivotSimilarityThreshold: 0.3,
+            pivotMissThreshold: 3,
+            mandatoryTools: ["system.bash", "desktop.bash"],
+            familyCaps: {
+              system: 12,
+              desktop: 10,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("validateGatewayConfig rejects invalid llm.toolRouting fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          toolRouting: {
+            enabled: "yes" as unknown as boolean,
+            minToolsPerTurn: 0,
+            maxToolsPerTurn: 0,
+            maxExpandedToolsPerTurn: -1,
+            cacheTtlMs: 5_000,
+            minCacheConfidence: 2,
+            pivotSimilarityThreshold: -0.1,
+            pivotMissThreshold: 0,
+            mandatoryTools: [1, 2] as unknown as string[],
+            familyCaps: {
+              system: 0,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("llm.toolRouting.enabled must be a boolean");
+    expect(result.errors).toContain(
+      "llm.toolRouting.minToolsPerTurn must be an integer between 1 and 256",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.maxToolsPerTurn must be an integer between 1 and 256",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.maxExpandedToolsPerTurn must be an integer between 1 and 256",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.cacheTtlMs must be an integer between 10000 and 86400000",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.minCacheConfidence must be a number between 0 and 1",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.pivotSimilarityThreshold must be a number between 0 and 1",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.pivotMissThreshold must be an integer between 1 and 64",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.mandatoryTools must be a string array",
+    );
+    expect(result.errors).toContain(
+      "llm.toolRouting.familyCaps.system must be an integer between 1 and 256",
+    );
+  });
+
+  it("validateGatewayConfig accepts phase-4 planner and budget fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          plannerEnabled: true,
+          plannerMaxTokens: 512,
+          toolBudgetPerRequest: 32,
+          maxModelRecallsPerRequest: 12,
+          maxFailureBudgetPerRequest: 6,
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("validateGatewayConfig rejects invalid phase-4 planner and budget fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          plannerEnabled: "yes" as unknown as boolean,
+          plannerMaxTokens: 8,
+          toolBudgetPerRequest: 0,
+          maxModelRecallsPerRequest: -1,
+          maxFailureBudgetPerRequest: 0,
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("llm.plannerEnabled must be a boolean");
+    expect(result.errors).toContain(
+      "llm.plannerMaxTokens must be an integer between 16 and 8192",
+    );
+    expect(result.errors).toContain(
+      "llm.toolBudgetPerRequest must be an integer between 1 and 256",
+    );
+    expect(result.errors).toContain(
+      "llm.maxModelRecallsPerRequest must be an integer between 0 and 128",
+    );
+    expect(result.errors).toContain(
+      "llm.maxFailureBudgetPerRequest must be an integer between 1 and 256",
+    );
+  });
+
   it("diffGatewayConfig detects changed sections", () => {
     const oldConfig = makeConfig();
     const newConfig = makeConfig({

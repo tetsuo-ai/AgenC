@@ -68,6 +68,10 @@ export interface CompactionResult {
   readonly messagesRemoved: number;
   readonly messagesRetained: number;
   readonly summaryGenerated: boolean;
+  /** Whether summary quality checks accepted/rejected generated content. */
+  readonly summaryQuality?: "accepted" | "rejected" | "not_applicable";
+  /** Final summary length when a summary message is retained. */
+  readonly summaryChars?: number;
 }
 
 export type SessionCompactionPhase = "before" | "after" | "error";
@@ -98,6 +102,90 @@ export interface SessionInfo {
 /** Callback that summarizes messages into a single string. */
 export type Summarizer = (messages: LLMMessage[]) => Promise<string>;
 
+const MAX_COMPACTION_SUMMARY_CHARS = 800;
+const MIN_COMPACTION_SUMMARY_CHARS = 24;
+const MIN_SUMMARY_KEYWORD_OVERLAP = 1;
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "that",
+  "this",
+  "with",
+  "from",
+  "have",
+  "was",
+  "were",
+  "are",
+  "you",
+  "your",
+  "our",
+  "but",
+  "not",
+  "can",
+  "will",
+  "into",
+  "about",
+  "after",
+  "before",
+  "they",
+  "them",
+  "their",
+  "has",
+  "had",
+  "did",
+  "done",
+]);
+
+function normalizeSummaryText(summary: string): string {
+  const compact = summary.replace(/\s+/g, " ").trim();
+  if (compact.length <= MAX_COMPACTION_SUMMARY_CHARS) return compact;
+  if (MAX_COMPACTION_SUMMARY_CHARS <= 3) {
+    return compact.slice(0, Math.max(0, MAX_COMPACTION_SUMMARY_CHARS));
+  }
+  return (
+    compact.slice(0, MAX_COMPACTION_SUMMARY_CHARS - 3) +
+    "..."
+  );
+}
+
+function keywordSet(text: string): Set<string> {
+  const tokens = text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];
+  const filtered = tokens.filter((token) => !STOPWORDS.has(token));
+  return new Set(filtered);
+}
+
+function hasUsefulSummaryOverlap(
+  summary: string,
+  sourceMessages: readonly LLMMessage[],
+): boolean {
+  const summaryKeywords = keywordSet(summary);
+  if (summary.length < MIN_COMPACTION_SUMMARY_CHARS) return false;
+  if (summaryKeywords.size === 0) return false;
+
+  const sourceText = sourceMessages
+    .map((message) =>
+      typeof message.content === "string"
+        ? message.content
+        : message.content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join(" "),
+    )
+    .join(" ");
+  const sourceKeywords = keywordSet(sourceText);
+  if (sourceKeywords.size === 0) return true;
+
+  let overlap = 0;
+  for (const token of summaryKeywords) {
+    if (sourceKeywords.has(token)) {
+      overlap += 1;
+      if (overlap >= MIN_SUMMARY_KEYWORD_OVERLAP) return true;
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Session ID derivation
 // ---------------------------------------------------------------------------
@@ -113,16 +201,20 @@ export function deriveSessionId(
   params: SessionLookupParams,
   scope: SessionScope,
 ): string {
+  const workspacePrefix = `${params.workspaceId}\x00`;
   switch (scope) {
     case "main":
-      return "session:main";
+      return `session:${sha256hex(workspacePrefix + "main")}`;
     case "per-peer":
-      return `session:${sha256hex(params.senderId)}`;
+      return `session:${sha256hex(workspacePrefix + params.senderId)}`;
     case "per-channel-peer":
-      return `session:${sha256hex(params.channel + "\x00" + params.senderId)}`;
+      return `session:${sha256hex(
+        workspacePrefix + params.channel + "\x00" + params.senderId,
+      )}`;
     case "per-account-channel-peer":
       return `session:${sha256hex(
-        params.channel +
+        workspacePrefix +
+          params.channel +
           "\x00" +
           params.senderId +
           "\x00" +
@@ -270,6 +362,7 @@ export class SessionManager {
               messagesRemoved: dropCount,
               messagesRetained: keepCount,
               summaryGenerated: false,
+              summaryQuality: "not_applicable",
             };
             break;
           }
@@ -277,9 +370,21 @@ export class SessionManager {
           case "sliding-window": {
             const toSummarize = history.slice(0, dropCount);
             let summaryText: string;
+            let summaryGenerated = false;
+            let summaryQuality: CompactionResult["summaryQuality"] =
+              "not_applicable";
 
             if (this.summarizer) {
-              summaryText = await this.summarizer(toSummarize);
+              summaryText = normalizeSummaryText(
+                await this.summarizer(toSummarize),
+              );
+              if (hasUsefulSummaryOverlap(summaryText, toSummarize)) {
+                summaryGenerated = true;
+                summaryQuality = "accepted";
+              } else {
+                summaryText = `[Compacted: ${dropCount} earlier messages removed]`;
+                summaryQuality = "rejected";
+              }
             } else {
               summaryText = `[Compacted: ${dropCount} earlier messages removed]`;
             }
@@ -292,7 +397,9 @@ export class SessionManager {
             result = {
               messagesRemoved: dropCount,
               messagesRetained: keepCount + 1,
-              summaryGenerated: !!this.summarizer,
+              summaryGenerated,
+              summaryQuality,
+              summaryChars: summaryText.length,
             };
             break;
           }
@@ -305,19 +412,34 @@ export class SessionManager {
                 messagesRemoved: dropCount,
                 messagesRetained: keepCount,
                 summaryGenerated: false,
+                summaryQuality: "not_applicable",
               };
               break;
             }
 
             const toSummarize = history.slice(0, dropCount);
-            const summary = await this.summarizer(toSummarize);
-            const summaryMsg: LLMMessage = { role: "system", content: summary };
-            session.history = [summaryMsg, ...history.slice(dropCount)];
-            result = {
-              messagesRemoved: dropCount,
-              messagesRetained: keepCount + 1,
-              summaryGenerated: true,
-            };
+            const summary = normalizeSummaryText(
+              await this.summarizer(toSummarize),
+            );
+            if (!hasUsefulSummaryOverlap(summary, toSummarize)) {
+              session.history = history.slice(dropCount);
+              result = {
+                messagesRemoved: dropCount,
+                messagesRetained: keepCount,
+                summaryGenerated: false,
+                summaryQuality: "rejected",
+              };
+            } else {
+              const summaryMsg: LLMMessage = { role: "system", content: summary };
+              session.history = [summaryMsg, ...history.slice(dropCount)];
+              result = {
+                messagesRemoved: dropCount,
+                messagesRetained: keepCount + 1,
+                summaryGenerated: true,
+                summaryQuality: "accepted",
+                summaryChars: summary.length,
+              };
+            }
             break;
           }
         }
