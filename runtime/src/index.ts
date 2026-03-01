@@ -926,13 +926,16 @@ export {
   // Bash
   createBashTool,
   isCommandAllowed as isBashCommandAllowed,
+  validateShellCommand,
   type BashToolConfig,
   type BashToolInput,
   type BashExecutionResult,
+  type DangerousShellPattern,
   DEFAULT_DENY_LIST,
   DEFAULT_DENY_PREFIXES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
+  DANGEROUS_SHELL_PATTERNS,
 } from "./tools/index.js";
 
 // ZK Proof Engine (Phase 7)

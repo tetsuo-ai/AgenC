@@ -9,7 +9,7 @@
  * @module
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { basename } from "node:path";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
@@ -23,6 +23,7 @@ import {
   DEFAULT_DENY_PREFIXES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
+  DANGEROUS_SHELL_PATTERNS,
 } from "./types.js";
 import { silentLogger } from "../../utils/logger.js";
 import type { Logger } from "../../utils/logger.js";
@@ -155,6 +156,33 @@ function buildEnv(configEnv?: Record<string, string>): Record<string, string> {
 }
 
 /**
+ * Validate a shell command against dangerous patterns.
+ * Used in shell mode (args omitted) instead of the deny list.
+ *
+ * @param command - The full shell command string
+ * @returns `{ allowed: true }` or `{ allowed: false, reason: string }`
+ */
+export function validateShellCommand(
+  command: string,
+): { allowed: true } | { allowed: false; reason: string } {
+  for (const guard of DANGEROUS_SHELL_PATTERNS) {
+    if (guard.pattern.test(command)) {
+      return { allowed: false, reason: guard.message };
+    }
+  }
+  return { allowed: true };
+}
+
+/** Detect whether a command string requires shell interpretation. */
+function isShellModeCommand(
+  command: string,
+  args: readonly string[] | undefined,
+): boolean {
+  if (args !== undefined) return false;
+  return SHELL_OPERATOR_RE.test(command) || /\s/.test(command);
+}
+
+/**
  * Check if a command is allowed by the allow/deny list rules.
  *
  * Rules:
@@ -239,25 +267,29 @@ export function createBashTool(config?: BashToolConfig): Tool {
   const env = buildEnv(config?.env);
   const logger: Logger = config?.logger ?? silentLogger;
   const lockCwd = config?.lockCwd ?? false;
+  const shellModeEnabled = config?.shellMode !== false;
 
   return {
     name: "system.bash",
     description:
-      'Execute one executable directly (no shell). Set `command` to the binary name (e.g. "ls", "git") ' +
-      "and `args` to an array of arguments. Do NOT use shell wrappers like `bash -c` or shell operators (pipes, redirects, heredocs) as command text.",
+      "Execute commands in two modes:\n" +
+      '1. **Direct mode** (command + args): Set `command` to a binary (e.g. "git") and `args` to an array of flags/operands. Uses execFile directly.\n' +
+      '2. **Shell mode** (command only, no args): Set `command` to a full shell string (e.g. "ls -la | grep foo"). Pipes, redirects, chaining, and backgrounding are supported.',
     inputSchema: {
       type: "object",
       properties: {
         command: {
           type: "string",
-          pattern: "^[A-Za-z0-9_./+-]+$",
           description:
-            'Executable token/path only (e.g. "ls", "/usr/bin/git", "curl"). No spaces/newlines/shell operators. Do not pass "bash -c ..." or combined shell strings.',
+            "Either a single executable name/path (when using `args`) or a full shell command string (when `args` is omitted). " +
+            'Examples: "git" (with args: ["status"]) or "cat /tmp/data.json | jq .name" (no args).',
         },
         args: {
           type: "array",
           items: { type: "string" },
-          description: "Arguments array",
+          description:
+            "Arguments array for direct mode. When provided, command must be a single executable token. " +
+            "Omit this field to use shell mode.",
         },
         cwd: {
           type: "string",
@@ -283,41 +315,78 @@ export function createBashTool(config?: BashToolConfig): Tool {
       }
 
       const command = input.command.trim();
-      const commandShapeError = validateCommandShape(command);
-      if (commandShapeError) {
-        return errorResult(commandShapeError);
-      }
-      const shellBuiltinError = validateShellBuiltin(command);
-      if (shellBuiltinError) {
-        return errorResult(shellBuiltinError);
-      }
 
-      // Check deny/allow lists (skipped in unrestricted mode)
-      if (!unrestricted) {
-        const check = isCommandAllowed(
-          command,
-          denySet,
-          allowSet,
-          denyExclusionSet,
-        );
-        if (!check.allowed) {
-          logger.warn(`Bash tool denied: ${check.reason}`);
-          return errorResult(check.reason);
-        }
-      }
+      // Determine execution mode: shell vs direct
+      const useShellMode =
+        shellModeEnabled && isShellModeCommand(command, input.args);
 
-      // Validate args
-      const args: string[] = [];
-      if (input.args !== undefined) {
-        if (!Array.isArray(input.args)) {
-          return errorResult("args must be an array of strings");
+      let execCommand: string;
+      let execArgs: string[];
+
+      if (useShellMode) {
+        // Shell mode: validate against dangerous patterns, then run via bash -c
+        const shellCheck = validateShellCommand(command);
+        if (!shellCheck.allowed) {
+          logger.warn(`Bash tool shell-mode denied: ${shellCheck.reason}`);
+          return errorResult(shellCheck.reason);
         }
-        for (const arg of input.args) {
-          if (typeof arg !== "string") {
-            return errorResult("Each argument must be a string");
+
+        execCommand = "/bin/bash";
+        execArgs = ["-c", command];
+      } else {
+        // Direct mode: validate command shape, builtins, and deny/allow lists
+        if (
+          input.args === undefined &&
+          shellModeEnabled &&
+          !SINGLE_EXECUTABLE_RE.test(command)
+        ) {
+          // Command has shell operators but shell mode is enabled — this was caught
+          // by isShellModeCommand above, so this branch shouldn't be reached.
+          // Safety fallback for edge cases.
+          return errorResult(
+            "Shell mode is disabled. Use `command` + `args` for direct execution.",
+          );
+        }
+
+        const commandShapeError = validateCommandShape(command);
+        if (commandShapeError) {
+          return errorResult(commandShapeError);
+        }
+        const shellBuiltinError = validateShellBuiltin(command);
+        if (shellBuiltinError) {
+          return errorResult(shellBuiltinError);
+        }
+
+        // Check deny/allow lists (skipped in unrestricted mode)
+        if (!unrestricted) {
+          const check = isCommandAllowed(
+            command,
+            denySet,
+            allowSet,
+            denyExclusionSet,
+          );
+          if (!check.allowed) {
+            logger.warn(`Bash tool denied: ${check.reason}`);
+            return errorResult(check.reason);
           }
-          args.push(arg);
         }
+
+        // Validate args
+        const args: string[] = [];
+        if (input.args !== undefined) {
+          if (!Array.isArray(input.args)) {
+            return errorResult("args must be an array of strings");
+          }
+          for (const arg of input.args) {
+            if (typeof arg !== "string") {
+              return errorResult("Each argument must be a string");
+            }
+            args.push(arg);
+          }
+        }
+
+        execCommand = command;
+        execArgs = args;
       }
 
       // Apply cwd — reject per-call override if lockCwd is enabled
@@ -334,13 +403,144 @@ export function createBashTool(config?: BashToolConfig): Tool {
       // Apply timeout — cap at maxTimeoutMs to prevent LLM from setting arbitrarily high values
       const timeout = Math.min(input.timeoutMs ?? defaultTimeout, maxTimeoutMs);
 
-      logger.debug(`Bash tool executing: ${command} ${args.join(" ")}`);
+      const logCmd = useShellMode
+        ? `[shell] ${command}`
+        : `${command} ${execArgs.join(" ")}`;
+      logger.debug(`Bash tool executing: ${logCmd}`);
       const startTime = Date.now();
 
+      // Shell mode uses spawn + exit event to avoid hanging when backgrounded
+      // children (e.g. `python3 ... &`) inherit stdout/stderr pipes.
+      // execFile waits for pipes to close, not just child exit — spawn + exit
+      // resolves as soon as bash finishes, leaving backgrounded children running.
+      if (useShellMode) {
+        return new Promise<ToolResult>((resolve) => {
+          let resolved = false;
+          let stdoutBuf = "";
+          let stderrBuf = "";
+          let timedOut = false;
+
+          const child = spawn(execCommand, execArgs, {
+            cwd,
+            env,
+            stdio: ["ignore", "pipe", "pipe"],
+            detached: true, // Own process group for clean timeout kill
+          });
+
+          // Unref so backgrounded grandchildren don't keep Node alive
+          child.unref();
+
+          child.stdout!.on("data", (chunk: Buffer) => {
+            stdoutBuf += chunk.toString();
+          });
+          child.stderr!.on("data", (chunk: Buffer) => {
+            stderrBuf += chunk.toString();
+          });
+
+          const timer = setTimeout(() => {
+            timedOut = true;
+            // Kill entire process group (bash + any backgrounded children)
+            try {
+              process.kill(-child.pid!, "SIGTERM");
+            } catch {
+              child.kill("SIGTERM");
+            }
+          }, timeout);
+
+          const doResolve = (code: number | null) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+
+            const durationMs = Date.now() - startTime;
+            const exitCode = timedOut ? null : (code ?? 1);
+            const isError = timedOut || (exitCode !== null && exitCode !== 0);
+
+            const stdoutResult = truncate(stdoutBuf, maxOutputBytes);
+            const stderrResult = truncate(
+              stderrBuf.trim().length > 0
+                ? stderrBuf
+                : isError
+                  ? `Command "${command}" failed`
+                  : "",
+              maxOutputBytes,
+            );
+
+            if (timedOut) {
+              logger.warn(
+                `Bash tool timed out after ${durationMs}ms: ${logCmd}`,
+              );
+            } else if (isError) {
+              logger.debug(
+                `Bash tool error (exit ${exitCode}): ${logCmd}`,
+              );
+            } else {
+              logger.debug(`Bash tool success (${durationMs}ms): ${logCmd}`);
+            }
+
+            const result: BashExecutionResult = {
+              exitCode,
+              stdout: stdoutResult.text,
+              stderr: stderrResult.text,
+              timedOut,
+              durationMs,
+              truncated: stdoutResult.truncated || stderrResult.truncated,
+            };
+
+            resolve({
+              content: safeStringify(result),
+              isError: isError || undefined,
+              metadata: {
+                command,
+                args: execArgs,
+                cwd,
+                shellMode: true,
+                timedOut,
+                durationMs,
+              },
+            });
+          };
+
+          // Resolve on exit (NOT close) — close waits for pipes,
+          // exit fires when bash process terminates.
+          child.on("exit", (code) => {
+            // Brief delay to flush any remaining pipe data from bash itself
+            setTimeout(() => doResolve(code), 50);
+          });
+
+          child.on("error", (err) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            const durationMs = Date.now() - startTime;
+            resolve({
+              content: safeStringify({
+                error: err.message,
+                exitCode: null,
+                stdout: "",
+                stderr: err.message,
+                timedOut: false,
+                durationMs,
+                truncated: false,
+              }),
+              isError: true,
+              metadata: {
+                command,
+                args: execArgs,
+                cwd,
+                shellMode: true,
+                durationMs,
+              },
+            });
+          });
+        });
+      }
+
+      // Direct mode: use execFile (waits for pipes — safe since no backgrounding)
       return new Promise<ToolResult>((resolve) => {
         execFile(
-          command,
-          args,
+          execCommand,
+          execArgs,
           {
             cwd,
             timeout,
@@ -375,10 +575,12 @@ export function createBashTool(config?: BashToolConfig): Tool {
 
               if (isTimeout) {
                 logger.warn(
-                  `Bash tool timed out after ${durationMs}ms: ${command}`,
+                  `Bash tool timed out after ${durationMs}ms: ${logCmd}`,
                 );
               } else {
-                logger.debug(`Bash tool error (exit ${exitCode}): ${command}`);
+                logger.debug(
+                  `Bash tool error (exit ${exitCode}): ${logCmd}`,
+                );
               }
 
               const result: BashExecutionResult = {
@@ -395,8 +597,9 @@ export function createBashTool(config?: BashToolConfig): Tool {
                 isError: true,
                 metadata: {
                   command,
-                  args,
+                  args: execArgs,
                   cwd,
+                  shellMode: false,
                   timedOut: isTimeout,
                   durationMs,
                 },
@@ -407,7 +610,7 @@ export function createBashTool(config?: BashToolConfig): Tool {
             const stdoutResult = truncate(toText(stdout), maxOutputBytes);
             const stderrResult = truncate(toText(stderr), maxOutputBytes);
 
-            logger.debug(`Bash tool success (${durationMs}ms): ${command}`);
+            logger.debug(`Bash tool success (${durationMs}ms): ${logCmd}`);
 
             const result: BashExecutionResult = {
               exitCode: 0,
@@ -420,7 +623,13 @@ export function createBashTool(config?: BashToolConfig): Tool {
 
             resolve({
               content: safeStringify(result),
-              metadata: { command, args, cwd, durationMs },
+              metadata: {
+                command,
+                args: execArgs,
+                cwd,
+                shellMode: false,
+                durationMs,
+              },
             });
           },
         );

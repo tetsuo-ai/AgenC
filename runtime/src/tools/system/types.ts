@@ -36,7 +36,70 @@ export interface BashToolConfig {
   readonly lockCwd?: boolean;
   /** Disable all deny lists (default + config). Use for trusted daemon environments. (default: false) */
   readonly unrestricted?: boolean;
+  /** Enable shell mode when args is omitted (default: true). Set false to require command+args only. */
+  readonly shellMode?: boolean;
 }
+
+// ============================================================================
+// Shell mode safety types
+// ============================================================================
+
+/**
+ * A pattern that blocks dangerous shell commands in shell mode.
+ */
+export interface DangerousShellPattern {
+  readonly name: string;
+  readonly pattern: RegExp;
+  readonly message: string;
+}
+
+/**
+ * Dangerous shell patterns checked in shell mode.
+ * These catch dangerous operations regardless of how they're expressed
+ * (pipes, subshells, aliases, etc.).
+ */
+export const DANGEROUS_SHELL_PATTERNS: readonly DangerousShellPattern[] = [
+  {
+    name: "privilege_escalation",
+    pattern: /\b(?:sudo|su|doas)\b/,
+    message: "Privilege escalation commands (sudo/su/doas) are blocked",
+  },
+  {
+    name: "root_filesystem_destruction",
+    pattern: /\brm\s+(-[a-zA-Z]*[rR][a-zA-Z]*\s+)?(\/\s*$|\/\*|~\/)/,
+    message: "Recursive deletion of root or home directory is blocked",
+  },
+  {
+    name: "reverse_shell",
+    pattern: /(?:\bnc\b.*-[a-zA-Z]*e|\/dev\/tcp\/|\bsocat\b.*\bexec\b)/,
+    message: "Reverse shell patterns are blocked",
+  },
+  {
+    name: "download_and_execute",
+    pattern: /(?:curl|wget)\b[^|]*\|\s*(?:ba)?sh\b/,
+    message: "Download-and-execute (pipe to shell) is blocked",
+  },
+  {
+    name: "system_commands",
+    pattern: /\b(?:shutdown|reboot|halt|poweroff|mkfs)\b/,
+    message: "Destructive system commands are blocked",
+  },
+  {
+    name: "raw_device_access",
+    pattern: /\bdd\b[^|]*\bof=\/dev\//,
+    message: "Raw device writes via dd are blocked",
+  },
+  {
+    name: "shell_reinvocation",
+    pattern: /\b(?:bash|sh|zsh|dash)\s+-c\b/,
+    message: "Nested shell invocation (bash -c) is blocked — write your command directly",
+  },
+  {
+    name: "fork_bomb",
+    pattern: /:\(\)\s*\{.*\|.*&\s*\}\s*;?\s*:/,
+    message: "Fork bomb patterns are blocked",
+  },
+];
 
 /**
  * Input schema for a bash tool invocation.

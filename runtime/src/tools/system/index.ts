@@ -24,14 +24,20 @@ export {
   type BrowserToolConfig,
 } from "./browser.js";
 
-export { createBashTool, isCommandAllowed } from "./bash.js";
+export {
+  createBashTool,
+  isCommandAllowed,
+  validateShellCommand,
+} from "./bash.js";
 
 export {
   type BashToolConfig,
   type BashToolInput,
   type BashExecutionResult,
+  type DangerousShellPattern,
   DEFAULT_DENY_LIST,
   DEFAULT_DENY_PREFIXES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
+  DANGEROUS_SHELL_PATTERNS,
 } from "./types.js";
