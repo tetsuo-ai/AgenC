@@ -1,0 +1,15 @@
+{
+  "name": "pmll-memory-mcp",
+  "version": "0.1.0",
+  "description": "Persistent Memory Linked List MCP tool — short-term KV context memory and Q-promise deduplication layer for Claude Sonnet/Opus agent tasks. Eliminates redundant MCP tool initializations via peek() and recursive KV slot caching.",
+  "author": "drQedwards",
+  "license": "MIT",
+  "tools": ["init", "peek", "set", "resolve", "flush"],
+  "category": "memory",
+  "tier": "premium",
+  "models": ["claude-sonnet", "claude-opus"],
+  "initializer_order": 3,
+  "repository": "https://github.com/drQedwards/PPM",
+  "pypi": "https://pypi.org/project/pmll-memory-mcp/",
+  "entry": "pmll_memory_mcp.server"
+}

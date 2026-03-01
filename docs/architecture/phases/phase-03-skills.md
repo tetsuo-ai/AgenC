@@ -23,6 +23,9 @@ This phase introduces a documentation-first approach to teaching agents new capa
 - Manifest/catalog patterns from `runtime/src/skills/`
 - Tool integration from `runtime/src/tools/`
 
+**MCP Memory Layer:**
+- [`pmll-memory-mcp`](https://pypi.org/project/pmll-memory-mcp/) — Python MCP server providing short-term KV context memory and Q-promise deduplication for agent tasks. Install via `pip install pmll-memory-mcp` (or `pip install pmll-memory-mcp==0.1.0`). Source: [`mcp/pmll-memory-mcp/`](../../../mcp/pmll-memory-mcp/). This server caches expensive MCP tool call results and eliminates redundant initializations through its `peek()` pattern, complementing the skill injection engine.
+
 ## Issue Dependency Graph
 
 ```mermaid

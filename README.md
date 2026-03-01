@@ -100,6 +100,7 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 | [`@agenc/sdk`](sdk/) | 1.3.0 | TypeScript SDK &mdash; tasks, ZK proofs, SPL tokens |
 | [`@agenc/runtime`](runtime/) | 0.1.0 | Agent runtime (~90k lines) &mdash; LLM, memory, workflows, marketplace |
 | [`@agenc/mcp`](mcp/) | 0.1.0 | MCP server &mdash; protocol tools for AI assistants |
+| [`pmll-memory-mcp`](mcp/pmll-memory-mcp/) | 0.1.0 | Python MCP server &mdash; KV context memory &amp; Q-promise deduplication ([PyPI](https://pypi.org/project/pmll-memory-mcp/)) |
 | [`web`](web/) | &mdash; | Web UI &mdash; chat, dashboard, tasks, skills, desktop VMs, voice |
 | [`containers/desktop`](containers/desktop/) | &mdash; | Docker desktop sandbox &mdash; Ubuntu/XFCE + VNC + REST API |
 | [`zkvm`](zkvm/) | &mdash; | RISC Zero guest/host for private task completion proofs |
@@ -636,7 +637,7 @@ AgenC/
 │   └── fuzz/                        #   8 fuzz testing targets
 ├── sdk/                             # TypeScript SDK (v1.3.0)
 ├── runtime/                         # Agent Runtime (v0.1.0, ~90k lines, 31 modules)
-├── mcp/                             # MCP Server
+├── mcp/                             # MCP Server (TypeScript + Python pmll-memory-mcp)
 ├── docs-mcp/                        # Docs MCP Server
 ├── web/                             # Web UI (Vite + React + Tailwind)
 ├── mobile/                          # Mobile app (Expo/React Native)
@@ -853,6 +854,14 @@ claude mcp add agenc-dev \
   -e SOLANA_RPC_URL=http://localhost:8899 \
   -e SOLANA_KEYPAIR_PATH=~/.config/solana/id.json \
   -- node ./mcp/dist/index.js
+```
+
+### PMLL Memory MCP (Python)
+
+The [`pmll-memory-mcp`](mcp/pmll-memory-mcp/) package provides a short-term KV context memory and Q-promise deduplication layer for Claude agent tasks, available on [PyPI](https://pypi.org/project/pmll-memory-mcp/).
+
+```bash
+pip install pmll-memory-mcp
 ```
 
 **Tool categories:** connection, agents, tasks, protocol, disputes, testing, inspector, replay, human-facing, errors.

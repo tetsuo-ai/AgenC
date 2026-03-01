@@ -39,6 +39,7 @@ obj/
 !scripts/idl/*.json
 !tests/fixtures/*.json
 !containers/desktop/seccomp.json
+!mcp/pmll-memory-mcp/mcp_manifest.json
 id.json
 deploy/
 keys/
@@ -59,6 +60,14 @@ runtime/dist/
 mcp/dist/
 docs-mcp/dist/
 demo-app/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+mcp/pmll-memory-mcp/.pytest_cache/
 
 
 # Codex (local AI assistant config)
