@@ -142,7 +142,13 @@ anchor build         # Build the Solana program (optional)
 npm run test:fast    # LiteSVM integration tests (~5s)
 npm run test         # SDK + Runtime vitest suites (~4860+ tests)
 npm run test:anchor  # Full Anchor integration tests
+npm run test:matrix:phase01 # Full Phase 0/1 verification matrix (fast + runtime + anchor integration/smoke)
 ```
+
+`test:matrix:phase01` bootstrap behavior:
+- defaults: `ANCHOR_PROVIDER_URL=http://127.0.0.1:8899`, `ANCHOR_WALLET=~/.config/solana/id.json`
+- on local provider URLs, starts `solana-test-validator` if needed, then runs `anchor build` + `anchor deploy` before integration/smoke tests
+- on non-local provider URLs, refuses auto-deploy unless `AGENC_MATRIX_ALLOW_REMOTE_DEPLOY=1`
 
 ### One-Command Dev Setup
 
