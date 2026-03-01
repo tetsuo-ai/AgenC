@@ -3,6 +3,10 @@
     "agenc-docs": {
       "command": "node",
       "args": ["docs-mcp/dist/index.cjs"]
+    },
+    "pmll-memory-mcp": {
+      "command": "pmll-memory-mcp",
+      "args": []
     }
   }
 }

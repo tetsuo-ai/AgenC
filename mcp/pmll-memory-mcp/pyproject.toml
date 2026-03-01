@@ -1,0 +1,21 @@
+[project]
+name = "pmll-memory-mcp"
+version = "0.1.0"
+description = "PMLL Memory MCP Server — persistent KV context memory and Q-promise deduplication for Claude agent tasks"
+authors = [{ name = "drQedwards" }]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.23.0",
+    "anyio>=4.0.0",
+]
+
+[project.scripts]
+pmll-memory-mcp = "pmll_memory_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

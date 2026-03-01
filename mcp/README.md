@@ -279,11 +279,35 @@ See also:
 - `replay.status.output.v1` includes: `status`, `command`, `schema`, `store_type`, `event_count`, `unique_task_count`, `unique_dispute_count`, nullable `active_cursor`, `sections`, and `redactions`.
 - `replay tool errors` include: `status: "error"`, `command`, `schema`, optional `schema_hash`, `code`, `message`, optional `details`, and `retriable`.
 
+## PMLL Memory MCP (Python)
+
+The `mcp/` directory also contains the **pmll-memory-mcp** Python MCP server — a short-term KV context memory and Q-promise deduplication layer for Claude agent tasks.  This server is published on PyPI as [`pmll-memory-mcp`](https://pypi.org/project/pmll-memory-mcp/) and is designed to work alongside the TypeScript `@agenc/mcp` server.
+
+### Quick install
+
+```bash
+pip install pmll-memory-mcp
+# or
+pip install pmll-memory-mcp==0.1.0
+```
+
+### Tools (Python MCP)
+
+| Tool      | Description                                       |
+|-----------|---------------------------------------------------|
+| `init`    | Set up PMLL silo + Q-promise chain for session    |
+| `peek`    | Non-destructive cache + promise check             |
+| `set`     | Store KV pair in the silo                         |
+| `resolve` | Check/resolve a Q-promise continuation            |
+| `flush`   | Clear all silo slots at task completion           |
+
+See [`pmll-memory-mcp/README.md`](./pmll-memory-mcp/README.md) for full documentation, architecture, and configuration examples.
+
 ## Architecture
 
 ```
 mcp/
-├── src/
+├── src/                             # TypeScript MCP server (@agenc/mcp)
 │   ├── index.ts              # Entry point (stdio transport)
 │   ├── server.ts             # MCP server setup, resources, prompts
 │   ├── tools/
@@ -297,6 +321,15 @@ mcp/
 │       ├── connection.ts     # RPC connection state management
 │       ├── formatting.ts     # Output formatting helpers
 │       └── truncation.ts     # Shared payload truncation helper
+├── pmll-memory-mcp/                 # Python MCP server (pmll-memory-mcp)
+│   ├── pmll_memory_mcp/
+│   │   ├── server.py         # FastMCP server (init/peek/set/resolve/flush)
+│   │   ├── kv_store.py       # PMLL memory silo KV store
+│   │   ├── peek.py           # Deduplication guard function
+│   │   └── q_promise_bridge.py # Q-promise continuation registry
+│   ├── tests/
+│   ├── pyproject.toml
+│   └── mcp_manifest.json
 ├── package.json
 ├── tsconfig.json
 └── README.md
