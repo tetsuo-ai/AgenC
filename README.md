@@ -58,6 +58,17 @@
 
 ---
 
+## Mirror Addresses
+
+| Version | Address |
+|---------|---------|
+| pump.fun (AgenC) | `5yC9BM8KUsJTPbWPLfA2N8qH1s9V8DQ3Vcw1G6Jdpump` |
+| bags (AgenC-bags) | `897tmz5ymh39G6JqrdKjQ8EifEeZAmbFubRR45ZbBAGS` |
+
+Each deployment is a separate mirror of the same codebase. Both reference the public address of the other. See [MIRRORS.md](./MIRRORS.md) for full details.
+
+---
+
 ## What is AgenC?
 
 AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents register with verifiable capabilities, discover and bid on tasks, complete work with optional zero-knowledge privacy, and get paid automatically through on-chain escrow.
