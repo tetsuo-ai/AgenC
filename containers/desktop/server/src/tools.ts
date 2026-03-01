@@ -335,16 +335,25 @@ async function bash(args: Record<string, unknown>): Promise<ToolResult> {
       });
     }
 
-    const { stdout, stderr } = await exec(
-      "/bin/bash",
-      ["-c", normalizedCommand],
-      timeoutMs,
-    );
-    return ok({
-      stdout: truncateOutput(stdout),
-      stderr: truncateOutput(stderr),
-      exitCode: 0,
-    });
+    // Run foreground commands via a temp script file instead of `bash -c`
+    // to prevent pkill/pgrep self-matching against /proc/self/cmdline.
+    const scriptId = randomUUID().slice(0, 8);
+    const scriptPath = `/tmp/agenc-cmd-${scriptId}.sh`;
+    await writeFile(scriptPath, normalizedCommand, { mode: 0o700 });
+    try {
+      const { stdout, stderr } = await exec(
+        "/bin/bash",
+        [scriptPath],
+        timeoutMs,
+      );
+      return ok({
+        stdout: truncateOutput(stdout),
+        stderr: truncateOutput(stderr),
+        exitCode: 0,
+      });
+    } finally {
+      unlink(scriptPath).catch(() => {});
+    }
   } catch (e: unknown) {
     // Non-zero exit codes are reported, not thrown
     const err = e as {

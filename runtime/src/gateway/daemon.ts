@@ -889,6 +889,8 @@ export class DaemonManager {
   private _agentFeed: import('../social/feed.js').AgentFeed | null = null;
   private _reputationScorer: import('../social/reputation.js').ReputationScorer | null = null;
   private _collaborationProtocol: import('../social/collaboration.js').CollaborationProtocol | null = null;
+  private _systemPrompt = '';
+  private _voiceSystemPrompt = '';
   private shutdownInProgress = false;
   private startedAt = 0;
   private signalHandlersRegistered = false;
@@ -1282,8 +1284,8 @@ export class DaemonManager {
 
     const sessionMgr = this.createSessionManager(hooks);
     const resolveSessionId = this.createSessionIdResolver(sessionMgr);
-    const systemPrompt = await this.buildSystemPrompt(config);
-    const voiceSystemPrompt = await this.buildSystemPrompt(config, { forVoice: true });
+    this._systemPrompt = await this.buildSystemPrompt(config);
+    this._voiceSystemPrompt = await this.buildSystemPrompt(config, { forVoice: true });
     const commandRegistry = this.createCommandRegistry(
       sessionMgr,
       resolveSessionId,
@@ -1302,7 +1304,7 @@ export class DaemonManager {
       approvalEngine,
       memoryBackend,
     };
-    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt, voiceDeps, voiceSystemPrompt);
+    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, this._systemPrompt, voiceDeps, this._voiceSystemPrompt);
     this._voiceBridge = voiceBridge ?? null;
 
     const webChat = new WebChatChannel({
@@ -1333,7 +1335,7 @@ export class DaemonManager {
       getLoggingConfig: () => gateway.config.logging,
       hooks,
       sessionMgr,
-      systemPrompt,
+      getSystemPrompt: () => this._systemPrompt,
       baseToolHandler,
       approvalEngine,
       memoryBackend,
@@ -1357,14 +1359,20 @@ export class DaemonManager {
       }
       const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
       if (llmChanged) {
-        void this.hotSwapLLMProvider(
-          gateway.config,
-          skillInjector,
-          memoryRetriever,
-          learningProvider,
-          progressTracker,
-          pipelineExecutor,
-        );
+        void (async () => {
+          await this.hotSwapLLMProvider(
+            gateway.config,
+            skillInjector,
+            memoryRetriever,
+            learningProvider,
+            progressTracker,
+            pipelineExecutor,
+          );
+          // Rebuild system prompts so model transparency section reflects the new model
+          this._systemPrompt = await this.buildSystemPrompt(gateway.config);
+          this._voiceSystemPrompt = await this.buildSystemPrompt(gateway.config, { forVoice: true });
+          this.logger.info('System prompt rebuilt after LLM config change');
+        })();
       }
       const policyChanged = diff.safe.some((key) => key.startsWith('policy.'));
       if (policyChanged && this._policyEngine) {
@@ -1387,7 +1395,7 @@ export class DaemonManager {
       const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
       if (voiceChanged) {
         void this._voiceBridge?.stopAll();
-        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, systemPrompt, voiceDeps, voiceSystemPrompt);
+        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, this._systemPrompt, voiceDeps, this._voiceSystemPrompt);
         this._voiceBridge = newBridge ?? null;
         if (this._webChatChannel) {
           this._webChatChannel.updateVoiceBridge(newBridge ?? null);
@@ -3308,7 +3316,7 @@ export class DaemonManager {
     getLoggingConfig: () => GatewayLoggingConfig | undefined;
     hooks: HookDispatcher;
     sessionMgr: SessionManager;
-    systemPrompt: string;
+    getSystemPrompt: () => string;
     baseToolHandler: ToolHandler;
     approvalEngine: ApprovalEngine;
     memoryBackend: MemoryBackend;
@@ -3322,7 +3330,7 @@ export class DaemonManager {
       getLoggingConfig,
       hooks,
       sessionMgr,
-      systemPrompt,
+      getSystemPrompt,
       baseToolHandler,
       approvalEngine,
       memoryBackend,
@@ -3515,14 +3523,15 @@ export class DaemonManager {
         });
 
         if (traceConfig.enabled) {
+          const currentPrompt = getSystemPrompt();
           this.logger.info('[trace] webchat.chat.request', {
             traceId: turnTraceId,
             sessionId: msg.sessionId,
             historyLength: session.history.length,
             historyRoleCounts: summarizeRoleCounts(session.history),
-            systemPromptChars: systemPrompt.length,
+            systemPromptChars: currentPrompt.length,
             ...(traceConfig.includeSystemPrompt
-              ? { systemPrompt: truncateToolLogText(systemPrompt, traceConfig.maxChars) }
+              ? { systemPrompt: truncateToolLogText(currentPrompt, traceConfig.maxChars) }
               : {}),
             ...(traceConfig.includeHistory
               ? {
@@ -3550,7 +3559,7 @@ export class DaemonManager {
         const result = await chatExecutor.execute({
           message: msg,
           history: session.history,
-          systemPrompt,
+          systemPrompt: getSystemPrompt(),
           sessionId: msg.sessionId,
           toolHandler: sessionToolHandler,
           onStreamChunk: sessionStreamCallback,
@@ -3727,10 +3736,11 @@ export class DaemonManager {
     const desktopEnabled = config.desktop?.enabled === true;
 
     let ctx = 'You have broad access to this machine via the system.bash tool. ' +
-      'You can run most development commands (curl, wget, python, node, git, rm, chmod, etc.) directly. ' +
-      'system.bash executes exactly one executable (no shell parser): set `command` to a binary and pass flags/operands in `args`. ' +
-      'Do NOT send shell builtins (`set`, `cd`, `export`), pipes/redirection/heredocs, separators (`;`, `&&`, `||`), or multi-line scripts to system.bash. ' +
-      'For shell-style scripts/chaining, use desktop.bash. Shell re-invocation (bash, sh, env, xargs) is blocked for security. ' +
+      'It supports two modes:\n' +
+      '1. **Direct mode**: `command` = executable name, `args` = flags/operands array (e.g. `command:"git", args:["status"]`).\n' +
+      '2. **Shell mode**: `command` = full shell string, omit `args` (e.g. `command:"cat /tmp/data | jq .name"`).\n\n' +
+      'Shell mode supports pipes, redirects, backgrounding (`&`), chaining (`&&`, `||`, `;`), and subshells. ' +
+      'Dangerous patterns (sudo, rm -rf /, reverse shells, bash -c nesting) are blocked. ' +
       'You should use your tools proactively to fulfill requests.\n\n';
 
     if (desktopEnabled && !isMac) {
