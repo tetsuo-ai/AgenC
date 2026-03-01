@@ -1,22 +1,42 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { EventEmitter } from "node:events";
 import { createBashTool, isCommandAllowed, validateShellCommand } from "./bash.js";
 import { DEFAULT_DENY_LIST, DEFAULT_DENY_PREFIXES, DANGEROUS_SHELL_PATTERNS } from "./types.js";
 import type { Logger } from "../../utils/logger.js";
 
-// Mock execFile from node:child_process
+// Mock both execFile and spawn from node:child_process
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
+  spawn: vi.fn(),
 }));
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 
 const mockExecFile = vi.mocked(execFile);
+const mockSpawn = vi.mocked(spawn);
+
+/** Create a fake ChildProcess for spawn mocking. */
+function createFakeChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    pid: number;
+    unref: ReturnType<typeof vi.fn>;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.pid = 12345;
+  child.unref = vi.fn();
+  child.kill = vi.fn();
+  return child;
+}
 
 function parseContent(result: { content: string }): Record<string, unknown> {
   return JSON.parse(result.content) as Record<string, unknown>;
 }
 
-/** Simulate a successful execFile callback. */
+/** Simulate a successful execFile callback (direct mode). */
 function mockSuccess(stdout = "", stderr = "") {
   mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
     (callback as Function)(null, stdout, stderr);
@@ -24,7 +44,7 @@ function mockSuccess(stdout = "", stderr = "") {
   });
 }
 
-/** Simulate an error execFile callback. */
+/** Simulate an error execFile callback (direct mode). */
 function mockError(
   error: Partial<Error & { killed?: boolean; code?: unknown }>,
   stdout = "",
@@ -37,6 +57,47 @@ function mockError(
     );
     (callback as Function)(err, stdout, stderr);
     return {} as ReturnType<typeof execFile>;
+  });
+}
+
+/** Set up spawn mock to return a fake child that exits with given stdout/code. */
+function mockSpawnSuccess(stdout = "", stderr = "", exitCode = 0) {
+  mockSpawn.mockImplementation(() => {
+    const child = createFakeChild();
+    // Emit data and exit asynchronously (mimics real behavior)
+    queueMicrotask(() => {
+      if (stdout) child.stdout.emit("data", Buffer.from(stdout));
+      if (stderr) child.stderr.emit("data", Buffer.from(stderr));
+      child.emit("exit", exitCode);
+    });
+    return child as unknown as ReturnType<typeof spawn>;
+  });
+}
+
+/** Set up spawn mock to return a fake child that exits with error code. */
+function mockSpawnError(exitCode: number, stdout = "", stderr = "") {
+  mockSpawn.mockImplementation(() => {
+    const child = createFakeChild();
+    queueMicrotask(() => {
+      if (stdout) child.stdout.emit("data", Buffer.from(stdout));
+      if (stderr) child.stderr.emit("data", Buffer.from(stderr));
+      child.emit("exit", exitCode);
+    });
+    return child as unknown as ReturnType<typeof spawn>;
+  });
+}
+
+/** Set up spawn mock to simulate a timeout (never exits, waits for kill). */
+function mockSpawnTimeout() {
+  mockSpawn.mockImplementation(() => {
+    const child = createFakeChild();
+    // Don't emit exit — let the timeout handler fire
+    child.kill.mockImplementation(() => {
+      // After kill, simulate exit
+      queueMicrotask(() => child.emit("exit", null));
+      return true;
+    });
+    return child as unknown as ReturnType<typeof spawn>;
   });
 }
 
@@ -585,14 +646,14 @@ describe("system.bash tool", () => {
 
   it("routes shell-like command strings to shell mode", async () => {
     const tool = createBashTool();
-    mockSuccess("total 8\n");
+    mockSpawnSuccess("total 8\n");
 
     const result = await tool.execute({
       command: "ls -la /tmp",
     });
-    // Shell mode: routed through bash -c, not rejected
+    // Shell mode: routed through spawn bash -c, not rejected
     expect(result.isError).toBeUndefined();
-    const [cmd, args] = mockExecFile.mock.calls[0];
+    const [cmd, args] = mockSpawn.mock.calls[0];
     expect(cmd).toBe("/bin/bash");
     expect(args).toEqual(["-c", "ls -la /tmp"]);
   });
@@ -739,56 +800,57 @@ describe("system.bash tool", () => {
     ).toContain("timed out");
   });
 
-  // ---- Shell mode execution ----
+  // ---- Shell mode execution (uses spawn, not execFile) ----
 
   describe("shell mode", () => {
-    it("executes pipe commands via bash -c", async () => {
+    it("executes pipe commands via spawn bash -c", async () => {
       const tool = createBashTool();
-      mockSuccess("5\n");
+      mockSpawnSuccess("5\n");
 
       const result = await tool.execute({
         command: "cat /tmp/data.txt | wc -l",
       });
       expect(result.isError).toBeUndefined();
-      const [cmd, args] = mockExecFile.mock.calls[0];
+      const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
       expect(args).toEqual(["-c", "cat /tmp/data.txt | wc -l"]);
       expect(parseContent(result).exitCode).toBe(0);
     });
 
-    it("executes redirect commands via bash -c", async () => {
+    it("executes redirect commands via spawn bash -c", async () => {
       const tool = createBashTool();
-      mockSuccess("");
+      mockSpawnSuccess("");
 
       await tool.execute({ command: "echo hello > /tmp/out.txt" });
-      const [cmd, args] = mockExecFile.mock.calls[0];
+      const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
       expect(args).toEqual(["-c", "echo hello > /tmp/out.txt"]);
     });
 
-    it("executes backgrounded commands via bash -c", async () => {
+    it("executes backgrounded commands via spawn bash -c", async () => {
       const tool = createBashTool();
-      mockSuccess("");
+      mockSpawnSuccess("12345\n");
 
-      await tool.execute({ command: "python3 -m http.server 8080 &" });
-      const [cmd, args] = mockExecFile.mock.calls[0];
+      const result = await tool.execute({ command: "python3 -m http.server 8080 &" });
+      const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
       expect(args).toEqual(["-c", "python3 -m http.server 8080 &"]);
+      expect(parseContent(result).exitCode).toBe(0);
     });
 
-    it("executes chained commands via bash -c", async () => {
+    it("executes chained commands via spawn bash -c", async () => {
       const tool = createBashTool();
-      mockSuccess("done\n");
+      mockSpawnSuccess("done\n");
 
       await tool.execute({ command: "mkdir -p /tmp/test && cd /tmp/test && echo done" });
-      const [cmd, args] = mockExecFile.mock.calls[0];
+      const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
       expect(args).toEqual(["-c", "mkdir -p /tmp/test && cd /tmp/test && echo done"]);
     });
 
     it("handles exit code from shell commands", async () => {
       const tool = createBashTool();
-      mockError({ message: "exit 1", code: 1 as unknown as string }, "", "not found");
+      mockSpawnError(1, "", "not found");
 
       const result = await tool.execute({ command: "grep notfound /tmp/data.txt" });
       expect(result.isError).toBe(true);
@@ -797,8 +859,8 @@ describe("system.bash tool", () => {
     });
 
     it("handles timeout in shell mode", async () => {
-      const tool = createBashTool({ timeoutMs: 100 });
-      mockError({ message: "timed out", killed: true });
+      const tool = createBashTool({ timeoutMs: 50 });
+      mockSpawnTimeout();
 
       const result = await tool.execute({ command: "sleep 60 && echo done" });
       expect(result.isError).toBe(true);
@@ -807,7 +869,7 @@ describe("system.bash tool", () => {
 
     it("truncates shell mode output exceeding maxOutputBytes", async () => {
       const tool = createBashTool({ maxOutputBytes: 20 });
-      mockSuccess("a".repeat(100));
+      mockSpawnSuccess("a".repeat(100));
 
       const result = await tool.execute({ command: "cat /tmp/big.txt | head" });
       const parsed = parseContent(result);
@@ -839,10 +901,10 @@ describe("system.bash tool", () => {
 
     it("applies cwd override in shell mode", async () => {
       const tool = createBashTool({ cwd: "/home" });
-      mockSuccess("");
+      mockSpawnSuccess("");
 
       await tool.execute({ command: "ls -la | grep foo", cwd: "/tmp" });
-      const opts = mockExecFile.mock.calls[0][2] as Record<string, unknown>;
+      const opts = mockSpawn.mock.calls[0][2] as Record<string, unknown>;
       expect(opts.cwd).toBe("/tmp");
     });
   });
@@ -856,7 +918,7 @@ describe("system.bash tool", () => {
       const result = await tool.execute({ command: "sudo apt-get install vim" });
       expect(result.isError).toBe(true);
       expect(parseContent(result).error).toContain("Privilege escalation");
-      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it("blocks rm -rf / in shell mode", async () => {
@@ -865,7 +927,7 @@ describe("system.bash tool", () => {
       const result = await tool.execute({ command: "rm -rf /" });
       expect(result.isError).toBe(true);
       expect(parseContent(result).error).toContain("deletion");
-      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it("blocks rm -rf ~/ in shell mode", async () => {
@@ -936,7 +998,7 @@ describe("system.bash tool", () => {
 
     it("allows rm of specific files (not root/home)", async () => {
       const tool = createBashTool();
-      mockSuccess("");
+      mockSpawnSuccess("");
 
       const result = await tool.execute({ command: "rm /tmp/test.txt" });
       expect(result.isError).toBeUndefined();
@@ -944,7 +1006,7 @@ describe("system.bash tool", () => {
 
     it("allows curl piped to grep (not piped to shell)", async () => {
       const tool = createBashTool();
-      mockSuccess("result\n");
+      mockSpawnSuccess("result\n");
 
       const result = await tool.execute({ command: "curl -sS https://api.example.com | grep name" });
       expect(result.isError).toBeUndefined();
@@ -952,7 +1014,7 @@ describe("system.bash tool", () => {
 
     it("allows python3 in shell mode", async () => {
       const tool = createBashTool();
-      mockSuccess("3.11.9\n");
+      mockSpawnSuccess("3.11.9\n");
 
       const result = await tool.execute({ command: "python3 --version" });
       expect(result.isError).toBeUndefined();
@@ -960,7 +1022,7 @@ describe("system.bash tool", () => {
 
     it("allows pkill in shell mode", async () => {
       const tool = createBashTool();
-      mockSuccess("");
+      mockSpawnSuccess("");
 
       const result = await tool.execute({ command: "pkill -f 'http.server'" });
       expect(result.isError).toBeUndefined();
@@ -968,7 +1030,7 @@ describe("system.bash tool", () => {
 
     it("allows cat with wc pipe", async () => {
       const tool = createBashTool();
-      mockSuccess("42\n");
+      mockSpawnSuccess("42\n");
 
       const result = await tool.execute({ command: "cat /tmp/data.txt | wc -l" });
       expect(result.isError).toBeUndefined();
@@ -976,7 +1038,7 @@ describe("system.bash tool", () => {
 
     it("allows backgrounded python server", async () => {
       const tool = createBashTool();
-      mockSuccess("");
+      mockSpawnSuccess("");
 
       const result = await tool.execute({ command: "python3 -m http.server 8080 &" });
       expect(result.isError).toBeUndefined();
@@ -991,6 +1053,7 @@ describe("system.bash tool", () => {
 
       const result = await tool.execute({ command: "cat /tmp/test | wc -l" });
       expect(result.isError).toBe(true);
+      expect(mockSpawn).not.toHaveBeenCalled();
       expect(mockExecFile).not.toHaveBeenCalled();
     });
 

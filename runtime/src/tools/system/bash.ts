@@ -9,7 +9,7 @@
  * @module
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { basename } from "node:path";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
@@ -409,6 +409,134 @@ export function createBashTool(config?: BashToolConfig): Tool {
       logger.debug(`Bash tool executing: ${logCmd}`);
       const startTime = Date.now();
 
+      // Shell mode uses spawn + exit event to avoid hanging when backgrounded
+      // children (e.g. `python3 ... &`) inherit stdout/stderr pipes.
+      // execFile waits for pipes to close, not just child exit — spawn + exit
+      // resolves as soon as bash finishes, leaving backgrounded children running.
+      if (useShellMode) {
+        return new Promise<ToolResult>((resolve) => {
+          let resolved = false;
+          let stdoutBuf = "";
+          let stderrBuf = "";
+          let timedOut = false;
+
+          const child = spawn(execCommand, execArgs, {
+            cwd,
+            env,
+            stdio: ["ignore", "pipe", "pipe"],
+            detached: true, // Own process group for clean timeout kill
+          });
+
+          // Unref so backgrounded grandchildren don't keep Node alive
+          child.unref();
+
+          child.stdout!.on("data", (chunk: Buffer) => {
+            stdoutBuf += chunk.toString();
+          });
+          child.stderr!.on("data", (chunk: Buffer) => {
+            stderrBuf += chunk.toString();
+          });
+
+          const timer = setTimeout(() => {
+            timedOut = true;
+            // Kill entire process group (bash + any backgrounded children)
+            try {
+              process.kill(-child.pid!, "SIGTERM");
+            } catch {
+              child.kill("SIGTERM");
+            }
+          }, timeout);
+
+          const doResolve = (code: number | null) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+
+            const durationMs = Date.now() - startTime;
+            const exitCode = timedOut ? null : (code ?? 1);
+            const isError = timedOut || (exitCode !== null && exitCode !== 0);
+
+            const stdoutResult = truncate(stdoutBuf, maxOutputBytes);
+            const stderrResult = truncate(
+              stderrBuf.trim().length > 0
+                ? stderrBuf
+                : isError
+                  ? `Command "${command}" failed`
+                  : "",
+              maxOutputBytes,
+            );
+
+            if (timedOut) {
+              logger.warn(
+                `Bash tool timed out after ${durationMs}ms: ${logCmd}`,
+              );
+            } else if (isError) {
+              logger.debug(
+                `Bash tool error (exit ${exitCode}): ${logCmd}`,
+              );
+            } else {
+              logger.debug(`Bash tool success (${durationMs}ms): ${logCmd}`);
+            }
+
+            const result: BashExecutionResult = {
+              exitCode,
+              stdout: stdoutResult.text,
+              stderr: stderrResult.text,
+              timedOut,
+              durationMs,
+              truncated: stdoutResult.truncated || stderrResult.truncated,
+            };
+
+            resolve({
+              content: safeStringify(result),
+              isError: isError || undefined,
+              metadata: {
+                command,
+                args: execArgs,
+                cwd,
+                shellMode: true,
+                timedOut,
+                durationMs,
+              },
+            });
+          };
+
+          // Resolve on exit (NOT close) — close waits for pipes,
+          // exit fires when bash process terminates.
+          child.on("exit", (code) => {
+            // Brief delay to flush any remaining pipe data from bash itself
+            setTimeout(() => doResolve(code), 50);
+          });
+
+          child.on("error", (err) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            const durationMs = Date.now() - startTime;
+            resolve({
+              content: safeStringify({
+                error: err.message,
+                exitCode: null,
+                stdout: "",
+                stderr: err.message,
+                timedOut: false,
+                durationMs,
+                truncated: false,
+              }),
+              isError: true,
+              metadata: {
+                command,
+                args: execArgs,
+                cwd,
+                shellMode: true,
+                durationMs,
+              },
+            });
+          });
+        });
+      }
+
+      // Direct mode: use execFile (waits for pipes — safe since no backgrounding)
       return new Promise<ToolResult>((resolve) => {
         execFile(
           execCommand,
@@ -471,7 +599,7 @@ export function createBashTool(config?: BashToolConfig): Tool {
                   command,
                   args: execArgs,
                   cwd,
-                  shellMode: useShellMode,
+                  shellMode: false,
                   timedOut: isTimeout,
                   durationMs,
                 },
@@ -499,7 +627,7 @@ export function createBashTool(config?: BashToolConfig): Tool {
                 command,
                 args: execArgs,
                 cwd,
-                shellMode: useShellMode,
+                shellMode: false,
                 durationMs,
               },
             });
