@@ -58,11 +58,13 @@ import {
   isCommandUnavailableError,
   resolveTraceLoggingConfig,
   summarizeToolFailureForLog,
+  summarizeLLMFailureForSurface,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
 } from "./daemon.js";
 import type { PidFileInfo } from "./daemon.js";
+import { LLMTimeoutError, LLMAuthenticationError } from "../llm/errors.js";
 
 // ============================================================================
 // Command availability classifier
@@ -127,6 +129,34 @@ describe("summarizeToolFailureForLog", () => {
     });
 
     expect(summary).toBeNull();
+  });
+});
+
+describe("summarizeLLMFailureForSurface", () => {
+  it("uses annotated stop reason when present", () => {
+    const err = new Error("provider blew up") as Error & {
+      stopReason?: string;
+      stopReasonDetail?: string;
+    };
+    err.stopReason = "timeout";
+    err.stopReasonDetail = "tool follow-up timed out";
+
+    const summary = summarizeLLMFailureForSurface(err);
+    expect(summary.stopReason).toBe("timeout");
+    expect(summary.stopReasonDetail).toBe("tool follow-up timed out");
+    expect(summary.userMessage).toContain("Error (timeout)");
+  });
+
+  it("classifies unannotated errors into canonical stop reasons", () => {
+    const timeout = summarizeLLMFailureForSurface(
+      new LLMTimeoutError("grok", 1000),
+    );
+    expect(timeout.stopReason).toBe("timeout");
+
+    const auth = summarizeLLMFailureForSurface(
+      new LLMAuthenticationError("grok", 401),
+    );
+    expect(auth.stopReason).toBe("authentication_error");
   });
 });
 

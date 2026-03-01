@@ -728,6 +728,23 @@ describe("config loading", () => {
           toolBudgetPerRequest: 32,
           maxModelRecallsPerRequest: 12,
           maxFailureBudgetPerRequest: 6,
+          toolCallTimeoutMs: 120_000,
+          requestTimeoutMs: 600_000,
+          toolFailureCircuitBreaker: {
+            enabled: true,
+            threshold: 6,
+            windowMs: 300_000,
+            cooldownMs: 120_000,
+          },
+          retryPolicy: {
+            timeout: {
+              maxRetries: 1,
+              baseDelayMs: 200,
+              maxDelayMs: 2_000,
+              jitter: false,
+              circuitBreakerEligible: true,
+            },
+          },
         },
       }),
     );
@@ -747,6 +764,24 @@ describe("config loading", () => {
           toolBudgetPerRequest: 0,
           maxModelRecallsPerRequest: -1,
           maxFailureBudgetPerRequest: 0,
+          toolCallTimeoutMs: 100,
+          requestTimeoutMs: 1_000,
+          toolFailureCircuitBreaker: {
+            enabled: "yes" as unknown as boolean,
+            threshold: 1,
+            windowMs: 100,
+            cooldownMs: 100,
+          },
+          retryPolicy: {
+            made_up: {},
+            timeout: {
+              maxRetries: 99,
+              baseDelayMs: -1,
+              maxDelayMs: 999_999,
+              jitter: "no" as unknown as boolean,
+              circuitBreakerEligible: "no" as unknown as boolean,
+            },
+          },
         },
       }),
     );
@@ -764,6 +799,42 @@ describe("config loading", () => {
     );
     expect(result.errors).toContain(
       "llm.maxFailureBudgetPerRequest must be an integer between 1 and 256",
+    );
+    expect(result.errors).toContain(
+      "llm.toolCallTimeoutMs must be an integer between 1000 and 3600000",
+    );
+    expect(result.errors).toContain(
+      "llm.requestTimeoutMs must be an integer between 5000 and 7200000",
+    );
+    expect(result.errors).toContain(
+      "llm.toolFailureCircuitBreaker.enabled must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.toolFailureCircuitBreaker.threshold must be an integer between 2 and 128",
+    );
+    expect(result.errors).toContain(
+      "llm.toolFailureCircuitBreaker.windowMs must be an integer between 1000 and 3600000",
+    );
+    expect(result.errors).toContain(
+      "llm.toolFailureCircuitBreaker.cooldownMs must be an integer between 1000 and 3600000",
+    );
+    expect(result.errors).toContain(
+      "llm.retryPolicy.made_up is not a recognized failure class",
+    );
+    expect(result.errors).toContain(
+      "llm.retryPolicy.timeout.maxRetries must be an integer between 0 and 16",
+    );
+    expect(result.errors).toContain(
+      "llm.retryPolicy.timeout.baseDelayMs must be an integer between 0 and 120000",
+    );
+    expect(result.errors).toContain(
+      "llm.retryPolicy.timeout.maxDelayMs must be an integer between 0 and 600000",
+    );
+    expect(result.errors).toContain(
+      "llm.retryPolicy.timeout.jitter must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.retryPolicy.timeout.circuitBreakerEligible must be a boolean",
     );
   });
 

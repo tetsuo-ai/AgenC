@@ -38,11 +38,17 @@ const DESKTOP_BASH_SINGLE_COMMAND_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?([a-zA-Z0-9._+-]+)\s*$/;
 const DESKTOP_BASH_BACKGROUND_RE =
   /&\s*(?:disown\s*)?(?:(?:;|&&)?\s*echo\s+\$!\s*)?$/;
+const DESKTOP_BASH_STDOUT_REDIRECT_RE =
+  /(?:^|\s)(?:1?>|1>>|>>)\s*(?:[^\s&]+|'[^']+'|"[^"]+")/i;
+const DESKTOP_BASH_STDERR_REDIRECT_RE =
+  /(?:^|\s)(?:2>\s*&1|2>>?\s*(?:[^\s&]+|'[^']+'|"[^"]+))/i;
 const DESKTOP_BROWSER_LAUNCH_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:chromium|chromium-browser|google-chrome|firefox)\b/i;
 const DESKTOP_CHROMIUM_LAUNCH_RE = /\b(?:chromium|chromium-browser|google-chrome)\b/i;
 const DESKTOP_BROWSER_TARGET_RE = /\b(?:https?:\/\/|file:\/\/|about:|chrome:\/\/)/i;
 const DESKTOP_BROWSER_USER_DATA_DIR_RE = /\b--user-data-dir(?:=|\s+)/i;
+const DESKTOP_CHROMIUM_DISALLOWED_FLAG_RE =
+  /(?:^|\s)(--no-sandbox|--disable-setuid-sandbox)(?=\s|$)/gi;
 const DESKTOP_BASH_QUOTED_SEGMENT_RE = /'[^']*'|"[^"]*"/g;
 const DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:pgrep|pkill|ps|grep|ss|lsof|netstat|kill|killall)\b/i;
@@ -75,6 +81,79 @@ const INCOMPLETE_DESKTOP_COMMAND_HINTS: Record<string, string> = {
 
 function stripQuotedSegments(command: string): string {
   return command.replace(DESKTOP_BASH_QUOTED_SEGMENT_RE, " ");
+}
+
+function hasExplicitBackgroundRedirection(command: string): boolean {
+  const unquoted = stripQuotedSegments(command);
+  return (
+    DESKTOP_BASH_STDOUT_REDIRECT_RE.test(unquoted) &&
+    DESKTOP_BASH_STDERR_REDIRECT_RE.test(unquoted)
+  );
+}
+
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function enrichDesktopBashResultWithVerification(
+  name: string,
+  args: Record<string, unknown>,
+  resultContent: string,
+): string {
+  if (name !== "desktop.bash") return resultContent;
+  const command = typeof args.command === "string" ? args.command.trim() : "";
+  if (!command) return resultContent;
+
+  try {
+    const parsed = JSON.parse(resultContent) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return resultContent;
+    }
+    const payload = parsed as Record<string, unknown>;
+    if (
+      (typeof payload.error === "string" && payload.error.trim().length > 0) ||
+      (typeof payload.exitCode === "number" && payload.exitCode !== 0)
+    ) {
+      return resultContent;
+    }
+
+    const checks: string[] = [];
+    if (DESKTOP_BROWSER_LAUNCH_RE.test(command)) {
+      checks.push(
+        "Verify navigation with playwright.browser_navigate/browser_snapshot before any screenshot.",
+      );
+      checks.push(
+        "Use desktop.window_list (or desktop.window_focus) to confirm browser focus/title state.",
+      );
+    }
+    if (
+      LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE.test(stripQuotedSegments(command)) &&
+      DESKTOP_BASH_BACKGROUND_RE.test(command)
+    ) {
+      checks.push(
+        "Verify service readiness with desktop.bash + curl -sSf <url> (low-token text check).",
+      );
+      checks.push(
+        "Verify process liveness with desktop.bash + pgrep -fa '<process>' before proceeding.",
+      );
+    }
+    if (checks.length === 0) return resultContent;
+
+    return safeStringify({
+      ...payload,
+      verification: {
+        strategy: "low_token_first",
+        screenshotPolicy: "out_of_band_only",
+        checks,
+      },
+    });
+  } catch {
+    return resultContent;
+  }
 }
 
 function getDesktopBashGuardError(
@@ -121,6 +200,16 @@ function getDesktopBashGuardError(
       "Append `>/dev/null 2>&1 &` or use `playwright.browser_navigate`."
     );
   }
+  if (
+    DESKTOP_BROWSER_LAUNCH_RE.test(command) &&
+    DESKTOP_BASH_BACKGROUND_RE.test(command) &&
+    !hasExplicitBackgroundRedirection(command)
+  ) {
+    return (
+      `Browser launch command "${command}" is backgrounded but missing explicit stdout/stderr redirection. ` +
+      "Append `>/tmp/browser.log 2>&1 &` (or `>/dev/null 2>&1 &`) to avoid stalled tool pipes."
+    );
+  }
 
   const timeoutMs =
     typeof args.timeoutMs === "number" && Number.isFinite(args.timeoutMs)
@@ -135,6 +224,17 @@ function getDesktopBashGuardError(
     return (
       `Command "${command}" is a long-running server process and is likely to timeout in foreground mode. ` +
       "Start it in background (append `&`) and then verify with curl or logs."
+    );
+  }
+  if (
+    !DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE.test(command) &&
+    LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE.test(unquotedCommand) &&
+    DESKTOP_BASH_BACKGROUND_RE.test(command) &&
+    !hasExplicitBackgroundRedirection(command)
+  ) {
+    return (
+      `Command "${command}" launches a long-running background process but does not redirect both stdout/stderr. ` +
+      "Use `>/tmp/server.log 2>&1 &` and then verify readiness via curl/pgrep."
     );
   }
 
@@ -176,21 +276,54 @@ function rewriteDesktopChromiumLaunchArgs(
   if (!command) return args;
   if (!DESKTOP_CHROMIUM_LAUNCH_RE.test(command)) return args;
   if (!DESKTOP_BROWSER_TARGET_RE.test(command)) return args;
-  if (DESKTOP_BROWSER_USER_DATA_DIR_RE.test(command)) return args;
 
-  const sessionTag =
-    sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(-16) || "session";
-  const profileDir = `/tmp/agenc-chrome-${sessionTag}-${Date.now().toString(36)}`;
-  const rewrittenCommand = command.replace(
-    DESKTOP_CHROMIUM_LAUNCH_RE,
-    (match) =>
-      `${match} --new-window --incognito --user-data-dir=${profileDir}`,
+  const removedFlags = new Set<string>();
+  let rewrittenCommand = command.replace(
+    DESKTOP_CHROMIUM_DISALLOWED_FLAG_RE,
+    (_match, flag: string) => {
+      removedFlags.add(flag.toLowerCase());
+      return " ";
+    },
   );
 
-  if (rewrittenCommand === command) return args;
+  const deterministicFlags = [
+    "--new-window",
+    "--incognito",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-default-apps",
+    "--disable-sync",
+  ];
+  for (const flag of deterministicFlags) {
+    const flagRe = new RegExp(`(?:^|\\s)${escapeForRegExp(flag)}(?:\\s|$)`, "i");
+    if (!flagRe.test(rewrittenCommand)) {
+      rewrittenCommand = `${rewrittenCommand} ${flag}`;
+    }
+  }
+
+  let injectedUserDataDir = false;
+  if (!DESKTOP_BROWSER_USER_DATA_DIR_RE.test(rewrittenCommand)) {
+    const sessionTag =
+      sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(-16) || "session";
+    const profileDir = `/tmp/agenc-chrome-${sessionTag}-${Date.now().toString(36)}`;
+    rewrittenCommand = `${rewrittenCommand} --user-data-dir=${profileDir}`;
+    injectedUserDataDir = true;
+  }
+
+  rewrittenCommand = normalizeWhitespace(rewrittenCommand);
+  const sessionTag =
+    sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(-16) || "session";
+  if (rewrittenCommand === normalizeWhitespace(command)) return args;
+
+  const updates: string[] = [];
+  if (removedFlags.size > 0) {
+    updates.push(`removed flags: ${Array.from(removedFlags).join(", ")}`);
+  }
+  if (injectedUserDataDir) updates.push("isolated profile");
+  if (updates.length === 0) updates.push("deterministic browser flags");
 
   log.info?.(
-    `desktop.bash chromium launch rewritten with isolated profile for session ${sessionId}`,
+    `desktop.bash chromium launch rewritten for session ${sessionTag} (${updates.join("; ")})`,
   );
   return { ...args, command: rewrittenCommand };
 }
@@ -378,12 +511,20 @@ export function createDesktopAwareToolHandler(
         const retryTool = recovered.getTools().find((t) => t.name === `desktop.${toolName}`);
         if (retryTool) {
           const retryResult = await retryTool.execute(effectiveArgs);
-          return retryResult.content;
+          return enrichDesktopBashResultWithVerification(
+            name,
+            effectiveArgs,
+            retryResult.content,
+          );
         }
       }
     }
 
-    return result.content;
+    return enrichDesktopBashResultWithVerification(
+      name,
+      effectiveArgs,
+      result.content,
+    );
   };
 }
 

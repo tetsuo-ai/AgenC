@@ -135,7 +135,7 @@ describe("DesktopRESTBridge", () => {
       expect(lastCall[0]).toBe("http://localhost:32769/tools/mouse_click");
     });
 
-    it("screenshot includes dataUrl field", async () => {
+    it("screenshot returns out-of-band artifact metadata instead of inline dataUrl", async () => {
       mockHealthAndTools();
       await bridge.connect();
 
@@ -151,8 +151,10 @@ describe("DesktopRESTBridge", () => {
       const ssTool = bridge.getTools().find((t) => t.name === "desktop.screenshot")!;
       const result = await ssTool.execute({});
       const parsed = JSON.parse(result.content);
-      expect(parsed.dataUrl).toBe("data:image/png;base64,iVBORw0KGgoAAAAN");
-      expect(parsed.image).toBeUndefined();
+      expect(parsed.imageDigest).toMatch(/^sha256:/);
+      expect(parsed.imageBytes).toBeGreaterThan(0);
+      expect(parsed.imageMimeType).toBe("image/png");
+      expect(parsed.artifactExternalized).toBe(true);
       expect(parsed.width).toBe(1024);
       expect(parsed.height).toBe(768);
     });

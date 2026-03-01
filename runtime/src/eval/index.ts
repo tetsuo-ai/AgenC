@@ -183,6 +183,50 @@ export {
 } from "./mutation-gates.js";
 
 export {
+  PIPELINE_QUALITY_ARTIFACT_SCHEMA_VERSION,
+  buildPipelineQualityArtifact,
+  parsePipelineQualityArtifact,
+  serializePipelineQualityArtifact,
+  type PipelineContextGrowthArtifact,
+  type PipelineToolTurnArtifact,
+  type PipelineDesktopRunArtifact,
+  type PipelineDesktopStabilityArtifact,
+  type PipelineTokenEfficiencyArtifact,
+  type PipelineOfflineReplayFixtureArtifact,
+  type PipelineOfflineReplayArtifact,
+  type PipelineQualityArtifact,
+  type PipelineContextGrowthInput,
+  type PipelineToolTurnInput,
+  type PipelineDesktopStabilityInput,
+  type PipelineTokenEfficiencyInput,
+  type PipelineOfflineReplayInput,
+  type PipelineQualityArtifactInput,
+} from "./pipeline-quality.js";
+
+export {
+  DEFAULT_PIPELINE_QUALITY_GATE_THRESHOLDS,
+  evaluatePipelineQualityGates,
+  formatPipelineQualityGateEvaluation,
+  type PipelineQualityGateThresholds,
+  type PipelineGateViolation,
+  type PipelineGateEvaluation,
+} from "./pipeline-gates.js";
+
+export {
+  runPipelineHttpRepro,
+  type PipelineHttpReproStepResult,
+  type PipelineHttpReproResult,
+  type PipelineHttpReproOptions,
+} from "./pipeline-http-repro.js";
+
+export {
+  runPipelineQualitySuite,
+  type PipelineDesktopRunnerInput,
+  type PipelineDesktopRunner,
+  type PipelineQualityRunnerConfig,
+} from "./pipeline-quality-runner.js";
+
+export {
   computePassAtK,
   computePassCaretK,
   getRewardTier,

@@ -205,6 +205,138 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
           errors,
         );
       }
+      if (obj.llm.requestTimeoutMs !== undefined) {
+        requireIntRange(
+          obj.llm.requestTimeoutMs,
+          "llm.requestTimeoutMs",
+          5_000,
+          7_200_000,
+          errors,
+        );
+      }
+      if (obj.llm.toolCallTimeoutMs !== undefined) {
+        requireIntRange(
+          obj.llm.toolCallTimeoutMs,
+          "llm.toolCallTimeoutMs",
+          1_000,
+          3_600_000,
+          errors,
+        );
+      }
+      if (obj.llm.toolFailureCircuitBreaker !== undefined) {
+        if (!isRecord(obj.llm.toolFailureCircuitBreaker)) {
+          errors.push("llm.toolFailureCircuitBreaker must be an object");
+        } else {
+          const breaker = obj.llm.toolFailureCircuitBreaker;
+          if (
+            breaker.enabled !== undefined &&
+            typeof breaker.enabled !== "boolean"
+          ) {
+            errors.push("llm.toolFailureCircuitBreaker.enabled must be a boolean");
+          }
+          if (breaker.threshold !== undefined) {
+            requireIntRange(
+              breaker.threshold,
+              "llm.toolFailureCircuitBreaker.threshold",
+              2,
+              128,
+              errors,
+            );
+          }
+          if (breaker.windowMs !== undefined) {
+            requireIntRange(
+              breaker.windowMs,
+              "llm.toolFailureCircuitBreaker.windowMs",
+              1_000,
+              3_600_000,
+              errors,
+            );
+          }
+          if (breaker.cooldownMs !== undefined) {
+            requireIntRange(
+              breaker.cooldownMs,
+              "llm.toolFailureCircuitBreaker.cooldownMs",
+              1_000,
+              3_600_000,
+              errors,
+            );
+          }
+        }
+      }
+      if (obj.llm.retryPolicy !== undefined) {
+        if (!isRecord(obj.llm.retryPolicy)) {
+          errors.push("llm.retryPolicy must be an object");
+        } else {
+          const retryPolicy = obj.llm.retryPolicy;
+          const validFailureClasses = new Set([
+            "validation_error",
+            "provider_error",
+            "authentication_error",
+            "rate_limited",
+            "timeout",
+            "tool_error",
+            "budget_exceeded",
+            "no_progress",
+            "cancelled",
+            "unknown",
+          ]);
+          for (const [failureClass, ruleValue] of Object.entries(retryPolicy)) {
+            if (!validFailureClasses.has(failureClass)) {
+              errors.push(
+                `llm.retryPolicy.${failureClass} is not a recognized failure class`,
+              );
+              continue;
+            }
+            if (!isRecord(ruleValue)) {
+              errors.push(`llm.retryPolicy.${failureClass} must be an object`);
+              continue;
+            }
+            if (ruleValue.maxRetries !== undefined) {
+              requireIntRange(
+                ruleValue.maxRetries,
+                `llm.retryPolicy.${failureClass}.maxRetries`,
+                0,
+                16,
+                errors,
+              );
+            }
+            if (ruleValue.baseDelayMs !== undefined) {
+              requireIntRange(
+                ruleValue.baseDelayMs,
+                `llm.retryPolicy.${failureClass}.baseDelayMs`,
+                0,
+                120_000,
+                errors,
+              );
+            }
+            if (ruleValue.maxDelayMs !== undefined) {
+              requireIntRange(
+                ruleValue.maxDelayMs,
+                `llm.retryPolicy.${failureClass}.maxDelayMs`,
+                0,
+                600_000,
+                errors,
+              );
+            }
+            if (
+              ruleValue.jitter !== undefined &&
+              typeof ruleValue.jitter !== "boolean"
+            ) {
+              errors.push(
+                `llm.retryPolicy.${failureClass}.jitter must be a boolean`,
+              );
+            }
+            if (
+              ruleValue.circuitBreakerEligible !== undefined &&
+              typeof ruleValue.circuitBreakerEligible !== "boolean"
+            ) {
+              errors.push(
+                `llm.retryPolicy.${failureClass}.circuitBreakerEligible must be a boolean`,
+              );
+            }
+          }
+        }
+      }
       if (obj.llm.maxTokens !== undefined) {
         requireIntRange(
           obj.llm.maxTokens,

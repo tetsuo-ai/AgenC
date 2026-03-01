@@ -14,6 +14,7 @@ import {
   LLMServerError,
   LLMRateLimitError,
   LLMAuthenticationError,
+  LLMMessageValidationError,
   LLMProviderError,
 } from "./errors.js";
 
@@ -241,6 +242,54 @@ describe("ChatExecutor", () => {
       expect(secondary.chat).not.toHaveBeenCalled();
     });
 
+    it("retries transient provider failures on same provider before fallback", async () => {
+      const primary = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockRejectedValueOnce(
+            new LLMServerError("primary", 503, "temporary outage"),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+      const secondary = createMockProvider("secondary");
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        retryPolicyMatrix: {
+          provider_error: {
+            maxRetries: 1,
+          },
+        },
+      });
+
+      const result = await executor.execute(createParams());
+      expect(result.provider).toBe("primary");
+      expect(result.usedFallback).toBe(false);
+      expect((primary.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+      expect((secondary.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    });
+
+    it("does not retry deterministic message validation failures", async () => {
+      const primary = createMockProvider("primary", {
+        chat: vi.fn().mockRejectedValue(
+          new LLMMessageValidationError("primary", {
+            validationCode: "missing_tool_call_link",
+            messageIndex: 3,
+            reason: "tool message missing assistant tool_calls",
+          }),
+        ),
+      });
+      const secondary = createMockProvider("secondary");
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+      });
+
+      await expect(executor.execute(createParams())).rejects.toThrow(
+        LLMMessageValidationError,
+      );
+      expect((primary.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+      expect((secondary.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    });
+
     it("usedFallback is true when fallback used", async () => {
       const primary = createMockProvider("primary", {
         chat: vi.fn().mockRejectedValue(new LLMTimeoutError("primary", 5000)),
@@ -272,6 +321,22 @@ describe("ChatExecutor", () => {
         "overloaded",
       );
     });
+
+    it("annotates thrown provider failures with canonical stop reason", async () => {
+      const primary = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockRejectedValue(new LLMProviderError("primary", "Bad request", 400)),
+      });
+      const executor = new ChatExecutor({ providers: [primary] });
+
+      const caught = await executor.execute(createParams()).catch((error) => error);
+      expect(caught).toBeInstanceOf(LLMProviderError);
+      expect((caught as { stopReason?: string }).stopReason).toBe("provider_error");
+      expect((caught as { stopReasonDetail?: string }).stopReasonDetail).toContain(
+        "provider_error",
+      );
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -293,6 +358,10 @@ describe("ChatExecutor", () => {
       const executor = new ChatExecutor({
         providers: [primary, secondary],
         providerCooldownMs: 10_000,
+        retryPolicyMatrix: {
+          provider_error: { maxRetries: 0 },
+          rate_limited: { maxRetries: 0 },
+        },
       });
 
       // First call — primary fails, secondary succeeds
@@ -325,6 +394,9 @@ describe("ChatExecutor", () => {
       const executor = new ChatExecutor({
         providers: [primary, secondary],
         providerCooldownMs: 10_000,
+        retryPolicyMatrix: {
+          provider_error: { maxRetries: 0 },
+        },
       });
 
       // First call — primary fails
@@ -352,6 +424,9 @@ describe("ChatExecutor", () => {
       const executor = new ChatExecutor({
         providers: [primary, secondary],
         providerCooldownMs: 10_000,
+        retryPolicyMatrix: {
+          rate_limited: { maxRetries: 0 },
+        },
       });
 
       await executor.execute(createParams());
@@ -385,6 +460,9 @@ describe("ChatExecutor", () => {
       const executor = new ChatExecutor({
         providers: [primary, secondary],
         providerCooldownMs: 60_000,
+        retryPolicyMatrix: {
+          provider_error: { maxRetries: 0 },
+        },
       });
 
       // First call — both fail, both enter cooldown
@@ -412,6 +490,9 @@ describe("ChatExecutor", () => {
         providers: [primary, secondary],
         providerCooldownMs: 100_000,
         maxCooldownMs: 200_000,
+        retryPolicyMatrix: {
+          provider_error: { maxRetries: 0 },
+        },
       });
 
       // Failure 1: cooldown = min(100_000 * 1, 200_000) = 100_000
@@ -484,7 +565,7 @@ describe("ChatExecutor", () => {
       ]);
     });
 
-    it("sanitizes screenshot tool payloads before follow-up model call", async () => {
+    it("sanitizes screenshot tool payloads and keeps image artifacts out-of-band", async () => {
       const hugeBase64 = "A".repeat(90_000);
       const toolHandler = vi.fn().mockResolvedValue(
         JSON.stringify({
@@ -518,27 +599,15 @@ describe("ChatExecutor", () => {
         (m) => m.role === "tool" && m.toolCallId === "tc-1",
       );
       expect(toolMessage).toBeDefined();
-      expect(Array.isArray(toolMessage?.content)).toBe(true);
-
-      const parts = toolMessage!.content as Array<
-        { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
-      >;
-      const textPart = parts.find((p) => p.type === "text") as
-        | { type: "text"; text: string }
-        | undefined;
-      const imagePart = parts.find((p) => p.type === "image_url") as
-        | { type: "image_url"; image_url: { url: string } }
-        | undefined;
-
-      expect(imagePart?.image_url.url.startsWith("data:image/png;base64,")).toBe(
-        true,
-      );
-      expect(textPart?.text).toContain("(base64 omitted)");
-      expect(textPart?.text).toContain("(see image)");
-      expect(textPart?.text.length ?? 0).toBeLessThan(13_000);
+      expect(typeof toolMessage?.content).toBe("string");
+      const text = String(toolMessage?.content);
+      expect(text).toContain("(base64 omitted)");
+      expect(text).toContain("(see image)");
+      expect(text).toContain("out-of-band");
+      expect(text.length).toBeLessThan(13_000);
     });
 
-    it("drops additional tool screenshots when image prompt budget is exceeded", async () => {
+    it("does not replay inline screenshot image parts into follow-up prompts", async () => {
       const hugeBase64 = "B".repeat(70_000);
       const screenshotResult = JSON.stringify({
         dataUrl: `data:image/png;base64,${hugeBase64}`,
@@ -572,18 +641,10 @@ describe("ChatExecutor", () => {
       );
       expect(toolMessages).toHaveLength(2);
 
-      const imageCount = toolMessages.reduce((count, msg) => {
-        if (!Array.isArray(msg.content)) return count;
-        return (
-          count +
-          msg.content.filter((p) => p.type === "image_url").length
-        );
-      }, 0);
-      expect(imageCount).toBe(1);
-
-      const secondTool = toolMessages.find((m) => m.toolCallId === "tc-2");
-      expect(typeof secondTool?.content === "string").toBe(true);
-      expect(String(secondTool?.content)).toContain("omitted");
+      for (const message of toolMessages) {
+        expect(typeof message.content).toBe("string");
+        expect(String(message.content)).toContain("out-of-band");
+      }
     });
 
     it("multi-round tool calls chain with context", async () => {
@@ -2020,6 +2081,236 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls).toHaveLength(2);
       expect(result.stopReason).toBe("tool_error");
       expect(result.stopReasonDetail).toContain("Failure budget exceeded");
+    });
+
+    it("enforces per-tool timeout and surfaces timeout stop reason", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+          }),
+        ),
+      });
+      const toolHandler = vi.fn().mockImplementation(
+        async () =>
+          new Promise<string>(() => {
+            // intentionally never resolves
+          }),
+      );
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+        toolCallTimeoutMs: 25,
+        requestTimeoutMs: 30_000,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(result.stopReason).toBe("timeout");
+      expect(result.stopReasonDetail).toContain("timed out");
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0]?.isError).toBe(true);
+      expect(result.toolCalls[0]?.result).toContain("timed out");
+    });
+
+    it("enforces timeout layering before follow-up recall", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+          }),
+        ),
+      });
+      const toolHandler = vi.fn().mockImplementation(
+        async () =>
+          new Promise<string>((resolve) => {
+            setTimeout(() => resolve('{"exitCode":0}'), 35);
+          }),
+      );
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+        toolCallTimeoutMs: 5_000,
+        requestTimeoutMs: 20,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(result.stopReason).toBe("timeout");
+      expect(result.stopReasonDetail?.toLowerCase()).toContain("timed out");
+    });
+
+    it("retries transient tool transport failures for safe tools", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation((messages: LLMMessage[]) => {
+          const isFollowUp = messages.some((entry) => entry.role === "tool");
+          if (isFollowUp) {
+            return Promise.resolve(mockResponse({ content: "done" }));
+          }
+          return Promise.resolve(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "system.httpGet",
+                  arguments: '{"url":"https://example.com"}',
+                },
+              ],
+            }),
+          );
+        }),
+      });
+      const toolHandler = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("fetch failed: ECONNRESET"))
+        .mockResolvedValueOnce('{"status":200}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        retryPolicyMatrix: {
+          tool_error: { maxRetries: 1 },
+        },
+      });
+
+      const result = await executor.execute(createParams());
+      expect(toolHandler).toHaveBeenCalledTimes(2);
+      expect(result.stopReason).toBe("completed");
+      expect(result.toolCalls[0]?.result).toContain("retryAttempts");
+    });
+
+    it("does not auto-retry high-risk tools without idempotency key", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation((messages: LLMMessage[]) => {
+          const isFollowUp = messages.some((entry) => entry.role === "tool");
+          if (isFollowUp) {
+            return Promise.resolve(mockResponse({ content: "handled" }));
+          }
+          return Promise.resolve(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "desktop.bash",
+                  arguments: '{"command":"echo test"}',
+                },
+              ],
+            }),
+          );
+        }),
+      });
+      const toolHandler = vi.fn().mockRejectedValue(new Error("fetch failed"));
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        retryPolicyMatrix: {
+          tool_error: { maxRetries: 2 },
+        },
+      });
+
+      const result = await executor.execute(createParams());
+      expect(toolHandler).toHaveBeenCalledTimes(1);
+      expect(result.toolCalls[0]?.result).toContain("retrySuppressedReason");
+    });
+
+    it("allows retry for high-risk tools only when idempotencyKey is provided", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation((messages: LLMMessage[]) => {
+          const isFollowUp = messages.some((entry) => entry.role === "tool");
+          if (isFollowUp) {
+            return Promise.resolve(mockResponse({ content: "handled" }));
+          }
+          return Promise.resolve(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "desktop.bash",
+                  arguments:
+                    '{"command":"echo test","idempotencyKey":"req-123"}',
+                },
+              ],
+            }),
+          );
+        }),
+      });
+      const toolHandler = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("fetch failed"))
+        .mockResolvedValueOnce('{"exitCode":0}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        retryPolicyMatrix: {
+          tool_error: { maxRetries: 1 },
+        },
+      });
+
+      const result = await executor.execute(createParams());
+      expect(toolHandler).toHaveBeenCalledTimes(2);
+      expect(result.toolCalls[0]?.result).toContain("retryAttempts");
+    });
+
+    it("opens a session-level circuit breaker for repeated failing tool patterns", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation((messages: LLMMessage[]) => {
+          const isFollowUp = messages.some((entry) => entry.role === "tool");
+          if (isFollowUp) {
+            return Promise.resolve(mockResponse({ content: "follow-up" }));
+          }
+          return Promise.resolve(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "system.bash", arguments: "{}" }],
+            }),
+          );
+        }),
+      });
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stderr":"failed"}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        toolFailureCircuitBreaker: {
+          enabled: true,
+          threshold: 2,
+          windowMs: 60_000,
+          cooldownMs: 60_000,
+        },
+      });
+
+      const breakerParams = createParams({
+        sessionId: "s-breaker",
+        message: {
+          ...createMessage(),
+          sessionId: "s-breaker",
+        },
+      });
+
+      await executor.execute(breakerParams);
+      const second = await executor.execute(breakerParams);
+      const third = await executor.execute(breakerParams);
+
+      expect(second.stopReason).toBe("no_progress");
+      expect(second.stopReasonDetail).toContain("Session breaker opened");
+      expect(third.stopReason).toBe("no_progress");
+      expect(third.stopReasonDetail).toContain("Session breaker opened");
+      expect(toolHandler).toHaveBeenCalledTimes(2);
     });
 
     it("detects semantically equivalent failing calls even when raw JSON differs", async () => {

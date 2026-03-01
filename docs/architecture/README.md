@@ -30,6 +30,7 @@ Architecture reference for the AgenC protocol — designed to provide implementa
 | [flows/workflow-execution.md](flows/workflow-execution.md) | compile → sort → submit → monitor |
 | [flows/zk-proof-flow.md](flows/zk-proof-flow.md) | generate → cache → submit → verify |
 | [flows/speculative-execution.md](flows/speculative-execution.md) | commit → speculate → defer → rollback |
+| [flows/runtime-chat-pipeline.md](flows/runtime-chat-pipeline.md) | prompt assembly → tool loop → fallback/retry → stop reasons |
 
 ### Implementation Guides
 

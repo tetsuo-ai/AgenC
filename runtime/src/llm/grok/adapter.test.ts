@@ -401,6 +401,26 @@ describe("GrokProvider", () => {
     ).rejects.toThrow(LLMRateLimitError);
   });
 
+  it("surfaces provider error details on non-stream failed responses", async () => {
+    mockCreate.mockResolvedValueOnce(
+      makeCompletion({
+        status: "failed",
+        output_text: "",
+        error: {
+          message: "upstream failure",
+          code: 502,
+        },
+      }),
+    );
+
+    const provider = new GrokProvider({ apiKey: "test-key" });
+    const response = await provider.chat([{ role: "user", content: "test" }]);
+
+    expect(response.finishReason).toBe("error");
+    expect(response.error).toBeInstanceOf(LLMProviderError);
+    expect(response.error?.message).toContain("upstream failure");
+  });
+
   it("maps 500 errors to LLMServerError", async () => {
     mockCreate.mockRejectedValueOnce({
       status: 500,
@@ -463,6 +483,36 @@ describe("GrokProvider", () => {
     expect(response.partial).toBe(true);
     expect(response.content).toBe("partial response");
     expect(response.error).toBeInstanceOf(LLMTimeoutError);
+  });
+
+  it("surfaces provider error details on response.failed stream events", async () => {
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield {
+          type: "response.failed",
+          response: {
+            status: "failed",
+            error: { message: "stream failed", code: 503 },
+          },
+        };
+      })(),
+    );
+
+    const provider = new GrokProvider({ apiKey: "test-key", timeoutMs: 1000 });
+    const onChunk = vi.fn();
+    const response = await provider.chatStream(
+      [{ role: "user", content: "test" }],
+      onChunk,
+    );
+
+    expect(response.finishReason).toBe("error");
+    expect(response.error).toBeInstanceOf(LLMProviderError);
+    expect(response.error?.message).toContain("stream failed");
+    expect(onChunk).toHaveBeenCalledWith({
+      content: "",
+      done: true,
+      toolCalls: [],
+    });
   });
 
   it("times out stalled streaming responses and returns partial output", async () => {
