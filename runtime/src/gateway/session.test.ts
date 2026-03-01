@@ -66,7 +66,7 @@ describe("SessionManager", () => {
   // --- deriveSessionId -----------------------------------------------------
 
   describe("deriveSessionId", () => {
-    it("'main' scope returns same ID regardless of params", () => {
+    it("'main' scope returns same ID within a workspace", () => {
       const id1 = deriveSessionId(
         makeParams({ senderId: "a", channel: "x" }),
         "main",
@@ -75,8 +75,20 @@ describe("SessionManager", () => {
         makeParams({ senderId: "b", channel: "y" }),
         "main",
       );
-      expect(id1).toBe("session:main");
-      expect(id2).toBe("session:main");
+      expect(id1).toBe(id2);
+      expect(id1).toMatch(/^session:/);
+    });
+
+    it("includes workspace scope in all derived IDs", () => {
+      const id1 = deriveSessionId(
+        makeParams({ workspaceId: "ws-a", senderId: "alice" }),
+        "per-peer",
+      );
+      const id2 = deriveSessionId(
+        makeParams({ workspaceId: "ws-b", senderId: "alice" }),
+        "per-peer",
+      );
+      expect(id1).not.toBe(id2);
     });
 
     it("'per-peer' groups by senderId", () => {
@@ -97,7 +109,7 @@ describe("SessionManager", () => {
       expect(id1).not.toBe(id3); // different sender
 
       const expected =
-        "session:" + createHash("sha256").update("alice").digest("hex");
+        "session:" + createHash("sha256").update("ws-1\x00alice").digest("hex");
       expect(id1).toBe(expected);
     });
 
@@ -119,7 +131,10 @@ describe("SessionManager", () => {
       expect(id1).not.toBe(id3);
 
       const expected =
-        "session:" + createHash("sha256").update("ch1\x00alice").digest("hex");
+        "session:" +
+        createHash("sha256")
+          .update("ws-1\x00ch1\x00alice")
+          .digest("hex");
       expect(id1).toBe(expected);
     });
 
@@ -145,7 +160,9 @@ describe("SessionManager", () => {
 
       const expected =
         "session:" +
-        createHash("sha256").update("ch\x00alice\x00g1\x00t1").digest("hex");
+        createHash("sha256")
+          .update("ws-1\x00ch\x00alice\x00g1\x00t1")
+          .digest("hex");
       expect(id1).toBe(expected);
     });
   });
@@ -263,7 +280,7 @@ describe("SessionManager", () => {
     it("'summarize' with summarizer calls callback", async () => {
       const summarizer: Summarizer = vi
         .fn()
-        .mockResolvedValue("Summary of conversation");
+        .mockResolvedValue("m0 m1 m2 m3 decisions and learnings");
       const mgr = new SessionManager(makeConfig({ compaction: "summarize" }), {
         summarizer,
       });
@@ -275,9 +292,10 @@ describe("SessionManager", () => {
       const result = await mgr.compact(session.id);
       expect(result).not.toBeNull();
       expect(result!.summaryGenerated).toBe(true);
+      expect(result!.summaryQuality).toBe("accepted");
       expect(summarizer).toHaveBeenCalledOnce();
       expect(session.history[0].role).toBe("system");
-      expect(session.history[0].content).toBe("Summary of conversation");
+      expect(session.history[0].content).toContain("decisions");
     });
 
     it("'summarize' without summarizer falls back to truncate", async () => {
@@ -506,7 +524,8 @@ describe("SessionManager", () => {
       const session = mgr.getOrCreate(dmParams);
 
       // DM override changes scope to 'main'
-      expect(session.id).toBe("session:main");
+      const expected = deriveSessionId(dmParams, "main");
+      expect(session.id).toBe(expected);
     });
 
     it("channel-level override can replace nested scope overrides", () => {
@@ -549,6 +568,46 @@ describe("SessionManager", () => {
       // Same params — no new session
       manager.getOrCreate(makeParams({ senderId: "a" }));
       expect(manager.count).toBe(2);
+    });
+  });
+
+  describe("summary quality checks", () => {
+    it("rejects low-information summaries and falls back to truncation", async () => {
+      const summarizer: Summarizer = vi
+        .fn()
+        .mockResolvedValue("ok");
+      const mgr = new SessionManager(makeConfig({ compaction: "summarize" }), {
+        summarizer,
+      });
+      const session = mgr.getOrCreate(makeParams());
+      for (let i = 0; i < 10; i++) {
+        session.history.push(msg("user", `important-m${i}`));
+      }
+
+      const result = await mgr.compact(session.id);
+      expect(result).not.toBeNull();
+      expect(result!.summaryGenerated).toBe(false);
+      expect(result!.summaryQuality).toBe("rejected");
+      expect(session.history[0].content).toBe("important-m5");
+    });
+
+    it("truncates oversize summaries to bounded length", async () => {
+      const summarizer: Summarizer = vi.fn().mockResolvedValue(
+        `important decision context ${"x".repeat(2000)}`,
+      );
+      const mgr = new SessionManager(makeConfig({ compaction: "summarize" }), {
+        summarizer,
+      });
+      const session = mgr.getOrCreate(makeParams());
+      for (let i = 0; i < 10; i++) {
+        session.history.push(msg("user", `important-${i}`));
+      }
+
+      const result = await mgr.compact(session.id);
+      expect(result).not.toBeNull();
+      expect(result!.summaryGenerated).toBe(true);
+      expect(result!.summaryChars).toBeLessThanOrEqual(800);
+      expect((session.history[0].content ?? "").length).toBeLessThanOrEqual(800);
     });
   });
 });

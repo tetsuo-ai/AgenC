@@ -8,6 +8,7 @@
  */
 
 import type {
+  LLMChatOptions,
   LLMProvider,
   LLMMessage,
   LLMResponse,
@@ -42,9 +43,12 @@ export class OllamaProvider implements LLMProvider {
     this.tools = config.tools ?? [];
   }
 
-  async chat(messages: LLMMessage[]): Promise<LLMResponse> {
+  async chat(
+    messages: LLMMessage[],
+    options?: LLMChatOptions,
+  ): Promise<LLMResponse> {
     const client = await this.ensureClient();
-    const params = this.buildParams(messages);
+    const params = this.buildParams(messages, options);
 
     try {
       const response = await withTimeout(
@@ -61,9 +65,10 @@ export class OllamaProvider implements LLMProvider {
   async chatStream(
     messages: LLMMessage[],
     onChunk: StreamProgressCallback,
+    options?: LLMChatOptions,
   ): Promise<LLMResponse> {
     const client = await this.ensureClient();
-    const params = { ...this.buildParams(messages), stream: true };
+    const params = { ...this.buildParams(messages, options), stream: true };
     let content = "";
     let model = this.config.model;
     let toolCalls: LLMToolCall[] = [];
@@ -159,7 +164,10 @@ export class OllamaProvider implements LLMProvider {
     return this.client;
   }
 
-  private buildParams(messages: LLMMessage[]): Record<string, unknown> {
+  private buildParams(
+    messages: LLMMessage[],
+    options?: LLMChatOptions,
+  ): Record<string, unknown> {
     validateToolTurnSequence(messages, { providerName: this.name });
 
     const params: Record<string, unknown> = {
@@ -167,19 +175,36 @@ export class OllamaProvider implements LLMProvider {
       messages: messages.map((m) => this.toOllamaMessage(m)),
     };
 
-    // Build options
-    const options: Record<string, unknown> = {};
+    // Build model options
+    const modelOptions: Record<string, unknown> = {};
     if (this.config.temperature !== undefined)
-      options.temperature = this.config.temperature;
-    if (this.config.numCtx !== undefined) options.num_ctx = this.config.numCtx;
-    if (this.config.numGpu !== undefined) options.num_gpu = this.config.numGpu;
-    if (Object.keys(options).length > 0) params.options = options;
+      modelOptions.temperature = this.config.temperature;
+    if (this.config.maxTokens !== undefined)
+      modelOptions.num_predict = this.config.maxTokens;
+    if (this.config.numCtx !== undefined) modelOptions.num_ctx = this.config.numCtx;
+    if (this.config.numGpu !== undefined) modelOptions.num_gpu = this.config.numGpu;
+    if (Object.keys(modelOptions).length > 0) params.options = modelOptions;
 
     if (this.config.keepAlive !== undefined)
       params.keep_alive = this.config.keepAlive;
 
     // Tools — Ollama uses OpenAI-compatible format
-    if (this.tools.length > 0) params.tools = this.tools;
+    if (this.tools.length > 0) {
+      const routedToolNames = options?.toolRouting?.allowedToolNames;
+      if (routedToolNames && routedToolNames.length > 0) {
+        const allowed = new Set(
+          routedToolNames
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0),
+        );
+        const filtered = this.tools.filter((tool) =>
+          allowed.has(tool.function.name),
+        );
+        params.tools = filtered.length > 0 ? filtered : this.tools;
+      } else {
+        params.tools = this.tools;
+      }
+    }
 
     return params;
   }

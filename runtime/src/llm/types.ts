@@ -88,6 +88,85 @@ export interface LLMRequestMetrics {
 }
 
 /**
+ * Stateful response fallback reasons when continuation cannot be used.
+ */
+export type LLMStatefulFallbackReason =
+  | "missing_previous_response_id"
+  | "provider_retrieval_failure"
+  | "state_reconciliation_mismatch";
+
+/**
+ * Structured stateful event types for trace logging/diagnostics.
+ */
+export type LLMStatefulEventType =
+  | "stateful_continuation_attempt"
+  | "stateful_continuation_success"
+  | "stateful_fallback"
+  | "state_reconciliation_mismatch";
+
+/**
+ * A single stateful-mode diagnostic event.
+ */
+export interface LLMStatefulEvent {
+  readonly type: LLMStatefulEventType;
+  readonly reason?: LLMStatefulFallbackReason;
+  readonly detail?: string;
+}
+
+/**
+ * Per-call diagnostics for provider-managed stateful continuation.
+ */
+export interface LLMStatefulDiagnostics {
+  /** True when provider-level stateful mode is enabled for this call. */
+  readonly enabled: boolean;
+  /** True when this call attempted to continue from a previous response ID. */
+  readonly attempted: boolean;
+  /** True when `previous_response_id` was accepted and used. */
+  readonly continued: boolean;
+  /** Explicit `store` value sent to the provider for this call. */
+  readonly store: boolean;
+  /** Fallback policy used for this call. */
+  readonly fallbackToStateless: boolean;
+  /** Previously persisted response ID used for continuation (if any). */
+  readonly previousResponseId?: string;
+  /** New response ID returned by the provider (if any). */
+  readonly responseId?: string;
+  /** Reconciliation anchor hash for this call (provider-defined). */
+  readonly reconciliationHash?: string;
+  /** Fallback reason when continuation was bypassed or retried statelessly. */
+  readonly fallbackReason?: LLMStatefulFallbackReason;
+  /** Structured trace events emitted during stateful decisioning. */
+  readonly events?: readonly LLMStatefulEvent[];
+}
+
+/**
+ * Optional stateful continuation hints passed to provider calls.
+ */
+export interface LLMChatStatefulOptions {
+  /** Session key used by providers to scope response-id anchors. */
+  readonly sessionId: string;
+}
+
+/**
+ * Optional turn-time tool routing hints passed to provider calls.
+ */
+export interface LLMChatToolRoutingOptions {
+  /**
+   * Restrict provider-advertised tools for this call to this allowlist.
+   * Unknown tool names are ignored by providers.
+   */
+  readonly allowedToolNames?: readonly string[];
+}
+
+/**
+ * Optional provider call options.
+ */
+export interface LLMChatOptions {
+  readonly stateful?: LLMChatStatefulOptions;
+  readonly toolRouting?: LLMChatToolRoutingOptions;
+}
+
+/**
  * Response from an LLM provider
  */
 export interface LLMResponse {
@@ -97,6 +176,8 @@ export interface LLMResponse {
   model: string;
   /** Provider-computed request diagnostics for this call. */
   requestMetrics?: LLMRequestMetrics;
+  /** Stateful continuation diagnostics, when supported by the provider. */
+  stateful?: LLMStatefulDiagnostics;
   finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "error";
   /** Underlying error when finishReason is "error". */
   error?: Error;
@@ -131,12 +212,17 @@ export type ToolHandler = (
  */
 export interface LLMProvider {
   readonly name: string;
-  chat(messages: LLMMessage[]): Promise<LLMResponse>;
+  chat(messages: LLMMessage[], options?: LLMChatOptions): Promise<LLMResponse>;
   chatStream(
     messages: LLMMessage[],
     onChunk: StreamProgressCallback,
+    options?: LLMChatOptions,
   ): Promise<LLMResponse>;
   healthCheck(): Promise<boolean>;
+  /** Optional lifecycle hook for session-scoped provider state cleanup. */
+  resetSessionState?(sessionId: string): void;
+  /** Optional lifecycle hook to clear all provider-managed session state. */
+  clearSessionState?(): void;
 }
 
 /**

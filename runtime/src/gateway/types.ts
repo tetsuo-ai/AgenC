@@ -19,14 +19,68 @@ export interface GatewayLLMConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  /** Maximum output tokens per completion (provider request parameter). */
+  maxTokens?: number;
+  /** Model context window in tokens for adaptive prompt budgeting. */
+  contextWindowTokens?: number;
+  /** Hard cap (chars) applied after adaptive prompt budget calculation. */
+  promptHardMaxChars?: number;
+  /** Reserved tokens for protocol overhead when sizing prompt budget. */
+  promptSafetyMarginTokens?: number;
+  /** Approximate chars/token ratio used by the prompt allocator. */
+  promptCharPerToken?: number;
+  /** Upper bound for additive runtime hint system messages per execution. */
+  maxRuntimeHints?: number;
   /** Request timeout in milliseconds for provider calls (default: provider-specific). */
   timeoutMs?: number;
   /** Maximum token budget per session. 0 or undefined = unlimited. */
   sessionTokenBudget?: number;
   /** Maximum tool call rounds per message. Default: 5. */
   maxToolRounds?: number;
+  /** Enable planner/executor split for high-complexity turns. */
+  plannerEnabled?: boolean;
+  /** Maximum output tokens for the planner pass. */
+  plannerMaxTokens?: number;
+  /** Maximum tool calls allowed in one request execution. */
+  toolBudgetPerRequest?: number;
+  /** Maximum model recalls after the initial call per request. */
+  maxModelRecallsPerRequest?: number;
+  /** Maximum failed tool calls allowed per request before aborting. */
+  maxFailureBudgetPerRequest?: number;
   /** Allow model-emitted parallel tool calls. Default: false (serialized). */
   parallelToolCalls?: boolean;
+  /** Optional xAI Responses API stateful continuation controls. */
+  statefulResponses?: {
+    /** Enable session-scoped continuation using provider-managed response IDs. */
+    enabled?: boolean;
+    /** Explicit `store` value sent to provider calls while stateful mode is enabled. */
+    store?: boolean;
+    /** Retry once statelessly when continuation anchors are missing/mismatched/stale. */
+    fallbackToStateless?: boolean;
+  };
+  /** Optional Phase 6 dynamic tool-routing controls. */
+  toolRouting?: {
+    /** Enable per-turn tool subset routing. */
+    enabled?: boolean;
+    /** Minimum tools to include in a routed subset. */
+    minToolsPerTurn?: number;
+    /** Maximum tools to include in a routed subset. */
+    maxToolsPerTurn?: number;
+    /** Maximum tools to include in one-turn expanded retry subsets. */
+    maxExpandedToolsPerTurn?: number;
+    /** Session intent-cluster route cache TTL in milliseconds. */
+    cacheTtlMs?: number;
+    /** Minimum cache confidence required before route reuse. */
+    minCacheConfidence?: number;
+    /** Jaccard threshold below which intent shift invalidates cached routes. */
+    pivotSimilarityThreshold?: number;
+    /** Consecutive routing misses required before cache invalidation. */
+    pivotMissThreshold?: number;
+    /** Tool names always pinned in routed subsets when available. */
+    mandatoryTools?: string[];
+    /** Optional per-family tool caps (desktop/system/playwright/etc). */
+    familyCaps?: Record<string, number>;
+  };
   /** Additional LLM providers for fallback (tried in order after primary fails). */
   fallback?: GatewayLLMConfig[];
 }

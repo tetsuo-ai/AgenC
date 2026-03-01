@@ -11,12 +11,15 @@
 
 import type { GatewayMessage } from "../gateway/message.js";
 import type {
+  LLMChatOptions,
   LLMProvider,
   LLMMessage,
   LLMContentPart,
   LLMResponse,
   LLMUsage,
   LLMRequestMetrics,
+  LLMStatefulDiagnostics,
+  LLMStatefulFallbackReason,
   StreamProgressCallback,
   ToolHandler,
 } from "./types.js";
@@ -28,6 +31,18 @@ import {
 } from "./errors.js";
 import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 import { safeStringify } from "../tools/types.js";
+import {
+  applyPromptBudget,
+  type PromptBudgetConfig,
+  type PromptBudgetDiagnostics,
+  type PromptBudgetSection,
+} from "./prompt-budget.js";
+import type { LLMPipelineStopReason } from "./policy.js";
+import type {
+  Pipeline,
+  PipelineResult,
+  PipelineStep,
+} from "../workflow/pipeline.js";
 
 // ============================================================================
 // Error classes
@@ -94,6 +109,15 @@ export interface ChatExecuteParams {
   readonly signal?: AbortSignal;
   /** Per-call tool round limit — overrides the constructor default. */
   readonly maxToolRounds?: number;
+  /** Optional per-turn tool-routing subset and expansion policy. */
+  readonly toolRouting?: {
+    /** Initial routed subset for this turn. */
+    readonly routedToolNames?: readonly string[];
+    /** One-turn expanded subset used on suspected routing misses. */
+    readonly expandedToolNames?: readonly string[];
+    /** Enable one-turn expansion retry on routed-tool misses. */
+    readonly expandOnMiss?: boolean;
+  };
 }
 
 /** Estimated prompt-shape statistics for one provider call. */
@@ -113,6 +137,8 @@ export interface ChatCallUsageRecord {
   readonly callIndex: number;
   readonly phase:
     | "initial"
+    | "planner"
+    | "planner_synthesis"
     | "tool_followup"
     | "evaluator"
     | "evaluator_retry";
@@ -124,6 +150,41 @@ export interface ChatCallUsageRecord {
   readonly afterBudget: ChatPromptShape;
   /** Provider-specific request metrics (e.g. toolSchemaChars for Grok). */
   readonly providerRequestMetrics?: LLMRequestMetrics;
+  /** Prompt-budget diagnostics (sections dropped/truncated, caps, and totals). */
+  readonly budgetDiagnostics?: PromptBudgetDiagnostics;
+  /** Stateful continuation diagnostics for this provider call (when supported). */
+  readonly statefulDiagnostics?: LLMStatefulDiagnostics;
+}
+
+/** Planner-routing decision and ROI summary for one execute() invocation. */
+export interface ChatPlannerSummary {
+  readonly enabled: boolean;
+  readonly used: boolean;
+  readonly routeReason?: string;
+  readonly complexityScore: number;
+  readonly plannerCalls: number;
+  readonly plannedSteps: number;
+  readonly deterministicStepsExecuted: number;
+  /** Estimated downstream model recalls avoided by deterministic execution. */
+  readonly estimatedRecallsAvoided: number;
+}
+
+/** Aggregated stateful continuation counters for one execute() invocation. */
+export interface ChatStatefulSummary {
+  readonly enabled: boolean;
+  readonly attemptedCalls: number;
+  readonly continuedCalls: number;
+  readonly fallbackCalls: number;
+  readonly fallbackReasons: Readonly<Record<LLMStatefulFallbackReason, number>>;
+}
+
+/** Aggregated tool-routing diagnostics for one execute() invocation. */
+export interface ChatToolRoutingSummary {
+  readonly enabled: boolean;
+  readonly initialToolCount: number;
+  readonly finalToolCount: number;
+  readonly routeMisses: number;
+  readonly expanded: boolean;
 }
 
 /** Result returned from ChatExecutor.execute(). */
@@ -140,8 +201,23 @@ export interface ChatExecutorResult {
   readonly durationMs: number;
   /** True if conversation history was compacted during this execution. */
   readonly compacted: boolean;
+  /** Aggregated stateful continuation diagnostics for this execution. */
+  readonly statefulSummary?: ChatStatefulSummary;
+  /** Per-turn dynamic tool-routing diagnostics for this execution. */
+  readonly toolRoutingSummary?: ChatToolRoutingSummary;
+  /** Planner/executor routing summary and ROI diagnostics. */
+  readonly plannerSummary?: ChatPlannerSummary;
+  /** Canonical stop reason for this request execution. */
+  readonly stopReason: LLMPipelineStopReason;
+  /** Optional detail for non-completed stop reasons. */
+  readonly stopReasonDetail?: string;
   /** Result of response evaluation, if evaluator is configured. */
   readonly evaluation?: EvaluationResult;
+}
+
+/** Minimal pipeline executor interface required by ChatExecutor planner path. */
+export interface DeterministicPipelineExecutor {
+  execute(pipeline: Pipeline, startFrom?: number): Promise<PipelineResult>;
 }
 
 /** Configuration for ChatExecutor construction. */
@@ -169,12 +245,26 @@ export interface ChatExecutorConfig {
   readonly learningProvider?: MemoryRetriever;
   /** Optional provider that injects cross-session progress context per message. */
   readonly progressProvider?: MemoryRetriever;
+  /** Prompt budget allocator configuration (Phase 2). */
+  readonly promptBudget?: PromptBudgetConfig;
   /** Base cooldown period for failed providers in ms (default: 60_000). */
   readonly providerCooldownMs?: number;
   /** Maximum cooldown period in ms (default: 300_000). */
   readonly maxCooldownMs?: number;
   /** Maximum tracked sessions before eviction (default: 10_000). */
   readonly maxTrackedSessions?: number;
+  /** Enable planner/executor split for high-complexity turns. */
+  readonly plannerEnabled?: boolean;
+  /** Max output tokens for the planner pass (bounded planning call). */
+  readonly plannerMaxTokens?: number;
+  /** Optional deterministic workflow executor used when planner emits executable steps. */
+  readonly pipelineExecutor?: DeterministicPipelineExecutor;
+  /** Maximum tool calls allowed for a single execute() invocation. */
+  readonly toolBudgetPerRequest?: number;
+  /** Maximum model recalls (calls after the first) for a single execute() invocation. */
+  readonly maxModelRecallsPerRequest?: number;
+  /** Maximum total failed tool calls allowed for a single execute() invocation. */
+  readonly maxFailureBudgetPerRequest?: number;
 }
 
 // ============================================================================
@@ -213,11 +303,33 @@ interface FallbackResult {
   usedFallback: boolean;
   beforeBudget: ChatPromptShape;
   afterBudget: ChatPromptShape;
+  budgetDiagnostics: PromptBudgetDiagnostics;
 }
 
 interface RecoveryHint {
   key: string;
   message: string;
+}
+
+interface PlannerDecision {
+  score: number;
+  shouldPlan: boolean;
+  reason: string;
+}
+
+interface PlannerStepIntent {
+  name: string;
+  tool: string;
+  args: Record<string, unknown>;
+  onError?: PipelineStep["onError"];
+  maxRetries?: number;
+  deterministic: boolean;
+}
+
+interface PlannerPlan {
+  reason?: string;
+  requiresSynthesis?: boolean;
+  steps: PlannerStepIntent[];
 }
 
 // ============================================================================
@@ -275,6 +387,24 @@ const MAX_PROMPT_CHARS_BUDGET = 100_000;
 const MAX_TOOL_RESULT_CHARS = 12_000;
 /** Max chars retained for any single string field inside JSON tool output. */
 const MAX_TOOL_RESULT_FIELD_CHARS = 2_000;
+/** Max array items retained in JSON tool output summaries. */
+const MAX_TOOL_RESULT_ARRAY_ITEMS = 40;
+/** Max object keys retained in JSON tool output summaries. */
+const MAX_TOOL_RESULT_OBJECT_KEYS = 48;
+const TOOL_RESULT_PRIORITY_KEYS = [
+  "error",
+  "stderr",
+  "stdout",
+  "exitcode",
+  "status",
+  "message",
+  "result",
+  "output",
+  "url",
+  "title",
+  "text",
+  "data",
+] as const;
 /** Global image-data budget (chars) for tool results in a single execution. */
 const MAX_TOOL_IMAGE_CHARS_BUDGET = 100_000;
 /** Max chars retained from a single user text message. */
@@ -287,6 +417,20 @@ const REPETITIVE_LINE_MIN_COUNT = 40;
 const REPETITIVE_LINE_MIN_REPEATS = 20;
 /** Unique-line ratio threshold for runaway detection. */
 const REPETITIVE_LINE_MAX_UNIQUE_RATIO = 0.35;
+/** Upper bound on additive runtime hint system messages per execution. */
+const DEFAULT_MAX_RUNTIME_SYSTEM_HINTS = 4;
+/** Default max planner output budget in tokens (soft, prompt-enforced). */
+const DEFAULT_PLANNER_MAX_TOKENS = 256;
+/** Maximum deterministic steps accepted from a planner pass. */
+const MAX_PLANNER_STEPS = 24;
+/** Default per-request tool-call budget. */
+const DEFAULT_TOOL_BUDGET_PER_REQUEST = 24;
+/** Default per-request model recall budget (calls after first). */
+const DEFAULT_MODEL_RECALLS_PER_REQUEST = 24;
+/** Default per-request failed-tool-call budget. */
+const DEFAULT_FAILURE_BUDGET_PER_REQUEST = 8;
+/** Break no-progress loops after repeated semantically equivalent rounds. */
+const MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS = 2;
 /**
  * macOS native tools that cause visible side-effects (opening apps, running scripts).
  * Once any tool in this set executes, further calls to ANY tool in the set are
@@ -369,8 +513,16 @@ export class ChatExecutor {
   private readonly memoryRetriever?: MemoryRetriever;
   private readonly learningProvider?: MemoryRetriever;
   private readonly progressProvider?: MemoryRetriever;
+  private readonly promptBudget: PromptBudgetConfig;
+  private readonly maxRuntimeSystemHints: number;
   private readonly onCompaction?: (sessionId: string, summary: string) => void;
   private readonly evaluator?: EvaluatorConfig;
+  private readonly plannerEnabled: boolean;
+  private readonly plannerMaxTokens: number;
+  private readonly pipelineExecutor?: DeterministicPipelineExecutor;
+  private readonly toolBudgetPerRequest: number;
+  private readonly maxModelRecallsPerRequest: number;
+  private readonly maxFailureBudgetPerRequest: number;
 
   private readonly cooldowns = new Map<string, CooldownEntry>();
   private readonly sessionTokens = new Map<string, number>();
@@ -394,19 +546,61 @@ export class ChatExecutor {
     this.memoryRetriever = config.memoryRetriever;
     this.learningProvider = config.learningProvider;
     this.progressProvider = config.progressProvider;
+    const configuredPromptBudget = config.promptBudget ?? {};
+    this.promptBudget = {
+      hardMaxPromptChars:
+        configuredPromptBudget.hardMaxPromptChars ?? MAX_PROMPT_CHARS_BUDGET,
+      ...configuredPromptBudget,
+    };
+    const maxRuntimeHints = configuredPromptBudget.maxRuntimeHints;
+    this.maxRuntimeSystemHints =
+      typeof maxRuntimeHints === "number" && Number.isFinite(maxRuntimeHints)
+        ? Math.max(0, Math.floor(maxRuntimeHints))
+        : DEFAULT_MAX_RUNTIME_SYSTEM_HINTS;
     this.onCompaction = config.onCompaction;
     this.evaluator = config.evaluator;
+    this.plannerEnabled = config.plannerEnabled ?? false;
+    this.plannerMaxTokens = Math.max(
+      32,
+      Math.floor(config.plannerMaxTokens ?? DEFAULT_PLANNER_MAX_TOKENS),
+    );
+    this.pipelineExecutor = config.pipelineExecutor;
+    this.toolBudgetPerRequest = Math.max(
+      1,
+      Math.floor(config.toolBudgetPerRequest ?? DEFAULT_TOOL_BUDGET_PER_REQUEST),
+    );
+    this.maxModelRecallsPerRequest = Math.max(
+      0,
+      Math.floor(
+        config.maxModelRecallsPerRequest ?? DEFAULT_MODEL_RECALLS_PER_REQUEST,
+      ),
+    );
+    this.maxFailureBudgetPerRequest = Math.max(
+      1,
+      Math.floor(
+        config.maxFailureBudgetPerRequest ?? DEFAULT_FAILURE_BUDGET_PER_REQUEST,
+      ),
+    );
   }
 
   /**
    * Execute a chat message against the provider chain.
    */
   async execute(params: ChatExecuteParams): Promise<ChatExecutorResult> {
-    const { message, systemPrompt, sessionId, signal, maxToolRounds: paramMaxToolRounds } = params;
+    const {
+      message,
+      systemPrompt,
+      sessionId,
+      signal,
+      maxToolRounds: paramMaxToolRounds,
+    } = params;
     let { history } = params;
     const activeToolHandler = params.toolHandler ?? this.toolHandler;
     const activeStreamCallback = params.onStreamChunk ?? this.onStreamChunk;
     const effectiveMaxToolRounds = paramMaxToolRounds ?? this.maxToolRounds;
+    const effectiveToolBudget = this.toolBudgetPerRequest;
+    const effectiveMaxModelRecalls = this.maxModelRecallsPerRequest;
+    const effectiveFailureBudget = this.maxFailureBudgetPerRequest;
     const startTime = Date.now();
 
     // Pre-check token budget — attempt compaction instead of hard fail
@@ -428,25 +622,64 @@ export class ChatExecutor {
       }
     }
 
-    // Build messages array
-    const messages: LLMMessage[] = [{ role: "system", content: systemPrompt }];
+    // Build messages array with explicit section tags for prompt budgeting.
+    const messages: LLMMessage[] = [];
+    const messageSections: PromptBudgetSection[] = [];
+    const pushMessage = (
+      nextMessage: LLMMessage,
+      section: PromptBudgetSection,
+    ): void => {
+      messages.push(nextMessage);
+      messageSections.push(section);
+    };
+    pushMessage({ role: "system", content: systemPrompt }, "system_anchor");
 
     // Context injection — skill, memory, and learning (all best-effort)
     const messageText = ChatExecutor.extractMessageText(message);
     const hasHistory = history.length > 0;
-    await this.injectContext(this.skillInjector, messageText, sessionId, messages);
+    await this.injectContext(
+      this.skillInjector,
+      messageText,
+      sessionId,
+      messages,
+      messageSections,
+      "system_runtime",
+    );
     // Session-scoped persistence should not bleed into truly fresh chats.
     // For the first turn, only inject static skill context.
     if (hasHistory) {
-      await this.injectContext(this.memoryRetriever, messageText, sessionId, messages);
-      await this.injectContext(this.learningProvider, messageText, sessionId, messages);
-      await this.injectContext(this.progressProvider, messageText, sessionId, messages);
+      await this.injectContext(
+        this.memoryRetriever,
+        messageText,
+        sessionId,
+        messages,
+        messageSections,
+        "memory_semantic",
+      );
+      await this.injectContext(
+        this.learningProvider,
+        messageText,
+        sessionId,
+        messages,
+        messageSections,
+        "memory_episodic",
+      );
+      await this.injectContext(
+        this.progressProvider,
+        messageText,
+        sessionId,
+        messages,
+        messageSections,
+        "memory_working",
+      );
     }
 
     // Append history and user message
-    messages.push(...ChatExecutor.normalizeHistory(history));
+    for (const historicalMessage of ChatExecutor.normalizeHistory(history)) {
+      pushMessage(historicalMessage, "history");
+    }
 
-    ChatExecutor.appendUserMessage(messages, message);
+    ChatExecutor.appendUserMessage(messages, messageSections, message);
 
     // First LLM call
     const cumulativeUsage: LLMUsage = {
@@ -456,268 +689,662 @@ export class ChatExecutor {
     };
     const callUsage: ChatCallUsageRecord[] = [];
     let callIndex = 0;
+    let modelCalls = 0;
     const allToolCalls: ToolCallRecord[] = [];
-
-    let {
-      response,
-      providerName,
-      usedFallback,
-      beforeBudget,
-      afterBudget,
-    } = await this.callWithFallback(messages, activeStreamCallback);
-    let responseModel = response.model;
-    this.accumulateUsage(cumulativeUsage, response.usage);
-    callUsage.push(
-      this.createCallUsageRecord({
-        callIndex: ++callIndex,
-        phase: "initial",
-        providerName,
-        response,
-        beforeBudget,
-        afterBudget,
-      }),
+    let failedToolCalls = 0;
+    let usedFallback = false;
+    let providerName = this.providers[0]?.name ?? "unknown";
+    let responseModel: string | undefined;
+    let response: LLMResponse | undefined;
+    let evaluation: EvaluationResult | undefined;
+    let finalContent = "";
+    let stopReason: LLMPipelineStopReason = "completed";
+    let stopReasonDetail: string | undefined;
+    const initialRoutedToolNames = params.toolRouting?.routedToolNames
+      ? Array.from(new Set(params.toolRouting.routedToolNames))
+      : [];
+    const expandedRoutedToolNames = params.toolRouting?.expandedToolNames
+      ? Array.from(new Set(params.toolRouting.expandedToolNames))
+      : [];
+    const canExpandOnRoutingMiss = Boolean(
+      params.toolRouting?.expandOnMiss &&
+      expandedRoutedToolNames.length > 0,
     );
+    let activeRoutedToolNames = initialRoutedToolNames;
+    let routedToolsExpanded = false;
+    let routedToolMisses = 0;
 
-    // Tool call loop — side-effect deduplication prevents the model from
-    // repeating desktop actions (e.g. opening 3 YouTube tabs). Once ANY
-    // side-effect tool executes, all others are skipped for this request.
-    let rounds = 0;
-    let sideEffectExecuted = false;
-    let remainingToolImageChars = MAX_TOOL_IMAGE_CHARS_BUDGET;
-    const emittedRecoveryHints = new Set<string>();
-    // Track consecutive identical failing calls to break stuck loops
-    // (e.g. LLM calling `desktop.bash mkdir` with no args 5 times in a row).
-    let lastFailKey = "";
-    let consecutiveFailCount = 0;
-    let consecutiveAllFailedRounds = 0;
-    while (
-      response.finishReason === "tool_calls" &&
-      response.toolCalls.length > 0 &&
-      activeToolHandler &&
-      rounds < effectiveMaxToolRounds
-    ) {
-      // Check for cancellation before each round
-      if (signal?.aborted) break;
+    const plannerDecision = this.assessPlannerDecision(messageText, history);
+    const plannerSummaryState = {
+      enabled: this.plannerEnabled,
+      used: false,
+      routeReason: plannerDecision.reason,
+      complexityScore: plannerDecision.score,
+      plannerCalls: 0,
+      plannedSteps: 0,
+      deterministicStepsExecuted: 0,
+      estimatedRecallsAvoided: 0,
+    };
 
-      rounds++;
-      const roundToolCallStart = allToolCalls.length;
-
-      // Append the assistant message with tool calls
-      messages.push({
-        role: "assistant",
-        content: response.content,
-        toolCalls: response.toolCalls,
-      });
-      for (const toolCall of response.toolCalls) {
-        if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
-          const skipResult = safeStringify({
-            error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
-          });
-          messages.push({
-            role: "tool",
-            content: skipResult,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-          });
-          allToolCalls.push({
-            name: toolCall.name,
-            args: {},
-            result: skipResult,
-            isError: true,
-            durationMs: 0,
-          });
-          continue;
-        }
-        if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name)) sideEffectExecuted = true;
-
-        // Allowlist check
-        if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
-          const errorResult = safeStringify({
-            error: `Tool "${toolCall.name}" is not permitted`,
-          });
-          messages.push({
-            role: "tool",
-            content: errorResult,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-          });
-          allToolCalls.push({
-            name: toolCall.name,
-            args: {},
-            result: errorResult,
-            isError: true,
-            durationMs: 0,
-          });
-          continue;
-        }
-
-        // Parse arguments
-        let args: Record<string, unknown>;
-        try {
-          const parsed = JSON.parse(toolCall.arguments) as unknown;
-          if (
-            typeof parsed !== "object" ||
-            parsed === null ||
-            Array.isArray(parsed)
-          ) {
-            throw new Error("Tool arguments must be a JSON object");
-          }
-          args = parsed as Record<string, unknown>;
-        } catch (parseErr) {
-          const errorResult = safeStringify({
-            error: `Invalid tool arguments: ${(parseErr as Error).message}`,
-          });
-          messages.push({
-            role: "tool",
-            content: errorResult,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-          });
-          allToolCalls.push({
-            name: toolCall.name,
-            args: {},
-            result: errorResult,
-            isError: true,
-            durationMs: 0,
-          });
-          continue;
-        }
-
-        // Execute tool
-        const toolStart = Date.now();
-        let result: string;
-        let isError = false;
-        try {
-          result = await activeToolHandler!(toolCall.name, args);
-        } catch (toolErr) {
-          result = safeStringify({ error: (toolErr as Error).message });
-          isError = true;
-        }
-        const toolDuration = Date.now() - toolStart;
-        const toolFailed = didToolCallFail(isError, result);
-
-        allToolCalls.push({
-          name: toolCall.name,
-          args,
-          result,
-          isError: toolFailed,
-          durationMs: toolDuration,
-        });
-
-        // Track consecutive identical failures to detect stuck loops.
-        // Key on tool name + JSON args so "mkdir" with no args is distinct
-        // from "mkdir -p crypto-tracker".
-        const failDetected = toolFailed;
-        const failKey = failDetected ? `${toolCall.name}:${toolCall.arguments}` : "";
-        if (failDetected && failKey === lastFailKey) {
-          consecutiveFailCount++;
-        } else {
-          lastFailKey = failKey;
-          consecutiveFailCount = failDetected ? 1 : 0;
-        }
-
-        const promptToolContent = ChatExecutor.buildPromptToolContent(
-          result,
-          remainingToolImageChars,
-        );
-        remainingToolImageChars = promptToolContent.remainingImageBudget;
-        messages.push({
-          role: "tool",
-          content: promptToolContent.content,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        });
+    const setStopReason = (
+      reason: LLMPipelineStopReason,
+      detail?: string,
+    ): void => {
+      if (stopReason === "completed") {
+        stopReason = reason;
+        stopReasonDetail = detail;
       }
+    };
 
-      // Check for cancellation before re-calling LLM
-      if (signal?.aborted) break;
-
-      // Break stuck loops — if the same tool with the same args has failed
-      // N times consecutively, stop the loop entirely.
-      if (consecutiveFailCount >= MAX_CONSECUTIVE_IDENTICAL_FAILURES) {
-        break;
+    const appendToolRecord = (record: ToolCallRecord): void => {
+      allToolCalls.push(record);
+      if (didToolCallFail(record.isError, record.result)) {
+        failedToolCalls++;
       }
+    };
 
-      // Break stuck loops — if all tool calls fail for multiple consecutive
-      // rounds, stop retrying and let the model respond with what it learned.
-      const roundCalls = allToolCalls.slice(roundToolCallStart);
-      if (roundCalls.length > 0) {
-        const roundFailures = roundCalls.filter((call) =>
-          didToolCallFail(call.isError, call.result),
-        ).length;
-        if (roundFailures === roundCalls.length) {
-          consecutiveAllFailedRounds++;
-        } else {
-          consecutiveAllFailedRounds = 0;
-        }
-        if (consecutiveAllFailedRounds >= MAX_CONSECUTIVE_ALL_FAILED_ROUNDS) {
-          break;
-        }
+    const hasModelRecallBudget = (): boolean => {
+      if (modelCalls === 0) return true; // first model call
+      return modelCalls - 1 < effectiveMaxModelRecalls;
+    };
+
+    const callModel = async (input: {
+      phase: ChatCallUsageRecord["phase"];
+      callMessages: readonly LLMMessage[];
+      callSections?: readonly PromptBudgetSection[];
+      onStreamChunk?: StreamProgressCallback;
+      statefulSessionId?: string;
+      routedToolNames?: readonly string[];
+      budgetReason: string;
+    }): Promise<LLMResponse | undefined> => {
+      if (!hasModelRecallBudget()) {
+        setStopReason("budget_exceeded", input.budgetReason);
+        return undefined;
       }
-
-      const recoveryHints = ChatExecutor.buildRecoveryHints(
-        roundCalls,
-        emittedRecoveryHints,
+      const effectiveRoutedToolNames = input.routedToolNames !== undefined
+        ? input.routedToolNames
+        : (params.toolRouting ? activeRoutedToolNames : undefined);
+      const next = await this.callWithFallback(
+        input.callMessages,
+        input.onStreamChunk,
+        input.callSections,
+        {
+          ...(input.statefulSessionId
+            ? { statefulSessionId: input.statefulSessionId }
+            : {}),
+          ...(effectiveRoutedToolNames !== undefined
+            ? { routedToolNames: effectiveRoutedToolNames }
+            : {}),
+        },
       );
-      for (const hint of recoveryHints) {
-        messages.push({
-          role: "system",
-          content: `${RECOVERY_HINT_PREFIX} ${hint.message}`,
-        });
-      }
-
-      // Re-call LLM
-      const next = await this.callWithFallback(messages, activeStreamCallback);
-      response = next.response;
+      modelCalls++;
       providerName = next.providerName;
       responseModel = next.response.model;
-      beforeBudget = next.beforeBudget;
-      afterBudget = next.afterBudget;
       if (next.usedFallback) usedFallback = true;
-      this.accumulateUsage(cumulativeUsage, response.usage);
+      this.accumulateUsage(cumulativeUsage, next.response.usage);
       callUsage.push(
         this.createCallUsageRecord({
           callIndex: ++callIndex,
-          phase: "tool_followup",
-          providerName,
-          response,
-          beforeBudget,
-          afterBudget,
+          phase: input.phase,
+          providerName: next.providerName,
+          response: next.response,
+          beforeBudget: next.beforeBudget,
+          afterBudget: next.afterBudget,
+          budgetDiagnostics: next.budgetDiagnostics,
         }),
       );
+      return next.response;
+    };
+
+    let plannerHandled = false;
+    if (
+      this.plannerEnabled &&
+      plannerDecision.shouldPlan &&
+      this.pipelineExecutor &&
+      activeToolHandler
+    ) {
+      plannerSummaryState.used = true;
+      const plannerMessages = ChatExecutor.buildPlannerMessages(
+        messageText,
+        history,
+        this.plannerMaxTokens,
+      );
+      const plannerSections: PromptBudgetSection[] = [
+        "system_anchor",
+        "history",
+        "user",
+      ];
+      const plannerResponse = await callModel({
+        phase: "planner",
+        callMessages: plannerMessages,
+        callSections: plannerSections,
+        budgetReason:
+          "Planner pass blocked by max model recalls per request budget",
+      });
+
+      if (plannerResponse) {
+        plannerSummaryState.plannerCalls = 1;
+        const plannerPlan = ChatExecutor.parsePlannerPlan(plannerResponse.content);
+        if (plannerPlan) {
+          if (plannerPlan.reason) {
+            plannerSummaryState.routeReason = plannerPlan.reason;
+          }
+          plannerSummaryState.plannedSteps = plannerPlan.steps.length;
+          const deterministicSteps = plannerPlan.steps.filter(
+            (step) => step.deterministic,
+          );
+
+          if (deterministicSteps.length > 0) {
+            if (deterministicSteps.length > effectiveToolBudget) {
+              setStopReason(
+                "budget_exceeded",
+                `Planner produced ${deterministicSteps.length} deterministic steps but tool budget is ${effectiveToolBudget}`,
+              );
+              finalContent =
+                `Planned ${deterministicSteps.length} deterministic steps, ` +
+                `but request tool budget is ${effectiveToolBudget}.`;
+              plannerHandled = true;
+            } else {
+              const pipeline: Pipeline = {
+                id: `planner:${sessionId}:${Date.now()}`,
+                createdAt: Date.now(),
+                context: { results: {} },
+                steps: deterministicSteps.map((step) => ({
+                  name: step.name,
+                  tool: step.tool,
+                  args: step.args,
+                  onError: step.onError,
+                  maxRetries: step.maxRetries,
+                })),
+              };
+
+              const pipelineResult = await this.pipelineExecutor.execute(pipeline);
+              for (const record of ChatExecutor.pipelineResultToToolCalls(
+                deterministicSteps,
+                pipelineResult,
+              )) {
+                appendToolRecord(record);
+              }
+              plannerSummaryState.deterministicStepsExecuted =
+                pipelineResult.completedSteps;
+
+              if (failedToolCalls > effectiveFailureBudget) {
+                setStopReason(
+                  "tool_error",
+                  `Failure budget exceeded (${failedToolCalls}/${effectiveFailureBudget}) during deterministic pipeline execution`,
+                );
+              }
+
+              if (pipelineResult.status === "failed") {
+                setStopReason(
+                  "tool_error",
+                  pipelineResult.error ??
+                    "Deterministic pipeline execution failed",
+                );
+              } else if (pipelineResult.status === "halted") {
+                setStopReason(
+                  "tool_calls",
+                  `Deterministic pipeline halted at step ${
+                    (pipelineResult.resumeFrom ?? 0) + 1
+                  } awaiting approval`,
+                );
+              }
+
+              if (plannerPlan.requiresSynthesis || stopReason !== "completed") {
+                const synthesisMessages = ChatExecutor.buildPlannerSynthesisMessages(
+                  systemPrompt,
+                  messageText,
+                  plannerPlan,
+                  pipelineResult,
+                );
+                const synthesisSections: PromptBudgetSection[] = [
+                  "system_anchor",
+                  "system_runtime",
+                  "user",
+                ];
+                const synthesisResponse = await callModel({
+                  phase: "planner_synthesis",
+                  callMessages: synthesisMessages,
+                  callSections: synthesisSections,
+                  onStreamChunk: activeStreamCallback,
+                  statefulSessionId: sessionId,
+                  budgetReason:
+                    "Planner synthesis blocked by max model recalls per request budget",
+                });
+                if (synthesisResponse) {
+                  response = synthesisResponse;
+                  finalContent = synthesisResponse.content;
+                }
+              }
+
+              if (!finalContent) {
+                finalContent =
+                  ChatExecutor.generateFallbackContent(allToolCalls) ??
+                  ChatExecutor.summarizeToolCalls(
+                    allToolCalls.filter((call) => !call.isError),
+                  );
+              }
+              plannerHandled = true;
+            }
+          } else {
+            plannerSummaryState.routeReason = "planner_no_deterministic_steps";
+          }
+        } else {
+          plannerSummaryState.routeReason = "planner_parse_failed";
+        }
+      }
     }
 
-    // Update session token budget
+    if (!plannerHandled) {
+      response = await callModel({
+        phase: "initial",
+        callMessages: messages,
+        callSections: messageSections,
+        onStreamChunk: activeStreamCallback,
+        statefulSessionId: sessionId,
+        budgetReason:
+          "Initial completion blocked by max model recalls per request budget",
+      });
+
+      // Tool call loop — side-effect deduplication prevents the model from
+      // repeating desktop actions (e.g. opening 3 YouTube tabs). Once ANY
+      // side-effect tool executes, all others are skipped for this request.
+      let rounds = 0;
+      let sideEffectExecuted = false;
+      let remainingToolImageChars = MAX_TOOL_IMAGE_CHARS_BUDGET;
+      const emittedRecoveryHints = new Set<string>();
+      // Track consecutive identical failing calls to break stuck loops.
+      let lastFailKey = "";
+      let consecutiveFailCount = 0;
+      let consecutiveAllFailedRounds = 0;
+      let lastRoundSemanticKey = "";
+      let consecutiveSemanticDuplicateRounds = 0;
+
+      while (
+        response &&
+        response.finishReason === "tool_calls" &&
+        response.toolCalls.length > 0 &&
+        activeToolHandler &&
+        rounds < effectiveMaxToolRounds
+      ) {
+        // Check for cancellation before each round.
+        if (signal?.aborted) {
+          setStopReason("cancelled", "Execution cancelled by caller");
+          break;
+        }
+
+        rounds++;
+        const roundToolCallStart = allToolCalls.length;
+        const activeRoutedToolSet = activeRoutedToolNames.length > 0
+          ? new Set(activeRoutedToolNames)
+          : null;
+        let expandAfterRound = false;
+
+        // Append the assistant message with tool calls.
+        pushMessage(
+          {
+            role: "assistant",
+            content: response.content,
+            toolCalls: response.toolCalls,
+          },
+          "assistant_runtime",
+        );
+
+        let abortRound = false;
+        for (const toolCall of response.toolCalls) {
+          if (allToolCalls.length >= effectiveToolBudget) {
+            setStopReason(
+              "budget_exceeded",
+              `Tool budget exceeded (${effectiveToolBudget} per request)`,
+            );
+            abortRound = true;
+            break;
+          }
+
+          if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
+            const skipResult = safeStringify({
+              error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
+            });
+            pushMessage(
+              {
+                role: "tool",
+                content: skipResult,
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+              },
+              "tools",
+            );
+            appendToolRecord({
+              name: toolCall.name,
+              args: {},
+              result: skipResult,
+              isError: true,
+              durationMs: 0,
+            });
+            continue;
+          }
+          if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name)) sideEffectExecuted = true;
+
+          // Global allowlist check.
+          if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
+            const errorResult = safeStringify({
+              error: `Tool "${toolCall.name}" is not permitted`,
+            });
+            pushMessage(
+              {
+                role: "tool",
+                content: errorResult,
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+              },
+              "tools",
+            );
+            appendToolRecord({
+              name: toolCall.name,
+              args: {},
+              result: errorResult,
+              isError: true,
+              durationMs: 0,
+            });
+            continue;
+          }
+          // Dynamic routed subset check.
+          if (activeRoutedToolSet && !activeRoutedToolSet.has(toolCall.name)) {
+            routedToolMisses++;
+            const errorResult = safeStringify({
+              error:
+                `Tool "${toolCall.name}" was not available in the routed tool subset for this turn`,
+              routingMiss: true,
+            });
+            pushMessage(
+              {
+                role: "tool",
+                content: errorResult,
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+              },
+              "tools",
+            );
+            appendToolRecord({
+              name: toolCall.name,
+              args: {},
+              result: errorResult,
+              isError: true,
+              durationMs: 0,
+            });
+            if (canExpandOnRoutingMiss && !routedToolsExpanded) {
+              expandAfterRound = true;
+            }
+            continue;
+          }
+
+          // Parse arguments.
+          let args: Record<string, unknown>;
+          try {
+            const parsed = JSON.parse(toolCall.arguments) as unknown;
+            if (
+              typeof parsed !== "object" ||
+              parsed === null ||
+              Array.isArray(parsed)
+            ) {
+              throw new Error("Tool arguments must be a JSON object");
+            }
+            args = parsed as Record<string, unknown>;
+          } catch (parseErr) {
+            const errorResult = safeStringify({
+              error: `Invalid tool arguments: ${(parseErr as Error).message}`,
+            });
+            pushMessage(
+              {
+                role: "tool",
+                content: errorResult,
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+              },
+              "tools",
+            );
+            appendToolRecord({
+              name: toolCall.name,
+              args: {},
+              result: errorResult,
+              isError: true,
+              durationMs: 0,
+            });
+            continue;
+          }
+
+          // Execute tool.
+          const toolStart = Date.now();
+          let result: string;
+          let isError = false;
+          try {
+            result = await activeToolHandler(toolCall.name, args);
+          } catch (toolErr) {
+            result = safeStringify({ error: (toolErr as Error).message });
+            isError = true;
+          }
+          const toolDuration = Date.now() - toolStart;
+          const toolFailed = didToolCallFail(isError, result);
+
+          appendToolRecord({
+            name: toolCall.name,
+            args,
+            result,
+            isError: toolFailed,
+            durationMs: toolDuration,
+          });
+
+          if (failedToolCalls > effectiveFailureBudget) {
+            setStopReason(
+              "tool_error",
+              `Failure budget exceeded (${failedToolCalls}/${effectiveFailureBudget})`,
+            );
+            abortRound = true;
+          }
+
+          // Track consecutive semantic failures to detect stuck loops.
+          const failDetected = toolFailed;
+          const failKey = failDetected
+            ? ChatExecutor.buildSemanticToolCallKey(toolCall.name, args)
+            : "";
+          if (failDetected && failKey === lastFailKey) {
+            consecutiveFailCount++;
+          } else {
+            lastFailKey = failKey;
+            consecutiveFailCount = failDetected ? 1 : 0;
+          }
+
+          const promptToolContent = ChatExecutor.buildPromptToolContent(
+            result,
+            remainingToolImageChars,
+          );
+          remainingToolImageChars = promptToolContent.remainingImageBudget;
+          pushMessage(
+            {
+              role: "tool",
+              content: promptToolContent.content,
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+            },
+            "tools",
+          );
+
+          if (abortRound) break;
+        }
+
+        // Check for cancellation before re-calling LLM.
+        if (signal?.aborted) {
+          setStopReason("cancelled", "Execution cancelled by caller");
+          break;
+        }
+
+        const roundCalls = allToolCalls.slice(roundToolCallStart);
+        if (abortRound) break;
+
+        // Break stuck loops — if semantically equivalent failing call repeats
+        // too many times, stop and surface no-progress.
+        if (consecutiveFailCount >= MAX_CONSECUTIVE_IDENTICAL_FAILURES) {
+          setStopReason(
+            "no_progress",
+            "Detected repeated semantically-equivalent failing tool calls",
+          );
+          break;
+        }
+
+        // Break stuck loops — if all tool calls fail for multiple consecutive
+        // rounds, stop retrying and let the model respond with what it learned.
+        if (roundCalls.length > 0) {
+          const roundFailures = roundCalls.filter((call) =>
+            didToolCallFail(call.isError, call.result),
+          ).length;
+          if (roundFailures === roundCalls.length) {
+            consecutiveAllFailedRounds++;
+          } else {
+            consecutiveAllFailedRounds = 0;
+            consecutiveSemanticDuplicateRounds = 0;
+            lastRoundSemanticKey = "";
+          }
+          if (consecutiveAllFailedRounds >= MAX_CONSECUTIVE_ALL_FAILED_ROUNDS) {
+            setStopReason(
+              "no_progress",
+              `All tool calls failed for ${MAX_CONSECUTIVE_ALL_FAILED_ROUNDS} consecutive rounds`,
+            );
+            break;
+          }
+
+          if (roundFailures === roundCalls.length) {
+            const roundSemanticKey = roundCalls
+              .map((call) =>
+                ChatExecutor.buildSemanticToolCallKey(call.name, call.args),
+              )
+              .sort()
+              .join("|");
+            if (
+              roundSemanticKey.length > 0 &&
+              roundSemanticKey === lastRoundSemanticKey
+            ) {
+              consecutiveSemanticDuplicateRounds++;
+            } else {
+              consecutiveSemanticDuplicateRounds = 0;
+            }
+            lastRoundSemanticKey = roundSemanticKey;
+            if (
+              consecutiveSemanticDuplicateRounds >=
+              MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS
+            ) {
+              setStopReason(
+                "no_progress",
+                "Detected repeated semantically equivalent tool rounds with no material progress",
+              );
+              break;
+            }
+          }
+        }
+
+        const recoveryHints = ChatExecutor.buildRecoveryHints(
+          roundCalls,
+          emittedRecoveryHints,
+        );
+        for (const hint of recoveryHints) {
+          if (this.maxRuntimeSystemHints <= 0) break;
+          const runtimeHintCount = messageSections.filter(
+            (section) => section === "system_runtime",
+          ).length;
+          if (runtimeHintCount >= this.maxRuntimeSystemHints) break;
+          pushMessage(
+            {
+              role: "system",
+              content: `${RECOVERY_HINT_PREFIX} ${hint.message}`,
+            },
+            "system_runtime",
+          );
+        }
+
+        if (expandAfterRound && expandedRoutedToolNames.length > 0) {
+          routedToolsExpanded = true;
+          activeRoutedToolNames = expandedRoutedToolNames;
+          if (this.maxRuntimeSystemHints > 0) {
+            const runtimeHintCount = messageSections.filter(
+              (section) => section === "system_runtime",
+            ).length;
+            if (runtimeHintCount < this.maxRuntimeSystemHints) {
+              pushMessage(
+                {
+                  role: "system",
+                  content:
+                    `${RECOVERY_HINT_PREFIX} The previous tool request targeted a tool outside the routed subset. ` +
+                    "Tool availability has been expanded for one retry. Choose the best available tool and continue.",
+                },
+                "system_runtime",
+              );
+            }
+          }
+        }
+
+        // Re-call LLM.
+        const nextResponse = await callModel({
+          phase: "tool_followup",
+          callMessages: messages,
+          callSections: messageSections,
+          onStreamChunk: activeStreamCallback,
+          statefulSessionId: sessionId,
+          budgetReason:
+            "Max model recalls exceeded while following up after tool calls",
+        });
+        if (!nextResponse) break;
+        response = nextResponse;
+      }
+
+      if (signal?.aborted) {
+        setStopReason("cancelled", "Execution cancelled by caller");
+      } else if (
+        response &&
+        response.finishReason === "tool_calls" &&
+        rounds >= effectiveMaxToolRounds
+      ) {
+        setStopReason(
+          "tool_calls",
+          `Reached max tool rounds (${effectiveMaxToolRounds})`,
+        );
+      }
+
+      // If the LLM returned empty content after tool calls (common when maxToolRounds
+      // is hit while the LLM still wanted to make more calls), generate a fallback
+      // summary from the last successful tool result.
+      finalContent = response?.content ?? "";
+      if (!finalContent && allToolCalls.length > 0) {
+        finalContent =
+          ChatExecutor.generateFallbackContent(allToolCalls) ?? finalContent;
+      }
+    }
+
+    // Update session token budget with all model calls so far.
     this.trackTokenUsage(sessionId, cumulativeUsage.totalTokens);
 
-    // If the LLM returned empty content after tool calls (common when maxToolRounds
-    // is hit while the LLM still wanted to make more calls), generate a fallback
-    // summary from the last successful tool result.
-    let finalContent = response.content;
-    if (!finalContent && allToolCalls.length > 0) {
-      finalContent =
-        ChatExecutor.generateFallbackContent(allToolCalls) ?? finalContent;
-    }
-
     // Response evaluation (optional critic)
-    let evaluation: EvaluationResult | undefined;
-    if (this.evaluator && finalContent) {
+    if (this.evaluator && finalContent && stopReason === "completed") {
       const minScore = this.evaluator.minScore ?? 0.7;
       const maxRetries = this.evaluator.maxRetries ?? 1;
       let retryCount = 0;
       let currentContent = finalContent;
 
       while (retryCount <= maxRetries) {
-        // Skip evaluation if token budget would be exceeded
+        // Skip evaluation if token budget would be exceeded.
         if (this.sessionTokenBudget !== undefined) {
           const used = this.sessionTokens.get(sessionId) ?? 0;
           if (used >= this.sessionTokenBudget) break;
         }
+        if (!hasModelRecallBudget()) {
+          setStopReason(
+            "budget_exceeded",
+            "Max model recalls exceeded during response evaluation",
+          );
+          break;
+        }
 
-        const evalResult = await this.evaluateResponse(
-          currentContent,
-          messageText,
-        );
+        const evalResult = await this.evaluateResponse(currentContent, messageText);
+        modelCalls++;
+        if (evalResult.usedFallback) usedFallback = true;
         this.accumulateUsage(cumulativeUsage, evalResult.response.usage);
         this.trackTokenUsage(sessionId, evalResult.response.usage.totalTokens);
         callUsage.push(
@@ -728,6 +1355,7 @@ export class ChatExecutor {
             response: evalResult.response,
             beforeBudget: evalResult.beforeBudget,
             afterBudget: evalResult.afterBudget,
+            budgetDiagnostics: evalResult.budgetDiagnostics,
           }),
         );
 
@@ -743,14 +1371,37 @@ export class ChatExecutor {
         }
 
         retryCount++;
-        messages.push(
+        pushMessage(
           { role: "assistant", content: currentContent },
+          "assistant_runtime",
+        );
+        pushMessage(
           {
             role: "system",
             content: `Response scored ${evalResult.score.toFixed(2)}. Feedback: ${evalResult.feedback}\nPlease improve your response.`,
           },
+          "system_runtime",
         );
-        const retry = await this.callWithFallback(messages, activeStreamCallback);
+
+        if (!hasModelRecallBudget()) {
+          setStopReason(
+            "budget_exceeded",
+            "Max model recalls exceeded during evaluator retry",
+          );
+          break;
+        }
+        const retry = await this.callWithFallback(
+          messages,
+          activeStreamCallback,
+          messageSections,
+          {
+            statefulSessionId: sessionId,
+            ...(params.toolRouting
+              ? { routedToolNames: activeRoutedToolNames }
+              : {}),
+          },
+        );
+        modelCalls++;
         this.accumulateUsage(cumulativeUsage, retry.response.usage);
         this.trackTokenUsage(sessionId, retry.response.usage.totalTokens);
         callUsage.push(
@@ -761,6 +1412,7 @@ export class ChatExecutor {
             response: retry.response,
             beforeBudget: retry.beforeBudget,
             afterBudget: retry.afterBudget,
+            budgetDiagnostics: retry.budgetDiagnostics,
           }),
         );
         providerName = retry.providerName;
@@ -770,11 +1422,38 @@ export class ChatExecutor {
       }
     }
 
+    const plannerSummary: ChatPlannerSummary = {
+      enabled: plannerSummaryState.enabled,
+      used: plannerSummaryState.used,
+      routeReason: plannerSummaryState.routeReason,
+      complexityScore: plannerSummaryState.complexityScore,
+      plannerCalls: plannerSummaryState.plannerCalls,
+      plannedSteps: plannerSummaryState.plannedSteps,
+      deterministicStepsExecuted: plannerSummaryState.deterministicStepsExecuted,
+      estimatedRecallsAvoided: plannerSummaryState.used
+        ? Math.max(
+            0,
+            plannerSummaryState.deterministicStepsExecuted -
+              Math.max(0, modelCalls - plannerSummaryState.plannerCalls),
+          )
+        : 0,
+    };
+
     finalContent = ChatExecutor.sanitizeFinalContent(finalContent);
     finalContent = ChatExecutor.reconcileStructuredToolOutcome(
       finalContent,
       allToolCalls,
     );
+    const statefulSummary = ChatExecutor.summarizeStateful(callUsage);
+    const toolRoutingSummary = params.toolRouting
+      ? {
+        enabled: true,
+        initialToolCount: initialRoutedToolNames.length,
+        finalToolCount: activeRoutedToolNames.length,
+        routeMisses: routedToolMisses,
+        expanded: routedToolsExpanded,
+      }
+      : undefined;
 
     return {
       content: finalContent,
@@ -786,6 +1465,11 @@ export class ChatExecutor {
       callUsage,
       durationMs: Date.now() - startTime,
       compacted,
+      statefulSummary,
+      toolRoutingSummary,
+      plannerSummary,
+      stopReason,
+      stopReasonDetail,
       evaluation,
     };
   }
@@ -798,11 +1482,17 @@ export class ChatExecutor {
   /** Reset token usage for a specific session. */
   resetSessionTokens(sessionId: string): void {
     this.sessionTokens.delete(sessionId);
+    for (const provider of this.providers) {
+      provider.resetSessionState?.(sessionId);
+    }
   }
 
   /** Clear all session token tracking. */
   clearAllSessionTokens(): void {
     this.sessionTokens.clear();
+    for (const provider of this.providers) {
+      provider.clearSessionState?.();
+    }
   }
 
   /** Clear all provider cooldowns. */
@@ -815,15 +1505,40 @@ export class ChatExecutor {
   // --------------------------------------------------------------------------
 
   private async callWithFallback(
-    messages: LLMMessage[],
+    messages: readonly LLMMessage[],
     onStreamChunk?: StreamProgressCallback,
+    messageSections?: readonly PromptBudgetSection[],
+    options?: {
+      statefulSessionId?: string;
+      routedToolNames?: readonly string[];
+    },
   ): Promise<FallbackResult> {
     const beforeBudget = ChatExecutor.estimatePromptShape(messages);
-    const boundedMessages = ChatExecutor.enforcePromptCharBudget(
-      messages,
-      MAX_PROMPT_CHARS_BUDGET,
+    const budgeted = applyPromptBudget(
+      messages.map((message, index) => ({
+        message,
+        section: messageSections?.[index],
+      })),
+      this.promptBudget,
     );
+    const boundedMessages = budgeted.messages;
     const afterBudget = ChatExecutor.estimatePromptShape(boundedMessages);
+    const budgetDiagnostics = budgeted.diagnostics;
+    const hasStatefulSessionId = Boolean(options?.statefulSessionId);
+    const hasRoutedToolNames = Boolean(
+      options?.routedToolNames && options.routedToolNames.length > 0,
+    );
+    const chatOptions: LLMChatOptions | undefined =
+      hasStatefulSessionId || hasRoutedToolNames
+        ? {
+          ...(hasStatefulSessionId
+            ? { stateful: { sessionId: String(options?.statefulSessionId) } }
+            : {}),
+          ...(hasRoutedToolNames
+            ? { toolRouting: { allowedToolNames: options?.routedToolNames } }
+            : {}),
+        }
+        : undefined;
     let lastError: Error | undefined;
     const now = Date.now();
 
@@ -838,9 +1553,13 @@ export class ChatExecutor {
       try {
         let response: LLMResponse;
         if (onStreamChunk) {
-          response = await provider.chatStream(boundedMessages, onStreamChunk);
+          response = await provider.chatStream(
+            boundedMessages,
+            onStreamChunk,
+            chatOptions,
+          );
         } else {
-          response = await provider.chat(boundedMessages);
+          response = await provider.chat(boundedMessages, chatOptions);
         }
 
         if (response.finishReason === "error") {
@@ -859,6 +1578,7 @@ export class ChatExecutor {
           usedFallback: i > 0,
           beforeBudget,
           afterBudget,
+          budgetDiagnostics,
         };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -899,6 +1619,346 @@ export class ChatExecutor {
       err instanceof LLMServerError ||
       err instanceof LLMRateLimitError
     );
+  }
+
+  private assessPlannerDecision(
+    messageText: string,
+    history: readonly LLMMessage[],
+  ): PlannerDecision {
+    if (!this.plannerEnabled) {
+      return {
+        score: 0,
+        shouldPlan: false,
+        reason: "planner_disabled",
+      };
+    }
+
+    let score = 0;
+    const reasons: string[] = [];
+    const normalized = messageText.toLowerCase();
+
+    const hasMultiStepCue =
+      /\b(first|second|third|then|after that|next|finally|step\b|in order|checklist|pipeline)\b/i.test(
+        messageText,
+      ) ||
+      /\b1[\).:]\s+.+\b2[\).:]/s.test(messageText);
+    if (hasMultiStepCue) {
+      score += 3;
+      reasons.push("multi_step_cues");
+    }
+
+    const hasToolDiversityCue =
+      /\b(browser|http|curl|bash|command|container|playwright|open|navigate|teardown|verify)\b/i.test(
+        messageText,
+      );
+    if (hasToolDiversityCue) {
+      score += 1;
+      reasons.push("multi_tool_candidates");
+    }
+
+    const longTask = messageText.length >= 320 || messageText.split(/\n/).length >= 4;
+    if (longTask) {
+      score += 1;
+      reasons.push("long_or_structured_request");
+    }
+
+    const historyTail = history.slice(-10);
+    const priorToolMessages = historyTail.filter(
+      (entry) => entry.role === "tool",
+    ).length;
+    if (priorToolMessages >= 4) {
+      score += 2;
+      reasons.push("prior_tool_loop_activity");
+    }
+    if (historyTail.some((entry) => typeof entry.content === "string" && entry.content.includes(RECOVERY_HINT_PREFIX))) {
+      score += 2;
+      reasons.push("prior_no_progress_signal");
+    }
+
+    const directFastPath =
+      score < 3 ||
+      normalized.trim().length < 20 ||
+      /\b(hi|hello|thanks|thank you)\b/.test(normalized);
+
+    return {
+      score,
+      shouldPlan: !directFastPath,
+      reason: reasons.length > 0 ? reasons.join("+") : "direct_fast_path",
+    };
+  }
+
+  private static buildPlannerMessages(
+    messageText: string,
+    history: readonly LLMMessage[],
+    plannerMaxTokens: number,
+  ): readonly LLMMessage[] {
+    const historyPreview = history
+      .slice(-6)
+      .map((entry) => {
+        const raw =
+          typeof entry.content === "string"
+            ? entry.content
+            : entry.content
+                .filter((part) => part.type === "text")
+                .map((part) => part.text)
+                .join(" ");
+        return `[${entry.role}] ${ChatExecutor.truncateText(raw, 300)}`;
+      })
+      .join("\n");
+    const maxSteps = Math.min(
+      MAX_PLANNER_STEPS,
+      Math.max(1, Math.floor(plannerMaxTokens / 8)),
+    );
+
+    return [
+      {
+        role: "system",
+        content:
+          "Plan this request into executable intents. Respond with strict JSON only.\n" +
+          "Schema:\n" +
+          "{\n" +
+          '  "reason": "short routing reason",\n' +
+          '  "requiresSynthesis": boolean,\n' +
+          '  "steps": [\n' +
+          "    {\n" +
+          '      "name": "step_name",\n' +
+          '      "tool": "tool.name",\n' +
+          '      "args": { "key": "value" },\n' +
+          '      "deterministic": boolean,\n' +
+          '      "onError": "abort|retry|skip",\n' +
+          '      "maxRetries": number\n' +
+          "    }\n" +
+          "  ]\n" +
+          "}\n" +
+          `Keep output concise and below approximately ${plannerMaxTokens} tokens. ` +
+          `Never emit more than ${maxSteps} steps.`,
+      },
+      {
+        role: "user",
+        content:
+          `User request:\n${messageText}\n\n` +
+          (historyPreview.length > 0
+            ? `Recent conversation context:\n${historyPreview}\n\n`
+            : "") +
+          "Return JSON only.",
+      },
+    ];
+  }
+
+  private static parsePlannerPlan(content: string): PlannerPlan | undefined {
+    const parsed = ChatExecutor.parseJsonObjectFromText(content);
+    if (!parsed) return undefined;
+    if (!Array.isArray(parsed.steps)) return undefined;
+
+    const steps: PlannerStepIntent[] = [];
+    for (const rawStep of parsed.steps.slice(0, MAX_PLANNER_STEPS)) {
+      if (
+        typeof rawStep !== "object" ||
+        rawStep === null ||
+        Array.isArray(rawStep)
+      ) {
+        continue;
+      }
+      const step = rawStep as Record<string, unknown>;
+      if (typeof step.tool !== "string" || step.tool.trim().length === 0) {
+        continue;
+      }
+      const args =
+        typeof step.args === "object" &&
+        step.args !== null &&
+        !Array.isArray(step.args)
+          ? (step.args as Record<string, unknown>)
+          : {};
+      const safeName =
+        typeof step.name === "string" && step.name.trim().length > 0
+          ? step.name.trim().replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 48)
+          : `step_${steps.length + 1}`;
+
+      const onError =
+        step.onError === "retry" ||
+        step.onError === "skip" ||
+        step.onError === "abort"
+          ? step.onError
+          : undefined;
+      const maxRetries =
+        typeof step.maxRetries === "number" && Number.isFinite(step.maxRetries)
+          ? Math.max(0, Math.min(5, Math.floor(step.maxRetries)))
+          : undefined;
+
+      steps.push({
+        name: safeName || `step_${steps.length + 1}`,
+        tool: step.tool.trim(),
+        args,
+        onError,
+        maxRetries,
+        deterministic: step.deterministic !== false,
+      });
+    }
+
+    return {
+      reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+      requiresSynthesis:
+        typeof parsed.requiresSynthesis === "boolean"
+          ? parsed.requiresSynthesis
+          : undefined,
+      steps,
+    };
+  }
+
+  private static parseJsonObjectFromText(
+    content: string,
+  ): Record<string, unknown> | undefined {
+    const trimmed = content.trim();
+    const direct = ChatExecutor.tryParseObject(trimmed);
+    if (direct) return direct;
+
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      const candidate = trimmed.slice(start, end + 1);
+      return ChatExecutor.tryParseObject(candidate);
+    }
+    return undefined;
+  }
+
+  private static tryParseObject(
+    candidate: string,
+  ): Record<string, unknown> | undefined {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        !Array.isArray(parsed)
+      ) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // fall through
+    }
+    return undefined;
+  }
+
+  private static buildPlannerSynthesisMessages(
+    systemPrompt: string,
+    messageText: string,
+    plannerPlan: PlannerPlan,
+    pipelineResult: PipelineResult,
+  ): readonly LLMMessage[] {
+    const renderedResults = safeStringify({
+      plannerReason: plannerPlan.reason,
+      status: pipelineResult.status,
+      completedSteps: pipelineResult.completedSteps,
+      totalSteps: pipelineResult.totalSteps,
+      resumeFrom: pipelineResult.resumeFrom,
+      error: pipelineResult.error,
+      results: pipelineResult.context.results,
+    });
+    return [
+      { role: "system", content: systemPrompt },
+      {
+        role: "system",
+        content:
+          "Synthesize the final user-facing answer from deterministic workflow results. " +
+          "Do not invent unexecuted steps and do not call any tools.",
+      },
+      {
+        role: "user",
+        content:
+          `Original request:\n${messageText}\n\n` +
+          `Deterministic workflow results:\n${renderedResults}`,
+      },
+    ];
+  }
+
+  private static pipelineResultToToolCalls(
+    steps: readonly PlannerStepIntent[],
+    pipelineResult: PipelineResult,
+  ): ToolCallRecord[] {
+    const records: ToolCallRecord[] = [];
+    for (const step of steps) {
+      const result = pipelineResult.context.results[step.name];
+      if (typeof result !== "string") continue;
+      const inferredFailure =
+        result.startsWith("SKIPPED:") || didToolCallFail(false, result);
+      records.push({
+        name: step.tool,
+        args: step.args,
+        result,
+        isError: inferredFailure,
+        durationMs: 0,
+      });
+    }
+    return records;
+  }
+
+  private static buildSemanticToolCallKey(
+    name: string,
+    args: Record<string, unknown>,
+  ): string {
+    return `${name}:${ChatExecutor.normalizeSemanticValue(args)}`;
+  }
+
+  private static normalizeSemanticValue(value: unknown): string {
+    if (value === null || value === undefined) return "null";
+    if (typeof value === "string") {
+      return value.trim().replace(/\s+/g, " ").toLowerCase();
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => ChatExecutor.normalizeSemanticValue(item)).join(",")}]`;
+    }
+    if (typeof value === "object") {
+      const obj = value as Record<string, unknown>;
+      const keys = Object.keys(obj).sort();
+      return `{${keys
+        .map(
+          (key) =>
+            `${key}:${ChatExecutor.normalizeSemanticValue(obj[key])}`,
+        )
+        .join(",")}}`;
+    }
+    return String(value);
+  }
+
+  private static summarizeStateful(
+    callUsage: readonly ChatCallUsageRecord[],
+  ): ChatStatefulSummary | undefined {
+    const entries = callUsage
+      .map((entry) => entry.statefulDiagnostics)
+      .filter(
+        (entry): entry is LLMStatefulDiagnostics =>
+          entry !== undefined && entry.enabled,
+      );
+    if (entries.length === 0) return undefined;
+
+    const fallbackReasons: Record<LLMStatefulFallbackReason, number> = {
+      missing_previous_response_id: 0,
+      provider_retrieval_failure: 0,
+      state_reconciliation_mismatch: 0,
+    };
+    let attemptedCalls = 0;
+    let continuedCalls = 0;
+    let fallbackCalls = 0;
+
+    for (const entry of entries) {
+      if (entry.attempted) attemptedCalls++;
+      if (entry.continued) continuedCalls++;
+      if (entry.fallbackReason) {
+        fallbackCalls++;
+        fallbackReasons[entry.fallbackReason] += 1;
+      }
+    }
+
+    return {
+      enabled: true,
+      attemptedCalls,
+      continuedCalls,
+      fallbackCalls,
+      fallbackReasons,
+    };
   }
 
   private static buildRecoveryHints(
@@ -1108,103 +2168,6 @@ export class ChatExecutor {
     return ChatExecutor.estimateContentChars(message.content) + 64;
   }
 
-  private static truncateMessageContent(
-    content: string | LLMContentPart[],
-    maxChars: number,
-  ): string | LLMContentPart[] {
-    if (maxChars <= 0) return "";
-    if (typeof content === "string") {
-      return ChatExecutor.truncateText(content, maxChars);
-    }
-
-    const out: LLMContentPart[] = [];
-    let used = 0;
-    for (const part of content) {
-      const remaining = maxChars - used;
-      if (remaining <= 0) break;
-
-      if (part.type === "text") {
-        const text = ChatExecutor.truncateText(part.text, remaining);
-        if (text.length > 0) {
-          out.push({ type: "text", text });
-          used += text.length;
-        }
-        continue;
-      }
-
-      // Never carry prior inline image data when hard-truncating.
-      const placeholder = "[image omitted]";
-      const text = ChatExecutor.truncateText(placeholder, remaining);
-      if (text.length > 0) {
-        out.push({ type: "text", text });
-        used += text.length;
-      }
-    }
-
-    if (out.length === 0) {
-      out.push({ type: "text", text: "" });
-    }
-    return out;
-  }
-
-  private static enforcePromptCharBudget(
-    messages: LLMMessage[],
-    maxChars: number,
-  ): LLMMessage[] {
-    const totalChars = messages.reduce(
-      (sum, message) => sum + ChatExecutor.estimateMessageChars(message),
-      0,
-    );
-    if (totalChars <= maxChars) return messages;
-
-    // Keep only the first system message as anchor; drop additional injected
-    // system blocks when we are in hard-budget mode.
-    const firstSystemIndex = messages.findIndex((m) => m.role === "system");
-    const firstSystem =
-      firstSystemIndex >= 0 ? messages[firstSystemIndex] : undefined;
-    const systemHead = firstSystem
-      ? {
-          ...firstSystem,
-          content: ChatExecutor.truncateMessageContent(
-            firstSystem.content,
-            Math.min(24_000, Math.floor(maxChars * 0.5)),
-          ),
-        }
-      : undefined;
-    const systemHeadChars = systemHead
-      ? ChatExecutor.estimateMessageChars(systemHead)
-      : 0;
-
-    const nonSystemBudget = Math.max(4_000, maxChars - systemHeadChars);
-    const nonSystemMessages = messages.filter((message, idx) =>
-      idx === firstSystemIndex ? false : message.role !== "system");
-
-    const selected: LLMMessage[] = [];
-    let used = 0;
-    for (let i = nonSystemMessages.length - 1; i >= 0; i--) {
-      const message = nonSystemMessages[i];
-      const messageChars = ChatExecutor.estimateMessageChars(message);
-      if (used + messageChars <= nonSystemBudget) {
-        selected.push(message);
-        used += messageChars;
-        continue;
-      }
-
-      // Keep at least the newest non-system message, truncated to fit.
-      if (selected.length === 0) {
-        const remaining = Math.max(256, nonSystemBudget - used);
-        selected.push({
-          ...message,
-          content: ChatExecutor.truncateMessageContent(message.content, remaining),
-        });
-      }
-      break;
-    }
-
-    selected.reverse();
-    return systemHead ? [systemHead, ...selected] : selected;
-  }
-
   private static estimatePromptShape(
     messages: readonly LLMMessage[],
   ): ChatPromptShape {
@@ -1281,6 +2244,14 @@ export class ChatExecutor {
     value: unknown,
     captureDataUrl: (url: string) => void,
   ): unknown {
+    const keyPriority = (key: string): number => {
+      const normalized = key.toLowerCase();
+      const idx = TOOL_RESULT_PRIORITY_KEYS.indexOf(
+        normalized as (typeof TOOL_RESULT_PRIORITY_KEYS)[number],
+      );
+      return idx >= 0 ? idx : TOOL_RESULT_PRIORITY_KEYS.length + 1;
+    };
+
     if (typeof value === "string") {
       if (value.startsWith("data:image/")) {
         captureDataUrl(value);
@@ -1292,14 +2263,26 @@ export class ChatExecutor {
       return ChatExecutor.truncateText(value, MAX_TOOL_RESULT_FIELD_CHARS);
     }
     if (Array.isArray(value)) {
-      return value.map((item) =>
-        ChatExecutor.sanitizeJsonForPrompt(item, captureDataUrl),
-      );
+      const sanitizedItems = value
+        .slice(0, MAX_TOOL_RESULT_ARRAY_ITEMS)
+        .map((item) => ChatExecutor.sanitizeJsonForPrompt(item, captureDataUrl));
+      const omitted = value.length - sanitizedItems.length;
+      if (omitted > 0) {
+        sanitizedItems.push(`[${omitted} items omitted]`);
+      }
+      return sanitizedItems;
     }
     if (value && typeof value === "object") {
       const obj = value as Record<string, unknown>;
       const out: Record<string, unknown> = {};
-      for (const [key, field] of Object.entries(obj)) {
+      const orderedEntries = Object.entries(obj)
+        .sort(([a], [b]) => {
+          const priorityDelta = keyPriority(a) - keyPriority(b);
+          if (priorityDelta !== 0) return priorityDelta;
+          return a.localeCompare(b);
+        })
+        .slice(0, MAX_TOOL_RESULT_OBJECT_KEYS);
+      for (const [key, field] of orderedEntries) {
         const keyLower = key.toLowerCase();
         if (typeof field === "string") {
           if (field.startsWith("data:image/")) {
@@ -1324,6 +2307,10 @@ export class ChatExecutor {
           continue;
         }
         out[key] = ChatExecutor.sanitizeJsonForPrompt(field, captureDataUrl);
+      }
+      const omittedKeys = Object.keys(obj).length - orderedEntries.length;
+      if (omittedKeys > 0) {
+        out.__truncatedKeys = omittedKeys;
       }
       return out;
     }
@@ -1402,6 +2389,7 @@ export class ChatExecutor {
   /** Append a user message, handling multimodal (image) attachments. */
   private static appendUserMessage(
     messages: LLMMessage[],
+    sections: PromptBudgetSection[],
     message: GatewayMessage,
   ): void {
     const imageAttachments = (message.attachments ?? []).filter(
@@ -1424,8 +2412,10 @@ export class ChatExecutor {
         });
       }
       messages.push({ role: "user", content: contentParts });
+      sections.push("user");
     } else {
       messages.push({ role: "user", content: trimmedUserText });
+      sections.push("user");
     }
   }
 
@@ -1538,6 +2528,8 @@ export class ChatExecutor {
     message: string,
     sessionId: string,
     messages: LLMMessage[],
+    sections: PromptBudgetSection[],
+    section: PromptBudgetSection,
   ): Promise<void> {
     if (!provider) return;
     try {
@@ -1546,16 +2538,40 @@ export class ChatExecutor {
           ? await provider.inject(message, sessionId)
           : await provider.retrieve(message, sessionId);
       if (context) {
+        const sectionMaxChars = this.getContextSectionMaxChars(section);
         messages.push({
           role: "system",
           content: ChatExecutor.truncateText(
             context,
-            MAX_CONTEXT_INJECTION_CHARS,
+            sectionMaxChars,
           ),
         });
+        sections.push(section);
       }
     } catch {
       // Context injection failure is non-blocking
+    }
+  }
+
+  private getContextSectionMaxChars(section: PromptBudgetSection): number {
+    const roleContracts = this.promptBudget.memoryRoleContracts;
+    const byRole = (role: "working" | "episodic" | "semantic"): number => {
+      const maxChars = roleContracts?.[role]?.maxChars;
+      if (typeof maxChars !== "number" || !Number.isFinite(maxChars)) {
+        return MAX_CONTEXT_INJECTION_CHARS;
+      }
+      return Math.max(256, Math.floor(maxChars));
+    };
+
+    switch (section) {
+      case "memory_working":
+        return Math.min(MAX_CONTEXT_INJECTION_CHARS, byRole("working"));
+      case "memory_episodic":
+        return Math.min(MAX_CONTEXT_INJECTION_CHARS, byRole("episodic"));
+      case "memory_semantic":
+        return Math.min(MAX_CONTEXT_INJECTION_CHARS, byRole("semantic"));
+      default:
+        return MAX_CONTEXT_INJECTION_CHARS;
     }
   }
 
@@ -1588,6 +2604,7 @@ export class ChatExecutor {
     response: LLMResponse;
     beforeBudget: ChatPromptShape;
     afterBudget: ChatPromptShape;
+    budgetDiagnostics?: PromptBudgetDiagnostics;
   }): ChatCallUsageRecord {
     return {
       callIndex: input.callIndex,
@@ -1599,6 +2616,8 @@ export class ChatExecutor {
       beforeBudget: input.beforeBudget,
       afterBudget: input.afterBudget,
       providerRequestMetrics: input.response.requestMetrics,
+      budgetDiagnostics: input.budgetDiagnostics,
+      statefulDiagnostics: input.response.stateful,
     };
   }
 
@@ -1619,15 +2638,19 @@ export class ChatExecutor {
     feedback: string;
     response: LLMResponse;
     providerName: string;
+    usedFallback: boolean;
     beforeBudget: ChatPromptShape;
     afterBudget: ChatPromptShape;
+    budgetDiagnostics: PromptBudgetDiagnostics;
   }> {
     const rubric = this.evaluator?.rubric ?? ChatExecutor.DEFAULT_EVAL_RUBRIC;
     const {
       response,
       providerName,
+      usedFallback,
       beforeBudget,
       afterBudget,
+      budgetDiagnostics,
     } = await this.callWithFallback([
       { role: "system", content: rubric },
       {
@@ -1649,8 +2672,10 @@ export class ChatExecutor {
           typeof parsed.feedback === "string" ? parsed.feedback : "",
         response,
         providerName,
+        usedFallback,
         beforeBudget,
         afterBudget,
+        budgetDiagnostics,
       };
     } catch {
       return {
@@ -1658,8 +2683,10 @@ export class ChatExecutor {
         feedback: "Evaluation parse failed — accepting response",
         response,
         providerName,
+        usedFallback,
         beforeBudget,
         afterBudget,
+        budgetDiagnostics,
       };
     }
   }

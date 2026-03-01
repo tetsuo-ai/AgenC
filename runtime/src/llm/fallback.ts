@@ -6,6 +6,7 @@
 
 import { LLMProviderError, LLMServerError, LLMTimeoutError } from "./errors.js";
 import type {
+  LLMChatOptions,
   LLMMessage,
   LLMProvider,
   LLMResponse,
@@ -37,12 +38,15 @@ export class FallbackLLMProvider implements LLMProvider {
     this.name = `fallback(${this.providers.map((provider) => provider.name).join(",")})`;
   }
 
-  async chat(messages: LLMMessage[]): Promise<LLMResponse> {
+  async chat(
+    messages: LLMMessage[],
+    options?: LLMChatOptions,
+  ): Promise<LLMResponse> {
     let lastError: Error | undefined;
 
     for (const provider of this.providers) {
       try {
-        const response = await provider.chat(messages);
+        const response = await provider.chat(messages, options);
         if (response.finishReason === "error" && response.error) {
           throw response.error;
         }
@@ -61,12 +65,13 @@ export class FallbackLLMProvider implements LLMProvider {
   async chatStream(
     messages: LLMMessage[],
     onChunk: StreamProgressCallback,
+    options?: LLMChatOptions,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
 
     for (const provider of this.providers) {
       try {
-        const response = await provider.chatStream(messages, onChunk);
+        const response = await provider.chatStream(messages, onChunk, options);
         if (response.finishReason === "error" && response.error) {
           throw response.error;
         }
@@ -93,6 +98,18 @@ export class FallbackLLMProvider implements LLMProvider {
       }
     }
     return false;
+  }
+
+  resetSessionState(sessionId: string): void {
+    for (const provider of this.providers) {
+      provider.resetSessionState?.(sessionId);
+    }
+  }
+
+  clearSessionState(): void {
+    for (const provider of this.providers) {
+      provider.clearSessionState?.();
+    }
   }
 
   private shouldFallback(err: Error): boolean {

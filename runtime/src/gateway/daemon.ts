@@ -43,6 +43,7 @@ import type {
   MemoryRetriever,
   ToolCallRecord,
   ChatCallUsageRecord,
+  ChatToolRoutingSummary,
 } from '../llm/chat-executor.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBashTool } from '../tools/system/bash.js';
@@ -78,6 +79,7 @@ import { MatrixChannel } from '../channels/matrix/plugin.js';
 import { formatForChannel } from './format.js';
 import type { ChannelPlugin } from './channel.js';
 import type { ProactiveCommunicator } from './proactive.js';
+import { ToolRouter, type ToolRoutingDecision } from './tool-routing.js';
 
 // ============================================================================
 // Constants
@@ -85,6 +87,8 @@ import type { ProactiveCommunicator } from './proactive.js';
 
 const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
 const DEFAULT_GROK_FALLBACK_MODEL = 'grok-4-1-fast-non-reasoning';
+const DEFAULT_GROK_CONTEXT_WINDOW_TOKENS = 256_000;
+const DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS = 32_768;
 const LEGACY_GROK_MODEL_ALIASES: Record<string, string> = {
   'grok-4': DEFAULT_GROK_MODEL,
   'grok-4-fast-reasoning': DEFAULT_GROK_MODEL,
@@ -144,6 +148,42 @@ function normalizeGrokModel(model: string | undefined): string | undefined {
   if (!model) return undefined;
   const trimmed = model.trim();
   return LEGACY_GROK_MODEL_ALIASES[trimmed] ?? trimmed;
+}
+
+function inferContextWindowTokens(
+  llmConfig: GatewayLLMConfig | undefined,
+): number | undefined {
+  if (!llmConfig) return undefined;
+  if (
+    typeof llmConfig.contextWindowTokens === "number" &&
+    Number.isFinite(llmConfig.contextWindowTokens)
+  ) {
+    return Math.max(2_048, Math.floor(llmConfig.contextWindowTokens));
+  }
+  if (llmConfig.provider === "grok") return DEFAULT_GROK_CONTEXT_WINDOW_TOKENS;
+  if (llmConfig.provider === "ollama") return DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS;
+  return undefined;
+}
+
+function buildPromptBudgetConfig(
+  llmConfig: GatewayLLMConfig | undefined,
+): {
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
+  hardMaxPromptChars?: number;
+  safetyMarginTokens?: number;
+  charPerToken?: number;
+  maxRuntimeHints?: number;
+} | undefined {
+  if (!llmConfig) return undefined;
+  return {
+    contextWindowTokens: inferContextWindowTokens(llmConfig),
+    maxOutputTokens: llmConfig.maxTokens,
+    hardMaxPromptChars: llmConfig.promptHardMaxChars,
+    safetyMarginTokens: llmConfig.promptSafetyMarginTokens,
+    charPerToken: llmConfig.promptCharPerToken,
+    maxRuntimeHints: llmConfig.maxRuntimeHints,
+  };
 }
 
 export function isCommandUnavailableError(error: unknown): boolean {
@@ -355,6 +395,59 @@ function createTurnTraceId(msg: GatewayMessage): string {
   return `${msg.sessionId}:${stamp}:${randomUUID().slice(0, 8)}`;
 }
 
+function summarizeBudgetDiagnosticsForTrace(
+  diagnostics: ChatCallUsageRecord["budgetDiagnostics"],
+): Record<string, unknown> | undefined {
+  if (!diagnostics) return undefined;
+
+  const constrainedSections: Record<string, unknown> = {};
+  for (const [section, stats] of Object.entries(diagnostics.sections)) {
+    if (
+      stats.beforeChars > stats.afterChars ||
+      stats.droppedMessages > 0 ||
+      stats.truncatedMessages > 0
+    ) {
+      constrainedSections[section] = {
+        capChars: stats.capChars,
+        beforeMessages: stats.beforeMessages,
+        afterMessages: stats.afterMessages,
+        beforeChars: stats.beforeChars,
+        afterChars: stats.afterChars,
+        droppedMessages: stats.droppedMessages,
+        truncatedMessages: stats.truncatedMessages,
+      };
+    }
+  }
+
+  return {
+    constrained: diagnostics.constrained,
+    totalBeforeChars: diagnostics.totalBeforeChars,
+    totalAfterChars: diagnostics.totalAfterChars,
+    capChars: diagnostics.caps.totalChars,
+    model: diagnostics.model,
+    droppedSections: diagnostics.droppedSections,
+    constrainedSections,
+  };
+}
+
+function summarizeStatefulDiagnosticsForTrace(
+  diagnostics: ChatCallUsageRecord["statefulDiagnostics"],
+): Record<string, unknown> | undefined {
+  if (!diagnostics) return undefined;
+  return {
+    enabled: diagnostics.enabled,
+    attempted: diagnostics.attempted,
+    continued: diagnostics.continued,
+    store: diagnostics.store,
+    fallbackToStateless: diagnostics.fallbackToStateless,
+    previousResponseId: diagnostics.previousResponseId,
+    responseId: diagnostics.responseId,
+    reconciliationHash: diagnostics.reconciliationHash,
+    fallbackReason: diagnostics.fallbackReason,
+    events: diagnostics.events,
+  };
+}
+
 function summarizeCallUsageForTrace(
   callUsage: readonly ChatCallUsageRecord[],
 ): unknown[] {
@@ -368,6 +461,12 @@ function summarizeCallUsageForTrace(
     promptShapeBeforeBudget: entry.beforeBudget,
     promptShapeAfterBudget: entry.afterBudget,
     providerRequestMetrics: entry.providerRequestMetrics,
+    budgetDiagnostics: summarizeBudgetDiagnosticsForTrace(
+      entry.budgetDiagnostics,
+    ),
+    statefulDiagnostics: summarizeStatefulDiagnosticsForTrace(
+      entry.statefulDiagnostics,
+    ),
   }));
 }
 
@@ -395,6 +494,36 @@ function summarizeInitialRequestShape(
     estimatedPromptCharsAfterBudget: first.afterBudget.estimatedChars,
     systemPromptCharsAfterBudget: first.afterBudget.systemPromptChars,
     toolSchemaChars: first.providerRequestMetrics?.toolSchemaChars,
+    budgetDiagnostics: summarizeBudgetDiagnosticsForTrace(
+      first.budgetDiagnostics,
+    ),
+    statefulDiagnostics: summarizeStatefulDiagnosticsForTrace(
+      first.statefulDiagnostics,
+    ),
+  };
+}
+
+function summarizeToolRoutingDecisionForTrace(
+  decision: ToolRoutingDecision | undefined,
+): Record<string, unknown> | undefined {
+  if (!decision) return undefined;
+  return {
+    routedToolNames: decision.routedToolNames,
+    expandedToolNames: decision.expandedToolNames,
+    diagnostics: decision.diagnostics,
+  };
+}
+
+function summarizeToolRoutingSummaryForTrace(
+  summary: ChatToolRoutingSummary | undefined,
+): Record<string, unknown> | undefined {
+  if (!summary) return undefined;
+  return {
+    enabled: summary.enabled,
+    initialToolCount: summary.initialToolCount,
+    finalToolCount: summary.finalToolCount,
+    routeMisses: summary.routeMisses,
+    expanded: summary.expanded,
   };
 }
 
@@ -676,6 +805,7 @@ export class DaemonManager {
   private _chatExecutor: ChatExecutor | null = null;
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
+  private _toolRouter: ToolRouter | null = null;
   private _baseToolHandler: ToolHandler | null = null;
   private _desktopManager: import('../desktop/manager.js').DesktopSandboxManager | null = null;
   private _desktopBridges: Map<string, import('../desktop/rest-bridge.js').DesktopRESTBridge> = new Map();
@@ -888,6 +1018,11 @@ export class DaemonManager {
     }
 
     this._llmTools = llmTools;
+    this._toolRouter = new ToolRouter(
+      llmTools,
+      config.llm?.toolRouting,
+      this.logger,
+    );
     this._baseToolHandler = baseToolHandler;
     const providers = await this.createLLMProviders(config, llmTools);
     this._llmProviders = providers;
@@ -1049,18 +1184,6 @@ export class DaemonManager {
       }
     }
 
-    this._chatExecutor = providers.length > 0 ? new ChatExecutor({
-      providers,
-      toolHandler: baseToolHandler,
-      skillInjector,
-      memoryRetriever,
-      learningProvider,
-      progressProvider: progressTracker,
-      maxToolRounds: config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config),
-      sessionTokenBudget: config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
-      onCompaction: this.handleCompaction,
-    }) : null;
-
     const approvalEngine = new ApprovalEngine();
     this._approvalEngine = approvalEngine;
 
@@ -1072,6 +1195,25 @@ export class DaemonManager {
       progressTracker,
       logger: this.logger,
     });
+
+    this._chatExecutor = providers.length > 0 ? new ChatExecutor({
+      providers,
+      toolHandler: baseToolHandler,
+      skillInjector,
+      memoryRetriever,
+      learningProvider,
+      progressProvider: progressTracker,
+      promptBudget: buildPromptBudgetConfig(config.llm),
+      maxToolRounds: config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config),
+      plannerEnabled: config.llm?.plannerEnabled,
+      plannerMaxTokens: config.llm?.plannerMaxTokens,
+      toolBudgetPerRequest: config.llm?.toolBudgetPerRequest,
+      maxModelRecallsPerRequest: config.llm?.maxModelRecallsPerRequest,
+      maxFailureBudgetPerRequest: config.llm?.maxFailureBudgetPerRequest,
+      pipelineExecutor,
+      sessionTokenBudget: config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
+      onCompaction: this.handleCompaction,
+    }) : null;
 
     const sessionMgr = this.createSessionManager(hooks);
     const resolveSessionId = this.createSessionIdResolver(sessionMgr);
@@ -1150,7 +1292,14 @@ export class DaemonManager {
       }
       const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
       if (llmChanged) {
-        void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever, learningProvider, progressTracker);
+        void this.hotSwapLLMProvider(
+          gateway.config,
+          skillInjector,
+          memoryRetriever,
+          learningProvider,
+          progressTracker,
+          pipelineExecutor,
+        );
       }
       const policyChanged = diff.safe.some((key) => key.startsWith('policy.'));
       if (policyChanged && this._policyEngine) {
@@ -1314,6 +1463,18 @@ export class DaemonManager {
               : {}),
           });
         }
+        const toolRoutingDecision = this.buildToolRoutingDecision(
+          msg.sessionId,
+          msg.content,
+          session.history,
+        );
+        if (traceConfig.enabled && toolRoutingDecision) {
+          this.logger.info('[trace] telegram.tool_routing', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            routing: summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
+          });
+        }
 
         const toolHandler: ToolHandler = async (name, args) => {
           if (traceConfig.enabled) {
@@ -1361,7 +1522,18 @@ export class DaemonManager {
           systemPrompt,
           sessionId: msg.sessionId,
           toolHandler,
+          toolRouting: toolRoutingDecision
+            ? {
+              routedToolNames: toolRoutingDecision.routedToolNames,
+              expandedToolNames: toolRoutingDecision.expandedToolNames,
+              expandOnMiss: true,
+            }
+            : undefined,
         });
+        this.recordToolRoutingOutcome(
+          msg.sessionId,
+          result.toolRoutingSummary,
+        );
 
         if (traceConfig.enabled) {
           this.logger.info('[trace] telegram.chat.response', {
@@ -1375,6 +1547,16 @@ export class DaemonManager {
             tokenUsage: result.tokenUsage,
             requestShape: summarizeInitialRequestShape(result.callUsage),
             callUsage: summarizeCallUsageForTrace(result.callUsage),
+            statefulSummary: result.statefulSummary,
+            plannerSummary: result.plannerSummary,
+            toolRoutingDecision: summarizeToolRoutingDecisionForTrace(
+              toolRoutingDecision,
+            ),
+            toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
+              result.toolRoutingSummary,
+            ),
+            stopReason: result.stopReason,
+            stopReasonDetail: result.stopReasonDetail,
             response: truncateToolLogText(result.content, traceConfig.maxChars),
             toolCalls: result.toolCalls.map((toolCall) => ({
               name: toolCall.name,
@@ -1392,6 +1574,13 @@ export class DaemonManager {
                 }
                 : {}),
             })),
+          });
+        }
+        if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
+          this.logger.warn("[stateful] telegram fallback_to_stateless", {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            summary: result.statefulSummary,
           });
         }
 
@@ -1529,6 +1718,18 @@ export class DaemonManager {
               : {}),
           });
         }
+        const toolRoutingDecision = this.buildToolRoutingDecision(
+          msg.sessionId,
+          msg.content,
+          session.history,
+        );
+        if (traceConfig.enabled && toolRoutingDecision) {
+          this.logger.info(`[trace] ${channelName}.tool_routing`, {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            routing: summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
+          });
+        }
 
         const toolHandler: ToolHandler = async (name, args) => {
           if (traceConfig.enabled) {
@@ -1576,7 +1777,18 @@ export class DaemonManager {
           systemPrompt,
           sessionId: msg.sessionId,
           toolHandler,
+          toolRouting: toolRoutingDecision
+            ? {
+              routedToolNames: toolRoutingDecision.routedToolNames,
+              expandedToolNames: toolRoutingDecision.expandedToolNames,
+              expandOnMiss: true,
+            }
+            : undefined,
         });
+        this.recordToolRoutingOutcome(
+          msg.sessionId,
+          result.toolRoutingSummary,
+        );
 
         if (traceConfig.enabled) {
           this.logger.info(`[trace] ${channelName}.chat.response`, {
@@ -1590,6 +1802,13 @@ export class DaemonManager {
             tokenUsage: result.tokenUsage,
             requestShape: summarizeInitialRequestShape(result.callUsage),
             callUsage: summarizeCallUsageForTrace(result.callUsage),
+            statefulSummary: result.statefulSummary,
+            toolRoutingDecision: summarizeToolRoutingDecisionForTrace(
+              toolRoutingDecision,
+            ),
+            toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
+              result.toolRoutingSummary,
+            ),
             response: truncateToolLogText(result.content, traceConfig.maxChars),
             toolCalls: result.toolCalls.map((toolCall) => ({
               name: toolCall.name,
@@ -1607,6 +1826,13 @@ export class DaemonManager {
                 }
                 : {}),
             })),
+          });
+        }
+        if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
+          this.logger.warn(`[stateful] ${channelName} fallback_to_stateless`, {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            summary: result.statefulSummary,
           });
         }
 
@@ -2170,8 +2396,14 @@ export class DaemonManager {
     memoryRetriever: MemoryRetriever,
     learningProvider?: MemoryRetriever,
     progressProvider?: MemoryRetriever,
+    pipelineExecutor?: PipelineExecutor,
   ): Promise<void> {
     try {
+      this._toolRouter = new ToolRouter(
+        this._llmTools,
+        newConfig.llm?.toolRouting,
+        this.logger,
+      );
       const providers = await this.createLLMProviders(newConfig, this._llmTools);
       this._chatExecutor = providers.length > 0 ? new ChatExecutor({
         providers,
@@ -2180,7 +2412,14 @@ export class DaemonManager {
         memoryRetriever,
         learningProvider,
         progressProvider,
+        promptBudget: buildPromptBudgetConfig(newConfig.llm),
         maxToolRounds: newConfig.llm?.maxToolRounds ?? getDefaultMaxToolRounds(newConfig),
+        plannerEnabled: newConfig.llm?.plannerEnabled,
+        plannerMaxTokens: newConfig.llm?.plannerMaxTokens,
+        toolBudgetPerRequest: newConfig.llm?.toolBudgetPerRequest,
+        maxModelRecallsPerRequest: newConfig.llm?.maxModelRecallsPerRequest,
+        maxFailureBudgetPerRequest: newConfig.llm?.maxFailureBudgetPerRequest,
+        pipelineExecutor,
         sessionTokenBudget: newConfig.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
         onCompaction: this.handleCompaction,
       }) : null;
@@ -2537,6 +2776,7 @@ export class DaemonManager {
     const historySessionId = resolveSessionId(webSessionId);
     sessionMgr.reset(historySessionId);
     this._chatExecutor?.resetSessionTokens(webSessionId);
+    this._toolRouter?.resetSession(webSessionId);
     this._sessionModelInfo.delete(webSessionId);
     await progressTracker?.clear(webSessionId);
     await memoryBackend.deleteThread(webSessionId).catch(() => {});
@@ -2947,6 +3187,35 @@ export class DaemonManager {
     };
   }
 
+  private buildToolRoutingDecision(
+    sessionId: string,
+    messageText: string,
+    history: readonly LLMMessage[],
+  ): ToolRoutingDecision | undefined {
+    if (!this._toolRouter) return undefined;
+    try {
+      return this._toolRouter.route({
+        sessionId,
+        messageText,
+        history,
+      });
+    } catch (error) {
+      this.logger.warn?.("Tool routing decision failed; falling back to full toolset", {
+        sessionId,
+        error: toErrorMessage(error),
+      });
+      return undefined;
+    }
+  }
+
+  private recordToolRoutingOutcome(
+    sessionId: string,
+    summary: ChatToolRoutingSummary | undefined,
+  ): void {
+    if (!this._toolRouter) return;
+    this._toolRouter.recordOutcome(sessionId, summary);
+  }
+
   private createWebChatMessageHandler(params: {
     webChat: WebChatChannel;
     commandRegistry: SlashCommandRegistry;
@@ -3177,6 +3446,18 @@ export class DaemonManager {
               : {}),
           });
         }
+        const toolRoutingDecision = this.buildToolRoutingDecision(
+          msg.sessionId,
+          msg.content,
+          session.history,
+        );
+        if (traceConfig.enabled && toolRoutingDecision) {
+          this.logger.info('[trace] webchat.tool_routing', {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            routing: summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
+          });
+        }
 
         // Create an AbortController so the user can cancel mid-execution
         const abortController = webChat.createAbortController(msg.sessionId);
@@ -3189,7 +3470,18 @@ export class DaemonManager {
           toolHandler: sessionToolHandler,
           onStreamChunk: sessionStreamCallback,
           signal: abortController.signal,
+          toolRouting: toolRoutingDecision
+            ? {
+              routedToolNames: toolRoutingDecision.routedToolNames,
+              expandedToolNames: toolRoutingDecision.expandedToolNames,
+              expandOnMiss: true,
+            }
+            : undefined,
         });
+        this.recordToolRoutingOutcome(
+          msg.sessionId,
+          result.toolRoutingSummary,
+        );
 
         webChat.clearAbortController(msg.sessionId);
 
@@ -3214,6 +3506,13 @@ export class DaemonManager {
             tokenUsage: result.tokenUsage,
             requestShape: summarizeInitialRequestShape(result.callUsage),
             callUsage: summarizeCallUsageForTrace(result.callUsage),
+            statefulSummary: result.statefulSummary,
+            toolRoutingDecision: summarizeToolRoutingDecisionForTrace(
+              toolRoutingDecision,
+            ),
+            toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
+              result.toolRoutingSummary,
+            ),
             response: truncateToolLogText(result.content, traceConfig.maxChars),
             toolCalls: result.toolCalls.map((toolCall) => ({
               name: toolCall.name,
@@ -3231,6 +3530,13 @@ export class DaemonManager {
                 }
                 : {}),
             })),
+          });
+        }
+        if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
+          this.logger.warn("[stateful] webchat fallback_to_stateless", {
+            traceId: turnTraceId,
+            sessionId: msg.sessionId,
+            summary: result.statefulSummary,
           });
         }
 
@@ -3516,6 +3822,13 @@ export class DaemonManager {
           apiKey: config.llm.apiKey,
           baseUrl: config.llm.baseUrl,
           model: DEFAULT_GROK_FALLBACK_MODEL,
+          maxTokens: config.llm.maxTokens,
+          contextWindowTokens: config.llm.contextWindowTokens,
+          promptHardMaxChars: config.llm.promptHardMaxChars,
+          promptSafetyMarginTokens: config.llm.promptSafetyMarginTokens,
+          promptCharPerToken: config.llm.promptCharPerToken,
+          maxRuntimeHints: config.llm.maxRuntimeHints,
+          statefulResponses: config.llm.statefulResponses,
         });
       }
     }
@@ -3532,7 +3845,16 @@ export class DaemonManager {
    * Create a single LLM provider from a provider config.
    */
   private async createSingleLLMProvider(llmConfig: GatewayLLMConfig, tools: LLMTool[]): Promise<LLMProvider | null> {
-    const { provider, apiKey, model, baseUrl, timeoutMs, parallelToolCalls } = llmConfig;
+    const {
+      provider,
+      apiKey,
+      model,
+      baseUrl,
+      timeoutMs,
+      parallelToolCalls,
+      maxTokens,
+      statefulResponses,
+    } = llmConfig;
 
     switch (provider) {
       case 'grok': {
@@ -3542,7 +3864,9 @@ export class DaemonManager {
           model: normalizeGrokModel(model) ?? DEFAULT_GROK_MODEL,
           baseURL: baseUrl,
           timeoutMs,
+          maxTokens,
           parallelToolCalls,
+          statefulResponses,
           tools,
         });
       }
@@ -3552,6 +3876,7 @@ export class DaemonManager {
           model: model ?? 'llama3',
           host: baseUrl,
           timeoutMs,
+          maxTokens,
           tools,
         });
       }
@@ -3690,6 +4015,8 @@ export class DaemonManager {
         this._telemetry.destroy();
         this._telemetry = null;
       }
+      this._toolRouter?.clear();
+      this._toolRouter = null;
       // Disconnect desktop bridges and destroy containers
       for (const bridge of this._desktopBridges.values()) {
         bridge.disconnect();

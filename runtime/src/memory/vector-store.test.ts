@@ -223,6 +223,36 @@ describe("InMemoryVectorStore", () => {
       expect(results.length).toBe(1);
       expect(results[0].entry.content).toBe("telegram msg");
     });
+
+    it("filters by memoryRoles metadata", async () => {
+      await store.storeWithEmbedding(
+        makeEntry("working note", "sess-1", { memoryRole: "working" }),
+        basisVector(4, 0),
+      );
+      await store.storeWithEmbedding(
+        makeEntry("episodic summary", "sess-1", { memoryRoles: ["episodic"] }),
+        basisVector(4, 0),
+      );
+      await store.storeWithEmbedding(
+        makeEntry("semantic fact", "sess-1", {
+          memoryRole: "semantic",
+          memoryRoles: ["semantic", "working"],
+        }),
+        basisVector(4, 0),
+      );
+
+      const episodic = await store.searchSimilar(basisVector(4, 0), {
+        memoryRoles: ["episodic"],
+      });
+      expect(episodic).toHaveLength(1);
+      expect(episodic[0].entry.content).toBe("episodic summary");
+
+      const semantic = await store.searchSimilar(basisVector(4, 0), {
+        memoryRoles: ["semantic"],
+      });
+      expect(semantic).toHaveLength(1);
+      expect(semantic[0].entry.content).toBe("semantic fact");
+    });
   });
 
   // ==========================================================================

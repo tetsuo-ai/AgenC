@@ -5,6 +5,7 @@ import type {
   LLMProvider,
   LLMResponse,
   LLMMessage,
+  LLMChatOptions,
   StreamProgressCallback,
 } from "./types.js";
 import type { Task } from "../autonomous/types.js";
@@ -20,7 +21,7 @@ import type { MemoryGraphResult } from "../memory/graph.js";
 function createMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
   return {
     name: "mock",
-    chat: vi.fn<[LLMMessage[]], Promise<LLMResponse>>().mockResolvedValue({
+    chat: vi.fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>().mockResolvedValue({
       content: "mock response",
       toolCalls: [],
       usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
@@ -28,7 +29,7 @@ function createMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
       finishReason: "stop",
     }),
     chatStream: vi
-      .fn<[LLMMessage[], StreamProgressCallback], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], StreamProgressCallback, LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValue({
         content: "mock stream response",
         toolCalls: [],
@@ -138,7 +139,7 @@ describe("LLMTaskExecutor", () => {
     };
 
     const chatFn = vi
-      .fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValueOnce(toolCallResponse)
       .mockResolvedValueOnce(finalResponse);
 
@@ -177,7 +178,7 @@ describe("LLMTaskExecutor", () => {
     };
 
     const chatFn = vi
-      .fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValueOnce(invalidToolCallResponse)
       .mockResolvedValueOnce(finalResponse);
 
@@ -213,7 +214,7 @@ describe("LLMTaskExecutor", () => {
     };
 
     const chatFn = vi
-      .fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValueOnce(invalidShapeResponse)
       .mockResolvedValueOnce(finalResponse);
     const provider = createMockProvider({ chat: chatFn });
@@ -233,7 +234,7 @@ describe("LLMTaskExecutor", () => {
   it("rejects when provider returns an error finish reason", async () => {
     const streamError = new Error("partial stream failed");
     const provider = createMockProvider({
-      chat: vi.fn<[LLMMessage[]], Promise<LLMResponse>>().mockResolvedValue({
+      chat: vi.fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>().mockResolvedValue({
         content: "partial",
         toolCalls: [],
         usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
@@ -260,7 +261,7 @@ describe("LLMTaskExecutor", () => {
     };
 
     const chatFn = vi
-      .fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValue(toolCallResponse);
 
     const provider = createMockProvider({ chat: chatFn });
@@ -485,7 +486,7 @@ describe("LLMTaskExecutor", () => {
       };
 
       const chatFn = vi
-        .fn<[LLMMessage[]], Promise<LLMResponse>>()
+        .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
         .mockResolvedValueOnce(toolCallResponse)
         .mockResolvedValueOnce(finalResponse);
 
@@ -570,7 +571,7 @@ describe("LLMTaskExecutor", () => {
       };
       const task = createTaskWithUniquePda();
       const chatFn = vi
-        .fn<[LLMMessage[]], Promise<LLMResponse>>()
+        .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
         .mockResolvedValueOnce(toolCallResponse)
         .mockResolvedValueOnce(finalResponse);
       const provider = createMockProvider({ chat: chatFn });

@@ -5,7 +5,13 @@ import {
   LLMTimeoutError,
 } from "./errors.js";
 import { FallbackLLMProvider } from "./fallback.js";
-import type { LLMMessage, LLMProvider, LLMResponse } from "./types.js";
+import type {
+  LLMChatOptions,
+  LLMMessage,
+  LLMProvider,
+  LLMResponse,
+  StreamProgressCallback,
+} from "./types.js";
 
 function makeResponse(content: string): LLMResponse {
   return {
@@ -19,14 +25,20 @@ function makeResponse(content: string): LLMResponse {
 
 function createMockProvider(
   name: string,
-  chatImpl?: (messages: LLMMessage[]) => Promise<LLMResponse>,
+  chatImpl?: (messages: LLMMessage[], options?: LLMChatOptions) => Promise<LLMResponse>,
 ): LLMProvider {
   return {
     name,
     chat: vi.fn(
       chatImpl ?? (async () => makeResponse(`response from ${name}`)),
     ),
-    chatStream: vi.fn(async () => makeResponse(`stream response from ${name}`)),
+    chatStream: vi.fn(
+      async (
+        _messages: LLMMessage[],
+        _onChunk: StreamProgressCallback,
+        _options?: LLMChatOptions,
+      ) => makeResponse(`stream response from ${name}`),
+    ),
     healthCheck: vi.fn(async () => true),
   };
 }

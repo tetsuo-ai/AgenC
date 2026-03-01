@@ -13,6 +13,12 @@ export type {
   LLMProviderConfig,
   LLMContentPart,
   LLMMessage,
+  LLMChatOptions,
+  LLMChatStatefulOptions,
+  LLMStatefulDiagnostics,
+  LLMStatefulEvent,
+  LLMStatefulEventType,
+  LLMStatefulFallbackReason,
   LLMResponse,
   LLMStreamChunk,
   LLMTool,
@@ -60,6 +66,24 @@ export type {
   ToolTurnValidationOptions,
 } from "./tool-turn-validator.js";
 
+// Prompt budgeting (Phase 2)
+export {
+  applyPromptBudget,
+  derivePromptBudgetPlan,
+} from "./prompt-budget.js";
+export type {
+  PromptBudgetConfig,
+  PromptBudgetPlan,
+  PromptBudgetCaps,
+  PromptBudgetSection,
+  PromptBudgetMessage,
+  PromptBudgetDiagnostics,
+  PromptBudgetSectionStats,
+  PromptBudgetMemoryRole,
+  PromptBudgetMemoryRoleContract,
+  PromptBudgetMemoryRoleContracts,
+} from "./prompt-budget.js";
+
 // Response converter
 export { responseToOutput } from "./response-converter.js";
 
@@ -73,6 +97,7 @@ export type {
   ChatExecutorConfig,
   ChatExecuteParams,
   ChatExecutorResult,
+  ChatStatefulSummary,
   ChatPromptShape,
   ChatCallUsageRecord,
   ToolCallRecord,

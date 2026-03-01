@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChatExecutor, ChatBudgetExceededError } from "./chat-executor.js";
 import type { ChatExecuteParams, ChatExecutorConfig } from "./chat-executor.js";
 import type {
+  LLMChatOptions,
   LLMProvider,
   LLMResponse,
   LLMMessage,
@@ -31,6 +32,10 @@ function mockResponse(overrides: Partial<LLMResponse> = {}): LLMResponse {
   };
 }
 
+function safeJson(value: unknown): string {
+  return JSON.stringify(value);
+}
+
 function createMockProvider(
   name = "primary",
   overrides: Partial<LLMProvider> = {},
@@ -38,10 +43,10 @@ function createMockProvider(
   return {
     name,
     chat: vi
-      .fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValue(mockResponse()),
     chatStream: vi
-      .fn<[LLMMessage[], StreamProgressCallback], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], StreamProgressCallback, LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValue(mockResponse()),
     healthCheck: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
     ...overrides,
@@ -693,6 +698,80 @@ describe("ChatExecutor", () => {
       expect(toolHandler).not.toHaveBeenCalled();
       expect(result.toolCalls[0].isError).toBe(true);
       expect(result.toolCalls[0].result).toContain("not permitted");
+    });
+
+    it("passes routed tool subset to provider chat options", async () => {
+      const provider = createMockProvider("primary");
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["system.bash", "system.readFile"],
+          },
+        }),
+      );
+
+      const options = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][1] as LLMChatOptions | undefined;
+      expect(options?.toolRouting?.allowedToolNames).toEqual([
+        "system.bash",
+        "system.readFile",
+      ]);
+    });
+
+    it("expands routed tool subset once when model requests a missed tool", async () => {
+      const toolHandler = vi.fn().mockResolvedValue("unused");
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "system.httpGet",
+                  arguments: '{\"url\":\"https://example.com\"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "done" })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["system.bash"],
+            expandedToolNames: ["system.bash", "system.httpGet"],
+            expandOnMiss: true,
+          },
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      const firstOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][1] as LLMChatOptions | undefined;
+      const secondOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][1] as LLMChatOptions | undefined;
+      expect(firstOptions?.toolRouting?.allowedToolNames).toEqual([
+        "system.bash",
+      ]);
+      expect(secondOptions?.toolRouting?.allowedToolNames).toEqual([
+        "system.bash",
+        "system.httpGet",
+      ]);
+      expect(result.toolRoutingSummary).toEqual({
+        enabled: true,
+        initialToolCount: 1,
+        finalToolCount: 2,
+        routeMisses: 1,
+        expanded: true,
+      });
+      expect(toolHandler).not.toHaveBeenCalled();
     });
 
     it("invalid JSON args handled gracefully", async () => {
@@ -1527,6 +1606,7 @@ describe("ChatExecutor", () => {
       expect(provider.chatStream).toHaveBeenCalledWith(
         expect.any(Array),
         perCallCallback,
+        { stateful: { sessionId: "session-1" } },
       );
       expect(provider.chat).not.toHaveBeenCalled();
     });
@@ -1541,6 +1621,7 @@ describe("ChatExecutor", () => {
       expect(provider.chatStream).toHaveBeenCalledWith(
         expect.any(Array),
         perCallCallback,
+        { stateful: { sessionId: "session-1" } },
       );
       expect(provider.chat).not.toHaveBeenCalled();
     });
@@ -1558,6 +1639,7 @@ describe("ChatExecutor", () => {
       expect(provider.chatStream).toHaveBeenCalledWith(
         expect.any(Array),
         constructorCallback,
+        { stateful: { sessionId: "session-1" } },
       );
       expect(provider.chat).not.toHaveBeenCalled();
     });
@@ -1577,7 +1659,7 @@ describe("ChatExecutor", () => {
       const toolHandler = vi.fn().mockResolvedValue("tool result");
       const provider = createMockProvider("primary", {
         chatStream: vi
-          .fn<[LLMMessage[], StreamProgressCallback], Promise<LLMResponse>>()
+          .fn<[LLMMessage[], StreamProgressCallback, LLMChatOptions?], Promise<LLMResponse>>()
           .mockResolvedValueOnce(
             mockResponse({
               content: "",
@@ -1602,11 +1684,13 @@ describe("ChatExecutor", () => {
         1,
         expect.any(Array),
         perCallCallback,
+        { stateful: { sessionId: "session-1" } },
       );
       expect(provider.chatStream).toHaveBeenNthCalledWith(
         2,
         expect.any(Array),
         perCallCallback,
+        { stateful: { sessionId: "session-1" } },
       );
     });
   });
@@ -1757,6 +1841,219 @@ describe("ChatExecutor", () => {
       expect(result.evaluation).toBeUndefined();
       // Only the main call, no evaluation call
       expect(provider.chat).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("phase 4 planner/executor and budgets", () => {
+    it("routes high-complexity turns through deterministic planner/executor path", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "multi_step_cues",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "step_1",
+                  tool: "system.bash",
+                  args: { command: "echo", args: ["hi"] },
+                  deterministic: true,
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: { results: { step_1: '{"stdout":"hi\\n","exitCode":0}' } },
+          completedSteps: 1,
+          totalSteps: 1,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First create a test file, then run validation, then summarize the result as JSON.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.plannerSummary).toMatchObject({
+        enabled: true,
+        used: true,
+        plannedSteps: 1,
+        deterministicStepsExecuted: 1,
+      });
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["planner"]);
+      expect(result.stopReason).toBe("completed");
+      expect(result.content.toLowerCase()).toContain("hi");
+    });
+
+    it("falls back to direct execution when planner output is not parseable", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "this is not valid planner json",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "direct path answer",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Step 1 run a command. Step 2 verify output. Step 3 report result.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.content).toBe("direct path answer");
+      expect(result.plannerSummary?.used).toBe(true);
+      expect(result.plannerSummary?.routeReason).toBe("planner_parse_failed");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "initial",
+      ]);
+    });
+
+    it("enforces toolBudgetPerRequest and surfaces budget stop reason", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+          }),
+        ),
+      });
+      const toolHandler = vi.fn().mockResolvedValue('{"exitCode":0}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+        toolBudgetPerRequest: 2,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.toolCalls).toHaveLength(2);
+      expect(result.stopReason).toBe("budget_exceeded");
+      expect(result.stopReasonDetail).toContain("Tool budget exceeded");
+    });
+
+    it("enforces maxModelRecallsPerRequest", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+          }),
+        ),
+      });
+      const toolHandler = vi.fn().mockResolvedValue('{"exitCode":0}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+        maxModelRecallsPerRequest: 1,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(result.toolCalls).toHaveLength(2);
+      expect(result.stopReason).toBe("budget_exceeded");
+      expect(result.stopReasonDetail).toContain("Max model recalls exceeded");
+    });
+
+    it("enforces maxFailureBudgetPerRequest", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+          }),
+        ),
+      });
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stderr":"failed"}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+        maxFailureBudgetPerRequest: 1,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.toolCalls).toHaveLength(2);
+      expect(result.stopReason).toBe("tool_error");
+      expect(result.stopReasonDetail).toContain("Failure budget exceeded");
+    });
+
+    it("detects semantically equivalent failing calls even when raw JSON differs", async () => {
+      let round = 0;
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation(() => {
+          round++;
+          const args =
+            round % 2 === 0
+              ? '{"flags":["-la"],"command":"ls"}'
+              : '{"command":"ls","flags":["-la"]}';
+          return Promise.resolve(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: `tc-${round}`, name: "system.bash", arguments: args }],
+            }),
+          );
+        }),
+      });
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stderr":"failed"}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.toolCalls).toHaveLength(3);
+      expect(result.stopReason).toBe("no_progress");
+      expect(result.stopReasonDetail).toContain("semantically-equivalent failing tool calls");
     });
   });
 
@@ -1912,6 +2209,225 @@ describe("ChatExecutor", () => {
       const tail = promptSizes.slice(-4);
       const tailRange = Math.max(...tail) - Math.min(...tail);
       expect(tailRange).toBeLessThan(8_000);
+    });
+
+    it("reports section-level budget diagnostics when constrained", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(mockResponse({ content: "ok" })),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        promptBudget: {
+          contextWindowTokens: 4_096,
+          maxOutputTokens: 2_048,
+          hardMaxPromptChars: 8_000,
+        },
+      });
+
+      const history = Array.from({ length: 24 }, (_, i) => ({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: `history-${i} ` + "h".repeat(3_000),
+      })) as LLMMessage[];
+
+      const result = await executor.execute(
+        createParams({
+          history,
+          message: createMessage("u".repeat(6_000)),
+        }),
+      );
+
+      const diagnostics = result.callUsage[0].budgetDiagnostics;
+      expect(diagnostics).toBeDefined();
+      expect(diagnostics?.constrained).toBe(true);
+      expect(
+        (diagnostics?.sections.history.droppedMessages ?? 0) +
+          (diagnostics?.sections.history.truncatedMessages ?? 0),
+      ).toBeGreaterThan(0);
+    });
+
+    it("caps additive runtime system hints via prompt budget config", async () => {
+      const toolHandler = vi.fn(async (name: string) => {
+        if (name === "system.bash") {
+          return '{"exitCode":1,"stderr":"spawn set ENOENT"}';
+        }
+        return '{"error":"Private/loopback address blocked: 127.0.0.1"}';
+      });
+
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments: '{"command":"set"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-2",
+                  name: "system.browse",
+                  arguments: '{"url":"http://127.0.0.1:8123"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "done" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+        promptBudget: { maxRuntimeHints: 1 },
+      });
+      await executor.execute(createParams());
+
+      const thirdCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[2][0] as LLMMessage[];
+      const runtimeHints = thirdCallMessages.filter(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.startsWith("Tool recovery hint:"),
+      );
+      expect(runtimeHints).toHaveLength(1);
+      expect(String(runtimeHints[0].content)).not.toContain("localhost");
+    });
+
+    it("retains one system anchor and sheds extra runtime system blocks under pressure", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(mockResponse({ content: "ok" })),
+      });
+      const skillInjector = {
+        inject: vi.fn().mockResolvedValue("skill ".repeat(3_000)),
+      };
+      const memoryRetriever = {
+        retrieve: vi.fn().mockResolvedValue("memory ".repeat(3_000)),
+      };
+      const learningProvider = {
+        retrieve: vi.fn().mockResolvedValue("learning ".repeat(3_000)),
+      };
+      const progressProvider = {
+        retrieve: vi.fn().mockResolvedValue("progress ".repeat(3_000)),
+      };
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        skillInjector,
+        memoryRetriever,
+        learningProvider,
+        progressProvider,
+        promptBudget: {
+          contextWindowTokens: 4_096,
+          maxOutputTokens: 2_048,
+          hardMaxPromptChars: 8_000,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          history: [{ role: "assistant", content: "previous turn" }],
+          message: createMessage("hello"),
+        }),
+      );
+
+      const diagnostics = result.callUsage[0].budgetDiagnostics;
+      expect(diagnostics).toBeDefined();
+      expect(diagnostics?.sections.system_anchor.afterMessages).toBe(1);
+      expect(
+        (diagnostics?.sections.system_runtime.droppedMessages ?? 0) +
+          (diagnostics?.sections.system_runtime.truncatedMessages ?? 0),
+      ).toBeGreaterThan(0);
+    });
+
+    it("passes stateful session options through provider calls", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "ok",
+            stateful: {
+              enabled: true,
+              attempted: false,
+              continued: false,
+              store: true,
+              fallbackToStateless: true,
+              events: [],
+            },
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+      const message = { ...createMessage("stateful"), sessionId: "stateful-session" };
+
+      await executor.execute(
+        createParams({
+          message,
+          sessionId: "stateful-session",
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledWith(
+        expect.any(Array),
+        { stateful: { sessionId: "stateful-session" } },
+      );
+    });
+
+    it("aggregates stateful fallback reason counters in result summary", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "ok",
+            stateful: {
+              enabled: true,
+              attempted: true,
+              continued: false,
+              store: true,
+              fallbackToStateless: true,
+              fallbackReason: "provider_retrieval_failure",
+              events: [
+                {
+                  type: "stateful_continuation_attempt",
+                },
+                {
+                  type: "stateful_fallback",
+                  reason: "provider_retrieval_failure",
+                },
+              ],
+            },
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+      const message = { ...createMessage("stateful"), sessionId: "stateful-summary" };
+
+      const result = await executor.execute(
+        createParams({
+          message,
+          sessionId: "stateful-summary",
+        }),
+      );
+
+      expect(result.statefulSummary).toBeDefined();
+      expect(result.statefulSummary).toMatchObject({
+        enabled: true,
+        attemptedCalls: 1,
+        continuedCalls: 0,
+        fallbackCalls: 1,
+      });
+      expect(
+        result.statefulSummary?.fallbackReasons.provider_retrieval_failure,
+      ).toBe(1);
     });
   });
 });
