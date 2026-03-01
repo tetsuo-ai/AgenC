@@ -3775,7 +3775,7 @@ export class DaemonManager {
         '- To create/edit files: use desktop.text_editor (preferred) or desktop.bash with cat heredoc\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
-        '- system.http*/system.browse block localhost/private/internal targets by design. For local service checks, use desktop.bash (curl) or Playwright tools.\n' +
+        '- system.http*/system.browse block localhost/private/internal targets by design. For local service checks on the HOST, use system.bash with curl (e.g. `curl -sSf http://127.0.0.1:8080`). Desktop tools run inside a Docker container and CANNOT reach the host\'s localhost.\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash or desktop.text_editor.\n' +
         '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
         '- For web browsing, ALWAYS use playwright.* tools.\n\n' +

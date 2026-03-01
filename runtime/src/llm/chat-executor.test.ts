@@ -1009,7 +1009,8 @@ describe("ChatExecutor", () => {
           msg.content.includes("block localhost/private/internal addresses"),
       );
       expect(injectedHint).toBeDefined();
-      expect(String(injectedHint?.content)).toContain("desktop.bash");
+      expect(String(injectedHint?.content)).toContain("system.bash");
+      expect(String(injectedHint?.content)).toContain("CANNOT reach");
     });
 
     it("does not break loop when tool calls differ", async () => {

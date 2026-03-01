@@ -2595,6 +2595,15 @@ export class ChatExecutor {
             "For pipes/redirection/heredocs or multi-line shell scripts, use `desktop.bash`.",
         };
       }
+      if (failureTextLower.includes("nested shell invocation")) {
+        return {
+          key: "system-bash-shell-reinvocation",
+          message:
+            "system.bash already runs commands in a shell. Do NOT wrap with `bash -c` or `sh -c`. " +
+            "Pass the inner command directly as `command` (omit `args` for shell mode). " +
+            'Example: instead of command="bash -c \'curl http://...\'" use command="curl http://...".',
+        };
+      }
     }
 
     if (
@@ -2611,7 +2620,8 @@ export class ChatExecutor {
           key: "localhost-ssrf-blocked",
           message:
             "system.browse/system.http* block localhost/private/internal addresses by design. " +
-            "For local service checks, use `desktop.bash` (curl inside the sandbox) or Playwright desktop tools.",
+            "For local service checks on the HOST, use system.bash with curl (e.g. command=\"curl -sSf http://127.0.0.1:PORT\"). " +
+            "Desktop tools run inside Docker and CANNOT reach the host's localhost.",
         };
       }
     }
