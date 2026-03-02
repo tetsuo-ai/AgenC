@@ -202,6 +202,45 @@ describe("DesktopSandboxManager", () => {
       expect(handle.resolution.width).toBe(1920);
     });
 
+    it("applies per-sandbox maxMemory and maxCpu overrides", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      const handle = await manager.create({
+        sessionId: "sess-resources",
+        maxMemory: "2g",
+        maxCpu: "1.5",
+      });
+
+      const runCall = mockExecFile.mock.calls.find(
+        (c: unknown[]) => (c[1] as string[])[0] === "run",
+      );
+      const args = runCall![1] as string[];
+      expect(args).toContain("--memory");
+      expect(args).toContain("2g");
+      expect(args).toContain("--cpus");
+      expect(args).toContain("1.5");
+      expect(handle.maxMemory).toBe("2g");
+      expect(handle.maxCpu).toBe("1.5");
+    });
+
+    it("normalizes bare integer memory overrides to gigabytes", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      const handle = await manager.create({
+        sessionId: "sess-resources-int",
+        maxMemory: "16",
+        maxCpu: "4",
+      });
+
+      const runCall = mockExecFile.mock.calls.find(
+        (c: unknown[]) => (c[1] as string[])[0] === "run",
+      );
+      const args = runCall![1] as string[];
+      expect(args).toContain("--memory");
+      expect(args).toContain("16g");
+      expect(handle.maxMemory).toBe("16g");
+    });
+
     it("validates env var key names", async () => {
       manager = new DesktopSandboxManager(makeConfig());
       await manager.start();
@@ -229,6 +268,22 @@ describe("DesktopSandboxManager", () => {
       await expect(manager.create({ sessionId: "sess2" })).rejects.toThrow(
         DesktopSandboxPoolExhaustedError,
       );
+    });
+
+    it("throws LifecycleError for invalid maxMemory override", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      await expect(
+        manager.create({ sessionId: "sess-invalid-mem", maxMemory: "banana" }),
+      ).rejects.toThrow(DesktopSandboxLifecycleError);
+    });
+
+    it("throws LifecycleError for invalid maxCpu override", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      await expect(
+        manager.create({ sessionId: "sess-invalid-cpu", maxCpu: "0" }),
+      ).rejects.toThrow(DesktopSandboxLifecycleError);
     });
 
     it("throws LifecycleError when docker run fails", async () => {
@@ -303,6 +358,23 @@ describe("DesktopSandboxManager", () => {
       manager = new DesktopSandboxManager(makeConfig());
       expect(manager.getHandleBySession("unknown")).toBeUndefined();
     });
+
+    it("assignSession maps an additional session to an existing container", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      const handle = await manager.create({ sessionId: "sess1" });
+
+      const attached = manager.assignSession(handle.containerId, "sess2");
+
+      expect(attached.containerId).toBe(handle.containerId);
+      expect(attached.sessionId).toBe("sess2");
+      expect(manager.getHandleBySession("sess1")?.containerId).toBe(
+        handle.containerId,
+      );
+      expect(manager.getHandleBySession("sess2")?.containerId).toBe(
+        handle.containerId,
+      );
+    });
   });
 
   describe("getOrCreate()", () => {
@@ -353,6 +425,17 @@ describe("DesktopSandboxManager", () => {
 
       await manager.destroyBySession("sess1");
       expect(manager.activeCount).toBe(0);
+    });
+
+    it("destroy removes all aliased session mappings for a container", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      const handle = await manager.create({ sessionId: "sess1" });
+      manager.assignSession(handle.containerId, "sess2");
+
+      await manager.destroy(handle.containerId);
+      expect(manager.getHandleBySession("sess1")).toBeUndefined();
+      expect(manager.getHandleBySession("sess2")).toBeUndefined();
     });
 
     it("destroyAll clears everything", async () => {

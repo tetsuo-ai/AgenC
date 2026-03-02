@@ -378,10 +378,16 @@ Restart the daemon after updating config.
 
 1. Open the web UI at `http://localhost:5173`
 2. Navigate to the **Desktop** view
-3. Click **Launch Desktop** to spin up a new container
-4. Watch the status transition: `creating` &rarr; `starting` &rarr; `ready`
-5. Click **Open VNC** to view the desktop in your browser via noVNC
-6. The agent can now interact with the desktop autonomously via chat commands
+3. Optionally set launch overrides in the header:
+   - RAM (for example `4g`)
+   - CPU (for example `2.0`)
+4. Click **Launch Desktop** to spin up a new container
+5. Watch the status transition: `creating` &rarr; `starting` &rarr; `ready`
+6. Click **Open VNC** to view the desktop in your browser via noVNC
+7. The agent can now interact with the desktop autonomously via chat commands
+
+You can also launch from chat with `/desktop start [--memory 4g] [--cpu 2.0]`.
+For memory, plain integers default to GB (for example `16` means `16g`).
 
 ### What's Inside Each Container
 

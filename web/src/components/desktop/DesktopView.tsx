@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import type { DesktopSandbox } from '../../hooks/useDesktop';
+import type { DesktopCreateOptions, DesktopSandbox } from '../../hooks/useDesktop';
 
 interface DesktopViewProps {
   sandboxes: DesktopSandbox[];
   loading: boolean;
   error: string | null;
+  activeSessionId?: string | null;
   onRefresh: () => void;
-  onCreate: (sessionId?: string) => void;
+  onCreate: (options?: DesktopCreateOptions) => void;
+  onAttach: (containerId: string, sessionId?: string) => void;
   onDestroy: (containerId: string) => void;
 }
 
@@ -39,17 +41,27 @@ function statusColor(status: string): string {
 
 function SandboxCard({
   sandbox,
+  ordinal,
+  activeSessionId,
+  onAttach,
   onDestroy,
 }: {
   sandbox: DesktopSandbox;
+  ordinal: number;
+  activeSessionId?: string | null;
+  onAttach: (containerId: string) => void;
   onDestroy: (containerId: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const isAssigned = !!activeSessionId && sandbox.sessionId === activeSessionId;
 
   return (
     <div className="bg-surface border border-tetsuo-200 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-tetsuo-600 dark:text-tetsuo-200">
+            Desktop {ordinal}
+          </span>
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${statusColor(sandbox.status)}`}>
             {sandbox.status}
           </span>
@@ -66,23 +78,45 @@ function SandboxCard({
           <span className="text-tetsuo-400">Uptime:</span>{' '}
           {formatUptime(sandbox.uptimeMs)}
         </div>
+        <div>
+          <span className="text-tetsuo-400">RAM:</span>{' '}
+          <span className="font-mono">{sandbox.maxMemory ?? 'default'}</span>
+        </div>
+        <div>
+          <span className="text-tetsuo-400">CPU:</span>{' '}
+          <span className="font-mono">{sandbox.maxCpu ?? 'default'}</span>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 pt-1">
         {sandbox.status === 'ready' && (
-          <a
-            href={sandbox.vncUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-bg text-accent text-xs font-medium hover:opacity-80 transition-opacity"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-            Open VNC
-          </a>
+          <>
+            <a
+              href={sandbox.vncUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-bg text-accent text-xs font-medium hover:opacity-80 transition-opacity"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+              Open VNC
+            </a>
+            {isAssigned ? (
+              <span className="px-2.5 py-1.5 rounded-lg bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium">
+                Assigned to chat
+              </span>
+            ) : (
+              <button
+                onClick={() => onAttach(sandbox.containerId)}
+                className="px-2.5 py-1.5 rounded-lg bg-tetsuo-100 text-tetsuo-600 dark:bg-tetsuo-700/40 dark:text-tetsuo-200 text-xs font-medium hover:bg-tetsuo-200 dark:hover:bg-tetsuo-700 transition-colors"
+              >
+                Assign to Chat
+              </button>
+            )}
+          </>
         )}
         {confirming ? (
           <div className="flex items-center gap-1.5 ml-auto">
@@ -121,10 +155,22 @@ export function DesktopView({
   sandboxes,
   loading,
   error,
+  activeSessionId,
   onRefresh,
   onCreate,
+  onAttach,
   onDestroy,
 }: DesktopViewProps) {
+  const [launchMemory, setLaunchMemory] = useState('');
+  const [launchCpu, setLaunchCpu] = useState('');
+
+  const handleCreate = () => {
+    onCreate({
+      maxMemory: launchMemory.trim() || undefined,
+      maxCpu: launchCpu.trim() || undefined,
+    });
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -147,8 +193,20 @@ export function DesktopView({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <input
+            value={launchMemory}
+            onChange={(event) => setLaunchMemory(event.target.value)}
+            placeholder="RAM (e.g. 4g)"
+            className="w-28 px-2 py-1.5 rounded-lg border border-tetsuo-200 bg-surface text-xs text-tetsuo-600 placeholder:text-tetsuo-400 focus:outline-none focus:ring-2 focus:ring-accent/40"
+          />
+          <input
+            value={launchCpu}
+            onChange={(event) => setLaunchCpu(event.target.value)}
+            placeholder="CPU (e.g. 2.0)"
+            className="w-28 px-2 py-1.5 rounded-lg border border-tetsuo-200 bg-surface text-xs text-tetsuo-600 placeholder:text-tetsuo-400 focus:outline-none focus:ring-2 focus:ring-accent/40"
+          />
           <button
-            onClick={() => onCreate()}
+            onClick={handleCreate}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
           >
@@ -194,7 +252,7 @@ export function DesktopView({
                 <p className="text-xs text-tetsuo-400">Launch a desktop to get started with autonomous desktop automation</p>
               </div>
               <button
-                onClick={() => onCreate()}
+                onClick={handleCreate}
                 disabled={loading}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
               >
@@ -208,7 +266,13 @@ export function DesktopView({
           ) : (
             sandboxes.map((sandbox, i) => (
               <div key={sandbox.containerId} className="animate-list-item" style={{ animationDelay: `${i * 40}ms` }}>
-                <SandboxCard sandbox={sandbox} onDestroy={onDestroy} />
+                <SandboxCard
+                  sandbox={sandbox}
+                  ordinal={i + 1}
+                  activeSessionId={activeSessionId}
+                  onAttach={(containerId) => onAttach(containerId, activeSessionId ?? undefined)}
+                  onDestroy={onDestroy}
+                />
               </div>
             ))
           )}

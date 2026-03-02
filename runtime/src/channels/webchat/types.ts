@@ -52,6 +52,11 @@ export interface WebChatDeps {
   broadcastEvent?: (eventType: string, data: Record<string, unknown>) => void;
   /** Optional desktop sandbox manager for desktop.* handlers. */
   desktopManager?: import("../../desktop/manager.js").DesktopSandboxManager;
+  /**
+   * Optional callback fired before re-binding a web session to another desktop
+   * container so per-session desktop bridges can be recycled safely.
+   */
+  onDesktopSessionRebound?: (sessionId: string) => void;
   /** Optional callback to fully reset backend context for a web session. */
   resetSessionContext?: (sessionId: string) => Promise<void> | void;
 }
@@ -171,6 +176,15 @@ export interface DesktopListRequest {
 
 export interface DesktopCreateRequest {
   type: "desktop.create";
+  sessionId?: string;
+  maxMemory?: string;
+  maxCpu?: string;
+  id?: string;
+}
+
+export interface DesktopAttachRequest {
+  type: "desktop.attach";
+  containerId: string;
   sessionId?: string;
   id?: string;
 }

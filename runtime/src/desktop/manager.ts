@@ -43,6 +43,10 @@ const CONTAINER_VNC_PORT = 6080;
 const MAX_EXEC_BUFFER = 1024 * 1024;
 /** Max PIDs per container — limits fork bombs. */
 const CONTAINER_PID_LIMIT = "256";
+/** Docker memory formats accepted by `docker run --memory` (e.g. 512m, 4g). */
+const MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
+/** Docker CPU formats accepted by `docker run --cpus` (e.g. 0.5, 2, 2.0). */
+const CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
 
 // ============================================================================
 // Internal utilities
@@ -106,6 +110,41 @@ function parsePortMappings(inspectJson: string): PortMapping {
     apiHostPort: parseInt(apiBindings[0].HostPort, 10),
     vncHostPort: parseInt(vncBindings[0].HostPort, 10),
   };
+}
+
+function normalizeMemoryLimit(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  // UX default: a bare integer means gigabytes (e.g. "16" => "16g").
+  if (/^\d+$/.test(normalized)) {
+    return `${normalized}g`;
+  }
+  return normalized;
+}
+
+function normalizeCpuLimit(value: string): string {
+  return value.trim();
+}
+
+function validateMemoryLimit(value: string): void {
+  if (!MEMORY_LIMIT_RE.test(value)) {
+    throw new DesktopSandboxLifecycleError(
+      `Invalid memory limit "${value}". Expected formats like 512m or 4g.`,
+    );
+  }
+}
+
+function validateCpuLimit(value: string): void {
+  if (!CPU_LIMIT_RE.test(value)) {
+    throw new DesktopSandboxLifecycleError(
+      `Invalid CPU limit "${value}". Expected a positive number like 0.5 or 2.0.`,
+    );
+  }
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new DesktopSandboxLifecycleError(
+      `Invalid CPU limit "${value}". Value must be greater than 0.`,
+    );
+  }
 }
 
 // ============================================================================
@@ -218,6 +257,12 @@ export class DesktopSandboxManager {
     const containerName = `${CONTAINER_PREFIX}-${sanitizeSessionId(sessionId)}`;
     const resolution = options.resolution ?? this.config.resolution;
     const image = options.image ?? this.config.image;
+    const maxMemory = normalizeMemoryLimit(
+      options.maxMemory ?? this.config.maxMemory,
+    );
+    const maxCpu = normalizeCpuLimit(options.maxCpu ?? this.config.maxCpu);
+    validateMemoryLimit(maxMemory);
+    validateCpuLimit(maxCpu);
 
     // Remove any stale container with the same name
     await this.forceRemove(containerName);
@@ -227,6 +272,8 @@ export class DesktopSandboxManager {
       resolution,
       image,
       sessionId,
+      maxMemory,
+      maxCpu,
       options,
     );
 
@@ -247,6 +294,8 @@ export class DesktopSandboxManager {
       apiHostPort: ports.apiHostPort,
       vncHostPort: ports.vncHostPort,
       resolution,
+      maxMemory,
+      maxCpu,
     };
 
     this.handles.set(containerId, handle);
@@ -276,7 +325,10 @@ export class DesktopSandboxManager {
   }
 
   /** Get existing sandbox for session, or create one. */
-  async getOrCreate(sessionId: string): Promise<DesktopSandboxHandle> {
+  async getOrCreate(
+    sessionId: string,
+    options?: Omit<CreateDesktopSandboxOptions, "sessionId">,
+  ): Promise<DesktopSandboxHandle> {
     const existing = this.getHandleBySession(sessionId);
     if (existing && isActiveStatus(existing.status)) {
       return existing;
@@ -284,9 +336,46 @@ export class DesktopSandboxManager {
     // Clean up failed/stopped handle if present
     if (existing) {
       this.handles.delete(existing.containerId);
-      this.sessionMap.delete(sessionId);
+      this.removeSessionMappingsForContainer(existing.containerId);
     }
-    return this.create({ sessionId });
+    return this.create({ sessionId, ...options });
+  }
+
+  /**
+   * Attach an existing sandbox container to an additional session ID.
+   *
+   * This enables an active chat session to adopt a sandbox that was created
+   * from another session/view (for example, Desktop page vs. Chat page).
+   */
+  assignSession(
+    containerId: string,
+    sessionId: string,
+  ): DesktopSandboxHandle {
+    const handle = this.handles.get(containerId);
+    if (!handle) {
+      throw new DesktopSandboxLifecycleError(
+        `Desktop sandbox not found: ${containerId}`,
+        containerId,
+      );
+    }
+    if (!isActiveStatus(handle.status)) {
+      throw new DesktopSandboxLifecycleError(
+        `Desktop sandbox is not active: ${containerId} (${handle.status})`,
+        containerId,
+      );
+    }
+
+    // Alias this session to the existing container.
+    this.sessionMap.set(sessionId, containerId);
+
+    // Update the primary session shown in list/status views to the latest
+    // attached session for better operator clarity.
+    if (handle.sessionId !== sessionId) {
+      const updated: DesktopSandboxHandle = { ...handle, sessionId };
+      this.handles.set(containerId, updated);
+      return updated;
+    }
+    return handle;
   }
 
   /** Destroy a container by ID. Idempotent. */
@@ -298,8 +387,8 @@ export class DesktopSandboxManager {
 
     if (handle) {
       handle.status = "stopping";
-      this.sessionMap.delete(handle.sessionId);
     }
+    this.removeSessionMappingsForContainer(containerId);
 
     await this.forceRemove(containerId);
 
@@ -345,6 +434,8 @@ export class DesktopSandboxManager {
       lastActivityAt: h.lastActivityAt,
       vncUrl: `http://localhost:${h.vncHostPort}/vnc.html`,
       uptimeMs: now - h.createdAt,
+      maxMemory: h.maxMemory,
+      maxCpu: h.maxCpu,
     }));
   }
 
@@ -367,6 +458,8 @@ export class DesktopSandboxManager {
     resolution: { width: number; height: number },
     image: string,
     sessionId: string,
+    maxMemory: string,
+    maxCpu: string,
     options: CreateDesktopSandboxOptions,
   ): string[] {
     const args: string[] = [
@@ -375,13 +468,13 @@ export class DesktopSandboxManager {
       "--name",
       containerName,
       "--memory",
-      this.config.maxMemory,
+      maxMemory,
       "--cpus",
-      this.config.maxCpu,
+      maxCpu,
       "--pids-limit",
       CONTAINER_PID_LIMIT,
       "--memory-swap",
-      this.config.maxMemory,
+      maxMemory,
     ];
 
     if (this.config.securityProfile === "strict") {
@@ -521,6 +614,15 @@ export class DesktopSandboxManager {
     if (lifetime) {
       clearTimeout(lifetime);
       this.lifetimeTimers.delete(containerId);
+    }
+  }
+
+  /** Remove every session→container mapping that points at the given container. */
+  private removeSessionMappingsForContainer(containerId: string): void {
+    for (const [sessionId, mappedContainerId] of this.sessionMap.entries()) {
+      if (mappedContainerId === containerId) {
+        this.sessionMap.delete(sessionId);
+      }
     }
   }
 

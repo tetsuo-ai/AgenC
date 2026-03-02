@@ -36,11 +36,12 @@ const SLASH_COMMANDS: SlashCommandOption[] = [
   { name: 'tasks', description: 'List tasks' },
   { name: 'balance', description: 'Show token balance' },
   { name: 'reputation', description: 'Show reputation score' },
+  { name: 'eval', description: 'Model eval or in-session tool eval', args: '[prompt] | full [prompt] | script [args]' },
   { name: 'progress', description: 'Show recent task progress' },
   { name: 'pipeline', description: 'Run pipeline from JSON steps', args: '<json>' },
   { name: 'resume', description: 'Resume halted pipeline', args: '[pipeline-id]' },
   { name: 'goal', description: 'Create or list goals', args: '[description]' },
-  { name: 'desktop', description: 'Desktop sandbox control', args: '<start|stop|status|vnc>' },
+  { name: 'desktop', description: 'Desktop sandbox control', args: '<start|stop|status|vnc|list|attach> [--memory 4g] [--cpu 2.0]' },
 ];
 
 function getSlashQuery(value: string): string | null {

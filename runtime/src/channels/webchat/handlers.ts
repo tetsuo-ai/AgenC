@@ -32,6 +32,45 @@ export type SendFn = (response: ControlResponse) => void;
 
 const SOLANA_NOT_CONFIGURED =
   'On-chain task operations require Solana connection — configure connection.rpcUrl in config';
+const DESKTOP_MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
+const DESKTOP_CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
+
+function parseDesktopResourceOverride(
+  value: unknown,
+  field: 'maxMemory' | 'maxCpu',
+): { value?: string; error?: string } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'string') {
+    return { error: `${field} must be a string` };
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return {};
+
+  if (field === 'maxMemory') {
+    if (!DESKTOP_MEMORY_LIMIT_RE.test(trimmed)) {
+      return {
+        error: 'maxMemory must look like 512m or 2g (plain integers default to GB)',
+      };
+    }
+    const normalized = trimmed.toLowerCase();
+    if (/^\d+$/.test(normalized)) {
+      return { value: `${normalized}g` };
+    }
+    return { value: normalized };
+  }
+
+  if (!DESKTOP_CPU_LIMIT_RE.test(trimmed)) {
+    return {
+      error: 'maxCpu must be a positive number like 0.5 or 2.0',
+    };
+  }
+  const parsed = Number.parseFloat(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { error: 'maxCpu must be greater than 0' };
+  }
+  return { value: trimmed };
+}
 
 /** Create an AnchorProvider from a Connection + Keypair. */
 function createWalletProvider(
@@ -641,8 +680,22 @@ export async function handleDesktopCreate(
     return;
   }
   const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : `desktop-${Date.now()}`;
+  const parsedMemory = parseDesktopResourceOverride(payload?.maxMemory, 'maxMemory');
+  if (parsedMemory.error) {
+    send({ type: 'desktop.error', error: parsedMemory.error, id });
+    return;
+  }
+  const parsedCpu = parseDesktopResourceOverride(payload?.maxCpu, 'maxCpu');
+  if (parsedCpu.error) {
+    send({ type: 'desktop.error', error: parsedCpu.error, id });
+    return;
+  }
+
   await safeAsync(send, id, 'desktop.error', 'Failed to create sandbox', async () => {
-    const handle = await deps.desktopManager!.getOrCreate(sessionId);
+    const handle = await deps.desktopManager!.getOrCreate(sessionId, {
+      maxMemory: parsedMemory.value,
+      maxCpu: parsedCpu.value,
+    });
     send({
       type: 'desktop.created',
       payload: {
@@ -653,6 +706,45 @@ export async function handleDesktopCreate(
         apiPort: handle.apiHostPort,
         vncPort: handle.vncHostPort,
         createdAt: handle.createdAt,
+        maxMemory: handle.maxMemory,
+        maxCpu: handle.maxCpu,
+      },
+      id,
+    });
+  });
+}
+
+export async function handleDesktopAttach(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+): Promise<void> {
+  if (!deps.desktopManager) {
+    send({ type: 'desktop.error', error: 'Desktop sandbox manager not available — enable desktop in config', id });
+    return;
+  }
+  const containerId = payload?.containerId;
+  if (!containerId || typeof containerId !== 'string') {
+    send({ type: 'desktop.error', error: 'Missing containerId in payload', id });
+    return;
+  }
+  const sessionId = payload?.sessionId;
+  if (!sessionId || typeof sessionId !== 'string') {
+    send({ type: 'desktop.error', error: 'Missing sessionId in payload', id });
+    return;
+  }
+
+  await safeAsync(send, id, 'desktop.error', 'Failed to attach sandbox', async () => {
+    deps.onDesktopSessionRebound?.(sessionId);
+    const handle = deps.desktopManager!.assignSession(containerId, sessionId);
+    send({
+      type: 'desktop.attached',
+      payload: {
+        containerId: handle.containerId,
+        sessionId,
+        status: handle.status,
+        vncUrl: `http://localhost:${handle.vncHostPort}/vnc.html`,
       },
       id,
     });
@@ -724,5 +816,6 @@ export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
   'agents.list': handleAgentsList,
   'desktop.list': handleDesktopList,
   'desktop.create': handleDesktopCreate,
+  'desktop.attach': handleDesktopAttach,
   'desktop.destroy': handleDesktopDestroy,
 };
