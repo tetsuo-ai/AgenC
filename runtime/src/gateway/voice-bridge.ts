@@ -26,6 +26,7 @@ import type { ApprovalEngine } from "./approvals.js";
 import type { MemoryBackend } from "../memory/types.js";
 import { createGatewayMessage } from "./message.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
+import { buildChatUsagePayload } from "./chat-usage.js";
 
 const DEFAULT_MAX_SESSIONS = 10;
 
@@ -156,6 +157,8 @@ export interface VoiceBridgeConfig {
   memoryBackend?: MemoryBackend;
   /** Session token budget (for reporting usage to the browser). */
   sessionTokenBudget?: number;
+  /** Model context window used for context-usage display in the web UI. */
+  contextWindowTokens?: number;
 }
 
 interface ActiveSession {
@@ -571,11 +574,13 @@ export class VoiceBridge {
       // Send cumulative token usage to browser chat panel
       send({
         type: "chat.usage",
-        payload: {
+        payload: buildChatUsagePayload({
           totalTokens: this.config.chatExecutor.getSessionTokenUsage(sessionId),
-          budget: this.config.sessionTokenBudget ?? 0,
+          sessionTokenBudget: this.config.sessionTokenBudget ?? 0,
           compacted: result.compacted ?? false,
-        },
+          contextWindowTokens: this.config.contextWindowTokens,
+          callUsage: result.callUsage,
+        }),
       });
 
       if (result.toolCalls.length > 0) {

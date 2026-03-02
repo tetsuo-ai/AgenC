@@ -251,4 +251,36 @@ describe("useChat session lifecycle", () => {
       }),
     );
   });
+
+  it("parses extended chat.usage payload for context breakdown", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useChat({ send, connected: true }));
+
+    act(() => {
+      result.current.handleMessage({
+        type: "chat.usage",
+        payload: {
+          totalTokens: 1234,
+          budget: 64_000,
+          compacted: false,
+          contextWindowTokens: 128_000,
+          promptTokens: 2048,
+          promptTokenBudget: 117_760,
+          maxOutputTokens: 8192,
+          safetyMarginTokens: 2048,
+          sections: [
+            { id: "memory", label: "Memory", tokens: 800, percent: 31.2 },
+          ],
+        },
+      } as WSMessage);
+    });
+
+    expect(result.current.tokenUsage).toMatchObject({
+      totalTokens: 1234,
+      budget: 64_000,
+      contextWindowTokens: 128_000,
+      promptTokens: 2048,
+      sections: [{ id: "memory", label: "Memory", tokens: 800, percent: 31.2 }],
+    });
+  });
 });

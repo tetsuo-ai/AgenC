@@ -72,6 +72,12 @@ import { loadPersonalityTemplate, mergePersonality } from './personality.js';
 import { SlashCommandRegistry, createDefaultCommands } from './commands.js';
 import { HookDispatcher, createBuiltinHooks } from './hooks.js';
 import { ProgressTracker, summarizeToolResult } from './progress.js';
+import { buildChatUsagePayload } from './chat-usage.js';
+import {
+  inferContextWindowTokens,
+  normalizeGrokModel,
+  resolveDynamicContextWindowTokens,
+} from './context-window.js';
 import { PipelineExecutor, type Pipeline, type PipelineStep } from '../workflow/pipeline.js';
 import { ConnectionManager } from '../connection/manager.js';
 import { DiscordChannel } from '../channels/discord/plugin.js';
@@ -90,13 +96,6 @@ import { ToolRouter, type ToolRoutingDecision } from './tool-routing.js';
 
 const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
 const DEFAULT_GROK_FALLBACK_MODEL = 'grok-4-1-fast-non-reasoning';
-const DEFAULT_GROK_CONTEXT_WINDOW_TOKENS = 256_000;
-const DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS = 32_768;
-const LEGACY_GROK_MODEL_ALIASES: Record<string, string> = {
-  'grok-4': DEFAULT_GROK_MODEL,
-  'grok-4-fast-reasoning': DEFAULT_GROK_MODEL,
-  'grok-4-fast-non-reasoning': DEFAULT_GROK_FALLBACK_MODEL,
-};
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
 const MIN_LEARNING_CONFIDENCE = 0.7;
@@ -132,8 +131,7 @@ const SEMANTIC_MEMORY_DEFAULTS = {
   HYBRID_KEYWORD_WEIGHT: 0.3,
 } as const;
 
-/** Default session token budget — enables auto-compaction out of the box.
- *  Model-specific: Grok=131K, Claude=200K, Ollama=varies. 120K is conservative. */
+/** Fallback session token budget when provider/model window is unknown. */
 const DEFAULT_SESSION_TOKEN_BUDGET = 120_000;
 /** Hard cap for assembled system prompt size to prevent prompt blowups. */
 const MAX_SYSTEM_PROMPT_CHARS = 60_000;
@@ -147,29 +145,25 @@ const TRACE_SANITIZE_MAX_ARRAY_ITEMS = 40;
 const TRACE_SANITIZE_MAX_OBJECT_KEYS = 80;
 const TRACE_HISTORY_MAX_MESSAGES = 500;
 
-function normalizeGrokModel(model: string | undefined): string | undefined {
-  if (!model) return undefined;
-  const trimmed = model.trim();
-  return LEGACY_GROK_MODEL_ALIASES[trimmed] ?? trimmed;
-}
-
-function inferContextWindowTokens(
+function resolveSessionTokenBudget(
   llmConfig: GatewayLLMConfig | undefined,
-): number | undefined {
-  if (!llmConfig) return undefined;
+  contextWindowTokens?: number,
+): number {
   if (
-    typeof llmConfig.contextWindowTokens === "number" &&
-    Number.isFinite(llmConfig.contextWindowTokens)
+    typeof llmConfig?.sessionTokenBudget === "number" &&
+    Number.isFinite(llmConfig.sessionTokenBudget)
   ) {
-    return Math.max(2_048, Math.floor(llmConfig.contextWindowTokens));
+    return Math.max(0, Math.floor(llmConfig.sessionTokenBudget));
   }
-  if (llmConfig.provider === "grok") return DEFAULT_GROK_CONTEXT_WINDOW_TOKENS;
-  if (llmConfig.provider === "ollama") return DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS;
-  return undefined;
+  const inferredContextWindow =
+    contextWindowTokens ?? inferContextWindowTokens(llmConfig);
+  if (inferredContextWindow !== undefined) return inferredContextWindow;
+  return DEFAULT_SESSION_TOKEN_BUDGET;
 }
 
 function buildPromptBudgetConfig(
   llmConfig: GatewayLLMConfig | undefined,
+  contextWindowTokens?: number,
 ): {
   contextWindowTokens?: number;
   maxOutputTokens?: number;
@@ -180,7 +174,7 @@ function buildPromptBudgetConfig(
 } | undefined {
   if (!llmConfig) return undefined;
   return {
-    contextWindowTokens: inferContextWindowTokens(llmConfig),
+    contextWindowTokens: contextWindowTokens ?? inferContextWindowTokens(llmConfig),
     maxOutputTokens: llmConfig.maxTokens,
     hardMaxPromptChars: llmConfig.promptHardMaxChars,
     safetyMarginTokens: llmConfig.promptSafetyMarginTokens,
@@ -864,6 +858,7 @@ export class DaemonManager {
   private _hookDispatcher: HookDispatcher | null = null;
   private _connectionManager: ConnectionManager | null = null;
   private _chatExecutor: ChatExecutor | null = null;
+  private _resolvedContextWindowTokens: number | undefined;
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
   private _toolRouter: ToolRouter | null = null;
@@ -1259,6 +1254,13 @@ export class DaemonManager {
       logger: this.logger,
     });
 
+    const contextWindowTokens = await this.resolveLlmContextWindowTokens(config.llm);
+    this._resolvedContextWindowTokens = contextWindowTokens;
+    const sessionTokenBudget = resolveSessionTokenBudget(
+      config.llm,
+      contextWindowTokens,
+    );
+
     this._chatExecutor = providers.length > 0 ? new ChatExecutor({
       providers,
       toolHandler: baseToolHandler,
@@ -1266,7 +1268,7 @@ export class DaemonManager {
       memoryRetriever,
       learningProvider,
       progressProvider: progressTracker,
-      promptBudget: buildPromptBudgetConfig(config.llm),
+      promptBudget: buildPromptBudgetConfig(config.llm, contextWindowTokens),
       maxToolRounds: config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config),
       plannerEnabled: config.llm?.plannerEnabled,
       plannerMaxTokens: config.llm?.plannerMaxTokens,
@@ -1278,7 +1280,7 @@ export class DaemonManager {
       retryPolicyMatrix: config.llm?.retryPolicy,
       toolFailureCircuitBreaker: config.llm?.toolFailureCircuitBreaker,
       pipelineExecutor,
-      sessionTokenBudget: config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
+      sessionTokenBudget,
       onCompaction: this.handleCompaction,
     }) : null;
 
@@ -1327,7 +1329,6 @@ export class DaemonManager {
         }),
     });
     const signals = this.createWebChatSignals(webChat);
-    const sessionTokenBudget = config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET;
     const onMessage = this.createWebChatMessageHandler({
       webChat,
       commandRegistry,
@@ -1341,6 +1342,7 @@ export class DaemonManager {
       memoryBackend,
       signals,
       sessionTokenBudget,
+      contextWindowTokens,
     });
 
     await webChat.initialize({ onMessage, logger: this.logger, config: {} });
@@ -1414,7 +1416,7 @@ export class DaemonManager {
       `, memory=${memoryBackend.name}` +
       `, ${commandRegistry.size} commands` +
       (telemetry ? ', telemetry' : '') +
-      `, budget=${config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET}` +
+      `, budget=${sessionTokenBudget}` +
       (voiceBridge ? ', voice' : '') +
       ', hooks, sessions, approvals',
     );
@@ -2479,6 +2481,16 @@ export class DaemonManager {
     }
   };
 
+  private async resolveLlmContextWindowTokens(
+    llmConfig: GatewayLLMConfig | undefined,
+  ): Promise<number | undefined> {
+    const dynamic = await resolveDynamicContextWindowTokens(llmConfig, {
+      logger: this.logger,
+    });
+    if (dynamic !== undefined) return dynamic;
+    return inferContextWindowTokens(llmConfig);
+  }
+
   private async hotSwapLLMProvider(
     newConfig: GatewayConfig,
     skillInjector: SkillInjector,
@@ -2493,6 +2505,12 @@ export class DaemonManager {
         newConfig.llm?.toolRouting,
         this.logger,
       );
+      const contextWindowTokens = await this.resolveLlmContextWindowTokens(newConfig.llm);
+      this._resolvedContextWindowTokens = contextWindowTokens;
+      const sessionTokenBudget = resolveSessionTokenBudget(
+        newConfig.llm,
+        contextWindowTokens,
+      );
       const providers = await this.createLLMProviders(newConfig, this._llmTools);
       this._chatExecutor = providers.length > 0 ? new ChatExecutor({
         providers,
@@ -2501,7 +2519,7 @@ export class DaemonManager {
         memoryRetriever,
         learningProvider,
         progressProvider,
-        promptBudget: buildPromptBudgetConfig(newConfig.llm),
+        promptBudget: buildPromptBudgetConfig(newConfig.llm, contextWindowTokens),
         maxToolRounds: newConfig.llm?.maxToolRounds ?? getDefaultMaxToolRounds(newConfig),
         plannerEnabled: newConfig.llm?.plannerEnabled,
         plannerMaxTokens: newConfig.llm?.plannerMaxTokens,
@@ -2513,7 +2531,7 @@ export class DaemonManager {
         retryPolicyMatrix: newConfig.llm?.retryPolicy,
         toolFailureCircuitBreaker: newConfig.llm?.toolFailureCircuitBreaker,
         pipelineExecutor,
-        sessionTokenBudget: newConfig.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
+        sessionTokenBudget,
         onCompaction: this.handleCompaction,
       }) : null;
 
@@ -3234,6 +3252,9 @@ export class DaemonManager {
       voicePrompt += '\n\n' + this.buildDesktopContext(config);
     }
 
+    const contextWindowTokens =
+      this._resolvedContextWindowTokens ?? inferContextWindowTokens(config.llm);
+
     return new VoiceBridge({
       apiKey: voiceApiKey,
       toolHandler,
@@ -3251,7 +3272,8 @@ export class DaemonManager {
       hooks: deps.hooks,
       approvalEngine: deps.approvalEngine,
       memoryBackend: deps.memoryBackend,
-      sessionTokenBudget: config.llm?.sessionTokenBudget ?? DEFAULT_SESSION_TOKEN_BUDGET,
+      sessionTokenBudget: resolveSessionTokenBudget(config.llm, contextWindowTokens),
+      contextWindowTokens,
     });
   }
 
@@ -3322,6 +3344,7 @@ export class DaemonManager {
     memoryBackend: MemoryBackend;
     signals: WebChatSignals;
     sessionTokenBudget: number;
+    contextWindowTokens?: number;
   }): (msg: GatewayMessage) => Promise<void> {
     const {
       webChat,
@@ -3336,6 +3359,7 @@ export class DaemonManager {
       memoryBackend,
       signals,
       sessionTokenBudget,
+      contextWindowTokens,
     } = params;
 
     return async (msg: GatewayMessage): Promise<void> => {
@@ -3653,11 +3677,13 @@ export class DaemonManager {
         // Send cumulative token usage to browser
         webChat.pushToSession(msg.sessionId, {
           type: 'chat.usage',
-          payload: {
+          payload: buildChatUsagePayload({
             totalTokens: chatExecutor.getSessionTokenUsage(msg.sessionId),
-            budget: sessionTokenBudget,
+            sessionTokenBudget,
             compacted: result.compacted ?? false,
-          },
+            contextWindowTokens,
+            callUsage: result.callUsage,
+          }),
         });
 
         webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
