@@ -115,4 +115,16 @@ describe('ChatInput', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend).toHaveBeenCalledWith('/restart', undefined);
   });
+
+  it('includes eval slash command in picker', () => {
+    const onSend = vi.fn();
+    const { container } = render(<ChatInput onSend={onSend} />);
+    const input = container.querySelector(
+      'textarea[placeholder="Message to AgenC..."]',
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: '/ev' } });
+
+    expect(screen.getByTestId('slash-command-eval')).toBeTruthy();
+  });
 });

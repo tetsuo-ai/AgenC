@@ -590,6 +590,186 @@ describe("WebChatChannel", () => {
     });
   });
 
+  describe("desktop handlers", () => {
+    it("desktop.create binds to the client's active session when sessionId is omitted", async () => {
+      const getOrCreate = vi.fn().mockResolvedValue({
+        containerId: "ctr123",
+        sessionId: "session:auto",
+        status: "ready",
+        vncHostPort: 6080,
+        apiHostPort: 9990,
+        createdAt: Date.now(),
+        maxMemory: "4g",
+        maxCpu: "2.0",
+      });
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getOrCreate,
+          destroy: vi.fn(),
+          assignSession: vi.fn(),
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "desktop.create",
+        msg("desktop.create", {}, "desktop-create-1"),
+        send,
+      );
+
+      await vi.waitFor(() => expect(getOrCreate).toHaveBeenCalledTimes(1));
+      const boundSessionId = getOrCreate.mock.calls[0][0] as string;
+      expect(boundSessionId.startsWith("session:")).toBe(true);
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "chat.session",
+          payload: expect.objectContaining({ sessionId: boundSessionId }),
+        }),
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "desktop.created" }),
+      );
+    });
+
+    it("desktop.create forwards maxMemory/maxCpu overrides", async () => {
+      const getOrCreate = vi.fn().mockResolvedValue({
+        containerId: "ctr-resource",
+        sessionId: "session:auto",
+        status: "ready",
+        vncHostPort: 6085,
+        apiHostPort: 9995,
+        createdAt: Date.now(),
+        maxMemory: "8g",
+        maxCpu: "4.0",
+      });
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getOrCreate,
+          destroy: vi.fn(),
+          assignSession: vi.fn(),
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "desktop.create",
+        msg(
+          "desktop.create",
+          { maxMemory: "8g", maxCpu: "4.0" },
+          "desktop-create-resource-1",
+        ),
+        send,
+      );
+
+      await vi.waitFor(() => expect(getOrCreate).toHaveBeenCalledTimes(1));
+      const sessionId = getOrCreate.mock.calls[0][0] as string;
+      expect(getOrCreate).toHaveBeenCalledWith(sessionId, {
+        maxMemory: "8g",
+        maxCpu: "4.0",
+      });
+    });
+
+    it("desktop.create normalizes bare integer maxMemory to gigabytes", async () => {
+      const getOrCreate = vi.fn().mockResolvedValue({
+        containerId: "ctr-resource-int",
+        sessionId: "session:auto",
+        status: "ready",
+        vncHostPort: 6086,
+        apiHostPort: 9996,
+        createdAt: Date.now(),
+        maxMemory: "16g",
+        maxCpu: "4",
+      });
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getOrCreate,
+          destroy: vi.fn(),
+          assignSession: vi.fn(),
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "desktop.create",
+        msg(
+          "desktop.create",
+          { maxMemory: "16", maxCpu: "4" },
+          "desktop-create-resource-int-1",
+        ),
+        send,
+      );
+
+      await vi.waitFor(() => expect(getOrCreate).toHaveBeenCalledTimes(1));
+      const sessionId = getOrCreate.mock.calls[0][0] as string;
+      expect(getOrCreate).toHaveBeenCalledWith(sessionId, {
+        maxMemory: "16g",
+        maxCpu: "4",
+      });
+    });
+
+    it("desktop.attach binds container to the client's active session", async () => {
+      const assignSession = vi.fn().mockReturnValue({
+        containerId: "ctr777",
+        sessionId: "session:auto",
+        status: "ready",
+        vncHostPort: 6081,
+      });
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getOrCreate: vi.fn(),
+          destroy: vi.fn(),
+          assignSession,
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "hello" }),
+        send,
+      );
+      const sessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+
+      channel.handleMessage(
+        "client_1",
+        "desktop.attach",
+        msg("desktop.attach", { containerId: "ctr777" }, "desktop-attach-1"),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(assignSession).toHaveBeenCalledWith("ctr777", sessionId),
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "desktop.attached" }),
+      );
+    });
+  });
+
   // --------------------------------------------------------------------------
   // Error handling
   // --------------------------------------------------------------------------

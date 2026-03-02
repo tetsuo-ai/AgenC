@@ -59,6 +59,8 @@ import {
   resolveTraceLoggingConfig,
   summarizeToolFailureForLog,
   summarizeLLMFailureForSurface,
+  formatEvalScriptReply,
+  didEvalScriptPass,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
@@ -157,6 +159,95 @@ describe("summarizeLLMFailureForSurface", () => {
       new LLMAuthenticationError("grok", 401),
     );
     expect(auth.stopReason).toBe("authentication_error");
+  });
+});
+
+describe("formatEvalScriptReply", () => {
+  it("formats successful eval runs", () => {
+    const message = formatEvalScriptReply({
+      exitCode: 0,
+      stdout: "all good",
+      stderr: "",
+      timedOut: false,
+      durationMs: 321,
+    });
+
+    expect(message).toContain("passed in 321ms");
+    expect(message).toContain("stdout:");
+    expect(message).toContain("all good");
+  });
+
+  it("formats timed out eval runs", () => {
+    const message = formatEvalScriptReply({
+      exitCode: null,
+      stdout: "",
+      stderr: "killed",
+      timedOut: true,
+      durationMs: 600000,
+    });
+
+    expect(message).toContain("timed out");
+    expect(message).toContain("stderr:");
+    expect(message).toContain("killed");
+  });
+
+  it("formats failed eval runs with exit code", () => {
+    const message = formatEvalScriptReply({
+      exitCode: 1,
+      stdout: "partial output",
+      stderr: "assertion failed",
+      timedOut: false,
+      durationMs: 913,
+    });
+
+    expect(message).toContain("failed (exit 1)");
+    expect(message).toContain("stderr:");
+    expect(message).toContain("assertion failed");
+    expect(message).toContain("stdout:");
+  });
+});
+
+describe("didEvalScriptPass", () => {
+  it("returns true only when stdout reports Overall: pass", () => {
+    const pass = didEvalScriptPass({
+      exitCode: 0,
+      stdout: "Overall: pass",
+      stderr: "",
+      timedOut: false,
+      durationMs: 42,
+    });
+    expect(pass).toBe(true);
+  });
+
+  it("returns false for missing or non-pass overall markers", () => {
+    const missing = didEvalScriptPass({
+      exitCode: 0,
+      stdout: "Overall: undefined",
+      stderr: "",
+      timedOut: false,
+      durationMs: 42,
+    });
+    expect(missing).toBe(false);
+
+    const fail = didEvalScriptPass({
+      exitCode: 0,
+      stdout: "Overall: fail",
+      stderr: "",
+      timedOut: false,
+      durationMs: 42,
+    });
+    expect(fail).toBe(false);
+  });
+
+  it("returns false when process exit code is non-zero", () => {
+    const failed = didEvalScriptPass({
+      exitCode: 1,
+      stdout: "Overall: pass",
+      stderr: "failed",
+      timedOut: false,
+      durationMs: 42,
+    });
+    expect(failed).toBe(false);
   });
 });
 

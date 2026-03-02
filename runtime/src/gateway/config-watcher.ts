@@ -89,6 +89,8 @@ const VALID_MESSAGING_MODES: ReadonlySet<string> = new Set([
   "off-chain",
   "auto",
 ]);
+const DOCKER_MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
+const DOCKER_CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
 
 /** Type predicate — returns true when `obj` satisfies the GatewayConfig shape. */
 export function isValidGatewayConfig(obj: unknown): obj is GatewayConfig {
@@ -667,6 +669,31 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
           32,
           errors,
         );
+      }
+      if (obj.desktop.maxMemory !== undefined) {
+        if (
+          typeof obj.desktop.maxMemory !== "string" ||
+          !DOCKER_MEMORY_LIMIT_RE.test(obj.desktop.maxMemory)
+        ) {
+          errors.push(
+            "desktop.maxMemory must be a string like 512m or 4g (plain integers are treated as GB)",
+          );
+        }
+      }
+      if (obj.desktop.maxCpu !== undefined) {
+        if (
+          typeof obj.desktop.maxCpu !== "string" ||
+          !DOCKER_CPU_LIMIT_RE.test(obj.desktop.maxCpu)
+        ) {
+          errors.push(
+            "desktop.maxCpu must be a positive numeric string like 0.5 or 2.0",
+          );
+        } else {
+          const parsed = Number.parseFloat(obj.desktop.maxCpu);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            errors.push("desktop.maxCpu must be greater than 0");
+          }
+        }
       }
       if (obj.desktop.networkMode !== undefined) {
         requireOneOf(

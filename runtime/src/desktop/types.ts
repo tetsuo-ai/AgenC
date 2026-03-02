@@ -108,6 +108,10 @@ export interface DesktopSandboxHandle {
   /** Assigned host port for noVNC (mapped from container port 6080) */
   readonly vncHostPort: number;
   readonly resolution: DisplayResolution;
+  /** Effective Docker memory limit for this sandbox (e.g. "4g"). */
+  readonly maxMemory: string;
+  /** Effective Docker CPU limit for this sandbox (e.g. "2.0"). */
+  readonly maxCpu: string;
 }
 
 // ============================================================================
@@ -122,6 +126,8 @@ export interface DesktopSandboxInfo {
   readonly lastActivityAt: number;
   readonly vncUrl: string;
   readonly uptimeMs: number;
+  readonly maxMemory: string;
+  readonly maxCpu: string;
 }
 
 // ============================================================================
@@ -132,6 +138,10 @@ export interface CreateDesktopSandboxOptions {
   readonly sessionId: string;
   readonly resolution?: DisplayResolution;
   readonly image?: string;
+  /** Per-sandbox memory override. Defaults to desktop.maxMemory config. */
+  readonly maxMemory?: string;
+  /** Per-sandbox CPU override. Defaults to desktop.maxCpu config. */
+  readonly maxCpu?: string;
   readonly env?: Record<string, string>;
   readonly labels?: Record<string, string>;
 }

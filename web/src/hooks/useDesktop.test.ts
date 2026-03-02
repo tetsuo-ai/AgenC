@@ -26,7 +26,7 @@ describe('useDesktop', () => {
         type: 'desktop.list',
         payload: [{ containerId: 'c', sessionId: 's', status: 'ready', createdAt: 0, lastActivityAt: 0, vncUrl: 'http://example', uptimeMs: 100 }],
       } as never);
-      result.current.create('session-1');
+      result.current.create({ sessionId: 'session-1', maxMemory: '8g', maxCpu: '4.0' });
       result.current.handleMessage({ type: 'desktop.created' } as never);
       result.current.handleMessage({
         type: 'desktop.destroyed',
@@ -38,7 +38,10 @@ describe('useDesktop', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.sandboxes).toEqual([]);
     expect(result.current.error).toBe('failed');
-    expect(send).toHaveBeenCalledWith({ type: 'desktop.create', payload: { sessionId: 'session-1' } });
+    expect(send).toHaveBeenCalledWith({
+      type: 'desktop.create',
+      payload: { sessionId: 'session-1', maxMemory: '8g', maxCpu: '4.0' },
+    });
     expect(send).toHaveBeenCalledWith({ type: 'desktop.list' });
   });
 

@@ -212,7 +212,7 @@ export class WebChatChannel
     this.clientSenders.set(clientId, send);
 
     const id = typeof msg.id === "string" ? msg.id : undefined;
-    const payload = msg.payload as Record<string, unknown> | undefined;
+    let payload = msg.payload as Record<string, unknown> | undefined;
 
     // Voice messages are routed to the voice bridge
     if (type.startsWith("voice.")) {
@@ -265,6 +265,22 @@ export class WebChatChannel
     if (type === "chat.sessions") {
       this.handleChatSessions(clientId, id, send);
       return;
+    }
+
+    // Desktop create/attach should default to the active webchat session so
+    // the chat pane and desktop pane point at the same sandbox.
+    if (type === "desktop.create" || type === "desktop.attach") {
+      const normalizedPayload =
+        payload && typeof payload === "object" ? { ...payload } : {};
+      if (
+        typeof normalizedPayload.sessionId !== "string" ||
+        normalizedPayload.sessionId.length === 0
+      ) {
+        const sessionId = this.ensureSession(clientId);
+        normalizedPayload.sessionId = sessionId;
+        send({ type: "chat.session", payload: { sessionId } });
+      }
+      payload = normalizedPayload;
     }
 
     // Delegate to subsystem handlers (may be async)

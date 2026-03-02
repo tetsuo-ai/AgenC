@@ -5,6 +5,8 @@ import {
   WS_DESKTOP_CREATE,
   WS_DESKTOP_DESTROY,
   WS_DESKTOP_CREATED,
+  WS_DESKTOP_ATTACH,
+  WS_DESKTOP_ATTACHED,
   WS_DESKTOP_DESTROYED,
   WS_DESKTOP_ERROR,
 } from '../constants';
@@ -17,6 +19,14 @@ export interface DesktopSandbox {
   lastActivityAt: number;
   vncUrl: string;
   uptimeMs: number;
+  maxMemory?: string;
+  maxCpu?: string;
+}
+
+export interface DesktopCreateOptions {
+  sessionId?: string;
+  maxMemory?: string;
+  maxCpu?: string;
 }
 
 interface UseDesktopOptions {
@@ -31,7 +41,8 @@ export interface UseDesktopReturn {
   activeVncUrl: string | null;
   vncUrlForSession: (sessionId: string | null | undefined) => string | null;
   refresh: () => void;
-  create: (sessionId?: string) => void;
+  create: (options?: DesktopCreateOptions) => void;
+  attach: (containerId: string, sessionId?: string) => void;
   destroy: (containerId: string) => void;
   handleMessage: (msg: WSMessage) => void;
 }
@@ -47,14 +58,20 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
     send({ type: WS_DESKTOP_LIST });
   }, [send]);
 
-  const create = useCallback((sessionId?: string) => {
+  const create = useCallback((options?: DesktopCreateOptions) => {
     setLoading(true);
     setError(null);
-    send({ type: WS_DESKTOP_CREATE, payload: { sessionId } });
+    send({ type: WS_DESKTOP_CREATE, payload: { ...(options ?? {}) } });
   }, [send]);
 
   const destroy = useCallback((containerId: string) => {
     send({ type: WS_DESKTOP_DESTROY, payload: { containerId } });
+  }, [send]);
+
+  const attach = useCallback((containerId: string, sessionId?: string) => {
+    setLoading(true);
+    setError(null);
+    send({ type: WS_DESKTOP_ATTACH, payload: { containerId, sessionId } });
   }, [send]);
 
   // Auto-refresh on mount when connected
@@ -70,6 +87,9 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
       setLoading(false);
     } else if (msg.type === WS_DESKTOP_CREATED) {
       // Refresh the full list to get accurate state
+      setLoading(false);
+      send({ type: WS_DESKTOP_LIST });
+    } else if (msg.type === WS_DESKTOP_ATTACHED) {
       setLoading(false);
       send({ type: WS_DESKTOP_LIST });
     } else if (msg.type === WS_DESKTOP_DESTROYED) {
@@ -104,5 +124,5 @@ export function useDesktop({ send, connected }: UseDesktopOptions): UseDesktopRe
     [sandboxes],
   );
 
-  return { sandboxes, loading, error, activeVncUrl, vncUrlForSession, refresh, create, destroy, handleMessage };
+  return { sandboxes, loading, error, activeVncUrl, vncUrlForSession, refresh, create, attach, destroy, handleMessage };
 }

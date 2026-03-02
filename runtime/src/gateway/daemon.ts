@@ -13,6 +13,7 @@ import { constants } from 'node:fs';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { Gateway } from './gateway.js';
 import { loadGatewayConfig } from './config-watcher.js';
 import { GatewayLifecycleError, GatewayStateError } from './errors.js';
@@ -40,6 +41,7 @@ import { classifyLLMFailure } from '../llm/errors.js';
 import { toPipelineStopReason } from '../llm/policy.js';
 import type { LLMPipelineStopReason } from '../llm/policy.js';
 import type { GatewayMessage } from './message.js';
+import { createGatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
 import type {
   SkillInjector,
@@ -137,6 +139,9 @@ const DEFAULT_SESSION_TOKEN_BUDGET = 120_000;
 const MAX_SYSTEM_PROMPT_CHARS = 60_000;
 const MODEL_QUERY_RE = /\b(what|which|actual|current)\b[\s\S]{0,80}(model|llm|provider)\b/i;
 const TOOL_LOG_SNIPPET_MAX_CHARS = 240;
+const EVAL_SCRIPT_NAME = 'agenc-eval-test.cjs';
+const EVAL_SCRIPT_TIMEOUT_MS = 10 * 60_000;
+const EVAL_REPLY_MAX_CHARS = 4_000;
 const TRACE_LOG_DEFAULT_MAX_CHARS = 20_000;
 const TRACE_LOG_MIN_MAX_CHARS = 256;
 const TRACE_LOG_MAX_MAX_CHARS = 200_000;
@@ -238,6 +243,182 @@ interface ToolFailureSummary {
   readonly durationMs: number;
   readonly error: string;
   args?: Record<string, unknown>;
+}
+
+interface EvalScriptResult {
+  readonly exitCode: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly timedOut: boolean;
+  readonly durationMs: number;
+}
+
+function extractEvalOverall(stdout: string): "pass" | "fail" | undefined {
+  const marker = stdout.match(/\bOverall:\s*(pass|fail)\b/i);
+  if (marker) {
+    return marker[1].toLowerCase() as "pass" | "fail";
+  }
+
+  const objectMatches = stdout.match(/\{[\s\S]*?\}/g);
+  if (!objectMatches) return undefined;
+  for (let i = objectMatches.length - 1; i >= 0; i--) {
+    const candidate = objectMatches[i];
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      if (parsed.overall === "pass" || parsed.overall === "fail") {
+        return parsed.overall;
+      }
+    } catch {
+      // continue scanning
+    }
+  }
+
+  return undefined;
+}
+
+export function didEvalScriptPass(result: EvalScriptResult): boolean {
+  if (result.timedOut || result.exitCode !== 0) return false;
+  return extractEvalOverall(result.stdout) === "pass";
+}
+
+function formatEvalTextForReply(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return truncateToolLogText(trimmed, EVAL_REPLY_MAX_CHARS);
+}
+
+export function formatEvalScriptReply(result: EvalScriptResult): string {
+  const stdout = formatEvalTextForReply(result.stdout);
+  const stderr = formatEvalTextForReply(result.stderr);
+  if (result.timedOut) {
+    return (
+      `Eval test timed out after ${result.durationMs}ms.` +
+      (stdout ? `\nstdout:\n${stdout}` : '') +
+      (stderr ? `\nstderr:\n${stderr}` : '')
+    );
+  }
+  if (result.exitCode === 0) {
+    return (
+      `Eval test passed in ${result.durationMs}ms.` +
+      (stdout ? `\nstdout:\n${stdout}` : '') +
+      (stderr ? `\nstderr:\n${stderr}` : '')
+    );
+  }
+  return (
+    `Eval test failed (exit ${result.exitCode ?? 'unknown'}) in ${result.durationMs}ms.` +
+    (stderr ? `\nstderr:\n${stderr}` : '') +
+    (stdout ? `\nstdout:\n${stdout}` : '')
+  );
+}
+
+async function resolveEvalScriptPathCandidates(): Promise<string | undefined> {
+  const candidates = [
+    resolvePath(process.cwd(), EVAL_SCRIPT_NAME),
+    resolvePath(getDefaultWorkspacePath(), EVAL_SCRIPT_NAME),
+  ];
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.R_OK);
+      return candidate;
+    } catch {
+      // continue
+    }
+  }
+  return undefined;
+}
+
+async function runEvalScript(
+  scriptPath: string,
+  args: readonly string[],
+  onProgress?: (progress: { stream: "stdout" | "stderr"; line: string }) => void,
+): Promise<EvalScriptResult> {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let stdoutCarry = '';
+    let stderrCarry = '';
+    let settled = false;
+    let timedOut = false;
+
+    const emitProgressLines = (
+      stream: "stdout" | "stderr",
+      chunk: string,
+      carry: string,
+    ): { nextCarry: string } => {
+      const combined = carry + chunk;
+      const parts = combined.split(/\r?\n/);
+      const nextCarry = parts.pop() ?? '';
+      for (const rawLine of parts) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        onProgress?.({ stream, line });
+      }
+      return { nextCarry };
+    };
+
+    const finalize = (exitCode: number | null, errorMessage?: string): void => {
+      if (settled) return;
+      settled = true;
+
+      if (stdoutCarry.trim().length > 0) {
+        onProgress?.({ stream: "stdout", line: stdoutCarry.trim() });
+      }
+      if (stderrCarry.trim().length > 0) {
+        onProgress?.({ stream: "stderr", line: stderrCarry.trim() });
+      }
+
+      if (errorMessage && stderr.trim().length === 0) {
+        stderr = errorMessage;
+      }
+
+      resolve({
+        exitCode: timedOut ? null : exitCode,
+        stdout,
+        stderr,
+        timedOut,
+        durationMs: Date.now() - start,
+      });
+    };
+
+    const child = spawn(process.execPath, [scriptPath, ...args], {
+      cwd: dirname(scriptPath),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // best-effort kill
+      }
+    }, EVAL_SCRIPT_TIMEOUT_MS);
+    timeout.unref();
+
+    child.stdout.on('data', (chunk: Buffer | string) => {
+      const text = chunk.toString();
+      stdout += text;
+      const { nextCarry } = emitProgressLines("stdout", text, stdoutCarry);
+      stdoutCarry = nextCarry;
+    });
+    child.stderr.on('data', (chunk: Buffer | string) => {
+      const text = chunk.toString();
+      stderr += text;
+      const { nextCarry } = emitProgressLines("stderr", text, stderrCarry);
+      stderrCarry = nextCarry;
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      finalize(1, toErrorMessage(err));
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      finalize(code ?? 1);
+    });
+  });
 }
 
 export interface ResolvedTraceLoggingConfig {
@@ -839,6 +1020,7 @@ export interface DaemonStatus {
 export class DaemonManager {
   private gateway: Gateway | null = null;
   private _webChatChannel: WebChatChannel | null = null;
+  private _webChatInboundHandler: ((msg: GatewayMessage) => Promise<void>) | null = null;
   private _telegramChannel: TelegramChannel | null = null;
   private _discordChannel: DiscordChannel | null = null;
   private _slackChannel: SlackChannel | null = null;
@@ -1319,6 +1501,16 @@ export class DaemonManager {
       connection: this._connectionManager?.getConnection(),
       broadcastEvent: (type, data) => webChat.broadcastEvent(type, data),
       desktopManager: this._desktopManager ?? undefined,
+      onDesktopSessionRebound: (webSessionId: string) => {
+        void import('../desktop/session-router.js').then(({ destroySessionBridge }) => {
+          destroySessionBridge(
+            webSessionId,
+            this._desktopBridges,
+            this._playwrightBridges,
+            this._containerMCPBridges,
+          );
+        });
+      },
       resetSessionContext: (webSessionId: string) =>
         this.resetWebSessionContext({
           webSessionId,
@@ -1344,6 +1536,7 @@ export class DaemonManager {
       sessionTokenBudget,
       contextWindowTokens,
     });
+    this._webChatInboundHandler = onMessage;
 
     await webChat.initialize({ onMessage, logger: this.logger, config: {} });
     await webChat.start();
@@ -3010,6 +3203,179 @@ export class DaemonManager {
       },
     });
     commandRegistry.register({
+      name: 'eval',
+      description: 'Evaluate model output or run tool harness in current session',
+      args: '[prompt] | full [prompt] | script [args]',
+      global: true,
+      handler: async (ctx) => {
+        const mode = ctx.argv[0]?.toLowerCase();
+        const scriptHarness = mode === 'script';
+        const fullHarness = mode === 'full' || mode === 'tools' || scriptHarness;
+
+        if (!fullHarness) {
+          const provider = providers[0];
+          if (!provider) {
+            await ctx.reply('No configured LLM provider available for /eval.');
+            return;
+          }
+
+          const prompt =
+            ctx.args && ctx.args.trim().length > 0
+              ? ctx.args.trim()
+              : 'Respond with strict JSON only: {"ok":true,"test":"model-eval"}';
+
+          const started = Date.now();
+          try {
+            const response = await provider.chat([
+              {
+                role: 'system',
+                content:
+                  'You are a model evaluation probe. Follow user formatting instructions exactly.',
+              },
+              { role: 'user', content: prompt },
+            ]);
+            const durationMs = Date.now() - started;
+            if (response.finishReason === 'error' || response.error) {
+              await ctx.reply(
+                `Model eval failed (${provider.name}) in ${durationMs}ms: ` +
+                `${response.error?.message ?? 'unknown provider error'}`,
+              );
+              return;
+            }
+
+            await ctx.reply(
+              `Model eval (${provider.name}) completed in ${durationMs}ms.\n` +
+              `Model: ${response.model}\n` +
+              `Finish: ${response.finishReason}\n` +
+              `Usage: prompt=${response.usage.promptTokens}, completion=${response.usage.completionTokens}, total=${response.usage.totalTokens}\n` +
+              `Response:\n${truncateToolLogText(response.content, EVAL_REPLY_MAX_CHARS)}\n` +
+              `Mode: model-only (no tools). Use /eval full to run tools in this chat session.`,
+            );
+          } catch (err) {
+            await ctx.reply(`Model eval error: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          return;
+        }
+
+        if (!scriptHarness) {
+          const inboundHandler = this._webChatInboundHandler;
+          if (!inboundHandler) {
+            await ctx.reply('Full eval unavailable: webchat pipeline is not initialized.');
+            return;
+          }
+
+          const desktopHandle = this._desktopManager?.getHandleBySession(ctx.sessionId);
+          const customPrompt = ctx.args.replace(/^(full|tools)\s*/i, '').trim();
+          const defaultPrompt = desktopHandle
+            ? [
+              'You are running /eval full inside a desktop-assigned chat session.',
+              'Use desktop tools only for execution.',
+              'Do not use system.bash or other system.* tools.',
+              'Steps:',
+              '1) Use desktop.bash to create /tmp/agenc-eval/index.html containing exactly: <h1>agent-ok</h1>.',
+              '2) Use desktop.bash to start a local HTTP server on 127.0.0.1 with a free port, and write /tmp/agenc-eval/state.txt with "port=<port> pid=<pid>".',
+              '3) Use desktop.bash to curl the server and verify response includes agent-ok.',
+              '4) Use desktop.bash to stop the exact pid and verify the port is closed.',
+              'Return strict JSON: {"overall":"pass|fail","steps":[{"name":"...","status":"pass|fail","evidence":"..."}]}',
+            ].join('\n')
+            : [
+              'You are running /eval full in a host-tools session (no desktop assigned).',
+              'Use system.bash for all execution steps.',
+              'Steps:',
+              '1) Create /tmp/agenc-eval/index.html containing exactly: <h1>agent-ok</h1>.',
+              '2) Start a local HTTP server on 127.0.0.1 with a free port, and write /tmp/agenc-eval/state.txt with "port=<port> pid=<pid>".',
+              '3) curl the server and verify response includes agent-ok.',
+              '4) Stop the exact pid and verify the port is closed.',
+              'Return strict JSON: {"overall":"pass|fail","steps":[{"name":"...","status":"pass|fail","evidence":"..."}]}',
+            ].join('\n');
+
+          const evalPrompt = customPrompt.length > 0 ? customPrompt : defaultPrompt;
+          const evalMessage = createGatewayMessage({
+            channel: 'webchat',
+            senderId: ctx.senderId,
+            senderName: `WebClient(${ctx.senderId})`,
+            sessionId: ctx.sessionId,
+            content: evalPrompt,
+            scope: 'dm',
+            metadata: {
+              source: 'slash-eval',
+              mode: 'full',
+              target: desktopHandle ? 'desktop' : 'host',
+              desktopContainerId: desktopHandle?.containerId,
+            },
+          });
+
+          await ctx.reply(
+            desktopHandle
+              ? `Starting full eval in this chat session on assigned desktop ${desktopHandle.containerId}. Live tool events will stream below.`
+              : 'Starting full eval in this chat session using host tools (no desktop assigned). Live tool events will stream below.',
+          );
+          void inboundHandler(evalMessage).catch((error) => {
+            void ctx.reply(`Full eval failed to start: ${toErrorMessage(error)}`);
+          });
+          return;
+        }
+
+        const harnessArgs = ctx.argv.slice(1);
+        const scriptPath = await resolveEvalScriptPathCandidates();
+        if (!scriptPath) {
+          await ctx.reply(
+            `Could not find ${EVAL_SCRIPT_NAME}. ` +
+            `Expected it in ${process.cwd()} or ${getDefaultWorkspacePath()}.\n` +
+            'Use `/eval` for model testing or `/eval full` for in-session tool evaluation.',
+          );
+          return;
+        }
+
+        await ctx.reply(
+          `Running ${EVAL_SCRIPT_NAME} (live tool trace enabled)...`,
+        );
+        let streamedLines = 0;
+        let droppedLines = 0;
+        const maxStreamedLines = 60;
+        const shouldStreamEvalLine = (line: string): boolean =>
+          line.startsWith('[TEST]') ||
+          line.startsWith('[TOOL]') ||
+          line.includes('AGENT RESPONSE') ||
+          line.startsWith('Overall:');
+
+        const result = await runEvalScript(
+          scriptPath,
+          harnessArgs,
+          (progress) => {
+            const line = progress.line.trim();
+            if (!shouldStreamEvalLine(line)) return;
+
+            if (streamedLines >= maxStreamedLines) {
+              droppedLines += 1;
+              return;
+            }
+            streamedLines += 1;
+            const prefix = progress.stream === "stderr" ? "[eval stderr]" : "[eval]";
+            void ctx.reply(`${prefix} ${truncateToolLogText(line, 500)}`);
+          },
+        );
+        if (droppedLines > 0) {
+          await ctx.reply(
+            `[eval] Suppressed ${droppedLines} additional progress line(s).`,
+          );
+        }
+        if (result.exitCode === 0 && !didEvalScriptPass(result)) {
+          await ctx.reply(
+            formatEvalScriptReply({
+              ...result,
+              exitCode: 1,
+              stderr: result.stderr
+                ? `${result.stderr}\nEval output did not report Overall: pass.`
+                : 'Eval output did not report Overall: pass.',
+            }),
+          );
+          return;
+        }
+        await ctx.reply(formatEvalScriptReply(result));
+      },
+    });
+    commandRegistry.register({
       name: 'skills',
       description: 'List available skills',
       global: true,
@@ -3137,19 +3503,175 @@ export class DaemonManager {
       const desktopMgr = this._desktopManager;
       commandRegistry.register({
         name: 'desktop',
-        description: 'Manage desktop sandbox (start|stop|status|vnc)',
+        description: 'Manage desktop sandbox (start|stop|status|vnc|list|attach)',
         args: '<subcommand>',
         global: true,
         handler: async (ctx) => {
           const sub = ctx.argv[0]?.toLowerCase();
           const sessionId = ctx.sessionId;
+          const listOrderedSandboxes = () =>
+            desktopMgr
+              .listAll()
+              .slice()
+              .sort((a, b) => a.createdAt - b.createdAt);
+          const listActiveSandboxes = () =>
+            listOrderedSandboxes().filter(
+              (entry) => entry.status !== 'stopped' && entry.status !== 'failed',
+            );
+          const desktopLabel = (index: number) => `desktop-${index + 1}`;
+          const findDesktopLabel = (containerId: string): string | undefined => {
+            const index = listOrderedSandboxes().findIndex(
+              (entry) => entry.containerId === containerId,
+            );
+            return index >= 0 ? desktopLabel(index) : undefined;
+          };
+          const resolveAttachTarget = (
+            rawTarget: string | undefined,
+          ): { containerId?: string; label?: string; error?: string } => {
+            const running = listActiveSandboxes();
+            if (running.length === 0) {
+              return {
+                error: 'No active desktop sandboxes. Use /desktop start first.',
+              };
+            }
+
+            const target = rawTarget?.trim();
+            if (!target) {
+              if (running.length === 1) {
+                return {
+                  containerId: running[0].containerId,
+                  label: findDesktopLabel(running[0].containerId),
+                };
+              }
+              return {
+                error:
+                  'Usage: /desktop attach <number|name|containerId>\nTip: run /desktop list first.',
+              };
+            }
+
+            if (/^\d+$/.test(target)) {
+              const index = Number.parseInt(target, 10) - 1;
+              if (index >= 0 && index < running.length) {
+                return {
+                  containerId: running[index].containerId,
+                  label: findDesktopLabel(running[index].containerId),
+                };
+              }
+              return {
+                error: `Desktop index out of range: ${target}. Run /desktop list first.`,
+              };
+            }
+
+            const labelMatch = target.toLowerCase().match(/^desktop-(\d+)$/);
+            if (labelMatch) {
+              const index = Number.parseInt(labelMatch[1], 10) - 1;
+              if (index >= 0 && index < running.length) {
+                return {
+                  containerId: running[index].containerId,
+                  label: desktopLabel(index),
+                };
+              }
+              return {
+                error: `Unknown desktop name: ${target}. Run /desktop list first.`,
+              };
+            }
+
+            const exact = running.find((entry) => entry.containerId === target);
+            if (exact) {
+              return {
+                containerId: exact.containerId,
+                label: findDesktopLabel(exact.containerId),
+              };
+            }
+
+            const prefixMatches = running.filter((entry) =>
+              entry.containerId.startsWith(target),
+            );
+            if (prefixMatches.length === 1) {
+              return {
+                containerId: prefixMatches[0].containerId,
+                label: findDesktopLabel(prefixMatches[0].containerId),
+              };
+            }
+            if (prefixMatches.length > 1) {
+              return {
+                error:
+                  `Container id prefix "${target}" is ambiguous (${prefixMatches.length} matches). ` +
+                  'Use /desktop list and pick the desktop number.',
+              };
+            }
+
+            return {
+              error:
+                `Desktop not found: ${target}\n` +
+                'Use /desktop list and attach by number (for example, /desktop attach 1).',
+            };
+          };
 
           if (sub === 'start') {
-            try {
-              const handle = await desktopMgr.getOrCreate(sessionId);
+            const parseStartResourceOverrides = (): {
+              maxMemory?: string;
+              maxCpu?: string;
+              error?: string;
+            } => {
+              let maxMemory: string | undefined;
+              let maxCpu: string | undefined;
+              for (let i = 1; i < ctx.argv.length; i++) {
+                const token = ctx.argv[i];
+                if (token === '--memory' || token === '--ram') {
+                  const value = ctx.argv[i + 1];
+                  if (!value) return { error: 'Missing value for --memory' };
+                  maxMemory = value;
+                  i += 1;
+                  continue;
+                }
+                if (token.startsWith('--memory=') || token.startsWith('--ram=')) {
+                  maxMemory = token.slice(token.indexOf('=') + 1);
+                  continue;
+                }
+                if (token === '--cpu' || token === '--cpus') {
+                  const value = ctx.argv[i + 1];
+                  if (!value) return { error: 'Missing value for --cpu' };
+                  maxCpu = value;
+                  i += 1;
+                  continue;
+                }
+                if (token.startsWith('--cpu=') || token.startsWith('--cpus=')) {
+                  maxCpu = token.slice(token.indexOf('=') + 1);
+                  continue;
+                }
+                return { error: `Unknown /desktop start option: ${token}` };
+              }
+              return { maxMemory, maxCpu };
+            };
+
+            const overrides = parseStartResourceOverrides();
+            if (overrides.error) {
               await ctx.reply(
-                `Desktop sandbox started.\nVNC: http://localhost:${handle.vncHostPort}/vnc.html\n` +
-                `Resolution: ${handle.resolution.width}x${handle.resolution.height}`,
+                `${overrides.error}\nUsage: /desktop start [--memory 4g] [--cpu 2.0]`,
+              );
+              return;
+            }
+
+            const existing = desktopMgr.getHandleBySession(sessionId);
+            if (existing && (overrides.maxMemory || overrides.maxCpu)) {
+              await ctx.reply(
+                `Desktop already running for this session (RAM ${existing.maxMemory}, CPU ${existing.maxCpu}). ` +
+                'Stop it first to change resources.',
+              );
+              return;
+            }
+
+            try {
+              const handle = await desktopMgr.getOrCreate(sessionId, {
+                maxMemory: overrides.maxMemory,
+                maxCpu: overrides.maxCpu,
+              });
+              const label = findDesktopLabel(handle.containerId) ?? 'desktop';
+              await ctx.reply(
+                `Desktop sandbox started (${label}).\nVNC: http://localhost:${handle.vncHostPort}/vnc.html\n` +
+                `Resolution: ${handle.resolution.width}x${handle.resolution.height}\n` +
+                `Resources: RAM ${handle.maxMemory}, CPU ${handle.maxCpu}`,
               );
             } catch (err) {
               await ctx.reply(`Failed to start desktop: ${err instanceof Error ? err.message : err}`);
@@ -3165,12 +3687,14 @@ export class DaemonManager {
               await ctx.reply('No active desktop sandbox for this session.');
             } else {
               const uptimeS = Math.round((Date.now() - handle.createdAt) / 1000);
+              const label = findDesktopLabel(handle.containerId) ?? 'desktop';
               await ctx.reply(
-                `Desktop sandbox: ${handle.status}\n` +
+                `Desktop sandbox: ${label} [${handle.status}]\n` +
                 `Container: ${handle.containerId}\n` +
                 `Uptime: ${uptimeS}s\n` +
                 `VNC: http://localhost:${handle.vncHostPort}/vnc.html\n` +
-                `Resolution: ${handle.resolution.width}x${handle.resolution.height}`,
+                `Resolution: ${handle.resolution.width}x${handle.resolution.height}\n` +
+                `Resources: RAM ${handle.maxMemory}, CPU ${handle.maxCpu}`,
               );
             }
           } else if (sub === 'vnc') {
@@ -3180,8 +3704,58 @@ export class DaemonManager {
             } else {
               await ctx.reply(`http://localhost:${handle.vncHostPort}/vnc.html`);
             }
+          } else if (sub === 'list') {
+            const all = listOrderedSandboxes();
+            if (all.length === 0) {
+              await ctx.reply('No desktop sandboxes running.');
+            } else {
+              const lines = all.map((entry, index) => {
+                const label = desktopLabel(index);
+                const session =
+                  entry.sessionId.length > 48
+                    ? `${entry.sessionId.slice(0, 48)}...`
+                    : entry.sessionId;
+                return (
+                  `${index + 1}) ${label} [${entry.status}] id=${entry.containerId}\n` +
+                  `   session=${session} ram=${entry.maxMemory} cpu=${entry.maxCpu}\n` +
+                  `   vnc=${entry.vncUrl}`
+                );
+              });
+              await ctx.reply(
+                `Desktop sandboxes (${all.length}):\n${lines.join('\n')}\n` +
+                'Attach with: /desktop attach <number|name|containerId>',
+              );
+            }
+          } else if (sub === 'attach') {
+            const targetArg = ctx.argv[1];
+            const resolved = resolveAttachTarget(
+              typeof targetArg === 'string' ? targetArg : undefined,
+            );
+            if (!resolved.containerId) {
+              await ctx.reply(resolved.error ?? 'Failed to resolve desktop target.');
+              return;
+            }
+
+            try {
+              const { destroySessionBridge } = await import('../desktop/session-router.js');
+              // Reset any existing bridge for this session so follow-up desktop tool
+              // calls reconnect against the newly attached container.
+              destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges, this._containerMCPBridges);
+              const handle = desktopMgr.assignSession(resolved.containerId, sessionId);
+              const label = resolved.label ?? findDesktopLabel(handle.containerId) ?? 'desktop';
+              await ctx.reply(
+                `Attached ${label} (${handle.containerId}) to this chat session.\n` +
+                `VNC: http://localhost:${handle.vncHostPort}/vnc.html`,
+              );
+            } catch (err) {
+              await ctx.reply(`Failed to attach desktop: ${err instanceof Error ? err.message : err}`);
+            }
           } else {
-            await ctx.reply('Usage: /desktop <start|stop|status|vnc>');
+            await ctx.reply(
+              'Usage: /desktop <start|stop|status|vnc|list|attach>\n' +
+              '/desktop start flags: [--memory 4g] [--cpu 2.0]\n' +
+              '/desktop attach: <number|name|containerId>',
+            );
           }
         },
       });
@@ -4240,6 +4814,7 @@ export class DaemonManager {
         await this._webChatChannel.stop();
         this._webChatChannel = null;
       }
+      this._webChatInboundHandler = null;
       if (this.gateway !== null) {
         await this.gateway.stop();
         this.gateway = null;
