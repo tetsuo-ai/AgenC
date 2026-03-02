@@ -853,12 +853,12 @@ describe("system.bash tool", () => {
 
     it("executes backgrounded commands via spawn with temp script", async () => {
       const tool = createBashTool();
-      mockSpawnSuccess("12345\n");
+      mockSpawnSuccess("");
 
-      const result = await tool.execute({ command: "python3 -m http.server 8080 &" });
+      const result = await tool.execute({ command: "sleep 1 &" });
       expect(writeFileSync).toHaveBeenCalledWith(
         expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
-        "python3 -m http.server 8080 &",
+        "sleep 1 &",
         { mode: 0o700 },
       );
       const [cmd, args] = mockSpawn.mock.calls[0];
@@ -1028,38 +1028,65 @@ describe("system.bash tool", () => {
       expect(parseContent(result).error).toContain("shell invocation");
     });
 
+    it("enforces deny list in shell mode (issue #1321 regression)", async () => {
+      const tool = createBashTool();
+
+      const result = await tool.execute({
+        command: "echo safe && python3 --version",
+      });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain("denied");
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it("enforces allow list in shell mode", async () => {
+      const tool = createBashTool({ allowList: ["ls", "wc"] });
+      mockSpawnSuccess("1\n");
+
+      const allowed = await tool.execute({ command: "ls /tmp | wc -l" });
+      expect(allowed.isError).toBeUndefined();
+
+      const denied = await tool.execute({ command: "ls /tmp | grep txt" });
+      expect(denied.isError).toBe(true);
+      expect(parseContent(denied).error).toContain("allow list");
+    });
+
     // ---- Shell mode safe commands ----
 
-    it("allows rm of specific files (not root/home)", async () => {
+    it("blocks rm in shell mode via deny list", async () => {
       const tool = createBashTool();
-      mockSpawnSuccess("");
 
       const result = await tool.execute({ command: "rm /tmp/test.txt" });
-      expect(result.isError).toBeUndefined();
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain("denied");
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
-    it("allows curl piped to grep (not piped to shell)", async () => {
+    it("blocks curl in shell mode via deny list", async () => {
       const tool = createBashTool();
-      mockSpawnSuccess("result\n");
 
       const result = await tool.execute({ command: "curl -sS https://api.example.com | grep name" });
-      expect(result.isError).toBeUndefined();
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain("denied");
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
-    it("allows python3 in shell mode", async () => {
+    it("blocks python3 in shell mode", async () => {
       const tool = createBashTool();
-      mockSpawnSuccess("3.11.9\n");
 
       const result = await tool.execute({ command: "python3 --version" });
-      expect(result.isError).toBeUndefined();
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain("denied");
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
-    it("allows pkill in shell mode", async () => {
+    it("blocks pkill in shell mode", async () => {
       const tool = createBashTool();
-      mockSpawnSuccess("");
 
       const result = await tool.execute({ command: "pkill -f 'http.server'" });
-      expect(result.isError).toBeUndefined();
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain("denied");
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it("allows cat with wc pipe", async () => {
@@ -1070,11 +1097,11 @@ describe("system.bash tool", () => {
       expect(result.isError).toBeUndefined();
     });
 
-    it("allows backgrounded python server", async () => {
+    it("allows backgrounded sleep command", async () => {
       const tool = createBashTool();
       mockSpawnSuccess("");
 
-      const result = await tool.execute({ command: "python3 -m http.server 8080 &" });
+      const result = await tool.execute({ command: "sleep 1 &" });
       expect(result.isError).toBeUndefined();
     });
   });

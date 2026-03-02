@@ -59,6 +59,37 @@ const SHELL_BUILTIN_COMMANDS = new Set([
 ]);
 const SINGLE_EXECUTABLE_RE = /^[A-Za-z0-9_./+-]+$/;
 const SHELL_OPERATOR_RE = /[|&;<>()`$\\\r\n]/;
+const SHELL_COMMAND_SEPARATORS = new Set([
+  "|",
+  "||",
+  "&&",
+  ";",
+  "&",
+  "(",
+  ")",
+  "`",
+]);
+const SHELL_REDIRECT_OPERATORS = new Set([
+  ">",
+  ">>",
+  "<",
+  "<<",
+  "<>",
+  ">&",
+  "<&",
+  ">|",
+]);
+const SHELL_PREFIX_COMMANDS = new Set([
+  "command",
+  "builtin",
+  "exec",
+  "time",
+  "env",
+  "nohup",
+  "nice",
+  "setsid",
+]);
+const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
 
 function errorResult(message: string): ToolResult {
   return { content: safeStringify({ error: message }), isError: true };
@@ -183,6 +214,169 @@ function isShellModeCommand(
 ): boolean {
   if (args !== undefined) return false;
   return SHELL_OPERATOR_RE.test(command) || /\s/.test(command);
+}
+
+/**
+ * Tokenize a shell command string while preserving shell operators.
+ * Used to extract executable candidates for policy checks in shell mode.
+ */
+function tokenizeShellCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaping = false;
+
+  const pushCurrent = () => {
+    if (current.length > 0) {
+      tokens.push(current);
+      current = "";
+    }
+  };
+
+  const pushOperator = (operator: string) => {
+    pushCurrent();
+    tokens.push(operator);
+  };
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+
+    if (escaping) {
+      current += ch;
+      escaping = false;
+      continue;
+    }
+
+    if (quote !== null) {
+      if (ch === quote) {
+        quote = null;
+        continue;
+      }
+      if (quote === '"' && ch === "\\" && i + 1 < command.length) {
+        i += 1;
+        current += command[i];
+        continue;
+      }
+      current += ch;
+      continue;
+    }
+
+    if (ch === "\\" && i + 1 < command.length) {
+      escaping = true;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === "\n") {
+      pushOperator(";");
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      pushCurrent();
+      continue;
+    }
+
+    if (
+      ch === "|" ||
+      ch === "&" ||
+      ch === ";" ||
+      ch === "<" ||
+      ch === ">" ||
+      ch === "(" ||
+      ch === ")" ||
+      ch === "`"
+    ) {
+      const next = command[i + 1] ?? "";
+      const pair = ch + next;
+      if (
+        pair === "||" ||
+        pair === "&&" ||
+        pair === ">>" ||
+        pair === "<<" ||
+        pair === ">&" ||
+        pair === "<&" ||
+        pair === ">|"
+      ) {
+        pushOperator(pair);
+        i += 1;
+        continue;
+      }
+      pushOperator(ch);
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+  pushCurrent();
+
+  return tokens;
+}
+
+/**
+ * Extract executable candidates from a shell command string.
+ * We validate every detected executable against deny/allow policy.
+ */
+function extractShellExecutables(command: string): string[] {
+  const tokens = tokenizeShellCommand(command);
+  const executables: string[] = [];
+  let expectCommand = true;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+
+    if (SHELL_COMMAND_SEPARATORS.has(token)) {
+      expectCommand = true;
+      continue;
+    }
+
+    if (!expectCommand) {
+      continue;
+    }
+
+    // Skip redirection operators and their operands while still waiting for a command.
+    if (SHELL_REDIRECT_OPERATORS.has(token)) {
+      if (i + 1 < tokens.length) {
+        i += 1;
+      }
+      continue;
+    }
+
+    // Handle numeric file-descriptor redirects like `2>/tmp/x`.
+    const next = tokens[i + 1];
+    if (/^\d+$/.test(token) && next && SHELL_REDIRECT_OPERATORS.has(next)) {
+      i += 2;
+      continue;
+    }
+
+    // Skip environment assignments (`FOO=bar cmd`).
+    if (ENV_ASSIGNMENT_RE.test(token)) {
+      continue;
+    }
+
+    // Skip command-substitution marker tokens.
+    if (token === "$") {
+      continue;
+    }
+
+    // Prefix commands still matter for policy checks, but the actual command follows.
+    const lower = token.toLowerCase();
+    if (SHELL_PREFIX_COMMANDS.has(lower)) {
+      executables.push(token);
+      continue;
+    }
+
+    executables.push(token);
+    expectCommand = false;
+  }
+
+  return executables;
 }
 
 /**
@@ -332,6 +526,23 @@ export function createBashTool(config?: BashToolConfig): Tool {
         if (!shellCheck.allowed) {
           logger.warn(`Bash tool shell-mode denied: ${shellCheck.reason}`);
           return errorResult(shellCheck.reason);
+        }
+
+        // Enforce deny/allow policy for each executable discovered in shell mode.
+        if (!unrestricted) {
+          const shellExecutables = extractShellExecutables(command);
+          for (const shellExecutable of shellExecutables) {
+            const check = isCommandAllowed(
+              shellExecutable,
+              denySet,
+              allowSet,
+              denyExclusionSet,
+            );
+            if (!check.allowed) {
+              logger.warn(`Bash tool shell-mode denied: ${check.reason}`);
+              return errorResult(check.reason);
+            }
+          }
         }
 
         execCommand = "/bin/bash";
