@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage, ChatMessageAttachment, TokenUsage, ToolCall, WSMessage } from '../types';
+import type {
+  ChatMessage,
+  ChatMessageAttachment,
+  ContextUsageSection,
+  TokenUsage,
+  ToolCall,
+  WSMessage,
+} from '../types';
 import {
   WS_CHAT_MESSAGE,
   WS_CHAT_TYPING,
@@ -53,6 +60,30 @@ export interface UseChatReturn {
 interface UseChatOptions {
   send: (msg: Record<string, unknown>) => void;
   connected?: boolean;
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return value;
+}
+
+function parseUsageSections(value: unknown): ContextUsageSection[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const sections = value
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return null;
+      const row = entry as Record<string, unknown>;
+      const id = typeof row.id === 'string' ? row.id : '';
+      const label = typeof row.label === 'string' ? row.label : '';
+      const tokens = asNumber(row.tokens);
+      const percent = asNumber(row.percent);
+      if (!id || !label || tokens === undefined || percent === undefined) {
+        return null;
+      }
+      return { id, label, tokens, percent } satisfies ContextUsageSection;
+    })
+    .filter((section): section is ContextUsageSection => section !== null);
+  return sections.length > 0 ? sections : undefined;
 }
 
 export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
@@ -272,9 +303,15 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
       case WS_CHAT_USAGE: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         setTokenUsage({
-          totalTokens: (payload.totalTokens as number) ?? 0,
-          budget: (payload.budget as number) ?? 0,
+          totalTokens: asNumber(payload.totalTokens) ?? 0,
+          budget: asNumber(payload.budget) ?? 0,
           compacted: (payload.compacted as boolean) ?? false,
+          contextWindowTokens: asNumber(payload.contextWindowTokens),
+          promptTokens: asNumber(payload.promptTokens),
+          promptTokenBudget: asNumber(payload.promptTokenBudget),
+          maxOutputTokens: asNumber(payload.maxOutputTokens),
+          safetyMarginTokens: asNumber(payload.safetyMarginTokens),
+          sections: parseUsageSections(payload.sections),
         });
         break;
       }

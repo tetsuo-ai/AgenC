@@ -33,13 +33,32 @@ export interface ChatMessage {
   attachments?: ChatMessageAttachment[];
 }
 
+export interface ContextUsageSection {
+  id: string;
+  label: string;
+  tokens: number;
+  percent: number;
+}
+
 export interface TokenUsage {
   /** Cumulative tokens used this session. */
   totalTokens: number;
-  /** Session token budget. */
+  /** Session token budget used for auto-compaction. */
   budget: number;
   /** Whether context was auto-compacted this round. */
   compacted?: boolean;
+  /** Model context window for the active provider/model, when available. */
+  contextWindowTokens?: number;
+  /** Estimated prompt tokens for the latest request. */
+  promptTokens?: number;
+  /** Prompt token budget after output+safety reservations. */
+  promptTokenBudget?: number;
+  /** Max completion tokens reserved by provider config. */
+  maxOutputTokens?: number;
+  /** Safety margin reserved for protocol/provider overhead. */
+  safetyMarginTokens?: number;
+  /** Prompt composition breakdown by context section. */
+  sections?: ContextUsageSection[];
 }
 
 export interface ToolCall {

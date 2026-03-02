@@ -63,6 +63,7 @@ export function ChatView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [contextPanelOpen, setContextPanelOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const toggleSearch = useCallback(() => {
@@ -97,15 +98,54 @@ export function ChatView({
     : 0;
 
   const isEmpty = messages.length === 0 && !isTyping;
-  const tokenUsageRatio =
-    tokenUsage && tokenUsage.budget > 0
-      ? tokenUsage.totalTokens / tokenUsage.budget
+  const contextWindowTokens =
+    tokenUsage && tokenUsage.contextWindowTokens && tokenUsage.contextWindowTokens > 0
+      ? tokenUsage.contextWindowTokens
       : 0;
-  const tokenUsagePercent = tokenUsageRatio * 100;
-  const tokenUsageLabel =
-    tokenUsage && tokenUsage.totalTokens > 0 && tokenUsagePercent < 1
+  const promptTokens =
+    tokenUsage && tokenUsage.promptTokens && tokenUsage.promptTokens > 0
+      ? tokenUsage.promptTokens
+      : tokenUsage?.totalTokens ?? 0;
+  const contextUsageRatio = contextWindowTokens > 0
+    ? promptTokens / contextWindowTokens
+    : 0;
+  const sessionBudgetTokens =
+    tokenUsage && tokenUsage.budget > 0
+      ? tokenUsage.budget
+      : 0;
+  const sessionBudgetRatio = sessionBudgetTokens > 0
+    ? (tokenUsage?.totalTokens ?? 0) / sessionBudgetTokens
+    : 0;
+  const hasModelContextWindow = contextWindowTokens > 0;
+  const displayUsedTokens = hasModelContextWindow
+    ? promptTokens
+    : tokenUsage?.totalTokens ?? 0;
+  const displayTotalTokens = hasModelContextWindow
+    ? contextWindowTokens
+    : sessionBudgetTokens;
+  const displayRatio = hasModelContextWindow
+    ? contextUsageRatio
+    : sessionBudgetRatio;
+  const contextUsagePercent = contextUsageRatio * 100;
+  const displayPercent = displayRatio * 100;
+  const contextUsageLabel =
+    displayUsedTokens > 0 && displayPercent < 1
       ? '<1%'
-      : `${Math.round(tokenUsagePercent)}%`;
+      : `${Math.round(displayPercent)}%`;
+  const contextBarPercent = Math.min(100, Math.max(0, displayPercent));
+  const contextToneClass =
+    displayRatio > 0.85
+      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+      : displayRatio > 0.6
+        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+        : 'bg-tetsuo-100 text-tetsuo-500 dark:bg-tetsuo-800 dark:text-tetsuo-400';
+  const contextBarClass =
+    displayRatio > 0.85
+      ? 'bg-red-500'
+      : displayRatio > 0.6
+        ? 'bg-amber-500'
+        : 'bg-accent';
+  const sessionBudgetPercent = sessionBudgetRatio * 100;
 
   // ── Welcome / landing state ──
   if (isEmpty) {
@@ -199,21 +239,6 @@ export function ChatView({
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
-          {tokenUsage && tokenUsage.budget > 0 && (
-            <div
-              className={`px-2 py-0.5 rounded-full text-xs font-mono tabular-nums ${
-                tokenUsageRatio > 0.85
-                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                  : tokenUsageRatio > 0.6
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                    : 'bg-tetsuo-100 text-tetsuo-500 dark:bg-tetsuo-800 dark:text-tetsuo-400'
-              }`}
-              title={`${tokenUsage.totalTokens.toLocaleString()} / ${tokenUsage.budget.toLocaleString()} tokens${tokenUsage.compacted ? ' (auto-compacted)' : ''}`}
-            >
-              {tokenUsageLabel}
-              {tokenUsage.compacted && ' ~'}
-            </div>
-          )}
           <button className="ml-2 flex items-center gap-2 px-4 py-2 rounded-lg border border-tetsuo-200 text-sm font-medium text-tetsuo-700 hover:bg-tetsuo-50 transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download App
@@ -295,6 +320,136 @@ export function ChatView({
           onPushToTalkStop={onPushToTalkStop}
           delegationTask={delegationTask}
         />
+      )}
+
+      {tokenUsage && displayTotalTokens > 0 && (
+        <div className="relative px-4 md:px-6 py-2 border-t border-tetsuo-200 bg-tetsuo-50/40 dark:bg-tetsuo-900/10">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setContextPanelOpen((prev) => !prev)}
+              className={`inline-flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full border border-tetsuo-200 dark:border-tetsuo-700 transition-colors ${contextToneClass}`}
+              title="View context usage breakdown"
+              aria-expanded={contextPanelOpen}
+            >
+              <span className="text-[11px] uppercase tracking-[0.08em] font-semibold">
+                {hasModelContextWindow ? 'Context' : 'Budget'}
+              </span>
+              <span className="font-mono tabular-nums text-xs">{contextUsageLabel}</span>
+            </button>
+          </div>
+
+          {contextPanelOpen && (
+            <div className="absolute bottom-[52px] right-4 md:right-6 z-20 w-[min(420px,calc(100vw-2rem))] rounded-xl border border-tetsuo-200 dark:border-tetsuo-800 bg-surface shadow-xl p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                    {hasModelContextWindow ? 'Model Context Window' : 'Session Token Budget'}
+                  </p>
+                  <p className="text-xs text-tetsuo-500 dark:text-tetsuo-400">
+                    {displayUsedTokens.toLocaleString()} / {displayTotalTokens.toLocaleString()} tokens
+                  </p>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-mono tabular-nums ${contextToneClass}`}>
+                  {contextUsageLabel}
+                </span>
+              </div>
+
+              <div className="mt-2 h-1.5 rounded-full bg-tetsuo-200/70 dark:bg-tetsuo-800/70 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${contextBarClass}`}
+                  style={{ width: `${contextBarPercent}%` }}
+                />
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {hasModelContextWindow ? (
+                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Prompt In Model Window</p>
+                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                      {Math.round(contextUsagePercent)}%
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Cumulative Session Budget</p>
+                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                      {Math.round(sessionBudgetPercent)}%
+                    </p>
+                  </div>
+                )}
+                {sessionBudgetTokens > 0 && (
+                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Session Budget</p>
+                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                      {tokenUsage.totalTokens.toLocaleString()} / {sessionBudgetTokens.toLocaleString()}
+                    </p>
+                  </div>
+                )}
+                {tokenUsage.promptTokenBudget && tokenUsage.promptTokenBudget > 0 && (
+                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Prompt Budget</p>
+                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                      {tokenUsage.promptTokenBudget.toLocaleString()} tokens
+                    </p>
+                  </div>
+                )}
+                {tokenUsage.maxOutputTokens && tokenUsage.maxOutputTokens > 0 && (
+                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Output Reserve</p>
+                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                      {tokenUsage.maxOutputTokens.toLocaleString()} tokens
+                    </p>
+                  </div>
+                )}
+                {tokenUsage.safetyMarginTokens && tokenUsage.safetyMarginTokens > 0 && (
+                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Safety Margin</p>
+                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                      {tokenUsage.safetyMarginTokens.toLocaleString()} tokens
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {tokenUsage.sections && tokenUsage.sections.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {tokenUsage.sections.map((section) => (
+                    <div key={section.id}>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-tetsuo-600 dark:text-tetsuo-300">{section.label}</span>
+                        <span className="font-mono tabular-nums text-tetsuo-500 dark:text-tetsuo-400">
+                          {section.percent.toFixed(section.percent >= 10 ? 0 : 1)}% · {section.tokens.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-tetsuo-200/70 dark:bg-tetsuo-800/70 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-tetsuo-500/70 dark:bg-tetsuo-400/70"
+                          style={{ width: `${Math.min(100, Math.max(0, section.percent))}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-tetsuo-500 dark:text-tetsuo-400">
+                  Section breakdown appears after the next model response.
+                </p>
+              )}
+
+              {!hasModelContextWindow && (
+                <p className="mt-3 text-xs text-tetsuo-500 dark:text-tetsuo-400">
+                  Model context window is unavailable from runtime metadata; showing session budget instead.
+                </p>
+              )}
+
+              {tokenUsage.compacted && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  Context was auto-compacted to stay within budget.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <ChatInput
