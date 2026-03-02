@@ -10,7 +10,14 @@ vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
 }));
 
+// Mock fs operations used by shell mode (temp script file)
+vi.mock("node:fs", () => ({
+  writeFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
+}));
+
 import { execFile, spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 
 const mockExecFile = vi.mocked(execFile);
 const mockSpawn = vi.mocked(spawn);
@@ -651,11 +658,16 @@ describe("system.bash tool", () => {
     const result = await tool.execute({
       command: "ls -la /tmp",
     });
-    // Shell mode: routed through spawn bash -c, not rejected
+    // Shell mode: routed through spawn with temp script, not rejected
     expect(result.isError).toBeUndefined();
+    expect(writeFileSync).toHaveBeenCalledWith(
+      expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
+      "ls -la /tmp",
+      { mode: 0o700 },
+    );
     const [cmd, args] = mockSpawn.mock.calls[0];
     expect(cmd).toBe("/bin/bash");
-    expect(args).toEqual(["-c", "ls -la /tmp"]);
+    expect(args[0]).toMatch(/agenc-sh-[0-9a-f]+\.sh$/);
   });
 
   it("rejects shell-like command strings when shellMode is disabled", async () => {
@@ -803,7 +815,7 @@ describe("system.bash tool", () => {
   // ---- Shell mode execution (uses spawn, not execFile) ----
 
   describe("shell mode", () => {
-    it("executes pipe commands via spawn bash -c", async () => {
+    it("executes pipe commands via spawn with temp script", async () => {
       const tool = createBashTool();
       mockSpawnSuccess("5\n");
 
@@ -811,41 +823,63 @@ describe("system.bash tool", () => {
         command: "cat /tmp/data.txt | wc -l",
       });
       expect(result.isError).toBeUndefined();
+      // Verify temp script was written with the command
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
+        "cat /tmp/data.txt | wc -l",
+        { mode: 0o700 },
+      );
       const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
-      expect(args).toEqual(["-c", "cat /tmp/data.txt | wc -l"]);
+      expect(args).toHaveLength(1);
+      expect(args[0]).toMatch(/agenc-sh-[0-9a-f]+\.sh$/);
       expect(parseContent(result).exitCode).toBe(0);
     });
 
-    it("executes redirect commands via spawn bash -c", async () => {
+    it("executes redirect commands via spawn with temp script", async () => {
       const tool = createBashTool();
       mockSpawnSuccess("");
 
       await tool.execute({ command: "echo hello > /tmp/out.txt" });
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
+        "echo hello > /tmp/out.txt",
+        { mode: 0o700 },
+      );
       const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
-      expect(args).toEqual(["-c", "echo hello > /tmp/out.txt"]);
+      expect(args[0]).toMatch(/agenc-sh-[0-9a-f]+\.sh$/);
     });
 
-    it("executes backgrounded commands via spawn bash -c", async () => {
+    it("executes backgrounded commands via spawn with temp script", async () => {
       const tool = createBashTool();
       mockSpawnSuccess("12345\n");
 
       const result = await tool.execute({ command: "python3 -m http.server 8080 &" });
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
+        "python3 -m http.server 8080 &",
+        { mode: 0o700 },
+      );
       const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
-      expect(args).toEqual(["-c", "python3 -m http.server 8080 &"]);
+      expect(args[0]).toMatch(/agenc-sh-[0-9a-f]+\.sh$/);
       expect(parseContent(result).exitCode).toBe(0);
     });
 
-    it("executes chained commands via spawn bash -c", async () => {
+    it("executes chained commands via spawn with temp script", async () => {
       const tool = createBashTool();
       mockSpawnSuccess("done\n");
 
       await tool.execute({ command: "mkdir -p /tmp/test && cd /tmp/test && echo done" });
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
+        "mkdir -p /tmp/test && cd /tmp/test && echo done",
+        { mode: 0o700 },
+      );
       const [cmd, args] = mockSpawn.mock.calls[0];
       expect(cmd).toBe("/bin/bash");
-      expect(args).toEqual(["-c", "mkdir -p /tmp/test && cd /tmp/test && echo done"]);
+      expect(args[0]).toMatch(/agenc-sh-[0-9a-f]+\.sh$/);
     });
 
     it("handles exit code from shell commands", async () => {

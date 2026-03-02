@@ -10,7 +10,10 @@
  */
 
 import { execFile, spawn } from "node:child_process";
-import { basename } from "node:path";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { basename, join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomBytes } from "node:crypto";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import type {
@@ -413,14 +416,30 @@ export function createBashTool(config?: BashToolConfig): Tool {
       // children (e.g. `python3 ... &`) inherit stdout/stderr pipes.
       // execFile waits for pipes to close, not just child exit — spawn + exit
       // resolves as soon as bash finishes, leaving backgrounded children running.
+      //
+      // Commands are written to a temp script file instead of passed via `-c`
+      // to prevent pkill -f self-match: when bash runs with `-c <cmd>`,
+      // /proc/self/cmdline includes the full command text, so `pkill -f pattern`
+      // matches and kills the shell itself. Running from a script file keeps
+      // the command text out of the process args.
       if (useShellMode) {
+        const scriptId = randomBytes(4).toString("hex");
+        const scriptPath = join(tmpdir(), `agenc-sh-${scriptId}.sh`);
+        try {
+          writeFileSync(scriptPath, command, { mode: 0o700 });
+        } catch (writeErr) {
+          return errorResult(
+            `Failed to create temp script: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
+          );
+        }
+
         return new Promise<ToolResult>((resolve) => {
           let resolved = false;
           let stdoutBuf = "";
           let stderrBuf = "";
           let timedOut = false;
 
-          const child = spawn(execCommand, execArgs, {
+          const child = spawn("/bin/bash", [scriptPath], {
             cwd,
             env,
             stdio: ["ignore", "pipe", "pipe"],
@@ -445,12 +464,14 @@ export function createBashTool(config?: BashToolConfig): Tool {
             } catch {
               child.kill("SIGTERM");
             }
+            try { unlinkSync(scriptPath); } catch { /* best-effort */ }
           }, timeout);
 
           const doResolve = (code: number | null) => {
             if (resolved) return;
             resolved = true;
             clearTimeout(timer);
+            try { unlinkSync(scriptPath); } catch { /* best-effort cleanup */ }
 
             const durationMs = Date.now() - startTime;
             const exitCode = timedOut ? null : (code ?? 1);
@@ -512,6 +533,7 @@ export function createBashTool(config?: BashToolConfig): Tool {
             if (resolved) return;
             resolved = true;
             clearTimeout(timer);
+            try { unlinkSync(scriptPath); } catch { /* best-effort cleanup */ }
             const durationMs = Date.now() - startTime;
             resolve({
               content: safeStringify({
