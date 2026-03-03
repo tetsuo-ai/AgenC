@@ -481,8 +481,18 @@ export class Gateway {
       case "auth": {
         const authSecret = this._config.auth?.secret;
         if (!authSecret) {
-          // No auth configured — auto-accept
-          this.authenticatedClients.add(clientId);
+          // No auth secret configured:
+          // - local clients are already authenticated at connect time
+          // - non-local clients must not be able to self-authenticate
+          if (!this.authenticatedClients.has(clientId)) {
+            this.sendResponse(socket, {
+              type: "auth",
+              error:
+                "Authentication requires auth.secret or loopback connection",
+              id,
+            });
+            break;
+          }
           this.sendResponse(socket, {
             type: "auth",
             payload: { authenticated: true },

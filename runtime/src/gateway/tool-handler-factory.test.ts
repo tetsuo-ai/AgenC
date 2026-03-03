@@ -118,7 +118,7 @@ describe("createSessionToolHandler", () => {
     );
   });
 
-  it("does not emit approval.request for system.bash under default approval rules", async () => {
+  it("emits approval.request for system.bash under default approval rules", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {
       sentMessages.push(msg);
@@ -134,11 +134,36 @@ describe("createSessionToolHandler", () => {
       approvalEngine,
     });
 
-    const result = await handler("system.bash", { command: "npm", args: ["run", "build"] });
+    const resultPromise = handler("system.bash", {
+      command: "npm",
+      args: ["run", "build"],
+    });
+
+    let requestId: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const approvalRequest = sentMessages.find(
+        (msg) => msg.type === "approval.request",
+      );
+      if (approvalRequest) {
+        requestId = (approvalRequest.payload as { requestId?: string }).requestId;
+        if (requestId) break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(requestId).toBeDefined();
+    approvalEngine.resolve(requestId!, {
+      requestId: requestId!,
+      disposition: "yes",
+    });
+
+    const result = await resultPromise;
 
     expect(result).toBe("build-complete");
-    expect(baseHandler).toHaveBeenCalledWith("system.bash", { command: "npm", args: ["run", "build"] });
-    expect(sentMessages.some((msg) => msg.type === "approval.request")).toBe(false);
+    expect(baseHandler).toHaveBeenCalledWith("system.bash", {
+      command: "npm",
+      args: ["run", "build"],
+    });
+    expect(sentMessages.some((msg) => msg.type === "approval.request")).toBe(true);
   });
 
   it("includes parent subagent context in approval prompts for delegated sessions", async () => {

@@ -340,6 +340,21 @@ describe("Gateway", () => {
       expect(response.error).toBe("Authentication required");
     });
 
+    it("no auth config rejects explicit auth from non-local client", async () => {
+      await gateway.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "192.168.1.100" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: "auth" });
+
+      expect(mockSocket.send).toHaveBeenCalled();
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("auth");
+      expect(response.error).toContain("requires auth.secret");
+    });
+
     it("no auth config allows local chat.message via webchat handler", async () => {
       await gateway.start();
       const webchatHandler = {
