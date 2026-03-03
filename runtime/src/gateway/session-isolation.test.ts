@@ -3,6 +3,7 @@ import {
   SessionIsolationManager,
   type SessionIsolationManagerConfig,
   type AuthState,
+  type SubAgentSessionIdentity,
 } from "./session-isolation.js";
 import type { AgentWorkspace } from "./workspace.js";
 import type { WorkspaceManager } from "./workspace.js";
@@ -182,6 +183,33 @@ describe("SessionIsolationManager", () => {
     expect(first).toBe(second);
   });
 
+  it("typed subagent identity returns cached context on second call", async () => {
+    const mgr = makeManager();
+    const identity: SubAgentSessionIdentity = {
+      workspaceId: "ws-a",
+      parentSessionId: "parent-1",
+      subagentSessionId: "subagent-1",
+    };
+    const first = await mgr.getContext(identity);
+    const second = await mgr.getContext(identity);
+    expect(first).toBe(second);
+  });
+
+  it("typed subagent identities isolate contexts by subagent session", async () => {
+    const mgr = makeManager();
+    const first = await mgr.getContext({
+      workspaceId: "ws-a",
+      parentSessionId: "parent-1",
+      subagentSessionId: "subagent-1",
+    });
+    const second = await mgr.getContext({
+      workspaceId: "ws-a",
+      parentSessionId: "parent-1",
+      subagentSessionId: "subagent-2",
+    });
+    expect(first).not.toBe(second);
+  });
+
   // --- Destroy -------------------------------------------------------------
 
   it("destroyContext removes from cache and closes memory backend", async () => {
@@ -198,6 +226,21 @@ describe("SessionIsolationManager", () => {
   it("destroyContext for non-existent workspace is no-op", async () => {
     const mgr = makeManager();
     await expect(mgr.destroyContext("nonexistent")).resolves.toBeUndefined();
+  });
+
+  it("destroyContext accepts typed subagent identity", async () => {
+    const mgr = makeManager();
+    const identity: SubAgentSessionIdentity = {
+      workspaceId: "ws-a",
+      parentSessionId: "parent-1",
+      subagentSessionId: "subagent-1",
+    };
+    const ctx = await mgr.getContext(identity);
+    const closeSpy = vi.spyOn(ctx.memoryBackend, "close");
+
+    await mgr.destroyContext(identity);
+
+    expect(closeSpy).toHaveBeenCalledOnce();
   });
 
   // --- Active contexts tracking --------------------------------------------

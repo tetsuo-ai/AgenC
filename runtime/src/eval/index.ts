@@ -194,12 +194,17 @@ export {
   type PipelineTokenEfficiencyArtifact,
   type PipelineOfflineReplayFixtureArtifact,
   type PipelineOfflineReplayArtifact,
+  type PipelineDelegationScenarioMode,
+  type PipelineDelegationScenarioArtifact,
+  type PipelineDelegationArtifact,
   type PipelineQualityArtifact,
   type PipelineContextGrowthInput,
   type PipelineToolTurnInput,
   type PipelineDesktopStabilityInput,
   type PipelineTokenEfficiencyInput,
   type PipelineOfflineReplayInput,
+  type PipelineDelegationScenarioInput,
+  type PipelineDelegationInput,
   type PipelineQualityArtifactInput,
 } from "./pipeline-quality.js";
 
@@ -225,6 +230,27 @@ export {
   type PipelineDesktopRunner,
   type PipelineQualityRunnerConfig,
 } from "./pipeline-quality-runner.js";
+
+export {
+  DEFAULT_DELEGATION_BENCHMARK_K,
+  DELEGATION_BENCHMARK_CORPUS_VERSION,
+  DELEGATION_BENCHMARK_BASELINE_SCENARIO_ID,
+  buildDelegationBenchmarkManifest,
+  runDelegationBenchmarkSuite,
+  serializeDelegationBenchmarkSuiteResult,
+  type DelegationBenchmarkSummary,
+  type DelegationBenchmarkSuiteResult,
+  type DelegationBenchmarkSuiteConfig,
+} from "./delegation-benchmark.js";
+
+export {
+  searchDecompositionPolicies,
+  type DecompositionDagVariant,
+  type DecompositionReplayFixture,
+  type DecompositionSearchConfig,
+  type DecompositionVariantScore,
+  type DecompositionSearchResult,
+} from "./decomposition-search.js";
 
 export {
   computePassAtK,

@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, TokenUsage, VoiceState, VoiceMode } from '../../types';
 
-const APP_DISPLAY_NAME = 'AgenC';
 import type { ChatSessionInfo } from '../../hooks/useChat';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
@@ -48,8 +47,7 @@ export function ChatView({
   onPushToTalkStart,
   onPushToTalkStop,
   delegationTask = '',
-  theme = 'light',
-  onToggleTheme,
+  theme = 'dark',
   chatSessions = [],
   activeSessionId,
   onSelectSession,
@@ -59,7 +57,6 @@ export function ChatView({
   onToggleDesktop,
   tokenUsage,
 }: ChatViewProps) {
-  const isDark = theme === 'dark';
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -77,7 +74,6 @@ export function ChatView({
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
 
-  // Keyboard shortcut: Cmd/Ctrl+F opens search, Escape closes
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
@@ -126,55 +122,84 @@ export function ChatView({
   const displayRatio = hasModelContextWindow
     ? contextUsageRatio
     : sessionBudgetRatio;
-  const contextUsagePercent = contextUsageRatio * 100;
   const displayPercent = displayRatio * 100;
   const contextUsageLabel =
     displayUsedTokens > 0 && displayPercent < 1
       ? '<1%'
       : `${Math.round(displayPercent)}%`;
   const contextBarPercent = Math.min(100, Math.max(0, displayPercent));
-  const contextToneClass =
-    displayRatio > 0.85
-      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-      : displayRatio > 0.6
-        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-        : 'bg-tetsuo-100 text-tetsuo-500 dark:bg-tetsuo-800 dark:text-tetsuo-400';
-  const contextBarClass =
-    displayRatio > 0.85
-      ? 'bg-red-500'
-      : displayRatio > 0.6
-        ? 'bg-amber-500'
-        : 'bg-accent';
-  const sessionBudgetPercent = sessionBudgetRatio * 100;
 
-  // ── Welcome / landing state ──
+  // BBS-style context bar
+  const contextBarFilled = Math.round(contextBarPercent / 100 * 30);
+  const contextBarEmpty = 30 - contextBarFilled;
+  const contextBarStr = '\u2588'.repeat(contextBarFilled) + '\u2591'.repeat(contextBarEmpty);
+
+  const delegationSummary = useMemo(() => {
+    const bySession = new Map<string, string>();
+    for (const message of messages) {
+      for (const subagent of message.subagents ?? []) {
+        const id = subagent.subagentSessionId;
+        if (!id || id === '__synthesis__') continue;
+        bySession.set(id, subagent.status);
+      }
+    }
+    if (bySession.size === 0) return null;
+
+    let running = 0;
+    let failed = 0;
+    let completed = 0;
+    for (const status of bySession.values()) {
+      if (status === 'running' || status === 'started' || status === 'spawned' || status === 'planned') {
+        running += 1;
+      } else if (status === 'failed' || status === 'cancelled') {
+        failed += 1;
+      } else if (status === 'completed' || status === 'synthesized') {
+        completed += 1;
+      }
+    }
+
+    return { total: bySession.size, running, failed, completed };
+  }, [messages]);
+
+  // ── Welcome / splash state ──
   if (isEmpty) {
     return (
-      <div className="relative flex flex-col h-full bg-surface">
-        {/* Spacer pushes content to center */}
+      <div className="relative flex flex-col h-full bg-bbs-black">
         <div className="flex-1" />
 
-        {/* Logo + wordmark */}
-        <div className="flex flex-col items-center gap-4 px-6 animate-welcome-in">
-          <img src="/assets/agenc-logo.svg" alt="AgenC" className="w-16 h-16 dark:hidden" />
-          <img src="/assets/agenc-logo-white.svg" alt="AgenC" className="w-16 h-16 hidden dark:block" />
-          <img src="/assets/agenc-wordmark.svg" alt="AgenC" className="h-6 dark:invert" />
+        {/* BBS splash */}
+        <div className="flex flex-col items-center gap-6 px-6 animate-welcome-in">
+          <img
+            src="/assets/ansi_girl.png"
+            alt="AgenC"
+            className="max-w-[300px] w-full h-auto pixelated"
+            style={{ imageRendering: 'auto' }}
+          />
+          <div className="text-bbs-purple text-sm tracking-[6px] font-bold">
+            C O N N E C T I N G   T O   A G E N C
+          </div>
+          <div className="w-full max-w-md">
+            <div className="text-bbs-pink font-mono text-xs">
+              [<span className="animate-bbs-progress inline-block overflow-hidden whitespace-nowrap" style={{ maxWidth: '80%' }}>{'\u2588'.repeat(20)}</span>{'\u2591'.repeat(8)}]  87%
+            </div>
+          </div>
+          <div className="text-bbs-gray text-xs">
+            initializing agent runtime...
+          </div>
         </div>
 
         {/* Input */}
         <div className="mt-8 px-4 md:px-6 animate-welcome-in" style={{ animationDelay: '0.15s' }}>
-          <div className="animate-input-glow rounded-2xl">
-            <ChatInput
-              onSend={onSend}
-              onStop={onStop}
-              isGenerating={isTyping}
-              voiceState={voiceState}
-              voiceMode={voiceMode}
-              onVoiceToggle={onVoiceToggle}
-              onPushToTalkStart={onPushToTalkStart}
-              onPushToTalkStop={onPushToTalkStop}
-            />
-          </div>
+          <ChatInput
+            onSend={onSend}
+            onStop={onStop}
+            isGenerating={isTyping}
+            voiceState={voiceState}
+            voiceMode={voiceMode}
+            onVoiceToggle={onVoiceToggle}
+            onPushToTalkStart={onPushToTalkStart}
+            onPushToTalkStop={onPushToTalkStop}
+          />
         </div>
 
         {/* Voice bar */}
@@ -191,7 +216,6 @@ export function ChatView({
           />
         )}
 
-        {/* Spacer below (slightly larger so it sits above center) */}
         <div className="flex-[1.4]" />
       </div>
     );
@@ -199,103 +223,99 @@ export function ChatView({
 
   // ── Active chat state ──
   return (
-    <div className="relative flex flex-col h-full bg-surface animate-chat-enter">
-      {/* Top header bar — hidden on mobile (MobileHeader used instead) */}
-      <div className="hidden md:flex items-center justify-between px-6 py-4 border-b border-tetsuo-200 bg-surface">
-        <h1 className="text-xl font-bold text-tetsuo-800 tracking-tight">
-          {APP_DISPLAY_NAME}
-        </h1>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onToggleTheme}
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100 transition-colors"
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
-            )}
-          </button>
-          {desktopUrl && onToggleDesktop && (
-            <button
-              onClick={onToggleDesktop}
-              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${desktopOpen ? 'text-accent bg-accent-bg' : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100'}`}
-              title={desktopOpen ? 'Hide desktop viewer' : 'Show desktop viewer'}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-            </button>
-          )}
-          <button
-            onClick={toggleSearch}
-            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${searchOpen ? 'text-accent bg-accent-bg' : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100'}`}
-            title="Search messages (⌘F)"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </button>
-          <button className="ml-2 flex items-center gap-2 px-4 py-2 rounded-lg border border-tetsuo-200 text-sm font-medium text-tetsuo-700 hover:bg-tetsuo-50 transition-colors">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Download App
-          </button>
-        </div>
-      </div>
-
+    <div className="relative flex flex-col h-full bg-bbs-black animate-chat-enter">
       {/* Search bar */}
       {searchOpen && (
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-tetsuo-200 bg-tetsuo-50/50">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-400 shrink-0" strokeWidth="2" strokeLinecap="round">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-bbs-border bg-bbs-surface">
+          <span className="text-bbs-purple text-xs shrink-0">SEARCH{'>'}</span>
           <input
             ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search messages..."
-            className="flex-1 bg-transparent text-sm text-tetsuo-700 placeholder:text-tetsuo-400 outline-none"
+            placeholder="___"
+            className="flex-1 bg-transparent text-xs text-bbs-white placeholder:text-bbs-gray outline-none font-mono"
           />
           {searchQuery.trim() && (
-            <span className="text-xs text-tetsuo-400 shrink-0">
+            <span className="text-xs text-bbs-gray shrink-0">
               {matchCount} match{matchCount !== 1 ? 'es' : ''}
             </span>
           )}
           <button
             onClick={toggleSearch}
-            className="w-6 h-6 rounded flex items-center justify-center text-tetsuo-400 hover:text-tetsuo-600 transition-colors"
+            className="text-xs text-bbs-gray hover:text-bbs-white transition-colors"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
+            [X]
           </button>
         </div>
       )}
 
-      {/* Mobile-only: Recent Chats button */}
-      <div className="flex lg:hidden items-center justify-between px-4 py-2 border-b border-tetsuo-200 bg-tetsuo-50/50">
-        <button
-          onClick={() => setSessionsOpen(true)}
-          className="flex items-center gap-2 text-sm text-tetsuo-500 hover:text-tetsuo-700 transition-colors"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 8v4l3 3" /><circle cx="12" cy="12" r="10" />
-          </svg>
-          Recent Chats {chatSessions.length > 0 && <span className="text-xs text-tetsuo-400">({chatSessions.length})</span>}
-        </button>
-        {onNewChat && (
+      {/* Mobile-only: Recent Chats + delegation info */}
+      <div className="flex lg:hidden flex-col gap-1 px-4 py-2 border-b border-bbs-border bg-bbs-surface">
+        <div className="flex items-center justify-between">
           <button
-            onClick={onNewChat}
-            className="flex items-center gap-1.5 text-xs font-medium text-accent hover:text-accent/80 transition-colors"
+            onClick={() => setSessionsOpen(true)}
+            className="text-xs text-bbs-gray hover:text-bbs-white transition-colors"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            New Chat
+            [SESSIONS] {chatSessions.length > 0 && `(${chatSessions.length})`}
           </button>
+          <div className="flex items-center gap-3">
+            {onNewChat && (
+              <button
+                onClick={onNewChat}
+                className="text-xs text-bbs-purple hover:text-bbs-white transition-colors"
+              >
+                [NEW]
+              </button>
+            )}
+            {desktopUrl && onToggleDesktop && (
+              <button
+                onClick={onToggleDesktop}
+                className={`text-xs transition-colors ${desktopOpen ? 'text-bbs-green' : 'text-bbs-gray hover:text-bbs-white'}`}
+              >
+                [DESKTOP]
+              </button>
+            )}
+            <button
+              onClick={toggleSearch}
+              className={`text-xs transition-colors ${searchOpen ? 'text-bbs-purple' : 'text-bbs-gray hover:text-bbs-white'}`}
+            >
+              [SEARCH]
+            </button>
+          </div>
+        </div>
+        {delegationSummary && (
+          <span className="text-xs text-bbs-cyan">
+            [{delegationSummary.total} agents: {delegationSummary.running > 0 ? `${delegationSummary.running} running` : `${delegationSummary.completed} done`}]
+          </span>
         )}
+      </div>
+
+      {/* Desktop-only controls row */}
+      <div className="hidden md:flex items-center justify-between px-4 py-1.5 border-b border-bbs-border bg-bbs-surface">
+        <div className="flex items-center gap-4">
+          {delegationSummary && (
+            <span className="text-xs text-bbs-cyan">
+              [{delegationSummary.total} agents: {delegationSummary.running > 0 ? `${delegationSummary.running} running` : `${delegationSummary.completed} done`}]
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {desktopUrl && onToggleDesktop && (
+            <button
+              onClick={onToggleDesktop}
+              className={`text-xs transition-colors ${desktopOpen ? 'text-bbs-green' : 'text-bbs-gray hover:text-bbs-white'}`}
+            >
+              [{desktopOpen ? 'HIDE' : 'SHOW'} DESKTOP]
+            </button>
+          )}
+          <button
+            onClick={toggleSearch}
+            className={`text-xs transition-colors ${searchOpen ? 'text-bbs-purple' : 'text-bbs-gray hover:text-bbs-white'}`}
+          >
+            [SEARCH]
+          </button>
+        </div>
       </div>
 
       {/* Message list + optional desktop panel */}
@@ -308,7 +328,7 @@ export function ChatView({
         )}
       </div>
 
-      {/* Voice bar — between message list and input */}
+      {/* Voice bar */}
       {onVoiceModeChange && onVoiceToggle && (
         <VoiceOverlay
           voiceState={voiceState}
@@ -322,129 +342,56 @@ export function ChatView({
         />
       )}
 
+      {/* Context usage bar */}
       {tokenUsage && displayTotalTokens > 0 && (
-        <div className="relative px-4 md:px-6 py-2 border-t border-tetsuo-200 bg-tetsuo-50/40 dark:bg-tetsuo-900/10">
-          <div className="flex justify-end">
+        <div className="relative px-4 py-1.5 border-t border-bbs-border bg-bbs-surface">
+          <div className="flex items-center justify-between">
             <button
               onClick={() => setContextPanelOpen((prev) => !prev)}
-              className={`inline-flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full border border-tetsuo-200 dark:border-tetsuo-700 transition-colors ${contextToneClass}`}
-              title="View context usage breakdown"
-              aria-expanded={contextPanelOpen}
+              className="text-xs text-bbs-purple hover:text-bbs-white transition-colors font-mono"
             >
-              <span className="text-[11px] uppercase tracking-[0.08em] font-semibold">
-                {hasModelContextWindow ? 'Context' : 'Budget'}
-              </span>
-              <span className="font-mono tabular-nums text-xs">{contextUsageLabel}</span>
+              CONTEXT [{contextBarStr}] {contextUsageLabel}
             </button>
           </div>
 
           {contextPanelOpen && (
-            <div className="absolute bottom-[52px] right-4 md:right-6 z-20 w-[min(420px,calc(100vw-2rem))] rounded-xl border border-tetsuo-200 dark:border-tetsuo-800 bg-surface shadow-xl p-3">
+            <div className="absolute bottom-[40px] right-4 z-20 w-[min(420px,calc(100vw-2rem))] border border-bbs-border bg-bbs-dark p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold text-tetsuo-700 dark:text-tetsuo-100">
+                  <p className="text-xs font-bold text-bbs-white">
                     {hasModelContextWindow ? 'Model Context Window' : 'Session Token Budget'}
                   </p>
-                  <p className="text-xs text-tetsuo-500 dark:text-tetsuo-400">
+                  <p className="text-xs text-bbs-gray">
                     {displayUsedTokens.toLocaleString()} / {displayTotalTokens.toLocaleString()} tokens
                   </p>
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-mono tabular-nums ${contextToneClass}`}>
-                  {contextUsageLabel}
-                </span>
+                <span className="text-xs font-mono text-bbs-purple">{contextUsageLabel}</span>
               </div>
 
-              <div className="mt-2 h-1.5 rounded-full bg-tetsuo-200/70 dark:bg-tetsuo-800/70 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${contextBarClass}`}
-                  style={{ width: `${contextBarPercent}%` }}
-                />
+              <div className="mt-2 text-xs font-mono text-bbs-pink">
+                [{contextBarStr}]
               </div>
 
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {hasModelContextWindow ? (
-                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Prompt In Model Window</p>
-                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
-                      {Math.round(contextUsagePercent)}%
-                    </p>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Cumulative Session Budget</p>
-                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
-                      {Math.round(sessionBudgetPercent)}%
-                    </p>
-                  </div>
-                )}
-                {sessionBudgetTokens > 0 && (
-                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Session Budget</p>
-                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
-                      {tokenUsage.totalTokens.toLocaleString()} / {sessionBudgetTokens.toLocaleString()}
-                    </p>
-                  </div>
-                )}
-                {tokenUsage.promptTokenBudget && tokenUsage.promptTokenBudget > 0 && (
-                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Prompt Budget</p>
-                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
-                      {tokenUsage.promptTokenBudget.toLocaleString()} tokens
-                    </p>
-                  </div>
-                )}
-                {tokenUsage.maxOutputTokens && tokenUsage.maxOutputTokens > 0 && (
-                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Output Reserve</p>
-                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
-                      {tokenUsage.maxOutputTokens.toLocaleString()} tokens
-                    </p>
-                  </div>
-                )}
-                {tokenUsage.safetyMarginTokens && tokenUsage.safetyMarginTokens > 0 && (
-                  <div className="rounded-lg border border-tetsuo-200 dark:border-tetsuo-800 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.08em] text-tetsuo-500 dark:text-tetsuo-400">Safety Margin</p>
-                    <p className="text-sm font-semibold text-tetsuo-700 dark:text-tetsuo-100">
-                      {tokenUsage.safetyMarginTokens.toLocaleString()} tokens
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {tokenUsage.sections && tokenUsage.sections.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {tokenUsage.sections.map((section) => (
-                    <div key={section.id}>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-tetsuo-600 dark:text-tetsuo-300">{section.label}</span>
-                        <span className="font-mono tabular-nums text-tetsuo-500 dark:text-tetsuo-400">
-                          {section.percent.toFixed(section.percent >= 10 ? 0 : 1)}% · {section.tokens.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="mt-1 h-1.5 rounded-full bg-tetsuo-200/70 dark:bg-tetsuo-800/70 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-tetsuo-500/70 dark:bg-tetsuo-400/70"
-                          style={{ width: `${Math.min(100, Math.max(0, section.percent))}%` }}
-                        />
-                      </div>
+              <div className="mt-3 space-y-1">
+                {tokenUsage.sections && tokenUsage.sections.length > 0 ? (
+                  tokenUsage.sections.map((section) => (
+                    <div key={section.id} className="flex items-center justify-between text-xs">
+                      <span className="text-bbs-lightgray">{section.label}</span>
+                      <span className="font-mono text-bbs-gray">
+                        {section.percent.toFixed(section.percent >= 10 ? 0 : 1)}% - {section.tokens.toLocaleString()}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-3 text-xs text-tetsuo-500 dark:text-tetsuo-400">
-                  Section breakdown appears after the next model response.
-                </p>
-              )}
-
-              {!hasModelContextWindow && (
-                <p className="mt-3 text-xs text-tetsuo-500 dark:text-tetsuo-400">
-                  Model context window is unavailable from runtime metadata; showing session budget instead.
-                </p>
-              )}
+                  ))
+                ) : (
+                  <p className="text-xs text-bbs-gray">
+                    Section breakdown appears after the next model response.
+                  </p>
+                )}
+              </div>
 
               {tokenUsage.compacted && (
-                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                  Context was auto-compacted to stay within budget.
+                <p className="mt-2 text-xs text-bbs-yellow">
+                  * Context was auto-compacted to stay within budget.
                 </p>
               )}
             </div>
@@ -466,17 +413,15 @@ export function ChatView({
       {/* Mobile sessions bottom sheet */}
       {sessionsOpen && (
         <div className="absolute inset-0 z-50 lg:hidden flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setSessionsOpen(false)} />
-          <div className="relative bg-surface rounded-t-2xl border-t border-tetsuo-200 max-h-[70vh] flex flex-col animate-slide-up">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-tetsuo-200">
-              <span className="text-sm font-bold text-tetsuo-800">Recent Chats</span>
-              <button onClick={() => setSessionsOpen(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100 transition-colors">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+          <div className="absolute inset-0 bg-black/60" onClick={() => setSessionsOpen(false)} />
+          <div className="relative bg-bbs-dark border-t border-bbs-border max-h-[70vh] flex flex-col animate-slide-up">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-bbs-border">
+              <span className="text-xs font-bold text-bbs-white">RECENT SESSIONS</span>
+              <button onClick={() => setSessionsOpen(false)} className="text-xs text-bbs-gray hover:text-bbs-white">[X]</button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {chatSessions.length === 0 ? (
-                <div className="px-5 py-8 text-sm text-tetsuo-400 text-center">No conversations yet</div>
+                <div className="px-4 py-8 text-xs text-bbs-gray text-center">No sessions</div>
               ) : (
                 chatSessions.map((session) => {
                   const isActive = session.sessionId === activeSessionId;
@@ -484,14 +429,16 @@ export function ChatView({
                     <button
                       key={session.sessionId}
                       onClick={() => { onSelectSession?.(session.sessionId); setSessionsOpen(false); }}
-                      className={`w-full flex items-center gap-3 px-5 py-3.5 text-left transition-all duration-200 ${isActive ? 'bg-accent-bg' : 'hover:bg-tetsuo-50 active:bg-tetsuo-100'}`}
+                      className={`w-full text-left px-4 py-3 text-xs transition-colors border-b border-bbs-border/50 ${
+                        isActive ? 'bg-bbs-surface text-bbs-purple' : 'text-bbs-lightgray hover:bg-bbs-surface'
+                      }`}
                     >
-                      {isActive && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
-                      <div className="min-w-0 flex-1">
-                        <div className={`text-sm truncate ${isActive ? 'text-accent font-medium' : 'text-tetsuo-600'}`}>{session.label}</div>
-                        <div className="text-xs text-tetsuo-400 mt-0.5">
-                          {session.messageCount} messages · {new Date(session.lastActiveAt).toLocaleString()}
-                        </div>
+                      <div className="flex items-center gap-2">
+                        {isActive && <span className="text-bbs-purple">{'>'}</span>}
+                        <span className="truncate">{session.label}</span>
+                      </div>
+                      <div className="text-bbs-gray mt-0.5 ml-4">
+                        {session.messageCount} msgs - {new Date(session.lastActiveAt).toLocaleString()}
                       </div>
                     </button>
                   );

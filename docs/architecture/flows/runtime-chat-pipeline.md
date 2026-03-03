@@ -1,11 +1,14 @@
 # Runtime Chat Pipeline
 
-This document defines the runtime chat/tool pipeline implemented by `ChatExecutor` and the provider adapters.
-It is the canonical architecture reference for pipeline states, budget controls, and fallback behavior.
+This document defines the runtime chat/tool pipeline implemented by `ChatExecutor`, `SubAgentOrchestrator`, and provider adapters.
+It is the canonical reference for pipeline states, delegation behavior, budget controls, and fallback logic.
 
 ## Code Anchors
 
 - `runtime/src/llm/chat-executor.ts`
+- `runtime/src/llm/delegation-decision.ts`
+- `runtime/src/llm/delegation-learning.ts`
+- `runtime/src/gateway/subagent-orchestrator.ts`
 - `runtime/src/llm/prompt-budget.ts`
 - `runtime/src/llm/tool-turn-validator.ts`
 - `runtime/src/llm/policy.ts`
@@ -13,6 +16,7 @@ It is the canonical architecture reference for pipeline states, budget controls,
 - `runtime/src/gateway/daemon.ts`
 - `runtime/src/eval/pipeline-quality-runner.ts`
 - `runtime/src/eval/pipeline-gates.ts`
+- `runtime/src/eval/decomposition-search.ts`
 
 ## End-to-End Flow
 
@@ -24,18 +28,20 @@ flowchart TD
   D --> E{Planner Route?}
   E -->|yes| F[Planner Call]
   E -->|no| G[Primary Model Call]
-  F --> H[Deterministic Pipeline Steps]
-  H --> I{Need Model Follow-up?}
-  I -->|yes| G
-  I -->|no| J[Finalize]
-  G --> K{Tool Calls?}
-  K -->|yes| L[Tool Dispatch Loop]
-  L --> M[Tool Result Messages]
-  M --> D
-  K -->|no| N{Evaluator Enabled?}
-  N -->|yes| O[Evaluate + Optional Retry]
-  N -->|no| J
-  O --> J
+  F --> H[Planner Graph Validation]
+  H --> I[Delegation Decision + Policy Tuning]
+  I --> J[SubAgentOrchestrator DAG Execution]
+  J --> K{Need Synthesis?}
+  K -->|yes| L[Planner Synthesis Call]
+  K -->|no| M[Finalize]
+  G --> N{Tool Calls?}
+  N -->|yes| O[Tool Dispatch Loop]
+  O --> P[Tool Result Messages]
+  P --> D
+  N -->|no| Q{Evaluator Enabled?}
+  Q -->|yes| R[Evaluate + Optional Retry]
+  Q -->|no| M
+  R --> M
 ```
 
 ## Pipeline States and Stop Reasons
@@ -44,8 +50,10 @@ flowchart TD
 |------|-------------|----------------|
 | `assemble_prompt` | Build system/history/memory/tool/user messages | Prompt sections with section tags |
 | `apply_budget` | Enforce adaptive prompt caps | Bounded messages + budget diagnostics |
-| `validate_tool_turns` | Enforce assistant `tool_calls` -> `tool` result ordering | Local 4xx-style validation failure or continue |
-| `planner_pass` | Optional bounded planner for complex turns | Deterministic step intents |
+| `validate_tool_turns` | Enforce assistant `tool_calls` -> `tool` result ordering | Local validation failure or continue |
+| `planner_pass` | Optional bounded planner for complex turns | Planner step graph (`deterministic_tool`, `subagent_task`, `synthesis`) |
+| `planner_policy` | Graph guardrails + delegation utility + optional tuned threshold | Policy decision + diagnostics |
+| `planner_execute` | Deterministic tools and delegated DAG nodes | `PipelineResult` + verifier/synthesis hooks |
 | `model_call` | Provider call (stateful/stateless as configured) | Assistant content/tool calls + usage |
 | `tool_loop` | Execute tool calls with retries/guardrails | Tool results appended to history |
 | `evaluate` | Optional response quality evaluation | Accepted response or bounded retry |
@@ -64,6 +72,36 @@ Canonical stop reasons (from `runtime/src/llm/policy.ts`):
 - `budget_exceeded`
 - `no_progress`
 - `cancelled`
+
+## Delegation and Planner Semantics
+
+Planner graphs support three step types:
+
+- `deterministic_tool`: executes through deterministic tool pipeline.
+- `subagent_task`: executes through `SubAgentOrchestrator` with scoped context/tools.
+- `synthesis`: final merge marker used to trigger synthesis calls when needed.
+
+Delegation is gated by:
+
+- planner parse/graph validation (no cycles, fanout/depth caps)
+- delegation utility scorer (`assessDelegationDecision`)
+- hard-blocked task-class veto (`wallet_signing`, `wallet_transfer`, `stake_or_rewards`, `destructive_host_mutation`, `credential_exfiltration`)
+- handoff confidence gate (`mode=handoff` requires planner confidence >= `handoffMinPlannerConfidence`)
+- runtime hard caps (max depth/fanout/children/tokens/tool calls)
+- optional online bandit arm tuning that offsets threshold by context cluster
+- verifier rounds when enabled/forced
+
+Planner summary fields of interest:
+
+- `plannerSummary.delegationDecision`
+- `plannerSummary.subagentVerification`
+- `plannerSummary.delegationPolicyTuning`
+
+Learning/reward proxy fields:
+
+- `plannerSummary.delegationPolicyTuning.usefulDelegation`
+- `plannerSummary.delegationPolicyTuning.usefulDelegationScore`
+- `plannerSummary.delegationPolicyTuning.rewardProxyVersion`
 
 ## Budget Controls
 
@@ -100,13 +138,22 @@ These caps are driven by:
 - `llm.maxFailureBudgetPerRequest`
 - `llm.sessionTokenBudget` (with compaction fallback)
 
+`SubAgentOrchestrator` additionally enforces:
+
+- `llm.subagents.maxDepth`
+- `llm.subagents.maxFanoutPerTurn`
+- `llm.subagents.maxTotalSubagentsPerRequest`
+- `llm.subagents.maxCumulativeToolCallsPerRequestTree`
+- `llm.subagents.maxCumulativeTokensPerRequestTree`
+
 ### Timeout layering
 
 Timeouts are explicitly layered:
 
-- `llm.timeoutMs` (provider request timeout + stream inactivity handling)
+- `llm.timeoutMs` (provider request timeout + stream inactivity timeout)
 - `llm.toolCallTimeoutMs` (per tool invocation)
 - `llm.requestTimeoutMs` (end-to-end request timeout)
+- `llm.subagents.defaultTimeoutMs` (default child execution timeout)
 
 ## Fallback and Retry Rules
 
@@ -117,45 +164,67 @@ Failure taxonomy and retry policy are centralized in `llm/policy.ts` and applied
 | `validation_error` | no retry | fail fast locally; do not forward malformed tool-turns |
 | `provider_error` | bounded retry | provider fallback eligible |
 | `rate_limited` | bounded retry | provider fallback eligible |
-| `timeout` | bounded retry | provider fallback eligible; may emit `timeout` stop reason |
+| `timeout` | bounded retry | provider fallback eligible; may emit `timeout` |
 | `authentication_error` | no retry | no fallback loop on deterministic auth failures |
-| `tool_error` | bounded retry (idempotency-aware) | session-level tool failure circuit breaker applies |
+| `tool_error` | bounded retry (idempotency-aware) | session-level tool failure breaker applies |
 | `budget_exceeded` | no retry | compaction attempt, then explicit budget stop |
 | `no_progress` | no retry | explicit stop with no-progress detail |
 
-Stateful continuation fallback (`llm.statefulResponses.*`):
+Subagent retry classes (`SubAgentOrchestrator`):
 
-- use `previous_response_id` only when reconciliation anchors match
-- emit explicit fallback reason on mismatch/missing/stale IDs
-- optional stateless fallback controlled by `fallbackToStateless`
+- `timeout`
+- `tool_misuse`
+- `malformed_result_contract`
+- `transient_provider_error`
+- `cancelled`
+- `spawn_error`
+- `unknown`
+
+Each class maps to bounded retry/backoff and a canonical stop-reason hint.
 
 ## Observability and Debugging
 
-For each execution, runtime emits:
+Per execution, runtime emits:
 
 - per-call usage attribution (`callUsage[]`)
 - prompt-shape before/after budget
 - stateful diagnostics (`statefulDiagnostics`, `statefulSummary`)
 - tool-routing diagnostics (`toolRoutingSummary`)
 - planner diagnostics (`plannerSummary`)
-- canonical stop reason + detail
+- canonical `stopReason` + `stopReasonDetail`
+
+Delegation-specific observability:
+
+- WebChat lifecycle events: `subagents.planned|spawned|started|progress|tool.executing|tool.result|completed|failed|cancelled|synthesized`
+- trace correlation: parent turn trace IDs + delegated child trace IDs
+- learning signals: parent/child trajectory records and per-context arm statistics
 
 Operational runbooks:
 
 - `docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md`
 - `docs/INCIDENT_REPLAY_RUNBOOK.md`
+- `docs/architecture/flows/subagent-orchestration.md`
 
-## Phase 9/10 Quality Gates
+## Quality Gates and Benchmarks
 
-Pipeline reliability gates are enforced in CI by:
+Pipeline reliability gates in CI:
 
 - `npm --prefix runtime run benchmark:pipeline:ci`
 - `npm --prefix runtime run benchmark:pipeline:gates`
 
-Gate domains:
+Delegation quality gates and decomposition benchmarks:
+
+- `npm --prefix runtime run benchmark:delegation:ci`
+- `npm --prefix runtime run benchmark:delegation:gates`
+- `npm --prefix runtime run benchmark:delegation`
+- `npm --prefix runtime run benchmark:decomposition-search`
+
+Gate domains include:
 
 - context growth slope/delta
-- malformed tool-turn forwarding (must stay zero)
+- malformed tool-turn forwarding (must remain zero)
 - desktop timeout/hang regressions
 - token efficiency per completed task
-- offline replay determinism for sanitized incident fixtures
+- delegation safety/quality/cost deltas
+- pass@k and pass^k deltas vs baseline
+- offline replay determinism

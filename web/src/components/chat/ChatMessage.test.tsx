@@ -13,7 +13,7 @@ describe('ChatMessage', () => {
     };
 
     render(<ChatMessage message={message} />);
-    expect(screen.getAllByRole('img', { name: 'AgenC' }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/AGENT RESPONSE/)).toBeDefined();
     expect(screen.getByRole('heading', { name: 'Hello' })).toBeDefined();
     expect(screen.getByText(/bold/i)).toBeDefined();
   });
@@ -35,9 +35,44 @@ describe('ChatMessage', () => {
 
     render(<ChatMessage message={message} />);
 
-    expect(screen.getByText('1 tool call', { exact: false })).toBeDefined();
-    const toolCallButton = screen.getByRole('button', { name: /tool call/i });
+    expect(screen.getByText(/TOOL CALLS/)).toBeDefined();
+    const toolCallButton = screen.getByRole('button', { name: /TOOL CALLS/i });
     fireEvent.click(toolCallButton);
     expect(screen.getByText('agenc.listTasks')).toBeDefined();
+  });
+
+  it('keeps subagent tool details collapsed until explicitly expanded', () => {
+    const message: ChatMessageType = {
+      id: '3',
+      sender: 'agent',
+      content: 'Delegated task',
+      timestamp: Date.now(),
+      subagents: [
+        {
+          subagentSessionId: 'subagent:child-1',
+          status: 'running',
+          objective: 'Collect diagnostics',
+          tools: [
+            {
+              toolName: 'desktop.bash',
+              toolCallId: 'tc-1',
+              args: { command: 'echo hi' },
+              status: 'completed',
+              result: 'ok',
+              durationMs: 12,
+            },
+          ],
+          events: [],
+        },
+      ],
+    };
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByText('desktop.bash')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /SUBAGENTS/i }));
+    expect(screen.getByText('[+] Show tools (1)')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: /show tools/i }));
+    expect(screen.getByText('desktop.bash')).toBeDefined();
   });
 });

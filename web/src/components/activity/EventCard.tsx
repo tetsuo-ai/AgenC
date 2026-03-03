@@ -11,6 +11,16 @@ const EVENT_META: Record<string, { icon: string; color: string; label: string }>
   'tool.executed': { icon: '⚡', color: 'text-amber-500 bg-amber-500/10', label: 'Tool Executed' },
   'task.created': { icon: '+', color: 'text-emerald-500 bg-emerald-500/10', label: 'Task Created' },
   'task.cancelled': { icon: '×', color: 'text-red-500 bg-red-500/10', label: 'Task Cancelled' },
+  'subagents.planned': { icon: '⋯', color: 'text-blue-500 bg-blue-500/10', label: 'Subagent Planned' },
+  'subagents.spawned': { icon: '⧉', color: 'text-cyan-500 bg-cyan-500/10', label: 'Subagent Spawned' },
+  'subagents.started': { icon: '▶', color: 'text-amber-500 bg-amber-500/10', label: 'Subagent Started' },
+  'subagents.progress': { icon: '↻', color: 'text-amber-500 bg-amber-500/10', label: 'Subagent Progress' },
+  'subagents.tool.executing': { icon: '⚙', color: 'text-amber-500 bg-amber-500/10', label: 'Subagent Tool Start' },
+  'subagents.tool.result': { icon: '✓', color: 'text-emerald-500 bg-emerald-500/10', label: 'Subagent Tool Result' },
+  'subagents.completed': { icon: '✓', color: 'text-emerald-500 bg-emerald-500/10', label: 'Subagent Completed' },
+  'subagents.failed': { icon: '!', color: 'text-red-500 bg-red-500/10', label: 'Subagent Failed' },
+  'subagents.cancelled': { icon: '×', color: 'text-red-500 bg-red-500/10', label: 'Subagent Cancelled' },
+  'subagents.synthesized': { icon: 'Σ', color: 'text-violet-500 bg-violet-500/10', label: 'Delegation Synthesized' },
   taskCreated: { icon: '+', color: 'text-emerald-500 bg-emerald-500/10', label: 'Task Created' },
   taskCompleted: { icon: '✓', color: 'text-blue-500 bg-blue-500/10', label: 'Task Completed' },
   taskCancelled: { icon: '×', color: 'text-red-500 bg-red-500/10', label: 'Task Cancelled' },
@@ -61,7 +71,20 @@ export function EventCard({ event }: EventCardProps) {
   });
 
   const meta = EVENT_META[event.eventType] ?? { icon: '•', color: 'text-accent bg-accent-bg', label: event.eventType };
-  const { sessionId, toolName, durationMs, taskPda, description, ...rest } = event.data as Record<string, string | number>;
+  const {
+    sessionId,
+    parentSessionId,
+    subagentSessionId,
+    toolName,
+    durationMs,
+    taskPda,
+    description,
+    traceId,
+    parentTraceId,
+    ...rest
+  } = event.data as Record<string, string | number>;
+  const effectiveTraceId = traceId ?? event.traceId;
+  const effectiveParentTraceId = parentTraceId ?? event.parentTraceId;
   const hasExtra = Object.keys(rest).length > 0;
 
   return (
@@ -104,6 +127,34 @@ export function EventCard({ event }: EventCardProps) {
             <span className="text-tetsuo-400 shrink-0">Session</span>
             <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(sessionId))}</span>
             <CopyButton value={String(sessionId)} />
+          </div>
+        )}
+        {parentSessionId && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-tetsuo-400 shrink-0">Parent</span>
+            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(parentSessionId))}</span>
+            <CopyButton value={String(parentSessionId)} />
+          </div>
+        )}
+        {subagentSessionId && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-tetsuo-400 shrink-0">Child</span>
+            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(subagentSessionId))}</span>
+            <CopyButton value={String(subagentSessionId)} />
+          </div>
+        )}
+        {effectiveTraceId && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-tetsuo-400 shrink-0">Trace</span>
+            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(effectiveTraceId), 8)}</span>
+            <CopyButton value={String(effectiveTraceId)} />
+          </div>
+        )}
+        {effectiveParentTraceId && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-tetsuo-400 shrink-0">Parent Trace</span>
+            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(effectiveParentTraceId), 8)}</span>
+            <CopyButton value={String(effectiveParentTraceId)} />
           </div>
         )}
       </div>

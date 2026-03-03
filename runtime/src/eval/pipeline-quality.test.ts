@@ -7,7 +7,7 @@ import {
 } from "./pipeline-quality.js";
 
 describe("pipeline-quality artifact", () => {
-  it("builds derived context growth, desktop, and replay rollups", () => {
+  it("builds derived context, replay, and delegation rollups", () => {
     const artifact = buildPipelineQualityArtifact({
       runId: "phase9-run",
       generatedAtMs: 1700000000000,
@@ -56,6 +56,39 @@ describe("pipeline-quality artifact", () => {
           },
         ],
       },
+      delegation: {
+        totalCases: 20,
+        delegatedCases: 16,
+        usefulDelegations: 12,
+        harmfulDelegations: 4,
+        plannerExecutionMismatches: 2,
+        childTimeouts: 1,
+        childFailures: 2,
+        synthesisConflicts: 2,
+        depthCapHits: 1,
+        fanoutCapHits: 1,
+        costDeltaVsBaseline: 0.34,
+        latencyDeltaVsBaseline: -28,
+        qualityDeltaVsBaseline: 0.2,
+        passAtKDeltaVsBaseline: 0.1,
+        passCaretKDeltaVsBaseline: 0.15,
+        baselineScenarioId: "baseline_no_delegation",
+        k: 2,
+        scenarioSummaries: [
+          {
+            scenarioId: "baseline_no_delegation",
+            mode: "no_delegation",
+            runCount: 4,
+            passRate: 0.5,
+            passAtK: 0.833333,
+            passCaretK: 0.75,
+            meanLatencyMs: 157.5,
+            meanCostUnits: 1.03,
+            passAtKDeltaVsBaseline: 0,
+            passCaretKDeltaVsBaseline: 0,
+          },
+        ],
+      },
     });
 
     expect(artifact.schemaVersion).toBe(
@@ -74,6 +107,12 @@ describe("pipeline-quality artifact", () => {
     expect(artifact.offlineReplay.parseFailures).toBe(1);
     expect(artifact.offlineReplay.replayFailures).toBe(1);
     expect(artifact.offlineReplay.deterministicMismatches).toBe(1);
+    expect(artifact.delegation.delegationAttemptRate).toBeCloseTo(0.8, 8);
+    expect(artifact.delegation.usefulDelegationRate).toBeCloseTo(0.75, 8);
+    expect(artifact.delegation.harmfulDelegationRate).toBeCloseTo(0.25, 8);
+    expect(artifact.delegation.childTimeoutRate).toBeCloseTo(0.0625, 8);
+    expect(artifact.delegation.passAtKDeltaVsBaseline).toBeCloseTo(0.1, 8);
+    expect(artifact.delegation.scenarioSummaries).toHaveLength(1);
   });
 
   it("round-trips parse + serialization deterministically", () => {
@@ -109,6 +148,39 @@ describe("pipeline-quality artifact", () => {
       offlineReplay: {
         fixtures: [{ fixtureId: "fixture-1", ok: true }],
       },
+      delegation: {
+        totalCases: 5,
+        delegatedCases: 2,
+        usefulDelegations: 2,
+        harmfulDelegations: 0,
+        plannerExecutionMismatches: 0,
+        childTimeouts: 0,
+        childFailures: 0,
+        synthesisConflicts: 0,
+        depthCapHits: 0,
+        fanoutCapHits: 0,
+        costDeltaVsBaseline: 0.2,
+        latencyDeltaVsBaseline: -4,
+        qualityDeltaVsBaseline: 0.1,
+        passAtKDeltaVsBaseline: 0.1,
+        passCaretKDeltaVsBaseline: 0.1,
+        baselineScenarioId: "baseline_no_delegation",
+        k: 2,
+        scenarioSummaries: [
+          {
+            scenarioId: "baseline_no_delegation",
+            mode: "no_delegation",
+            runCount: 3,
+            passRate: 0.66,
+            passAtK: 1,
+            passCaretK: 0.88,
+            meanLatencyMs: 10,
+            meanCostUnits: 1,
+            passAtKDeltaVsBaseline: 0,
+            passCaretKDeltaVsBaseline: 0,
+          },
+        ],
+      },
     });
 
     const parsed = parsePipelineQualityArtifact(
@@ -119,6 +191,41 @@ describe("pipeline-quality artifact", () => {
     expect(serializePipelineQualityArtifact(parsed)).toBe(
       serializePipelineQualityArtifact(built),
     );
+  });
+
+  it("migrates schema v1 artifacts by defaulting delegation metrics", () => {
+    const parsed = parsePipelineQualityArtifact({
+      schemaVersion: 1,
+      runId: "legacy-v1",
+      generatedAtMs: 1700000000100,
+      contextGrowth: {
+        promptTokenSeries: [12, 18],
+      },
+      toolTurn: {
+        validCases: 1,
+        validAccepted: 1,
+        malformedCases: 1,
+        malformedRejected: 1,
+        malformedForwarded: 0,
+      },
+      desktopStability: {
+        runSummaries: [],
+      },
+      tokenEfficiency: {
+        completedTasks: 1,
+        totalPromptTokens: 10,
+        totalCompletionTokens: 5,
+        totalTokens: 15,
+      },
+      offlineReplay: {
+        fixtures: [],
+      },
+    });
+
+    expect(parsed.schemaVersion).toBe(PIPELINE_QUALITY_ARTIFACT_SCHEMA_VERSION);
+    expect(parsed.delegation.totalCases).toBe(0);
+    expect(parsed.delegation.delegationAttemptRate).toBe(0);
+    expect(parsed.delegation.passAtKDeltaVsBaseline).toBe(0);
   });
 
   it("rejects unsupported schema versions", () => {

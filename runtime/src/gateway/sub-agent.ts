@@ -9,10 +9,14 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { IsolatedSessionContext } from "./session-isolation.js";
+import type {
+  IsolatedSessionContext,
+  SubAgentSessionIdentity,
+} from "./session-isolation.js";
 import { createGatewayMessage } from "./message.js";
 import { ChatExecutor } from "../llm/chat-executor.js";
 import type { ToolCallRecord } from "../llm/chat-executor.js";
+import type { LLMProvider, LLMUsage, ToolHandler } from "../llm/types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { SubAgentSpawnError } from "./errors.js";
@@ -23,6 +27,9 @@ import { SubAgentSpawnError } from "./errors.js";
 
 export const DEFAULT_SUB_AGENT_TIMEOUT_MS = 3_600_000; // 60 min
 export const MAX_CONCURRENT_SUB_AGENTS = 16;
+export const DEFAULT_MAX_SUB_AGENT_DEPTH = 4;
+export const DEFAULT_MAX_RETAINED_TERMINAL_SUB_AGENTS = 256;
+export const DEFAULT_TERMINAL_SUB_AGENT_RETENTION_MS = 6 * 60 * 60 * 1000; // 6h
 export const SUB_AGENT_SESSION_PREFIX = "subagent:";
 
 const DEFAULT_SUB_AGENT_SYSTEM_PROMPT =
@@ -67,6 +74,7 @@ export interface SubAgentConfig {
   readonly timeoutMs?: number;
   readonly workspace?: string;
   readonly tools?: readonly string[];
+  readonly requiredCapabilities?: readonly string[];
 }
 
 export interface SubAgentResult {
@@ -75,22 +83,43 @@ export interface SubAgentResult {
   readonly success: boolean;
   readonly durationMs: number;
   readonly toolCalls: readonly ToolCallRecord[];
+  readonly tokenUsage?: LLMUsage;
+  readonly providerName?: string;
 }
 
 export interface SubAgentManagerConfig {
   readonly createContext: (
-    workspaceId: string,
+    sessionIdentity: SubAgentSessionIdentity,
   ) => Promise<IsolatedSessionContext>;
-  readonly destroyContext: (workspaceId: string) => Promise<void>;
+  readonly destroyContext: (
+    sessionIdentity: SubAgentSessionIdentity,
+  ) => Promise<void>;
   readonly defaultWorkspaceId?: string;
   readonly maxConcurrent?: number;
+  readonly maxDepth?: number;
+  readonly maxRetainedTerminalHandles?: number;
+  readonly terminalHandleRetentionMs?: number;
   readonly systemPrompt?: string;
+  readonly composeToolHandler?: (params: {
+    sessionIdentity: SubAgentSessionIdentity;
+    context: IsolatedSessionContext;
+    baseToolHandler: ToolHandler;
+    task: string;
+  }) => ToolHandler;
+  readonly selectLLMProvider?: (params: {
+    sessionIdentity: SubAgentSessionIdentity;
+    contextProvider: LLMProvider;
+    task: string;
+    tools?: readonly string[];
+    requiredCapabilities?: readonly string[];
+  }) => LLMProvider | undefined;
   readonly logger?: Logger;
 }
 
 export interface SubAgentInfo {
   readonly sessionId: string;
   readonly parentSessionId: string;
+  readonly depth: number;
   readonly status: SubAgentStatus;
   readonly startedAt: number;
   readonly task: string;
@@ -103,6 +132,7 @@ export interface SubAgentInfo {
 interface SubAgentHandle {
   readonly sessionId: string;
   readonly parentSessionId: string;
+  readonly depth: number;
   readonly task: string;
   readonly config: SubAgentConfig;
   readonly startedAt: number;
@@ -111,6 +141,7 @@ interface SubAgentHandle {
   readonly abortController: AbortController;
   timeoutTimer: ReturnType<typeof setTimeout> | null;
   execution: Promise<void>;
+  finishedAt: number | null;
 }
 
 // ============================================================================
@@ -121,11 +152,32 @@ export class SubAgentManager {
   private readonly handles = new Map<string, SubAgentHandle>();
   private readonly config: SubAgentManagerConfig;
   private readonly maxConcurrent: number;
+  private readonly maxDepth: number;
+  private readonly maxRetainedTerminalHandles: number;
+  private readonly terminalHandleRetentionMs: number;
   private readonly logger: Logger;
 
   constructor(config: SubAgentManagerConfig) {
     this.config = config;
     this.maxConcurrent = config.maxConcurrent ?? MAX_CONCURRENT_SUB_AGENTS;
+    this.maxDepth = Math.max(
+      1,
+      Math.floor(config.maxDepth ?? DEFAULT_MAX_SUB_AGENT_DEPTH),
+    );
+    this.maxRetainedTerminalHandles = Math.max(
+      1,
+      Math.floor(
+        config.maxRetainedTerminalHandles ??
+          DEFAULT_MAX_RETAINED_TERMINAL_SUB_AGENTS,
+      ),
+    );
+    this.terminalHandleRetentionMs = Math.max(
+      0,
+      Math.floor(
+        config.terminalHandleRetentionMs ??
+          DEFAULT_TERMINAL_SUB_AGENT_RETENTION_MS,
+      ),
+    );
     this.logger = config.logger ?? silentLogger;
   }
 
@@ -138,6 +190,8 @@ export class SubAgentManager {
   }
 
   async spawn(config: SubAgentConfig): Promise<string> {
+    this.pruneTerminalHandles();
+
     // Validate inputs
     if (!config.parentSessionId) {
       throw new SubAgentSpawnError("", "parentSessionId must be non-empty");
@@ -154,6 +208,14 @@ export class SubAgentManager {
         `max concurrent sub-agents reached (${this.maxConcurrent})`,
       );
     }
+    const parentDepth = this.resolveSessionDepth(config.parentSessionId);
+    const depth = parentDepth + 1;
+    if (depth > this.maxDepth) {
+      throw new SubAgentSpawnError(
+        config.parentSessionId,
+        `max sub-agent depth reached (${this.maxDepth})`,
+      );
+    }
 
     const sessionId = `${SUB_AGENT_SESSION_PREFIX}${randomUUID()}`;
     const timeoutMs = config.timeoutMs ?? DEFAULT_SUB_AGENT_TIMEOUT_MS;
@@ -162,6 +224,7 @@ export class SubAgentManager {
     const handle: SubAgentHandle = {
       sessionId,
       parentSessionId: config.parentSessionId,
+      depth,
       task: config.task,
       config,
       startedAt: Date.now(),
@@ -170,19 +233,24 @@ export class SubAgentManager {
       abortController,
       timeoutTimer: null,
       execution: Promise.resolve(),
+      finishedAt: null,
     };
 
     // Set timeout timer
     handle.timeoutTimer = setTimeout(() => {
       if (handle.status === "running") {
-        handle.status = "timed_out";
-        handle.result = {
+        this.markTerminalState(handle, "timed_out", {
           sessionId,
           output: `Sub-agent timed out after ${timeoutMs}ms`,
           success: false,
           durationMs: Date.now() - handle.startedAt,
           toolCalls: [],
-        };
+          tokenUsage: {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          },
+        });
         abortController.abort();
         this.logger.warn(
           `Sub-agent ${sessionId} timed out after ${timeoutMs}ms`,
@@ -204,25 +272,45 @@ export class SubAgentManager {
   }
 
   getResult(sessionId: string): SubAgentResult | null {
+    this.pruneTerminalHandles();
     const handle = this.handles.get(sessionId);
     if (!handle) return null;
     if (handle.status === "running") return null;
     return handle.result;
   }
 
+  getInfo(sessionId: string): SubAgentInfo | null {
+    this.pruneTerminalHandles();
+    const handle = this.handles.get(sessionId);
+    if (!handle) return null;
+    return {
+      sessionId: handle.sessionId,
+      parentSessionId: handle.parentSessionId,
+      depth: handle.depth,
+      status: handle.status,
+      startedAt: handle.startedAt,
+      task: handle.task,
+    };
+  }
+
   cancel(sessionId: string): boolean {
+    this.pruneTerminalHandles();
     const handle = this.handles.get(sessionId);
     if (!handle) return false;
     if (handle.status !== "running") return false;
 
-    handle.status = "cancelled";
-    handle.result = {
+    this.markTerminalState(handle, "cancelled", {
       sessionId,
       output: "Sub-agent was cancelled",
       success: false,
       durationMs: Date.now() - handle.startedAt,
       toolCalls: [],
-    };
+      tokenUsage: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      },
+    });
     handle.abortController.abort();
     if (handle.timeoutTimer !== null) {
       clearTimeout(handle.timeoutTimer);
@@ -233,6 +321,7 @@ export class SubAgentManager {
   }
 
   listActive(): readonly string[] {
+    this.pruneTerminalHandles();
     const active: string[] = [];
     for (const handle of this.handles.values()) {
       if (handle.status === "running") active.push(handle.sessionId);
@@ -241,11 +330,13 @@ export class SubAgentManager {
   }
 
   listAll(): readonly SubAgentInfo[] {
+    this.pruneTerminalHandles();
     const infos: SubAgentInfo[] = [];
     for (const handle of this.handles.values()) {
       infos.push({
         sessionId: handle.sessionId,
         parentSessionId: handle.parentSessionId,
+        depth: handle.depth,
         status: handle.status,
         startedAt: handle.startedAt,
         task: handle.task,
@@ -255,17 +346,23 @@ export class SubAgentManager {
   }
 
   async destroyAll(): Promise<void> {
+    const executions = Array.from(this.handles.values()).map((h) => h.execution);
+
     // Cancel all running sub-agents
     for (const handle of this.handles.values()) {
       if (handle.status === "running") {
-        handle.status = "cancelled";
-        handle.result = {
+        this.markTerminalState(handle, "cancelled", {
           sessionId: handle.sessionId,
           output: "Sub-agent was cancelled",
           success: false,
           durationMs: Date.now() - handle.startedAt,
           toolCalls: [],
-        };
+          tokenUsage: {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          },
+        });
         handle.abortController.abort();
         if (handle.timeoutTimer !== null) {
           clearTimeout(handle.timeoutTimer);
@@ -275,9 +372,6 @@ export class SubAgentManager {
     }
 
     // Await all executions
-    const executions = Array.from(this.handles.values()).map(
-      (h) => h.execution,
-    );
     await Promise.allSettled(executions);
 
     this.handles.clear();
@@ -291,7 +385,11 @@ export class SubAgentManager {
   private async executeSubAgent(handle: SubAgentHandle): Promise<void> {
     const workspaceId =
       handle.config.workspace ?? this.config.defaultWorkspaceId ?? "default";
-    const contextKey = `${workspaceId}:${handle.sessionId}`;
+    const sessionIdentity: SubAgentSessionIdentity = {
+      workspaceId,
+      parentSessionId: handle.parentSessionId,
+      subagentSessionId: handle.sessionId,
+    };
 
     let context: IsolatedSessionContext | undefined;
     try {
@@ -299,7 +397,7 @@ export class SubAgentManager {
       if (handle.abortController.signal.aborted) return;
 
       const contextOrAbort = await raceAbort(
-        this.config.createContext(contextKey),
+        this.config.createContext(sessionIdentity),
         handle.abortController.signal,
       );
       if (contextOrAbort === ABORT_SENTINEL) return;
@@ -308,9 +406,18 @@ export class SubAgentManager {
       // Check abort after context creation
       if (handle.abortController.signal.aborted) return;
 
+      const toolHandler = this.composeToolHandler(sessionIdentity, context, handle);
+      const selectedProvider =
+        this.config.selectLLMProvider?.({
+          sessionIdentity,
+          contextProvider: context.llmProvider,
+          task: handle.task,
+          tools: handle.config.tools,
+          requiredCapabilities: handle.config.requiredCapabilities,
+        }) ?? context.llmProvider;
       const executor = new ChatExecutor({
-        providers: [context.llmProvider],
-        toolHandler: context.toolRegistry.createToolHandler(),
+        providers: [selectedProvider],
+        toolHandler,
         allowedTools: handle.config.tools
           ? [...handle.config.tools]
           : undefined,
@@ -342,31 +449,37 @@ export class SubAgentManager {
       if (resultOrAbort === ABORT_SENTINEL || handle.status !== "running")
         return;
 
-      handle.status = "completed";
-      handle.result = {
+      this.markTerminalState(handle, "completed", {
         sessionId: handle.sessionId,
         output: resultOrAbort.content,
         success: true,
         durationMs: Date.now() - handle.startedAt,
         toolCalls: resultOrAbort.toolCalls,
-      };
+        tokenUsage: resultOrAbort.tokenUsage,
+        providerName: selectedProvider.name,
+      });
 
       this.logger.info(`Sub-agent ${handle.sessionId} completed successfully`);
     } catch (err) {
       // Guard: don't overwrite if cancelled/timed_out during execution
       if (handle.status !== "running") return;
 
-      handle.status = "failed";
-      handle.result = {
+      const failedOutput = err instanceof Error ? err.message : String(err);
+      this.markTerminalState(handle, "failed", {
         sessionId: handle.sessionId,
-        output: err instanceof Error ? err.message : String(err),
+        output: failedOutput,
         success: false,
         durationMs: Date.now() - handle.startedAt,
         toolCalls: [],
-      };
+        tokenUsage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        },
+      });
 
       this.logger.error(
-        `Sub-agent ${handle.sessionId} failed: ${handle.result.output}`,
+        `Sub-agent ${handle.sessionId} failed: ${failedOutput}`,
       );
     } finally {
       // Clear timeout timer
@@ -378,7 +491,7 @@ export class SubAgentManager {
       // Best-effort context cleanup
       if (context) {
         try {
-          await this.config.destroyContext(contextKey);
+          await this.config.destroyContext(sessionIdentity);
         } catch (cleanupErr) {
           this.logger.warn(
             `Failed to destroy context for sub-agent ${handle.sessionId}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
@@ -386,5 +499,66 @@ export class SubAgentManager {
         }
       }
     }
+  }
+
+  private markTerminalState(
+    handle: SubAgentHandle,
+    status: Exclude<SubAgentStatus, "running">,
+    result: SubAgentResult,
+  ): void {
+    handle.status = status;
+    handle.result = result;
+    handle.finishedAt = Date.now();
+    this.pruneTerminalHandles();
+  }
+
+  private pruneTerminalHandles(now = Date.now()): void {
+    const terminal: SubAgentHandle[] = [];
+    for (const handle of this.handles.values()) {
+      if (handle.status === "running") continue;
+      const finishedAt = handle.finishedAt ?? handle.startedAt;
+      if (this.terminalHandleRetentionMs > 0) {
+        const ageMs = now - finishedAt;
+        if (ageMs > this.terminalHandleRetentionMs) {
+          this.handles.delete(handle.sessionId);
+          continue;
+        }
+      }
+      terminal.push(handle);
+    }
+
+    const excess = terminal.length - this.maxRetainedTerminalHandles;
+    if (excess <= 0) return;
+    terminal.sort((a, b) => {
+      const aFinishedAt = a.finishedAt ?? a.startedAt;
+      const bFinishedAt = b.finishedAt ?? b.startedAt;
+      return aFinishedAt - bFinishedAt;
+    });
+    for (const handle of terminal.slice(0, excess)) {
+      this.handles.delete(handle.sessionId);
+    }
+  }
+
+  private resolveSessionDepth(sessionId: string): number {
+    const existing = this.handles.get(sessionId);
+    if (existing) return existing.depth;
+    return sessionId.startsWith(SUB_AGENT_SESSION_PREFIX) ? 1 : 0;
+  }
+
+  private composeToolHandler(
+    sessionIdentity: SubAgentSessionIdentity,
+    context: IsolatedSessionContext,
+    handle: SubAgentHandle,
+  ): ToolHandler {
+    const baseToolHandler = context.toolRegistry.createToolHandler();
+    if (!this.config.composeToolHandler) {
+      return baseToolHandler;
+    }
+    return this.config.composeToolHandler({
+      sessionIdentity,
+      context,
+      baseToolHandler,
+      task: handle.task,
+    });
   }
 }

@@ -496,6 +496,65 @@ describe('ApprovalEngine', () => {
       expect(req.createdAt).toBe(1000);
       expect(req.rule).toBe(rule);
     });
+
+    it('stores parent and subagent session context when provided', () => {
+      const rule = DEFAULT_APPROVAL_RULES[0];
+      const req = engine.createRequest(
+        'system.delete',
+        { cmd: 'ls' },
+        'child-1',
+        'Check',
+        rule,
+        {
+          parentSessionId: 'parent-1',
+          subagentSessionId: 'child-1',
+        },
+      );
+
+      expect(req.parentSessionId).toBe('parent-1');
+      expect(req.subagentSessionId).toBe('child-1');
+    });
+
+    it('inherits denials from parent session across delegated children', async () => {
+      const rule = DEFAULT_APPROVAL_RULES[0];
+      const denyReq = engine.createRequest(
+        'system.delete',
+        {},
+        'child-a',
+        'Approve?',
+        rule,
+        {
+          parentSessionId: 'parent-1',
+          subagentSessionId: 'child-a',
+        },
+      );
+      const denyPromise = engine.requestApproval(denyReq);
+      engine.resolve(denyReq.id, { requestId: denyReq.id, disposition: 'no' });
+      await denyPromise;
+
+      expect(engine.isToolDenied('child-a', 'system.delete', 'parent-1')).toBe(true);
+      expect(engine.isToolDenied('child-b', 'system.delete', 'parent-1')).toBe(true);
+
+      const allowReq = engine.createRequest(
+        'system.delete',
+        {},
+        'child-b',
+        'Approve?',
+        rule,
+        {
+          parentSessionId: 'parent-1',
+          subagentSessionId: 'child-b',
+        },
+      );
+      const allowPromise = engine.requestApproval(allowReq);
+      engine.resolve(allowReq.id, { requestId: allowReq.id, disposition: 'yes' });
+      await allowPromise;
+
+      // Parent-level denial is cleared after explicit approval.
+      expect(engine.isToolDenied('child-c', 'system.delete', 'parent-1')).toBe(false);
+      // Original child still keeps its own denied pattern.
+      expect(engine.isToolDenied('child-a', 'system.delete')).toBe(true);
+    });
   });
 
   // ============================================================================

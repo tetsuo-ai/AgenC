@@ -200,6 +200,48 @@ describe("Gateway", () => {
       expect(warnSpy).toHaveBeenCalled();
       warnSpy.mockRestore();
     });
+
+    it("reloadConfig applies llm.subagents as safe config", async () => {
+      await gateway.start();
+
+      const newConfig = makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test-key",
+          subagents: {
+            enabled: true,
+            mode: "manager_tools",
+            maxConcurrent: 6,
+            maxDepth: 3,
+            maxFanoutPerTurn: 5,
+            maxTotalSubagentsPerRequest: 20,
+            maxCumulativeToolCallsPerRequestTree: 300,
+            maxCumulativeTokensPerRequestTree: 200_000,
+            defaultTimeoutMs: 90_000,
+            spawnDecisionThreshold: 0.7,
+            forceVerifier: true,
+            allowParallelSubtasks: false,
+            allowedParentTools: ["planner.run"],
+            forbiddenParentTools: ["wallet.transfer"],
+            childToolAllowlistStrategy: "explicit_only",
+            fallbackBehavior: "fail_request",
+          },
+        },
+      });
+
+      const diff = gateway.reloadConfig(newConfig);
+
+      expect(diff.unsafe).toEqual([]);
+      expect(diff.safe).toContain("llm.subagents.enabled");
+      expect(gateway.config.llm?.subagents?.mode).toBe("manager_tools");
+      expect(gateway.config.llm?.subagents?.maxConcurrent).toBe(6);
+      expect(gateway.config.llm?.subagents?.maxCumulativeToolCallsPerRequestTree).toBe(
+        300,
+      );
+      expect(gateway.config.llm?.subagents?.fallbackBehavior).toBe(
+        "fail_request",
+      );
+    });
   });
 
   describe("events", () => {
@@ -714,6 +756,141 @@ describe("config loading", () => {
     );
     expect(result.errors).toContain(
       "llm.toolRouting.familyCaps.system must be an integer between 1 and 256",
+    );
+  });
+
+  it("validateGatewayConfig accepts llm.subagents fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          subagents: {
+            enabled: true,
+            mode: "hybrid",
+            delegationAggressiveness: "balanced",
+            maxConcurrent: 8,
+            maxDepth: 4,
+            maxFanoutPerTurn: 6,
+            maxTotalSubagentsPerRequest: 32,
+            maxCumulativeToolCallsPerRequestTree: 512,
+            maxCumulativeTokensPerRequestTree: 600_000,
+            defaultTimeoutMs: 120_000,
+            spawnDecisionThreshold: 0.65,
+            handoffMinPlannerConfidence: 0.82,
+            forceVerifier: true,
+            allowParallelSubtasks: true,
+            hardBlockedTaskClasses: [
+              "wallet_transfer",
+              "stake_or_rewards",
+            ],
+            allowedParentTools: ["planner.run", "system.bash"],
+            forbiddenParentTools: ["wallet.transfer"],
+            childToolAllowlistStrategy: "inherit_intersection",
+            childProviderStrategy: "capability_matched",
+            fallbackBehavior: "continue_without_delegation",
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("validateGatewayConfig rejects invalid llm.subagents fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          subagents: {
+            enabled: "yes" as unknown as boolean,
+            mode: "invalid-mode",
+            delegationAggressiveness: "extreme",
+            maxConcurrent: 0,
+            maxDepth: 0,
+            maxFanoutPerTurn: 100,
+            maxTotalSubagentsPerRequest: 0,
+            maxCumulativeToolCallsPerRequestTree: 0,
+            maxCumulativeTokensPerRequestTree: 0,
+            defaultTimeoutMs: 500,
+            spawnDecisionThreshold: 2,
+            handoffMinPlannerConfidence: 2,
+            forceVerifier: 1 as unknown as boolean,
+            allowParallelSubtasks: "no" as unknown as boolean,
+            hardBlockedTaskClasses: ["bad_class"],
+            allowedParentTools: [1, 2] as unknown as string[],
+            forbiddenParentTools: [false] as unknown as string[],
+            childToolAllowlistStrategy: "invalid-strategy",
+            childProviderStrategy: "bad_strategy",
+            fallbackBehavior: "invalid-fallback",
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("llm.subagents.enabled must be a boolean");
+    expect(result.errors).toContain(
+      "llm.subagents.mode must be one of: manager_tools, handoff, hybrid",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.delegationAggressiveness must be one of: conservative, balanced, aggressive, adaptive",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.maxConcurrent must be an integer between 1 and 64",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.maxDepth must be an integer between 1 and 16",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.maxFanoutPerTurn must be an integer between 1 and 64",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.maxTotalSubagentsPerRequest must be an integer between 1 and 1024",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.maxCumulativeToolCallsPerRequestTree must be an integer between 1 and 4096",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.maxCumulativeTokensPerRequestTree must be an integer between 1 and 10000000",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.defaultTimeoutMs must be an integer between 1000 and 3600000",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.spawnDecisionThreshold must be a number between 0 and 1",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.handoffMinPlannerConfidence must be a number between 0 and 1",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.forceVerifier must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.allowParallelSubtasks must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.allowedParentTools must be a string array",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.forbiddenParentTools must be a string array",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.hardBlockedTaskClasses[0] must be one of: wallet_signing, wallet_transfer, stake_or_rewards, destructive_host_mutation, credential_exfiltration",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.childToolAllowlistStrategy must be one of: inherit_intersection, explicit_only",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.childProviderStrategy must be one of: same_as_parent, capability_matched",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.fallbackBehavior must be one of: continue_without_delegation, fail_request",
+    );
+    expect(result.errors).toContain(
+      "llm.subagents.maxFanoutPerTurn must be less than or equal to llm.subagents.maxTotalSubagentsPerRequest",
     );
   });
 

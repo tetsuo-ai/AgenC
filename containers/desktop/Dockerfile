@@ -210,6 +210,19 @@ COPY server/dist/ /opt/server/dist/
 # =============================================================================
 RUN chown -R agenc:agenc /home/agenc /opt/server /tmp
 
+# =============================================================================
+# uv (Python package manager) + kitty-mcp
+# =============================================================================
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && git clone https://github.com/den-tanui/kitty-mcp.git /tmp/kitty-mcp \
+    && cd /tmp/kitty-mcp \
+    && sed -i '30,34d' pyproject.toml \
+    && /home/agenc/.local/bin/uv tool install /tmp/kitty-mcp \
+    && rm -rf /tmp/kitty-mcp \
+    && chown -R agenc:agenc /home/agenc/.local
+
+ENV PATH="/home/agenc/.local/bin:${PATH}"
+
 USER agenc
 WORKDIR /home/agenc
 

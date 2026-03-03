@@ -451,6 +451,72 @@ Use during incident triage. This profile prioritizes observability and reproduci
 }
 ```
 
+### Profile 4: Delegation SOTA (subagent orchestration + policy learning)
+
+Use for multi-step delegated workloads where planner DAG execution, verifier gates, and learning-based routing should be active.
+
+```json
+{
+  "llm": {
+    "provider": "grok",
+    "apiKey": "${XAI_API_KEY}",
+    "model": "grok-3",
+    "timeoutMs": 60000,
+    "toolCallTimeoutMs": 180000,
+    "requestTimeoutMs": 600000,
+    "parallelToolCalls": false,
+    "plannerEnabled": true,
+    "plannerMaxTokens": 320,
+    "maxToolRounds": 6,
+    "toolBudgetPerRequest": 12,
+    "maxModelRecallsPerRequest": 3,
+    "maxFailureBudgetPerRequest": 4,
+    "statefulResponses": {
+      "enabled": false,
+      "store": false,
+      "fallbackToStateless": true
+    },
+    "subagents": {
+      "enabled": true,
+      "mode": "hybrid",
+      "delegationAggressiveness": "balanced",
+      "maxConcurrent": 6,
+      "maxDepth": 4,
+      "maxFanoutPerTurn": 8,
+      "maxTotalSubagentsPerRequest": 32,
+      "maxCumulativeToolCallsPerRequestTree": 256,
+      "maxCumulativeTokensPerRequestTree": 250000,
+      "defaultTimeoutMs": 120000,
+      "spawnDecisionThreshold": 0.65,
+      "handoffMinPlannerConfidence": 0.82,
+      "forceVerifier": true,
+      "allowParallelSubtasks": true,
+      "hardBlockedTaskClasses": [
+        "wallet_signing",
+        "wallet_transfer",
+        "stake_or_rewards",
+        "credential_exfiltration"
+      ],
+      "childToolAllowlistStrategy": "inherit_intersection",
+      "childProviderStrategy": "same_as_parent",
+      "fallbackBehavior": "continue_without_delegation",
+      "policyLearning": {
+        "enabled": true,
+        "epsilon": 0.1,
+        "explorationBudget": 500,
+        "minSamplesPerArm": 2,
+        "ucbExplorationScale": 1.2,
+        "arms": [
+          { "id": "conservative", "thresholdOffset": 0.1 },
+          { "id": "balanced", "thresholdOffset": 0.0 },
+          { "id": "aggressive", "thresholdOffset": -0.1 }
+        ]
+      }
+    }
+  }
+}
+```
+
 ### Profile Selection Guide
 
 | Profile | Best For | Tradeoff |
@@ -458,6 +524,54 @@ Use during incident triage. This profile prioritizes observability and reproduci
 | Safe defaults | General production | Higher latency than throughput profile |
 | High throughput | High-turnover chat workloads | Less retry depth and tighter budgets |
 | Local debug | Incident triage and reproductions | Large logs and higher token spend |
+| Delegation SOTA | Multi-step delegated workflows | More orchestration overhead and additional eval requirements |
+
+## Delegation Runtime Surface (Gateway)
+
+When `llm.subagents.enabled=true`, gateway/runtime expose orchestration controls in `GatewayLLMConfig.subagents`:
+
+- execution mode: `mode` (`manager_tools`, `handoff`, `hybrid`)
+- aggressiveness profile: `delegationAggressiveness` (`conservative`, `balanced`, `aggressive`, `adaptive`)
+- hard safety caps: depth/fanout/children/tool-calls/tokens
+- policy controls: `spawnDecisionThreshold`, `handoffMinPlannerConfidence`, `hardBlockedTaskClasses`, `allowedParentTools`, `forbiddenParentTools`
+- verifier controls: `forceVerifier`
+- child least-privilege policy: `childToolAllowlistStrategy`
+- child provider routing: `childProviderStrategy` (`same_as_parent`, `capability_matched`)
+- fallback behavior: `continue_without_delegation` or `fail_request`
+- online policy learning: `llm.subagents.policyLearning.*`
+
+Runtime exposes a live slash-command override for operators:
+
+- `/delegation status`
+- `/delegation conservative|balanced|aggressive|adaptive`
+- `/delegation default`
+
+### Runtime response diagnostics for delegation
+
+`ChatExecutorResult.plannerSummary` includes delegation fields:
+
+- `delegationDecision`
+- `subagentVerification`
+- `delegationPolicyTuning`
+
+`delegationPolicyTuning` now includes useful-delegation reward proxy diagnostics:
+
+- `usefulDelegation`
+- `usefulDelegationScore`
+- `rewardProxyVersion`
+
+These diagnostics are emitted in trace logs and available to channel adapters for user-visible lifecycle timelines.
+
+### Delegation benchmarking scripts
+
+```bash
+npm --prefix runtime run benchmark:delegation
+npm --prefix runtime run benchmark:delegation:ci
+npm --prefix runtime run benchmark:delegation:gates
+npm --prefix runtime run benchmark:decomposition-search
+```
+
+These scripts are release-gate inputs for delegation quality, reliability, and quality-cost Pareto promotion behavior.
 
 ## Capability Constants
 

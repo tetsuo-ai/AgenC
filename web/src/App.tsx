@@ -22,9 +22,9 @@ import { useActivityFeed } from './hooks/useActivityFeed';
 import { useAgents } from './hooks/useAgents';
 import { useDesktop } from './hooks/useDesktop';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Sidebar } from './components/Sidebar';
-import { RightPanel } from './components/RightPanel';
-import { MobileHeader } from './components/MobileHeader';
+import { BBSHeader } from './components/BBSHeader';
+import { BBSMenuBar } from './components/BBSMenuBar';
+import { BBSStatusBar } from './components/BBSStatusBar';
 import { ApprovalBanner } from './components/approvals/ApprovalBanner';
 import { ApprovalDialog } from './components/approvals/ApprovalDialog';
 import { ChatView } from './components/chat/ChatView';
@@ -40,8 +40,7 @@ import { DesktopView } from './components/desktop/DesktopView';
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewId>('chat');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { theme } = useTheme();
 
   // WebSocket connection
   const { state: connectionState, send } = useWebSocket({
@@ -51,15 +50,11 @@ export default function App() {
   const connected = connectionState === 'connected';
 
   // Type helper for hooks that expose handleMessage as an extra property
-  // not yet on their return interface. TODO: add handleMessage to each hook's
-  // return interface and remove these casts.
   type WithHandler<T> = T & { handleMessage: (msg: WSMessage) => void };
 
-  // Hooks — chat and desktop have handleMessage on their return type.
-  // Other hooks still need the WithHandler cast until their interfaces are updated.
+  // Hooks
   const chat = useChat({ send, connected });
   const handleDelegationResult = useCallback((task: string, content: string) => {
-    // Inject delegation result into chat panel so user can read full output
     chat.injectMessage(`[Voice] ${task}`, 'user');
     chat.injectMessage(content, 'agent');
   }, [chat]);
@@ -71,16 +66,13 @@ export default function App() {
   const approvals = useApprovals({ send }) as WithHandler<ReturnType<typeof useApprovals>>;
   const gatewaySettings = useSettings({ send, connected });
   const walletInfo = useWallet({ send, connected });
-  const activityFeed = useActivityFeed({ send, connected }) as WithHandler<ReturnType<typeof useActivityFeed>>;
+  const activityFeed = useActivityFeed({ send, connected });
   const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
   const desktop = useDesktop({ send, connected });
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
   const prevVncUrl = useRef<string | null>(null);
   const suppressNextVoiceTranscript = useRef(false);
 
-  // Match VNC viewer to the active chat session's container.
-  // During voice delegation, sandboxes are keyed by the voice session ID
-  // (not the text chat session), so fall back to any ready sandbox.
   const sessionDesktopUrl = useMemo(
     () => desktop.vncUrlForSession(chat.sessionId)
       ?? (voice.isVoiceActive ? desktop.activeVncUrl : null),
@@ -99,7 +91,7 @@ export default function App() {
     prevVncUrl.current = sessionDesktopUrl;
   }, [sessionDesktopUrl]);
 
-  // Periodically refresh sandbox list so we pick up newly-created containers
+  // Periodically refresh sandbox list
   const desktopRefresh = desktop.refresh;
   useEffect(() => {
     if (!connected) return;
@@ -107,7 +99,7 @@ export default function App() {
     return () => clearInterval(id);
   }, [connected, desktopRefresh]);
 
-  // Voice toggle — start or stop voice session
+  // Voice toggle
   const handleVoiceToggle = useCallback(() => {
     if (voice.isVoiceActive) {
       voice.stopVoice();
@@ -116,7 +108,7 @@ export default function App() {
     }
   }, [voice]);
 
-  // Central message router — dispatches to appropriate hook handler
+  // Central message router
   function handleWSMessage(msg: WSMessage) {
     chat.handleMessage(msg);
     voice.handleMessage(msg);
@@ -131,7 +123,6 @@ export default function App() {
     agentsData.handleMessage(msg);
     desktop.handleMessage(msg);
 
-    // Voice → Chat bridge: mirror voice turns as chat messages
     const payload = (msg.payload ?? {}) as Record<string, unknown>;
     if (msg.type === WS_VOICE_DELEGATION) {
       const status = payload.status as string;
@@ -146,11 +137,9 @@ export default function App() {
     }
 
     if (msg.type === WS_VOICE_SPEECH_STOPPED) {
-      // Inject placeholder immediately — replaced by real transcript if available
       chat.injectMessage('[Voice]', 'user');
     }
     if (msg.type === WS_VOICE_USER_TRANSCRIPT && typeof payload.text === 'string') {
-      // Replace the [Voice] placeholder with actual transcribed text
       chat.replaceLastUserMessage(payload.text);
     }
     if (msg.type === WS_VOICE_TRANSCRIPT && payload.done && typeof payload.text === 'string') {
@@ -180,158 +169,116 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen bg-surface">
-        {/* Desktop sidebar */}
-        <div className="hidden md:flex">
-          <Sidebar
-            currentView={currentView}
-            onNavigate={setCurrentView}
-            connectionState={connectionState}
-            workspace="default"
-            pendingApprovals={approvals.pending.length}
-            theme={theme}
-            onToggleTheme={toggleTheme}
-          />
-        </div>
+      <div className="flex flex-col h-screen bg-bbs-black">
+        <BBSHeader
+          connectionState={connectionState}
+          approvalCount={approvals.pending.length}
+        />
+        <BBSMenuBar
+          currentView={currentView}
+          onViewChange={setCurrentView}
+        />
 
-        {/* Mobile sidebar overlay */}
-        {sidebarOpen && (
-          <div className="fixed inset-0 z-50 md:hidden">
-            <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
-            <div className="relative h-full w-[340px] max-w-[85vw] animate-slide-in">
-              <Sidebar
-                currentView={currentView}
-                onNavigate={(view) => { setCurrentView(view); setSidebarOpen(false); }}
-                connectionState={connectionState}
-                workspace="default"
-                pendingApprovals={approvals.pending.length}
-                theme={theme}
-                onToggleTheme={toggleTheme}
-                mobile
-              />
-            </div>
-          </div>
-        )}
+        <ApprovalBanner
+          pending={approvals.pending}
+          onSelect={setSelectedApproval}
+        />
 
-        <main className="flex-1 flex flex-col min-w-0">
-          {/* Mobile header */}
-          <MobileHeader onMenuToggle={() => setSidebarOpen(true)} />
-
-          <ApprovalBanner
-            pending={approvals.pending}
-            onSelect={setSelectedApproval}
-          />
-
-          <div className="flex-1 min-h-0">
-            {currentView === 'chat' && (
-              <ChatView
-                messages={chat.messages}
-                isTyping={chat.isTyping}
-                onSend={chat.sendMessage}
-                onStop={chat.stopGeneration}
-                connected={connected}
-                voiceState={voice.voiceState}
-                voiceTranscript={voice.transcript}
-                voiceMode={voice.mode}
-                onVoiceToggle={handleVoiceToggle}
-                onVoiceModeChange={voice.setMode}
-                onPushToTalkStart={voice.pushToTalkStart}
-                onPushToTalkStop={voice.pushToTalkStop}
-                delegationTask={voice.delegationTask}
-                theme={theme}
-                onToggleTheme={toggleTheme}
-                chatSessions={chat.sessions}
-                activeSessionId={chat.sessionId}
-                onSelectSession={chat.resumeSession}
-                onNewChat={chat.startNewChat}
-                desktopUrl={sessionDesktopUrl}
-                desktopOpen={desktopPanelOpen}
-                onToggleDesktop={toggleDesktopPanel}
-                tokenUsage={chat.tokenUsage}
-              />
-            )}
-            {currentView === 'status' && (
-              <AgentStatusView
-                status={agentStatus.status}
-                onRefresh={agentStatus.refresh}
-              />
-            )}
-            {currentView === 'skills' && (
-              <SkillsView
-                skills={skills.skills}
-                onRefresh={skills.refresh}
-                onToggle={skills.toggle}
-              />
-            )}
-            {currentView === 'tasks' && (
-              <TasksView
-                tasks={tasks.tasks}
-                onRefresh={tasks.refresh}
-                onCreate={tasks.create}
-                onCancel={tasks.cancel}
-              />
-            )}
-            {currentView === 'memory' && (
-              <MemoryView
-                results={memory.results}
-                sessions={memory.sessions}
-                onSearch={memory.search}
-                onRefreshSessions={memory.refreshSessions}
-              />
-            )}
-            {currentView === 'desktop' && (
-              <DesktopView
-                sandboxes={desktop.sandboxes}
-                loading={desktop.loading}
-                error={desktop.error}
-                activeSessionId={chat.sessionId}
-                onRefresh={desktop.refresh}
-                onCreate={(options) =>
-                  desktop.create(
-                    {
-                      sessionId: `desktop-ui:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
-                      maxMemory: options?.maxMemory,
-                      maxCpu: options?.maxCpu,
-                    },
-                  )
-                }
-                onAttach={(containerId, sessionId) => desktop.attach(containerId, sessionId)}
-                onDestroy={desktop.destroy}
-              />
-            )}
-            {currentView === 'activity' && (
-              <ActivityFeedView
-                events={activityFeed.events}
-                onClear={activityFeed.clear}
-              />
-            )}
-            {currentView === 'settings' && (
-              <SettingsView
-                settings={gatewaySettings}
-                autoApprove={approvals.autoApprove}
-                onAutoApproveChange={approvals.setAutoApprove}
-              />
-            )}
-            {currentView === 'payment' && (
-              <PaymentView wallet={walletInfo} />
-            )}
-          </div>
+        <main className="flex-1 min-h-0">
+          {currentView === 'chat' && (
+            <ChatView
+              messages={chat.messages}
+              isTyping={chat.isTyping}
+              onSend={chat.sendMessage}
+              onStop={chat.stopGeneration}
+              connected={connected}
+              voiceState={voice.voiceState}
+              voiceTranscript={voice.transcript}
+              voiceMode={voice.mode}
+              onVoiceToggle={handleVoiceToggle}
+              onVoiceModeChange={voice.setMode}
+              onPushToTalkStart={voice.pushToTalkStart}
+              onPushToTalkStop={voice.pushToTalkStop}
+              delegationTask={voice.delegationTask}
+              theme={theme}
+              chatSessions={chat.sessions}
+              activeSessionId={chat.sessionId}
+              onSelectSession={chat.resumeSession}
+              onNewChat={chat.startNewChat}
+              desktopUrl={sessionDesktopUrl}
+              desktopOpen={desktopPanelOpen}
+              onToggleDesktop={toggleDesktopPanel}
+              tokenUsage={chat.tokenUsage}
+            />
+          )}
+          {currentView === 'status' && (
+            <AgentStatusView
+              status={agentStatus.status}
+              onRefresh={agentStatus.refresh}
+            />
+          )}
+          {currentView === 'skills' && (
+            <SkillsView
+              skills={skills.skills}
+              onRefresh={skills.refresh}
+              onToggle={skills.toggle}
+            />
+          )}
+          {currentView === 'tasks' && (
+            <TasksView
+              tasks={tasks.tasks}
+              onRefresh={tasks.refresh}
+              onCreate={tasks.create}
+              onCancel={tasks.cancel}
+            />
+          )}
+          {currentView === 'memory' && (
+            <MemoryView
+              results={memory.results}
+              sessions={memory.sessions}
+              onSearch={memory.search}
+              onRefreshSessions={memory.refreshSessions}
+            />
+          )}
+          {currentView === 'desktop' && (
+            <DesktopView
+              sandboxes={desktop.sandboxes}
+              loading={desktop.loading}
+              error={desktop.error}
+              activeSessionId={chat.sessionId}
+              onRefresh={desktop.refresh}
+              onCreate={(options) =>
+                desktop.create(
+                  {
+                    sessionId: `desktop-ui:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
+                    maxMemory: options?.maxMemory,
+                    maxCpu: options?.maxCpu,
+                  },
+                )
+              }
+              onAttach={(containerId, sessionId) => desktop.attach(containerId, sessionId)}
+              onDestroy={desktop.destroy}
+            />
+          )}
+          {currentView === 'activity' && (
+            <ActivityFeedView
+              events={activityFeed.events}
+              onClear={activityFeed.clear}
+            />
+          )}
+          {currentView === 'settings' && (
+            <SettingsView
+              settings={gatewaySettings}
+              autoApprove={approvals.autoApprove}
+              onAutoApproveChange={approvals.setAutoApprove}
+            />
+          )}
+          {currentView === 'payment' && (
+            <PaymentView wallet={walletInfo} />
+          )}
         </main>
 
-        {/* Desktop right panel — hidden when desktop viewer is open */}
-        <div className={`hidden lg:flex ${desktopPanelOpen && sessionDesktopUrl ? '!hidden' : ''}`}>
-          <RightPanel
-            settings={gatewaySettings}
-            wallet={walletInfo}
-            chatSessions={chat.sessions}
-            activeSessionId={chat.sessionId}
-            onSelectSession={chat.resumeSession}
-            onNewChat={chat.startNewChat}
-            autoApprove={approvals.autoApprove}
-            onAutoApproveChange={approvals.setAutoApprove}
-            agents={agentsData.agents}
-          />
-        </div>
+        <BBSStatusBar />
 
         {selectedApproval && (
           <ApprovalDialog

@@ -3,6 +3,9 @@ import type {
   ChatMessage,
   ChatMessageAttachment,
   ContextUsageSection,
+  SubagentTimelineEvent,
+  SubagentTimelineItem,
+  SubagentTimelineStatus,
   TokenUsage,
   ToolCall,
   WSMessage,
@@ -19,6 +22,18 @@ import {
   WS_CHAT_CANCELLED,
   WS_CHAT_CANCEL,
   WS_CHAT_USAGE,
+  WS_EVENTS_EVENT,
+  WS_SUBAGENT_LIFECYCLE_TYPES,
+  WS_SUBAGENTS_CANCELLED,
+  WS_SUBAGENTS_COMPLETED,
+  WS_SUBAGENTS_FAILED,
+  WS_SUBAGENTS_PLANNED,
+  WS_SUBAGENTS_PROGRESS,
+  WS_SUBAGENTS_SPAWNED,
+  WS_SUBAGENTS_STARTED,
+  WS_SUBAGENTS_SYNTHESIZED,
+  WS_SUBAGENTS_TOOL_EXECUTING,
+  WS_SUBAGENTS_TOOL_RESULT,
   WS_TOOLS_EXECUTING,
   WS_TOOLS_RESULT,
 } from '../constants';
@@ -84,6 +99,127 @@ function parseUsageSections(value: unknown): ContextUsageSection[] | undefined {
     })
     .filter((section): section is ContextUsageSection => section !== null);
   return sections.length > 0 ? sections : undefined;
+}
+
+const SUBAGENT_LIFECYCLE_TYPE_SET = new Set<string>(
+  WS_SUBAGENT_LIFECYCLE_TYPES as readonly string[],
+);
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function asSubagentStatus(type: string): SubagentTimelineStatus {
+  switch (type) {
+    case WS_SUBAGENTS_PLANNED:
+      return 'planned';
+    case WS_SUBAGENTS_SPAWNED:
+      return 'spawned';
+    case WS_SUBAGENTS_STARTED:
+      return 'started';
+    case WS_SUBAGENTS_PROGRESS:
+    case WS_SUBAGENTS_TOOL_EXECUTING:
+    case WS_SUBAGENTS_TOOL_RESULT:
+      return 'running';
+    case WS_SUBAGENTS_COMPLETED:
+      return 'completed';
+    case WS_SUBAGENTS_FAILED:
+      return 'failed';
+    case WS_SUBAGENTS_CANCELLED:
+      return 'cancelled';
+    case WS_SUBAGENTS_SYNTHESIZED:
+      return 'synthesized';
+    default:
+      return 'running';
+  }
+}
+
+interface ParsedSubagentEvent {
+  type: string;
+  payload: {
+    sessionId: string;
+    parentSessionId?: string;
+    subagentSessionId?: string;
+    toolName?: string;
+    timestamp: number;
+    data: Record<string, unknown>;
+    traceId?: string;
+    parentTraceId?: string;
+  };
+}
+
+function parseSubagentEvent(msg: WSMessage): ParsedSubagentEvent | null {
+  if (SUBAGENT_LIFECYCLE_TYPE_SET.has(msg.type)) {
+    const payload = asRecord(msg.payload ?? msg);
+    if (!payload) return null;
+    const sessionId = asString(payload.sessionId);
+    if (!sessionId) return null;
+    return {
+      type: msg.type,
+      payload: {
+        sessionId,
+        parentSessionId: asString(payload.parentSessionId),
+        subagentSessionId: asString(payload.subagentSessionId),
+        toolName: asString(payload.toolName),
+        timestamp: asNumber(payload.timestamp) ?? Date.now(),
+        data: asRecord(payload.data) ?? {},
+        traceId: asString(payload.traceId),
+        parentTraceId: asString(payload.parentTraceId),
+      },
+    };
+  }
+
+  if (msg.type === WS_EVENTS_EVENT) {
+    const envelope = asRecord(msg.payload ?? msg);
+    if (!envelope) return null;
+    const lifecycleType = asString(envelope.eventType);
+    if (!lifecycleType || !SUBAGENT_LIFECYCLE_TYPE_SET.has(lifecycleType)) {
+      return null;
+    }
+    const data = asRecord(envelope.data) ?? {};
+    const sessionId =
+      asString(data.sessionId) ??
+      asString(data.parentSessionId) ??
+      asString(msg.sessionId);
+    if (!sessionId) return null;
+    const subagentData = { ...data };
+    delete subagentData.sessionId;
+    delete subagentData.parentSessionId;
+    delete subagentData.subagentSessionId;
+    delete subagentData.toolName;
+    delete subagentData.timestamp;
+    return {
+      type: lifecycleType,
+      payload: {
+        sessionId,
+        parentSessionId: asString(data.parentSessionId),
+        subagentSessionId: asString(data.subagentSessionId),
+        toolName: asString(data.toolName),
+        timestamp: asNumber(data.timestamp) ?? asNumber(envelope.timestamp) ?? Date.now(),
+        data: subagentData,
+        traceId: asString(envelope.traceId),
+        parentTraceId: asString(envelope.parentTraceId),
+      },
+    };
+  }
+
+  return null;
+}
+
+function resolveSubagentId(event: ParsedSubagentEvent): string {
+  if (event.payload.subagentSessionId) return event.payload.subagentSessionId;
+  const stepName = asString(event.payload.data.stepName);
+  if (stepName) return `planned:${stepName}`;
+  return `planned:${event.type}:${event.payload.timestamp}`;
 }
 
 export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
@@ -213,7 +349,220 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     });
   }, [nextRequestId, send]);
 
+  const appendSubagentLifecycle = useCallback((event: ParsedSubagentEvent) => {
+    setMessages((prev) => {
+      const copy = [...prev];
+      const pendingId = pendingMsgIdRef.current;
+      let targetIdx = pendingId
+        ? copy.findIndex((message) => message.id === pendingId)
+        : -1;
+
+      if (targetIdx === -1) {
+        for (let i = copy.length - 1; i >= 0; i -= 1) {
+          if (copy[i].sender === 'agent') {
+            targetIdx = i;
+            break;
+          }
+        }
+      }
+
+      if (targetIdx === -1) {
+        const newId = `agent_${++msgCounterRef.current}`;
+        pendingMsgIdRef.current = newId;
+        copy.push({
+          id: newId,
+          content: '',
+          sender: 'agent',
+          timestamp: event.payload.timestamp,
+          subagents: [],
+        });
+        targetIdx = copy.length - 1;
+      }
+
+      const target = copy[targetIdx];
+      const subagents = [...(target.subagents ?? [])];
+      const stepName = asString(event.payload.data.stepName);
+      const resolvedId = resolveSubagentId(event);
+      let itemIndex = subagents.findIndex((entry) => entry.subagentSessionId === resolvedId);
+      if (itemIndex === -1 && event.payload.subagentSessionId && stepName) {
+        itemIndex = subagents.findIndex(
+          (entry) => entry.subagentSessionId === `planned:${stepName}`,
+        );
+      }
+      if (itemIndex === -1 && event.type === WS_SUBAGENTS_SYNTHESIZED) {
+        itemIndex = subagents.findIndex((entry) => entry.subagentSessionId === '__synthesis__');
+      }
+
+      if (itemIndex === -1) {
+        subagents.push({
+          subagentSessionId:
+            event.type === WS_SUBAGENTS_SYNTHESIZED
+              ? '__synthesis__'
+              : resolvedId,
+          parentSessionId: event.payload.parentSessionId,
+          objective:
+            asString(event.payload.data.objective) ??
+            (stepName ? `Step ${stepName}` : undefined),
+          status: asSubagentStatus(event.type),
+          tools: [],
+          events: [],
+          traceId: event.payload.traceId,
+          parentTraceId: event.payload.parentTraceId,
+        });
+        itemIndex = subagents.length - 1;
+      }
+
+      const current = subagents[itemIndex] as SubagentTimelineItem;
+      const updated: SubagentTimelineItem = {
+        ...current,
+        tools: [...current.tools],
+        events: [...current.events],
+      };
+
+      if (
+        event.payload.subagentSessionId &&
+        updated.subagentSessionId.startsWith('planned:')
+      ) {
+        updated.subagentSessionId = event.payload.subagentSessionId;
+      }
+
+      const status = asSubagentStatus(event.type);
+      updated.status = status;
+      updated.parentSessionId = event.payload.parentSessionId ?? updated.parentSessionId;
+      const objective = asString(event.payload.data.objective);
+      if (objective) updated.objective = objective;
+      if (event.payload.traceId) updated.traceId = event.payload.traceId;
+      if (event.payload.parentTraceId) updated.parentTraceId = event.payload.parentTraceId;
+
+      if (
+        !updated.startedAt &&
+        (status === 'spawned' || status === 'started' || status === 'running')
+      ) {
+        updated.startedAt = event.payload.timestamp;
+      }
+      if (
+        status === 'completed' ||
+        status === 'failed' ||
+        status === 'cancelled' ||
+        status === 'synthesized'
+      ) {
+        updated.completedAt = event.payload.timestamp;
+      }
+
+      const outputSummary =
+        asString(event.payload.data.output) ??
+        asString(event.payload.data.summary) ??
+        asString(event.payload.data.result);
+      if (outputSummary) {
+        updated.outputSummary =
+          outputSummary.length > 500
+            ? `${outputSummary.slice(0, 497)}...`
+            : outputSummary;
+      }
+
+      const errorReason =
+        asString(event.payload.data.reason) ??
+        asString(event.payload.data.error) ??
+        asString(event.payload.data.message);
+      if (errorReason) updated.errorReason = errorReason;
+
+      const durationMs = asNumber(event.payload.data.durationMs);
+      if (durationMs !== undefined) {
+        updated.elapsedMs = durationMs;
+      } else if (updated.startedAt && updated.completedAt) {
+        updated.elapsedMs = Math.max(0, updated.completedAt - updated.startedAt);
+      }
+
+      const toolName = asString(event.payload.toolName) ?? asString(event.payload.data.toolName);
+      const toolCallId = asString(event.payload.data.toolCallId);
+      if (
+        (event.type === WS_SUBAGENTS_TOOL_EXECUTING || event.type === WS_SUBAGENTS_TOOL_RESULT) &&
+        toolName
+      ) {
+        let toolIndex = updated.tools.findIndex((tool) => {
+          if (toolCallId) return tool.toolCallId === toolCallId;
+          return tool.toolName === toolName && tool.status === 'executing';
+        });
+        if (toolIndex === -1) {
+          updated.tools.push({
+            toolName,
+            toolCallId,
+            args: asRecord(event.payload.data.args) ?? {},
+            status: event.type === WS_SUBAGENTS_TOOL_RESULT ? 'completed' : 'executing',
+            subagentSessionId: updated.subagentSessionId,
+            traceId: event.payload.traceId,
+            parentTraceId: event.payload.parentTraceId,
+          });
+          toolIndex = updated.tools.length - 1;
+        }
+
+        const existingTool = updated.tools[toolIndex];
+        const merged: ToolCall = {
+          ...existingTool,
+          toolName,
+          toolCallId: toolCallId ?? existingTool.toolCallId,
+          args: asRecord(event.payload.data.args) ?? existingTool.args,
+          subagentSessionId: updated.subagentSessionId,
+          traceId: event.payload.traceId ?? existingTool.traceId,
+          parentTraceId: event.payload.parentTraceId ?? existingTool.parentTraceId,
+        };
+
+        if (event.type === WS_SUBAGENTS_TOOL_RESULT) {
+          merged.status = 'completed';
+          if (asString(event.payload.data.result) !== undefined) {
+            merged.result = asString(event.payload.data.result);
+          }
+          const resultDuration = asNumber(event.payload.data.durationMs);
+          if (resultDuration !== undefined) {
+            merged.durationMs = resultDuration;
+          }
+          const isError = asBoolean(event.payload.data.isError);
+          if (isError !== undefined) {
+            merged.isError = isError;
+          }
+        } else {
+          merged.status = 'executing';
+        }
+
+        updated.tools[toolIndex] = merged;
+      }
+
+      updated.events.push({
+        type: event.type as SubagentTimelineEvent['type'],
+        timestamp: event.payload.timestamp,
+        toolName: event.payload.toolName,
+        data: event.payload.data,
+      });
+
+      subagents[itemIndex] = updated;
+
+      copy[targetIdx] = {
+        ...target,
+        timestamp: Math.max(target.timestamp, event.payload.timestamp),
+        subagents,
+      };
+
+      return copy;
+    });
+  }, []);
+
   const handleMessage = useCallback((msg: WSMessage) => {
+    const subagentEvent = parseSubagentEvent(msg);
+    if (subagentEvent) {
+      appendSubagentLifecycle(subagentEvent);
+      if (
+        subagentEvent.type === WS_SUBAGENTS_COMPLETED ||
+        subagentEvent.type === WS_SUBAGENTS_FAILED ||
+        subagentEvent.type === WS_SUBAGENTS_CANCELLED ||
+        subagentEvent.type === WS_SUBAGENTS_SYNTHESIZED
+      ) {
+        setIsTyping(false);
+      } else {
+        setIsTyping(true);
+      }
+      return;
+    }
+
     switch (msg.type) {
       case WS_CHAT_MESSAGE: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
@@ -318,6 +667,11 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
 
       case WS_TOOLS_EXECUTING: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
+        if (asString(payload.subagentSessionId)) {
+          // Sub-agent tools are rendered from subagents.tool.* lifecycle events.
+          // Ignore duplicated top-level tools.* events to avoid UI spam.
+          break;
+        }
         const toolCallId = payload.toolCallId
           ? `${payload.toolCallId}`
           : undefined;
@@ -387,6 +741,9 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
 
       case WS_TOOLS_RESULT: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
+        if (asString(payload.subagentSessionId)) {
+          break;
+        }
         const toolCallId = payload.toolCallId
           ? `${payload.toolCallId}`
           : undefined;

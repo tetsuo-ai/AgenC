@@ -1,11 +1,11 @@
 import type { ConnectionState } from '../types';
 
-const STATE_CONFIG: Record<ConnectionState, { color: string; label: string }> = {
-  connected: { color: 'bg-green-500', label: 'Connected' },
-  connecting: { color: 'bg-yellow-500', label: 'Connecting...' },
-  authenticating: { color: 'bg-yellow-500', label: 'Authenticating...' },
-  reconnecting: { color: 'bg-yellow-500', label: 'Reconnecting...' },
-  disconnected: { color: 'bg-red-500', label: 'Disconnected' },
+const STATE_CONFIG: Record<ConnectionState, { text: string; color: string }> = {
+  connected: { text: '[CONNECTED]', color: 'text-bbs-green' },
+  connecting: { text: '[CONNECTING...]', color: 'text-bbs-yellow animate-pulse' },
+  authenticating: { text: '[AUTH...]', color: 'text-bbs-yellow animate-pulse' },
+  reconnecting: { text: '[RECONNECTING...]', color: 'text-bbs-yellow animate-pulse' },
+  disconnected: { text: '[DISCONNECTED]', color: 'text-bbs-red' },
 };
 
 interface ConnectionStatusProps {
@@ -14,21 +14,19 @@ interface ConnectionStatusProps {
 }
 
 export function ConnectionStatus({ state, compact }: ConnectionStatusProps) {
-  const { color, label } = STATE_CONFIG[state];
-  const pulse = state === 'connecting' || state === 'authenticating' || state === 'reconnecting' ? 'animate-pulse' : '';
+  const { text, color } = STATE_CONFIG[state];
 
   if (compact) {
     return (
-      <div className="flex items-center justify-center" title={label}>
-        <span className={`w-2.5 h-2.5 rounded-full ${color} ${pulse}`} />
+      <div className="flex items-center justify-center" title={text}>
+        <span className={`text-[10px] font-bold ${color}`}>{text}</span>
       </div>
     );
   }
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
-      <span className={`w-2 h-2 rounded-full ${color} ${pulse}`} />
-      <span className="text-tetsuo-500">{label}</span>
+      <span className={`font-bold ${color}`}>{text}</span>
     </div>
   );
 }

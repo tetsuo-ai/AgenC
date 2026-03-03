@@ -27,6 +27,7 @@ import type {
 } from "./types.js";
 import { HANDLER_MAP } from "./handlers.js";
 import type { SendFn } from "./handlers.js";
+import { matchesEventFilters } from "./protocol.js";
 
 const MESSAGE_ID_TTL_MS = 5 * 60_000;
 const MAX_TRACKED_MESSAGE_IDS = 5_000;
@@ -67,8 +68,8 @@ export class WebChatChannel
     string,
     Array<{ content: string; sender: "user" | "agent"; timestamp: number }>
   >();
-  // clientIds that have subscribed to real-time events
-  private readonly eventSubscribers = new Set<string>();
+  // clientIds subscribed to events and their optional filters
+  private readonly eventSubscribers = new Map<string, readonly string[] | null>();
   // sessionId → AbortController for in-flight chat execution
   private readonly sessionAbortControllers = new Map<string, AbortController>();
   // Dedup replayed chat.message envelopes (e.g. reconnect flush/retry)
@@ -222,7 +223,7 @@ export class WebChatChannel
 
     // Event subscriptions need clientId — handled here, not in HANDLER_MAP
     if (type.startsWith("events.")) {
-      this.handleEventMessage(clientId, type, id, send);
+      this.handleEventMessage(clientId, type, payload, id, send);
       return;
     }
 
@@ -240,9 +241,9 @@ export class WebChatChannel
     if (type === "chat.cancel") {
       const sessionId = this.clientSessions.get(clientId);
       if (sessionId && this.cancelSession(sessionId)) {
-        send({ type: "chat.cancelled", id });
+        send({ type: "chat.cancelled", payload: { cancelled: true }, id });
       } else {
-        send({ type: "chat.cancelled", id });
+        send({ type: "chat.cancelled", payload: { cancelled: true }, id });
       }
       return;
     }
@@ -620,17 +621,42 @@ export class WebChatChannel
   private handleEventMessage(
     clientId: string,
     type: string,
+    payload: Record<string, unknown> | undefined,
     id: string | undefined,
     send: SendFn,
   ): void {
     switch (type) {
-      case "events.subscribe":
-        this.eventSubscribers.add(clientId);
-        send({ type: "events.subscribed", payload: { active: true }, id });
+      case "events.subscribe": {
+        const rawFilters = Array.isArray(payload?.filters)
+          ? payload.filters
+          : [];
+        const normalizedFilters = Array.from(
+          new Set(
+            rawFilters
+              .filter((entry): entry is string => typeof entry === "string")
+              .map((entry) => entry.trim())
+              .filter((entry) => entry.length > 0),
+          ),
+        );
+        const filters = normalizedFilters.length > 0 ? normalizedFilters : null;
+        this.eventSubscribers.set(clientId, filters);
+        send({
+          type: "events.subscribed",
+          payload: {
+            active: true,
+            filters: filters ?? [],
+          },
+          id,
+        });
         break;
+      }
       case "events.unsubscribe":
         this.eventSubscribers.delete(clientId);
-        send({ type: "events.unsubscribed", payload: { active: false }, id });
+        send({
+          type: "events.unsubscribed",
+          payload: { active: false, filters: [] },
+          id,
+        });
         break;
       default:
         send({
@@ -645,11 +671,29 @@ export class WebChatChannel
    * Broadcast an event to all subscribed WS clients.
    */
   broadcastEvent(eventType: string, data: Record<string, unknown>): void {
+    const traceId = typeof data.traceId === "string" ? data.traceId : undefined;
+    const parentTraceId =
+      typeof data.parentTraceId === "string" ? data.parentTraceId : undefined;
+    const eventData =
+      traceId || parentTraceId
+        ? Object.fromEntries(
+            Object.entries(data).filter(
+              ([key]) => key !== "traceId" && key !== "parentTraceId",
+            ),
+          )
+        : data;
     const response: ControlResponse = {
       type: "events.event",
-      payload: { eventType, data, timestamp: Date.now() },
+      payload: {
+        eventType,
+        data: eventData,
+        timestamp: Date.now(),
+        ...(traceId ? { traceId } : {}),
+        ...(parentTraceId ? { parentTraceId } : {}),
+      },
     };
-    for (const clientId of this.eventSubscribers) {
+    for (const [clientId, filters] of this.eventSubscribers) {
+      if (!matchesEventFilters(eventType, filters)) continue;
       const send = this.clientSenders.get(clientId);
       send?.(response);
     }

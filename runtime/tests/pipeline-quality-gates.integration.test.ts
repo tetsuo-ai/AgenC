@@ -85,6 +85,14 @@ describe("pipeline quality gate integration", () => {
       "0",
       "--max-offline-replay-failures",
       "0",
+      "--min-delegation-attempt-rate",
+      "0.2",
+      "--max-harmful-delegation-rate",
+      "0.1",
+      "--min-pass-at-k-delta-vs-baseline",
+      "0",
+      "--min-pass-caret-k-delta-vs-baseline",
+      "0",
     ];
 
     const failRun = await runCommand(process.execPath, strictArgs, {

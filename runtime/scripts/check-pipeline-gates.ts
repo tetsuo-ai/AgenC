@@ -24,7 +24,7 @@ function defaultArtifactPath(): string {
 
 function parseThreshold(value: string, flag: string): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  if (!Number.isFinite(parsed)) {
     throw new Error(`invalid ${flag} value: ${value}`);
   }
   return parsed;
@@ -85,6 +85,98 @@ function parseCliArgs(argv: string[]): CliOptions {
       options.thresholds.maxOfflineReplayFailures = parseThreshold(argv[++i]!, arg);
       continue;
     }
+    if (arg === "--min-delegation-attempt-rate" && argv[i + 1]) {
+      options.thresholds.minDelegationAttemptRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-delegation-attempt-rate" && argv[i + 1]) {
+      options.thresholds.maxDelegationAttemptRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--min-useful-delegation-rate" && argv[i + 1]) {
+      options.thresholds.minUsefulDelegationRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-harmful-delegation-rate" && argv[i + 1]) {
+      options.thresholds.maxHarmfulDelegationRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-planner-to-execution-mismatch-rate" && argv[i + 1]) {
+      options.thresholds.maxPlannerToExecutionMismatchRate = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
+    if (arg === "--max-child-timeout-rate" && argv[i + 1]) {
+      options.thresholds.maxChildTimeoutRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-child-failure-rate" && argv[i + 1]) {
+      options.thresholds.maxChildFailureRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-synthesis-conflict-rate" && argv[i + 1]) {
+      options.thresholds.maxSynthesisConflictRate = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
+    if (arg === "--max-depth-cap-hit-rate" && argv[i + 1]) {
+      options.thresholds.maxDepthCapHitRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-fanout-cap-hit-rate" && argv[i + 1]) {
+      options.thresholds.maxFanoutCapHitRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-cost-delta-vs-baseline" && argv[i + 1]) {
+      options.thresholds.maxCostDeltaVsBaseline = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--max-latency-delta-vs-baseline" && argv[i + 1]) {
+      options.thresholds.maxLatencyDeltaVsBaseline = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
+    if (arg === "--min-quality-delta-vs-baseline" && argv[i + 1]) {
+      options.thresholds.minQualityDeltaVsBaseline = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
+    if (arg === "--min-pass-at-k-delta-vs-baseline" && argv[i + 1]) {
+      options.thresholds.minPassAtKDeltaVsBaseline = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
+    if (arg === "--min-pass-caret-k-delta-vs-baseline" && argv[i + 1]) {
+      options.thresholds.minPassCaretKDeltaVsBaseline = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
+    if (arg === "--fail-fast-harmful-delegation-rate" && argv[i + 1]) {
+      options.thresholds.failFastHarmfulDelegationRate = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
+    if (arg === "--fail-fast-runaway-cap-hit-rate" && argv[i + 1]) {
+      options.thresholds.failFastRunawayCapHitRate = parseThreshold(
+        argv[++i]!,
+        arg,
+      );
+      continue;
+    }
     if (arg === "--help") {
       console.log(
         [
@@ -99,6 +191,23 @@ function parseCliArgs(argv: string[]): CliOptions {
           "  --max-desktop-failed-runs <float>",
           "  --max-desktop-timeout-runs <float>",
           "  --max-offline-replay-failures <float>",
+          "  --min-delegation-attempt-rate <float>",
+          "  --max-delegation-attempt-rate <float>",
+          "  --min-useful-delegation-rate <float>",
+          "  --max-harmful-delegation-rate <float>",
+          "  --max-planner-to-execution-mismatch-rate <float>",
+          "  --max-child-timeout-rate <float>",
+          "  --max-child-failure-rate <float>",
+          "  --max-synthesis-conflict-rate <float>",
+          "  --max-depth-cap-hit-rate <float>",
+          "  --max-fanout-cap-hit-rate <float>",
+          "  --max-cost-delta-vs-baseline <float>",
+          "  --max-latency-delta-vs-baseline <float>",
+          "  --min-quality-delta-vs-baseline <float>",
+          "  --min-pass-at-k-delta-vs-baseline <float>",
+          "  --min-pass-caret-k-delta-vs-baseline <float>",
+          "  --fail-fast-harmful-delegation-rate <float>",
+          "  --fail-fast-runaway-cap-hit-rate <float>",
           "",
           "Options:",
           "  --dry-run   Always exit 0, but print failures",

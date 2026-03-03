@@ -12,7 +12,7 @@ describe('ChatInput', () => {
     const { container } = render(<ChatInput onSend={onSend} />);
 
     const input = container.querySelector(
-      'textarea[placeholder="Message to AgenC..."]',
+      'textarea[placeholder="Enter command..."]',
     ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'hello from tests' } });
 
@@ -31,7 +31,7 @@ describe('ChatInput', () => {
     const { container } = render(<ChatInput onSend={onSend} />);
 
     const input = container.querySelector(
-      'textarea[placeholder="Message to AgenC..."]',
+      'textarea[placeholder="Enter command..."]',
     ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'line one' } });
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', shiftKey: true });
@@ -47,7 +47,7 @@ describe('ChatInput', () => {
     const { container } = render(<ChatInput onSend={onSend} />);
 
     const input = container.querySelector(
-      'textarea[placeholder="Message to AgenC..."]',
+      'textarea[placeholder="Enter command..."]',
     ) as HTMLTextAreaElement;
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
 
@@ -75,21 +75,21 @@ describe('ChatInput', () => {
     const onSend = vi.fn();
     const { container } = render(<ChatInput onSend={onSend} />);
     const input = container.querySelector(
-      'textarea[placeholder="Message to AgenC..."]',
+      'textarea[placeholder="Enter command..."]',
     ) as HTMLTextAreaElement;
 
     fireEvent.change(input, { target: { value: '/' } });
 
     expect(screen.getByText('Commands')).toBeTruthy();
-    expect(screen.getByText('/help')).toBeTruthy();
-    expect(screen.getByText('/status')).toBeTruthy();
+    expect(screen.getByTestId('slash-command-help')).toBeTruthy();
+    expect(screen.getByTestId('slash-command-status')).toBeTruthy();
   });
 
   it('filters slash commands by typed prefix', () => {
     const onSend = vi.fn();
     const { container } = render(<ChatInput onSend={onSend} />);
     const input = container.querySelector(
-      'textarea[placeholder="Message to AgenC..."]',
+      'textarea[placeholder="Enter command..."]',
     ) as HTMLTextAreaElement;
 
     fireEvent.change(input, { target: { value: '/res' } });
@@ -104,7 +104,7 @@ describe('ChatInput', () => {
     const onSend = vi.fn();
     const { container } = render(<ChatInput onSend={onSend} />);
     const input = container.querySelector(
-      'textarea[placeholder="Message to AgenC..."]',
+      'textarea[placeholder="Enter command..."]',
     ) as HTMLTextAreaElement;
 
     fireEvent.change(input, { target: { value: '/res' } });
@@ -120,7 +120,7 @@ describe('ChatInput', () => {
     const onSend = vi.fn();
     const { container } = render(<ChatInput onSend={onSend} />);
     const input = container.querySelector(
-      'textarea[placeholder="Message to AgenC..."]',
+      'textarea[placeholder="Enter command..."]',
     ) as HTMLTextAreaElement;
 
     fireEvent.change(input, { target: { value: '/ev' } });

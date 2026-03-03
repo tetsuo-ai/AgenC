@@ -7,7 +7,7 @@ describe('MessageList', () => {
   it('shows empty state when there are no messages', () => {
     render(<MessageList messages={[]} isTyping={false} />);
 
-    expect(screen.getByText('Send a message to start the conversation')).toBeDefined();
+    expect(screen.getByText(/Send a message to start the conversation/)).toBeDefined();
   });
 
   it('shows filtering message when query misses all messages', () => {

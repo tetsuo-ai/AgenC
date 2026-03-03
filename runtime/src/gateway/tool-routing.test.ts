@@ -21,6 +21,7 @@ function makeTool(name: string, description: string): LLMTool {
 const TOOLS: LLMTool[] = [
   makeTool("system.bash", "Run terminal commands"),
   makeTool("desktop.bash", "Run shell commands in desktop sandbox"),
+  makeTool("execute_with_agent", "Delegate a child objective to a subagent"),
   makeTool("system.readFile", "Read a file"),
   makeTool("system.writeFile", "Write a file"),
   makeTool("system.listDir", "List files in directory"),
@@ -62,6 +63,7 @@ describe("ToolRouter", () => {
 
     expect(decision.routedToolNames).toContain("system.bash");
     expect(decision.routedToolNames).toContain("desktop.bash");
+    expect(decision.routedToolNames).toContain("execute_with_agent");
     expect(decision.routedToolNames.length).toBeLessThan(TOOLS.length);
     expect(decision.expandedToolNames.length).toBeGreaterThanOrEqual(
       decision.routedToolNames.length,

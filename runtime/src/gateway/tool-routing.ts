@@ -54,6 +54,9 @@ const DEFAULT_MANDATORY_TOOLS = [
   "system.readFile",
   "system.writeFile",
   "system.listDir",
+  // Keep delegation entrypoint always available so routed subsets
+  // can still spawn child agents when the user asks for parallel delegation.
+  "execute_with_agent",
 ];
 
 const DEFAULT_FAMILY_CAPS: Record<string, number> = {
@@ -63,6 +66,10 @@ const DEFAULT_FAMILY_CAPS: Record<string, number> = {
   agenc: 8,
   wallet: 6,
   social: 6,
+  "mcp.kitty": 9,
+  "mcp.tmux": 8,
+  "mcp.neovim": 8,
+  "mcp.browser": 10,
   default: 6,
 };
 
@@ -111,6 +118,19 @@ const NETWORK_TERMS = new Set([
   "fetch",
   "endpoint",
   "url",
+]);
+
+const MCP_TERMS = new Set([
+  "mcp",
+  "kitty",
+  "tmux",
+  "neovim",
+  "nvim",
+  "vim",
+  "editor",
+  "pane",
+  "session",
+  "window",
 ]);
 
 interface NormalizedRoutingConfig {
@@ -215,7 +235,16 @@ function jaccardSimilarity(a: readonly string[], b: readonly string[]): number {
 function familyFromToolName(name: string): string {
   const firstDot = name.indexOf(".");
   if (firstDot <= 0) return "default";
-  return name.slice(0, firstDot).toLowerCase();
+  const prefix = name.slice(0, firstDot).toLowerCase();
+  // For MCP tools (mcp.kitty.launch, mcp.tmux.list-sessions, etc.),
+  // use the first two segments as the family so each server gets its own cap.
+  if (prefix === "mcp") {
+    const secondDot = name.indexOf(".", firstDot + 1);
+    if (secondDot > firstDot) {
+      return name.slice(0, secondDot).toLowerCase();
+    }
+  }
+  return prefix;
 }
 
 function normalizeConfig(config: ToolRoutingConfig | undefined): NormalizedRoutingConfig {
@@ -471,6 +500,7 @@ export class ToolRouter {
     const hasBrowserIntent = intentTerms.some((term) => BROWSER_TERMS.has(term));
     const hasFileIntent = intentTerms.some((term) => FILE_TERMS.has(term));
     const hasNetworkIntent = intentTerms.some((term) => NETWORK_TERMS.has(term));
+    const hasMCPIntent = intentTerms.some((term) => MCP_TERMS.has(term));
 
     const scored = this.indexedTools.map((tool) => {
       let score = 0;
@@ -487,10 +517,14 @@ export class ToolRouter {
         if (
           tool.family === "desktop" ||
           tool.family === "playwright" ||
-          tool.name.startsWith("system.browse")
+          tool.name.startsWith("system.browse") ||
+          tool.family === "mcp.browser"
         ) {
           score += 2;
         }
+      }
+      if (hasMCPIntent && tool.family.startsWith("mcp.")) {
+        score += 3;
       }
       if (hasFileIntent && tool.family === "system") {
         if (

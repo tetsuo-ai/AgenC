@@ -13,6 +13,7 @@ interface CliOptions {
   turns?: number;
   desktopRuns?: number;
   desktopTimeoutMs?: number;
+  delegationBenchmarkK?: number;
   incidentFixtureDir?: string;
 }
 
@@ -36,6 +37,14 @@ function parsePositiveInt(value: string, flag: string): number {
   return parsed;
 }
 
+function parseNonNegativeInt(value: string, flag: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`invalid ${flag} value: ${value}`);
+  }
+  return parsed;
+}
+
 function parseCliArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     outputPath: resolveDefaultOutputPath(),
@@ -52,11 +61,15 @@ function parseCliArgs(argv: string[]): CliOptions {
       continue;
     }
     if (arg === "--desktop-runs" && argv[i + 1]) {
-      options.desktopRuns = parsePositiveInt(argv[++i]!, arg);
+      options.desktopRuns = parseNonNegativeInt(argv[++i]!, arg);
       continue;
     }
     if (arg === "--desktop-timeout-ms" && argv[i + 1]) {
       options.desktopTimeoutMs = parsePositiveInt(argv[++i]!, arg);
+      continue;
+    }
+    if (arg === "--delegation-k" && argv[i + 1]) {
+      options.delegationBenchmarkK = parsePositiveInt(argv[++i]!, arg);
       continue;
     }
     if (arg === "--incident-fixture-dir" && argv[i + 1]) {
@@ -73,6 +86,7 @@ function parseCliArgs(argv: string[]): CliOptions {
           "  --turns <int>                   Context/token benchmark turns",
           "  --desktop-runs <int>            Number of desktop repro runs",
           "  --desktop-timeout-ms <int>      Timeout per desktop repro run",
+          "  --delegation-k <int>            k for delegation benchmark pass@k/pass^k",
           "  --incident-fixture-dir <path>   Offline replay fixture directory",
           "",
           "Defaults:",
@@ -92,6 +106,7 @@ async function main(): Promise<void> {
     turns: options.turns,
     desktopRuns: options.desktopRuns,
     desktopTimeoutMs: options.desktopTimeoutMs,
+    delegationBenchmarkK: options.delegationBenchmarkK,
     incidentFixtureDir: options.incidentFixtureDir,
   });
 
@@ -115,6 +130,8 @@ async function main(): Promise<void> {
       `Desktop failed/timeouts: ${artifact.desktopStability.failedRuns}/${artifact.desktopStability.timedOutRuns}`,
       `Tokens/completed task: ${artifact.tokenEfficiency.tokensPerCompletedTask.toFixed(4)}`,
       `Offline replay failures: ${offlineFailures}`,
+      `Delegation attempt/useful/harmful: ${artifact.delegation.delegationAttemptRate.toFixed(4)}/${artifact.delegation.usefulDelegationRate.toFixed(4)}/${artifact.delegation.harmfulDelegationRate.toFixed(4)}`,
+      `Delegation deltas (quality/pass@k/pass^k): ${artifact.delegation.qualityDeltaVsBaseline.toFixed(4)}/${artifact.delegation.passAtKDeltaVsBaseline.toFixed(4)}/${artifact.delegation.passCaretKDeltaVsBaseline.toFixed(4)}`,
       `Output: ${options.outputPath}`,
     ].join("\n"),
   );

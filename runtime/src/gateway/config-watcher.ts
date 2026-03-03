@@ -69,6 +69,34 @@ const VALID_LLM_PROVIDERS: ReadonlySet<string> = new Set([
   "grok",
   "ollama",
 ]);
+const VALID_SUBAGENT_MODES: ReadonlySet<string> = new Set([
+  "manager_tools",
+  "handoff",
+  "hybrid",
+]);
+const VALID_SUBAGENT_CHILD_TOOL_ALLOWLIST_STRATEGIES: ReadonlySet<string> =
+  new Set(["inherit_intersection", "explicit_only"]);
+const VALID_SUBAGENT_FALLBACK_BEHAVIORS: ReadonlySet<string> = new Set([
+  "continue_without_delegation",
+  "fail_request",
+]);
+const VALID_SUBAGENT_CHILD_PROVIDER_STRATEGIES: ReadonlySet<string> = new Set([
+  "same_as_parent",
+  "capability_matched",
+]);
+const VALID_SUBAGENT_DELEGATION_AGGRESSIVENESS: ReadonlySet<string> = new Set([
+  "conservative",
+  "balanced",
+  "aggressive",
+  "adaptive",
+]);
+const VALID_SUBAGENT_HARD_BLOCKED_TASK_CLASSES: ReadonlySet<string> = new Set([
+  "wallet_signing",
+  "wallet_transfer",
+  "stake_or_rewards",
+  "destructive_host_mutation",
+  "credential_exfiltration",
+]);
 const VALID_MEMORY_BACKENDS: ReadonlySet<string> = new Set([
   "memory",
   "sqlite",
@@ -602,6 +630,294 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
           ) {
             errors.push(
               "llm.toolRouting.maxExpandedToolsPerTurn must be greater than or equal to llm.toolRouting.maxToolsPerTurn",
+            );
+          }
+        }
+      }
+      if (obj.llm.subagents !== undefined) {
+        if (!isRecord(obj.llm.subagents)) {
+          errors.push("llm.subagents must be an object");
+        } else {
+          const subagents = obj.llm.subagents;
+          if (
+            subagents.enabled !== undefined &&
+            typeof subagents.enabled !== "boolean"
+          ) {
+            errors.push("llm.subagents.enabled must be a boolean");
+          }
+          if (subagents.mode !== undefined) {
+            requireOneOf(
+              subagents.mode,
+              "llm.subagents.mode",
+              VALID_SUBAGENT_MODES,
+              errors,
+            );
+          }
+          if (subagents.delegationAggressiveness !== undefined) {
+            requireOneOf(
+              subagents.delegationAggressiveness,
+              "llm.subagents.delegationAggressiveness",
+              VALID_SUBAGENT_DELEGATION_AGGRESSIVENESS,
+              errors,
+            );
+          }
+          if (subagents.maxConcurrent !== undefined) {
+            requireIntRange(
+              subagents.maxConcurrent,
+              "llm.subagents.maxConcurrent",
+              1,
+              64,
+              errors,
+            );
+          }
+          if (subagents.maxDepth !== undefined) {
+            requireIntRange(
+              subagents.maxDepth,
+              "llm.subagents.maxDepth",
+              1,
+              16,
+              errors,
+            );
+          }
+          if (subagents.maxFanoutPerTurn !== undefined) {
+            requireIntRange(
+              subagents.maxFanoutPerTurn,
+              "llm.subagents.maxFanoutPerTurn",
+              1,
+              64,
+              errors,
+            );
+          }
+          if (subagents.maxTotalSubagentsPerRequest !== undefined) {
+            requireIntRange(
+              subagents.maxTotalSubagentsPerRequest,
+              "llm.subagents.maxTotalSubagentsPerRequest",
+              1,
+              1024,
+              errors,
+            );
+          }
+          if (subagents.maxCumulativeToolCallsPerRequestTree !== undefined) {
+            requireIntRange(
+              subagents.maxCumulativeToolCallsPerRequestTree,
+              "llm.subagents.maxCumulativeToolCallsPerRequestTree",
+              1,
+              4096,
+              errors,
+            );
+          }
+          if (subagents.maxCumulativeTokensPerRequestTree !== undefined) {
+            requireIntRange(
+              subagents.maxCumulativeTokensPerRequestTree,
+              "llm.subagents.maxCumulativeTokensPerRequestTree",
+              1,
+              10_000_000,
+              errors,
+            );
+          }
+          if (subagents.defaultTimeoutMs !== undefined) {
+            requireIntRange(
+              subagents.defaultTimeoutMs,
+              "llm.subagents.defaultTimeoutMs",
+              1_000,
+              3_600_000,
+              errors,
+            );
+          }
+          if (subagents.spawnDecisionThreshold !== undefined) {
+            if (
+              typeof subagents.spawnDecisionThreshold !== "number" ||
+              !Number.isFinite(subagents.spawnDecisionThreshold) ||
+              subagents.spawnDecisionThreshold < 0 ||
+              subagents.spawnDecisionThreshold > 1
+            ) {
+              errors.push(
+                "llm.subagents.spawnDecisionThreshold must be a number between 0 and 1",
+              );
+            }
+          }
+          if (subagents.handoffMinPlannerConfidence !== undefined) {
+            if (
+              typeof subagents.handoffMinPlannerConfidence !== "number" ||
+              !Number.isFinite(subagents.handoffMinPlannerConfidence) ||
+              subagents.handoffMinPlannerConfidence < 0 ||
+              subagents.handoffMinPlannerConfidence > 1
+            ) {
+              errors.push(
+                "llm.subagents.handoffMinPlannerConfidence must be a number between 0 and 1",
+              );
+            }
+          }
+          if (
+            subagents.forceVerifier !== undefined &&
+            typeof subagents.forceVerifier !== "boolean"
+          ) {
+            errors.push("llm.subagents.forceVerifier must be a boolean");
+          }
+          if (
+            subagents.allowParallelSubtasks !== undefined &&
+            typeof subagents.allowParallelSubtasks !== "boolean"
+          ) {
+            errors.push("llm.subagents.allowParallelSubtasks must be a boolean");
+          }
+          if (
+            subagents.allowedParentTools !== undefined &&
+            !isStringArray(subagents.allowedParentTools)
+          ) {
+            errors.push("llm.subagents.allowedParentTools must be a string array");
+          }
+          if (
+            subagents.forbiddenParentTools !== undefined &&
+            !isStringArray(subagents.forbiddenParentTools)
+          ) {
+            errors.push(
+              "llm.subagents.forbiddenParentTools must be a string array",
+            );
+          }
+          if (subagents.hardBlockedTaskClasses !== undefined) {
+            if (!isStringArray(subagents.hardBlockedTaskClasses)) {
+              errors.push(
+                "llm.subagents.hardBlockedTaskClasses must be a string array",
+              );
+            } else {
+              for (let i = 0; i < subagents.hardBlockedTaskClasses.length; i++) {
+                const item = subagents.hardBlockedTaskClasses[i];
+                if (!VALID_SUBAGENT_HARD_BLOCKED_TASK_CLASSES.has(item)) {
+                  errors.push(
+                    `llm.subagents.hardBlockedTaskClasses[${i}] must be one of: ${[...VALID_SUBAGENT_HARD_BLOCKED_TASK_CLASSES].join(", ")}`,
+                  );
+                }
+              }
+            }
+          }
+          if (subagents.childToolAllowlistStrategy !== undefined) {
+            requireOneOf(
+              subagents.childToolAllowlistStrategy,
+              "llm.subagents.childToolAllowlistStrategy",
+              VALID_SUBAGENT_CHILD_TOOL_ALLOWLIST_STRATEGIES,
+              errors,
+            );
+          }
+          if (subagents.childProviderStrategy !== undefined) {
+            requireOneOf(
+              subagents.childProviderStrategy,
+              "llm.subagents.childProviderStrategy",
+              VALID_SUBAGENT_CHILD_PROVIDER_STRATEGIES,
+              errors,
+            );
+          }
+          if (subagents.fallbackBehavior !== undefined) {
+            requireOneOf(
+              subagents.fallbackBehavior,
+              "llm.subagents.fallbackBehavior",
+              VALID_SUBAGENT_FALLBACK_BEHAVIORS,
+              errors,
+            );
+          }
+          if (subagents.policyLearning !== undefined) {
+            if (!isRecord(subagents.policyLearning)) {
+              errors.push("llm.subagents.policyLearning must be an object");
+            } else {
+              const policyLearning = subagents.policyLearning;
+              if (
+                policyLearning.enabled !== undefined &&
+                typeof policyLearning.enabled !== "boolean"
+              ) {
+                errors.push("llm.subagents.policyLearning.enabled must be a boolean");
+              }
+              if (policyLearning.epsilon !== undefined) {
+                if (
+                  typeof policyLearning.epsilon !== "number" ||
+                  !Number.isFinite(policyLearning.epsilon) ||
+                  policyLearning.epsilon < 0 ||
+                  policyLearning.epsilon > 1
+                ) {
+                  errors.push(
+                    "llm.subagents.policyLearning.epsilon must be a number between 0 and 1",
+                  );
+                }
+              }
+              if (policyLearning.explorationBudget !== undefined) {
+                requireIntRange(
+                  policyLearning.explorationBudget,
+                  "llm.subagents.policyLearning.explorationBudget",
+                  0,
+                  1_000_000,
+                  errors,
+                );
+              }
+              if (policyLearning.minSamplesPerArm !== undefined) {
+                requireIntRange(
+                  policyLearning.minSamplesPerArm,
+                  "llm.subagents.policyLearning.minSamplesPerArm",
+                  1,
+                  10_000,
+                  errors,
+                );
+              }
+              if (policyLearning.ucbExplorationScale !== undefined) {
+                if (
+                  typeof policyLearning.ucbExplorationScale !== "number" ||
+                  !Number.isFinite(policyLearning.ucbExplorationScale) ||
+                  policyLearning.ucbExplorationScale < 0
+                ) {
+                  errors.push(
+                    "llm.subagents.policyLearning.ucbExplorationScale must be a non-negative number",
+                  );
+                }
+              }
+              if (policyLearning.arms !== undefined) {
+                if (!Array.isArray(policyLearning.arms)) {
+                  errors.push("llm.subagents.policyLearning.arms must be an array");
+                } else {
+                  for (let i = 0; i < policyLearning.arms.length; i++) {
+                    const arm = policyLearning.arms[i];
+                    if (!isRecord(arm)) {
+                      errors.push(
+                        `llm.subagents.policyLearning.arms[${i}] must be an object`,
+                      );
+                      continue;
+                    }
+                    if (typeof arm.id !== "string" || arm.id.trim().length === 0) {
+                      errors.push(
+                        `llm.subagents.policyLearning.arms[${i}].id must be a non-empty string`,
+                      );
+                    }
+                    if (
+                      arm.thresholdOffset !== undefined &&
+                      (
+                        typeof arm.thresholdOffset !== "number" ||
+                        !Number.isFinite(arm.thresholdOffset) ||
+                        arm.thresholdOffset < -1 ||
+                        arm.thresholdOffset > 1
+                      )
+                    ) {
+                      errors.push(
+                        `llm.subagents.policyLearning.arms[${i}].thresholdOffset must be a number between -1 and 1`,
+                      );
+                    }
+                    if (
+                      arm.description !== undefined &&
+                      typeof arm.description !== "string"
+                    ) {
+                      errors.push(
+                        `llm.subagents.policyLearning.arms[${i}].description must be a string`,
+                      );
+                    }
+                  }
+                }
+              }
+            }
+          }
+          if (
+            subagents.maxFanoutPerTurn !== undefined &&
+            subagents.maxTotalSubagentsPerRequest !== undefined &&
+            typeof subagents.maxFanoutPerTurn === "number" &&
+            typeof subagents.maxTotalSubagentsPerRequest === "number" &&
+            subagents.maxFanoutPerTurn > subagents.maxTotalSubagentsPerRequest
+          ) {
+            errors.push(
+              "llm.subagents.maxFanoutPerTurn must be less than or equal to llm.subagents.maxTotalSubagentsPerRequest",
             );
           }
         }

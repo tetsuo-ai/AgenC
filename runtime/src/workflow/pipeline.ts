@@ -14,6 +14,7 @@ import type { ProgressTracker } from "../gateway/progress.js";
 import type { Logger } from "../utils/logger.js";
 import { WorkflowStateError } from "./errors.js";
 import { toErrorMessage, SEVEN_DAYS_MS } from "../utils/async.js";
+import type { WorkflowGraphEdge } from "./types.js";
 
 // ============================================================================
 // Types
@@ -30,6 +31,82 @@ export interface PipelineStep {
   readonly maxRetries?: number;
 }
 
+export type PipelinePlannerStepType =
+  | "deterministic_tool"
+  | "subagent_task"
+  | "synthesis";
+
+interface PipelinePlannerStepBase {
+  readonly name: string;
+  readonly stepType: PipelinePlannerStepType;
+  readonly dependsOn?: readonly string[];
+}
+
+export interface PipelinePlannerDeterministicStep extends PipelinePlannerStepBase {
+  readonly stepType: "deterministic_tool";
+  readonly tool: string;
+  readonly args: Record<string, unknown>;
+  readonly onError?: PipelineStepErrorPolicy;
+  readonly maxRetries?: number;
+}
+
+export interface PipelinePlannerSubagentStep extends PipelinePlannerStepBase {
+  readonly stepType: "subagent_task";
+  readonly objective: string;
+  readonly inputContract: string;
+  readonly acceptanceCriteria: readonly string[];
+  readonly requiredToolCapabilities: readonly string[];
+  readonly contextRequirements: readonly string[];
+  readonly maxBudgetHint: string;
+  readonly canRunParallel: boolean;
+}
+
+export interface PipelinePlannerSynthesisStep extends PipelinePlannerStepBase {
+  readonly stepType: "synthesis";
+  readonly objective?: string;
+}
+
+export type PipelinePlannerStep =
+  | PipelinePlannerDeterministicStep
+  | PipelinePlannerSubagentStep
+  | PipelinePlannerSynthesisStep;
+
+export type PipelinePlannerContextHistoryRole =
+  | "system"
+  | "user"
+  | "assistant"
+  | "tool";
+
+export interface PipelinePlannerContextHistoryEntry {
+  readonly role: PipelinePlannerContextHistoryRole;
+  readonly content: string;
+  readonly toolName?: string;
+}
+
+export type PipelinePlannerContextMemorySource =
+  | "memory_semantic"
+  | "memory_episodic"
+  | "memory_working";
+
+export interface PipelinePlannerContextMemoryEntry {
+  readonly source: PipelinePlannerContextMemorySource;
+  readonly content: string;
+}
+
+export interface PipelinePlannerContextToolOutputEntry {
+  readonly toolName?: string;
+  readonly content: string;
+}
+
+export interface PipelinePlannerContext {
+  readonly parentRequest: string;
+  readonly history: readonly PipelinePlannerContextHistoryEntry[];
+  readonly memory: readonly PipelinePlannerContextMemoryEntry[];
+  readonly toolOutputs: readonly PipelinePlannerContextToolOutputEntry[];
+  /** Optional parent-turn tool allowlist used for child least-privilege scoping. */
+  readonly parentAllowedTools?: readonly string[];
+}
+
 export interface PipelineContext {
   readonly results: Readonly<Record<string, string>>;
 }
@@ -37,11 +114,30 @@ export interface PipelineContext {
 export interface Pipeline {
   readonly id: string;
   readonly steps: readonly PipelineStep[];
+  /** Optional planner-emitted step graph for DAG orchestration. */
+  readonly plannerSteps?: readonly PipelinePlannerStep[];
+  /** Optional dependency edges matching plannerSteps. */
+  readonly edges?: readonly WorkflowGraphEdge[];
+  /** Optional parallelism cap for DAG execution paths. */
+  readonly maxParallelism?: number;
+  /** Optional planner execution context for subagent curation. */
+  readonly plannerContext?: PipelinePlannerContext;
   readonly context: PipelineContext;
   readonly createdAt: number;
 }
 
 export type PipelineStatus = "running" | "completed" | "failed" | "halted";
+
+export type PipelineStopReasonHint =
+  | "validation_error"
+  | "provider_error"
+  | "authentication_error"
+  | "rate_limited"
+  | "timeout"
+  | "tool_error"
+  | "budget_exceeded"
+  | "no_progress"
+  | "cancelled";
 
 export interface PipelineResult {
   readonly status: PipelineStatus;
@@ -50,6 +146,11 @@ export interface PipelineResult {
   readonly totalSteps: number;
   readonly resumeFrom?: number;
   readonly error?: string;
+  /**
+   * Optional stop reason hint for upstream ChatExecutor mapping.
+   * Must stay within canonical LLMPipelineStopReason values (excluding completed/tool_calls).
+   */
+  readonly stopReasonHint?: PipelineStopReasonHint;
 }
 
 export interface PipelineCheckpoint {

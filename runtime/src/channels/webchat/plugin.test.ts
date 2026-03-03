@@ -582,11 +582,134 @@ describe("WebChatChannel", () => {
       channel.handleMessage(
         "client_1",
         "events.subscribe",
+        msg("events.subscribe", { filters: ["tasks.", "desktop.*"] }),
+        send,
+      );
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "events.subscribed",
+          payload: {
+            active: true,
+            filters: ["tasks.", "desktop.*"],
+          },
+        }),
+      );
+    });
+  });
+
+  describe("event subscriptions", () => {
+    it("broadcasts only to clients whose filters match the event", () => {
+      const sendTasks = vi.fn<(response: ControlResponse) => void>();
+      const sendDesktop = vi.fn<(response: ControlResponse) => void>();
+      const sendAll = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_tasks",
+        "events.subscribe",
+        msg("events.subscribe", { filters: ["tasks"] }),
+        sendTasks,
+      );
+      channel.handleMessage(
+        "client_desktop",
+        "events.subscribe",
+        msg("events.subscribe", { filters: ["desktop.*"] }),
+        sendDesktop,
+      );
+      channel.handleMessage(
+        "client_all",
+        "events.subscribe",
+        msg("events.subscribe"),
+        sendAll,
+      );
+
+      sendTasks.mockClear();
+      sendDesktop.mockClear();
+      sendAll.mockClear();
+
+      channel.broadcastEvent("tasks.created", { id: "task-1" });
+
+      expect(sendTasks).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "events.event" }),
+      );
+      expect(sendDesktop).not.toHaveBeenCalled();
+      expect(sendAll).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "events.event" }),
+      );
+    });
+
+    it("stops delivering events after events.unsubscribe", () => {
+      const send = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_1",
+        "events.subscribe",
         msg("events.subscribe"),
         send,
       );
 
-      expect(send).toHaveBeenCalledTimes(1);
+      send.mockClear();
+      channel.handleMessage(
+        "client_1",
+        "events.unsubscribe",
+        msg("events.unsubscribe"),
+        send,
+      );
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "events.unsubscribed",
+          payload: {
+            active: false,
+            filters: [],
+          },
+        }),
+      );
+
+      send.mockClear();
+      channel.broadcastEvent("tasks.updated", { id: "task-1" });
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it("surfaces trace correlation fields separately from event data", () => {
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_trace",
+        "events.subscribe",
+        msg("events.subscribe", { filters: ["subagents.*"] }),
+        send,
+      );
+      send.mockClear();
+
+      channel.broadcastEvent("subagents.progress", {
+        sessionId: "session-parent",
+        subagentSessionId: "subagent:abc",
+        traceId: "trace-child-1",
+        parentTraceId: "trace-parent-1",
+        phase: "retry_backoff",
+      });
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "events.event",
+          payload: expect.objectContaining({
+            eventType: "subagents.progress",
+            traceId: "trace-child-1",
+            parentTraceId: "trace-parent-1",
+            data: expect.objectContaining({
+              sessionId: "session-parent",
+              subagentSessionId: "subagent:abc",
+              phase: "retry_backoff",
+            }),
+          }),
+        }),
+      );
+      const payload = (send.mock.calls[0]?.[0] as ControlResponse)?.payload as
+        | Record<string, unknown>
+        | undefined;
+      const data = payload?.data as Record<string, unknown> | undefined;
+      expect(data?.traceId).toBeUndefined();
+      expect(data?.parentTraceId).toBeUndefined();
     });
   });
 
