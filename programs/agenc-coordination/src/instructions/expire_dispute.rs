@@ -21,6 +21,7 @@ use crate::instructions::dispute_helpers::{
 use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
 use crate::instructions::token_helpers::{
     close_token_escrow, transfer_tokens_from_escrow, validate_token_account,
+    validate_unchecked_token_mint,
 };
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task, TaskClaim, TaskEscrow,
@@ -209,20 +210,73 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             let task_key_bytes = task_key.to_bytes();
             let bump_slice = [escrow.bump];
             let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+            let creator_ta_info = ctx
+                .accounts
+                .creator_token_account
+                .as_ref()
+                .map(|a| a.to_account_info());
+            let worker_ta_info = ctx
+                .accounts
+                .worker_token_account_ata
+                .as_ref()
+                .map(|a| a.to_account_info());
+
+            // Validate destination token accounts before any escrow transfers.
+            // This prevents permissionless expiration callers from redirecting payouts.
+            match (no_votes, worker_completed) {
+                (true, true) => {
+                    let worker_ta = worker_ta_info
+                        .as_ref()
+                        .ok_or(CoordinationError::MissingTokenAccounts)?;
+                    validate_unchecked_token_mint(
+                        worker_ta,
+                        &mint.key(),
+                        &ctx.accounts
+                            .worker_authority
+                            .as_ref()
+                            .expect("worker authority validated above")
+                            .key(),
+                    )?;
+                }
+                (true, false) => {
+                    let creator_ta = creator_ta_info
+                        .as_ref()
+                        .ok_or(CoordinationError::MissingTokenAccounts)?;
+                    let worker_ta = worker_ta_info
+                        .as_ref()
+                        .ok_or(CoordinationError::MissingTokenAccounts)?;
+                    validate_unchecked_token_mint(
+                        creator_ta,
+                        &mint.key(),
+                        &ctx.accounts.creator.key(),
+                    )?;
+                    validate_unchecked_token_mint(
+                        worker_ta,
+                        &mint.key(),
+                        &ctx.accounts
+                            .worker_authority
+                            .as_ref()
+                            .expect("worker authority validated above")
+                            .key(),
+                    )?;
+                }
+                (false, _) => {
+                    let creator_ta = creator_ta_info
+                        .as_ref()
+                        .ok_or(CoordinationError::MissingTokenAccounts)?;
+                    validate_unchecked_token_mint(
+                        creator_ta,
+                        &mint.key(),
+                        &ctx.accounts.creator.key(),
+                    )?;
+                }
+            }
 
             let (ca, wa) = distribute_expired_tokens(
                 token_escrow,
                 &escrow.to_account_info(),
-                ctx.accounts
-                    .creator_token_account
-                    .as_ref()
-                    .map(|a| a.to_account_info())
-                    .as_ref(),
-                ctx.accounts
-                    .worker_token_account_ata
-                    .as_ref()
-                    .map(|a| a.to_account_info())
-                    .as_ref(),
+                creator_ta_info.as_ref(),
+                worker_ta_info.as_ref(),
                 remaining_funds,
                 worker_completed,
                 no_votes,
