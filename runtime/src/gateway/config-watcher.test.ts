@@ -10,6 +10,8 @@ function makeConfig(desktop?: Record<string, unknown>): Record<string, unknown> 
   };
 }
 
+const AUTH_SECRET = "test-secret-that-is-at-least-32-chars!!";
+
 describe("validateGatewayConfig desktop resource limits", () => {
   it("accepts valid desktop.maxMemory and desktop.maxCpu", () => {
     const result = validateGatewayConfig(
@@ -150,24 +152,34 @@ describe("validateGatewayConfig desktop resource limits", () => {
     );
   });
 
-  it("requires auth.secret when gateway.bind is non-loopback", () => {
-    const config = makeConfig();
-    config.gateway = { port: 3100, bind: "0.0.0.0" };
-    const result = validateGatewayConfig(config);
+});
+
+describe("validateGatewayConfig auth safety for bind address", () => {
+  it("rejects non-local bind without auth.secret", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      gateway: { port: 3100, bind: "0.0.0.0" },
+    });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain(
-      "auth.secret is required when gateway.bind is non-loopback (for example 0.0.0.0)",
+      "auth.secret is required when gateway.bind is non-local",
     );
   });
 
-  it("allows non-loopback bind when auth.secret is configured", () => {
-    const config = makeConfig();
-    config.gateway = { port: 3100, bind: "0.0.0.0" };
-    config.auth = {
-      secret: "abcdefghijklmnopqrstuvwxyz123456",
-      localBypass: false,
-    };
-    const result = validateGatewayConfig(config);
+  it("accepts non-local bind with auth.secret", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      gateway: { port: 3100, bind: "0.0.0.0" },
+      auth: { secret: AUTH_SECRET },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it("accepts loopback bind without auth.secret", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      gateway: { port: 3100, bind: "127.0.0.1" },
+    });
     expect(result.valid).toBe(true);
   });
 });

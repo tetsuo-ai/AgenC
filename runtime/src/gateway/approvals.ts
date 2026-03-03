@@ -131,9 +131,8 @@ export function extractAmount(
 /**
  * Built-in approval rules for common dangerous operations.
  *
- * Note: `system.bash` is intentionally not included by default. The bash tool
- * already enforces a deny-list policy at execution time, and requiring manual
- * approval for every shell command can deadlock non-interactive channels.
+ * Note: both `system.bash` and `desktop.bash` are included by default because
+ * they are general-purpose execution surfaces.
  */
 export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
   {
@@ -143,6 +142,14 @@ export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
   {
     tool: "system.evaluateJs",
     description: "JavaScript evaluation",
+  },
+  {
+    tool: "system.bash",
+    description: "Shell command execution",
+  },
+  {
+    tool: "desktop.bash",
+    description: "Desktop sandbox shell command execution",
   },
   {
     tool: "wallet.sign",

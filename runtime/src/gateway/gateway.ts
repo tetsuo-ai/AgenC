@@ -355,7 +355,9 @@ export class Gateway {
           remoteAddress === "::1" ||
           remoteAddress === "::ffff:127.0.0.1");
 
-      if (!authSecret || (isLocal && localBypass)) {
+      // In no-secret mode, only loopback connections are auto-authenticated.
+      // With a configured secret, local bypass remains opt-in.
+      if ((!authSecret && isLocal) || (isLocal && localBypass)) {
         this.authenticatedClients.add(clientId);
       }
 
@@ -445,14 +447,25 @@ export class Gateway {
     // Sanitize id: only echo back if it's a string
     const id = typeof msg.id === "string" ? msg.id : undefined;
 
-    // Auth guard: if auth is configured and client is not authenticated,
-    // only allow 'auth' and 'ping' messages
+    // Auth guard for secret-backed auth: if auth is configured and client is
+    // not authenticated, only allow 'auth' and 'ping' messages.
     if (
       this._config.auth?.secret &&
       !this.authenticatedClients.has(clientId) &&
       msg.type !== "auth" &&
       msg.type !== "ping"
     ) {
+      this.sendResponse(socket, {
+        type: "error",
+        error: "Authentication required",
+        id,
+      });
+      return;
+    }
+
+    // Any dotted control-plane message routes into channel/plugin handlers.
+    // Require an authenticated client even when auth.secret is unset.
+    if (msg.type.includes(".") && !this.authenticatedClients.has(clientId)) {
       this.sendResponse(socket, {
         type: "error",
         error: "Authentication required",
@@ -484,8 +497,18 @@ export class Gateway {
       case "auth": {
         const authSecret = this._config.auth?.secret;
         if (!authSecret) {
-          // No auth configured — auto-accept
-          this.authenticatedClients.add(clientId);
+          // No auth secret configured:
+          // - local clients are already authenticated at connect time
+          // - non-local clients must not be able to self-authenticate
+          if (!this.authenticatedClients.has(clientId)) {
+            this.sendResponse(socket, {
+              type: "auth",
+              error:
+                "Authentication requires auth.secret or loopback connection",
+              id,
+            });
+            break;
+          }
           this.sendResponse(socket, {
             type: "auth",
             payload: { authenticated: true },

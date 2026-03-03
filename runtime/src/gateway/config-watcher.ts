@@ -120,6 +120,25 @@ const VALID_MESSAGING_MODES: ReadonlySet<string> = new Set([
 const DOCKER_MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
 const DOCKER_CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
 
+function normalizeBindAddress(bind: string): string {
+  const normalized = bind.trim().toLowerCase();
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
+function isLoopbackBind(bind: string | undefined): boolean {
+  if (bind === undefined) return true;
+  const normalized = normalizeBindAddress(bind);
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "::ffff:127.0.0.1"
+  );
+}
+
 /** Type predicate — returns true when `obj` satisfies the GatewayConfig shape. */
 export function isValidGatewayConfig(obj: unknown): obj is GatewayConfig {
   return validateGatewayConfig(obj).valid;
@@ -966,25 +985,17 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
     }
   }
 
-  // Security invariant: non-loopback binds must require auth.secret.
-  if (isRecord(obj.gateway)) {
-    const bind =
-      typeof obj.gateway.bind === "string" && obj.gateway.bind.trim().length > 0
-        ? obj.gateway.bind.trim().toLowerCase()
-        : "127.0.0.1";
-    const isLoopbackBind =
-      bind === "127.0.0.1" || bind === "::1" || bind === "localhost";
-    const authSecret =
-      isRecord(obj.auth) && typeof obj.auth.secret === "string"
-        ? obj.auth.secret
-        : undefined;
-    if (!isLoopbackBind && !authSecret) {
-      errors.push(
-        "auth.secret is required when gateway.bind is non-loopback (for example 0.0.0.0)",
-      );
-    }
+  const bindAddress =
+    isRecord(obj.gateway) && typeof obj.gateway.bind === "string"
+      ? obj.gateway.bind
+      : undefined;
+  const authSecret =
+    isRecord(obj.auth) && typeof obj.auth.secret === "string"
+      ? obj.auth.secret
+      : undefined;
+  if (!isLoopbackBind(bindAddress) && !authSecret?.trim()) {
+    errors.push("auth.secret is required when gateway.bind is non-local");
   }
-
   // desktop (optional)
   if (obj.desktop !== undefined) {
     if (!isRecord(obj.desktop)) {

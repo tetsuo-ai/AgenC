@@ -1039,6 +1039,19 @@ describe("system.bash tool", () => {
       expect(mockSpawn).not.toHaveBeenCalled();
     });
 
+    it("blocks variable-expanded executables in shell mode", async () => {
+      const tool = createBashTool();
+
+      const result = await tool.execute({
+        command: "PY=python3 $PY --version",
+      });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain(
+        "Variable-expanded executables are not allowed",
+      );
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
     it("enforces allow list in shell mode", async () => {
       const tool = createBashTool({ allowList: ["ls", "wc"] });
       mockSpawnSuccess("1\n");
@@ -1233,6 +1246,14 @@ describe("isCommandAllowed", () => {
   it("denies absolute path to version-specific binary via prefix matching", () => {
     const result = isCommandAllowed("/usr/bin/ruby3.2", new Set(), null);
     expect(result.allowed).toBe(false);
+  });
+
+  it("denies variable-expanded executable names", () => {
+    const result = isCommandAllowed("$PYTHON_BIN", new Set(), null);
+    expect(result.allowed).toBe(false);
+    expect((result as { reason: string }).reason).toContain(
+      "Variable-expanded executables",
+    );
   });
 
   it("allows exact excluded command even if it matches deny prefix", () => {
