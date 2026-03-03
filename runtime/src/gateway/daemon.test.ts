@@ -61,6 +61,8 @@ import {
   summarizeLLMFailureForSurface,
   formatEvalScriptReply,
   didEvalScriptPass,
+  resolveBashToolEnv,
+  resolveBashDenyExclusions,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
@@ -275,6 +277,72 @@ describe("resolveTraceLoggingConfig", () => {
       trace: { enabled: true, maxChars: 9_999_999 },
     });
     expect(high.maxChars).toBe(200_000);
+  });
+});
+
+describe("resolveBashToolEnv", () => {
+  const hostEnv = {
+    PATH: "/usr/bin:/bin",
+    HOME: "/home/tester",
+    USER: "tester",
+    SHELL: "/bin/zsh",
+    LANG: "en_US.UTF-8",
+    TERM: "xterm-256color",
+    SOLANA_RPC_URL: "https://rpc.example.com",
+    DOCKER_HOST: "unix:///var/run/docker.sock",
+    CARGO_HOME: "/home/tester/.cargo",
+    GOPATH: "/home/tester/go",
+    DISPLAY: ":0",
+    GITHUB_TOKEN: "ghs_secret",
+    GH_TOKEN: "ghp_secret",
+    NPM_TOKEN: "npm_secret",
+  } as NodeJS.ProcessEnv;
+
+  it("never forwards token-like keys by default", () => {
+    const env = resolveBashToolEnv({ desktop: { enabled: true } }, hostEnv);
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.GH_TOKEN).toBeUndefined();
+    expect(env.NPM_TOKEN).toBeUndefined();
+  });
+
+  it("includes desktop runtime keys only when desktop mode is enabled", () => {
+    const desktopEnv = resolveBashToolEnv({ desktop: { enabled: true } }, hostEnv);
+    expect(desktopEnv.DOCKER_HOST).toBe("unix:///var/run/docker.sock");
+    expect(desktopEnv.CARGO_HOME).toBe("/home/tester/.cargo");
+    expect(desktopEnv.GOPATH).toBe("/home/tester/go");
+    expect(desktopEnv.DISPLAY).toBe(":0");
+
+    const nonDesktopEnv = resolveBashToolEnv({ desktop: { enabled: false } }, hostEnv);
+    expect(nonDesktopEnv.DOCKER_HOST).toBeUndefined();
+    expect(nonDesktopEnv.CARGO_HOME).toBeUndefined();
+    expect(nonDesktopEnv.GOPATH).toBeUndefined();
+    expect(nonDesktopEnv.DISPLAY).toBeUndefined();
+  });
+});
+
+describe("resolveBashDenyExclusions", () => {
+  it("uses minimal Linux desktop exclusions", () => {
+    const exclusions = resolveBashDenyExclusions(
+      { desktop: { enabled: true } },
+      "linux",
+    );
+    expect(exclusions).toEqual(["killall", "pkill"]);
+  });
+
+  it("keeps desktop-only exclusions off for non-desktop Linux", () => {
+    const exclusions = resolveBashDenyExclusions(
+      { desktop: { enabled: false } },
+      "linux",
+    );
+    expect(exclusions).toBeUndefined();
+  });
+
+  it("preserves mac desktop exclusions", () => {
+    const exclusions = resolveBashDenyExclusions(
+      { desktop: { enabled: true } },
+      "darwin",
+    );
+    expect(exclusions).toEqual(["killall", "pkill", "curl", "wget"]);
   });
 });
 

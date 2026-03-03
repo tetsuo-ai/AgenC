@@ -217,6 +217,49 @@ const DEFAULT_HARD_BLOCKED_TASK_CLASSES: readonly DelegationHardBlockedTaskClass
     "stake_or_rewards",
     "credential_exfiltration",
   ];
+const BASH_SAFE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'SOLANA_RPC_URL'] as const;
+const BASH_DESKTOP_ENV_KEYS = ['DOCKER_HOST', 'CARGO_HOME', 'GOPATH', 'DISPLAY'] as const;
+const MAC_DESKTOP_BASH_DENY_EXCLUSIONS = ['killall', 'pkill', 'curl', 'wget'] as const;
+const LINUX_DESKTOP_BASH_DENY_EXCLUSIONS = ['killall', 'pkill'] as const;
+
+/**
+ * Build a minimal environment for system.bash.
+ * Never forwards token-like host secrets by default.
+ */
+export function resolveBashToolEnv(
+  config: Pick<GatewayConfig, 'desktop'>,
+  hostEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const envKeys = config.desktop?.enabled
+    ? [...BASH_SAFE_ENV_KEYS, ...BASH_DESKTOP_ENV_KEYS]
+    : BASH_SAFE_ENV_KEYS;
+
+  const safeEnv: Record<string, string> = {};
+  for (const key of envKeys) {
+    const value = hostEnv[key];
+    if (value !== undefined) {
+      safeEnv[key] = value;
+    }
+  }
+  return safeEnv;
+}
+
+/**
+ * Resolve deny-list exclusions for system.bash by platform.
+ * Linux desktop mode intentionally keeps this minimal.
+ */
+export function resolveBashDenyExclusions(
+  config: Pick<GatewayConfig, 'desktop'>,
+  platform: NodeJS.Platform = process.platform,
+): string[] | undefined {
+  if (platform === 'darwin') {
+    return [...MAC_DESKTOP_BASH_DENY_EXCLUSIONS];
+  }
+  if (config.desktop?.enabled && platform === 'linux') {
+    return [...LINUX_DESKTOP_BASH_DENY_EXCLUSIONS];
+  }
+  return undefined;
+}
 
 interface ResolvedSubAgentRuntimeConfig {
   readonly enabled: boolean;
@@ -3593,20 +3636,9 @@ export class DaemonManager {
   ): Promise<ToolRegistry> {
     const registry = new ToolRegistry({ logger: this.logger });
 
-    // Security: Only expose necessary environment variables to the bash tool.
-    // Never pass the full process.env as it contains secrets (API keys, private key paths, etc.).
-    const SAFE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'SOLANA_RPC_URL'];
-    // When desktop containers are enabled (Linux desktop agent mode), the host
-    // needs additional env keys for development tools (gh, docker, npm, cargo).
-    const DESKTOP_ENV_KEYS = ['GITHUB_TOKEN', 'GH_TOKEN', 'DOCKER_HOST', 'NPM_TOKEN', 'CARGO_HOME', 'GOPATH', 'DISPLAY'];
-    const envKeys = config.desktop?.enabled ? [...SAFE_ENV_KEYS, ...DESKTOP_ENV_KEYS] : SAFE_ENV_KEYS;
-    const safeEnv: Record<string, string> = {};
-    for (const key of envKeys) {
-      const value = process.env[key];
-      if (value !== undefined) {
-        safeEnv[key] = value;
-      }
-    }
+    // Security: Only expose a minimal host env to system.bash.
+    // Token-like secrets are intentionally excluded by default.
+    const safeEnv = resolveBashToolEnv(config);
 
     // Security: Do NOT use unrestricted mode — the default deny list prevents
     // dangerous commands (rm -rf, curl for exfiltration, etc.) from being
@@ -3615,16 +3647,9 @@ export class DaemonManager {
     // On macOS desktop agents, allow process management (killall, pkill) and
     // network tools for closing apps — the security boundary is Telegram user auth.
     //
-    // On Linux with desktop containers enabled, the host needs development tools
-    // (curl, wget, python, node, rm, chmod, etc.) while still blocking shell
-    // re-invocation (bash, sh, env, xargs) to preserve the execFile() security model.
-    const isMacDesktop = process.platform === 'darwin';
-    const isLinuxDesktop = config.desktop?.enabled && process.platform !== 'darwin';
-    const denyExclusions = isMacDesktop
-      ? ['killall', 'pkill', 'curl', 'wget']
-      : isLinuxDesktop
-        ? ['curl', 'wget', 'python', 'python3', 'node', 'rm', 'chmod', 'chown', 'tee', 'awk', 'killall', 'pkill']
-        : undefined;
+    // On Linux desktop mode keep exclusions minimal (process cleanup only)
+    // to reduce command-exfiltration and interpreter bypass surface.
+    const denyExclusions = resolveBashDenyExclusions(config);
 
     registry.register(createBashTool({
       logger: this.logger,
