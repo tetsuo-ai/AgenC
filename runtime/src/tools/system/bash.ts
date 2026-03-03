@@ -405,6 +405,17 @@ export function isCommandAllowed(
     exclusionSet !== null &&
     (exclusionSet.has(command) || exclusionSet.has(base));
 
+  // Reject variable-expanded executable names in shell mode (e.g. `$PY` or
+  // `$HOME/bin/tool`) because policy checks cannot determine the real binary.
+  if (command.startsWith("$") || base.startsWith("$")) {
+    return {
+      allowed: false,
+      reason:
+        `Command "${command}" is denied. Variable-expanded executables are not allowed; ` +
+        "use an explicit command name/path.",
+    };
+  }
+
   // Exact deny list takes precedence
   if (!isExcluded && (denySet.has(command) || denySet.has(base))) {
     if (SHELL_WRAPPER_COMMANDS.has(base)) {
