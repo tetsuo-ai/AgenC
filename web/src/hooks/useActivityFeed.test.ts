@@ -3,8 +3,6 @@ import { act, renderHook } from '@testing-library/react';
 import { useActivityFeed } from './useActivityFeed';
 import type { WSMessage } from '../types';
 
-type ActivityFeedHook = ReturnType<typeof useActivityFeed> & { handleMessage: (msg: WSMessage) => void };
-
 describe('useActivityFeed', () => {
   it('auto-subscribes when connected', () => {
     const send = vi.fn();
@@ -16,7 +14,10 @@ describe('useActivityFeed', () => {
 
     rerender({ connected: true });
 
-    expect(send).toHaveBeenCalledWith({ type: 'events.subscribe', payload: { filters: undefined } });
+    expect(send).toHaveBeenCalledWith({
+      type: 'events.subscribe',
+      payload: { filters: ['chat', 'tool', 'task', 'subagents'] },
+    });
   });
 
   it('appends event payloads and can clear', () => {
@@ -25,13 +26,28 @@ describe('useActivityFeed', () => {
 
     act(() => {
       result.current.subscribe(['task']);
-      (result.current as ActivityFeedHook).handleMessage({ type: 'events.event', payload: { eventType: 'task.created', data: { taskId: '1' } } });
-      (result.current as ActivityFeedHook).handleMessage({ type: 'events.event', payload: { eventType: 'task.created', data: { taskId: '2' } } });
+      result.current.handleMessage({ type: 'events.event', payload: { eventType: 'task.created', data: { taskId: '1' } } } as WSMessage);
+      result.current.handleMessage({
+        type: 'events.event',
+        payload: {
+          eventType: 'task.created',
+          data: { taskId: '2' },
+          traceId: 'trace-1',
+          parentTraceId: 'parent-1',
+        },
+      } as WSMessage);
     });
 
-    expect(send).toHaveBeenCalledWith({ type: 'events.subscribe', payload: { filters: undefined } });
+    expect(send).toHaveBeenCalledWith({
+      type: 'events.subscribe',
+      payload: { filters: ['chat', 'tool', 'task', 'subagents'] },
+    });
     expect(send).toHaveBeenCalledWith({ type: 'events.subscribe', payload: { filters: ['task'] } });
     expect(result.current.events).toHaveLength(2);
+    expect(result.current.events[1]).toMatchObject({
+      traceId: 'trace-1',
+      parentTraceId: 'parent-1',
+    });
 
     act(() => {
       result.current.unsubscribe();

@@ -1917,9 +1917,9 @@ describe("ChatExecutor", () => {
               steps: [
                 {
                   name: "step_1",
+                  step_type: "deterministic_tool",
                   tool: "system.bash",
                   args: { command: "echo", args: ["hi"] },
-                  deterministic: true,
                 },
               ],
             }),
@@ -1962,6 +1962,839 @@ describe("ChatExecutor", () => {
       expect(result.content.toLowerCase()).toContain("hi");
     });
 
+    it("applies bandit arm tuning and records parent trajectory rewards", async () => {
+      const { DelegationBanditPolicyTuner, InMemoryDelegationTrajectorySink } =
+        await import("./delegation-learning.js");
+
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "multi_step_cues",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "prep",
+                  step_type: "deterministic_tool",
+                  tool: "system.bash",
+                  args: { command: "echo", args: ["ready"] },
+                },
+                {
+                  name: "delegate_a",
+                  step_type: "subagent_task",
+                  objective: "Analyze module A",
+                  input_contract: "Return evidence",
+                  acceptance_criteria: ["Cite logs", "Cite source"],
+                  required_tool_capabilities: ["system.readFile", "system.searchFiles"],
+                  context_requirements: ["module_a", "history"],
+                  max_budget_hint: "120s",
+                  can_run_parallel: true,
+                  depends_on: ["prep"],
+                },
+                {
+                  name: "delegate_b",
+                  step_type: "subagent_task",
+                  objective: "Analyze module B",
+                  input_contract: "Return evidence",
+                  acceptance_criteria: ["Cite logs", "Cite source"],
+                  required_tool_capabilities: ["system.readFile", "system.searchFiles"],
+                  context_requirements: ["module_b", "history"],
+                  max_budget_hint: "120s",
+                  can_run_parallel: true,
+                  depends_on: ["prep"],
+                },
+              ],
+              edges: [
+                { from: "prep", to: "delegate_a" },
+                { from: "prep", to: "delegate_b" },
+              ],
+            }),
+          }),
+        ),
+      });
+
+      const trajectorySink = new InMemoryDelegationTrajectorySink({
+        maxRecords: 100,
+      });
+      const bandit = new DelegationBanditPolicyTuner({
+        enabled: true,
+        epsilon: 0,
+        minSamplesPerArm: 1,
+        explorationBudget: 0,
+        random: () => 0.99,
+      });
+
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              prep: '{"stdout":"ready\\n","exitCode":0}',
+              delegate_a:
+                '{"status":"completed","subagentSessionId":"sub-a","output":"ok","success":true,"durationMs":100,"toolCalls":[]}',
+              delegate_b:
+                '{"status":"completed","subagentSessionId":"sub-b","output":"ok","success":true,"durationMs":100,"toolCalls":[]}',
+            },
+          },
+          completedSteps: 3,
+          totalSteps: 3,
+        }),
+      };
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+          maxFanoutPerTurn: 8,
+          maxDepth: 4,
+        },
+        delegationLearning: {
+          trajectorySink,
+          banditTuner: bandit,
+          defaultStrategyArmId: "balanced",
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First inspect two modules in parallel, then reconcile findings with source evidence and summarize.",
+          ),
+          history: [{ role: "user", content: "prior regression context" }],
+        }),
+      );
+
+      expect(result.plannerSummary?.delegationPolicyTuning?.selectedArmId).toBeDefined();
+      expect(result.plannerSummary?.delegationPolicyTuning?.finalReward).toBeTypeOf(
+        "number",
+      );
+      expect(
+        result.plannerSummary?.delegationPolicyTuning?.usefulDelegationScore,
+      ).toBeTypeOf("number");
+      expect(
+        result.plannerSummary?.delegationPolicyTuning?.rewardProxyVersion,
+      ).toBe("v1");
+
+      const records = trajectorySink.snapshot();
+      expect(records.length).toBeGreaterThan(0);
+      const parent = records.find((record) => record.turnType === "parent");
+      expect(parent).toBeDefined();
+      expect(parent?.action.delegated).toBe(true);
+      expect(parent?.stateFeatures.subagentStepCount).toBe(2);
+      expect(Number.isFinite(parent?.finalReward.value ?? Number.NaN)).toBe(true);
+      expect(parent?.metadata?.usefulDelegationProxyVersion).toBe("v1");
+
+      const clusterId = parent?.stateFeatures.contextClusterId;
+      expect(clusterId).toBeDefined();
+      const banditSnapshot = bandit.snapshot({ contextClusterId: clusterId });
+      expect((banditSnapshot[clusterId!] ?? []).some((arm) => arm.pulls > 0)).toBe(
+        true,
+      );
+    });
+
+    it("supports mixed planner step types and runs synthesis when synthesis step exists", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "mixed_steps",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "prep",
+                    step_type: "deterministic_tool",
+                    tool: "system.bash",
+                    args: { command: "echo", args: ["ready"] },
+                  },
+                  {
+                    name: "delegate",
+                    step_type: "subagent_task",
+                    objective: "Research flaky test root cause",
+                    input_contract: "Provide hypothesis and evidence",
+                    acceptance_criteria: [
+                      "Pinpoint likely failure source",
+                      "Cite relevant logs",
+                    ],
+                    required_tool_capabilities: ["system.bash", "system.readFile"],
+                    context_requirements: ["last_ci_logs", "test_history"],
+                    max_budget_hint: "120s",
+                    can_run_parallel: true,
+                    depends_on: ["prep"],
+                  },
+                  {
+                    name: "merge",
+                    step_type: "synthesis",
+                    objective: "Produce concise remediation summary",
+                    depends_on: ["delegate"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "final synthesized answer",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: { results: { prep: '{"stdout":"ready\\n","exitCode":0}' } },
+          completedSteps: 1,
+          totalSteps: 1,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First run setup checks, then delegate deeper research, then synthesize results.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          steps: [
+            expect.objectContaining({
+              name: "prep",
+              tool: "system.bash",
+            }),
+          ],
+        }),
+      );
+      expect(result.content).toBe("final synthesized answer");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner_synthesis",
+      ]);
+      expect(result.plannerSummary).toMatchObject({
+        enabled: true,
+        used: true,
+        plannedSteps: 3,
+        deterministicStepsExecuted: 1,
+      });
+    });
+
+    it("maps failed subagent pipeline stopReasonHint into parent stopReason semantics", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "delegation_failure",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "run_timeout_step",
+                    step_type: "deterministic_tool",
+                    tool: "system.readFile",
+                    args: { path: "ci.log" },
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "synthesis after timeout",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "failed",
+          context: { results: {} },
+          completedSteps: 0,
+          totalSteps: 1,
+          error: "Deterministic step timed out",
+          stopReasonHint: "timeout",
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First read CI logs, then analyze timeout patterns, then summarize the incident report.",
+          ),
+        }),
+      );
+
+      expect(result.stopReason).toBe("timeout");
+      expect(result.stopReasonDetail).toContain("timed out");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner_synthesis",
+      ]);
+    });
+
+    it("runs bounded verifier rounds for child outputs and retries low-confidence delegation once", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "delegated_investigation",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "delegate_a",
+                    step_type: "subagent_task",
+                    objective: "Analyze timeout clusters",
+                    input_contract: "Return findings with evidence in JSON",
+                    acceptance_criteria: ["Evidence references logs"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["ci_logs"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "delegate_b",
+                    step_type: "subagent_task",
+                    objective: "Map timeout clusters to source files",
+                    input_contract: "Return findings with evidence in JSON",
+                    acceptance_criteria: ["Evidence references source files"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["runtime_sources"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                    depends_on: ["delegate_a"],
+                  },
+                  {
+                    name: "merge",
+                    step_type: "synthesis",
+                    depends_on: ["delegate_b"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                overall: "retry",
+                confidence: 0.32,
+                unresolved: ["delegate_a:insufficient_evidence"],
+                steps: [
+                  {
+                    name: "delegate_a",
+                    verdict: "retry",
+                    confidence: 0.32,
+                    retryable: true,
+                    issues: ["insufficient_evidence"],
+                    summary: "Need stronger evidence links",
+                  },
+                  {
+                    name: "delegate_b",
+                    verdict: "retry",
+                    confidence: 0.31,
+                    retryable: true,
+                    issues: ["insufficient_evidence"],
+                    summary: "Need stronger source links",
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                overall: "pass",
+                confidence: 0.94,
+                unresolved: [],
+                steps: [
+                  {
+                    name: "delegate_a",
+                    verdict: "pass",
+                    confidence: 0.94,
+                    retryable: true,
+                    issues: [],
+                    summary: "Evidence looks consistent",
+                  },
+                  {
+                    name: "delegate_b",
+                    verdict: "pass",
+                    confidence: 0.93,
+                    retryable: true,
+                    issues: [],
+                    summary: "Source mapping looks consistent",
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Consolidated remediation summary [source:delegate_a]",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: "completed",
+            context: {
+              results: {
+                delegate_a: safeJson({
+                  status: "completed",
+                  subagentSessionId: "sub-1",
+                  output: "Looks fine",
+                  success: true,
+                  durationMs: 12,
+                  toolCalls: [],
+                }),
+                delegate_b: safeJson({
+                  status: "completed",
+                  subagentSessionId: "sub-1b",
+                  output: "Not enough detail yet",
+                  success: true,
+                  durationMs: 10,
+                  toolCalls: [],
+                }),
+              },
+            },
+            completedSteps: 2,
+            totalSteps: 2,
+          })
+          .mockResolvedValueOnce({
+            status: "completed",
+            context: {
+              results: {
+                delegate_a: safeJson({
+                  status: "completed",
+                  subagentSessionId: "sub-2",
+                  output:
+                    '{"evidence":"ci.log line 44 and parser.ts line 88 show timeout signatures in stderr.","files":["parser.ts","ci.log"]}',
+                  success: true,
+                  durationMs: 15,
+                  toolCalls: [{ name: "system.readFile" }],
+                }),
+                delegate_b: safeJson({
+                  status: "completed",
+                  subagentSessionId: "sub-2b",
+                  output:
+                    '{"evidence":"runtime.ts line 121 and scheduler.ts line 203 map directly to timeout clusters.","files":["runtime.ts","scheduler.ts"]}',
+                  success: true,
+                  durationMs: 14,
+                  toolCalls: [{ name: "system.readFile" }],
+                }),
+              },
+            },
+            completedSteps: 2,
+            totalSteps: 2,
+          }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.1,
+        },
+        subagentVerifier: {
+          enabled: true,
+          force: true,
+          minConfidence: 0.7,
+          maxRounds: 2,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First analyze timeout clusters across CI logs, then cross-check source hotspots, then synthesize a remediation summary with evidence.",
+          ),
+        }),
+      );
+
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(2);
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner_verifier",
+        "planner_verifier",
+        "planner_synthesis",
+      ]);
+      expect(result.plannerSummary?.subagentVerification).toMatchObject({
+        enabled: true,
+        performed: true,
+        rounds: 2,
+        overall: "pass",
+      });
+      expect(result.content).toContain("[source:delegate_a]");
+      expect(result.stopReason).toBe("completed");
+    });
+
+    it("adds provenance citations when synthesis output omits explicit child source tags", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "delegated_summary",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "delegate_a",
+                    step_type: "subagent_task",
+                    objective: "Analyze failure logs",
+                    input_contract: "Return concise findings",
+                    acceptance_criteria: ["Include evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["ci_logs"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "delegate_b",
+                    step_type: "subagent_task",
+                    objective: "Map findings to source hotspots",
+                    input_contract: "Return concise findings",
+                    acceptance_criteria: ["Include source evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["runtime_sources"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                    depends_on: ["delegate_a"],
+                  },
+                  {
+                    name: "merge",
+                    step_type: "synthesis",
+                    depends_on: ["delegate_b"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                overall: "pass",
+                confidence: 0.91,
+                unresolved: [],
+                steps: [
+                  {
+                    name: "delegate_a",
+                    verdict: "pass",
+                    confidence: 0.91,
+                    retryable: true,
+                    issues: [],
+                    summary: "verified",
+                  },
+                  {
+                    name: "delegate_b",
+                    verdict: "pass",
+                    confidence: 0.9,
+                    retryable: true,
+                    issues: [],
+                    summary: "verified",
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Final remediation summary without explicit citations",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              delegate_a: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-9",
+                output: "Evidence: ci.log line 44 and parser.ts line 88.",
+                success: true,
+                durationMs: 12,
+                toolCalls: [{ name: "system.readFile" }],
+              }),
+              delegate_b: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-10",
+                output: "Evidence: runtime.ts line 11 and scheduler.ts line 23.",
+                success: true,
+                durationMs: 9,
+                toolCalls: [{ name: "system.readFile" }],
+              }),
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.1,
+        },
+        subagentVerifier: {
+          enabled: true,
+          force: true,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First analyze child findings from CI logs, then map likely root causes, then produce a final synthesis.",
+          ),
+        }),
+      );
+
+      expect(result.content).toContain("Sources: [source:delegate_a]");
+      const synthesisCallMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[0] as LLMMessage[];
+      const synthesisSystem = synthesisCallMessages.find((msg) =>
+        msg.role === "system" &&
+        typeof msg.content === "string" &&
+        msg.content.includes("provenance tags like [source:<step_name>]")
+      );
+      expect(synthesisSystem).toBeDefined();
+      const synthesisUser = synthesisCallMessages.find((msg) =>
+        msg.role === "user" &&
+        typeof msg.content === "string" &&
+        msg.content.includes("childOutputs")
+      );
+      expect(synthesisUser).toBeDefined();
+    });
+
+    it("stops verifier critique loops at max rounds and marks validation_error", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "delegated_retry_loop",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "delegate_a",
+                    step_type: "subagent_task",
+                    objective: "Analyze failure logs",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["ci_logs"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "delegate_b",
+                    step_type: "subagent_task",
+                    objective: "Map findings to source hotspots",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include source evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["runtime_sources"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                    depends_on: ["delegate_a"],
+                  },
+                  {
+                    name: "merge",
+                    step_type: "synthesis",
+                    depends_on: ["delegate_b"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                overall: "retry",
+                confidence: 0.2,
+                unresolved: ["delegate_a:not_enough_evidence"],
+                steps: [
+                  {
+                    name: "delegate_a",
+                    verdict: "retry",
+                    confidence: 0.2,
+                    retryable: true,
+                    issues: ["not_enough_evidence"],
+                    summary: "evidence too weak",
+                  },
+                  {
+                    name: "delegate_b",
+                    verdict: "retry",
+                    confidence: 0.2,
+                    retryable: true,
+                    issues: ["not_enough_evidence"],
+                    summary: "evidence too weak",
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Unable to fully verify child outputs.",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              delegate_a: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-loop",
+                output: "very short output",
+                success: true,
+                durationMs: 8,
+                toolCalls: [],
+              }),
+              delegate_b: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-loop-b",
+                output: "very short output",
+                success: true,
+                durationMs: 8,
+                toolCalls: [],
+              }),
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.1,
+        },
+        subagentVerifier: {
+          enabled: true,
+          force: true,
+          maxRounds: 1,
+          minConfidence: 0.9,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First analyze child outputs against CI logs, then verify evidence quality, then synthesize verified findings.",
+          ),
+        }),
+      );
+
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.stopReasonDetail).toContain("Sub-agent verifier rejected");
+      expect(result.plannerSummary?.subagentVerification).toMatchObject({
+        enabled: true,
+        performed: true,
+        rounds: 1,
+        overall: "retry",
+      });
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner_verifier",
+        "planner_synthesis",
+      ]);
+    });
+
+    it("enforces global request timeout across planner pipeline execution", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "timeout_guard",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "run_long_pipeline",
+                  step_type: "deterministic_tool",
+                  tool: "system.readFile",
+                  args: { path: "ci.log" },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              setTimeout(() => {
+                resolve({
+                  status: "completed",
+                  context: {
+                    results: {
+                      run_long_pipeline: safeJson({ stdout: "ok" }),
+                    },
+                  },
+                  completedSteps: 1,
+                  totalSteps: 1,
+                });
+              }, 60);
+            }),
+        ),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        requestTimeoutMs: 20,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First run long deterministic pipeline and report results.",
+          ),
+        }),
+      );
+
+      expect(result.stopReason).toBe("timeout");
+      expect(result.stopReasonDetail).toContain("planner pipeline execution");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+    });
+
     it("falls back to direct execution when planner output is not parseable", async () => {
       const provider = createMockProvider("primary", {
         chat: vi
@@ -2000,9 +2833,1054 @@ describe("ChatExecutor", () => {
       expect(result.content).toBe("direct path answer");
       expect(result.plannerSummary?.used).toBe(true);
       expect(result.plannerSummary?.routeReason).toBe("planner_parse_failed");
+      expect(result.plannerSummary?.diagnostics).toEqual([
+        expect.objectContaining({
+          category: "parse",
+          code: "invalid_json",
+        }),
+      ]);
       expect(result.callUsage.map((entry) => entry.phase)).toEqual([
         "planner",
         "initial",
+      ]);
+    });
+
+    it("falls back when planner emits subagent_task without required contract fields", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "invalid_subagent_contract",
+                steps: [
+                  {
+                    name: "delegate",
+                    step_type: "subagent_task",
+                    objective: "Investigate issue",
+                    // Missing required fields should fail strict parsing
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "direct fallback answer",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Plan and delegate a deep investigation, then summarize findings.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.content).toBe("direct fallback answer");
+      expect(result.plannerSummary?.routeReason).toBe("planner_parse_failed");
+      expect(result.plannerSummary?.diagnostics).toEqual([
+        expect.objectContaining({
+          category: "parse",
+          code: "missing_subagent_field",
+        }),
+      ]);
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "initial",
+      ]);
+    });
+
+    it("falls back when planner emits unresolved step dependencies", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "bad_dependencies",
+                steps: [
+                  {
+                    name: "run",
+                    step_type: "deterministic_tool",
+                    tool: "system.bash",
+                    args: { command: "echo", args: ["ok"] },
+                    depends_on: ["missing_step"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "direct fallback due bad deps",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Step 1 run checks, step 2 validate dependencies, step 3 summarize in JSON.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.content).toBe("direct fallback due bad deps");
+      expect(result.plannerSummary?.routeReason).toBe("planner_parse_failed");
+      expect(result.plannerSummary?.diagnostics).toEqual([
+        expect.objectContaining({
+          category: "parse",
+          code: "unknown_dependency",
+        }),
+      ]);
+    });
+
+    it("rejects cyclic planner dependency graphs locally with diagnostics", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "cyclic_graph",
+                steps: [
+                  {
+                    name: "a",
+                    step_type: "subagent_task",
+                    objective: "Inspect module A",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["module_a"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: true,
+                    depends_on: ["b"],
+                  },
+                  {
+                    name: "b",
+                    step_type: "subagent_task",
+                    objective: "Inspect module B",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["module_b"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: true,
+                    depends_on: ["a"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "direct fallback for cyclic graph",
+            }),
+          ),
+      });
+      const pipelineExecutor = { execute: vi.fn() };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Analyze module A and B in parallel, then merge the results.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.content).toBe("direct fallback for cyclic graph");
+      expect(result.plannerSummary?.routeReason).toBe("planner_parse_failed");
+      expect(result.plannerSummary?.diagnostics).toEqual([
+        expect.objectContaining({
+          category: "validation",
+          code: "cyclic_dependency",
+        }),
+      ]);
+    });
+
+    it("uses explicit do-not-delegate path for trivial single-hop delegation plans", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "delegate_once",
+                steps: [
+                  {
+                    name: "quick_check",
+                    step_type: "subagent_task",
+                    objective: "Run a quick sanity check",
+                    input_contract: "Return one status line",
+                    acceptance_criteria: ["Confirm command exits zero"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["workspace_root"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "handled without delegation",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.65,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First run one quick check, then answer with the result.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.content).toBe("handled without delegation");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "initial",
+      ]);
+      expect(result.plannerSummary?.routeReason).toBe(
+        "delegation_veto_trivial_request",
+      );
+      expect(result.plannerSummary?.delegationDecision).toMatchObject({
+        shouldDelegate: false,
+        reason: "trivial_request",
+      });
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "policy",
+            code: "delegation_veto",
+          }),
+        ]),
+      );
+    });
+
+    it("hard-blocks delegation for configured task classes", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "wallet_flow",
+                steps: [
+                  {
+                    name: "transfer",
+                    step_type: "subagent_task",
+                    objective: "Sign and send treasury transfer",
+                    input_contract: "Return tx signature",
+                    acceptance_criteria: ["Signed transaction submitted"],
+                    required_tool_capabilities: ["wallet.transfer"],
+                    context_requirements: ["treasury_wallet"],
+                    max_budget_hint: "4m",
+                    can_run_parallel: false,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "blocked by policy",
+            }),
+          ),
+      });
+      const pipelineExecutor = { execute: vi.fn() };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.1,
+          hardBlockedTaskClasses: ["wallet_transfer"],
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First sign the treasury transaction, then send the payout, then report the tx result.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.plannerSummary?.routeReason).toBe(
+        "delegation_veto_hard_blocked_task_class",
+      );
+      expect(result.plannerSummary?.delegationDecision?.reason).toBe(
+        "hard_blocked_task_class",
+      );
+    });
+
+    it("gates handoff mode on explicit planner confidence threshold", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "handoff",
+                confidence: 0.4,
+                steps: [
+                  {
+                    name: "investigation_task",
+                    step_type: "subagent_task",
+                    objective: "Perform multi-step code investigation",
+                    input_contract: "Return findings with evidence",
+                    acceptance_criteria: ["Evidence attached"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["runtime_sources"],
+                    max_budget_hint: "8m",
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "handoff confidence blocked",
+            }),
+          ),
+      });
+      const pipelineExecutor = { execute: vi.fn() };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          mode: "handoff",
+          scoreThreshold: 0.1,
+          handoffMinPlannerConfidence: 0.8,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First break this investigation into steps, then hand off execution, then summarize findings.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.plannerSummary?.routeReason).toBe(
+        "delegation_veto_handoff_confidence_below_threshold",
+      );
+      expect(result.plannerSummary?.delegationDecision?.reason).toBe(
+        "handoff_confidence_below_threshold",
+      );
+    });
+
+    it("applies live delegation threshold resolver for aggressiveness overrides", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "threshold_override",
+                steps: [
+                  {
+                    name: "a",
+                    step_type: "subagent_task",
+                    objective: "Inspect module A",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["module_a"],
+                    max_budget_hint: "8m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "b",
+                    step_type: "subagent_task",
+                    objective: "Inspect module B",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["module_b"],
+                    max_budget_hint: "8m",
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "threshold override fallback",
+            }),
+          ),
+      });
+      const pipelineExecutor = { execute: vi.fn() };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+        },
+        resolveDelegationScoreThreshold: () => 0.95,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Investigate two modules in parallel then summarize results.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.plannerSummary?.delegationDecision?.threshold).toBe(0.95);
+      expect(result.plannerSummary?.routeReason).toBe(
+        "delegation_veto_score_below_threshold",
+      );
+    });
+
+    it("vetoes delegation when utility score is below threshold", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "delegate_low_roi",
+                steps: [
+                  {
+                    name: "investigate_a",
+                    step_type: "subagent_task",
+                    objective: "Inspect flaky test logs for service A",
+                    input_contract: "Return top two hypotheses",
+                    acceptance_criteria: [
+                      "Hypothesis references concrete log lines",
+                    ],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["ci_logs_a"],
+                    max_budget_hint: "8m",
+                    can_run_parallel: false,
+                  },
+                  {
+                    name: "investigate_b",
+                    step_type: "subagent_task",
+                    objective: "Inspect flaky test logs for service B",
+                    input_contract: "Return top two hypotheses",
+                    acceptance_criteria: [
+                      "Hypothesis references concrete log lines",
+                    ],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["ci_logs_b"],
+                    max_budget_hint: "8m",
+                    can_run_parallel: false,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "fallback direct execution",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.98,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First inspect service A failures, then inspect service B failures, then merge both findings into one action plan.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.plannerSummary?.routeReason).toBe(
+        "delegation_veto_score_below_threshold",
+      );
+      expect(result.plannerSummary?.delegationDecision).toMatchObject({
+        shouldDelegate: false,
+        reason: "score_below_threshold",
+        threshold: 0.98,
+      });
+    });
+
+    it("enforces fanout hard guardrail before delegation", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "fanout_plan",
+                steps: [
+                  {
+                    name: "task_a",
+                    step_type: "subagent_task",
+                    objective: "Analyze module A",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include concrete evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["module_a_sources"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "task_b",
+                    step_type: "subagent_task",
+                    objective: "Analyze module B",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Include concrete evidence"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["module_b_sources"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "fanout blocked fallback",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+          maxFanoutPerTurn: 1,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First analyze module A, then analyze module B, then report both.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(result.plannerSummary?.routeReason).toBe(
+        "delegation_veto_fanout_exceeded",
+      );
+      expect(result.plannerSummary?.delegationDecision).toMatchObject({
+        shouldDelegate: false,
+        reason: "fanout_exceeded",
+      });
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "validation",
+            code: "subagent_fanout_exceeded",
+          }),
+          expect.objectContaining({
+            category: "policy",
+            code: "delegation_veto",
+          }),
+        ]),
+      );
+    });
+
+    it("enforces subagent depth limit before execution", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "deep_plan",
+                steps: [
+                  {
+                    name: "task_a",
+                    step_type: "subagent_task",
+                    objective: "Analyze layer A",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Evidence provided"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["layer_a"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "task_b",
+                    step_type: "subagent_task",
+                    objective: "Analyze layer B",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Evidence provided"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["layer_b"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: true,
+                    depends_on: ["task_a"],
+                  },
+                  {
+                    name: "task_c",
+                    step_type: "subagent_task",
+                    objective: "Analyze layer C",
+                    input_contract: "Return findings",
+                    acceptance_criteria: ["Evidence provided"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["layer_c"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: true,
+                    depends_on: ["task_b"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "depth constrained fallback",
+            }),
+          ),
+      });
+      const pipelineExecutor = { execute: vi.fn() };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.1,
+          maxDepth: 2,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Analyze layer A then B then C, and report one merged summary.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.content).toBe("depth constrained fallback");
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "validation",
+            code: "subagent_depth_exceeded",
+          }),
+          expect.objectContaining({
+            category: "policy",
+            code: "delegation_veto",
+          }),
+        ]),
+      );
+    });
+
+    it("records approved delegation decision when utility clears threshold", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "parallel_investigation",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "investigate_logs",
+                    step_type: "subagent_task",
+                    objective: "Review CI logs and extract failure clusters",
+                    input_contract: "Return a ranked list of failure clusters",
+                    acceptance_criteria: [
+                      "At least 3 clusters",
+                      "Each cluster has evidence lines",
+                    ],
+                    required_tool_capabilities: [
+                      "system.readFile",
+                      "system.searchFiles",
+                    ],
+                    context_requirements: [
+                      "ci_logs",
+                      "recent_failures_snapshot",
+                    ],
+                    max_budget_hint: "12m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "inspect_source",
+                    step_type: "subagent_task",
+                    objective: "Map source hotspots to the failure clusters",
+                    input_contract:
+                      "Return source locations linked to each failure cluster",
+                    acceptance_criteria: [
+                      "Every cluster has at least one candidate source file",
+                    ],
+                    required_tool_capabilities: [
+                      "system.readFile",
+                      "system.searchFiles",
+                    ],
+                    context_requirements: [
+                      "runtime_sources",
+                      "test_sources",
+                    ],
+                    max_budget_hint: "12m",
+                    can_run_parallel: true,
+                    depends_on: ["investigate_logs"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "synthesized delegated answer",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              investigate_logs: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-1",
+                output: "clustered failures",
+                success: true,
+              }),
+              inspect_source: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-2",
+                output: "mapped hotspots",
+                success: true,
+              }),
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First cluster CI failures, then map source hotspots, and finally present one consolidated remediation brief.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.content).toContain("synthesized delegated answer");
+      expect(result.content).toContain("[source:investigate_logs]");
+      expect(result.plannerSummary?.routeReason).toBe("parallel_investigation");
+      expect(result.plannerSummary?.delegationDecision).toMatchObject({
+        shouldDelegate: true,
+        reason: "approved",
+      });
+    });
+
+    it("passes bounded planner context payload for subagent context curation", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "context_packing",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "delegate_ci",
+                  step_type: "subagent_task",
+                  objective: "Cluster CI failures by root cause",
+                  input_contract: "Return grouped failures with evidence",
+                  acceptance_criteria: ["At least 2 clusters"],
+                  required_tool_capabilities: ["system.readFile"],
+                  context_requirements: ["ci_logs", "memory_semantic"],
+                  max_budget_hint: "10m",
+                  can_run_parallel: true,
+                },
+                {
+                  name: "delegate_mapping",
+                  step_type: "subagent_task",
+                  objective: "Map failure clusters to source hotspots",
+                  input_contract: "Return source candidates for each cluster",
+                  acceptance_criteria: ["At least 2 candidate files"],
+                  required_tool_capabilities: ["system.readFile"],
+                  context_requirements: ["ci_logs", "memory_semantic"],
+                  max_budget_hint: "10m",
+                  can_run_parallel: true,
+                  depends_on: ["delegate_ci"],
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const memoryRetriever = {
+        retrieve: vi
+          .fn()
+          .mockResolvedValue(
+            "semantic memory: prior CI cluster points to flaky integration tests",
+          ),
+      };
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              delegate_ci: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-ci",
+                output: "clustered failures",
+                success: true,
+              }),
+              delegate_mapping: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-map",
+                output: "mapped source hotspots",
+                success: true,
+              }),
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const history: LLMMessage[] = [
+        ...(
+          Array.from({ length: 14 }, (_, index) => ({
+            role: index % 2 === 0 ? "user" : "assistant",
+            content: `history entry ${index} about release regressions`,
+          })) as LLMMessage[]
+        ),
+        {
+          role: "tool",
+          toolCallId: "tc-1",
+          toolName: "system.readFile",
+          content: safeJson({
+            stdout: "CI log excerpt: integration suite cluster alpha",
+          }),
+        },
+      ];
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        memoryRetriever,
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+        },
+      });
+
+      await executor.execute(
+        createParams({
+          message: createMessage(
+            "First cluster CI failures from logs, then map likely source hotspots, and finally produce a consolidated remediation checklist with evidence.",
+          ),
+          history,
+        }),
+      );
+
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      const pipelineArg = (pipelineExecutor.execute as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as {
+          plannerContext?: {
+            parentRequest: string;
+            history: unknown[];
+            memory: Array<{ source: string }>;
+            toolOutputs: Array<{ toolName?: string }>;
+          };
+        };
+      expect(pipelineArg.plannerContext).toBeDefined();
+      expect(pipelineArg.plannerContext?.parentRequest).toContain("cluster CI failures");
+      expect(pipelineArg.plannerContext?.history.length ?? 0).toBeLessThanOrEqual(12);
+      expect(pipelineArg.plannerContext?.memory).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: "memory_semantic" }),
+        ]),
+      );
+      expect(pipelineArg.plannerContext?.toolOutputs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ toolName: "system.readFile" }),
+        ]),
+      );
+    });
+
+    it("forwards parent routed tool policy into planner context for child scoping", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "scoped_tools",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "delegate_scope",
+                  step_type: "subagent_task",
+                  objective: "Inspect logs and summarize failures",
+                  input_contract: "Return concise findings",
+                  acceptance_criteria: ["Findings contain evidence"],
+                  required_tool_capabilities: ["system.readFile", "system.searchFiles"],
+                  context_requirements: ["ci_logs", "memory_semantic"],
+                  max_budget_hint: "8m",
+                  can_run_parallel: true,
+                },
+                {
+                  name: "delegate_map",
+                  step_type: "subagent_task",
+                  objective: "Map findings to source hotspots",
+                  input_contract: "Return candidate files",
+                  acceptance_criteria: ["At least 2 files"],
+                  required_tool_capabilities: ["system.readFile"],
+                  context_requirements: ["runtime_sources"],
+                  max_budget_hint: "8m",
+                  can_run_parallel: true,
+                  depends_on: ["delegate_scope"],
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              delegate_scope: safeJson({ status: "completed", success: true }),
+              delegate_map: safeJson({ status: "completed", success: true }),
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+        },
+      });
+
+      await executor.execute(
+        createParams({
+          message: createMessage(
+            "First inspect CI logs, then map source hotspots, then produce one remediation brief.",
+          ),
+          toolRouting: {
+            routedToolNames: ["system.readFile", "system.searchFiles"],
+          },
+        }),
+      );
+
+      const pipelineArg = (pipelineExecutor.execute as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as {
+          plannerContext?: {
+            parentAllowedTools?: readonly string[];
+          };
+        };
+      expect(pipelineArg.plannerContext?.parentAllowedTools).toEqual([
+        "system.readFile",
+        "system.searchFiles",
       ]);
     });
 

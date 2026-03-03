@@ -24,6 +24,7 @@ import {
 import { parseTrajectoryTrace } from "./types.js";
 import { TrajectoryReplayEngine } from "./replay.js";
 import { runPipelineHttpRepro } from "./pipeline-http-repro.js";
+import { runDelegationBenchmarkSuite } from "./delegation-benchmark.js";
 import {
   buildPipelineQualityArtifact,
   type PipelineDesktopRunArtifact,
@@ -50,6 +51,7 @@ export interface PipelineQualityRunnerConfig {
   turns?: number;
   desktopRuns?: number;
   desktopTimeoutMs?: number;
+  delegationBenchmarkK?: number;
   incidentFixtureDir?: string;
   desktopRunner?: PipelineDesktopRunner;
 }
@@ -426,7 +428,10 @@ export async function runPipelineQualitySuite(
   config: PipelineQualityRunnerConfig = {},
 ): Promise<PipelineQualityArtifact> {
   const now = config.now ?? Date.now;
-  const turns = Math.max(2, Math.floor(config.turns ?? DEFAULT_CONTEXT_BENCHMARK_TURNS));
+  const turns = Math.max(
+    2,
+    Math.floor(config.turns ?? DEFAULT_CONTEXT_BENCHMARK_TURNS),
+  );
   const desktopRuns = Math.max(
     0,
     Math.floor(config.desktopRuns ?? DEFAULT_DESKTOP_RUNS),
@@ -449,6 +454,12 @@ export async function runPipelineQualitySuite(
   const incidentFixtureDir =
     config.incidentFixtureDir ?? resolveDefaultIncidentFixtureDir();
   const replayFixtures = await runOfflineReplayBenchmark(incidentFixtureDir);
+  const delegationBenchmark = await runDelegationBenchmarkSuite({
+    now,
+    runId: `${runId}:delegation`,
+    k: config.delegationBenchmarkK,
+  });
+  const delegation = delegationBenchmark.summary;
 
   return buildPipelineQualityArtifact({
     runId,
@@ -468,6 +479,26 @@ export async function runPipelineQualitySuite(
     },
     offlineReplay: {
       fixtures: replayFixtures,
+    },
+    delegation: {
+      totalCases: delegation.totalCases,
+      delegatedCases: delegation.delegatedCases,
+      usefulDelegations: delegation.usefulDelegations,
+      harmfulDelegations: delegation.harmfulDelegations,
+      plannerExecutionMismatches: delegation.plannerExecutionMismatches,
+      childTimeouts: delegation.childTimeouts,
+      childFailures: delegation.childFailures,
+      synthesisConflicts: delegation.synthesisConflicts,
+      depthCapHits: delegation.depthCapHits,
+      fanoutCapHits: delegation.fanoutCapHits,
+      costDeltaVsBaseline: delegation.costDeltaVsBaseline,
+      latencyDeltaVsBaseline: delegation.latencyDeltaVsBaseline,
+      qualityDeltaVsBaseline: delegation.qualityDeltaVsBaseline,
+      passAtKDeltaVsBaseline: delegation.passAtKDeltaVsBaseline,
+      passCaretKDeltaVsBaseline: delegation.passCaretKDeltaVsBaseline,
+      baselineScenarioId: delegation.baselineScenarioId,
+      k: delegation.k,
+      scenarioSummaries: delegation.scenarioSummaries,
     },
   });
 }

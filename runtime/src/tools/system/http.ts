@@ -232,6 +232,7 @@ export function formatDomainBlockReason(reason: string): string {
     `${trimmed}. ` +
     "system.http*/system.browse intentionally block localhost/private/internal addresses. " +
     "For local checks on the HOST, use system.bash with curl (e.g. `curl -sSf http://127.0.0.1:PORT`). " +
+    "For desktop-container local targets, use desktop.bash or Playwright tools (`system.screenshot`/`system.browserAction`). " +
     "Desktop tools run inside Docker and cannot reach the host's localhost."
   );
 }

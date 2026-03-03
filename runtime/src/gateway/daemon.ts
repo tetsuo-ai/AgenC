@@ -25,11 +25,30 @@ import type {
   GatewayStatus,
   ConfigDiff,
   GatewayLoggingConfig,
+  ControlResponse,
 } from './types.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import { WebChatChannel } from '../channels/webchat/plugin.js';
 import { TelegramChannel } from '../channels/telegram/plugin.js';
+import { WorkspaceManager, WorkspaceValidationError } from './workspace.js';
+import {
+  SessionIsolationManager,
+  type SubAgentSessionIdentity,
+} from './session-isolation.js';
+import {
+  SubAgentManager,
+  DEFAULT_SUB_AGENT_TIMEOUT_MS,
+  MAX_CONCURRENT_SUB_AGENTS,
+} from './sub-agent.js';
+import {
+  DelegationPolicyEngine,
+  DelegationVerifierService,
+  SubAgentLifecycleEmitter,
+  type SubAgentLifecycleEvent,
+  type DelegationToolCompositionContext,
+  type DelegationToolCompositionResolver,
+} from './delegation-runtime.js';
 import type {
   LLMProvider,
   LLMTool,
@@ -37,6 +56,7 @@ import type {
   StreamProgressCallback,
   LLMMessage,
 } from '../llm/types.js';
+import type { Tool } from '../tools/types.js';
 import { classifyLLMFailure } from '../llm/errors.js';
 import { toPipelineStopReason } from '../llm/policy.js';
 import type { LLMPipelineStopReason } from '../llm/policy.js';
@@ -44,17 +64,24 @@ import type { GatewayMessage } from './message.js';
 import { createGatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
 import type {
+  DeterministicPipelineExecutor,
   SkillInjector,
   MemoryRetriever,
   ToolCallRecord,
   ChatCallUsageRecord,
   ChatToolRoutingSummary,
 } from '../llm/chat-executor.js';
+import {
+  DelegationBanditPolicyTuner,
+  InMemoryDelegationTrajectorySink,
+  type DelegationBanditArm,
+} from '../llm/delegation-learning.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBashTool } from '../tools/system/bash.js';
 import { createHttpTools } from '../tools/system/http.js';
 import { createFilesystemTools } from '../tools/system/filesystem.js';
 import { createBrowserTools } from '../tools/system/browser.js';
+import { createExecuteWithAgentTool } from './delegation-tool.js';
 import { SkillDiscovery } from '../skills/markdown/discovery.js';
 import type { DiscoveredSkill } from '../skills/markdown/discovery.js';
 import { VoiceBridge } from './voice-bridge.js';
@@ -91,6 +118,7 @@ import { formatForChannel } from './format.js';
 import type { ChannelPlugin } from './channel.js';
 import type { ProactiveCommunicator } from './proactive.js';
 import { ToolRouter, type ToolRoutingDecision } from './tool-routing.js';
+import { SubAgentOrchestrator } from './subagent-orchestrator.js';
 
 // ============================================================================
 // Constants
@@ -109,6 +137,16 @@ const DEFAULT_CHANNEL_SESSION_CONFIG = {
   compaction: 'truncate' as const,
   maxHistoryLength: 100,
 };
+
+const SUBAGENT_CONFIG_HARD_CAPS = {
+  maxConcurrent: 64,
+  maxDepth: 16,
+  maxFanoutPerTurn: 64,
+  maxTotalSubagentsPerRequest: 1024,
+  maxCumulativeToolCallsPerRequestTree: 4096,
+  maxCumulativeTokensPerRequestTree: 10_000_000,
+  defaultTimeoutMs: 3_600_000,
+} as const;
 
 /** Hook priority constants — lower numbers run first. */
 const HOOK_PRIORITIES = {
@@ -149,6 +187,254 @@ const TRACE_SANITIZE_MAX_DEPTH = 4;
 const TRACE_SANITIZE_MAX_ARRAY_ITEMS = 40;
 const TRACE_SANITIZE_MAX_OBJECT_KEYS = 80;
 const TRACE_HISTORY_MAX_MESSAGES = 500;
+type DelegationAggressivenessProfile =
+  | "conservative"
+  | "balanced"
+  | "aggressive"
+  | "adaptive";
+type SubagentChildProviderStrategy =
+  | "same_as_parent"
+  | "capability_matched";
+type DelegationHardBlockedTaskClass =
+  | "wallet_signing"
+  | "wallet_transfer"
+  | "stake_or_rewards"
+  | "destructive_host_mutation"
+  | "credential_exfiltration";
+const DELEGATION_AGGRESSIVENESS_THRESHOLD_OFFSETS: Readonly<
+  Record<DelegationAggressivenessProfile, number>
+> = {
+  conservative: 0.12,
+  balanced: 0,
+  aggressive: -0.12,
+  adaptive: 0,
+};
+const DEFAULT_HANDOFF_MIN_PLANNER_CONFIDENCE = 0.82;
+const DEFAULT_HARD_BLOCKED_TASK_CLASSES: readonly DelegationHardBlockedTaskClass[] =
+  [
+    "wallet_signing",
+    "wallet_transfer",
+    "stake_or_rewards",
+    "credential_exfiltration",
+  ];
+
+interface ResolvedSubAgentRuntimeConfig {
+  readonly enabled: boolean;
+  readonly mode: "manager_tools" | "handoff" | "hybrid";
+  readonly delegationAggressiveness: DelegationAggressivenessProfile;
+  readonly maxConcurrent: number;
+  readonly maxDepth: number;
+  readonly maxFanoutPerTurn: number;
+  readonly maxTotalSubagentsPerRequest: number;
+  readonly maxCumulativeToolCallsPerRequestTree: number;
+  readonly maxCumulativeTokensPerRequestTree: number;
+  readonly defaultTimeoutMs: number;
+  readonly baseSpawnDecisionThreshold: number;
+  readonly spawnDecisionThreshold: number;
+  readonly handoffMinPlannerConfidence: number;
+  readonly forceVerifier: boolean;
+  readonly allowParallelSubtasks: boolean;
+  readonly hardBlockedTaskClasses: readonly DelegationHardBlockedTaskClass[];
+  readonly allowedParentTools?: readonly string[];
+  readonly forbiddenParentTools?: readonly string[];
+  readonly childToolAllowlistStrategy:
+    | "inherit_intersection"
+    | "explicit_only";
+  readonly childProviderStrategy: SubagentChildProviderStrategy;
+  readonly fallbackBehavior: "continue_without_delegation" | "fail_request";
+  readonly policyLearningEnabled: boolean;
+  readonly policyLearningEpsilon: number;
+  readonly policyLearningExplorationBudget: number;
+  readonly policyLearningMinSamplesPerArm: number;
+  readonly policyLearningUcbExplorationScale: number;
+  readonly policyLearningArms: readonly DelegationBanditArm[];
+}
+
+function applyDelegationAggressiveness(
+  baseThreshold: number,
+  profile: DelegationAggressivenessProfile,
+): number {
+  const offset = DELEGATION_AGGRESSIVENESS_THRESHOLD_OFFSETS[profile] ?? 0;
+  return Math.min(1, Math.max(0, baseThreshold + offset));
+}
+
+function resolveSubAgentRuntimeConfig(
+  llmConfig: GatewayLLMConfig | undefined,
+): ResolvedSubAgentRuntimeConfig {
+  const subagents = llmConfig?.subagents;
+  const delegationAggressiveness =
+    subagents?.delegationAggressiveness === "conservative" ||
+      subagents?.delegationAggressiveness === "aggressive" ||
+      subagents?.delegationAggressiveness === "adaptive"
+      ? subagents.delegationAggressiveness
+      : "balanced";
+  const baseSpawnDecisionThreshold = Math.min(
+    1,
+    Math.max(0, subagents?.spawnDecisionThreshold ?? 0.65),
+  );
+  const policyLearning = subagents?.policyLearning;
+  const policyLearningArms = Array.isArray(policyLearning?.arms) &&
+      policyLearning.arms.length > 0
+    ? policyLearning.arms
+      .map((arm) => ({
+        id: arm.id.trim(),
+        ...(typeof arm.thresholdOffset === "number"
+          ? { thresholdOffset: arm.thresholdOffset }
+          : {}),
+        ...(typeof arm.description === "string"
+          ? { description: arm.description }
+          : {}),
+      }))
+      .filter((arm) => arm.id.length > 0)
+    : [
+      { id: "conservative", thresholdOffset: 0.1 },
+      { id: "balanced", thresholdOffset: 0 },
+      { id: "aggressive", thresholdOffset: -0.1 },
+    ];
+  return {
+    enabled: subagents?.enabled !== false,
+    mode: subagents?.mode ?? "manager_tools",
+    delegationAggressiveness,
+    maxConcurrent: Math.min(
+      SUBAGENT_CONFIG_HARD_CAPS.maxConcurrent,
+      Math.max(1, subagents?.maxConcurrent ?? MAX_CONCURRENT_SUB_AGENTS),
+    ),
+    maxDepth: Math.min(
+      SUBAGENT_CONFIG_HARD_CAPS.maxDepth,
+      Math.max(1, subagents?.maxDepth ?? 4),
+    ),
+    maxFanoutPerTurn: Math.min(
+      SUBAGENT_CONFIG_HARD_CAPS.maxFanoutPerTurn,
+      Math.max(1, subagents?.maxFanoutPerTurn ?? 8),
+    ),
+    maxTotalSubagentsPerRequest: Math.min(
+      SUBAGENT_CONFIG_HARD_CAPS.maxTotalSubagentsPerRequest,
+      Math.max(1, subagents?.maxTotalSubagentsPerRequest ?? 32),
+    ),
+    maxCumulativeToolCallsPerRequestTree: Math.min(
+      SUBAGENT_CONFIG_HARD_CAPS.maxCumulativeToolCallsPerRequestTree,
+      Math.max(
+        1,
+        subagents?.maxCumulativeToolCallsPerRequestTree ?? 256,
+      ),
+    ),
+    maxCumulativeTokensPerRequestTree: Math.min(
+      SUBAGENT_CONFIG_HARD_CAPS.maxCumulativeTokensPerRequestTree,
+      Math.max(
+        1,
+        subagents?.maxCumulativeTokensPerRequestTree ?? 250_000,
+      ),
+    ),
+    defaultTimeoutMs: Math.min(
+      SUBAGENT_CONFIG_HARD_CAPS.defaultTimeoutMs,
+      Math.max(1_000, subagents?.defaultTimeoutMs ?? DEFAULT_SUB_AGENT_TIMEOUT_MS),
+    ),
+    baseSpawnDecisionThreshold,
+    spawnDecisionThreshold: applyDelegationAggressiveness(
+      baseSpawnDecisionThreshold,
+      delegationAggressiveness,
+    ),
+    handoffMinPlannerConfidence: Math.min(
+      1,
+      Math.max(
+        0,
+        subagents?.handoffMinPlannerConfidence ??
+          DEFAULT_HANDOFF_MIN_PLANNER_CONFIDENCE,
+      ),
+    ),
+    forceVerifier: subagents?.forceVerifier === true,
+    allowParallelSubtasks: subagents?.allowParallelSubtasks !== false,
+    hardBlockedTaskClasses:
+      Array.isArray(subagents?.hardBlockedTaskClasses) &&
+        subagents.hardBlockedTaskClasses.length > 0
+        ? subagents.hardBlockedTaskClasses.filter(
+            (entry): entry is DelegationHardBlockedTaskClass =>
+              entry === "wallet_signing" ||
+              entry === "wallet_transfer" ||
+              entry === "stake_or_rewards" ||
+              entry === "destructive_host_mutation" ||
+              entry === "credential_exfiltration",
+          )
+        : [...DEFAULT_HARD_BLOCKED_TASK_CLASSES],
+    allowedParentTools: subagents?.allowedParentTools,
+    forbiddenParentTools: subagents?.forbiddenParentTools,
+    childToolAllowlistStrategy:
+      subagents?.childToolAllowlistStrategy ?? "inherit_intersection",
+    childProviderStrategy: subagents?.childProviderStrategy === "capability_matched"
+      ? "capability_matched"
+      : "same_as_parent",
+    fallbackBehavior:
+      subagents?.fallbackBehavior ?? "continue_without_delegation",
+    policyLearningEnabled:
+      subagents?.enabled !== false && policyLearning?.enabled !== false,
+    policyLearningEpsilon: Math.min(
+      1,
+      Math.max(0, policyLearning?.epsilon ?? 0.1),
+    ),
+    policyLearningExplorationBudget: Math.max(
+      0,
+      Math.floor(policyLearning?.explorationBudget ?? 500),
+    ),
+    policyLearningMinSamplesPerArm: Math.max(
+      1,
+      Math.floor(policyLearning?.minSamplesPerArm ?? 2),
+    ),
+    policyLearningUcbExplorationScale: Math.max(
+      0,
+      policyLearning?.ucbExplorationScale ?? 1.2,
+    ),
+    policyLearningArms,
+  };
+}
+
+function requiresSubAgentInfrastructureRecreate(
+  previous: ResolvedSubAgentRuntimeConfig | null,
+  next: ResolvedSubAgentRuntimeConfig,
+  currentManager: SubAgentManager | null,
+  currentIsolationManager: SessionIsolationManager | null,
+): boolean {
+  if (!next.enabled) {
+    return currentManager !== null || currentIsolationManager !== null;
+  }
+  if (!currentManager || !currentIsolationManager) {
+    return true;
+  }
+  if (!previous || !previous.enabled) {
+    return true;
+  }
+  // Existing manager is runtime-bound to this limit.
+  if (previous.maxConcurrent !== next.maxConcurrent) {
+    return true;
+  }
+  return false;
+}
+
+function createDelegatingSubAgentLLMProvider(
+  getProvider: () => LLMProvider | undefined,
+): LLMProvider {
+  const resolve = (): LLMProvider => {
+    const provider = getProvider();
+    if (!provider) {
+      throw new Error("No LLM provider configured for sub-agent sessions");
+    }
+    return provider;
+  };
+
+  return {
+    name: "subagent-delegating-provider",
+    chat(messages, options) {
+      return resolve().chat(messages, options);
+    },
+    chatStream(messages, onChunk, options) {
+      return resolve().chatStream(messages, onChunk, options);
+    },
+    async healthCheck() {
+      const provider = getProvider();
+      if (!provider) return false;
+      return provider.healthCheck();
+    },
+  };
+}
 
 function resolveSessionTokenBudget(
   llmConfig: GatewayLLMConfig | undefined,
@@ -603,6 +889,34 @@ function createTurnTraceId(msg: GatewayMessage): string {
   return `${msg.sessionId}:${stamp}:${randomUUID().slice(0, 8)}`;
 }
 
+function sanitizeLifecyclePayloadData(
+  payload: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!payload) return {};
+  const summarized = summarizeTraceValue(payload, TRACE_LOG_DEFAULT_MAX_CHARS);
+  if (
+    typeof summarized === "object" &&
+    summarized !== null &&
+    !Array.isArray(summarized)
+  ) {
+    return summarized as Record<string, unknown>;
+  }
+  return { value: summarized };
+}
+
+function buildSubagentTraceId(
+  parentTraceId: string | undefined,
+  event: SubAgentLifecycleEvent,
+): string | undefined {
+  if (!parentTraceId) return undefined;
+  const sessionRef = event.subagentSessionId ?? event.sessionId;
+  const fingerprint = createHash("sha256")
+    .update(`${parentTraceId}|${event.type}|${sessionRef}|${event.timestamp}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `${parentTraceId}:sub:${fingerprint}`;
+}
+
 function summarizeBudgetDiagnosticsForTrace(
   diagnostics: ChatCallUsageRecord["budgetDiagnostics"],
 ): Record<string, unknown> | undefined {
@@ -1040,6 +1354,27 @@ export class DaemonManager {
   private _hookDispatcher: HookDispatcher | null = null;
   private _connectionManager: ConnectionManager | null = null;
   private _chatExecutor: ChatExecutor | null = null;
+  private _sessionIsolationManager: SessionIsolationManager | null = null;
+  private _subAgentManager: SubAgentManager | null = null;
+  private readonly _subAgentToolCatalog: Tool[] = [];
+  private _subAgentRuntimeConfig: ResolvedSubAgentRuntimeConfig | null = null;
+  private _delegationAggressivenessOverride: DelegationAggressivenessProfile | null =
+    null;
+  private _delegationPolicyEngine: DelegationPolicyEngine | null = null;
+  private _delegationVerifierService: DelegationVerifierService | null = null;
+  private _subAgentLifecycleEmitter: SubAgentLifecycleEmitter | null = null;
+  private _delegationTrajectorySink: InMemoryDelegationTrajectorySink | null = null;
+  private _delegationBanditTuner: DelegationBanditPolicyTuner | null = null;
+  private _subAgentLifecycleUnsubscribe: (() => void) | null = null;
+  private readonly _activeSessionTraceIds = new Map<string, string>();
+  private readonly _subagentActivityTraceBySession = new Map<string, string>();
+  private readonly _textApprovalDispatchBySession = new Map<
+    string,
+    {
+      channelName: string;
+      send: (content: string) => Promise<void>;
+    }
+  >();
   private _resolvedContextWindowTokens: number | undefined;
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
@@ -1075,11 +1410,341 @@ export class DaemonManager {
   private readonly configPath: string;
   private readonly pidPath: string;
   private readonly logger: Logger;
+  private readonly resolveDelegationToolContext: DelegationToolCompositionResolver =
+    (): DelegationToolCompositionContext | undefined => {
+      if (
+        !this._delegationPolicyEngine &&
+        !this._delegationVerifierService &&
+        !this._subAgentLifecycleEmitter &&
+        !this._subAgentManager
+      ) {
+        return undefined;
+      }
+      return {
+        subAgentManager: this._subAgentManager,
+        policyEngine: this._delegationPolicyEngine,
+        verifier: this._delegationVerifierService,
+        lifecycleEmitter: this._subAgentLifecycleEmitter,
+      };
+    };
 
   constructor(config: DaemonManagerConfig) {
     this.configPath = config.configPath;
     this.pidPath = config.pidPath ?? getDefaultPidPath();
     this.logger = config.logger ?? silentLogger;
+  }
+
+  private getActiveDelegationAggressiveness(
+    resolved?: ResolvedSubAgentRuntimeConfig | null,
+  ): DelegationAggressivenessProfile {
+    const effectiveResolved = resolved ?? this._subAgentRuntimeConfig;
+    return (
+      this._delegationAggressivenessOverride ??
+      effectiveResolved?.delegationAggressiveness ??
+      "balanced"
+    );
+  }
+
+  private resolveDelegationScoreThreshold(
+    resolved?: ResolvedSubAgentRuntimeConfig | null,
+  ): number {
+    const effectiveResolved = resolved ?? this._subAgentRuntimeConfig;
+    const baseThreshold =
+      effectiveResolved?.baseSpawnDecisionThreshold ??
+      effectiveResolved?.spawnDecisionThreshold ??
+      0.65;
+    return applyDelegationAggressiveness(
+      baseThreshold,
+      this.getActiveDelegationAggressiveness(effectiveResolved),
+    );
+  }
+
+  private hasHighRiskDelegationCapabilities(
+    capabilities: readonly string[],
+  ): boolean {
+    for (const capability of capabilities) {
+      const normalized = capability.trim().toLowerCase();
+      if (!normalized) continue;
+      if (
+        normalized.startsWith("wallet.") ||
+        normalized.startsWith("solana.") ||
+        normalized.startsWith("agenc.") ||
+        normalized.startsWith("desktop.") ||
+        normalized.startsWith("playwright.") ||
+        normalized === "system.http" ||
+        normalized === "system.bash" ||
+        normalized === "system.delete" ||
+        normalized === "system.writefile" ||
+        normalized === "system.execute" ||
+        normalized === "system.open" ||
+        normalized === "system.applescript" ||
+        normalized === "system.notification"
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private selectSubagentProviderForTask(
+    requiredCapabilities: readonly string[] | undefined,
+    fallbackProvider: LLMProvider,
+  ): LLMProvider {
+    const resolved = this._subAgentRuntimeConfig;
+    if (!resolved) return fallbackProvider;
+    if (resolved.childProviderStrategy !== "capability_matched") {
+      return fallbackProvider;
+    }
+
+    const providers = this._llmProviders;
+    if (providers.length === 0) return fallbackProvider;
+    if (providers.length === 1) return providers[0] ?? fallbackProvider;
+
+    const highRisk = this.hasHighRiskDelegationCapabilities(
+      requiredCapabilities ?? [],
+    );
+    if (highRisk) return providers[0] ?? fallbackProvider;
+    return providers[providers.length - 1] ?? fallbackProvider;
+  }
+
+  private refreshSubAgentToolCatalog(registry: ToolRegistry): void {
+    const tools = registry.listAll();
+    this._subAgentToolCatalog.splice(
+      0,
+      this._subAgentToolCatalog.length,
+      ...tools,
+    );
+  }
+
+  private async ensureSubAgentDefaultWorkspace(
+    workspaceManager: WorkspaceManager,
+  ): Promise<void> {
+    const defaultWorkspaceId = workspaceManager.getDefault();
+    try {
+      await workspaceManager.load(defaultWorkspaceId);
+    } catch (error) {
+      if (
+        error instanceof WorkspaceValidationError &&
+        error.field === "path"
+      ) {
+        await workspaceManager.createWorkspace(defaultWorkspaceId);
+        this.logger.info(
+          `Created missing default workspace for sub-agent isolation: ${workspaceManager.basePath}/${defaultWorkspaceId}`,
+        );
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private configureDelegationRuntimeServices(
+    resolved: ResolvedSubAgentRuntimeConfig,
+  ): void {
+    const policyConfig = {
+      enabled: resolved.enabled,
+      spawnDecisionThreshold: this.resolveDelegationScoreThreshold(resolved),
+      allowedParentTools: resolved.allowedParentTools,
+      forbiddenParentTools: resolved.forbiddenParentTools,
+      fallbackBehavior: resolved.fallbackBehavior,
+    } as const;
+    if (this._delegationPolicyEngine) {
+      this._delegationPolicyEngine.updateConfig(policyConfig);
+    } else {
+      this._delegationPolicyEngine = new DelegationPolicyEngine(policyConfig);
+    }
+
+    const verifierConfig = {
+      enabled: resolved.enabled,
+      forceVerifier: resolved.forceVerifier,
+    } as const;
+    if (this._delegationVerifierService) {
+      this._delegationVerifierService.updateConfig(verifierConfig);
+    } else {
+      this._delegationVerifierService = new DelegationVerifierService(
+        verifierConfig,
+      );
+    }
+
+    if (!this._subAgentLifecycleEmitter) {
+      this._subAgentLifecycleEmitter = new SubAgentLifecycleEmitter();
+    }
+    if (!this._delegationTrajectorySink) {
+      this._delegationTrajectorySink = new InMemoryDelegationTrajectorySink({
+        maxRecords: 50_000,
+      });
+    }
+    this._delegationBanditTuner = resolved.policyLearningEnabled
+      ? new DelegationBanditPolicyTuner({
+        enabled: true,
+        epsilon: resolved.policyLearningEpsilon,
+        explorationBudget: resolved.policyLearningExplorationBudget,
+        minSamplesPerArm: resolved.policyLearningMinSamplesPerArm,
+        ucbExplorationScale: resolved.policyLearningUcbExplorationScale,
+        arms: resolved.policyLearningArms,
+      })
+      : null;
+    if (this._webChatChannel) {
+      this.attachSubAgentLifecycleBridge(this._webChatChannel);
+    }
+  }
+
+  private clearDelegationRuntimeServices(): void {
+    this._delegationPolicyEngine = null;
+    this._delegationVerifierService = null;
+    this._delegationBanditTuner = null;
+    this._delegationTrajectorySink = null;
+    this.detachSubAgentLifecycleBridge();
+    this._subAgentLifecycleEmitter?.clear();
+    this._subAgentLifecycleEmitter = null;
+  }
+
+  private async destroySubAgentInfrastructure(): Promise<void> {
+    const subAgentManager = this._subAgentManager;
+    this._subAgentManager = null;
+    if (subAgentManager) {
+      try {
+        await subAgentManager.destroyAll();
+      } catch (error) {
+        this.logger.warn?.(
+          `Failed to destroy sub-agent manager: ${toErrorMessage(error)}`,
+        );
+      }
+    }
+
+    const isolationManager = this._sessionIsolationManager;
+    this._sessionIsolationManager = null;
+    if (!isolationManager) return;
+
+    const activeContexts = isolationManager.listActiveContexts();
+    if (activeContexts.length === 0) return;
+    await Promise.allSettled(
+      activeContexts.map((contextKey) =>
+        isolationManager.destroyContext(contextKey),
+      ),
+    );
+  }
+
+  private async configureSubAgentInfrastructure(
+    config: GatewayConfig,
+  ): Promise<void> {
+    const previous = this._subAgentRuntimeConfig;
+    const resolved = resolveSubAgentRuntimeConfig(config.llm);
+    this._subAgentRuntimeConfig = resolved;
+    this.configureDelegationRuntimeServices(resolved);
+    const effectiveDelegationThreshold =
+      this.resolveDelegationScoreThreshold(resolved);
+
+    this.logger.info("Sub-agent orchestration config", {
+      ...resolved,
+      effectiveDelegationThreshold,
+      activeDelegationAggressiveness:
+        this.getActiveDelegationAggressiveness(resolved),
+      hardCaps: SUBAGENT_CONFIG_HARD_CAPS,
+    });
+
+    if (!resolved.enabled) {
+      await this.destroySubAgentInfrastructure();
+      return;
+    }
+
+    const shouldRecreate = requiresSubAgentInfrastructureRecreate(
+      previous,
+      resolved,
+      this._subAgentManager,
+      this._sessionIsolationManager,
+    );
+    if (!shouldRecreate) {
+      this.logger.info("Sub-agent orchestration thresholds updated in place", {
+        spawnDecisionThreshold: effectiveDelegationThreshold,
+        forceVerifier: resolved.forceVerifier,
+        maxDepth: resolved.maxDepth,
+        maxFanoutPerTurn: resolved.maxFanoutPerTurn,
+        maxTotalSubagentsPerRequest: resolved.maxTotalSubagentsPerRequest,
+        maxCumulativeToolCallsPerRequestTree:
+          resolved.maxCumulativeToolCallsPerRequestTree,
+        maxCumulativeTokensPerRequestTree:
+          resolved.maxCumulativeTokensPerRequestTree,
+        delegationAggressiveness:
+          this.getActiveDelegationAggressiveness(resolved),
+        fallbackBehavior: resolved.fallbackBehavior,
+      });
+      return;
+    }
+
+    await this.destroySubAgentInfrastructure();
+
+    const workspaceManager = new WorkspaceManager(getDefaultWorkspacePath());
+    await this.ensureSubAgentDefaultWorkspace(workspaceManager);
+    const isolationManager = new SessionIsolationManager({
+      workspaceManager,
+      defaultLLMProvider: createDelegatingSubAgentLLMProvider(
+        () => this._llmProviders[0],
+      ),
+      defaultTools: this._subAgentToolCatalog,
+      logger: this.logger,
+    });
+    this._sessionIsolationManager = isolationManager;
+
+    this._subAgentManager = new SubAgentManager({
+      createContext: async (sessionIdentity: SubAgentSessionIdentity) => {
+        const manager = this._sessionIsolationManager;
+        if (!manager) {
+          throw new Error("Session isolation manager is not initialized");
+        }
+        return manager.getContext(sessionIdentity);
+      },
+      destroyContext: async (sessionIdentity: SubAgentSessionIdentity) => {
+        const manager = this._sessionIsolationManager;
+        if (!manager) return;
+        await manager.destroyContext(sessionIdentity);
+      },
+      defaultWorkspaceId: workspaceManager.getDefault(),
+      maxConcurrent: resolved.maxConcurrent,
+      maxDepth: resolved.maxDepth,
+      selectLLMProvider: ({ requiredCapabilities, contextProvider }) =>
+        this.selectSubagentProviderForTask(
+          requiredCapabilities,
+          contextProvider,
+        ),
+      composeToolHandler: ({
+        sessionIdentity,
+        baseToolHandler,
+      }) => createSessionToolHandler({
+        sessionId: sessionIdentity.subagentSessionId,
+        baseHandler: baseToolHandler,
+        desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+        routerId: sessionIdentity.subagentSessionId,
+        send: (response) => {
+          this.routeSubagentControlResponseToParent({
+            response,
+            parentSessionId: sessionIdentity.parentSessionId,
+            subagentSessionId: sessionIdentity.subagentSessionId,
+          });
+        },
+        hooks: this._hookDispatcher ?? undefined,
+        approvalEngine: this._approvalEngine ?? undefined,
+        delegation: this.resolveDelegationToolContext,
+      }),
+      logger: this.logger,
+    });
+
+    this.logger.info("Sub-agent orchestration manager ready", {
+      mode: resolved.mode,
+      maxConcurrent: resolved.maxConcurrent,
+      maxDepth: resolved.maxDepth,
+      maxFanoutPerTurn: resolved.maxFanoutPerTurn,
+      maxTotalSubagentsPerRequest: resolved.maxTotalSubagentsPerRequest,
+      maxCumulativeToolCallsPerRequestTree:
+        resolved.maxCumulativeToolCallsPerRequestTree,
+      maxCumulativeTokensPerRequestTree:
+        resolved.maxCumulativeTokensPerRequestTree,
+      defaultTimeoutMs: resolved.defaultTimeoutMs,
+      spawnDecisionThreshold: effectiveDelegationThreshold,
+      handoffMinPlannerConfidence: resolved.handoffMinPlannerConfidence,
+      delegationAggressiveness:
+        this.getActiveDelegationAggressiveness(resolved),
+      childProviderStrategy: resolved.childProviderStrategy,
+    });
   }
 
   async start(): Promise<void> {
@@ -1094,6 +1759,8 @@ export class DaemonManager {
     if (gatewayConfig.logging?.level) {
       this.logger.setLevel?.(gatewayConfig.logging.level);
     }
+
+    await this.configureSubAgentInfrastructure(gatewayConfig);
 
     // Auto-configure default MCP servers on macOS when none are specified
     if (process.platform === 'darwin' && !gatewayConfig.mcp?.servers?.length) {
@@ -1166,6 +1833,9 @@ export class DaemonManager {
       );
     } catch (error) {
       await gateway.stop();
+      await this.destroySubAgentInfrastructure();
+      this._subAgentRuntimeConfig = null;
+      this.clearDelegationRuntimeServices();
       throw new GatewayLifecycleError(
         `Failed to write PID file: ${toErrorMessage(error)}`,
       );
@@ -1211,6 +1881,7 @@ export class DaemonManager {
     }
 
     const registry = await this.createToolRegistry(config, telemetry ?? undefined);
+    this.refreshSubAgentToolCatalog(registry);
 
     const llmTools = registry.toLLMTools();
     let baseToolHandler = registry.createToolHandler();
@@ -1442,6 +2113,11 @@ export class DaemonManager {
       config.llm,
       contextWindowTokens,
     );
+    const resolvedSubAgentConfig = resolveSubAgentRuntimeConfig(config.llm);
+    const plannerPipelineExecutor = this.createPlannerPipelineExecutor(
+      pipelineExecutor,
+      resolvedSubAgentConfig,
+    );
 
     this._chatExecutor = providers.length > 0 ? new ChatExecutor({
       providers,
@@ -1457,11 +2133,32 @@ export class DaemonManager {
       toolBudgetPerRequest: config.llm?.toolBudgetPerRequest,
       maxModelRecallsPerRequest: config.llm?.maxModelRecallsPerRequest,
       maxFailureBudgetPerRequest: config.llm?.maxFailureBudgetPerRequest,
+      delegationDecision: {
+        enabled: resolvedSubAgentConfig.enabled,
+        mode: resolvedSubAgentConfig.mode,
+        scoreThreshold: resolvedSubAgentConfig.baseSpawnDecisionThreshold,
+        maxFanoutPerTurn: resolvedSubAgentConfig.maxFanoutPerTurn,
+        maxDepth: resolvedSubAgentConfig.maxDepth,
+        handoffMinPlannerConfidence:
+          resolvedSubAgentConfig.handoffMinPlannerConfidence,
+        hardBlockedTaskClasses: resolvedSubAgentConfig.hardBlockedTaskClasses,
+      },
+      resolveDelegationScoreThreshold: () =>
+        this.resolveDelegationScoreThreshold(),
+      subagentVerifier: {
+        enabled: resolvedSubAgentConfig.enabled,
+        force: resolvedSubAgentConfig.forceVerifier,
+      },
+      delegationLearning: {
+        trajectorySink: this._delegationTrajectorySink ?? undefined,
+        banditTuner: this._delegationBanditTuner ?? undefined,
+        defaultStrategyArmId: "balanced",
+      },
       toolCallTimeoutMs: config.llm?.toolCallTimeoutMs,
       requestTimeoutMs: config.llm?.requestTimeoutMs,
       retryPolicyMatrix: config.llm?.retryPolicy,
       toolFailureCircuitBreaker: config.llm?.toolFailureCircuitBreaker,
-      pipelineExecutor,
+      pipelineExecutor: plannerPipelineExecutor,
       sessionTokenBudget,
       onCompaction: this.handleCompaction,
     }) : null;
@@ -1487,6 +2184,7 @@ export class DaemonManager {
       hooks,
       approvalEngine,
       memoryBackend,
+      delegation: this.resolveDelegationToolContext,
     };
     const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, this._systemPrompt, voiceDeps, this._voiceSystemPrompt);
     this._voiceBridge = voiceBridge ?? null;
@@ -1543,6 +2241,7 @@ export class DaemonManager {
 
     gateway.setWebChatHandler(webChat);
     this._webChatChannel = webChat;
+    this.attachSubAgentLifecycleBridge(webChat);
 
     // Hot-swap LLM provider and voice bridge when config changes at runtime
     gateway.on('configReloaded', (...args: unknown[]) => {
@@ -1568,6 +2267,18 @@ export class DaemonManager {
           this._voiceSystemPrompt = await this.buildSystemPrompt(gateway.config, { forVoice: true });
           this.logger.info('System prompt rebuilt after LLM config change');
         })();
+      }
+      const subAgentChanged = diff.safe.some((key) =>
+        key.startsWith('llm.subagents.'),
+      );
+      if (subAgentChanged) {
+        void this.configureSubAgentInfrastructure(gateway.config).catch(
+          (error) => {
+            this.logger.error(
+              `Failed to reconfigure sub-agent orchestration: ${toErrorMessage(error)}`,
+            );
+          },
+        );
       }
       const policyChanged = diff.safe.some((key) => key.startsWith('policy.'));
       if (policyChanged && this._policyEngine) {
@@ -1697,6 +2408,21 @@ export class DaemonManager {
         return;
       }
 
+      const sendTelegramText = async (content: string): Promise<void> => {
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: escapeHtml(content),
+        });
+      };
+      if (
+        await this.handleTextChannelApprovalCommand({
+          msg,
+          send: sendTelegramText,
+        })
+      ) {
+        return;
+      }
+
       const chatExecutor = this._chatExecutor;
       if (!chatExecutor) {
         await telegram.send({
@@ -1712,6 +2438,11 @@ export class DaemonManager {
         scope: msg.scope,
         workspaceId: "default",
       });
+      const unregisterTextApproval = this.registerTextApprovalDispatcher(
+        msg.sessionId,
+        "telegram",
+        sendTelegramText,
+      );
 
       try {
         if (traceConfig.enabled) {
@@ -1744,6 +2475,24 @@ export class DaemonManager {
           });
         }
 
+        const baseSessionHandler = createSessionToolHandler({
+          sessionId: msg.sessionId,
+          baseHandler: this._baseToolHandler!,
+          desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+          routerId: msg.sessionId,
+          send: (response) => {
+            this.forwardControlToTextChannel({
+              response,
+              sessionId: msg.sessionId,
+              channelName: "telegram",
+              send: sendTelegramText,
+            });
+          },
+          hooks: this._hookDispatcher ?? undefined,
+          approvalEngine: this._approvalEngine ?? undefined,
+          delegation: this.resolveDelegationToolContext,
+        });
+
         const toolHandler: ToolHandler = async (name, args) => {
           if (traceConfig.enabled) {
             this.logger.info('[trace] telegram.tool.call', {
@@ -1757,7 +2506,7 @@ export class DaemonManager {
           }
           const startedAt = Date.now();
           try {
-            const result = await this._baseToolHandler!(name, args);
+            const result = await baseSessionHandler(name, args);
             if (traceConfig.enabled) {
               this.logger.info('[trace] telegram.tool.result', {
                 traceId: turnTraceId,
@@ -1917,6 +2666,8 @@ export class DaemonManager {
           sessionId: msg.sessionId,
           content: `\u{274C} ${escapeHtml(failure.userMessage)}`,
         });
+      } finally {
+        unregisterTextApproval();
       }
     };
 
@@ -1959,12 +2710,22 @@ export class DaemonManager {
       }
       if (!msg.content.trim()) return;
 
+      const sendChannelText = async (content: string): Promise<void> => {
+        const formatted = formatForChannel(content, channelName);
+        await channel.send({ sessionId: msg.sessionId, content: formatted });
+      };
+      if (
+        await this.handleTextChannelApprovalCommand({
+          msg,
+          send: sendChannelText,
+        })
+      ) {
+        return;
+      }
+
       const chatExecutor = this._chatExecutor;
       if (!chatExecutor) {
-        await channel.send({
-          sessionId: msg.sessionId,
-          content: "No LLM provider configured.",
-        });
+        await sendChannelText("No LLM provider configured.");
         return;
       }
 
@@ -1974,6 +2735,11 @@ export class DaemonManager {
         scope: msg.scope,
         workspaceId: "default",
       });
+      const unregisterTextApproval = this.registerTextApprovalDispatcher(
+        msg.sessionId,
+        channelName,
+        sendChannelText,
+      );
 
       try {
         if (traceConfig.enabled) {
@@ -2006,6 +2772,24 @@ export class DaemonManager {
           });
         }
 
+        const baseSessionHandler = createSessionToolHandler({
+          sessionId: msg.sessionId,
+          baseHandler: this._baseToolHandler!,
+          desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+          routerId: msg.sessionId,
+          send: (response) => {
+            this.forwardControlToTextChannel({
+              response,
+              sessionId: msg.sessionId,
+              channelName,
+              send: sendChannelText,
+            });
+          },
+          hooks: this._hookDispatcher ?? undefined,
+          approvalEngine: this._approvalEngine ?? undefined,
+          delegation: this.resolveDelegationToolContext,
+        });
+
         const toolHandler: ToolHandler = async (name, args) => {
           if (traceConfig.enabled) {
             this.logger.info(`[trace] ${channelName}.tool.call`, {
@@ -2019,7 +2803,7 @@ export class DaemonManager {
           }
           const startedAt = Date.now();
           try {
-            const result = await this._baseToolHandler!(name, args);
+            const result = await baseSessionHandler(name, args);
             if (traceConfig.enabled) {
               this.logger.info(`[trace] ${channelName}.tool.result`, {
                 traceId: turnTraceId,
@@ -2157,6 +2941,8 @@ export class DaemonManager {
           channelName,
         );
         await channel.send({ sessionId: msg.sessionId, content: errMsg });
+      } finally {
+        unregisterTextApproval();
       }
     };
 
@@ -2684,6 +3470,34 @@ export class DaemonManager {
     return inferContextWindowTokens(llmConfig);
   }
 
+  private createPlannerPipelineExecutor(
+    basePipelineExecutor: PipelineExecutor,
+    resolvedSubAgentConfig: ResolvedSubAgentRuntimeConfig,
+  ): DeterministicPipelineExecutor {
+    return new SubAgentOrchestrator({
+      fallbackExecutor: basePipelineExecutor,
+      resolveSubAgentManager: () => this._subAgentManager,
+      resolveLifecycleEmitter: () => this._subAgentLifecycleEmitter,
+      resolveTrajectorySink: () => this._delegationTrajectorySink,
+      allowParallelSubtasks: resolvedSubAgentConfig.allowParallelSubtasks,
+      maxParallelSubtasks: resolvedSubAgentConfig.maxConcurrent,
+      defaultSubagentTimeoutMs: resolvedSubAgentConfig.defaultTimeoutMs,
+      maxTotalSubagentsPerRequest:
+        resolvedSubAgentConfig.maxTotalSubagentsPerRequest,
+      maxCumulativeToolCallsPerRequestTree:
+        resolvedSubAgentConfig.maxCumulativeToolCallsPerRequestTree,
+      maxCumulativeTokensPerRequestTree:
+        resolvedSubAgentConfig.maxCumulativeTokensPerRequestTree,
+      childToolAllowlistStrategy:
+        resolvedSubAgentConfig.childToolAllowlistStrategy,
+      allowedParentTools: resolvedSubAgentConfig.allowedParentTools,
+      forbiddenParentTools: resolvedSubAgentConfig.forbiddenParentTools,
+      fallbackBehavior: resolvedSubAgentConfig.fallbackBehavior,
+      resolveAvailableToolNames: () =>
+        this._subAgentToolCatalog.map((tool) => tool.name),
+    });
+  }
+
   private async hotSwapLLMProvider(
     newConfig: GatewayConfig,
     skillInjector: SkillInjector,
@@ -2704,6 +3518,13 @@ export class DaemonManager {
         newConfig.llm,
         contextWindowTokens,
       );
+      const resolvedSubAgentConfig = resolveSubAgentRuntimeConfig(newConfig.llm);
+      const plannerPipelineExecutor = pipelineExecutor
+        ? this.createPlannerPipelineExecutor(
+          pipelineExecutor,
+          resolvedSubAgentConfig,
+        )
+        : undefined;
       const providers = await this.createLLMProviders(newConfig, this._llmTools);
       this._chatExecutor = providers.length > 0 ? new ChatExecutor({
         providers,
@@ -2719,11 +3540,32 @@ export class DaemonManager {
         toolBudgetPerRequest: newConfig.llm?.toolBudgetPerRequest,
         maxModelRecallsPerRequest: newConfig.llm?.maxModelRecallsPerRequest,
         maxFailureBudgetPerRequest: newConfig.llm?.maxFailureBudgetPerRequest,
+        delegationDecision: {
+          enabled: resolvedSubAgentConfig.enabled,
+          mode: resolvedSubAgentConfig.mode,
+          scoreThreshold: resolvedSubAgentConfig.baseSpawnDecisionThreshold,
+          maxFanoutPerTurn: resolvedSubAgentConfig.maxFanoutPerTurn,
+          maxDepth: resolvedSubAgentConfig.maxDepth,
+          handoffMinPlannerConfidence:
+            resolvedSubAgentConfig.handoffMinPlannerConfidence,
+          hardBlockedTaskClasses: resolvedSubAgentConfig.hardBlockedTaskClasses,
+        },
+        resolveDelegationScoreThreshold: () =>
+          this.resolveDelegationScoreThreshold(),
+        subagentVerifier: {
+          enabled: resolvedSubAgentConfig.enabled,
+          force: resolvedSubAgentConfig.forceVerifier,
+        },
+        delegationLearning: {
+          trajectorySink: this._delegationTrajectorySink ?? undefined,
+          banditTuner: this._delegationBanditTuner ?? undefined,
+          defaultStrategyArmId: "balanced",
+        },
         toolCallTimeoutMs: newConfig.llm?.toolCallTimeoutMs,
         requestTimeoutMs: newConfig.llm?.requestTimeoutMs,
         retryPolicyMatrix: newConfig.llm?.retryPolicy,
         toolFailureCircuitBreaker: newConfig.llm?.toolFailureCircuitBreaker,
-        pipelineExecutor,
+        pipelineExecutor: plannerPipelineExecutor,
         sessionTokenBudget,
         onCompaction: this.handleCompaction,
       }) : null;
@@ -2802,6 +3644,7 @@ export class DaemonManager {
       allowDelete: false,
     }));
     registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
+    registry.register(createExecuteWithAgentTool());
 
     // macOS native automation tools (AppleScript, JXA, open, notifications)
     if (process.platform === 'darwin') {
@@ -2898,9 +3741,62 @@ export class DaemonManager {
             }
           }
 
-          if (skippedUnavailable.length > 0) {
+          // Fallback: discover schemas via `docker run --rm -i <image>` for servers
+          // whose binaries are only installed inside the container image.
+          if (skippedUnavailable.length > 0 && config.desktop?.enabled) {
+            const desktopImage = config.desktop.image ?? 'agenc/desktop:latest';
             this.logger.info(
-              `Skipped host schema discovery for container MCP server(s): ${skippedUnavailable.join(', ')} (host command unavailable). Schemas will load lazily inside desktop sessions.`,
+              `Retrying schema discovery via container image for: ${skippedUnavailable.join(', ')}`,
+            );
+
+            const containerFallback = await Promise.allSettled(
+              skippedUnavailable.map(async (serverName) => {
+                const serverConfig = containerServers.find((s) => s.name === serverName)!;
+                const dockerArgs = ['run', '--rm', '-i', desktopImage, serverConfig.command, ...serverConfig.args];
+                const client = await createMCPConnection(
+                  { name: serverConfig.name, command: 'docker', args: dockerArgs, timeout: serverConfig.timeout ?? 30_000 },
+                  this.logger,
+                );
+                const bridge = await createToolBridge(client, serverConfig.name, this.logger, {
+                  listToolsTimeoutMs: serverConfig.timeout ?? 30_000,
+                  callToolTimeoutMs: serverConfig.timeout ?? 30_000,
+                });
+                const schemas = bridge.tools.map((t) => ({
+                  name: t.name,
+                  description: t.description,
+                  inputSchema: t.inputSchema,
+                }));
+                await bridge.dispose();
+                return { serverName, schemas };
+              }),
+            );
+
+            for (const result of containerFallback) {
+              if (result.status === 'fulfilled') {
+                for (const schema of result.value.schemas) {
+                  registry.register({
+                    name: schema.name,
+                    description: schema.description,
+                    inputSchema: schema.inputSchema,
+                    execute: async () => ({
+                      content: 'Container MCP tool — requires desktop session',
+                      isError: true,
+                    }),
+                  });
+                }
+                totalDiscovered += result.value.schemas.length;
+                this.logger.info(
+                  `Discovered ${result.value.schemas.length} tool(s) from container image for "${result.value.serverName}"`,
+                );
+              } else {
+                this.logger.warn?.(
+                  `Container image schema discovery also failed for "${skippedUnavailable[containerFallback.indexOf(result)]}": ${toErrorMessage(result.reason)}`,
+                );
+              }
+            }
+          } else if (skippedUnavailable.length > 0) {
+            this.logger.info(
+              `Skipped schema discovery for container MCP server(s): ${skippedUnavailable.join(', ')} (host command unavailable, desktop not enabled).`,
             );
           }
 
@@ -3199,6 +4095,71 @@ export class DaemonManager {
           `Memory: ${memoryBackend.name}\n` +
           `Tools: ${registry.size}\n` +
           `Skills: ${availableSkills.length}`,
+        );
+      },
+    });
+    commandRegistry.register({
+      name: 'delegation',
+      description: 'Show or set delegation aggressiveness',
+      args: '[status|conservative|balanced|aggressive|adaptive|default]',
+      global: true,
+      handler: async (ctx) => {
+        const resolved = this._subAgentRuntimeConfig;
+        if (!resolved?.enabled) {
+          await ctx.reply(
+            'Delegation is disabled. Enable llm.subagents.enabled in config first.',
+          );
+          return;
+        }
+
+        const renderStatus = (): string => {
+          const activeProfile = this.getActiveDelegationAggressiveness(resolved);
+          const effectiveThreshold = this.resolveDelegationScoreThreshold(resolved);
+          const override = this._delegationAggressivenessOverride;
+          const hardBlocked = resolved.hardBlockedTaskClasses.length > 0
+            ? resolved.hardBlockedTaskClasses.join(", ")
+            : "none";
+          return (
+            `Delegation profile: ${activeProfile}` +
+            `${override ? " (runtime override)" : " (config)"}\n` +
+            `Threshold: effective=${effectiveThreshold.toFixed(3)} base=${resolved.baseSpawnDecisionThreshold.toFixed(3)}\n` +
+            `Mode: ${resolved.mode} (handoff min confidence ${resolved.handoffMinPlannerConfidence.toFixed(2)})\n` +
+            `Child provider strategy: ${resolved.childProviderStrategy}\n` +
+            `Hard-blocked task classes: ${hardBlocked}`
+          );
+        };
+
+        const arg = ctx.argv[0]?.toLowerCase();
+        if (!arg || arg === "status") {
+          await ctx.reply(renderStatus());
+          return;
+        }
+
+        if (arg === "default" || arg === "clear" || arg === "reset") {
+          this._delegationAggressivenessOverride = null;
+          this.configureDelegationRuntimeServices(resolved);
+          await ctx.reply(
+            `Delegation aggressiveness reset to config default.\n${renderStatus()}`,
+          );
+          return;
+        }
+
+        if (
+          arg !== "conservative" &&
+          arg !== "balanced" &&
+          arg !== "aggressive" &&
+          arg !== "adaptive"
+        ) {
+          await ctx.reply(
+            "Usage: /delegation [status|conservative|balanced|aggressive|adaptive|default]",
+          );
+          return;
+        }
+
+        this._delegationAggressivenessOverride = arg;
+        this.configureDelegationRuntimeServices(resolved);
+        await ctx.reply(
+          `Delegation aggressiveness set to ${arg}.\n${renderStatus()}`,
         );
       },
     });
@@ -3811,6 +4772,7 @@ export class DaemonManager {
       hooks?: HookDispatcher;
       approvalEngine?: ApprovalEngine;
       memoryBackend?: MemoryBackend;
+      delegation?: DelegationToolCompositionResolver;
     },
     voiceSystemPrompt?: string,
   ): VoiceBridge | undefined {
@@ -3848,6 +4810,7 @@ export class DaemonManager {
       memoryBackend: deps.memoryBackend,
       sessionTokenBudget: resolveSessionTokenBudget(config.llm, contextWindowTokens),
       contextWindowTokens,
+      delegation: deps.delegation,
     });
   }
 
@@ -3874,6 +4837,206 @@ export class DaemonManager {
         });
       },
     };
+  }
+
+  private parseApprovalDisposition(
+    value: string | undefined,
+  ): "yes" | "no" | "always" | null {
+    if (!value) return null;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "yes" || normalized === "no" || normalized === "always") {
+      return normalized;
+    }
+    return null;
+  }
+
+  private formatApprovalRequestMessage(
+    requestId: string,
+    action: string,
+    message: string,
+  ): string {
+    const detail = message.trim().length > 0 ? message.trim() : `Approval required for ${action}`;
+    return (
+      `${detail}\n` +
+      `Request ID: ${requestId}\n` +
+      `Reply: approve ${requestId} yes\n` +
+      `Or: approve ${requestId} no\n` +
+      `Or: approve ${requestId} always`
+    );
+  }
+
+  private registerTextApprovalDispatcher(
+    sessionId: string,
+    channelName: string,
+    send: (content: string) => Promise<void>,
+  ): () => void {
+    this._textApprovalDispatchBySession.set(sessionId, { channelName, send });
+    return () => {
+      const existing = this._textApprovalDispatchBySession.get(sessionId);
+      if (!existing) return;
+      if (existing.channelName !== channelName || existing.send !== send) return;
+      this._textApprovalDispatchBySession.delete(sessionId);
+    };
+  }
+
+  private routeSubagentControlResponseToParent(params: {
+    response: ControlResponse;
+    parentSessionId: string;
+    subagentSessionId: string;
+  }): void {
+    const { response, parentSessionId, subagentSessionId } = params;
+    if (response.type !== "approval.request") return;
+
+    const payload =
+      typeof response.payload === "object" && response.payload !== null
+        ? response.payload as Record<string, unknown>
+        : {};
+    const scopedResponse: ControlResponse = {
+      ...response,
+      payload: {
+        ...payload,
+        parentSessionId,
+        subagentSessionId,
+      },
+    };
+
+    this._webChatChannel?.pushToSession(parentSessionId, scopedResponse);
+    const textDispatch = this._textApprovalDispatchBySession.get(parentSessionId);
+    if (!textDispatch) return;
+    this.forwardControlToTextChannel({
+      response: scopedResponse,
+      sessionId: parentSessionId,
+      channelName: textDispatch.channelName,
+      send: textDispatch.send,
+    });
+  }
+
+  private forwardControlToTextChannel(params: {
+    response: ControlResponse;
+    sessionId: string;
+    channelName: string;
+    send: (content: string) => Promise<void>;
+  }): void {
+    const { response, sessionId, channelName, send } = params;
+    if (response.type !== "approval.request") return;
+    const payload =
+      typeof response.payload === "object" && response.payload !== null
+        ? (response.payload as Record<string, unknown>)
+        : {};
+    const requestId = typeof payload.requestId === "string" ? payload.requestId : "";
+    const action = typeof payload.action === "string" ? payload.action : "tool call";
+    const message =
+      typeof payload.message === "string"
+        ? payload.message
+        : `Approval required for ${action}`;
+    if (!requestId) return;
+
+    void send(this.formatApprovalRequestMessage(requestId, action, message)).catch(
+      (error) => {
+        this.logger.warn("Failed to send approval prompt to text channel", {
+          channel: channelName,
+          sessionId,
+          requestId,
+          error: toErrorMessage(error),
+        });
+      },
+    );
+  }
+
+  private async handleTextChannelApprovalCommand(params: {
+    msg: GatewayMessage;
+    send: (content: string) => Promise<void>;
+  }): Promise<boolean> {
+    const { msg, send } = params;
+    const text = msg.content.trim();
+    const rawParts = text.split(/\s+/);
+    const command = rawParts[0]?.toLowerCase();
+    if (command !== "/approve" && command !== "approve") return false;
+
+    const approvalEngine = this._approvalEngine;
+    if (!approvalEngine) {
+      await send("Approvals are not configured.");
+      return true;
+    }
+
+    const parts = ["approve", ...rawParts.slice(1)];
+    if (parts.length === 2 && parts[1]?.toLowerCase() === "list") {
+      const pending = approvalEngine
+        .getPending()
+        .filter((entry) =>
+          entry.sessionId === msg.sessionId ||
+          entry.parentSessionId === msg.sessionId
+        );
+      if (pending.length === 0) {
+        await send("No pending approvals for this session.");
+        return true;
+      }
+      const lines = pending.slice(0, 10).map((entry) => {
+        const ageSeconds = Math.max(
+          0,
+          Math.floor((Date.now() - entry.createdAt) / 1000),
+        );
+        const delegatedSuffix =
+          entry.parentSessionId && entry.subagentSessionId
+            ? ` | delegated:${entry.subagentSessionId}`
+            : "";
+        return `- ${entry.id} | ${entry.toolName} | ${ageSeconds}s${delegatedSuffix}`;
+      });
+      const suffix =
+        pending.length > 10
+          ? `\n...and ${pending.length - 10} more.`
+          : "";
+      await send(`Pending approvals:\n${lines.join("\n")}${suffix}`);
+      return true;
+    }
+
+    let requestId: string | undefined;
+    let disposition: "yes" | "no" | "always" | null = null;
+    if (parts.length === 3) {
+      disposition = this.parseApprovalDisposition(parts[2]);
+      if (disposition) {
+        requestId = parts[1];
+      } else {
+        disposition = this.parseApprovalDisposition(parts[1]);
+        if (disposition) requestId = parts[2];
+      }
+    }
+
+    if (!requestId || !disposition) {
+      await send(
+        "Usage:\n" +
+          "approve list\n" +
+          "approve <requestId> <yes|no|always>",
+      );
+      return true;
+    }
+
+    const request = approvalEngine
+      .getPending()
+      .find((entry) => entry.id === requestId);
+    if (!request) {
+      await send(`No pending approval found for request ID: ${requestId}`);
+      return true;
+    }
+    if (
+      request.sessionId !== msg.sessionId &&
+      request.parentSessionId !== msg.sessionId
+    ) {
+      await send(
+        `Request ${requestId} belongs to a different session and cannot be resolved here.`,
+      );
+      return true;
+    }
+
+    approvalEngine.resolve(requestId, {
+      requestId,
+      disposition,
+      approvedBy: msg.senderId,
+    });
+    await send(
+      `Recorded approval: ${disposition} for ${request.toolName} (${requestId}).`,
+    );
+    return true;
   }
 
   private buildToolRoutingDecision(
@@ -3903,6 +5066,82 @@ export class DaemonManager {
   ): void {
     if (!this._toolRouter) return;
     this._toolRouter.recordOutcome(sessionId, summary);
+  }
+
+  private resolveLifecycleParentSessionId(event: SubAgentLifecycleEvent): string {
+    if (event.parentSessionId && event.parentSessionId.length > 0) {
+      return event.parentSessionId;
+    }
+    if (event.sessionId.startsWith("subagent:")) {
+      const subAgentInfo = this._subAgentManager?.getInfo(event.sessionId);
+      if (subAgentInfo?.parentSessionId) {
+        return subAgentInfo.parentSessionId;
+      }
+    }
+    return event.sessionId;
+  }
+
+  private relaySubAgentLifecycleEvent(
+    webChat: WebChatChannel,
+    event: SubAgentLifecycleEvent,
+  ): void {
+    const parentSessionId = this.resolveLifecycleParentSessionId(event);
+    const subagentSessionId =
+      event.subagentSessionId ??
+      (event.sessionId.startsWith("subagent:") ? event.sessionId : undefined);
+    const sanitizedData = sanitizeLifecyclePayloadData(event.payload);
+    const parentTraceId = this._activeSessionTraceIds.get(parentSessionId);
+    const traceId = buildSubagentTraceId(parentTraceId, event);
+    if (parentTraceId && event.type !== "subagents.synthesized") {
+      this._subagentActivityTraceBySession.set(parentSessionId, parentTraceId);
+    }
+
+    webChat.pushToSession(parentSessionId, {
+      type: event.type,
+      payload: {
+        sessionId: parentSessionId,
+        parentSessionId,
+        ...(subagentSessionId ? { subagentSessionId } : {}),
+        ...(event.toolName ? { toolName: event.toolName } : {}),
+        timestamp: event.timestamp,
+        ...(Object.keys(sanitizedData).length > 0 ? { data: sanitizedData } : {}),
+        ...(traceId ? { traceId } : {}),
+        ...(parentTraceId ? { parentTraceId } : {}),
+      },
+    });
+
+    const activityData: Record<string, unknown> = {
+      sessionId: parentSessionId,
+      parentSessionId,
+      ...(subagentSessionId ? { subagentSessionId } : {}),
+      ...(event.toolName ? { toolName: event.toolName } : {}),
+      timestamp: event.timestamp,
+    };
+    for (const [key, value] of Object.entries(sanitizedData)) {
+      if (Object.prototype.hasOwnProperty.call(activityData, key)) continue;
+      activityData[key] = value;
+    }
+
+    webChat.broadcastEvent(event.type, {
+      ...activityData,
+      ...(traceId ? { traceId } : {}),
+      ...(parentTraceId ? { parentTraceId } : {}),
+    });
+  }
+
+  private attachSubAgentLifecycleBridge(webChat: WebChatChannel): void {
+    this._subAgentLifecycleUnsubscribe?.();
+    this._subAgentLifecycleUnsubscribe = null;
+    const lifecycleEmitter = this._subAgentLifecycleEmitter;
+    if (!lifecycleEmitter) return;
+    this._subAgentLifecycleUnsubscribe = lifecycleEmitter.on((event) => {
+      this.relaySubAgentLifecycleEvent(webChat, event);
+    });
+  }
+
+  private detachSubAgentLifecycleBridge(): void {
+    this._subAgentLifecycleUnsubscribe?.();
+    this._subAgentLifecycleUnsubscribe = null;
   }
 
   private createWebChatMessageHandler(params: {
@@ -4045,6 +5284,7 @@ export class DaemonManager {
         send: (m) => webChat.pushToSession(msg.sessionId, m),
         hooks,
         approvalEngine,
+        delegation: this.resolveDelegationToolContext,
         onToolStart: (name) => {
           webChat.pushToSession(msg.sessionId, {
             type: 'agent.status',
@@ -4110,6 +5350,7 @@ export class DaemonManager {
         }
       };
 
+      this._activeSessionTraceIds.set(msg.sessionId, turnTraceId);
       try {
         signals.signalThinking(msg.sessionId);
 
@@ -4260,6 +5501,23 @@ export class DaemonManager {
           }),
         });
 
+        if (
+          this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
+        ) {
+          this.relaySubAgentLifecycleEvent(webChat, {
+            type: "subagents.synthesized",
+            timestamp: Date.now(),
+            sessionId: msg.sessionId,
+            parentSessionId: msg.sessionId,
+            payload: {
+              stopReason: result.stopReason,
+              outputChars: result.content.length,
+              toolCalls: result.toolCalls.length,
+            },
+          });
+          this._subagentActivityTraceBySession.delete(msg.sessionId);
+        }
+
         webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
 
         await hooks.dispatch('message:outbound', {
@@ -4323,6 +5581,15 @@ export class DaemonManager {
           sessionId: msg.sessionId,
           content: failure.userMessage,
         });
+      } finally {
+        if (this._activeSessionTraceIds.get(msg.sessionId) === turnTraceId) {
+          this._activeSessionTraceIds.delete(msg.sessionId);
+        }
+        if (
+          this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
+        ) {
+          this._subagentActivityTraceBySession.delete(msg.sessionId);
+        }
       }
     };
   }
@@ -4714,6 +5981,7 @@ export class DaemonManager {
         this._approvalEngine.dispose();
         this._approvalEngine = null;
       }
+      this._textApprovalDispatchBySession.clear();
       if (this._telemetry !== null) {
         this._telemetry.flush();
         this._telemetry.destroy();
@@ -4721,6 +5989,10 @@ export class DaemonManager {
       }
       this._toolRouter?.clear();
       this._toolRouter = null;
+      await this.destroySubAgentInfrastructure();
+      this._subAgentRuntimeConfig = null;
+      this.clearDelegationRuntimeServices();
+      this._subAgentToolCatalog.splice(0, this._subAgentToolCatalog.length);
       // Disconnect desktop bridges and destroy containers
       for (const bridge of this._desktopBridges.values()) {
         bridge.disconnect();
@@ -4810,11 +6082,14 @@ export class DaemonManager {
         this._telegramChannel = null;
       }
       // Stop WebChat channel before gateway
+      this.detachSubAgentLifecycleBridge();
       if (this._webChatChannel !== null) {
         await this._webChatChannel.stop();
         this._webChatChannel = null;
       }
       this._webChatInboundHandler = null;
+      this._activeSessionTraceIds.clear();
+      this._subagentActivityTraceBySession.clear();
       if (this.gateway !== null) {
         await this.gateway.stop();
         this.gateway = null;
@@ -4850,6 +6125,30 @@ export class DaemonManager {
 
   get agentDiscovery(): import('../social/discovery.js').AgentDiscovery | null {
     return this._agentDiscovery;
+  }
+
+  get subAgentRuntimeConfig(): Readonly<ResolvedSubAgentRuntimeConfig> | null {
+    return this._subAgentRuntimeConfig;
+  }
+
+  get delegationPolicyEngine(): DelegationPolicyEngine | null {
+    return this._delegationPolicyEngine;
+  }
+
+  get delegationVerifierService(): DelegationVerifierService | null {
+    return this._delegationVerifierService;
+  }
+
+  get subAgentLifecycleEmitter(): SubAgentLifecycleEmitter | null {
+    return this._subAgentLifecycleEmitter;
+  }
+
+  get delegationTrajectorySink(): InMemoryDelegationTrajectorySink | null {
+    return this._delegationTrajectorySink;
+  }
+
+  get delegationBanditTuner(): DelegationBanditPolicyTuner | null {
+    return this._delegationBanditTuner;
   }
 
   getStatus(): DaemonStatus {

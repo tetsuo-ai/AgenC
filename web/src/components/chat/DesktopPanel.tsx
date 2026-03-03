@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** Safety timeout (ms) — hide spinner even if onLoad doesn't fire. */
 const DESKTOP_IFRAME_LOAD_TIMEOUT_MS = 8_000;
 
 interface DesktopPanelProps {
@@ -18,45 +17,37 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
     window.open(vncUrl, '_blank', 'noopener');
   }, [vncUrl]);
 
-  // Focus the iframe when clicked so it receives keyboard events
   const handleContainerClick = useCallback(() => {
     iframeRef.current?.focus();
   }, []);
 
-  // Safety timeout — hide spinner even if onLoad doesn't fire
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), DESKTOP_IFRAME_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, []);
 
   return (
-    <div className="flex flex-col h-full border-l border-tetsuo-200 bg-surface">
+    <div className="flex flex-col h-full border-l border-bbs-purple-dim bg-bbs-black">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-tetsuo-200 bg-tetsuo-50/50">
-        <div className="flex items-center gap-2 text-sm font-medium text-tetsuo-700">
-          <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-          Desktop
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-bbs-purple-dim bg-bbs-purple-dim/20">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-bbs-white">{'\u2524'} DESKTOP VIEWER {'\u251C'}</span>
+          <span className="text-bbs-green font-bold">[LIVE]</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2 text-xs">
           <button
             onClick={openFullscreen}
-            className="w-7 h-7 rounded flex items-center justify-center text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100 transition-colors"
+            className="text-bbs-gray hover:text-bbs-white transition-colors"
             title="Open in new tab"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
-            </svg>
+            [EXPAND]
           </button>
           <button
             onClick={onClose}
-            className="w-7 h-7 rounded flex items-center justify-center text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100 transition-colors"
+            className="text-bbs-gray hover:text-bbs-red transition-colors"
             title="Close desktop viewer"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            [X]
           </button>
         </div>
       </div>
@@ -64,14 +55,8 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
       {/* iframe container */}
       <div className="relative flex-1 min-h-0" onClick={handleContainerClick}>
         {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-tetsuo-50 pointer-events-none">
-            <div className="flex flex-col items-center gap-2 text-tetsuo-400">
-              <svg className="animate-spin w-6 h-6" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-              <span className="text-xs">Connecting to desktop...</span>
-            </div>
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-bbs-black pointer-events-none">
+            <span className="text-xs text-bbs-gray animate-pulse">Connecting to desktop...</span>
           </div>
         )}
         <iframe

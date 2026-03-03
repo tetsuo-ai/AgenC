@@ -35,6 +35,7 @@ obj/
 !tsconfig.json
 !runtime/idl/*.json
 !runtime/src/replay/alert-schema-lockfile.json
+!runtime/benchmarks/v1/delegation-manifest.json
 !docs/api-baseline/*.json
 !scripts/idl/*.json
 !tests/fixtures/*.json

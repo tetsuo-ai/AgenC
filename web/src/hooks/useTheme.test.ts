@@ -3,27 +3,24 @@ import { act, renderHook } from '@testing-library/react';
 import { useTheme } from './useTheme';
 
 describe('useTheme', () => {
-  it('reads theme from localStorage', () => {
-    localStorage.setItem('agenc-theme', 'dark');
-
+  it('always returns dark theme', () => {
     const { result } = renderHook(() => useTheme());
 
     expect(result.current.theme).toBe('dark');
   });
 
-  it('falls back to matchMedia and toggles theme', () => {
+  it('toggle is a no-op and theme stays dark', () => {
     localStorage.removeItem('agenc-theme');
 
     const { result } = renderHook(() => useTheme());
 
-    expect(result.current.theme).toBe('light');
+    expect(result.current.theme).toBe('dark');
 
     act(() => {
       result.current.toggle();
     });
 
     expect(result.current.theme).toBe('dark');
-    expect(localStorage.getItem('agenc-theme')).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 });

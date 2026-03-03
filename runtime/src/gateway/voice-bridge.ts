@@ -27,6 +27,7 @@ import type { MemoryBackend } from "../memory/types.js";
 import { createGatewayMessage } from "./message.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import { buildChatUsagePayload } from "./chat-usage.js";
+import type { DelegationToolCompositionResolver } from "./delegation-runtime.js";
 
 const DEFAULT_MAX_SESSIONS = 10;
 
@@ -159,6 +160,8 @@ export interface VoiceBridgeConfig {
   sessionTokenBudget?: number;
   /** Model context window used for context-usage display in the web UI. */
   contextWindowTokens?: number;
+  /** Live delegation runtime dependencies used by tool-handler composition. */
+  delegation?: DelegationToolCompositionResolver;
 }
 
 interface ActiveSession {
@@ -405,6 +408,7 @@ export class VoiceBridge {
       send,
       hooks,
       approvalEngine,
+      delegation: this.config.delegation,
     });
   }
 

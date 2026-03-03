@@ -121,6 +121,36 @@ describe('App websocket integration', () => {
     });
   });
 
+  it('ignores top-level tool updates marked as subagent activity', () => {
+    render(<App />);
+
+    expect(capturedOnMessage).toBeTypeOf('function');
+
+    act(() => {
+      capturedOnMessage!({
+        type: 'tools.executing',
+        payload: {
+          toolName: 'desktop.bash',
+          toolCallId: 'sub-tool-1',
+          subagentSessionId: 'subagent:child-1',
+          args: { command: 'echo hi' },
+        },
+      });
+      capturedOnMessage!({
+        type: 'tools.result',
+        payload: {
+          toolName: 'desktop.bash',
+          toolCallId: 'sub-tool-1',
+          subagentSessionId: 'subagent:child-1',
+          result: 'ok',
+          durationMs: 10,
+        },
+      });
+    });
+
+    expect(chatMessages).toHaveLength(0);
+  });
+
   it('bridges voice transcripts to chat and suppresses delegated completion text', () => {
     render(<App />);
 

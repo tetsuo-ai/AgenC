@@ -61,13 +61,22 @@ export interface TaskTemplate {
 }
 
 /**
+ * Generic directed edge for workflow-style graph planning/execution.
+ *
+ * This lightweight shape is reused by non-on-chain planners that still model
+ * task dependencies as DAG edges.
+ */
+export interface WorkflowGraphEdge {
+  /** Source node identifier */
+  from: string;
+  /** Target node identifier */
+  to: string;
+}
+
+/**
  * Directed edge from parent task to child task.
  */
-export interface WorkflowEdge {
-  /** Parent task name (must reference a TaskTemplate.name) */
-  from: string;
-  /** Child task name (must reference a TaskTemplate.name) */
-  to: string;
+export interface WorkflowEdge extends WorkflowGraphEdge {
   /** On-chain dependency type (1=Data, 2=Ordering, 3=Proof) */
   dependencyType: OnChainDependencyType;
 }

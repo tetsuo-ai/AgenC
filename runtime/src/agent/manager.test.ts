@@ -14,6 +14,12 @@ import { AgentStatus } from './types';
 import { keypairToWallet } from '../types/wallet';
 import { silentLogger } from '../utils/logger';
 
+vi.mock('./events', () => ({
+  subscribeToAllAgentEvents: vi.fn(() => ({
+    unsubscribe: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 /**
  * Creates a valid 32-byte agent ID from a seed value
  */

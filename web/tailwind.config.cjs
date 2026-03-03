@@ -9,6 +9,29 @@ module.exports = {
     extend: {
       colors: {
         surface: 'rgb(var(--surface) / <alpha-value>)',
+        // BBS terminal palette
+        bbs: {
+          black: '#0A0A0F',
+          purple: '#BB66FF',
+          'purple-dim': '#6B3A99',
+          pink: '#FF66AA',
+          'pink-dim': '#993D66',
+          orange: '#FF9933',
+          green: '#33FF66',
+          'green-dim': '#1F993D',
+          cyan: '#33CCFF',
+          magenta: '#CC66FF',
+          'magenta-dim': '#7A3D99',
+          red: '#FF3333',
+          yellow: '#FFCC33',
+          white: '#E8E8E8',
+          lightgray: '#BBBBBB',
+          gray: '#666666',
+          dark: '#111118',
+          surface: '#16161E',
+          border: '#2A2A3A',
+        },
+        // Map tetsuo scale to BBS grayscale equivalents
         tetsuo: {
           50: 'rgb(var(--tetsuo-50) / <alpha-value>)',
           100: 'rgb(var(--tetsuo-100) / <alpha-value>)',
@@ -23,14 +46,15 @@ module.exports = {
           950: 'rgb(var(--tetsuo-950) / <alpha-value>)',
         },
         accent: {
-          DEFAULT: 'rgb(var(--accent) / <alpha-value>)',
-          light: '#818cf8',
-          dark: 'rgb(var(--accent-hover) / <alpha-value>)',
-          bg: 'rgb(var(--accent-bg) / <alpha-value>)',
+          DEFAULT: '#BB66FF',
+          light: '#CC88FF',
+          dark: '#9944DD',
+          bg: 'rgba(187, 102, 255, 0.12)',
         },
       },
       fontFamily: {
-        sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+        sans: ['JetBrains Mono', 'monospace'],
       },
     },
   },

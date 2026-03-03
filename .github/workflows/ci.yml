@@ -25,6 +25,23 @@ env:
   PIPELINE_MAX_DESKTOP_FAILED_RUNS: '0'
   PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS: '0'
   PIPELINE_MAX_OFFLINE_REPLAY_FAILURES: '0'
+  PIPELINE_MIN_DELEGATION_ATTEMPT_RATE: '0.30'
+  PIPELINE_MAX_DELEGATION_ATTEMPT_RATE: '0.95'
+  PIPELINE_MIN_USEFUL_DELEGATION_RATE: '0.60'
+  PIPELINE_MAX_HARMFUL_DELEGATION_RATE: '0.30'
+  PIPELINE_MAX_PLANNER_TO_EXECUTION_MISMATCH_RATE: '0.25'
+  PIPELINE_MAX_CHILD_TIMEOUT_RATE: '0.20'
+  PIPELINE_MAX_CHILD_FAILURE_RATE: '0.25'
+  PIPELINE_MAX_SYNTHESIS_CONFLICT_RATE: '0.20'
+  PIPELINE_MAX_DEPTH_CAP_HIT_RATE: '0.20'
+  PIPELINE_MAX_FANOUT_CAP_HIT_RATE: '0.20'
+  PIPELINE_MAX_COST_DELTA_VS_BASELINE: '0.80'
+  PIPELINE_MAX_LATENCY_DELTA_VS_BASELINE: '60'
+  PIPELINE_MIN_QUALITY_DELTA_VS_BASELINE: '0'
+  PIPELINE_MIN_PASS_AT_K_DELTA_VS_BASELINE: '0'
+  PIPELINE_MIN_PASS_CARET_K_DELTA_VS_BASELINE: '0'
+  PIPELINE_FAIL_FAST_HARMFUL_DELEGATION_RATE: '0.45'
+  PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE: '0.40'
 
 jobs:
   runtime_checks:
@@ -114,7 +131,60 @@ jobs:
             --min-malformed-tool-turn-rejected-rate "${PIPELINE_MIN_MALFORMED_TOOL_TURN_REJECTED_RATE}" \
             --max-desktop-failed-runs "${PIPELINE_MAX_DESKTOP_FAILED_RUNS}" \
             --max-desktop-timeout-runs "${PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS}" \
-            --max-offline-replay-failures "${PIPELINE_MAX_OFFLINE_REPLAY_FAILURES}"
+            --max-offline-replay-failures "${PIPELINE_MAX_OFFLINE_REPLAY_FAILURES}" \
+            --min-delegation-attempt-rate "${PIPELINE_MIN_DELEGATION_ATTEMPT_RATE}" \
+            --max-delegation-attempt-rate "${PIPELINE_MAX_DELEGATION_ATTEMPT_RATE}" \
+            --min-useful-delegation-rate "${PIPELINE_MIN_USEFUL_DELEGATION_RATE}" \
+            --max-harmful-delegation-rate "${PIPELINE_MAX_HARMFUL_DELEGATION_RATE}" \
+            --max-planner-to-execution-mismatch-rate "${PIPELINE_MAX_PLANNER_TO_EXECUTION_MISMATCH_RATE}" \
+            --max-child-timeout-rate "${PIPELINE_MAX_CHILD_TIMEOUT_RATE}" \
+            --max-child-failure-rate "${PIPELINE_MAX_CHILD_FAILURE_RATE}" \
+            --max-synthesis-conflict-rate "${PIPELINE_MAX_SYNTHESIS_CONFLICT_RATE}" \
+            --max-depth-cap-hit-rate "${PIPELINE_MAX_DEPTH_CAP_HIT_RATE}" \
+            --max-fanout-cap-hit-rate "${PIPELINE_MAX_FANOUT_CAP_HIT_RATE}" \
+            --max-cost-delta-vs-baseline "${PIPELINE_MAX_COST_DELTA_VS_BASELINE}" \
+            --max-latency-delta-vs-baseline "${PIPELINE_MAX_LATENCY_DELTA_VS_BASELINE}" \
+            --min-quality-delta-vs-baseline "${PIPELINE_MIN_QUALITY_DELTA_VS_BASELINE}" \
+            --min-pass-at-k-delta-vs-baseline "${PIPELINE_MIN_PASS_AT_K_DELTA_VS_BASELINE}" \
+            --min-pass-caret-k-delta-vs-baseline "${PIPELINE_MIN_PASS_CARET_K_DELTA_VS_BASELINE}" \
+            --fail-fast-harmful-delegation-rate "${PIPELINE_FAIL_FAST_HARMFUL_DELEGATION_RATE}" \
+            --fail-fast-runaway-cap-hit-rate "${PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE}"
+
+      - name: Run decomposition delegation benchmark suite
+        run: npm run benchmark:delegation --prefix runtime
+
+      - name: Run delegation quality suite (CI profile)
+        run: npm run benchmark:delegation:ci --prefix runtime
+
+      - name: Enforce delegation quality gates
+        run: |
+          npx tsx runtime/scripts/check-pipeline-gates.ts \
+            --artifact runtime/benchmarks/artifacts/delegation-quality.ci.json \
+            --max-context-growth-slope "${PIPELINE_MAX_CONTEXT_GROWTH_SLOPE}" \
+            --max-context-growth-delta "${PIPELINE_MAX_CONTEXT_GROWTH_DELTA}" \
+            --max-tokens-per-completed-task "${PIPELINE_MAX_TOKENS_PER_COMPLETED_TASK}" \
+            --max-malformed-tool-turn-forwarded "${PIPELINE_MAX_MALFORMED_TOOL_TURN_FORWARDED}" \
+            --min-malformed-tool-turn-rejected-rate "${PIPELINE_MIN_MALFORMED_TOOL_TURN_REJECTED_RATE}" \
+            --max-desktop-failed-runs "${PIPELINE_MAX_DESKTOP_FAILED_RUNS}" \
+            --max-desktop-timeout-runs "${PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS}" \
+            --max-offline-replay-failures "${PIPELINE_MAX_OFFLINE_REPLAY_FAILURES}" \
+            --min-delegation-attempt-rate "${PIPELINE_MIN_DELEGATION_ATTEMPT_RATE}" \
+            --max-delegation-attempt-rate "${PIPELINE_MAX_DELEGATION_ATTEMPT_RATE}" \
+            --min-useful-delegation-rate "${PIPELINE_MIN_USEFUL_DELEGATION_RATE}" \
+            --max-harmful-delegation-rate "${PIPELINE_MAX_HARMFUL_DELEGATION_RATE}" \
+            --max-planner-to-execution-mismatch-rate "${PIPELINE_MAX_PLANNER_TO_EXECUTION_MISMATCH_RATE}" \
+            --max-child-timeout-rate "${PIPELINE_MAX_CHILD_TIMEOUT_RATE}" \
+            --max-child-failure-rate "${PIPELINE_MAX_CHILD_FAILURE_RATE}" \
+            --max-synthesis-conflict-rate "${PIPELINE_MAX_SYNTHESIS_CONFLICT_RATE}" \
+            --max-depth-cap-hit-rate "${PIPELINE_MAX_DEPTH_CAP_HIT_RATE}" \
+            --max-fanout-cap-hit-rate "${PIPELINE_MAX_FANOUT_CAP_HIT_RATE}" \
+            --max-cost-delta-vs-baseline "${PIPELINE_MAX_COST_DELTA_VS_BASELINE}" \
+            --max-latency-delta-vs-baseline "${PIPELINE_MAX_LATENCY_DELTA_VS_BASELINE}" \
+            --min-quality-delta-vs-baseline "${PIPELINE_MIN_QUALITY_DELTA_VS_BASELINE}" \
+            --min-pass-at-k-delta-vs-baseline "${PIPELINE_MIN_PASS_AT_K_DELTA_VS_BASELINE}" \
+            --min-pass-caret-k-delta-vs-baseline "${PIPELINE_MIN_PASS_CARET_K_DELTA_VS_BASELINE}" \
+            --fail-fast-harmful-delegation-rate "${PIPELINE_FAIL_FAST_HARMFUL_DELEGATION_RATE}" \
+            --fail-fast-runaway-cap-hit-rate "${PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE}"
 
       - name: Upload reliability artifacts
         uses: actions/upload-artifact@v4
@@ -126,6 +196,8 @@ jobs:
             runtime/benchmarks/artifacts/mutation.ci.json
             runtime/benchmarks/artifacts/mutation-trend.ci.json
             runtime/benchmarks/artifacts/pipeline-quality.ci.json
+            runtime/benchmarks/artifacts/delegation-benchmark.latest.json
+            runtime/benchmarks/artifacts/delegation-quality.ci.json
 
   nightly_reliability:
     if: github.event_name == 'schedule'
@@ -161,6 +233,18 @@ jobs:
           npx tsx runtime/scripts/run-pipeline-quality.ts \
             --output runtime/benchmarks/artifacts/nightly-pipeline-quality.json
 
+      - name: Run nightly decomposition delegation benchmark suite
+        run: |
+          npx tsx runtime/scripts/run-delegation-benchmarks.ts \
+            --output runtime/benchmarks/artifacts/nightly-delegation-benchmark.json
+
+      - name: Run nightly delegation quality suite
+        run: |
+          npx tsx runtime/scripts/run-pipeline-quality.ts \
+            --output runtime/benchmarks/artifacts/nightly-delegation-quality.json \
+            --desktop-runs 0 \
+            --delegation-k 2
+
       - name: Nightly gate report (dry-run)
         run: |
           npx tsx runtime/scripts/check-mutation-gates.ts \
@@ -184,6 +268,54 @@ jobs:
             --max-desktop-failed-runs "${PIPELINE_MAX_DESKTOP_FAILED_RUNS}" \
             --max-desktop-timeout-runs "${PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS}" \
             --max-offline-replay-failures "${PIPELINE_MAX_OFFLINE_REPLAY_FAILURES}" \
+            --min-delegation-attempt-rate "${PIPELINE_MIN_DELEGATION_ATTEMPT_RATE}" \
+            --max-delegation-attempt-rate "${PIPELINE_MAX_DELEGATION_ATTEMPT_RATE}" \
+            --min-useful-delegation-rate "${PIPELINE_MIN_USEFUL_DELEGATION_RATE}" \
+            --max-harmful-delegation-rate "${PIPELINE_MAX_HARMFUL_DELEGATION_RATE}" \
+            --max-planner-to-execution-mismatch-rate "${PIPELINE_MAX_PLANNER_TO_EXECUTION_MISMATCH_RATE}" \
+            --max-child-timeout-rate "${PIPELINE_MAX_CHILD_TIMEOUT_RATE}" \
+            --max-child-failure-rate "${PIPELINE_MAX_CHILD_FAILURE_RATE}" \
+            --max-synthesis-conflict-rate "${PIPELINE_MAX_SYNTHESIS_CONFLICT_RATE}" \
+            --max-depth-cap-hit-rate "${PIPELINE_MAX_DEPTH_CAP_HIT_RATE}" \
+            --max-fanout-cap-hit-rate "${PIPELINE_MAX_FANOUT_CAP_HIT_RATE}" \
+            --max-cost-delta-vs-baseline "${PIPELINE_MAX_COST_DELTA_VS_BASELINE}" \
+            --max-latency-delta-vs-baseline "${PIPELINE_MAX_LATENCY_DELTA_VS_BASELINE}" \
+            --min-quality-delta-vs-baseline "${PIPELINE_MIN_QUALITY_DELTA_VS_BASELINE}" \
+            --min-pass-at-k-delta-vs-baseline "${PIPELINE_MIN_PASS_AT_K_DELTA_VS_BASELINE}" \
+            --min-pass-caret-k-delta-vs-baseline "${PIPELINE_MIN_PASS_CARET_K_DELTA_VS_BASELINE}" \
+            --fail-fast-harmful-delegation-rate "${PIPELINE_FAIL_FAST_HARMFUL_DELEGATION_RATE}" \
+            --fail-fast-runaway-cap-hit-rate "${PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE}" \
+            --dry-run
+
+      - name: Nightly delegation gate report (dry-run)
+        run: |
+          npx tsx runtime/scripts/check-pipeline-gates.ts \
+            --artifact runtime/benchmarks/artifacts/nightly-delegation-quality.json \
+            --max-context-growth-slope "${PIPELINE_MAX_CONTEXT_GROWTH_SLOPE}" \
+            --max-context-growth-delta "${PIPELINE_MAX_CONTEXT_GROWTH_DELTA}" \
+            --max-tokens-per-completed-task "${PIPELINE_MAX_TOKENS_PER_COMPLETED_TASK}" \
+            --max-malformed-tool-turn-forwarded "${PIPELINE_MAX_MALFORMED_TOOL_TURN_FORWARDED}" \
+            --min-malformed-tool-turn-rejected-rate "${PIPELINE_MIN_MALFORMED_TOOL_TURN_REJECTED_RATE}" \
+            --max-desktop-failed-runs "${PIPELINE_MAX_DESKTOP_FAILED_RUNS}" \
+            --max-desktop-timeout-runs "${PIPELINE_MAX_DESKTOP_TIMEOUT_RUNS}" \
+            --max-offline-replay-failures "${PIPELINE_MAX_OFFLINE_REPLAY_FAILURES}" \
+            --min-delegation-attempt-rate "${PIPELINE_MIN_DELEGATION_ATTEMPT_RATE}" \
+            --max-delegation-attempt-rate "${PIPELINE_MAX_DELEGATION_ATTEMPT_RATE}" \
+            --min-useful-delegation-rate "${PIPELINE_MIN_USEFUL_DELEGATION_RATE}" \
+            --max-harmful-delegation-rate "${PIPELINE_MAX_HARMFUL_DELEGATION_RATE}" \
+            --max-planner-to-execution-mismatch-rate "${PIPELINE_MAX_PLANNER_TO_EXECUTION_MISMATCH_RATE}" \
+            --max-child-timeout-rate "${PIPELINE_MAX_CHILD_TIMEOUT_RATE}" \
+            --max-child-failure-rate "${PIPELINE_MAX_CHILD_FAILURE_RATE}" \
+            --max-synthesis-conflict-rate "${PIPELINE_MAX_SYNTHESIS_CONFLICT_RATE}" \
+            --max-depth-cap-hit-rate "${PIPELINE_MAX_DEPTH_CAP_HIT_RATE}" \
+            --max-fanout-cap-hit-rate "${PIPELINE_MAX_FANOUT_CAP_HIT_RATE}" \
+            --max-cost-delta-vs-baseline "${PIPELINE_MAX_COST_DELTA_VS_BASELINE}" \
+            --max-latency-delta-vs-baseline "${PIPELINE_MAX_LATENCY_DELTA_VS_BASELINE}" \
+            --min-quality-delta-vs-baseline "${PIPELINE_MIN_QUALITY_DELTA_VS_BASELINE}" \
+            --min-pass-at-k-delta-vs-baseline "${PIPELINE_MIN_PASS_AT_K_DELTA_VS_BASELINE}" \
+            --min-pass-caret-k-delta-vs-baseline "${PIPELINE_MIN_PASS_CARET_K_DELTA_VS_BASELINE}" \
+            --fail-fast-harmful-delegation-rate "${PIPELINE_FAIL_FAST_HARMFUL_DELEGATION_RATE}" \
+            --fail-fast-runaway-cap-hit-rate "${PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE}" \
             --dry-run
 
       - name: Upload nightly reliability artifacts
@@ -196,3 +328,5 @@ jobs:
             runtime/benchmarks/artifacts/nightly-mutation.json
             runtime/benchmarks/artifacts/nightly-mutation-trend.json
             runtime/benchmarks/artifacts/nightly-pipeline-quality.json
+            runtime/benchmarks/artifacts/nightly-delegation-benchmark.json
+            runtime/benchmarks/artifacts/nightly-delegation-quality.json

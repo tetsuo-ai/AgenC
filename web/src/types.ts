@@ -1,9 +1,14 @@
 /**
  * Client-side WebSocket protocol types for the AgenC WebChat UI.
  *
- * These mirror the backend types in runtime/src/channels/webchat/types.ts
- * but are intentionally duplicated for browser isolation (no Node.js imports).
+ * Uses the canonical backend schema from runtime/src/channels/webchat/protocol.ts
+ * to avoid protocol drift.
  */
+
+import type {
+  SubagentLifecyclePayload,
+  SubagentLifecycleType,
+} from '../../runtime/src/channels/webchat/protocol.ts';
 
 // ============================================================================
 // Connection State
@@ -29,6 +34,8 @@ export interface ChatMessage {
   timestamp: number;
   /** Tool calls associated with this message. */
   toolCalls?: ToolCall[];
+  /** Subagent lifecycle and nested child execution associated with this message. */
+  subagents?: SubagentTimelineItem[];
   /** File attachments on this message. */
   attachments?: ChatMessageAttachment[];
 }
@@ -69,6 +76,42 @@ export interface ToolCall {
   durationMs?: number;
   isError?: boolean;
   status: 'executing' | 'completed';
+  subagentSessionId?: string;
+  traceId?: string;
+  parentTraceId?: string;
+}
+
+export type SubagentTimelineStatus =
+  | 'planned'
+  | 'spawned'
+  | 'started'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'synthesized';
+
+export interface SubagentTimelineEvent {
+  type: SubagentLifecycleType;
+  timestamp: number;
+  toolName?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface SubagentTimelineItem {
+  subagentSessionId: string;
+  parentSessionId?: string;
+  objective?: string;
+  status: SubagentTimelineStatus;
+  startedAt?: number;
+  completedAt?: number;
+  elapsedMs?: number;
+  outputSummary?: string;
+  errorReason?: string;
+  tools: ToolCall[];
+  events: SubagentTimelineEvent[];
+  traceId?: string;
+  parentTraceId?: string;
 }
 
 // ============================================================================
@@ -131,6 +174,8 @@ export interface ApprovalRequest {
   requestId: string;
   action: string;
   details: Record<string, unknown>;
+  parentSessionId?: string;
+  subagentSessionId?: string;
 }
 
 // ============================================================================
@@ -162,6 +207,8 @@ export interface ActivityEvent {
   eventType: string;
   data: Record<string, unknown>;
   timestamp: number;
+  traceId?: string;
+  parentTraceId?: string;
 }
 
 // ============================================================================
@@ -187,6 +234,8 @@ export interface WSMessage {
   // Events
   eventType?: string;
   data?: Record<string, unknown>;
+  traceId?: string;
+  parentTraceId?: string;
   // Approval
   requestId?: string;
   action?: string;
@@ -195,6 +244,9 @@ export interface WSMessage {
   sessionId?: string;
   messageCount?: number;
   active?: boolean;
+  filters?: string[];
+  // Subagent lifecycle
+  subagent?: SubagentLifecyclePayload;
 }
 
 // ============================================================================

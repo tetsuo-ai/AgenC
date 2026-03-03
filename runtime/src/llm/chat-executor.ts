@@ -48,9 +48,29 @@ import type {
 } from "./policy.js";
 import type {
   Pipeline,
+  PipelinePlannerContext,
+  PipelinePlannerContextMemorySource,
+  PipelinePlannerStep,
   PipelineResult,
   PipelineStep,
 } from "../workflow/pipeline.js";
+import type { WorkflowGraphEdge } from "../workflow/types.js";
+import {
+  assessDelegationDecision,
+  resolveDelegationDecisionConfig,
+  type DelegationDecision,
+  type DelegationDecisionConfig,
+  type ResolvedDelegationDecisionConfig,
+} from "./delegation-decision.js";
+import {
+  computeDelegationFinalReward,
+  computeUsefulDelegationProxy,
+  DELEGATION_USEFULNESS_PROXY_VERSION,
+  deriveDelegationContextClusterId,
+  type DelegationBanditPolicyTuner,
+  type DelegationBanditSelection,
+  type DelegationTrajectorySink,
+} from "./delegation-learning.js";
 
 // ============================================================================
 // Error classes
@@ -146,6 +166,7 @@ export interface ChatCallUsageRecord {
   readonly phase:
     | "initial"
     | "planner"
+    | "planner_verifier"
     | "planner_synthesis"
     | "tool_followup"
     | "evaluator"
@@ -175,6 +196,39 @@ export interface ChatPlannerSummary {
   readonly deterministicStepsExecuted: number;
   /** Estimated downstream model recalls avoided by deterministic execution. */
   readonly estimatedRecallsAvoided: number;
+  /** Structured planner parse/validation/policy diagnostics for this turn. */
+  readonly diagnostics?: readonly PlannerDiagnostic[];
+  /** Sub-agent delegation utility decision for planner-emitted subagent tasks. */
+  readonly delegationDecision?: DelegationDecision;
+  /** Sub-agent verification/critic pass summary. */
+  readonly subagentVerification?: {
+    readonly enabled: boolean;
+    readonly performed: boolean;
+    readonly rounds: number;
+    readonly overall: "pass" | "retry" | "fail" | "skipped";
+    readonly confidence: number;
+    readonly unresolvedItems: readonly string[];
+  };
+  /** Online policy tuning diagnostics for delegation arm selection. */
+  readonly delegationPolicyTuning?: {
+    readonly enabled: boolean;
+    readonly contextClusterId?: string;
+    readonly selectedArmId?: string;
+    readonly selectedArmReason?: string;
+    readonly tunedThreshold?: number;
+    readonly exploration: boolean;
+    readonly finalReward?: number;
+    readonly usefulDelegation?: boolean;
+    readonly usefulDelegationScore?: number;
+    readonly rewardProxyVersion?: string;
+  };
+}
+
+export interface PlannerDiagnostic {
+  readonly category: "parse" | "validation" | "policy";
+  readonly code: string;
+  readonly message: string;
+  readonly details?: Readonly<Record<string, string | number | boolean>>;
 }
 
 /** Aggregated stateful continuation counters for one execute() invocation. */
@@ -282,6 +336,27 @@ export interface ChatExecutorConfig {
   readonly plannerMaxTokens?: number;
   /** Optional deterministic workflow executor used when planner emits executable steps. */
   readonly pipelineExecutor?: DeterministicPipelineExecutor;
+  /** Delegation utility scoring controls for planner-emitted subagent tasks. */
+  readonly delegationDecision?: DelegationDecisionConfig;
+  /** Optional live resolver for delegation threshold overrides. */
+  readonly resolveDelegationScoreThreshold?: () => number | undefined;
+  /** Optional verifier/critic loop for planner-emitted subagent outputs. */
+  readonly subagentVerifier?: {
+    /** Enable verifier flow for planner-emitted subagent steps. */
+    readonly enabled?: boolean;
+    /** Enforce verification whenever subagent steps execute. */
+    readonly force?: boolean;
+    /** Minimum confidence required to accept child outputs. */
+    readonly minConfidence?: number;
+    /** Max verification rounds (initial verification included). */
+    readonly maxRounds?: number;
+  };
+  /** Optional delegation learning hooks (trajectory sink + online bandit tuner). */
+  readonly delegationLearning?: {
+    readonly trajectorySink?: DelegationTrajectorySink;
+    readonly banditTuner?: DelegationBanditPolicyTuner;
+    readonly defaultStrategyArmId?: string;
+  };
   /** Maximum tool calls allowed for a single execute() invocation. */
   readonly toolBudgetPerRequest?: number;
   /** Maximum model recalls (calls after the first) for a single execute() invocation. */
@@ -359,19 +434,85 @@ interface PlannerDecision {
   reason: string;
 }
 
-interface PlannerStepIntent {
+type PlannerStepType = "deterministic_tool" | "subagent_task" | "synthesis";
+
+interface PlannerStepBaseIntent {
   name: string;
+  stepType: PlannerStepType;
+  dependsOn?: readonly string[];
+}
+
+interface PlannerDeterministicToolStepIntent extends PlannerStepBaseIntent {
+  stepType: "deterministic_tool";
   tool: string;
   args: Record<string, unknown>;
   onError?: PipelineStep["onError"];
   maxRetries?: number;
-  deterministic: boolean;
 }
+
+interface PlannerSubAgentTaskStepIntent extends PlannerStepBaseIntent {
+  stepType: "subagent_task";
+  objective: string;
+  inputContract: string;
+  acceptanceCriteria: readonly string[];
+  requiredToolCapabilities: readonly string[];
+  contextRequirements: readonly string[];
+  maxBudgetHint: string;
+  canRunParallel: boolean;
+}
+
+interface PlannerSynthesisStepIntent extends PlannerStepBaseIntent {
+  stepType: "synthesis";
+  objective?: string;
+}
+
+type PlannerStepIntent =
+  | PlannerDeterministicToolStepIntent
+  | PlannerSubAgentTaskStepIntent
+  | PlannerSynthesisStepIntent;
 
 interface PlannerPlan {
   reason?: string;
   requiresSynthesis?: boolean;
+  confidence?: number;
   steps: PlannerStepIntent[];
+  edges: readonly WorkflowGraphEdge[];
+}
+
+interface PlannerParseResult {
+  readonly plan?: PlannerPlan;
+  readonly diagnostics: readonly PlannerDiagnostic[];
+}
+
+interface PlannerGraphValidationConfig {
+  readonly maxSubagentFanout: number;
+  readonly maxSubagentDepth: number;
+}
+
+type SubagentVerifierStepVerdict = "pass" | "retry" | "fail";
+
+interface SubagentVerifierStepAssessment {
+  readonly name: string;
+  readonly verdict: SubagentVerifierStepVerdict;
+  readonly confidence: number;
+  readonly retryable: boolean;
+  readonly issues: readonly string[];
+  readonly summary: string;
+}
+
+interface SubagentVerifierDecision {
+  readonly overall: "pass" | "retry" | "fail";
+  readonly confidence: number;
+  readonly unresolvedItems: readonly string[];
+  readonly steps: readonly SubagentVerifierStepAssessment[];
+  readonly source: "deterministic" | "model" | "merged";
+}
+
+interface ResolvedSubagentVerifierConfig {
+  readonly enabled: boolean;
+  readonly force: boolean;
+  readonly minConfidence: number;
+  readonly maxRounds: number;
 }
 
 // ============================================================================
@@ -465,6 +606,14 @@ const DEFAULT_MAX_RUNTIME_SYSTEM_HINTS = 4;
 const DEFAULT_PLANNER_MAX_TOKENS = 256;
 /** Maximum deterministic steps accepted from a planner pass. */
 const MAX_PLANNER_STEPS = 24;
+/** Parent history slice candidates retained for per-subagent curation. */
+const MAX_PLANNER_CONTEXT_HISTORY_CANDIDATES = 12;
+/** Max chars retained for one planner history candidate entry. */
+const MAX_PLANNER_CONTEXT_HISTORY_CHARS = 600;
+/** Max chars retained for one planner memory candidate entry. */
+const MAX_PLANNER_CONTEXT_MEMORY_CHARS = 1_200;
+/** Max chars retained for one planner tool-output candidate entry. */
+const MAX_PLANNER_CONTEXT_TOOL_OUTPUT_CHARS = 1_200;
 /** Default per-request tool-call budget. */
 const DEFAULT_TOOL_BUDGET_PER_REQUEST = 24;
 /** Default per-request model recall budget (calls after first). */
@@ -475,6 +624,14 @@ const DEFAULT_FAILURE_BUDGET_PER_REQUEST = 8;
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 180_000;
 /** Default end-to-end timeout for one execute() invocation in ms. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
+/** Default minimum verifier confidence for accepting subagent outputs. */
+const DEFAULT_SUBAGENT_VERIFIER_MIN_CONFIDENCE = 0.65;
+/** Default max rounds for verifier/critique loops (initial round included). */
+const DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS = 2;
+/** Max chars retained from one subagent output in verifier prompts. */
+const MAX_SUBAGENT_VERIFIER_OUTPUT_CHARS = 3_000;
+/** Max chars retained from one verifier artifact payload. */
+const MAX_SUBAGENT_VERIFIER_ARTIFACT_CHARS = 2_000;
 /** Break no-progress loops after repeated semantically equivalent rounds. */
 const MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS = 2;
 /** Default repeated-failure threshold before opening session breaker. */
@@ -675,6 +832,12 @@ export class ChatExecutor {
   private readonly plannerEnabled: boolean;
   private readonly plannerMaxTokens: number;
   private readonly pipelineExecutor?: DeterministicPipelineExecutor;
+  private readonly delegationDecisionConfig: ResolvedDelegationDecisionConfig;
+  private readonly resolveDelegationScoreThreshold?: () => number | undefined;
+  private readonly subagentVerifierConfig: ResolvedSubagentVerifierConfig;
+  private readonly delegationTrajectorySink?: DelegationTrajectorySink;
+  private readonly delegationBanditTuner?: DelegationBanditPolicyTuner;
+  private readonly delegationDefaultStrategyArmId: string;
   private readonly toolBudgetPerRequest: number;
   private readonly maxModelRecallsPerRequest: number;
   private readonly maxFailureBudgetPerRequest: number;
@@ -731,6 +894,17 @@ export class ChatExecutor {
       Math.floor(config.plannerMaxTokens ?? DEFAULT_PLANNER_MAX_TOKENS),
     );
     this.pipelineExecutor = config.pipelineExecutor;
+    this.delegationDecisionConfig = resolveDelegationDecisionConfig(
+      config.delegationDecision,
+    );
+    this.resolveDelegationScoreThreshold = config.resolveDelegationScoreThreshold;
+    this.subagentVerifierConfig = ChatExecutor.resolveSubagentVerifierConfig(
+      config.subagentVerifier,
+    );
+    this.delegationTrajectorySink = config.delegationLearning?.trajectorySink;
+    this.delegationBanditTuner = config.delegationLearning?.banditTuner;
+    this.delegationDefaultStrategyArmId =
+      config.delegationLearning?.defaultStrategyArmId?.trim() || "balanced";
     this.toolBudgetPerRequest = Math.max(
       1,
       Math.floor(config.toolBudgetPerRequest ?? DEFAULT_TOOL_BUDGET_PER_REQUEST),
@@ -781,6 +955,24 @@ export class ChatExecutor {
     );
   }
 
+  private static resolveSubagentVerifierConfig(
+    config: ChatExecutorConfig["subagentVerifier"] | undefined,
+  ): ResolvedSubagentVerifierConfig {
+    const maxRoundsRaw = config?.maxRounds ?? DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS;
+    return {
+      enabled: config?.enabled === true,
+      force: config?.force === true,
+      minConfidence: Math.min(
+        1,
+        Math.max(
+          0,
+          config?.minConfidence ?? DEFAULT_SUBAGENT_VERIFIER_MIN_CONFIDENCE,
+        ),
+      ),
+      maxRounds: Math.max(1, Math.floor(maxRoundsRaw)),
+    };
+  }
+
   /**
    * Execute a chat message against the provider chain.
    */
@@ -800,6 +992,8 @@ export class ChatExecutor {
     const effectiveMaxModelRecalls = this.maxModelRecallsPerRequest;
     const effectiveFailureBudget = this.maxFailureBudgetPerRequest;
     const startTime = Date.now();
+    const parentTurnId = `parent:${sessionId}:${startTime}`;
+    const trajectoryTraceId = `trace:${sessionId}:${startTime}`;
     const requestDeadlineAt = startTime + this.requestTimeoutMs;
     const getRemainingRequestMs = (): number => requestDeadlineAt - Date.now();
 
@@ -915,6 +1109,25 @@ export class ChatExecutor {
     let routedToolMisses = 0;
 
     const plannerDecision = this.assessPlannerDecision(messageText, history);
+    let trajectoryContextClusterId = deriveDelegationContextClusterId({
+      complexityScore: plannerDecision.score,
+      subagentStepCount: 0,
+      hasHistory,
+      highRiskPlan: false,
+    });
+    let selectedBanditArm: DelegationBanditSelection | undefined;
+    const resolvedThresholdOverride = this.resolveDelegationScoreThreshold?.();
+    const baseDelegationThreshold =
+      typeof resolvedThresholdOverride === "number" &&
+        Number.isFinite(resolvedThresholdOverride)
+        ? Math.max(0, Math.min(1, resolvedThresholdOverride))
+        : this.delegationDecisionConfig.scoreThreshold;
+    let tunedDelegationThreshold = baseDelegationThreshold;
+    let plannedSubagentSteps = 0;
+    let plannedDeterministicSteps = 0;
+    let plannedSynthesisSteps = 0;
+    let plannedDependencyDepth = 0;
+    let plannedFanout = 0;
     const plannerSummaryState = {
       enabled: this.plannerEnabled,
       used: false,
@@ -924,6 +1137,28 @@ export class ChatExecutor {
       plannedSteps: 0,
       deterministicStepsExecuted: 0,
       estimatedRecallsAvoided: 0,
+      diagnostics: [] as PlannerDiagnostic[],
+      delegationDecision: undefined as DelegationDecision | undefined,
+      subagentVerification: {
+        enabled: this.subagentVerifierConfig.enabled,
+        performed: false,
+        rounds: 0,
+        overall: "skipped" as "pass" | "retry" | "fail" | "skipped",
+        confidence: 1,
+        unresolvedItems: [] as string[],
+      },
+      delegationPolicyTuning: {
+        enabled: Boolean(this.delegationBanditTuner),
+        contextClusterId: undefined as string | undefined,
+        selectedArmId: undefined as string | undefined,
+        selectedArmReason: undefined as string | undefined,
+        tunedThreshold: undefined as number | undefined,
+        exploration: false,
+        finalReward: undefined as number | undefined,
+        usefulDelegation: undefined as boolean | undefined,
+        usefulDelegationScore: undefined as number | undefined,
+        rewardProxyVersion: undefined as string | undefined,
+      },
     };
 
     const setStopReason = (
@@ -1018,6 +1253,102 @@ export class ChatExecutor {
       return next.response;
     };
 
+    const runPipelineWithGlobalTimeout = async (
+      pipeline: Pipeline,
+    ): Promise<PipelineResult | undefined> => {
+      const remainingMs = getRemainingRequestMs();
+      if (remainingMs <= 0) {
+        setStopReason("timeout", timeoutDetail("planner pipeline execution"));
+        return undefined;
+      }
+      const timeoutMessage = `planner pipeline timed out after ${remainingMs}ms`;
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, remainingMs);
+      });
+      try {
+        return await Promise.race([
+          this.pipelineExecutor!.execute(pipeline),
+          timeoutPromise,
+        ]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === timeoutMessage) {
+          setStopReason("timeout", timeoutDetail("planner pipeline execution"));
+          return undefined;
+        }
+        const annotated = this.annotateFailureError(
+          error,
+          "planner pipeline execution",
+        );
+        setStopReason(annotated.stopReason, annotated.stopReasonDetail);
+        throw annotated.error;
+      } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+      }
+    };
+
+    const runSubagentVerifierRound = async (input: {
+      plannerPlan: PlannerPlan;
+      subagentSteps: readonly PlannerSubAgentTaskStepIntent[];
+      pipelineResult: PipelineResult;
+      plannerContext: PipelinePlannerContext;
+      round: number;
+    }): Promise<SubagentVerifierDecision> => {
+      const deterministic = ChatExecutor.evaluateSubagentDeterministicChecks(
+        input.subagentSteps,
+        input.pipelineResult,
+        input.plannerContext,
+      );
+      const verifierMessages = ChatExecutor.buildSubagentVerifierMessages(
+        systemPrompt,
+        messageText,
+        input.plannerPlan,
+        input.subagentSteps,
+        input.pipelineResult,
+        input.plannerContext,
+        deterministic,
+      );
+      const verifierSections: PromptBudgetSection[] = [
+        "system_anchor",
+        "system_runtime",
+        "user",
+      ];
+      const verifierResponse = await callModel({
+        phase: "planner_verifier",
+        callMessages: verifierMessages,
+        callSections: verifierSections,
+        statefulSessionId: sessionId,
+        budgetReason:
+          "Planner verifier blocked by max model recalls per request budget",
+      });
+      if (!verifierResponse) {
+        return deterministic;
+      }
+      const modelDecision = ChatExecutor.parseSubagentVerifierDecision(
+        verifierResponse.content,
+        input.subagentSteps,
+      );
+      if (!modelDecision) {
+        plannerSummaryState.diagnostics.push({
+          category: "parse",
+          code: "subagent_verifier_parse_failed",
+          message:
+            "Sub-agent verifier returned non-JSON or malformed schema; using deterministic verifier fallback",
+          details: {
+            round: input.round,
+          },
+        });
+        return deterministic;
+      }
+      return ChatExecutor.mergeSubagentVerifierDecisions(
+        deterministic,
+        modelDecision,
+      );
+    };
+
     let plannerHandled = false;
     if (
       this.plannerEnabled &&
@@ -1046,17 +1377,202 @@ export class ChatExecutor {
 
       if (plannerResponse) {
         plannerSummaryState.plannerCalls = 1;
-        const plannerPlan = ChatExecutor.parsePlannerPlan(plannerResponse.content);
+        const plannerParse = ChatExecutor.parsePlannerPlan(plannerResponse.content);
+        plannerSummaryState.diagnostics.push(...plannerParse.diagnostics);
+        const plannerPlan = plannerParse.plan;
         if (plannerPlan) {
-          if (plannerPlan.reason) {
+          const graphDiagnostics = ChatExecutor.validatePlannerGraph(
+            plannerPlan,
+            {
+              maxSubagentFanout: this.delegationDecisionConfig.maxFanoutPerTurn,
+              maxSubagentDepth: this.delegationDecisionConfig.maxDepth,
+            },
+          );
+          if (graphDiagnostics.length > 0) {
+            plannerSummaryState.diagnostics.push(...graphDiagnostics);
+            plannerSummaryState.routeReason = "planner_validation_failed";
+          } else if (plannerPlan.reason) {
             plannerSummaryState.routeReason = plannerPlan.reason;
           }
           plannerSummaryState.plannedSteps = plannerPlan.steps.length;
-          const deterministicSteps = plannerPlan.steps.filter(
-            (step) => step.deterministic,
+          plannedSubagentSteps = plannerPlan.steps.filter(
+            (step) => step.stepType === "subagent_task",
+          ).length;
+          plannedDeterministicSteps = plannerPlan.steps.filter(
+            (step) => step.stepType === "deterministic_tool",
+          ).length;
+          plannedSynthesisSteps = plannerPlan.steps.filter(
+            (step) => step.stepType === "synthesis",
+          ).length;
+          plannedFanout = plannedSubagentSteps;
+          plannedDependencyDepth = ChatExecutor.computePlannerGraphDepth(
+            plannerPlan.steps.map((step) => step.name),
+            plannerPlan.edges,
+          ).maxDepth;
+          const subagentSteps = plannerPlan.steps.filter(
+            (step): step is PlannerSubAgentTaskStepIntent =>
+              step.stepType === "subagent_task",
           );
+          if (subagentSteps.length > 0) {
+            const synthesisSteps = plannerPlan.steps.filter(
+              (step) => step.stepType === "synthesis",
+            ).length;
+            const highRiskPlan = ChatExecutor.isHighRiskSubagentPlan(
+              subagentSteps,
+            );
+            trajectoryContextClusterId = deriveDelegationContextClusterId({
+              complexityScore: plannerDecision.score,
+              subagentStepCount: subagentSteps.length,
+              hasHistory,
+              highRiskPlan,
+            });
 
-          if (deterministicSteps.length > 0) {
+            if (this.delegationBanditTuner) {
+              selectedBanditArm = this.delegationBanditTuner.selectArm({
+                contextClusterId: trajectoryContextClusterId,
+                preferredArmId: this.delegationDefaultStrategyArmId,
+              });
+              tunedDelegationThreshold =
+                this.delegationBanditTuner.applyThresholdOffset(
+                  baseDelegationThreshold,
+                  selectedBanditArm.armId,
+                );
+              plannerSummaryState.delegationPolicyTuning = {
+                enabled: true,
+                contextClusterId: trajectoryContextClusterId,
+                selectedArmId: selectedBanditArm.armId,
+                selectedArmReason: selectedBanditArm.reason,
+                tunedThreshold: tunedDelegationThreshold,
+                exploration: selectedBanditArm.exploration,
+                finalReward: undefined,
+                usefulDelegation: undefined,
+                usefulDelegationScore: undefined,
+                rewardProxyVersion: undefined,
+              };
+            } else {
+              plannerSummaryState.delegationPolicyTuning = {
+                enabled: false,
+                contextClusterId: trajectoryContextClusterId,
+                selectedArmId: this.delegationDefaultStrategyArmId,
+                selectedArmReason: "fallback",
+                tunedThreshold: baseDelegationThreshold,
+                exploration: false,
+                finalReward: undefined,
+                usefulDelegation: undefined,
+                usefulDelegationScore: undefined,
+                rewardProxyVersion: undefined,
+              };
+            }
+
+            const tunedDecisionConfig: DelegationDecisionConfig = {
+              enabled: this.delegationDecisionConfig.enabled,
+              mode: this.delegationDecisionConfig.mode,
+              scoreThreshold: tunedDelegationThreshold,
+              maxFanoutPerTurn: this.delegationDecisionConfig.maxFanoutPerTurn,
+              maxDepth: this.delegationDecisionConfig.maxDepth,
+              handoffMinPlannerConfidence:
+                this.delegationDecisionConfig.handoffMinPlannerConfidence,
+              hardBlockedTaskClasses: [
+                ...this.delegationDecisionConfig.hardBlockedTaskClasses,
+              ],
+            };
+            const delegationDecision = assessDelegationDecision({
+              messageText,
+              plannerConfidence: plannerPlan.confidence,
+              complexityScore: plannerDecision.score,
+              totalSteps: plannerPlan.steps.length,
+              synthesisSteps,
+              edges: plannerPlan.edges,
+              subagentSteps: subagentSteps.map((step) => ({
+                name: step.name,
+                dependsOn: step.dependsOn,
+                acceptanceCriteria: step.acceptanceCriteria,
+                requiredToolCapabilities: step.requiredToolCapabilities,
+                contextRequirements: step.contextRequirements,
+                maxBudgetHint: step.maxBudgetHint,
+                canRunParallel: step.canRunParallel,
+              })),
+              config: tunedDecisionConfig,
+            });
+            plannerSummaryState.delegationDecision = delegationDecision;
+            if (!delegationDecision.shouldDelegate) {
+              plannerSummaryState.routeReason =
+                `delegation_veto_${delegationDecision.reason}`;
+              plannerSummaryState.diagnostics.push({
+                category: "policy",
+                code: "delegation_veto",
+                message:
+                  `Delegation vetoed by policy scorer: ${delegationDecision.reason}`,
+                details: {
+                  reason: delegationDecision.reason,
+                  threshold: delegationDecision.threshold,
+                  utilityScore: Number(
+                    delegationDecision.utilityScore.toFixed(4),
+                  ),
+                  safetyRisk: Number(delegationDecision.safetyRisk.toFixed(4)),
+                },
+              });
+            }
+          }
+          const deterministicSteps = plannerPlan.steps.filter(
+            (step): step is PlannerDeterministicToolStepIntent =>
+              step.stepType === "deterministic_tool",
+          );
+          const plannerPipelineSteps: PipelinePlannerStep[] = plannerPlan.steps.map(
+            (step) => {
+              if (step.stepType === "deterministic_tool") {
+                return {
+                  name: step.name,
+                  stepType: step.stepType,
+                  dependsOn: step.dependsOn,
+                  tool: step.tool,
+                  args: step.args,
+                  onError: step.onError,
+                  maxRetries: step.maxRetries,
+                };
+              }
+              if (step.stepType === "subagent_task") {
+                return {
+                  name: step.name,
+                  stepType: step.stepType,
+                  dependsOn: step.dependsOn,
+                  objective: step.objective,
+                  inputContract: step.inputContract,
+                  acceptanceCriteria: step.acceptanceCriteria,
+                  requiredToolCapabilities: step.requiredToolCapabilities,
+                  contextRequirements: step.contextRequirements,
+                  maxBudgetHint: step.maxBudgetHint,
+                  canRunParallel: step.canRunParallel,
+                };
+              }
+              return {
+                name: step.name,
+                stepType: step.stepType,
+                dependsOn: step.dependsOn,
+                objective: step.objective,
+              };
+            },
+          );
+          const plannerExecutionContext = ChatExecutor.buildPlannerExecutionContext(
+            messageText,
+            history,
+            messages,
+            messageSections,
+            activeRoutedToolNames.length > 0
+              ? activeRoutedToolNames
+              : (this.allowedTools ? [...this.allowedTools] : undefined),
+          );
+          const hasExecutablePlannerSteps =
+            deterministicSteps.length > 0 ||
+            (
+              subagentSteps.length > 0 &&
+              plannerSummaryState.delegationDecision?.shouldDelegate === true
+            );
+
+          if (
+            hasExecutablePlannerSteps &&
+            plannerSummaryState.routeReason !== "planner_validation_failed"
+          ) {
             if (deterministicSteps.length > effectiveToolBudget) {
               setStopReason(
                 "budget_exceeded",
@@ -1078,17 +1594,156 @@ export class ChatExecutor {
                   onError: step.onError,
                   maxRetries: step.maxRetries,
                 })),
+                plannerSteps: plannerPipelineSteps,
+                edges: plannerPlan.edges,
+                maxParallelism: this.delegationDecisionConfig.maxFanoutPerTurn,
+                plannerContext: plannerExecutionContext,
               };
 
-              const pipelineResult = await this.pipelineExecutor.execute(pipeline);
-              for (const record of ChatExecutor.pipelineResultToToolCalls(
-                deterministicSteps,
-                pipelineResult,
-              )) {
-                appendToolRecord(record);
+              const shouldRunSubagentVerifier =
+                subagentSteps.length > 0 &&
+                plannerSummaryState.delegationDecision?.shouldDelegate === true &&
+                (
+                  this.subagentVerifierConfig.enabled ||
+                  this.subagentVerifierConfig.force
+                );
+              let verifierRounds = 0;
+              let verificationDecision: SubagentVerifierDecision | undefined;
+              let pipelineResult: PipelineResult | undefined;
+
+              while (true) {
+                if (checkRequestTimeout("planner pipeline execution")) break;
+                const nextPipelineResult = await runPipelineWithGlobalTimeout(
+                  pipeline,
+                );
+                if (!nextPipelineResult) break;
+                pipelineResult = nextPipelineResult;
+
+                for (const record of ChatExecutor.pipelineResultToToolCalls(
+                  plannerPlan.steps,
+                  nextPipelineResult,
+                )) {
+                  appendToolRecord(record);
+                }
+                plannerSummaryState.deterministicStepsExecuted =
+                  deterministicSteps.filter((step) =>
+                    typeof nextPipelineResult.context.results[step.name] === "string"
+                  ).length;
+
+                if (
+                  !shouldRunSubagentVerifier ||
+                  nextPipelineResult.status !== "completed"
+                ) {
+                  break;
+                }
+
+                verifierRounds++;
+                verificationDecision = await runSubagentVerifierRound({
+                  plannerPlan,
+                  subagentSteps,
+                  pipelineResult: nextPipelineResult,
+                  plannerContext: plannerExecutionContext,
+                  round: verifierRounds,
+                });
+                plannerSummaryState.subagentVerification = {
+                  enabled: true,
+                  performed: true,
+                  rounds: verifierRounds,
+                  overall: verificationDecision.overall,
+                  confidence: verificationDecision.confidence,
+                  unresolvedItems: [...verificationDecision.unresolvedItems],
+                };
+
+                const belowConfidence =
+                  verificationDecision.confidence <
+                  this.subagentVerifierConfig.minConfidence;
+                const retryable =
+                  verificationDecision.steps.some((step) => step.retryable);
+                const canRetry =
+                  verifierRounds < this.subagentVerifierConfig.maxRounds &&
+                  (
+                    verificationDecision.overall === "retry" ||
+                    belowConfidence
+                  ) &&
+                  retryable;
+
+                if (canRetry) {
+                  plannerSummaryState.diagnostics.push({
+                    category: "policy",
+                    code: "subagent_verifier_retry",
+                    message:
+                      "Sub-agent verifier requested retry; rerunning planner pipeline",
+                    details: {
+                      round: verifierRounds,
+                      maxRounds: this.subagentVerifierConfig.maxRounds,
+                      confidence: Number(
+                        verificationDecision.confidence.toFixed(3),
+                      ),
+                      minConfidence: Number(
+                        this.subagentVerifierConfig.minConfidence.toFixed(3),
+                      ),
+                    },
+                  });
+                  continue;
+                }
+
+                if (
+                  verificationDecision.overall !== "pass" ||
+                  belowConfidence
+                ) {
+                  const unresolvedPreview =
+                    verificationDecision.unresolvedItems.slice(0, 3).join("; ");
+                  setStopReason(
+                    "validation_error",
+                    unresolvedPreview.length > 0
+                      ? `Sub-agent verifier rejected child outputs: ${unresolvedPreview}`
+                      : "Sub-agent verifier rejected child outputs",
+                  );
+                }
+                break;
               }
-              plannerSummaryState.deterministicStepsExecuted =
-                pipelineResult.completedSteps;
+
+              if (
+                shouldRunSubagentVerifier &&
+                verifierRounds === 0 &&
+                !plannerSummaryState.subagentVerification.performed
+              ) {
+                plannerSummaryState.subagentVerification = {
+                  enabled: true,
+                  performed: false,
+                  rounds: 0,
+                  overall: "skipped",
+                  confidence: 1,
+                  unresolvedItems: [],
+                };
+              }
+
+              if (pipelineResult) {
+                if (pipelineResult.status === "failed") {
+                  const hintedStopReason = ChatExecutor.isPipelineStopReasonHint(
+                    pipelineResult.stopReasonHint,
+                  )
+                    ? pipelineResult.stopReasonHint
+                    : "tool_error";
+                  setStopReason(
+                    hintedStopReason,
+                    pipelineResult.error ??
+                      "Deterministic pipeline execution failed",
+                  );
+                } else if (pipelineResult.status === "halted") {
+                  setStopReason(
+                    "tool_calls",
+                    `Deterministic pipeline halted at step ${
+                      (pipelineResult.resumeFrom ?? 0) + 1
+                    } awaiting approval`,
+                  );
+                }
+              } else if (stopReason === "completed") {
+                setStopReason(
+                  "timeout",
+                  timeoutDetail("planner pipeline execution"),
+                );
+              }
 
               if (failedToolCalls > effectiveFailureBudget) {
                 setStopReason(
@@ -1097,27 +1752,16 @@ export class ChatExecutor {
                 );
               }
 
-              if (pipelineResult.status === "failed") {
-                setStopReason(
-                  "tool_error",
-                  pipelineResult.error ??
-                    "Deterministic pipeline execution failed",
-                );
-              } else if (pipelineResult.status === "halted") {
-                setStopReason(
-                  "tool_calls",
-                  `Deterministic pipeline halted at step ${
-                    (pipelineResult.resumeFrom ?? 0) + 1
-                  } awaiting approval`,
-                );
-              }
-
-              if (plannerPlan.requiresSynthesis || stopReason !== "completed") {
+              if (
+                pipelineResult &&
+                (plannerPlan.requiresSynthesis || stopReason !== "completed")
+              ) {
                 const synthesisMessages = ChatExecutor.buildPlannerSynthesisMessages(
                   systemPrompt,
                   messageText,
                   plannerPlan,
                   pipelineResult,
+                  verificationDecision,
                 );
                 const synthesisSections: PromptBudgetSection[] = [
                   "system_anchor",
@@ -1135,7 +1779,11 @@ export class ChatExecutor {
                 });
                 if (synthesisResponse) {
                   response = synthesisResponse;
-                  finalContent = synthesisResponse.content;
+                  finalContent = ChatExecutor.ensureSubagentProvenanceCitations(
+                    synthesisResponse.content,
+                    plannerPlan,
+                    pipelineResult,
+                  );
                 }
               }
 
@@ -1149,7 +1797,14 @@ export class ChatExecutor {
               plannerHandled = true;
             }
           } else {
-            plannerSummaryState.routeReason = "planner_no_deterministic_steps";
+            if (
+              !plannerSummaryState.delegationDecision ||
+              plannerSummaryState.delegationDecision.shouldDelegate
+            ) {
+              if (plannerSummaryState.routeReason !== "planner_validation_failed") {
+                plannerSummaryState.routeReason = "planner_no_deterministic_steps";
+              }
+            }
           }
         } else {
           plannerSummaryState.routeReason = "planner_parse_failed";
@@ -1821,6 +2476,138 @@ export class ChatExecutor {
       }
     }
 
+    const durationMs = Date.now() - startTime;
+    const stopReasonQualityBase = stopReason === "completed"
+      ? 0.85
+      : stopReason === "tool_calls"
+        ? 0.6
+        : 0.25;
+    const verifierBonus = plannerSummaryState.subagentVerification.performed
+      ? (
+        plannerSummaryState.subagentVerification.overall === "pass"
+          ? 0.1
+          : plannerSummaryState.subagentVerification.overall === "retry"
+            ? 0
+            : -0.15
+      )
+      : 0;
+    const evaluatorBonus = evaluation
+      ? (evaluation.passed ? 0.1 : -0.1)
+      : 0;
+    const failurePenalty = Math.min(0.25, failedToolCalls * 0.05);
+    const qualityProxy = Math.max(
+      0,
+      Math.min(
+        1,
+        stopReasonQualityBase + verifierBonus + evaluatorBonus - failurePenalty,
+      ),
+    );
+    const rewardSignal = computeDelegationFinalReward({
+      qualityProxy,
+      tokenCost: cumulativeUsage.totalTokens,
+      latencyMs: durationMs,
+      errorCount:
+        failedToolCalls + (stopReason === "completed" ? 0 : 1),
+    });
+    const estimatedRecallsAvoided = plannerSummaryState.used
+      ? Math.max(
+          0,
+          plannerSummaryState.deterministicStepsExecuted -
+            Math.max(0, modelCalls - plannerSummaryState.plannerCalls),
+        )
+      : 0;
+    const delegatedThisTurn =
+      plannerSummaryState.delegationDecision?.shouldDelegate === true;
+    const verifierSnapshot = plannerSummaryState.subagentVerification;
+    const usefulnessProxy = computeUsefulDelegationProxy({
+      delegated: delegatedThisTurn,
+      stopReason,
+      failedToolCalls,
+      estimatedRecallsAvoided,
+      verifier: {
+        performed: verifierSnapshot.performed,
+        overall: verifierSnapshot.overall,
+        confidence: verifierSnapshot.confidence,
+      },
+      reward: rewardSignal,
+    });
+    const policyReward = delegatedThisTurn
+      ? usefulnessProxy.score * 2 - 1
+      : 0;
+
+    if (
+      selectedBanditArm &&
+      this.delegationBanditTuner &&
+      plannerSummaryState.delegationPolicyTuning.enabled
+    ) {
+      this.delegationBanditTuner.recordOutcome({
+        contextClusterId: trajectoryContextClusterId,
+        armId: selectedBanditArm.armId,
+        reward: policyReward,
+      });
+      plannerSummaryState.delegationPolicyTuning = {
+        ...plannerSummaryState.delegationPolicyTuning,
+        finalReward: policyReward,
+        usefulDelegation: usefulnessProxy.useful,
+        usefulDelegationScore: usefulnessProxy.score,
+        rewardProxyVersion: DELEGATION_USEFULNESS_PROXY_VERSION,
+      };
+    }
+
+    if (this.delegationTrajectorySink) {
+      const selectedTools = activeRoutedToolNames.length > 0
+        ? [...activeRoutedToolNames]
+        : (this.allowedTools ? [...this.allowedTools] : []);
+      this.delegationTrajectorySink.record({
+        schemaVersion: 1,
+        traceId: trajectoryTraceId,
+        turnId: parentTurnId,
+        turnType: "parent",
+        timestampMs: Date.now(),
+        stateFeatures: {
+          sessionId,
+          contextClusterId: trajectoryContextClusterId,
+          complexityScore: plannerDecision.score,
+          plannerStepCount: plannerSummaryState.plannedSteps,
+          subagentStepCount: plannedSubagentSteps,
+          deterministicStepCount: plannedDeterministicSteps,
+          synthesisStepCount: plannedSynthesisSteps,
+          dependencyDepth: plannedDependencyDepth,
+          fanout: plannedFanout,
+        },
+        action: {
+          delegated:
+            plannerSummaryState.delegationDecision?.shouldDelegate === true,
+          strategyArmId:
+            selectedBanditArm?.armId ?? this.delegationDefaultStrategyArmId,
+          threshold: tunedDelegationThreshold,
+          selectedTools,
+          childConfig: {
+            maxDepth: this.delegationDecisionConfig.maxDepth,
+            maxFanoutPerTurn: this.delegationDecisionConfig.maxFanoutPerTurn,
+            timeoutMs: this.requestTimeoutMs,
+          },
+        },
+        immediateOutcome: {
+          qualityProxy,
+          tokenCost: cumulativeUsage.totalTokens,
+          latencyMs: durationMs,
+          errorCount:
+            failedToolCalls + (stopReason === "completed" ? 0 : 1),
+          ...(stopReason !== "completed" ? { errorClass: stopReason } : {}),
+        },
+        finalReward: rewardSignal,
+        metadata: {
+          plannerUsed: plannerSummaryState.used,
+          routeReason: plannerSummaryState.routeReason ?? "none",
+          stopReason,
+          usefulDelegation: usefulnessProxy.useful,
+          usefulDelegationScore: Number(usefulnessProxy.score.toFixed(4)),
+          usefulDelegationProxyVersion: DELEGATION_USEFULNESS_PROXY_VERSION,
+        },
+      });
+    }
+
     const plannerSummary: ChatPlannerSummary = {
       enabled: plannerSummaryState.enabled,
       used: plannerSummaryState.used,
@@ -1830,12 +2617,18 @@ export class ChatExecutor {
       plannedSteps: plannerSummaryState.plannedSteps,
       deterministicStepsExecuted: plannerSummaryState.deterministicStepsExecuted,
       estimatedRecallsAvoided: plannerSummaryState.used
-        ? Math.max(
-            0,
-            plannerSummaryState.deterministicStepsExecuted -
-              Math.max(0, modelCalls - plannerSummaryState.plannerCalls),
-          )
+        ? estimatedRecallsAvoided
         : 0,
+      diagnostics: plannerSummaryState.diagnostics.length > 0
+        ? plannerSummaryState.diagnostics
+        : undefined,
+      delegationDecision: plannerSummaryState.delegationDecision,
+      subagentVerification: plannerSummaryState.subagentVerification.enabled
+        ? plannerSummaryState.subagentVerification
+        : undefined,
+      delegationPolicyTuning: plannerSummaryState.delegationPolicyTuning.enabled
+        ? plannerSummaryState.delegationPolicyTuning
+        : undefined,
     };
 
     finalContent = ChatExecutor.sanitizeFinalContent(finalContent);
@@ -1862,7 +2655,7 @@ export class ChatExecutor {
       toolCalls: allToolCalls,
       tokenUsage: cumulativeUsage,
       callUsage,
-      durationMs: Date.now() - startTime,
+      durationMs,
       compacted,
       statefulSummary,
       toolRoutingSummary,
@@ -2307,14 +3100,26 @@ export class ChatExecutor {
           '  "steps": [\n' +
           "    {\n" +
           '      "name": "step_name",\n' +
+          '      "step_type": "deterministic_tool|subagent_task|synthesis",\n' +
+          '      "depends_on": ["step_name"],\n' +
           '      "tool": "tool.name",\n' +
           '      "args": { "key": "value" },\n' +
-          '      "deterministic": boolean,\n' +
           '      "onError": "abort|retry|skip",\n' +
-          '      "maxRetries": number\n' +
+          '      "maxRetries": number,\n' +
+          '      "objective": "required for subagent_task",\n' +
+          '      "input_contract": "required for subagent_task",\n' +
+          '      "acceptance_criteria": ["required for subagent_task"],\n' +
+          '      "required_tool_capabilities": ["required for subagent_task"],\n' +
+          '      "context_requirements": ["required for subagent_task"],\n' +
+          '      "max_budget_hint": "required for subagent_task",\n' +
+          '      "can_run_parallel": true\n' +
           "    }\n" +
           "  ]\n" +
           "}\n" +
+          "Rules:\n" +
+          "- deterministic_tool steps are executable by the deterministic pipeline.\n" +
+          "- subagent_task steps MUST include all subagent fields.\n" +
+          "- synthesis steps describe final merge/synthesis intent and do not call tools.\n" +
           `Keep output concise and below approximately ${plannerMaxTokens} tokens. ` +
           `Never emit more than ${maxSteps} steps.`,
       },
@@ -2330,64 +3135,718 @@ export class ChatExecutor {
     ];
   }
 
-  private static parsePlannerPlan(content: string): PlannerPlan | undefined {
+  private static buildPlannerExecutionContext(
+    messageText: string,
+    history: readonly LLMMessage[],
+    messages: readonly LLMMessage[],
+    sections: readonly PromptBudgetSection[],
+    parentAllowedTools?: readonly string[],
+  ): PipelinePlannerContext {
+    const normalizedHistory = ChatExecutor.normalizeHistory(history);
+    const historySlice = normalizedHistory
+      .slice(-MAX_PLANNER_CONTEXT_HISTORY_CANDIDATES)
+      .map((entry) => ({
+        role: entry.role,
+        content: ChatExecutor.truncateText(
+          ChatExecutor.extractLLMMessageText(entry),
+          MAX_PLANNER_CONTEXT_HISTORY_CHARS,
+        ),
+        ...(entry.role === "tool" && entry.toolName
+          ? { toolName: entry.toolName }
+          : {}),
+      }))
+      .filter((entry) => entry.content.trim().length > 0);
+
+    const memory: Array<{
+      source: PipelinePlannerContextMemorySource;
+      content: string;
+    }> = [];
+    const bySection = (
+      section: PromptBudgetSection,
+    ): PipelinePlannerContextMemorySource | null => {
+      if (section === "memory_semantic") return "memory_semantic";
+      if (section === "memory_episodic") return "memory_episodic";
+      if (section === "memory_working") return "memory_working";
+      return null;
+    };
+    for (let i = 0; i < messages.length; i++) {
+      const source = bySection(sections[i] ?? "history");
+      if (!source) continue;
+      const message = messages[i];
+      if (!message || message.role !== "system") continue;
+      const content = ChatExecutor.truncateText(
+        ChatExecutor.extractLLMMessageText(message),
+        MAX_PLANNER_CONTEXT_MEMORY_CHARS,
+      );
+      if (content.trim().length === 0) continue;
+      memory.push({ source, content });
+    }
+
+    const toolOutputs = normalizedHistory
+      .filter((entry) => entry.role === "tool")
+      .map((entry) => ({
+        ...(entry.toolName ? { toolName: entry.toolName } : {}),
+        content: ChatExecutor.truncateText(
+          ChatExecutor.extractLLMMessageText(entry),
+          MAX_PLANNER_CONTEXT_TOOL_OUTPUT_CHARS,
+        ),
+      }))
+      .filter((entry) => entry.content.trim().length > 0);
+
+    return {
+      parentRequest: ChatExecutor.truncateText(
+        messageText,
+        MAX_USER_MESSAGE_CHARS,
+      ),
+      history: historySlice,
+      memory,
+      toolOutputs,
+      ...(parentAllowedTools && parentAllowedTools.length > 0
+        ? { parentAllowedTools: [...new Set(parentAllowedTools)] }
+        : {}),
+    };
+  }
+
+  private static parsePlannerPlan(content: string): PlannerParseResult {
+    const diagnostics: PlannerDiagnostic[] = [];
     const parsed = ChatExecutor.parseJsonObjectFromText(content);
-    if (!parsed) return undefined;
-    if (!Array.isArray(parsed.steps)) return undefined;
+    if (!parsed) {
+      diagnostics.push(
+        ChatExecutor.createPlannerDiagnostic(
+          "parse",
+          "invalid_json",
+          "Planner output is not parseable JSON object",
+        ),
+      );
+      return { diagnostics };
+    }
+    if (!Array.isArray(parsed.steps)) {
+      diagnostics.push(
+        ChatExecutor.createPlannerDiagnostic(
+          "parse",
+          "missing_steps_array",
+          'Planner output must include a "steps" array',
+        ),
+      );
+      return { diagnostics };
+    }
 
     const steps: PlannerStepIntent[] = [];
-    for (const rawStep of parsed.steps.slice(0, MAX_PLANNER_STEPS)) {
+    const unresolvedDependencies = new Map<string, readonly string[]>();
+    const nameAliases = new Map<string, string>();
+    const usedStepNames = new Set<string>();
+    const maxSteps = Math.min(MAX_PLANNER_STEPS, parsed.steps.length);
+
+    for (const [index, rawStep] of parsed.steps.slice(0, maxSteps).entries()) {
       if (
         typeof rawStep !== "object" ||
         rawStep === null ||
         Array.isArray(rawStep)
       ) {
-        continue;
+        diagnostics.push(
+          ChatExecutor.createPlannerDiagnostic(
+            "parse",
+            "invalid_step_object",
+            `Planner step at index ${index} must be an object`,
+            { stepIndex: index },
+          ),
+        );
+        return { diagnostics };
       }
       const step = rawStep as Record<string, unknown>;
-      if (typeof step.tool !== "string" || step.tool.trim().length === 0) {
+      const stepType = ChatExecutor.parsePlannerStepType(step.step_type);
+      if (!stepType) {
+        diagnostics.push(
+          ChatExecutor.createPlannerDiagnostic(
+            "parse",
+            "invalid_step_type",
+            `Planner step at index ${index} has invalid step_type`,
+            { stepIndex: index },
+          ),
+        );
+        return { diagnostics };
+      }
+
+      const rawName =
+        typeof step.name === "string" ? step.name.trim() : "";
+      const sanitizedName = ChatExecutor.sanitizePlannerStepName(
+        rawName.length > 0 ? rawName : `step_${steps.length + 1}`,
+      );
+      const safeName = ChatExecutor.dedupePlannerStepName(
+        sanitizedName,
+        usedStepNames,
+      );
+      usedStepNames.add(safeName);
+
+      if (rawName.length > 0) {
+        if (nameAliases.has(rawName)) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "duplicate_step_name",
+              `Planner step name "${rawName}" is duplicated`,
+              { stepIndex: index, stepName: rawName },
+            ),
+          );
+          return { diagnostics };
+        }
+        nameAliases.set(rawName, safeName);
+      }
+      nameAliases.set(safeName, safeName);
+
+      const dependsOn = ChatExecutor.parsePlannerDependsOn(step.depends_on);
+      if (!dependsOn) {
+        diagnostics.push(
+          ChatExecutor.createPlannerDiagnostic(
+            "parse",
+            "invalid_depends_on",
+            `Planner step "${safeName}" has invalid depends_on`,
+            { stepIndex: index, stepName: safeName },
+          ),
+        );
+        return { diagnostics };
+      }
+      unresolvedDependencies.set(safeName, dependsOn);
+
+      if (stepType === "deterministic_tool") {
+        if (typeof step.tool !== "string" || step.tool.trim().length === 0) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_tool_name",
+              `Deterministic planner step "${safeName}" must include a non-empty tool name`,
+              { stepIndex: index, stepName: safeName },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (
+          step.args !== undefined &&
+          (
+            typeof step.args !== "object" ||
+            step.args === null ||
+            Array.isArray(step.args)
+          )
+        ) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "invalid_tool_args",
+              `Planner step "${safeName}" has invalid args; expected JSON object`,
+              { stepIndex: index, stepName: safeName },
+            ),
+          );
+          return { diagnostics };
+        }
+        const args =
+          typeof step.args === "object" &&
+          step.args !== null &&
+          !Array.isArray(step.args)
+            ? (step.args as Record<string, unknown>)
+            : {};
+        const onError =
+          step.onError === "retry" ||
+          step.onError === "skip" ||
+          step.onError === "abort"
+            ? step.onError
+            : undefined;
+        const maxRetries =
+          typeof step.maxRetries === "number" && Number.isFinite(step.maxRetries)
+            ? Math.max(0, Math.min(5, Math.floor(step.maxRetries)))
+            : undefined;
+        steps.push({
+          name: safeName,
+          stepType,
+          tool: step.tool.trim(),
+          args,
+          onError,
+          maxRetries,
+        });
         continue;
       }
-      const args =
-        typeof step.args === "object" &&
-        step.args !== null &&
-        !Array.isArray(step.args)
-          ? (step.args as Record<string, unknown>)
-          : {};
-      const safeName =
-        typeof step.name === "string" && step.name.trim().length > 0
-          ? step.name.trim().replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 48)
-          : `step_${steps.length + 1}`;
 
-      const onError =
-        step.onError === "retry" ||
-        step.onError === "skip" ||
-        step.onError === "abort"
-          ? step.onError
-          : undefined;
-      const maxRetries =
-        typeof step.maxRetries === "number" && Number.isFinite(step.maxRetries)
-          ? Math.max(0, Math.min(5, Math.floor(step.maxRetries)))
-          : undefined;
+      if (stepType === "subagent_task") {
+        const objective = ChatExecutor.parsePlannerRequiredString(step.objective);
+        const inputContract = ChatExecutor.parsePlannerRequiredString(
+          step.input_contract,
+        );
+        const acceptanceCriteria = ChatExecutor.parsePlannerStringArray(
+          step.acceptance_criteria,
+        );
+        const requiredToolCapabilities = ChatExecutor.parsePlannerStringArray(
+          step.required_tool_capabilities,
+        );
+        const contextRequirements = ChatExecutor.parsePlannerStringArray(
+          step.context_requirements,
+        );
+        const maxBudgetHint = ChatExecutor.parsePlannerRequiredString(
+          step.max_budget_hint,
+        );
+        const canRunParallel =
+          typeof step.can_run_parallel === "boolean"
+            ? step.can_run_parallel
+            : undefined;
+        if (!objective) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_subagent_field",
+              `Planner subagent step "${safeName}" is missing objective`,
+              { stepIndex: index, stepName: safeName, field: "objective" },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (!inputContract) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_subagent_field",
+              `Planner subagent step "${safeName}" is missing input_contract`,
+              { stepIndex: index, stepName: safeName, field: "input_contract" },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (!acceptanceCriteria || acceptanceCriteria.length === 0) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_subagent_field",
+              `Planner subagent step "${safeName}" is missing acceptance_criteria`,
+              {
+                stepIndex: index,
+                stepName: safeName,
+                field: "acceptance_criteria",
+              },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (!requiredToolCapabilities || requiredToolCapabilities.length === 0) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_subagent_field",
+              `Planner subagent step "${safeName}" is missing required_tool_capabilities`,
+              {
+                stepIndex: index,
+                stepName: safeName,
+                field: "required_tool_capabilities",
+              },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (!contextRequirements || contextRequirements.length === 0) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_subagent_field",
+              `Planner subagent step "${safeName}" is missing context_requirements`,
+              {
+                stepIndex: index,
+                stepName: safeName,
+                field: "context_requirements",
+              },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (!maxBudgetHint) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_subagent_field",
+              `Planner subagent step "${safeName}" is missing max_budget_hint`,
+              {
+                stepIndex: index,
+                stepName: safeName,
+                field: "max_budget_hint",
+              },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (canRunParallel === undefined) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "missing_subagent_field",
+              `Planner subagent step "${safeName}" is missing can_run_parallel`,
+              {
+                stepIndex: index,
+                stepName: safeName,
+                field: "can_run_parallel",
+              },
+            ),
+          );
+          return { diagnostics };
+        }
 
+        steps.push({
+          name: safeName,
+          stepType,
+          objective,
+          inputContract,
+          acceptanceCriteria,
+          requiredToolCapabilities,
+          contextRequirements,
+          maxBudgetHint,
+          canRunParallel,
+        });
+        continue;
+      }
+
+      const objective = ChatExecutor.parsePlannerOptionalString(step.objective);
       steps.push({
-        name: safeName || `step_${steps.length + 1}`,
-        tool: step.tool.trim(),
-        args,
-        onError,
-        maxRetries,
-        deterministic: step.deterministic !== false,
+        name: safeName,
+        stepType,
+        ...(objective ? { objective } : {}),
       });
     }
 
+    const knownStepNames = new Set(steps.map((step) => step.name));
+    const edges: WorkflowGraphEdge[] = [];
+    for (const step of steps) {
+      const rawDepends = unresolvedDependencies.get(step.name) ?? [];
+      if (rawDepends.length === 0) continue;
+      const resolved = new Set<string>();
+      for (const dependencyName of rawDepends) {
+        const alias = nameAliases.get(dependencyName) ?? dependencyName;
+        if (!knownStepNames.has(alias)) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "unknown_dependency",
+              `Planner step "${step.name}" depends on unknown step "${dependencyName}"`,
+              { stepName: step.name, dependencyName },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (alias === step.name) {
+          diagnostics.push(
+            ChatExecutor.createPlannerDiagnostic(
+              "parse",
+              "self_dependency",
+              `Planner step "${step.name}" cannot depend on itself`,
+              { stepName: step.name },
+            ),
+          );
+          return { diagnostics };
+        }
+        if (resolved.has(alias)) continue;
+        resolved.add(alias);
+        edges.push({ from: alias, to: step.name });
+      }
+      if (resolved.size > 0) {
+        step.dependsOn = [...resolved];
+      }
+    }
+
+    const cyclePath = ChatExecutor.detectPlannerCycle(
+      steps.map((step) => step.name),
+      edges,
+    );
+    if (cyclePath) {
+      diagnostics.push(
+        ChatExecutor.createPlannerDiagnostic(
+          "validation",
+          "cyclic_dependency",
+          "Planner dependency graph contains a cycle",
+          {
+            cycle: cyclePath.join("->"),
+          },
+        ),
+      );
+      return { diagnostics };
+    }
+
+    const containsSynthesisStep = steps.some(
+      (step) => step.stepType === "synthesis",
+    );
+
     return {
-      reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
-      requiresSynthesis:
-        typeof parsed.requiresSynthesis === "boolean"
-          ? parsed.requiresSynthesis
-          : undefined,
-      steps,
+      plan: {
+        reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+        confidence: ChatExecutor.parsePlannerConfidence(parsed.confidence),
+        requiresSynthesis:
+          typeof parsed.requiresSynthesis === "boolean"
+            ? parsed.requiresSynthesis || containsSynthesisStep
+            : containsSynthesisStep || undefined,
+        steps,
+        edges,
+      },
+      diagnostics,
     };
+  }
+
+  private static validatePlannerGraph(
+    plannerPlan: PlannerPlan,
+    config: PlannerGraphValidationConfig,
+  ): readonly PlannerDiagnostic[] {
+    const diagnostics: PlannerDiagnostic[] = [];
+    const subagentSteps = plannerPlan.steps.filter(
+      (step): step is PlannerSubAgentTaskStepIntent =>
+        step.stepType === "subagent_task",
+    );
+    if (subagentSteps.length === 0) return diagnostics;
+
+    if (subagentSteps.length > config.maxSubagentFanout) {
+      diagnostics.push(
+        ChatExecutor.createPlannerDiagnostic(
+          "validation",
+          "subagent_fanout_exceeded",
+          `Planner emitted ${subagentSteps.length} subagent tasks but maxFanoutPerTurn is ${config.maxSubagentFanout}`,
+          {
+            subagentSteps: subagentSteps.length,
+            maxFanoutPerTurn: config.maxSubagentFanout,
+          },
+        ),
+      );
+    }
+
+    const subagentStepNames = new Set(subagentSteps.map((step) => step.name));
+    const subagentEdges = plannerPlan.edges.filter((edge) =>
+      subagentStepNames.has(edge.from) && subagentStepNames.has(edge.to)
+    );
+    const graphDepth = ChatExecutor.computePlannerGraphDepth(
+      [...subagentStepNames],
+      subagentEdges,
+    );
+    if (graphDepth.cyclic) {
+      diagnostics.push(
+        ChatExecutor.createPlannerDiagnostic(
+          "validation",
+          "cyclic_dependency",
+          "Planner dependency graph contains a cycle",
+        ),
+      );
+      return diagnostics;
+    }
+    if (graphDepth.maxDepth > config.maxSubagentDepth) {
+      diagnostics.push(
+        ChatExecutor.createPlannerDiagnostic(
+          "validation",
+          "subagent_depth_exceeded",
+          `Planner subagent dependency depth ${graphDepth.maxDepth} exceeds maxDepth ${config.maxSubagentDepth}`,
+          {
+            depth: graphDepth.maxDepth,
+            maxDepth: config.maxSubagentDepth,
+          },
+        ),
+      );
+    }
+
+    return diagnostics;
+  }
+
+  private static createPlannerDiagnostic(
+    category: PlannerDiagnostic["category"],
+    code: string,
+    message: string,
+    details?: Readonly<Record<string, string | number | boolean>>,
+  ): PlannerDiagnostic {
+    return { category, code, message, ...(details ? { details } : {}) };
+  }
+
+  private static isHighRiskSubagentPlan(
+    steps: readonly PlannerSubAgentTaskStepIntent[],
+  ): boolean {
+    for (const step of steps) {
+      for (const capability of step.requiredToolCapabilities) {
+        const normalized = capability.trim().toLowerCase();
+        if (!normalized) continue;
+        if (
+          normalized.startsWith("wallet.") ||
+          normalized.startsWith("solana.") ||
+          normalized.startsWith("agenc.") ||
+          normalized.startsWith("desktop.") ||
+          normalized === "system.delete" ||
+          normalized === "system.writefile" ||
+          normalized === "system.execute" ||
+          normalized === "system.open" ||
+          normalized === "system.applescript" ||
+          normalized === "system.notification"
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private static detectPlannerCycle(
+    nodes: readonly string[],
+    edges: readonly WorkflowGraphEdge[],
+  ): string[] | null {
+    const adjacency = new Map<string, string[]>();
+    for (const node of nodes) {
+      adjacency.set(node, []);
+    }
+    for (const edge of edges) {
+      if (!adjacency.has(edge.from) || !adjacency.has(edge.to)) continue;
+      adjacency.get(edge.from)!.push(edge.to);
+    }
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const stack: string[] = [];
+
+    const walk = (node: string): string[] | null => {
+      if (visiting.has(node)) {
+        const loopStart = stack.indexOf(node);
+        return loopStart >= 0
+          ? [...stack.slice(loopStart), node]
+          : [node, node];
+      }
+      if (visited.has(node)) return null;
+      visiting.add(node);
+      stack.push(node);
+      for (const next of adjacency.get(node) ?? []) {
+        const cycle = walk(next);
+        if (cycle) return cycle;
+      }
+      stack.pop();
+      visiting.delete(node);
+      visited.add(node);
+      return null;
+    };
+
+    for (const node of nodes) {
+      const cycle = walk(node);
+      if (cycle) return cycle;
+    }
+    return null;
+  }
+
+  private static computePlannerGraphDepth(
+    nodes: readonly string[],
+    edges: readonly WorkflowGraphEdge[],
+  ): { maxDepth: number; cyclic: boolean } {
+    if (nodes.length === 0) return { maxDepth: 0, cyclic: false };
+    const inDegree = new Map<string, number>();
+    const outgoing = new Map<string, string[]>();
+    const depth = new Map<string, number>();
+
+    for (const node of nodes) {
+      inDegree.set(node, 0);
+      outgoing.set(node, []);
+      depth.set(node, 1);
+    }
+    for (const edge of edges) {
+      if (!inDegree.has(edge.from) || !inDegree.has(edge.to)) continue;
+      outgoing.get(edge.from)!.push(edge.to);
+      inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
+    }
+
+    const queue: string[] = [];
+    for (const [node, nodeInDegree] of inDegree.entries()) {
+      if (nodeInDegree === 0) queue.push(node);
+    }
+
+    let visited = 0;
+    let maxDepth = 1;
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      visited++;
+      const nodeDepth = depth.get(node) ?? 1;
+      maxDepth = Math.max(maxDepth, nodeDepth);
+      for (const next of outgoing.get(node) ?? []) {
+        const nextDepth = Math.max(depth.get(next) ?? 1, nodeDepth + 1);
+        depth.set(next, nextDepth);
+        const nextInDegree = (inDegree.get(next) ?? 0) - 1;
+        inDegree.set(next, nextInDegree);
+        if (nextInDegree === 0) queue.push(next);
+      }
+    }
+
+    return {
+      maxDepth,
+      cyclic: visited !== nodes.length,
+    };
+  }
+
+  private static parsePlannerStepType(
+    value: unknown,
+  ): PlannerStepType | undefined {
+    return value === "deterministic_tool" ||
+      value === "subagent_task" ||
+      value === "synthesis"
+      ? value
+      : undefined;
+  }
+
+  private static parsePlannerRequiredString(
+    value: unknown,
+  ): string | undefined {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private static parsePlannerOptionalString(
+    value: unknown,
+  ): string | undefined {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private static parsePlannerStringArray(
+    value: unknown,
+  ): readonly string[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const items: string[] = [];
+    for (const entry of value) {
+      if (typeof entry !== "string") return undefined;
+      const trimmed = entry.trim();
+      if (trimmed.length === 0) return undefined;
+      items.push(trimmed);
+    }
+    return items;
+  }
+
+  private static parsePlannerDependsOn(
+    value: unknown,
+  ): readonly string[] | undefined {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) return undefined;
+    const items: string[] = [];
+    for (const entry of value) {
+      if (typeof entry !== "string") return undefined;
+      const trimmed = entry.trim();
+      if (trimmed.length === 0) return undefined;
+      items.push(trimmed);
+    }
+    return items;
+  }
+
+  private static parsePlannerConfidence(
+    value: unknown,
+  ): number | undefined {
+    if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+    if (value >= 0 && value <= 1) return value;
+    if (value >= 0 && value <= 100) return value / 100;
+    return undefined;
+  }
+
+  private static sanitizePlannerStepName(name: string): string {
+    const trimmed = name.trim();
+    const normalized = trimmed.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 48);
+    return normalized.length > 0 ? normalized : "step";
+  }
+
+  private static dedupePlannerStepName(
+    name: string,
+    used: ReadonlySet<string>,
+  ): string {
+    if (!used.has(name)) return name;
+    for (let i = 2; i <= 999; i++) {
+      const candidate = `${name}_${i}`;
+      if (!used.has(candidate)) return candidate;
+    }
+    return `${name}_${Date.now().toString(36)}`;
   }
 
   private static parseJsonObjectFromText(
@@ -2424,12 +3883,489 @@ export class ChatExecutor {
     return undefined;
   }
 
+  private static isPipelineStopReasonHint(
+    value: unknown,
+  ): value is Exclude<LLMPipelineStopReason, "completed" | "tool_calls"> {
+    return (
+      value === "validation_error" ||
+      value === "provider_error" ||
+      value === "authentication_error" ||
+      value === "rate_limited" ||
+      value === "timeout" ||
+      value === "tool_error" ||
+      value === "budget_exceeded" ||
+      value === "no_progress" ||
+      value === "cancelled"
+    );
+  }
+
+  private static evaluateSubagentDeterministicChecks(
+    subagentSteps: readonly PlannerSubAgentTaskStepIntent[],
+    pipelineResult: PipelineResult,
+    plannerContext: PipelinePlannerContext,
+  ): SubagentVerifierDecision {
+    const stepAssessments: SubagentVerifierStepAssessment[] = [];
+    const unresolvedItems: string[] = [];
+    const artifactCorpus = ChatExecutor.collectVerifierArtifacts(
+      pipelineResult,
+      plannerContext,
+    );
+    const artifactText = artifactCorpus.join(" ").toLowerCase();
+
+    for (const step of subagentSteps) {
+      const raw = pipelineResult.context.results[step.name];
+      const issues: string[] = [];
+      let verdict: SubagentVerifierStepVerdict = "pass";
+      let retryable = true;
+      let output = "";
+      let status = "unknown";
+      let toolCallsCount = 0;
+
+      if (typeof raw !== "string") {
+        issues.push("missing_subagent_result");
+        verdict = "retry";
+      } else {
+        const parsed = ChatExecutor.parseJsonObjectFromText(raw);
+        if (!parsed) {
+          issues.push("malformed_subagent_result_payload");
+          verdict = "retry";
+          output = raw;
+        } else {
+          status = typeof parsed.status === "string"
+            ? parsed.status.toLowerCase()
+            : "unknown";
+          output = typeof parsed.output === "string"
+            ? parsed.output
+            : safeStringify(parsed.output ?? "");
+          toolCallsCount = Array.isArray(parsed.toolCalls)
+            ? parsed.toolCalls.length
+            : 0;
+          if (parsed.success === false || status === "failed") {
+            issues.push("child_reported_failure");
+            verdict = "retry";
+          }
+          if (status === "cancelled") {
+            issues.push("child_cancelled");
+            verdict = "fail";
+            retryable = false;
+          }
+          if (status === "delegation_fallback") {
+            issues.push("child_used_parent_fallback");
+            verdict = "fail";
+            retryable = false;
+          }
+        }
+      }
+
+      const trimmedOutput = output.trim();
+      if (trimmedOutput.length === 0) {
+        issues.push("empty_child_output");
+        verdict = ChatExecutor.moreSevereVerifierVerdict(verdict, "retry");
+      }
+
+      const expectsJson = step.inputContract.toLowerCase().includes("json");
+      if (expectsJson && trimmedOutput.length > 0) {
+        const parsedOutput = ChatExecutor.parseJsonObjectFromText(trimmedOutput);
+        if (!parsedOutput) {
+          issues.push("contract_violation_expected_json_output");
+          verdict = ChatExecutor.moreSevereVerifierVerdict(verdict, "retry");
+        }
+      }
+
+      const outputLower = trimmedOutput.toLowerCase();
+      const likelyEvidence =
+        /(line|file|log|trace|stderr|stdout|stack|error|\d)/.test(outputLower);
+      if (trimmedOutput.length > 0 && !likelyEvidence) {
+        issues.push("weak_evidence_density");
+      }
+
+      const expectationTokens = step.acceptanceCriteria
+        .flatMap((criterion) =>
+          ChatExecutor.extractVerifierTokens(criterion)
+        )
+        .slice(0, 24);
+      if (expectationTokens.length > 0 && trimmedOutput.length > 0) {
+        const matched = expectationTokens.some((token) =>
+          outputLower.includes(token)
+        );
+        if (!matched) {
+          issues.push("acceptance_criteria_not_evidenced");
+        }
+      }
+
+      if (
+        trimmedOutput.length > 0 &&
+        /(according to|as seen in|from the logs|based on)/.test(outputLower) &&
+        artifactText.length > 0 &&
+        !ChatExecutor.outputIntersectsArtifacts(outputLower, artifactText)
+      ) {
+        issues.push("hallucination_risk_artifact_mismatch");
+        verdict = ChatExecutor.moreSevereVerifierVerdict(verdict, "retry");
+      }
+
+      if (step.requiredToolCapabilities.length > 0 && toolCallsCount === 0) {
+        issues.push("missing_tool_result_consistency_signal");
+      }
+
+      const confidence = Math.max(0, 1 - Math.min(0.9, issues.length * 0.18));
+      if (verdict !== "pass" || confidence < DEFAULT_SUBAGENT_VERIFIER_MIN_CONFIDENCE) {
+        unresolvedItems.push(
+          `${step.name}:${issues.length > 0 ? issues.join(",") : "low_confidence"}`,
+        );
+      }
+      stepAssessments.push({
+        name: step.name,
+        verdict,
+        confidence,
+        retryable,
+        issues,
+        summary:
+          issues.length > 0
+            ? issues.join("; ")
+            : "deterministic verifier checks passed",
+      });
+    }
+
+    const overall = ChatExecutor.resolveVerifierOverall(stepAssessments);
+    const confidence = stepAssessments.length > 0
+      ? Number(
+          (
+            stepAssessments.reduce((sum, step) => sum + step.confidence, 0) /
+            stepAssessments.length
+          ).toFixed(4),
+        )
+      : 1;
+    return {
+      overall,
+      confidence,
+      unresolvedItems,
+      steps: stepAssessments,
+      source: "deterministic",
+    };
+  }
+
+  private static buildSubagentVerifierMessages(
+    systemPrompt: string,
+    messageText: string,
+    plannerPlan: PlannerPlan,
+    subagentSteps: readonly PlannerSubAgentTaskStepIntent[],
+    pipelineResult: PipelineResult,
+    plannerContext: PipelinePlannerContext,
+    deterministicDecision: SubagentVerifierDecision,
+  ): readonly LLMMessage[] {
+    const artifactBundle = ChatExecutor.collectVerifierArtifacts(
+      pipelineResult,
+      plannerContext,
+    );
+    const childBundle = subagentSteps.map((step) => ({
+      name: step.name,
+      objective: step.objective,
+      inputContract: step.inputContract,
+      acceptanceCriteria: step.acceptanceCriteria,
+      requiredToolCapabilities: step.requiredToolCapabilities,
+      rawResult: ChatExecutor.truncateText(
+        pipelineResult.context.results[step.name] ?? "missing",
+        MAX_SUBAGENT_VERIFIER_OUTPUT_CHARS,
+      ),
+    }));
+    return [
+      { role: "system", content: systemPrompt },
+      {
+        role: "system",
+        content:
+          "You are a strict verifier for delegated child outputs. " +
+          "Assess contract adherence, evidence quality, hallucination risk against provided artifacts, and tool-result consistency. " +
+          "Return JSON only with schema: " +
+          '{"overall":"pass|retry|fail","confidence":0..1,"unresolved":[string],"steps":[{"name":string,"verdict":"pass|retry|fail","confidence":0..1,"retryable":boolean,"issues":[string],"summary":string}]}.',
+      },
+      {
+        role: "user",
+        content: safeStringify({
+          request: messageText,
+          plannerReason: plannerPlan.reason,
+          deterministicVerifier: deterministicDecision,
+          childBundle,
+          artifacts: artifactBundle.map((entry) =>
+            ChatExecutor.truncateText(entry, MAX_SUBAGENT_VERIFIER_ARTIFACT_CHARS)
+          ),
+        }),
+      },
+    ];
+  }
+
+  private static parseSubagentVerifierDecision(
+    content: string,
+    subagentSteps: readonly PlannerSubAgentTaskStepIntent[],
+  ): SubagentVerifierDecision | undefined {
+    const parsed = ChatExecutor.parseJsonObjectFromText(content);
+    if (!parsed) return undefined;
+    const overallRaw = parsed.overall;
+    if (
+      overallRaw !== "pass" &&
+      overallRaw !== "retry" &&
+      overallRaw !== "fail"
+    ) {
+      return undefined;
+    }
+    const confidenceRaw = parsed.confidence;
+    const confidence = typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
+      ? Math.max(0, Math.min(1, confidenceRaw))
+      : 0.5;
+    const unresolvedItems = Array.isArray(parsed.unresolved)
+      ? parsed.unresolved
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      : [];
+    const stepsByName = new Map(subagentSteps.map((step) => [step.name, step]));
+    const parsedSteps = Array.isArray(parsed.steps) ? parsed.steps : [];
+    const assessments: SubagentVerifierStepAssessment[] = [];
+    for (const entry of parsedSteps) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        Array.isArray(entry)
+      ) {
+        continue;
+      }
+      const obj = entry as Record<string, unknown>;
+      const name = ChatExecutor.parsePlannerRequiredString(obj.name);
+      if (!name || !stepsByName.has(name)) continue;
+      const verdictRaw = obj.verdict;
+      if (
+        verdictRaw !== "pass" &&
+        verdictRaw !== "retry" &&
+        verdictRaw !== "fail"
+      ) {
+        continue;
+      }
+      const stepConfidenceRaw = obj.confidence;
+      const stepConfidence =
+        typeof stepConfidenceRaw === "number" && Number.isFinite(stepConfidenceRaw)
+          ? Math.max(0, Math.min(1, stepConfidenceRaw))
+          : confidence;
+      const retryable =
+        typeof obj.retryable === "boolean" ? obj.retryable : true;
+      const issues = Array.isArray(obj.issues)
+        ? obj.issues
+            .filter((issue): issue is string => typeof issue === "string")
+            .map((issue) => issue.trim())
+            .filter((issue) => issue.length > 0)
+        : [];
+      const summary = ChatExecutor.parsePlannerOptionalString(obj.summary) ??
+        (issues.length > 0 ? issues.join("; ") : "verifier assessment");
+      assessments.push({
+        name,
+        verdict: verdictRaw,
+        confidence: stepConfidence,
+        retryable,
+        issues,
+        summary,
+      });
+    }
+    if (assessments.length === 0) return undefined;
+    return {
+      overall: overallRaw,
+      confidence,
+      unresolvedItems,
+      steps: assessments,
+      source: "model",
+    };
+  }
+
+  private static mergeSubagentVerifierDecisions(
+    deterministic: SubagentVerifierDecision,
+    model: SubagentVerifierDecision,
+  ): SubagentVerifierDecision {
+    const byName = new Map<string, SubagentVerifierStepAssessment>();
+    for (const step of deterministic.steps) {
+      byName.set(step.name, step);
+    }
+    for (const step of model.steps) {
+      const existing = byName.get(step.name);
+      if (!existing) {
+        byName.set(step.name, step);
+        continue;
+      }
+      const mergedVerdict = ChatExecutor.moreSevereVerifierVerdict(
+        existing.verdict,
+        step.verdict,
+      );
+      const mergedIssues = [...new Set([...existing.issues, ...step.issues])];
+      byName.set(step.name, {
+        name: step.name,
+        verdict: mergedVerdict,
+        confidence: Math.min(existing.confidence, step.confidence),
+        retryable: existing.retryable && step.retryable,
+        issues: mergedIssues,
+        summary:
+          mergedIssues.length > 0
+            ? mergedIssues.join("; ")
+            : "merged verifier checks passed",
+      });
+    }
+    const steps = [...byName.values()];
+    const overall = ChatExecutor.resolveVerifierOverall(steps);
+    const unresolvedItems = [
+      ...new Set([
+        ...deterministic.unresolvedItems,
+        ...model.unresolvedItems,
+        ...steps
+          .filter((step) => step.verdict !== "pass")
+          .map((step) => `${step.name}:${step.summary}`),
+      ]),
+    ];
+    return {
+      overall,
+      confidence: Math.min(deterministic.confidence, model.confidence),
+      unresolvedItems,
+      steps,
+      source: "merged",
+    };
+  }
+
+  private static resolveVerifierOverall(
+    steps: readonly SubagentVerifierStepAssessment[],
+  ): "pass" | "retry" | "fail" {
+    let overall: "pass" | "retry" | "fail" = "pass";
+    for (const step of steps) {
+      overall = ChatExecutor.moreSevereVerifierVerdict(overall, step.verdict);
+      if (overall === "fail") return "fail";
+    }
+    return overall;
+  }
+
+  private static moreSevereVerifierVerdict(
+    a: SubagentVerifierStepVerdict,
+    b: SubagentVerifierStepVerdict,
+  ): SubagentVerifierStepVerdict {
+    const weight: Record<SubagentVerifierStepVerdict, number> = {
+      pass: 0,
+      retry: 1,
+      fail: 2,
+    };
+    return weight[a] >= weight[b] ? a : b;
+  }
+
+  private static extractVerifierTokens(value: string): string[] {
+    const matches = value.toLowerCase().match(/[a-z0-9_.-]+/g) ?? [];
+    const deduped = new Set<string>();
+    for (const match of matches) {
+      if (match.length < 4) continue;
+      deduped.add(match);
+    }
+    return [...deduped];
+  }
+
+  private static collectVerifierArtifacts(
+    pipelineResult: PipelineResult,
+    plannerContext: PipelinePlannerContext,
+  ): readonly string[] {
+    const artifacts: string[] = [];
+    for (const item of plannerContext.toolOutputs ?? []) {
+      artifacts.push(item.content);
+    }
+    for (const item of plannerContext.memory ?? []) {
+      artifacts.push(item.content);
+    }
+    for (const item of Object.values(pipelineResult.context.results)) {
+      if (typeof item !== "string") continue;
+      artifacts.push(item);
+    }
+    return artifacts
+      .map((entry) => ChatExecutor.truncateText(entry, MAX_SUBAGENT_VERIFIER_ARTIFACT_CHARS))
+      .filter((entry) => entry.length > 0)
+      .slice(0, 24);
+  }
+
+  private static outputIntersectsArtifacts(
+    outputLower: string,
+    artifactLower: string,
+  ): boolean {
+    const tokens = ChatExecutor.extractVerifierTokens(outputLower).slice(0, 24);
+    return tokens.some((token) =>
+      token.length >= 5 && artifactLower.includes(token)
+    );
+  }
+
   private static buildPlannerSynthesisMessages(
     systemPrompt: string,
     messageText: string,
     plannerPlan: PlannerPlan,
     pipelineResult: PipelineResult,
+    verificationDecision?: SubagentVerifierDecision,
   ): readonly LLMMessage[] {
+    const plannerSteps = plannerPlan.steps.map((step) => {
+      if (step.stepType === "deterministic_tool") {
+        return {
+          name: step.name,
+          stepType: step.stepType,
+          tool: step.tool,
+          dependsOn: step.dependsOn,
+        };
+      }
+      if (step.stepType === "subagent_task") {
+        return {
+          name: step.name,
+          stepType: step.stepType,
+          objective: step.objective,
+          dependsOn: step.dependsOn,
+          canRunParallel: step.canRunParallel,
+        };
+      }
+      return {
+        name: step.name,
+        stepType: step.stepType,
+        objective: step.objective,
+        dependsOn: step.dependsOn,
+      };
+    });
+    const subagentStepMap = new Map<
+      string,
+      SubagentVerifierStepAssessment
+    >(
+      (verificationDecision?.steps ?? []).map((step) => [step.name, step]),
+    );
+    const childOutputs = plannerPlan.steps
+      .filter((step): step is PlannerSubAgentTaskStepIntent => step.stepType === "subagent_task")
+      .map((step) => {
+        const raw = pipelineResult.context.results[step.name];
+        const parsed = typeof raw === "string"
+          ? ChatExecutor.parseJsonObjectFromText(raw)
+          : undefined;
+        const status =
+          typeof parsed?.status === "string" ? parsed.status : "unknown";
+        const output = typeof parsed?.output === "string"
+          ? parsed.output
+          : (typeof raw === "string" ? raw : "");
+        const marker =
+          status === "failed" || status === "cancelled"
+            ? status
+            : (
+                status === "delegation_fallback" ? "unresolved" : "completed"
+              );
+        const verification = subagentStepMap.get(step.name);
+        return {
+          name: step.name,
+          objective: step.objective,
+          status,
+          marker,
+          confidence: verification?.confidence ?? null,
+          verifierVerdict: verification?.verdict ?? null,
+          unresolvedIssues: verification?.issues ?? [],
+          output: ChatExecutor.truncateText(
+            output,
+            MAX_SUBAGENT_VERIFIER_OUTPUT_CHARS,
+          ),
+          provenanceTag: `[source:${step.name}]`,
+        };
+      });
+    const unresolvedItems = [
+      ...(verificationDecision?.unresolvedItems ?? []),
+      ...childOutputs
+        .filter((child) => child.marker !== "completed")
+        .map((child) => `${child.name}:${child.marker}`),
+    ];
     const renderedResults = safeStringify({
       plannerReason: plannerPlan.reason,
       status: pipelineResult.status,
@@ -2437,23 +4373,51 @@ export class ChatExecutor {
       totalSteps: pipelineResult.totalSteps,
       resumeFrom: pipelineResult.resumeFrom,
       error: pipelineResult.error,
+      plannerSteps,
+      plannerEdges: plannerPlan.edges,
       results: pipelineResult.context.results,
+      childOutputs,
+      verifier: verificationDecision ?? null,
+      unresolvedItems,
     });
     return [
       { role: "system", content: systemPrompt },
       {
         role: "system",
         content:
-          "Synthesize the final user-facing answer from deterministic workflow results. " +
-          "Do not invent unexecuted steps and do not call any tools.",
+          "Synthesize the final user-facing answer from deterministic workflow and delegated child results. " +
+          "Do not invent unexecuted steps and do not call any tools. " +
+          "When a major claim is derived from child output, append provenance tags like [source:<step_name>]. " +
+          "Explicitly surface unresolved items or failed/cancelled child outputs.",
       },
       {
         role: "user",
         content:
           `Original request:\n${messageText}\n\n` +
-          `Deterministic workflow results:\n${renderedResults}`,
+          `Workflow execution bundle (with child confidence/provenance markers):\n${renderedResults}`,
       },
     ];
+  }
+
+  private static ensureSubagentProvenanceCitations(
+    content: string,
+    plannerPlan: PlannerPlan,
+    pipelineResult: PipelineResult,
+  ): string {
+    const trimmed = content.trim();
+    const subagentStepNames = plannerPlan.steps
+      .filter((step): step is PlannerSubAgentTaskStepIntent => step.stepType === "subagent_task")
+      .map((step) => step.name)
+      .filter((name) =>
+        typeof pipelineResult.context.results[name] === "string"
+      );
+    if (subagentStepNames.length === 0) return content;
+    if (/\[source:[^\]]+\]/.test(trimmed)) return content;
+    const citationLine = `Sources: ${subagentStepNames
+      .map((name) => `[source:${name}]`)
+      .join(" ")}`;
+    if (trimmed.length === 0) return citationLine;
+    return `${content}\n\n${citationLine}`;
   }
 
   private static pipelineResultToToolCalls(
@@ -2464,17 +4428,57 @@ export class ChatExecutor {
     for (const step of steps) {
       const result = pipelineResult.context.results[step.name];
       if (typeof result !== "string") continue;
-      const inferredFailure =
-        result.startsWith("SKIPPED:") || didToolCallFail(false, result);
-      records.push({
-        name: step.tool,
-        args: step.args,
-        result,
-        isError: inferredFailure,
-        durationMs: 0,
-      });
+      if (step.stepType === "deterministic_tool") {
+        const inferredFailure =
+          result.startsWith("SKIPPED:") || didToolCallFail(false, result);
+        records.push({
+          name: step.tool,
+          args: step.args,
+          result,
+          isError: inferredFailure,
+          durationMs: 0,
+        });
+        continue;
+      }
+      if (step.stepType === "subagent_task") {
+        const inferredFailure = ChatExecutor.didSubagentStepFail(result);
+        records.push({
+          name: "execute_with_agent",
+          args: {
+            objective: step.objective,
+            requiredToolCapabilities: step.requiredToolCapabilities,
+            stepName: step.name,
+          },
+          result,
+          isError: inferredFailure,
+          durationMs: 0,
+        });
+      }
     }
     return records;
+  }
+
+  private static didSubagentStepFail(result: string): boolean {
+    if (result.startsWith("SKIPPED:")) return true;
+    try {
+      const parsed = JSON.parse(result) as unknown;
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return didToolCallFail(false, result);
+      }
+      const obj = parsed as Record<string, unknown>;
+      if (obj.success === false) return true;
+      if (obj.status === "failed" || obj.status === "cancelled") return true;
+      if (typeof obj.error === "string" && obj.error.trim().length > 0) {
+        return true;
+      }
+      return false;
+    } catch {
+      return didToolCallFail(false, result);
+    }
   }
 
   private static buildSemanticToolCallKey(
@@ -2632,6 +4636,15 @@ export class ChatExecutor {
   /** Extract plain-text content from a gateway message. */
   private static extractMessageText(message: GatewayMessage): string {
     return typeof message.content === "string" ? message.content : "";
+  }
+
+  /** Extract plain-text content from an LLM message. */
+  private static extractLLMMessageText(message: LLMMessage): string {
+    if (typeof message.content === "string") return message.content;
+    return message.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join(" ");
   }
 
   private static truncateText(value: string, maxChars: number): string {

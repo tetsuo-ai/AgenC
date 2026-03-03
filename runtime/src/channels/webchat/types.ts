@@ -10,6 +10,16 @@
 // Re-export the canonical WebChatHandler from gateway/types to avoid duplication
 export type { WebChatHandler } from "../../gateway/types.js";
 
+import type {
+  ChatCancelledPayload,
+  ChatSessionPayload,
+  ChatSessionsPayload,
+  EventsEventPayload,
+  EventsSubscriptionPayload,
+  SubagentLifecyclePayload,
+  SubagentLifecycleType,
+} from "./protocol.js";
+
 // ============================================================================
 // WebChatDeps (dependency injection)
 // ============================================================================
@@ -76,31 +86,43 @@ export interface WebChatChannelConfig {
 
 export interface ChatMessageRequest {
   type: "chat.message";
-  content: string;
-  attachments?: Array<{ type: string; url?: string; mimeType: string }>;
+  payload: {
+    content: string;
+    attachments?: Array<{ type: string; url?: string; mimeType: string }>;
+  };
   id?: string;
 }
 
 export interface ChatTypingRequest {
   type: "chat.typing";
-  active: boolean;
+  payload: { active: boolean };
   id?: string;
 }
 
 export interface ChatHistoryRequest {
   type: "chat.history";
-  limit?: number;
+  payload?: { limit?: number };
   id?: string;
 }
 
 export interface ChatResumeRequest {
   type: "chat.resume";
-  sessionId: string;
+  payload: { sessionId: string };
   id?: string;
 }
 
 export interface ChatNewRequest {
   type: "chat.new";
+  id?: string;
+}
+
+export interface ChatSessionsRequest {
+  type: "chat.sessions";
+  id?: string;
+}
+
+export interface ChatCancelRequest {
+  type: "chat.cancel";
   id?: string;
 }
 
@@ -116,51 +138,55 @@ export interface SkillsListRequest {
 
 export interface SkillsToggleRequest {
   type: "skills.toggle";
-  skillName: string;
-  enabled: boolean;
+  payload: {
+    skillName: string;
+    enabled: boolean;
+  };
   id?: string;
 }
 
 export interface TasksListRequest {
   type: "tasks.list";
-  filter?: { status?: string };
+  payload?: { filter?: { status?: string } };
   id?: string;
 }
 
 export interface TasksCreateRequest {
   type: "tasks.create";
-  params: Record<string, unknown>;
+  payload: { params: Record<string, unknown> };
   id?: string;
 }
 
 export interface TasksCancelRequest {
   type: "tasks.cancel";
-  taskId: string;
+  payload: { taskId: string };
   id?: string;
 }
 
 export interface MemorySearchRequest {
   type: "memory.search";
-  query: string;
+  payload: { query: string };
   id?: string;
 }
 
 export interface MemorySessionsRequest {
   type: "memory.sessions";
-  limit?: number;
+  payload?: { limit?: number };
   id?: string;
 }
 
 export interface ApprovalRespondRequest {
   type: "approval.respond";
-  requestId: string;
-  approved: boolean;
+  payload: {
+    requestId: string;
+    approved: boolean;
+  };
   id?: string;
 }
 
 export interface EventsSubscribeRequest {
   type: "events.subscribe";
-  filters?: string[];
+  payload?: { filters?: string[] };
   id?: string;
 }
 
@@ -176,22 +202,26 @@ export interface DesktopListRequest {
 
 export interface DesktopCreateRequest {
   type: "desktop.create";
-  sessionId?: string;
-  maxMemory?: string;
-  maxCpu?: string;
+  payload?: {
+    sessionId?: string;
+    maxMemory?: string;
+    maxCpu?: string;
+  };
   id?: string;
 }
 
 export interface DesktopAttachRequest {
   type: "desktop.attach";
-  containerId: string;
-  sessionId?: string;
+  payload: {
+    containerId: string;
+    sessionId?: string;
+  };
   id?: string;
 }
 
 export interface DesktopDestroyRequest {
   type: "desktop.destroy";
-  containerId: string;
+  payload: { containerId: string };
   id?: string;
 }
 
@@ -201,20 +231,23 @@ export interface DesktopDestroyRequest {
 
 export interface ChatMessageResponse {
   type: "chat.message";
-  content: string;
-  sender: "agent";
-  timestamp: number;
+  payload: {
+    content: string;
+    sender: "agent";
+    timestamp: number;
+  };
   id?: string;
 }
 
 export interface ChatTypingResponse {
   type: "chat.typing";
-  active: boolean;
+  payload: { active: boolean };
+  id?: string;
 }
 
 export interface ChatHistoryResponse {
   type: "chat.history";
-  messages: Array<{
+  payload: Array<{
     content: string;
     sender: "user" | "agent";
     timestamp: number;
@@ -224,37 +257,71 @@ export interface ChatHistoryResponse {
 
 export interface ChatResumedResponse {
   type: "chat.resumed";
-  sessionId: string;
-  messageCount: number;
+  payload: {
+    sessionId: string;
+    messageCount: number;
+  };
+  id?: string;
+}
+
+export interface ChatSessionResponse {
+  type: "chat.session";
+  payload: ChatSessionPayload;
+  id?: string;
+}
+
+export interface ChatSessionsResponse {
+  type: "chat.sessions";
+  payload: ChatSessionsPayload;
+  id?: string;
+}
+
+export interface ChatCancelledResponse {
+  type: "chat.cancelled";
+  payload: ChatCancelledPayload;
   id?: string;
 }
 
 export interface ToolExecutingResponse {
   type: "tools.executing";
-  toolName: string;
-  toolCallId?: string;
-  args: Record<string, unknown>;
+  payload: {
+    toolName: string;
+    toolCallId?: string;
+    args: Record<string, unknown>;
+    subagentSessionId?: string;
+  };
+  id?: string;
 }
 
 export interface ToolResultResponse {
   type: "tools.result";
-  toolName: string;
-  toolCallId?: string;
-  result: string;
-  durationMs: number;
-  isError?: boolean;
+  payload: {
+    toolName: string;
+    toolCallId?: string;
+    result: string;
+    durationMs: number;
+    isError?: boolean;
+    subagentSessionId?: string;
+  };
+  id?: string;
 }
 
 export interface ChatStreamResponse {
   type: "chat.stream";
-  content: string;
-  done: boolean;
+  payload: {
+    content: string;
+    done: boolean;
+  };
+  id?: string;
 }
 
 export interface AgentStatusResponse {
   type: "agent.status";
-  phase: "thinking" | "tool_call" | "generating" | "idle";
-  detail?: string;
+  payload: {
+    phase: "thinking" | "tool_call" | "generating" | "idle";
+    detail?: string;
+  };
+  id?: string;
 }
 
 export interface StatusUpdateResponse {
@@ -314,16 +381,39 @@ export interface MemorySessionsResponse {
 
 export interface ApprovalRequestResponse {
   type: "approval.request";
-  requestId: string;
-  action: string;
-  details: Record<string, unknown>;
+  payload: {
+    requestId: string;
+    action: string;
+    details: Record<string, unknown>;
+    message?: string;
+    parentSessionId?: string;
+    subagentSessionId?: string;
+  };
+  id?: string;
 }
 
 export interface EventsEventResponse {
   type: "events.event";
-  eventType: string;
-  data: Record<string, unknown>;
-  timestamp: number;
+  payload: EventsEventPayload;
+  id?: string;
+}
+
+export interface EventsSubscribedResponse {
+  type: "events.subscribed";
+  payload: EventsSubscriptionPayload;
+  id?: string;
+}
+
+export interface EventsUnsubscribedResponse {
+  type: "events.unsubscribed";
+  payload: EventsSubscriptionPayload;
+  id?: string;
+}
+
+export interface SubagentLifecycleResponse {
+  type: SubagentLifecycleType;
+  payload: SubagentLifecyclePayload;
+  id?: string;
 }
 
 export interface ErrorResponse {
@@ -344,7 +434,7 @@ export interface VoiceStartRequest {
 
 export interface VoiceAudioRequest {
   type: "voice.audio";
-  audio: string; // base64-encoded PCM
+  payload: { audio: string }; // base64-encoded PCM
   id?: string;
 }
 

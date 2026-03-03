@@ -64,11 +64,9 @@ export function ChatInput({
   onPushToTalkStop,
 }: ChatInputProps) {
   const [value, setValue] = useState('');
-  const [showEmoji, setShowEmoji] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const emojiRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slashQuery = useMemo(() => getSlashQuery(value), [value]);
   const visibleCommands = useMemo(() => {
@@ -107,7 +105,6 @@ export function ChatInput({
     if (files && files.length > 0) {
       setAttachments((prev) => [...prev, ...Array.from(files)]);
     }
-    // Reset so the same file can be re-selected
     e.target.value = '';
   }, []);
 
@@ -151,28 +148,9 @@ export function ChatInput({
     }
   }, []);
 
-  const insertEmoji = useCallback((emoji: string) => {
-    setValue((v) => v + emoji);
-    setShowEmoji(false);
-    textareaRef.current?.focus();
-  }, []);
-
-  // Close emoji picker on outside click
-  useEffect(() => {
-    if (!showEmoji) return;
-    const handler = (e: MouseEvent) => {
-      if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) {
-        setShowEmoji(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showEmoji]);
-
   return (
-    <div className="px-3 pb-3 md:px-6 md:pb-5">
-      {/* Input container */}
-      <div className="max-w-3xl mx-auto border border-tetsuo-200 rounded-2xl bg-surface shadow-sm overflow-visible relative">
+    <div className="px-3 pb-3 md:px-6 md:pb-4">
+      <div className="border border-bbs-border bg-bbs-surface overflow-visible relative">
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -185,64 +163,47 @@ export function ChatInput({
 
         {/* Attachment chips */}
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-4 pt-3">
+          <div className="flex flex-wrap gap-2 px-3 pt-2">
             {attachments.map((file, i) => (
               <span
                 key={`${file.name}-${i}`}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-tetsuo-100 text-tetsuo-700 text-xs font-medium"
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs text-bbs-cyan border border-bbs-border"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                {file.name}
+                [{file.name}]
                 <button
                   onClick={() => removeAttachment(i)}
-                  className="ml-0.5 text-tetsuo-400 hover:text-tetsuo-700 transition-colors"
+                  className="text-bbs-gray hover:text-bbs-red transition-colors"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                  x
                 </button>
               </span>
             ))}
           </div>
         )}
 
-        {/* Top row: attachment icon + textarea */}
-        <div className="flex items-start gap-3 px-4 pt-3 pb-1">
-          {/* Attachment button */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled}
-            className="shrink-0 mt-0.5 text-accent hover:text-accent-dark transition-colors disabled:opacity-40"
-            title="Attach file"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
-          </button>
-
-          {/* Textarea */}
+        {/* Prompt line */}
+        <div className="flex items-start gap-2 px-3 py-2">
+          <span className="text-bbs-purple font-bold shrink-0 mt-0.5">{'>'}</span>
           <textarea
             ref={textareaRef}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
-            placeholder="Message to AgenC..."
+            placeholder="Enter command..."
             disabled={disabled}
             rows={1}
-            className="flex-1 text-sm text-tetsuo-900 resize-none focus:outline-none placeholder:text-tetsuo-500 disabled:opacity-50 bg-transparent leading-relaxed caret-tetsuo-900"
+            className="flex-1 text-sm text-bbs-white resize-none focus:outline-none placeholder:text-bbs-gray disabled:opacity-50 bg-transparent leading-relaxed caret-bbs-purple font-mono"
           />
         </div>
 
+        {/* Slash command menu */}
         {showCommandMenu && (
           <div
             data-testid="slash-command-menu"
-            className="mx-4 mb-2 border border-tetsuo-200 rounded-xl bg-surface shadow-sm overflow-hidden"
+            className="mx-3 mb-2 border border-bbs-border bg-bbs-dark overflow-hidden"
           >
-            <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-tetsuo-400 border-b border-tetsuo-100">
+            <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-bbs-gray border-b border-bbs-border">
               Commands
             </div>
             <div className="max-h-56 overflow-y-auto">
@@ -252,43 +213,32 @@ export function ChatInput({
                   type="button"
                   data-testid={`slash-command-${cmd.name}`}
                   onClick={() => applyCommand(cmd)}
-                  className={`w-full text-left px-3 py-2.5 transition-colors ${
-                    idx === activeCommandIndex ? 'bg-tetsuo-100' : 'hover:bg-tetsuo-50'
+                  className={`w-full text-left px-3 py-2 transition-colors text-xs ${
+                    idx === activeCommandIndex ? 'bg-bbs-surface text-bbs-white' : 'text-bbs-lightgray hover:bg-bbs-surface/50'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-accent">/{cmd.name}</span>
-                    {cmd.args && <span className="text-[11px] text-tetsuo-500 font-mono">{cmd.args}</span>}
+                    <span className="text-bbs-purple font-mono">{'>'} /{cmd.name}</span>
+                    {cmd.args && <span className="text-bbs-gray font-mono">{cmd.args}</span>}
                   </div>
-                  <div className="mt-0.5 text-xs text-tetsuo-500">{cmd.description}</div>
+                  <div className="mt-0.5 text-bbs-gray">{cmd.description}</div>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Bottom row: emoji, mic, send */}
-        <div className="flex items-center justify-end gap-2 px-4 pb-2.5">
-          {/* Emoji (desktop only) */}
-          <div className="relative hidden md:block" ref={emojiRef}>
-            <button
-              onClick={() => setShowEmoji((v) => !v)}
-              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                showEmoji ? 'text-accent bg-accent-bg' : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-50'
-              }`}
-              title="Emoji"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                <line x1="9" y1="9" x2="9.01" y2="9" />
-                <line x1="15" y1="9" x2="15.01" y2="9" />
-              </svg>
-            </button>
-            {showEmoji && <EmojiPicker onSelect={insertEmoji} />}
-          </div>
+        {/* Bottom row: attach, mic, send/stop */}
+        <div className="flex items-center justify-end gap-2 px-3 pb-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            className="text-xs text-bbs-gray hover:text-bbs-cyan transition-colors disabled:opacity-40"
+            title="Attach file"
+          >
+            [FILE]
+          </button>
 
-          {/* Mic / Voice */}
           {onVoiceToggle && (
             <VoiceButton
               voiceState={voiceState}
@@ -300,68 +250,26 @@ export function ChatInput({
             />
           )}
 
-          {/* Send / Stop button */}
           {isGenerating ? (
             <button
               onClick={onStop}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-colors"
+              className="text-xs text-bbs-red hover:text-bbs-white transition-colors font-bold"
               title="Stop generation"
             >
-              Stop
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
+              [STOP]
             </button>
           ) : (
             <button
               onClick={handleSubmit}
               disabled={disabled || (!value.trim() && attachments.length === 0)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent text-white text-sm font-medium hover:bg-accent-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs text-bbs-purple hover:text-bbs-white transition-colors font-bold disabled:opacity-40 disabled:cursor-not-allowed"
               title="Send message"
             >
-              Send
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405z" />
-              </svg>
+              [SEND]
             </button>
           )}
         </div>
       </div>
-
-      {/* Disclaimer */}
-      <p className="max-w-3xl mx-auto text-center text-xs text-tetsuo-400 mt-3">
-        AgenC can make mistakes. Check our Terms &amp; Conditions.
-      </p>
-    </div>
-  );
-}
-
-const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
-  { label: 'Smileys', emojis: ['😀','😂','🥹','😊','😎','🤔','😅','🙂','😍','🤩','😤','😭','🥳','😴','🤯','🫡'] },
-  { label: 'Gestures', emojis: ['👍','👎','👏','🙌','🤝','✌️','🤞','💪','🫶','👋','🖐️','✋'] },
-  { label: 'Objects', emojis: ['🔥','💡','⚡','🚀','💰','🎯','✅','❌','⭐','💎','🔑','🛡️'] },
-  { label: 'Symbols', emojis: ['❤️','💜','💙','💚','🧡','🖤','💯','⚠️','🔔','📌','🏷️','📎'] },
-];
-
-function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
-  return (
-    <div className="absolute bottom-full right-0 mb-2 w-[280px] max-w-[calc(100vw-2rem)] bg-surface border border-tetsuo-200 rounded-xl shadow-lg p-3 space-y-2 animate-panel-enter z-50">
-      {EMOJI_GROUPS.map((group) => (
-        <div key={group.label}>
-          <div className="text-[10px] text-tetsuo-400 uppercase tracking-wider mb-1">{group.label}</div>
-          <div className="flex flex-wrap gap-0.5">
-            {group.emojis.map((emoji) => (
-              <button
-                key={emoji}
-                onClick={() => onSelect(emoji)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-lg hover:bg-tetsuo-100 transition-colors"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

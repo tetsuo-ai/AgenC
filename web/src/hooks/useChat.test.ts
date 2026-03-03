@@ -59,6 +59,35 @@ describe("useChat tool result matching", () => {
     });
   });
 
+  it("ignores top-level tool events tagged for subagents", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useChat({ send, connected: true }));
+
+    act(() => {
+      result.current.handleMessage({
+        type: "tools.executing",
+        payload: {
+          toolName: "desktop.bash",
+          toolCallId: "tc-sub-1",
+          subagentSessionId: "subagent:child-1",
+          args: { command: "echo hi" },
+        },
+      } as WSMessage);
+      result.current.handleMessage({
+        type: "tools.result",
+        payload: {
+          toolName: "desktop.bash",
+          toolCallId: "tc-sub-1",
+          subagentSessionId: "subagent:child-1",
+          result: "ok",
+          durationMs: 18,
+        },
+      } as WSMessage);
+    });
+
+    expect(result.current.messages).toHaveLength(0);
+  });
+
   it("does not match tool results by name when toolCallId is present", () => {
     const send = vi.fn();
 
@@ -281,6 +310,123 @@ describe("useChat session lifecycle", () => {
       contextWindowTokens: 128_000,
       promptTokens: 2048,
       sections: [{ id: "memory", label: "Memory", tokens: 800, percent: 31.2 }],
+    });
+  });
+});
+
+describe("useChat subagent lifecycle timeline", () => {
+  it("tracks delegated child lifecycle and nested tool activity", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useChat({ send, connected: true }));
+
+    act(() => {
+      result.current.handleMessage({
+        type: "subagents.planned",
+        payload: {
+          sessionId: "session-parent",
+          parentSessionId: "session-parent",
+          timestamp: 1000,
+          data: { stepName: "research", objective: "research target" },
+        },
+      } as WSMessage);
+      result.current.handleMessage({
+        type: "subagents.spawned",
+        payload: {
+          sessionId: "session-parent",
+          parentSessionId: "session-parent",
+          subagentSessionId: "subagent:child-1",
+          timestamp: 1100,
+          data: { stepName: "research", objective: "research target" },
+        },
+      } as WSMessage);
+      result.current.handleMessage({
+        type: "subagents.tool.executing",
+        payload: {
+          sessionId: "session-parent",
+          parentSessionId: "session-parent",
+          subagentSessionId: "subagent:child-1",
+          toolName: "desktop.bash",
+          timestamp: 1200,
+          data: { toolCallId: "tc-1", args: { command: "echo hi" } },
+        },
+      } as WSMessage);
+      result.current.handleMessage({
+        type: "subagents.tool.result",
+        payload: {
+          sessionId: "session-parent",
+          parentSessionId: "session-parent",
+          subagentSessionId: "subagent:child-1",
+          toolName: "desktop.bash",
+          timestamp: 1300,
+          data: {
+            toolCallId: "tc-1",
+            result: "ok",
+            durationMs: 25,
+            isError: false,
+          },
+        },
+      } as WSMessage);
+      result.current.handleMessage({
+        type: "subagents.completed",
+        payload: {
+          sessionId: "session-parent",
+          parentSessionId: "session-parent",
+          subagentSessionId: "subagent:child-1",
+          timestamp: 1400,
+          data: { durationMs: 200, output: "done" },
+        },
+      } as WSMessage);
+    });
+
+    const agentMessage = result.current.messages.find((message) => message.sender === "agent");
+    expect(agentMessage).toBeDefined();
+    const subagents = agentMessage?.subagents ?? [];
+    expect(subagents).toHaveLength(1);
+    expect(subagents[0]).toMatchObject({
+      subagentSessionId: "subagent:child-1",
+      status: "completed",
+      outputSummary: "done",
+      elapsedMs: 200,
+    });
+    expect(subagents[0]?.tools).toHaveLength(1);
+    expect(subagents[0]?.tools[0]).toMatchObject({
+      toolName: "desktop.bash",
+      toolCallId: "tc-1",
+      status: "completed",
+      result: "ok",
+      durationMs: 25,
+    });
+  });
+
+  it("hydrates subagent failures from events.event envelopes", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useChat({ send, connected: true }));
+
+    act(() => {
+      result.current.handleMessage({
+        type: "events.event",
+        payload: {
+          eventType: "subagents.failed",
+          timestamp: 2000,
+          traceId: "trace-a",
+          data: {
+            sessionId: "session-parent",
+            parentSessionId: "session-parent",
+            subagentSessionId: "subagent:child-2",
+            reason: "tool misuse",
+          },
+        },
+      } as WSMessage);
+    });
+
+    const agentMessage = result.current.messages.find((message) => message.sender === "agent");
+    const subagents = agentMessage?.subagents ?? [];
+    expect(subagents).toHaveLength(1);
+    expect(subagents[0]).toMatchObject({
+      subagentSessionId: "subagent:child-2",
+      status: "failed",
+      errorReason: "tool misuse",
+      traceId: "trace-a",
     });
   });
 });

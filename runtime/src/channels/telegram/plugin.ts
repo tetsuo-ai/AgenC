@@ -383,14 +383,15 @@ export class TelegramChannel extends BaseChannelPlugin {
       metadata,
     });
 
-    try {
-      await this.context.onMessage(gatewayMsg);
-    } catch (err) {
+    // Do not await gateway processing here. Long-running turns (including
+    // approval waits) can otherwise block long-poll update consumption and
+    // prevent follow-up approval commands from being delivered.
+    void this.context.onMessage(gatewayMsg).catch((err) => {
       this.context.logger.warn?.(
         "Telegram: error delivering message to gateway:",
         err,
       );
-    }
+    });
   }
 
   // --------------------------------------------------------------------------

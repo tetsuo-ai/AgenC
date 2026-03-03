@@ -57,6 +57,10 @@ export interface ApprovalRequest {
   readonly args: Record<string, unknown>;
   /** Session that triggered the request. */
   readonly sessionId: string;
+  /** Optional parent/root session for delegated child requests. */
+  readonly parentSessionId?: string;
+  /** Optional delegated child session identifier. */
+  readonly subagentSessionId?: string;
   /** Human-readable message describing what needs approval. */
   readonly message: string;
   /** Timestamp when the request was created. */
@@ -206,6 +210,7 @@ export class ApprovalEngine {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly responseHandlers: ApprovalResponseHandler[] = [];
   private readonly elevations = new Map<string, Set<string>>();
+  private readonly denials = new Map<string, Set<string>>();
   private idCounter = 0;
 
   constructor(config?: ApprovalEngineConfig) {
@@ -266,12 +271,28 @@ export class ApprovalEngine {
     sessionId: string,
     message: string,
     rule: ApprovalRule,
+    context?: {
+      parentSessionId?: string;
+      subagentSessionId?: string;
+    },
   ): ApprovalRequest {
+    const parentSessionId =
+      typeof context?.parentSessionId === "string" &&
+      context.parentSessionId.trim().length > 0
+        ? context.parentSessionId.trim()
+        : undefined;
+    const subagentSessionId =
+      typeof context?.subagentSessionId === "string" &&
+      context.subagentSessionId.trim().length > 0
+        ? context.subagentSessionId.trim()
+        : undefined;
     return {
       id: this.generateId(),
       toolName,
       args,
       sessionId,
+      ...(parentSessionId ? { parentSessionId } : {}),
+      ...(subagentSessionId ? { subagentSessionId } : {}),
       message,
       createdAt: this.now(),
       rule,
@@ -311,6 +332,30 @@ export class ApprovalEngine {
 
     if (response.disposition === "always") {
       this.elevate(entry.request.sessionId, entry.request.rule.tool);
+      this.clearDeniedPattern(entry.request.sessionId, entry.request.rule.tool);
+      if (entry.request.parentSessionId) {
+        this.clearDeniedPattern(
+          entry.request.parentSessionId,
+          entry.request.rule.tool,
+        );
+      }
+    }
+
+    if (response.disposition === "yes") {
+      this.clearDeniedPattern(entry.request.sessionId, entry.request.rule.tool);
+      if (entry.request.parentSessionId) {
+        this.clearDeniedPattern(
+          entry.request.parentSessionId,
+          entry.request.rule.tool,
+        );
+      }
+    }
+
+    if (response.disposition === "no") {
+      this.deny(entry.request.sessionId, entry.request.rule.tool);
+      if (entry.request.parentSessionId) {
+        this.deny(entry.request.parentSessionId, entry.request.rule.tool);
+      }
     }
 
     this.notifyHandlers(entry.request, response);
@@ -364,6 +409,32 @@ export class ApprovalEngine {
   }
 
   /**
+   * Check whether a tool was explicitly denied for this request tree.
+   * When `parentSessionId` is provided, denials on the parent also apply.
+   */
+  isToolDenied(
+    sessionId: string,
+    toolName: string,
+    parentSessionId?: string,
+  ): boolean {
+    const scopes = new Set<string>();
+    const normalizedSession = sessionId.trim();
+    if (normalizedSession.length > 0) scopes.add(normalizedSession);
+    const normalizedParent = parentSessionId?.trim();
+    if (normalizedParent && normalizedParent.length > 0) {
+      scopes.add(normalizedParent);
+    }
+    for (const scope of scopes) {
+      const deniedPatterns = this.denials.get(scope);
+      if (!deniedPatterns) continue;
+      for (const pattern of deniedPatterns) {
+        if (globMatch(pattern, toolName)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Clear all pending requests, cancel their timers, and auto-deny them.
    * Any caller awaiting `requestApproval()` receives a `'no'` response.
    * Call during shutdown to prevent timer leaks and hanging promises.
@@ -374,6 +445,8 @@ export class ApprovalEngine {
       entry.resolve({ requestId: entry.request.id, disposition: "no" });
     }
     this.pending.clear();
+    this.denials.clear();
+    this.elevations.clear();
   }
 
   /**
@@ -393,6 +466,28 @@ export class ApprovalEngine {
       } catch {
         // Notification failures must not block promise resolution
       }
+    }
+  }
+
+  private deny(sessionId: string, toolPattern: string): void {
+    const normalizedSession = sessionId.trim();
+    if (normalizedSession.length === 0) return;
+    let patterns = this.denials.get(normalizedSession);
+    if (!patterns) {
+      patterns = new Set();
+      this.denials.set(normalizedSession, patterns);
+    }
+    patterns.add(toolPattern);
+  }
+
+  private clearDeniedPattern(sessionId: string, toolPattern: string): void {
+    const normalizedSession = sessionId.trim();
+    if (normalizedSession.length === 0) return;
+    const patterns = this.denials.get(normalizedSession);
+    if (!patterns) return;
+    patterns.delete(toolPattern);
+    if (patterns.size === 0) {
+      this.denials.delete(normalizedSession);
     }
   }
 }

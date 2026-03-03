@@ -3,7 +3,7 @@
 This runbook provides a deterministic, command-by-command workflow for replay-based incident reconstruction.
 It covers both the CLI (`agenc-runtime replay ...`) and MCP tool paths (`agenc_replay_*`).
 
-For runtime LLM/tool-pipeline incidents (context growth, tool-turn ordering, desktop hangs), use:
+For runtime LLM/tool-pipeline incidents (context growth, tool-turn ordering, desktop hangs, delegation orchestration), use:
 `docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md`.
 
 ---
@@ -111,6 +111,59 @@ Capture one `traceId`-correlated chain:
 - `*.chat.response`
 
 Then disable trace again after triage.
+
+### 6) Delegation orchestration regression template
+
+```bash
+npm --prefix runtime run benchmark:delegation:ci
+npm --prefix runtime run benchmark:delegation:gates
+```
+
+Expected:
+
+- delegation gate output reports `PASS`
+- harmful delegation and runaway caps remain within thresholds
+- pass@k and pass^k deltas do not regress below required baselines
+
+Check artifact fields in `benchmarks/artifacts/delegation-quality.ci.json`:
+
+- `delegation.delegationAttemptRate`
+- `delegation.usefulDelegationRate`
+- `delegation.harmfulDelegationRate`
+- `delegation.depthCapHitRate`
+- `delegation.fanoutCapHitRate`
+- `delegation.passAtKDeltaVsBaseline`
+- `delegation.passCaretKDeltaVsBaseline`
+
+### 7) Decomposition search template
+
+```bash
+npm --prefix runtime run benchmark:decomposition-search
+```
+
+Expected output:
+
+- JSON artifact written to `benchmarks/artifacts/decomposition-search.latest.json`
+- includes `paretoFrontierIds[]` and `promotedVariantIds[]`
+- promoted variants satisfy quality/cost/latency promotion gates
+
+### 8) Delegation learning diagnostics template
+
+When investigating routing drift or unstable delegation behavior, capture one traced turn and inspect:
+
+- `plannerSummary.delegationDecision`
+- `plannerSummary.delegationPolicyTuning`
+- `plannerSummary.subagentVerification`
+- `stopReason` + `stopReasonDetail`
+
+Expected:
+
+- arm selection reason is explicit (`initial_exploration`, `epsilon_exploration`, `ucb_exploitation`, `fallback`)
+- tuned threshold is present when policy learning is enabled
+- final reward signal is present after turn completion
+- useful-delegation proxy fields are present for delegated turns (`usefulDelegation`, `usefulDelegationScore`, `rewardProxyVersion`)
+- hard-block and handoff-confidence vetoes are explicit in `plannerSummary.delegationDecision.reason`
+- if runtime aggressiveness override is active, `/delegation status` shows profile and effective threshold
 
 ---
 

@@ -1,6 +1,11 @@
 export type {
   GatewayConfig,
   GatewayLLMConfig,
+  GatewaySubagentConfig,
+  GatewaySubagentPolicyLearningConfig,
+  GatewaySubagentMode,
+  GatewaySubagentChildToolAllowlistStrategy,
+  GatewaySubagentFallbackBehavior,
   GatewayMemoryConfig,
   GatewayChannelConfig,
   GatewayAgentConfig,
@@ -141,6 +146,8 @@ export type {
   IsolatedSessionContext,
   SessionIsolationManagerConfig,
   AuthState,
+  SessionContextIdentity,
+  SubAgentSessionIdentity,
 } from "./session-isolation.js";
 export { SessionIsolationManager } from "./session-isolation.js";
 
@@ -353,5 +360,7 @@ export {
   SubAgentManager,
   DEFAULT_SUB_AGENT_TIMEOUT_MS,
   MAX_CONCURRENT_SUB_AGENTS,
+  DEFAULT_MAX_RETAINED_TERMINAL_SUB_AGENTS,
+  DEFAULT_TERMINAL_SUB_AGENT_RETENTION_MS,
   SUB_AGENT_SESSION_PREFIX,
 } from "./sub-agent.js";

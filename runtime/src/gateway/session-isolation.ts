@@ -49,6 +49,19 @@ export interface IsolatedSessionContext {
   readonly keypair?: Keypair;
 }
 
+export interface SessionContextIdentity {
+  readonly workspaceId: string;
+  readonly parentSessionId?: string;
+  readonly subagentSessionId?: string;
+}
+
+export interface SubAgentSessionIdentity extends SessionContextIdentity {
+  readonly parentSessionId: string;
+  readonly subagentSessionId: string;
+}
+
+type SessionContextRef = string | SessionContextIdentity;
+
 export interface SessionIsolationManagerConfig {
   readonly workspaceManager: WorkspaceManager;
   readonly createMemoryBackend?: (workspace: AgentWorkspace) => MemoryBackend;
@@ -101,6 +114,26 @@ class NoopLLMProvider implements LLMProvider {
   }
 }
 
+function normalizeContextIdentity(
+  context: SessionContextRef,
+): SessionContextIdentity {
+  if (typeof context === "string") {
+    return { workspaceId: context };
+  }
+  return context;
+}
+
+function contextIdentityKey(context: SessionContextIdentity): string {
+  if (!context.parentSessionId && !context.subagentSessionId) {
+    return context.workspaceId;
+  }
+  return [
+    `workspace=${context.workspaceId}`,
+    `parent=${context.parentSessionId ?? "-"}`,
+    `subagent=${context.subagentSessionId ?? "-"}`,
+  ].join("|");
+}
+
 // ============================================================================
 // SessionIsolationManager
 // ============================================================================
@@ -116,28 +149,33 @@ export class SessionIsolationManager {
     this.logger = config.logger ?? silentLogger;
   }
 
-  async getContext(workspaceId: string): Promise<IsolatedSessionContext> {
-    const cached = this.contexts.get(workspaceId);
+  async getContext(context: SessionContextRef): Promise<IsolatedSessionContext> {
+    const normalized = normalizeContextIdentity(context);
+    const cacheKey = contextIdentityKey(normalized);
+
+    const cached = this.contexts.get(cacheKey);
     if (cached) return cached;
 
-    const inflight = this.pending.get(workspaceId);
+    const inflight = this.pending.get(cacheKey);
     if (inflight) return inflight;
 
-    const promise = this.createContext(workspaceId).finally(() => {
-      this.pending.delete(workspaceId);
+    const promise = this.createContext(normalized, cacheKey).finally(() => {
+      this.pending.delete(cacheKey);
     });
-    this.pending.set(workspaceId, promise);
+    this.pending.set(cacheKey, promise);
     return promise;
   }
 
-  async destroyContext(workspaceId: string): Promise<void> {
-    const ctx = this.contexts.get(workspaceId);
+  async destroyContext(context: SessionContextRef): Promise<void> {
+    const normalized = normalizeContextIdentity(context);
+    const cacheKey = contextIdentityKey(normalized);
+    const ctx = this.contexts.get(cacheKey);
     if (!ctx) return;
 
     await ctx.memoryBackend.close();
-    this.contexts.delete(workspaceId);
+    this.contexts.delete(cacheKey);
     this.logger.info(
-      `Session context destroyed for workspace '${workspaceId}'`,
+      `Session context destroyed for workspace '${normalized.workspaceId}' (${cacheKey})`,
     );
   }
 
@@ -150,8 +188,10 @@ export class SessionIsolationManager {
   // --------------------------------------------------------------------------
 
   private async createContext(
-    workspaceId: string,
+    contextIdentity: SessionContextIdentity,
+    cacheKey: string,
   ): Promise<IsolatedSessionContext> {
+    const workspaceId = contextIdentity.workspaceId;
     const workspace = await this.config.workspaceManager.load(workspaceId);
 
     const memoryBackend = this.createMemory(workspace);
@@ -173,8 +213,10 @@ export class SessionIsolationManager {
       keypair,
     };
 
-    this.contexts.set(workspaceId, ctx);
-    this.logger.info(`Session context created for workspace '${workspaceId}'`);
+    this.contexts.set(cacheKey, ctx);
+    this.logger.info(
+      `Session context created for workspace '${workspaceId}' (${cacheKey})`,
+    );
     return ctx;
   }
 

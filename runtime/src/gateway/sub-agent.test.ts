@@ -7,7 +7,10 @@ import {
   type SubAgentManagerConfig,
 } from "./sub-agent.js";
 import { SubAgentSpawnError } from "./errors.js";
-import type { IsolatedSessionContext } from "./session-isolation.js";
+import type {
+  IsolatedSessionContext,
+  SubAgentSessionIdentity,
+} from "./session-isolation.js";
 import type {
   LLMProvider,
   LLMResponse,
@@ -180,9 +183,10 @@ describe("SubAgentManager", () => {
       await settle();
 
       expect(createContext).toHaveBeenCalledTimes(1);
-      const contextKey = createContext.mock.calls[0][0] as string;
-      expect(contextKey).toContain("custom-ws");
-      expect(contextKey).toContain(sessionId);
+      const identity = createContext.mock.calls[0][0] as SubAgentSessionIdentity;
+      expect(identity.workspaceId).toBe("custom-ws");
+      expect(identity.parentSessionId).toBe("p");
+      expect(identity.subagentSessionId).toBe(sessionId);
     });
 
     it("inherits default workspace when none specified", async () => {
@@ -194,19 +198,19 @@ describe("SubAgentManager", () => {
       await manager.spawn({ parentSessionId: "p", task: "a" });
       await settle();
 
-      const contextKey = createContext.mock.calls[0][0] as string;
-      expect(contextKey).toContain("my-default");
+      const identity = createContext.mock.calls[0][0] as SubAgentSessionIdentity;
+      expect(identity.workspaceId).toBe("my-default");
     });
 
-    it('falls back to "default" when no workspace or default specified', async () => {
+    it('falls back to "default" workspace when not specified', async () => {
       const createContext = vi.fn(async () => makeMockContext());
       const manager = new SubAgentManager(makeManagerConfig({ createContext }));
 
       await manager.spawn({ parentSessionId: "p", task: "a" });
       await settle();
 
-      const contextKey = createContext.mock.calls[0][0] as string;
-      expect(contextKey).toMatch(/^default:/);
+      const identity = createContext.mock.calls[0][0] as SubAgentSessionIdentity;
+      expect(identity.workspaceId).toBe("default");
     });
 
     it("throws SubAgentSpawnError on empty parentSessionId", async () => {
@@ -237,6 +241,22 @@ describe("SubAgentManager", () => {
       await expect(
         manager.spawn({ parentSessionId: "p", task: "c" }),
       ).rejects.toThrow(SubAgentSpawnError);
+    });
+
+    it("enforces max sub-agent depth across parent-child chains", async () => {
+      const manager = new SubAgentManager(
+        makeManagerConfig({ maxDepth: 2 }),
+      );
+
+      const child = await manager.spawn({ parentSessionId: "parent", task: "a" });
+      const grandchild = await manager.spawn({
+        parentSessionId: child,
+        task: "b",
+      });
+
+      await expect(
+        manager.spawn({ parentSessionId: grandchild, task: "c" }),
+      ).rejects.toThrow("max sub-agent depth reached (2)");
     });
 
     it("error has correct code", async () => {
@@ -662,11 +682,163 @@ describe("SubAgentManager", () => {
   });
 
   // --------------------------------------------------------------------------
+  // Terminal handle retention
+  // --------------------------------------------------------------------------
+
+  describe("terminal handle retention", () => {
+    it("prunes oldest completed handles when max retained is exceeded", async () => {
+      const manager = new SubAgentManager(
+        makeManagerConfig({ maxRetainedTerminalHandles: 2 }),
+      );
+
+      const id1 = await manager.spawn({ parentSessionId: "p", task: "a" });
+      await settle();
+      const id2 = await manager.spawn({ parentSessionId: "p", task: "b" });
+      await settle();
+      const id3 = await manager.spawn({ parentSessionId: "p", task: "c" });
+      await settle();
+
+      const allIds = manager.listAll().map((entry) => entry.sessionId);
+      expect(allIds).toHaveLength(2);
+      expect(allIds).not.toContain(id1);
+      expect(allIds).toContain(id2);
+      expect(allIds).toContain(id3);
+      expect(manager.getResult(id1)).toBeNull();
+    });
+
+    it("retains running handles while pruning terminal handles", async () => {
+      let createCall = 0;
+      const createContext = vi.fn(async () => {
+        createCall += 1;
+        if (createCall === 1) {
+          return await new Promise<IsolatedSessionContext>(() => {});
+        }
+        return makeMockContext();
+      });
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          createContext,
+          maxConcurrent: 4,
+          maxRetainedTerminalHandles: 1,
+        }),
+      );
+
+      const runningId = await manager.spawn({ parentSessionId: "p", task: "slow" });
+      const completedId = await manager.spawn({
+        parentSessionId: "p",
+        task: "fast-1",
+      });
+      await settle();
+      const newestId = await manager.spawn({
+        parentSessionId: "p",
+        task: "fast-2",
+      });
+      await settle();
+
+      const all = manager.listAll();
+      expect(all.find((entry) => entry.sessionId === runningId)?.status).toBe(
+        "running",
+      );
+      expect(all.map((entry) => entry.sessionId)).not.toContain(completedId);
+      expect(all.map((entry) => entry.sessionId)).toContain(newestId);
+    });
+
+    it("prunes terminal handles by retention TTL", async () => {
+      vi.useFakeTimers();
+      try {
+        const manager = new SubAgentManager(
+          makeManagerConfig({ terminalHandleRetentionMs: 1_000 }),
+        );
+
+        await manager.spawn({ parentSessionId: "p", task: "a" });
+        await settle();
+        expect(manager.listAll()).toHaveLength(1);
+
+        await vi.advanceTimersByTimeAsync(1_001);
+        expect(manager.listAll()).toHaveLength(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // Execution flow
   // --------------------------------------------------------------------------
 
   describe("execution flow", () => {
-    it("calls createContext with unique key per sub-agent", async () => {
+    it("passes composed tool handler config for delegated child sessions", async () => {
+      const composeToolHandler = vi.fn(
+        ({ baseToolHandler }: { baseToolHandler: (...args: any[]) => Promise<string> }) =>
+          baseToolHandler,
+      );
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          composeToolHandler: composeToolHandler as any,
+        }),
+      );
+
+      await manager.spawn({ parentSessionId: "p", task: "a" });
+      await settle();
+
+      expect(composeToolHandler).toHaveBeenCalledTimes(1);
+      expect(composeToolHandler.mock.calls[0][0]).toMatchObject({
+        sessionIdentity: {
+          workspaceId: "default",
+          parentSessionId: "p",
+        },
+        task: "a",
+      });
+      expect(typeof composeToolHandler.mock.calls[0][0].sessionIdentity.subagentSessionId).toBe(
+        "string",
+      );
+      expect(typeof composeToolHandler.mock.calls[0][0].baseToolHandler).toBe(
+        "function",
+      );
+    });
+
+    it("stores child token usage from ChatExecutor results", async () => {
+      const manager = new SubAgentManager(makeManagerConfig());
+
+      const sessionId = await manager.spawn({ parentSessionId: "p", task: "a" });
+      await settle();
+
+      const result = manager.getResult(sessionId);
+      expect(result).not.toBeNull();
+      expect(result?.tokenUsage).toEqual({
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      });
+    });
+
+    it("selects child provider via selectLLMProvider and records providerName", async () => {
+      const selectedProvider = makeMockLLMProvider("matched-provider");
+      const selectLLMProvider = vi.fn(() => selectedProvider);
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          selectLLMProvider,
+        }),
+      );
+
+      const sessionId = await manager.spawn({
+        parentSessionId: "p",
+        task: "delegate",
+        requiredCapabilities: ["system.readFile", "system.searchFiles"],
+      });
+      await settle();
+
+      expect(selectLLMProvider).toHaveBeenCalledTimes(1);
+      expect(selectLLMProvider.mock.calls[0]?.[0]).toMatchObject({
+        task: "delegate",
+        requiredCapabilities: ["system.readFile", "system.searchFiles"],
+      });
+      const result = manager.getResult(sessionId);
+      expect(result).not.toBeNull();
+      expect(result?.providerName).toBe("matched-provider");
+    });
+
+    it("calls createContext with unique typed identity per sub-agent", async () => {
       const createContext = vi.fn(async () => makeMockContext());
       const manager = new SubAgentManager(makeManagerConfig({ createContext }));
 
@@ -675,11 +847,18 @@ describe("SubAgentManager", () => {
       await settle();
 
       expect(createContext).toHaveBeenCalledTimes(2);
-      const key1 = createContext.mock.calls[0][0] as string;
-      const key2 = createContext.mock.calls[1][0] as string;
-      expect(key1).not.toBe(key2);
-      expect(key1).toContain(id1);
-      expect(key2).toContain(id2);
+      const identity1 = createContext.mock.calls[0][0] as SubAgentSessionIdentity;
+      const identity2 = createContext.mock.calls[1][0] as SubAgentSessionIdentity;
+      expect(identity1).toEqual({
+        workspaceId: "default",
+        parentSessionId: "p",
+        subagentSessionId: id1,
+      });
+      expect(identity2).toEqual({
+        workspaceId: "default",
+        parentSessionId: "p",
+        subagentSessionId: id2,
+      });
     });
 
     it("calls destroyContext after completion", async () => {
@@ -692,6 +871,12 @@ describe("SubAgentManager", () => {
       await settle();
 
       expect(destroyContext).toHaveBeenCalledTimes(1);
+      expect(destroyContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId: "default",
+          parentSessionId: "p",
+        }),
+      );
     });
 
     it("calls destroyContext after failure", async () => {

@@ -67,6 +67,8 @@ import {
 } from "./daemon.js";
 import type { PidFileInfo } from "./daemon.js";
 import { LLMTimeoutError, LLMAuthenticationError } from "../llm/errors.js";
+import { loadGatewayConfig } from "./config-watcher.js";
+import { WorkspaceValidationError } from "./workspace.js";
 
 // ============================================================================
 // Command availability classifier
@@ -477,6 +479,11 @@ describe("DaemonManager", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "agenc-dm-test-"));
     vi.clearAllMocks();
+    vi.mocked(loadGatewayConfig).mockResolvedValue({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+    } as any);
     // Skip wireWebChat to avoid heavy LLM/tool/skill dependency chain —
     // these tests cover daemon lifecycle (PID files, start/stop), not WebChat wiring.
     vi.spyOn(DaemonManager.prototype as any, "wireWebChat").mockResolvedValue(
@@ -503,6 +510,111 @@ describe("DaemonManager", () => {
     await dm.stop();
   });
 
+  it("enables sub-agent orchestration by default when llm.subagents is omitted", async () => {
+    const pidPath = join(tempDir, "default-subagents.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect((dm as any)._subAgentRuntimeConfig).toMatchObject({
+      enabled: true,
+    });
+    expect((dm as any)._subAgentManager).not.toBeNull();
+    expect((dm as any)._sessionIsolationManager).not.toBeNull();
+
+    await dm.stop();
+  });
+
+  it("start initializes sub-agent infrastructure when llm.subagents is enabled", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          mode: "hybrid",
+          maxConcurrent: 5,
+          maxDepth: 3,
+          maxFanoutPerTurn: 4,
+          maxTotalSubagentsPerRequest: 12,
+          maxCumulativeToolCallsPerRequestTree: 120,
+          maxCumulativeTokensPerRequestTree: 180_000,
+          defaultTimeoutMs: 30_000,
+          spawnDecisionThreshold: 0.7,
+          forceVerifier: true,
+          allowParallelSubtasks: false,
+          childToolAllowlistStrategy: "explicit_only",
+          fallbackBehavior: "fail_request",
+        },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect((dm as any)._sessionIsolationManager).not.toBeNull();
+    expect((dm as any)._subAgentManager).not.toBeNull();
+    expect((dm as any)._subAgentRuntimeConfig).toMatchObject({
+      enabled: true,
+      mode: "hybrid",
+      maxConcurrent: 5,
+      maxDepth: 3,
+      maxFanoutPerTurn: 4,
+      maxTotalSubagentsPerRequest: 12,
+      maxCumulativeToolCallsPerRequestTree: 120,
+      maxCumulativeTokensPerRequestTree: 180_000,
+      defaultTimeoutMs: 30_000,
+    });
+
+    await dm.stop();
+  });
+
+  it("registers execute_with_agent in the runtime tool registry", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const registry = await (dm as any).createToolRegistry({
+      desktop: { enabled: false },
+    });
+
+    expect(registry.listNames()).toContain("execute_with_agent");
+    const llmToolNames = registry
+      .toLLMTools()
+      .map((tool: { function: { name: string } }) => tool.function.name);
+    expect(llmToolNames).toContain("execute_with_agent");
+
+    const directResult = await registry.createToolHandler()(
+      "execute_with_agent",
+      { task: "test" },
+    );
+    expect(directResult).toContain("session-scoped tool handler");
+  });
+
+  it("auto-creates missing default workspace for sub-agent isolation", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const workspaceManager = {
+      basePath: "/tmp/agenc-workspace-test",
+      getDefault: vi.fn(() => "default"),
+      load: vi.fn(async () => {
+        throw new WorkspaceValidationError(
+          "path",
+          "Workspace directory not found: /tmp/agenc-workspace-test/default",
+        );
+      }),
+      createWorkspace: vi.fn(async () => ({})),
+    };
+
+    await (dm as any).ensureSubAgentDefaultWorkspace(workspaceManager as any);
+
+    expect(workspaceManager.getDefault).toHaveBeenCalledTimes(1);
+    expect(workspaceManager.load).toHaveBeenCalledWith("default");
+    expect(workspaceManager.createWorkspace).toHaveBeenCalledWith("default");
+  });
+
   it("start cleans up gateway if writePidFile fails", async () => {
     // Use a path under /dev/null which cannot be a directory
     const dm = new DaemonManager({
@@ -524,6 +636,35 @@ describe("DaemonManager", () => {
 
     await dm.stop();
     expect(await pidFileExists(pidPath)).toBe(false);
+  });
+
+  it("stop destroys sub-agent manager lifecycle", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: { enabled: true },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-stop.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    const subAgentManager = (dm as any)._subAgentManager as {
+      destroyAll: () => Promise<void>;
+    };
+    const destroyAllSpy = vi.spyOn(subAgentManager, "destroyAll");
+
+    await dm.stop();
+
+    expect(destroyAllSpy).toHaveBeenCalledTimes(1);
+    expect((dm as any)._subAgentManager).toBeNull();
+    expect((dm as any)._sessionIsolationManager).toBeNull();
   });
 
   it("stop is idempotent", async () => {
@@ -557,6 +698,268 @@ describe("DaemonManager", () => {
     expect(events).toContain("SIGHUP");
 
     onSpy.mockRestore();
+  });
+
+  it("logs sub-agent startup diagnostics with hard caps", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      setLevel: vi.fn(),
+    };
+
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          maxConcurrent: 7,
+        },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-diag.pid");
+    const dm = new DaemonManager({
+      configPath: "/tmp/config.json",
+      pidPath,
+      logger: logger as any,
+    });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+    await dm.stop();
+
+    const diagnosticCall = logger.info.mock.calls.find(
+      (call) => call[0] === "Sub-agent orchestration config",
+    );
+    expect(diagnosticCall).toBeDefined();
+    expect(diagnosticCall?.[1]).toMatchObject({
+      enabled: true,
+      maxConcurrent: 7,
+      hardCaps: {
+        maxConcurrent: 64,
+        maxDepth: 16,
+        maxFanoutPerTurn: 64,
+        maxTotalSubagentsPerRequest: 1024,
+        defaultTimeoutMs: 3_600_000,
+      },
+    });
+  });
+
+  it("start wires delegation policy/verifier/lifecycle dependencies", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: { enabled: true, spawnDecisionThreshold: 0.61 },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-delegation-deps.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect(dm.subAgentRuntimeConfig?.enabled).toBe(true);
+    expect(dm.delegationPolicyEngine).not.toBeNull();
+    expect(dm.delegationVerifierService).not.toBeNull();
+    expect(dm.subAgentLifecycleEmitter).not.toBeNull();
+    expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(0.61);
+
+    await dm.stop();
+  });
+
+  it("resolves delegation controls for aggressiveness, handoff confidence, provider strategy, and hard blocks", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          mode: "handoff",
+          spawnDecisionThreshold: 0.65,
+          delegationAggressiveness: "conservative",
+          handoffMinPlannerConfidence: 0.9,
+          childProviderStrategy: "capability_matched",
+          hardBlockedTaskClasses: [
+            "wallet_transfer",
+            "stake_or_rewards",
+          ],
+        },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-controls.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect(dm.subAgentRuntimeConfig?.mode).toBe("handoff");
+    expect(dm.subAgentRuntimeConfig?.delegationAggressiveness).toBe(
+      "conservative",
+    );
+    expect(dm.subAgentRuntimeConfig?.handoffMinPlannerConfidence).toBe(0.9);
+    expect(dm.subAgentRuntimeConfig?.childProviderStrategy).toBe(
+      "capability_matched",
+    );
+    expect(dm.subAgentRuntimeConfig?.hardBlockedTaskClasses).toEqual([
+      "wallet_transfer",
+      "stake_or_rewards",
+    ]);
+    expect(dm.subAgentRuntimeConfig?.baseSpawnDecisionThreshold).toBe(0.65);
+    expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(
+      0.77,
+    );
+
+    await dm.stop();
+  });
+
+  it("start configures delegation learning runtime (trajectory sink + bandit tuner)", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          policyLearning: {
+            enabled: true,
+            epsilon: 0.2,
+            explorationBudget: 123,
+            minSamplesPerArm: 3,
+            ucbExplorationScale: 1.5,
+            arms: [
+              { id: "conservative", thresholdOffset: 0.1 },
+              { id: "balanced", thresholdOffset: 0 },
+              { id: "aggressive", thresholdOffset: -0.1 },
+            ],
+          },
+        },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-learning.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect(dm.delegationTrajectorySink).not.toBeNull();
+    expect(dm.delegationBanditTuner).not.toBeNull();
+    expect(dm.subAgentRuntimeConfig?.policyLearningEnabled).toBe(true);
+    expect(dm.subAgentRuntimeConfig?.policyLearningExplorationBudget).toBe(123);
+    expect(dm.subAgentRuntimeConfig?.policyLearningMinSamplesPerArm).toBe(3);
+    expect(dm.subAgentRuntimeConfig?.policyLearningUcbExplorationScale).toBe(1.5);
+    expect(dm.subAgentRuntimeConfig?.policyLearningArms).toHaveLength(3);
+
+    await dm.stop();
+  });
+
+  it("reconfigures delegation thresholds in place without recreating manager", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          maxConcurrent: 4,
+          spawnDecisionThreshold: 0.55,
+          forceVerifier: false,
+        },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-threshold-reload.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    const managerBefore = (dm as any)._subAgentManager;
+    const policyBefore = dm.delegationPolicyEngine;
+    const verifierBefore = dm.delegationVerifierService;
+
+    await (dm as any).configureSubAgentInfrastructure({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          maxConcurrent: 4,
+          spawnDecisionThreshold: 0.91,
+          forceVerifier: true,
+          maxDepth: 10,
+          maxFanoutPerTurn: 12,
+          maxTotalSubagentsPerRequest: 24,
+          maxCumulativeToolCallsPerRequestTree: 333,
+          maxCumulativeTokensPerRequestTree: 444_000,
+        },
+      },
+    });
+
+    expect((dm as any)._subAgentManager).toBe(managerBefore);
+    expect(dm.delegationPolicyEngine).toBe(policyBefore);
+    expect(dm.delegationVerifierService).toBe(verifierBefore);
+    expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(0.91);
+    expect(dm.delegationVerifierService?.snapshot().forceVerifier).toBe(true);
+    expect(dm.subAgentRuntimeConfig?.maxDepth).toBe(10);
+    expect(dm.subAgentRuntimeConfig?.maxFanoutPerTurn).toBe(12);
+    expect(dm.subAgentRuntimeConfig?.maxCumulativeToolCallsPerRequestTree).toBe(
+      333,
+    );
+    expect(dm.subAgentRuntimeConfig?.maxCumulativeTokensPerRequestTree).toBe(
+      444_000,
+    );
+
+    await dm.stop();
+  });
+
+  it("applies runtime delegation aggressiveness override to policy threshold", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          spawnDecisionThreshold: 0.6,
+          delegationAggressiveness: "balanced",
+        },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-override.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+    expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(0.6);
+
+    (dm as any)._delegationAggressivenessOverride = "aggressive";
+    (dm as any).configureDelegationRuntimeServices(dm.subAgentRuntimeConfig);
+    expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(0.48);
+
+    (dm as any)._delegationAggressivenessOverride = null;
+    (dm as any).configureDelegationRuntimeServices(dm.subAgentRuntimeConfig);
+    expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(0.6);
+
+    await dm.stop();
   });
 
   it("getStatus returns correct shape when not running", () => {
@@ -599,6 +1002,180 @@ describe("DaemonManager", () => {
     expect(status.gatewayStatus).not.toBeNull();
 
     await dm.stop();
+  });
+
+  it("relays subagent lifecycle events to parent chat/activity with trace correlation and sanitized payloads", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as unknown as {
+      pushToSession: (sessionId: string, response: unknown) => void;
+      broadcastEvent: (eventType: string, data: Record<string, unknown>) => void;
+    };
+    const base64Image = `data:image/png;base64,${"A".repeat(2048)}`;
+
+    (dm as any)._activeSessionTraceIds.set("session-parent", "trace-parent");
+    (dm as any)._subAgentManager = {
+      getInfo: vi.fn().mockReturnValue({
+        sessionId: "subagent:child",
+        parentSessionId: "session-parent",
+        status: "running",
+        startedAt: 1,
+        task: "test",
+      }),
+    };
+
+    (dm as any).relaySubAgentLifecycleEvent(webChat as any, {
+      type: "subagents.tool.result",
+      timestamp: 1_234,
+      sessionId: "subagent:child",
+      subagentSessionId: "subagent:child",
+      toolName: "desktop.screenshot",
+      payload: {
+        result: base64Image,
+        durationMs: 12,
+      },
+    });
+
+    expect(webChat.pushToSession).toHaveBeenCalledTimes(1);
+    const pushPayload = (webChat.pushToSession as any).mock.calls[0][1] as {
+      type: string;
+      payload: Record<string, unknown>;
+    };
+    expect(pushPayload.type).toBe("subagents.tool.result");
+    expect(pushPayload.payload.sessionId).toBe("session-parent");
+    expect(pushPayload.payload.parentSessionId).toBe("session-parent");
+    expect(pushPayload.payload.subagentSessionId).toBe("subagent:child");
+    expect(typeof pushPayload.payload.traceId).toBe("string");
+    expect(pushPayload.payload.parentTraceId).toBe("trace-parent");
+    expect(pushPayload.payload.data).toMatchObject({
+      durationMs: 12,
+      result: {
+        artifactType: "image_data_url",
+        externalized: true,
+      },
+    });
+
+    expect(webChat.broadcastEvent).toHaveBeenCalledTimes(1);
+    const [eventType, eventData] = (webChat.broadcastEvent as any).mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(eventType).toBe("subagents.tool.result");
+    expect(eventData.sessionId).toBe("session-parent");
+    expect(eventData.subagentSessionId).toBe("subagent:child");
+    expect(eventData.parentTraceId).toBe("trace-parent");
+    expect(typeof eventData.traceId).toBe("string");
+    expect((eventData.result as Record<string, unknown>).artifactType).toBe(
+      "image_data_url",
+    );
+  });
+
+  it("routes delegated approval requests to parent webchat and text channels", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const pushToSession = vi.fn();
+    (dm as any)._webChatChannel = {
+      pushToSession,
+      broadcastEvent: vi.fn(),
+    };
+    const textSend = vi.fn(async () => {});
+    (dm as any)._textApprovalDispatchBySession.set("parent-1", {
+      channelName: "telegram",
+      send: textSend,
+    });
+
+    const forwardSpy = vi.spyOn(dm as any, "forwardControlToTextChannel");
+
+    (dm as any).routeSubagentControlResponseToParent({
+      parentSessionId: "parent-1",
+      subagentSessionId: "subagent:child-1",
+      response: {
+        type: "approval.request",
+        payload: {
+          requestId: "req-1",
+          action: "system.delete",
+          message: "Approval required",
+        },
+      },
+    });
+
+    expect(pushToSession).toHaveBeenCalledWith(
+      "parent-1",
+      expect.objectContaining({
+        type: "approval.request",
+        payload: expect.objectContaining({
+          requestId: "req-1",
+          parentSessionId: "parent-1",
+          subagentSessionId: "subagent:child-1",
+        }),
+      }),
+    );
+    expect(forwardSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "parent-1",
+        channelName: "telegram",
+      }),
+    );
+  });
+
+  it("allows parent sessions on text channels to list and resolve delegated approvals", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const resolve = vi.fn();
+    const getPending = vi.fn(() => [
+      {
+        id: "req-parent",
+        toolName: "system.delete",
+        args: {},
+        sessionId: "subagent:child-9",
+        parentSessionId: "parent-9",
+        subagentSessionId: "subagent:child-9",
+        message: "Approval required",
+        createdAt: Date.now() - 1_000,
+        rule: { tool: "system.delete" },
+      },
+    ]);
+    (dm as any)._approvalEngine = {
+      getPending,
+      resolve,
+    };
+
+    const send = vi.fn(async (_content: string) => {});
+    const msgBase = {
+      sessionId: "parent-9",
+      senderId: "operator-1",
+      senderName: "operator",
+      channel: "telegram",
+      content: "",
+    };
+
+    const listed = await (dm as any).handleTextChannelApprovalCommand({
+      msg: {
+        ...msgBase,
+        content: "approve list",
+      },
+      send,
+    });
+
+    expect(listed).toBe(true);
+    expect(send).toHaveBeenCalledWith(
+      expect.stringContaining("delegated:subagent:child-9"),
+    );
+
+    const resolved = await (dm as any).handleTextChannelApprovalCommand({
+      msg: {
+        ...msgBase,
+        content: "approve req-parent yes",
+      },
+      send,
+    });
+
+    expect(resolved).toBe(true);
+    expect(resolve).toHaveBeenCalledWith("req-parent", {
+      requestId: "req-parent",
+      disposition: "yes",
+      approvedBy: "operator-1",
+    });
   });
 });
 

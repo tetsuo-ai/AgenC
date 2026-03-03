@@ -112,8 +112,96 @@ export interface GatewayLLMConfig {
     /** Optional per-family tool caps (desktop/system/playwright/etc). */
     familyCaps?: Record<string, number>;
   };
+  /** Optional sub-agent orchestration controls. */
+  subagents?: GatewaySubagentConfig;
   /** Additional LLM providers for fallback (tried in order after primary fails). */
   fallback?: GatewayLLMConfig[];
+}
+
+export type GatewaySubagentMode = "manager_tools" | "handoff" | "hybrid";
+export type GatewaySubagentChildToolAllowlistStrategy =
+  | "inherit_intersection"
+  | "explicit_only";
+export type GatewaySubagentFallbackBehavior =
+  | "continue_without_delegation"
+  | "fail_request";
+export type GatewaySubagentChildProviderStrategy =
+  | "same_as_parent"
+  | "capability_matched";
+export type GatewaySubagentDelegationAggressiveness =
+  | "conservative"
+  | "balanced"
+  | "aggressive"
+  | "adaptive";
+export type GatewaySubagentHardBlockedTaskClass =
+  | "wallet_signing"
+  | "wallet_transfer"
+  | "stake_or_rewards"
+  | "destructive_host_mutation"
+  | "credential_exfiltration";
+
+export interface GatewaySubagentConfig {
+  /** Master enable switch for sub-agent orchestration. */
+  enabled?: boolean;
+  /** Delegation control mode. */
+  mode?: GatewaySubagentMode;
+  /** Global delegation aggressiveness profile exposed to users/operators. */
+  delegationAggressiveness?: GatewaySubagentDelegationAggressiveness;
+  /** Maximum concurrent sub-agents across one request/session execution. */
+  maxConcurrent?: number;
+  /** Maximum delegation recursion depth. */
+  maxDepth?: number;
+  /** Maximum child tasks spawned from one planner turn. */
+  maxFanoutPerTurn?: number;
+  /** Hard cap on total child agents in one parent request. */
+  maxTotalSubagentsPerRequest?: number;
+  /** Hard cap on cumulative child tool calls across one request tree. */
+  maxCumulativeToolCallsPerRequestTree?: number;
+  /** Hard cap on cumulative child LLM tokens across one request tree. */
+  maxCumulativeTokensPerRequestTree?: number;
+  /** Default timeout for child agent execution in milliseconds. */
+  defaultTimeoutMs?: number;
+  /** Utility score threshold (0-1) required before delegation. */
+  spawnDecisionThreshold?: number;
+  /** Minimum planner confidence (0-1) required before handoff delegation mode. */
+  handoffMinPlannerConfidence?: number;
+  /** Force verifier/critic stage after child execution. */
+  forceVerifier?: boolean;
+  /** Allow multiple child subtasks to run in parallel. */
+  allowParallelSubtasks?: boolean;
+  /** Hard-blocked safety/compliance task classes that cannot be delegated. */
+  hardBlockedTaskClasses?: GatewaySubagentHardBlockedTaskClass[];
+  /** Parent tools allowed to initiate delegation workflows. */
+  allowedParentTools?: string[];
+  /** Parent tools that may never initiate delegation workflows. */
+  forbiddenParentTools?: string[];
+  /** Strategy for deriving child tool allowlists. */
+  childToolAllowlistStrategy?: GatewaySubagentChildToolAllowlistStrategy;
+  /** Child model/provider routing strategy. */
+  childProviderStrategy?: GatewaySubagentChildProviderStrategy;
+  /** Behavior when delegation is rejected/fails policy checks. */
+  fallbackBehavior?: GatewaySubagentFallbackBehavior;
+  /** Optional online policy-learning controls (bandit routing + trajectories). */
+  policyLearning?: GatewaySubagentPolicyLearningConfig;
+}
+
+export interface GatewaySubagentPolicyLearningConfig {
+  /** Enable online bandit tuning and trajectory emission. */
+  enabled?: boolean;
+  /** Epsilon-greedy exploration probability in [0, 1]. */
+  epsilon?: number;
+  /** Global exploration budget for random arm pulls. */
+  explorationBudget?: number;
+  /** Required initial pulls per arm/context before exploitation. */
+  minSamplesPerArm?: number;
+  /** UCB exploration scale (>0). */
+  ucbExplorationScale?: number;
+  /** Optional strategy-arm catalog with threshold offsets. */
+  arms?: Array<{
+    id: string;
+    thresholdOffset?: number;
+    description?: string;
+  }>;
 }
 
 export interface GatewayMemoryConfig {

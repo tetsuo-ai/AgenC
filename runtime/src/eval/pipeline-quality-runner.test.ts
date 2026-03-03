@@ -11,7 +11,7 @@ const INCIDENT_FIXTURE_DIR = fileURLToPath(
 );
 
 describe("pipeline-quality runner", () => {
-  it("runs suite with deterministic context/tool metrics and injected desktop runner", async () => {
+  it("runs suite with deterministic metrics and injected desktop runner", async () => {
     const desktopRunner: PipelineDesktopRunner = async ({ runIndex }) => ({
       runId: `desktop-${runIndex + 1}`,
       ok: runIndex === 0,
@@ -28,6 +28,7 @@ describe("pipeline-quality runner", () => {
       desktopRuns: 2,
       desktopRunner,
       incidentFixtureDir: INCIDENT_FIXTURE_DIR,
+      delegationBenchmarkK: 2,
     });
 
     expect(artifact.runId).toBe("phase9-runner-test");
@@ -42,6 +43,12 @@ describe("pipeline-quality runner", () => {
     expect(artifact.offlineReplay.fixtureCount).toBeGreaterThanOrEqual(2);
     expect(artifact.offlineReplay.parseFailures).toBe(0);
     expect(artifact.offlineReplay.replayFailures).toBe(0);
+    expect(artifact.delegation.totalCases).toBeGreaterThan(0);
+    expect(artifact.delegation.delegatedCases).toBeGreaterThan(0);
+    expect(artifact.delegation.delegationAttemptRate).toBeGreaterThan(0);
+    expect(artifact.delegation.scenarioSummaries.length).toBeGreaterThanOrEqual(5);
+    expect(artifact.delegation.passAtKDeltaVsBaseline).toBeGreaterThan(0);
+    expect(artifact.delegation.passCaretKDeltaVsBaseline).toBeGreaterThan(0);
   });
 
   it("is deterministic under fixed runId/time/inputs", async () => {
@@ -60,6 +67,7 @@ describe("pipeline-quality runner", () => {
       desktopRuns: 1,
       desktopRunner,
       incidentFixtureDir: INCIDENT_FIXTURE_DIR,
+      delegationBenchmarkK: 2,
     } as const;
 
     const first = await runPipelineQualitySuite(config);
