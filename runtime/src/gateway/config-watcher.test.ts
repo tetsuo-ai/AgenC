@@ -10,6 +10,8 @@ function makeConfig(desktop?: Record<string, unknown>): Record<string, unknown> 
   };
 }
 
+const AUTH_SECRET = "test-secret-that-is-at-least-32-chars!!";
+
 describe("validateGatewayConfig desktop resource limits", () => {
   it("accepts valid desktop.maxMemory and desktop.maxCpu", () => {
     const result = validateGatewayConfig(
@@ -148,5 +150,35 @@ describe("validateGatewayConfig desktop resource limits", () => {
     expect(result.errors).toContain(
       "llm.subagents.hardBlockedTaskClasses[0] must be one of: wallet_signing, wallet_transfer, stake_or_rewards, destructive_host_mutation, credential_exfiltration",
     );
+  });
+});
+
+describe("validateGatewayConfig auth safety for bind address", () => {
+  it("rejects non-local bind without auth.secret", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      gateway: { port: 3100, bind: "0.0.0.0" },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "auth.secret is required when gateway.bind is non-local",
+    );
+  });
+
+  it("accepts non-local bind with auth.secret", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      gateway: { port: 3100, bind: "0.0.0.0" },
+      auth: { secret: AUTH_SECRET },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it("accepts loopback bind without auth.secret", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      gateway: { port: 3100, bind: "127.0.0.1" },
+    });
+    expect(result.valid).toBe(true);
   });
 });
