@@ -149,4 +149,25 @@ describe("validateGatewayConfig desktop resource limits", () => {
       "llm.subagents.hardBlockedTaskClasses[0] must be one of: wallet_signing, wallet_transfer, stake_or_rewards, destructive_host_mutation, credential_exfiltration",
     );
   });
+
+  it("requires auth.secret when gateway.bind is non-loopback", () => {
+    const config = makeConfig();
+    config.gateway = { port: 3100, bind: "0.0.0.0" };
+    const result = validateGatewayConfig(config);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "auth.secret is required when gateway.bind is non-loopback (for example 0.0.0.0)",
+    );
+  });
+
+  it("allows non-loopback bind when auth.secret is configured", () => {
+    const config = makeConfig();
+    config.gateway = { port: 3100, bind: "0.0.0.0" };
+    config.auth = {
+      secret: "abcdefghijklmnopqrstuvwxyz123456",
+      localBypass: false,
+    };
+    const result = validateGatewayConfig(config);
+    expect(result.valid).toBe(true);
+  });
 });

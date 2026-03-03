@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WSMessage } from '../types';
+import { sanitizeExplorerUrl } from '../utils/external';
 
 export interface WalletInfo {
   address: string;
@@ -69,7 +70,7 @@ export function useWallet({ send, connected }: UseWalletOptions): UseWalletRetur
             sol: Number(p.sol ?? 0),
             network: String(p.network ?? 'unknown'),
             rpcUrl: String(p.rpcUrl ?? ''),
-            explorerUrl: String(p.explorerUrl ?? ''),
+            explorerUrl: sanitizeExplorerUrl(p.explorerUrl),
           });
         }
       }

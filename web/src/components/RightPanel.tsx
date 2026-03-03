@@ -3,6 +3,7 @@ import type { UseSettingsReturn, GatewaySettings, VoiceName } from '../hooks/use
 import type { UseWalletReturn } from '../hooks/useWallet';
 import type { ChatSessionInfo } from '../hooks/useChat';
 import type { AgentInfo } from '../types';
+import { openExternalUrl } from '../utils/external';
 
 type Tab = 'main' | 'settings' | 'payment';
 const TABS: Tab[] = ['main', 'settings', 'payment'];
@@ -899,7 +900,7 @@ function PaymentTab({ wallet: w }: { wallet: UseWalletReturn }) {
           </button>
         )}
         <button
-          onClick={() => wallet?.explorerUrl && window.open(wallet.explorerUrl, '_blank')}
+          onClick={() => wallet?.explorerUrl && openExternalUrl(wallet.explorerUrl)}
           disabled={!wallet}
           className="w-full py-2.5 rounded-lg border border-tetsuo-200 text-sm font-medium text-tetsuo-700 hover:bg-tetsuo-50 hover:border-tetsuo-300 transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
         >

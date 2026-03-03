@@ -966,6 +966,25 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
     }
   }
 
+  // Security invariant: non-loopback binds must require auth.secret.
+  if (isRecord(obj.gateway)) {
+    const bind =
+      typeof obj.gateway.bind === "string" && obj.gateway.bind.trim().length > 0
+        ? obj.gateway.bind.trim().toLowerCase()
+        : "127.0.0.1";
+    const isLoopbackBind =
+      bind === "127.0.0.1" || bind === "::1" || bind === "localhost";
+    const authSecret =
+      isRecord(obj.auth) && typeof obj.auth.secret === "string"
+        ? obj.auth.secret
+        : undefined;
+    if (!isLoopbackBind && !authSecret) {
+      errors.push(
+        "auth.secret is required when gateway.bind is non-loopback (for example 0.0.0.0)",
+      );
+    }
+  }
+
   // desktop (optional)
   if (obj.desktop !== undefined) {
     if (!isRecord(obj.desktop)) {

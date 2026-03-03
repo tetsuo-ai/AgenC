@@ -29,6 +29,16 @@ import anchor, { AnchorProvider } from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 
 export type SendFn = (response: ControlResponse) => void;
+export interface HandlerRequestContext {
+  /** Gateway-assigned websocket client id for this request. */
+  clientId: string;
+  /** Active mapped chat session for this client, if any. */
+  activeSessionId?: string;
+  /** Session ids owned by the current client. */
+  listOwnedSessionIds(): string[];
+  /** True when the provided session id is owned by the current client. */
+  isSessionOwned(sessionId: string): boolean;
+}
 
 const SOLANA_NOT_CONFIGURED =
   'On-chain task operations require Solana connection — configure connection.rpcUrl in config';
@@ -373,6 +383,7 @@ export async function handleMemorySearch(
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ): Promise<void> {
   const query = payload?.query;
   if (!query || typeof query !== 'string') {
@@ -384,31 +395,27 @@ export async function handleMemorySearch(
     return;
   }
   try {
-    // Search across sessions matching the query as a prefix, or fall back to
-    // querying all sessions for entries containing the search string.
-    const sessions = await deps.memoryBackend.listSessions(query);
+    const sessions = request.listOwnedSessionIds();
+    if (sessions.length === 0) {
+      send({ type: 'memory.results', payload: [], id });
+      return;
+    }
     let entries: Array<{ content: string; timestamp: number; role: string }> = [];
 
-    if (sessions.length > 0) {
-      // Gather recent entries from matching sessions
-      for (const sid of sessions.slice(0, 10)) {
-        const thread = await deps.memoryBackend.getThread(sid, 20);
+    const lowerQuery = query.toLowerCase();
+    for (const sid of sessions.slice(0, 20)) {
+      const thread = await deps.memoryBackend.getThread(sid, 50);
+      const sidMatches = sid.toLowerCase().includes(lowerQuery);
+      if (sidMatches) {
         entries.push(
-          ...thread.map((e) => ({ content: e.content, timestamp: e.timestamp, role: e.role })),
+          ...thread.slice(-20).map((e) => ({ content: e.content, timestamp: e.timestamp, role: e.role })),
         );
+        continue;
       }
-    } else {
-      // Fall back: list all sessions and search entry content
-      const allSessions = await deps.memoryBackend.listSessions();
-      for (const sid of allSessions.slice(0, 20)) {
-        const thread = await deps.memoryBackend.getThread(sid, 50);
-        const matching = thread.filter((e) =>
-          e.content.toLowerCase().includes(query.toLowerCase()),
-        );
-        entries.push(
-          ...matching.map((e) => ({ content: e.content, timestamp: e.timestamp, role: e.role })),
-        );
-      }
+      const matching = thread.filter((e) => e.content.toLowerCase().includes(lowerQuery));
+      entries.push(
+        ...matching.map((e) => ({ content: e.content, timestamp: e.timestamp, role: e.role })),
+      );
     }
 
     // Sort by timestamp descending, limit to 50
@@ -426,6 +433,7 @@ export async function handleMemorySessions(
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ): Promise<void> {
   if (!deps.memoryBackend) {
     send({ type: 'error', error: 'Memory backend not configured', id });
@@ -433,7 +441,7 @@ export async function handleMemorySessions(
   }
   try {
     const limit = typeof payload?.limit === 'number' ? payload.limit : 50;
-    const sessions = await deps.memoryBackend.listSessions();
+    const sessions = request.listOwnedSessionIds();
     const results: Array<{ id: string; messageCount: number; lastActiveAt: number }> = [];
 
     for (const sid of sessions.slice(0, limit)) {
@@ -655,16 +663,37 @@ export async function handleAgentsList(
 
 export async function handleDesktopList(
   deps: WebChatDeps,
-  _payload: Record<string, unknown> | undefined,
+  payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ): Promise<void> {
   if (!deps.desktopManager) {
     send({ type: 'desktop.list', payload: [], id });
     return;
   }
   await safeAsync(send, id, 'desktop.error', 'Failed to list sandboxes', async () => {
-    const sandboxes = deps.desktopManager!.listAll();
+    const ownedSessions = request.listOwnedSessionIds();
+    const maxEntries = typeof payload?.limit === 'number' ? payload.limit : 50;
+    const seen = new Set<string>();
+    const sandboxes = [];
+    for (const sessionId of ownedSessions) {
+      const handle = deps.desktopManager!.getHandleBySession(sessionId);
+      if (!handle || seen.has(handle.containerId)) continue;
+      seen.add(handle.containerId);
+      sandboxes.push({
+        containerId: handle.containerId,
+        sessionId: handle.sessionId,
+        status: handle.status,
+        createdAt: handle.createdAt,
+        lastActivityAt: handle.lastActivityAt,
+        vncUrl: `http://localhost:${handle.vncHostPort}/vnc.html`,
+        uptimeMs: Date.now() - handle.createdAt,
+        maxMemory: handle.maxMemory,
+        maxCpu: handle.maxCpu,
+      });
+      if (sandboxes.length >= maxEntries) break;
+    }
     send({ type: 'desktop.list', payload: sandboxes, id });
   });
 }
@@ -719,6 +748,7 @@ export async function handleDesktopAttach(
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ): Promise<void> {
   if (!deps.desktopManager) {
     send({ type: 'desktop.error', error: 'Desktop sandbox manager not available — enable desktop in config', id });
@@ -732,6 +762,17 @@ export async function handleDesktopAttach(
   const sessionId = payload?.sessionId;
   if (!sessionId || typeof sessionId !== 'string') {
     send({ type: 'desktop.error', error: 'Missing sessionId in payload', id });
+    return;
+  }
+  if (!request.isSessionOwned(sessionId)) {
+    send({ type: 'desktop.error', error: 'Not authorized for target session', id });
+    return;
+  }
+  const ownsContainer = request
+    .listOwnedSessionIds()
+    .some((sid) => deps.desktopManager!.getHandleBySession(sid)?.containerId === containerId);
+  if (!ownsContainer) {
+    send({ type: 'desktop.error', error: 'Not authorized for target container', id });
     return;
   }
 
@@ -756,6 +797,7 @@ export async function handleDesktopDestroy(
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ): Promise<void> {
   if (!deps.desktopManager) {
     send({ type: 'desktop.error', error: 'Desktop sandbox manager not available — enable desktop in config', id });
@@ -764,6 +806,13 @@ export async function handleDesktopDestroy(
   const containerId = payload?.containerId;
   if (!containerId || typeof containerId !== 'string') {
     send({ type: 'desktop.error', error: 'Missing containerId in payload', id });
+    return;
+  }
+  const ownsContainer = request
+    .listOwnedSessionIds()
+    .some((sid) => deps.desktopManager!.getHandleBySession(sid)?.containerId === containerId);
+  if (!ownsContainer) {
+    send({ type: 'desktop.error', error: 'Not authorized for target container', id });
     return;
   }
   await safeAsync(send, id, 'desktop.error', 'Failed to destroy sandbox', async () => {
@@ -800,6 +849,7 @@ export type HandlerFn = (
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ) => void | Promise<void>;
 
 /** Map of dotted-namespace message types to their handler functions. */

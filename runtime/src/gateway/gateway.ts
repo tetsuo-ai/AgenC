@@ -61,6 +61,15 @@ interface WsModule {
   }) => WsWebSocketServer;
 }
 
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "localhost"
+  );
+}
+
 // ============================================================================
 // Gateway
 // ============================================================================
@@ -311,10 +320,17 @@ export class Gateway {
     );
 
     const { port, bind } = this._config.gateway;
+    const host = bind ?? "127.0.0.1";
+    if (!isLoopbackHost(host) && !this._config.auth?.secret) {
+      throw new GatewayValidationError(
+        "auth.secret",
+        "auth.secret is required when gateway.bind is non-loopback",
+      );
+    }
 
     this.wss = new wsMod.WebSocketServer({
       port,
-      host: bind ?? "127.0.0.1",
+      host,
     });
 
     this.wss.on("connection", (...args: unknown[]) => {
