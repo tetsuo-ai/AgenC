@@ -306,10 +306,17 @@ describe("spl-token-tasks (issue #860)", () => {
     maxWorkers?: number;
     taskType?: number;
     constraintHash?: number[] | null;
+    deadline?: BN;
   }) {
     const taskPda = deriveTaskPda(opts.creatorKp.publicKey, opts.taskId);
     const escrowPda = deriveEscrowPda(taskPda);
     const escrowAta = deriveEscrowAta(opts.tokenMint, escrowPda);
+
+    const minFutureDeadline = new BN(Number(svm.getClock().unixTimestamp) + 7200);
+    const deadline =
+      opts.deadline && opts.deadline.gt(minFutureDeadline)
+        ? opts.deadline
+        : minFutureDeadline;
 
     await program.methods
       .createTask(
@@ -318,7 +325,7 @@ describe("spl-token-tasks (issue #860)", () => {
         Buffer.from("Token task description".padEnd(64, "\0")),
         new BN(opts.rewardAmount),
         opts.maxWorkers ?? 1,
-        getDefaultDeadline(),
+        deadline,
         opts.taskType ?? TASK_TYPE_EXCLUSIVE,
         opts.constraintHash ?? null,
         0,
@@ -1531,7 +1538,9 @@ describe("spl-token-tasks (issue #860)", () => {
           config.slashPercentage) /
           100,
       );
-      const expectedReserved = Math.min(expectedSlash, rewardAmount);
+      const expectedReserved = Math.floor(
+        (rewardAmount * config.slashPercentage) / 100,
+      );
       expect(workerBeforeResolve.stake.toNumber()).to.be.greaterThan(0);
       expect(expectedSlash).to.be.greaterThan(0);
       expect(taskBeforeResolve.rewardMint?.toBase58()).to.equal(
@@ -1654,6 +1663,216 @@ describe("spl-token-tasks (issue #860)", () => {
         await provider.connection.getAccountInfo(escrowAta);
       expect(escrowPdaAccount).to.equal(null);
       expect(escrowAtaAccount).to.equal(null);
+    });
+  });
+
+  describe("token dispute destination validation", () => {
+    it("should reject resolveDispute when creator token destination is not owned by creator", async () => {
+      const taskId = makeId("t-resolve-val");
+      const disputeId = makeId("d-resolve-val");
+      const rewardAmount = 3_000_000_000;
+
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+      const arbiter1Pda = deriveAgentPda(arbiter1AgentId);
+      const arbiter2Pda = deriveAgentPda(arbiter2AgentId);
+      const arbiter3Pda = deriveAgentPda(arbiter3AgentId);
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+
+      const claimPda = await claimTask(taskPda, workerAgentPda, worker);
+      const disputePda = deriveDisputePda(disputeId);
+
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("resolve-validation-evidence".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE,
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          workerAgent: workerAgentPda,
+          workerClaim: claimPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      const arbiters = [
+        { kp: arbiter1, pda: arbiter1Pda },
+        { kp: arbiter2, pda: arbiter2Pda },
+        { kp: arbiter3, pda: arbiter3Pda },
+      ];
+
+      for (const arbiter of arbiters) {
+        const votePda = deriveVotePda(disputePda, arbiter.pda);
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          arbiter.kp.publicKey,
+        );
+        await program.methods
+          .voteDispute(true)
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            workerClaim: claimPda,
+            defendantAgent: workerAgentPda,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiter.pda,
+            protocolConfig: protocolPda,
+            authority: arbiter.kp.publicKey,
+          })
+          .signers([arbiter.kp])
+          .rpc();
+      }
+
+      const secondsUntilVotingEnds = Math.max(
+        1,
+        (
+          await program.account.dispute.fetch(disputePda)
+        ).votingDeadline.toNumber() -
+          Number(svm.getClock().unixTimestamp) +
+          1,
+      );
+      advanceClock(svm, secondsUntilVotingEnds);
+
+      try {
+        await program.methods
+          .resolveDispute()
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            resolver: provider.wallet.publicKey,
+            creator: creator.publicKey,
+            workerClaim: claimPda,
+            worker: workerAgentPda,
+            workerAuthority: worker.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: escrowAta,
+            creatorTokenAccount: workerAta, // wrong owner: worker, not creator
+            workerTokenAccountAta: workerAta,
+            treasuryTokenAccount: treasuryAta,
+            rewardMint: mint,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .remainingAccounts([
+            {
+              pubkey: deriveVotePda(disputePda, arbiter1Pda),
+              isSigner: false,
+              isWritable: true,
+            },
+            { pubkey: arbiter1Pda, isSigner: false, isWritable: true },
+            {
+              pubkey: deriveVotePda(disputePda, arbiter2Pda),
+              isSigner: false,
+              isWritable: true,
+            },
+            { pubkey: arbiter2Pda, isSigner: false, isWritable: true },
+            {
+              pubkey: deriveVotePda(disputePda, arbiter3Pda),
+              isSigner: false,
+              isWritable: true,
+            },
+            { pubkey: arbiter3Pda, isSigner: false, isWritable: true },
+          ])
+          .rpc();
+        expect.fail("resolveDispute should reject unauthorized creator token destination");
+      } catch (e: unknown) {
+        const err = e as any;
+        expect(err.error?.errorCode?.code).to.equal("InvalidTokenAccountOwner");
+      }
+    });
+
+    it("should reject permissionless expireDispute when creator token destination is not owned by creator", async () => {
+      const taskId = makeId("t-expire-val");
+      const disputeId = makeId("d-expire-val");
+      const rewardAmount = 2_000_000_000;
+
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+
+      const claimPda = await claimTask(taskPda, workerAgentPda, worker);
+      const disputePda = deriveDisputePda(disputeId);
+
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("expire-validation-evidence".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE,
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          workerAgent: workerAgentPda,
+          workerClaim: claimPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      const dispute = await program.account.dispute.fetch(disputePda);
+      const secondsUntilExpirable = Math.max(
+        1,
+        dispute.votingDeadline.toNumber() +
+          121 -
+          Number(svm.getClock().unixTimestamp),
+      );
+      advanceClock(svm, secondsUntilExpirable);
+
+      try {
+        await program.methods
+          .expireDispute()
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            workerClaim: claimPda,
+            worker: workerAgentPda,
+            workerAuthority: worker.publicKey,
+            tokenEscrowAta: escrowAta,
+            creatorTokenAccount: workerAta, // wrong owner: worker, not creator
+            workerTokenAccountAta: workerAta,
+            rewardMint: mint,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .rpc();
+        expect.fail("expireDispute should reject unauthorized creator token destination");
+      } catch (e: unknown) {
+        const err = e as any;
+        expect(err.error?.errorCode?.code).to.equal("InvalidTokenAccountOwner");
+      }
     });
   });
 });

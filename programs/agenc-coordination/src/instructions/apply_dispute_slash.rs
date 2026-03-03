@@ -146,7 +146,6 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
     };
 
     require!(worker_lost, CoordinationError::InvalidInput);
-    require!(worker_agent.stake > 0, CoordinationError::InsufficientStake);
 
     // Calculate slash from stake snapshot and cap by current stake (fix #836).
     let slash_amount = calculate_slash_amount(
@@ -154,8 +153,6 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         worker_agent.stake,
         config.slash_percentage,
     )?;
-
-    require!(slash_amount > 0, CoordinationError::InvalidSlashAmount);
 
     // Apply reputation penalty for losing the dispute (before lamport transfer to satisfy borrow checker)
     apply_reputation_penalty(worker_agent, &clock)?;
@@ -169,8 +166,7 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
     // Token-denominated disputes that slash a losing worker must settle reserved
     // tokens during this instruction.
-    let token_task_requires_settlement =
-        ctx.accounts.task.reward_mint.is_some() && worker_lost && slash_amount > 0;
+    let token_task_requires_settlement = ctx.accounts.task.reward_mint.is_some() && worker_lost;
 
     // If any token accounts are provided, require a complete set.
     let token_accounts_provided = ctx.accounts.escrow.is_some()
@@ -214,7 +210,9 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         let bump_slice = [escrow.bump];
         let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
 
-        let token_slash_amount = slash_amount.min(token_escrow.amount);
+        // ResolveDispute leaves only the token slash reserve in escrow ATA.
+        // Settling the slash transfers the full remaining escrow token balance.
+        let token_slash_amount = token_escrow.amount;
         if token_slash_amount > 0 {
             transfer_tokens_from_escrow(
                 token_escrow,
@@ -237,6 +235,12 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         escrow.is_closed = true;
         escrow.close(ctx.accounts.treasury.to_account_info())?;
     }
+
+    // If neither lamports nor token reserves can be slashed, fail explicitly.
+    require!(
+        slash_amount > 0 || token_task_requires_settlement,
+        CoordinationError::InvalidSlashAmount
+    );
 
     // Perform lamport transfer after all CPIs. Direct lamport mutations are
     // checked against CPI boundaries by the runtime.
