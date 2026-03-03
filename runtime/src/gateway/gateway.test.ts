@@ -99,6 +99,18 @@ describe("Gateway", () => {
       await expect(gateway.start()).rejects.toThrow(GatewayStateError);
     });
 
+    it("start fails for non-loopback bind without auth.secret", async () => {
+      gateway = new Gateway(
+        makeConfig({
+          gateway: { port: 9100, bind: "0.0.0.0" },
+        }),
+        { logger: silentLogger },
+      );
+      await expect(gateway.start()).rejects.toThrow(
+        /Failed to start gateway: Gateway config validation failed: auth\.secret/i,
+      );
+    });
+
     it("stop when stopped is no-op", async () => {
       expect(gateway.state).toBe("stopped");
       await gateway.stop(); // should not throw

@@ -996,7 +996,6 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
   if (!isLoopbackBind(bindAddress) && !authSecret?.trim()) {
     errors.push("auth.secret is required when gateway.bind is non-local");
   }
-
   // desktop (optional)
   if (obj.desktop !== undefined) {
     if (!isRecord(obj.desktop)) {

@@ -27,6 +27,7 @@ import type {
 } from "./types.js";
 import { HANDLER_MAP } from "./handlers.js";
 import type { SendFn } from "./handlers.js";
+import type { HandlerRequestContext } from "./handlers.js";
 import { matchesEventFilters } from "./protocol.js";
 
 const MESSAGE_ID_TTL_MS = 5 * 60_000;
@@ -287,7 +288,14 @@ export class WebChatChannel
     // Delegate to subsystem handlers (may be async)
     const handler = HANDLER_MAP[type];
     if (handler) {
-      const result = handler(this.deps, payload, id, send);
+      const requestContext: HandlerRequestContext = {
+        clientId,
+        activeSessionId: this.clientSessions.get(clientId),
+        listOwnedSessionIds: () => this.listOwnedSessionIds(clientId),
+        isSessionOwned: (sessionId: string) =>
+          this.sessionOwners.get(sessionId) === clientId,
+      };
+      const result = handler(this.deps, payload, id, send, requestContext);
       if (result instanceof Promise) {
         result.catch((err) => {
           this.context.logger.warn?.("WebChat handler error:", err);
@@ -770,6 +778,16 @@ export class WebChatChannel
       this.sessionHistory.set(sessionId, history);
     }
     history.push(entry);
+  }
+
+  private listOwnedSessionIds(clientId: string): string[] {
+    const owned: string[] = [];
+    for (const [sessionId, ownerId] of this.sessionOwners) {
+      if (ownerId === clientId) {
+        owned.push(sessionId);
+      }
+    }
+    return owned;
   }
 
   // --------------------------------------------------------------------------

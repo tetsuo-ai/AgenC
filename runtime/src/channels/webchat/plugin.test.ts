@@ -576,6 +576,55 @@ describe("WebChatChannel", () => {
       );
     });
 
+    it("memory handlers only return sessions owned by the requesting client", async () => {
+      const threads = new Map<string, Array<{ content: string; timestamp: number; role: string }>>();
+      const memoryBackend = {
+        getThread: vi.fn(async (sessionId: string) => threads.get(sessionId) ?? []),
+      } as unknown as NonNullable<WebChatDeps["memoryBackend"]>;
+      deps = createDeps({ memoryBackend });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage("client_1", "chat.message", msg("chat.message", { content: "hello one" }), send1);
+      channel.handleMessage("client_2", "chat.message", msg("chat.message", { content: "hello two" }), send2);
+      const sessionId1 = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+      const sessionId2 = vi.mocked(context.onMessage).mock.calls[1][0].sessionId;
+
+      threads.set(sessionId1, [{ content: "alpha note", timestamp: 100, role: "user" }]);
+      threads.set(sessionId2, [{ content: "beta note", timestamp: 200, role: "user" }]);
+
+      channel.handleMessage(
+        "client_1",
+        "memory.search",
+        msg("memory.search", { query: "beta" }, "req-memory-search"),
+        send1,
+      );
+      await vi.waitFor(() =>
+        expect(send1).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "memory.results", payload: [] }),
+        ),
+      );
+
+      channel.handleMessage(
+        "client_1",
+        "memory.sessions",
+        msg("memory.sessions", {}, "req-memory-sessions"),
+        send1,
+      );
+      await vi.waitFor(() =>
+        expect(send1).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "memory.sessions",
+            payload: [expect.objectContaining({ id: sessionId1 })],
+          }),
+        ),
+      );
+    });
+
     it("should handle events.subscribe", () => {
       const send = vi.fn<(response: ControlResponse) => void>();
 
@@ -728,6 +777,7 @@ describe("WebChatChannel", () => {
       deps = createDeps({
         desktopManager: {
           listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession: vi.fn(),
           getOrCreate,
           destroy: vi.fn(),
           assignSession: vi.fn(),
@@ -774,6 +824,7 @@ describe("WebChatChannel", () => {
       deps = createDeps({
         desktopManager: {
           listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession: vi.fn(),
           getOrCreate,
           destroy: vi.fn(),
           assignSession: vi.fn(),
@@ -818,6 +869,7 @@ describe("WebChatChannel", () => {
       deps = createDeps({
         desktopManager: {
           listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession: vi.fn(),
           getOrCreate,
           destroy: vi.fn(),
           assignSession: vi.fn(),
@@ -855,9 +907,16 @@ describe("WebChatChannel", () => {
         status: "ready",
         vncHostPort: 6081,
       });
+      const getHandleBySession = vi.fn().mockReturnValue({
+        containerId: "ctr777",
+        sessionId: "session:auto",
+        status: "ready",
+        vncHostPort: 6081,
+      });
       deps = createDeps({
         desktopManager: {
           listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession,
           getOrCreate: vi.fn(),
           destroy: vi.fn(),
           assignSession,
@@ -890,6 +949,110 @@ describe("WebChatChannel", () => {
       expect(send).toHaveBeenCalledWith(
         expect.objectContaining({ type: "desktop.attached" }),
       );
+    });
+
+    it("desktop.attach rejects containers not owned by the client", async () => {
+      const assignSession = vi.fn();
+      const sessionToContainer = new Map<string, string>();
+      const getHandleBySession = vi.fn((sessionId: string) => {
+        const containerId = sessionToContainer.get(sessionId);
+        if (!containerId) return undefined;
+        return { containerId, sessionId, status: "ready", vncHostPort: 6080 };
+      });
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession,
+          getOrCreate: vi.fn(),
+          destroy: vi.fn(),
+          assignSession,
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext({
+        onMessage: vi
+          .fn()
+          .mockResolvedValueOnce({ sessionId: "session:client1" })
+          .mockResolvedValueOnce({ sessionId: "session:client2" }),
+      });
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage("client_1", "chat.message", msg("chat.message", { content: "hello 1" }), send1);
+      channel.handleMessage("client_2", "chat.message", msg("chat.message", { content: "hello 2" }), send2);
+      const sessionId1 = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+      const sessionId2 = vi.mocked(context.onMessage).mock.calls[1][0].sessionId;
+      sessionToContainer.set(sessionId1, "ctr-owned");
+      sessionToContainer.set(sessionId2, "ctr-other");
+
+      channel.handleMessage(
+        "client_2",
+        "desktop.attach",
+        msg("desktop.attach", { containerId: "ctr-owned", sessionId: sessionId2 }, "desktop-attach-2"),
+        send2,
+      );
+
+      expect(send2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "desktop.error",
+          error: "Not authorized for target container",
+        }),
+      );
+      expect(assignSession).not.toHaveBeenCalled();
+    });
+
+    it("desktop.destroy rejects containers not owned by the client", async () => {
+      const destroy = vi.fn();
+      const sessionToContainer = new Map<string, string>();
+      const getHandleBySession = vi.fn((sessionId: string) => {
+        const containerId = sessionToContainer.get(sessionId);
+        if (!containerId) return undefined;
+        return { containerId, sessionId, status: "ready", vncHostPort: 6080 };
+      });
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession,
+          getOrCreate: vi.fn(),
+          destroy,
+          assignSession: vi.fn(),
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext({
+        onMessage: vi
+          .fn()
+          .mockResolvedValueOnce({ sessionId: "session:client1" })
+          .mockResolvedValueOnce({ sessionId: "session:client2" }),
+      });
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage("client_1", "chat.message", msg("chat.message", { content: "hello 1" }), send1);
+      channel.handleMessage("client_2", "chat.message", msg("chat.message", { content: "hello 2" }), send2);
+      const sessionId1 = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+      const sessionId2 = vi.mocked(context.onMessage).mock.calls[1][0].sessionId;
+      sessionToContainer.set(sessionId1, "ctr-owned");
+      sessionToContainer.set(sessionId2, "ctr-other");
+
+      channel.handleMessage(
+        "client_2",
+        "desktop.destroy",
+        msg("desktop.destroy", { containerId: "ctr-owned" }, "desktop-destroy-2"),
+        send2,
+      );
+
+      expect(send2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "desktop.error",
+          error: "Not authorized for target container",
+        }),
+      );
+      expect(destroy).not.toHaveBeenCalled();
     });
   });
 

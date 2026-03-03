@@ -151,6 +151,7 @@ describe("validateGatewayConfig desktop resource limits", () => {
       "llm.subagents.hardBlockedTaskClasses[0] must be one of: wallet_signing, wallet_transfer, stake_or_rewards, destructive_host_mutation, credential_exfiltration",
     );
   });
+
 });
 
 describe("validateGatewayConfig auth safety for bind address", () => {
