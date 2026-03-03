@@ -320,6 +320,57 @@ describe("Gateway", () => {
       expect(response.type).toBe("status");
     });
 
+    it("no auth config rejects unauthenticated chat.message from non-local client", async () => {
+      await gateway.start();
+      const webchatHandler = { handleMessage: vi.fn() };
+      gateway.setWebChatHandler(webchatHandler);
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "192.168.1.100" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({
+        type: "chat.message",
+        payload: { content: "hello" },
+      });
+
+      expect(webchatHandler.handleMessage).not.toHaveBeenCalled();
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("error");
+      expect(response.error).toBe("Authentication required");
+    });
+
+    it("no auth config allows local chat.message via webchat handler", async () => {
+      await gateway.start();
+      const webchatHandler = {
+        handleMessage: vi.fn(
+          (
+            _clientId: string,
+            _type: string,
+            _msg: unknown,
+            send: (response: unknown) => void,
+          ) => {
+            send({ type: "chat.message", payload: { ok: true } });
+          },
+        ),
+      };
+      gateway.setWebChatHandler(webchatHandler);
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "127.0.0.1" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({
+        type: "chat.message",
+        payload: { content: "hello" },
+      });
+
+      expect(webchatHandler.handleMessage).toHaveBeenCalledTimes(1);
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("chat.message");
+      expect(response.payload.ok).toBe(true);
+    });
+
     it("auth config rejects unauthenticated non-local client", async () => {
       const authGw = new Gateway(
         makeConfig({ auth: { secret: AUTH_SECRET } }),
@@ -334,6 +385,32 @@ describe("Gateway", () => {
       mockSocket.simulateMessage({ type: "status" });
 
       expect(mockSocket.send).toHaveBeenCalled();
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("error");
+      expect(response.error).toBe("Authentication required");
+
+      await authGw.stop();
+    });
+
+    it("auth config rejects unauthenticated chat.message", async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+      const webchatHandler = { handleMessage: vi.fn() };
+      authGw.setWebChatHandler(webchatHandler);
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "192.168.1.100" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({
+        type: "chat.message",
+        payload: { content: "hello" },
+      });
+
+      expect(webchatHandler.handleMessage).not.toHaveBeenCalled();
       const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
       expect(response.type).toBe("error");
       expect(response.error).toBe("Authentication required");
@@ -383,6 +460,45 @@ describe("Gateway", () => {
       mockSocket.simulateMessage({ type: "status" });
       const statusResponse = JSON.parse(mockSocket.send.mock.calls[1][0]);
       expect(statusResponse.type).toBe("status");
+
+      await authGw.stop();
+    });
+
+    it("forwards chat.message after authentication", async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+      const webchatHandler = {
+        handleMessage: vi.fn(
+          (
+            _clientId: string,
+            _type: string,
+            _msg: unknown,
+            send: (response: unknown) => void,
+          ) => {
+            send({ type: "chat.message", payload: { ok: true } });
+          },
+        ),
+      };
+      authGw.setWebChatHandler(webchatHandler);
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "192.168.1.100" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      const token = createToken(AUTH_SECRET, "agent_001");
+      mockSocket.simulateMessage({ type: "auth", payload: { token } });
+      mockSocket.simulateMessage({
+        type: "chat.message",
+        payload: { content: "hello" },
+      });
+
+      expect(webchatHandler.handleMessage).toHaveBeenCalledTimes(1);
+      const response = JSON.parse(mockSocket.send.mock.calls[1][0]);
+      expect(response.type).toBe("chat.message");
+      expect(response.payload.ok).toBe(true);
 
       await authGw.stop();
     });
