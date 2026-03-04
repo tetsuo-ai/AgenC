@@ -1,5 +1,6 @@
 # GHSA-fjx5-qpf4-xjf2:
-# RustSec marks borsh 0.10.4 as patched (`^0.10.4`), but Trivy still reports it.
+# RustSec marks borsh 0.10.4 as patched (`^0.10.4`), but Trivy's GHSA feed still reports it.
 # Current 0.10.4 entries are transitive via Anchor/Solana lockfiles and are treated
-# as scanner false positives until Trivy advisory resolution is corrected upstream.
+# as scanner false positives until the advisory metadata is aligned upstream.
+# Regression safety net: `npm run -s security:cargo:lock:check` fails if borsh < 0.10.4 appears.
 GHSA-fjx5-qpf4-xjf2
