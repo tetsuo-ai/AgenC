@@ -662,6 +662,29 @@ describe("DaemonManager", () => {
     expect(directResult).toContain("session-scoped tool handler");
   });
 
+  it("registers marketplace and social tools when enabled", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const registry = await (dm as any).createToolRegistry({
+      desktop: { enabled: false },
+      marketplace: { enabled: true },
+      social: { enabled: true },
+    });
+
+    expect(registry.listNames()).toContain("marketplace.createService");
+    expect(registry.listNames()).toContain("social.searchAgents");
+
+    const toolHandler = registry.createToolHandler();
+    const marketplaceResult = await toolHandler("marketplace.createService", {
+      serviceId: "svc-1",
+      title: "Test service",
+      budget: "1",
+    });
+    const socialResult = await toolHandler("social.searchAgents", {});
+
+    expect(marketplaceResult).toContain("Marketplace not enabled");
+    expect(socialResult).toContain("Social module not enabled");
+  });
+
   it("auto-creates missing default workspace for sub-agent isolation", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     const workspaceManager = {
