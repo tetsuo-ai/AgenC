@@ -1,0 +1,88 @@
+export const sharedBaseline = {
+  tool: "solana-fender",
+  version: 1,
+  programScope: "programs/agenc-coordination",
+  fullScope: ".",
+  programPathPrefix: "programs/agenc-coordination/",
+  programAllowlist: [
+    {
+      id: "cancel-task-reinit-heuristic",
+      severity: "Medium",
+      file: "src/instructions/cancel_task.rs",
+      descriptionRegex:
+        "Function 'process_cancel_task_impl' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: instruction does not use init/init_if_needed. It mutates existing PDA accounts validated by seeds/bump and closes claim accounts explicitly.",
+    },
+    {
+      id: "cancel-dispute-reinit-heuristic",
+      severity: "Medium",
+      file: "src/instructions/cancel_dispute.rs",
+      descriptionRegex: "Function 'handler' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: no account initialization path in handler. Accounts are pre-existing PDAs validated by Anchor account constraints.",
+    },
+    {
+      id: "complete-task-private-reinit-heuristic",
+      severity: "Medium",
+      file: "src/instructions/complete_task_private.rs",
+      descriptionRegex:
+        "Function '(complete_task_private|decode_private_completion_payload|build_router_verify_ix)' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: helper split moved logic into pure validation/CPI-construction functions; no helper introduces init_if_needed or account reinitialization. Spend-tracking accounts still use one-time init seeds and mutable accounts remain PDA-constrained.",
+    },
+    {
+      id: "complete-task-private-cpi-heuristic",
+      severity: "Medium",
+      file: "src/instructions/complete_task_private.rs",
+      descriptionRegex: "Potential arbitrary CPI detected without program ID validation",
+      rationale:
+        "False positive: CPI program is hard-pinned via account address constraint, explicit runtime equality checks, strict instruction-shape validation (validate_router_verify_ix), and Instruction.program_id fixed to trusted router id.",
+    },
+    {
+      id: "lib-wrapper-apply-initiator-slash",
+      severity: "Medium",
+      file: "src/lib.rs",
+      descriptionRegex:
+        "Function 'apply_initiator_slash' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: program entrypoint wrapper only delegates to instruction handler; no account init logic exists in wrapper.",
+    },
+    {
+      id: "lib-wrapper-initialize-protocol",
+      severity: "Medium",
+      file: "src/lib.rs",
+      descriptionRegex:
+        "Function 'initialize_protocol' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: wrapper forwards to initialize_protocol handler; Anchor account init constraints are implemented in instruction module.",
+    },
+    {
+      id: "lib-wrapper-initialize-governance",
+      severity: "Medium",
+      file: "src/lib.rs",
+      descriptionRegex:
+        "Function 'initialize_governance' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: wrapper forwards to initialize_governance handler; no direct initialization logic in wrapper.",
+    },
+    {
+      id: "lib-wrapper-create-proposal",
+      severity: "Medium",
+      file: "src/lib.rs",
+      descriptionRegex: "Function 'create_proposal' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: wrapper forwards to create_proposal handler; no account reinitialization surface in wrapper.",
+    },
+  ],
+  fullExtraAllowlist: [
+    {
+      id: "zkvm-methods-guest-entry-reinit-heuristic",
+      severity: "Medium",
+      file: "zkvm/methods/guest/src/main.rs",
+      descriptionRegex: "Function 'guest_entry' may be vulnerable to account reinitialization",
+      rationale:
+        "False positive: RISC Zero guest entrypoint reads inputs and commits journal bytes only; it does not perform Solana account initialization/reinitialization.",
+    },
+  ],
+};

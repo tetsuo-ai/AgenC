@@ -33,6 +33,7 @@
     "fender:list": "node scripts/solana-fender-mcp.mjs list",
     "fender:check:file": "node scripts/solana-fender-mcp.mjs check-file",
     "fender:check:program": "node scripts/solana-fender-mcp.mjs check-program",
+    "fender:baseline:generate": "node scripts/generate-fender-baselines.mjs",
     "fender:gate:program": "npm run -s fender:check:program -- programs/agenc-coordination > .tmp/fender-program-scan-current.txt && node scripts/check-fender-baseline.mjs --scan .tmp/fender-program-scan-current.txt --baseline docs/security/fender-medium-baseline.json",
     "fender:gate:full": "npm run -s fender:check:program -- . > .tmp/fender-full-scan-current.txt && node scripts/check-fender-baseline.mjs --scan .tmp/fender-full-scan-current.txt --baseline docs/security/fender-full-baseline.json"
   },
