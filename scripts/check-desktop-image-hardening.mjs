@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 const ROOT = process.cwd();
 const DOCKERFILE_PATH = path.join(ROOT, "containers/desktop/Dockerfile");
@@ -20,9 +21,25 @@ function extractAptInstallBlock(dockerfile) {
   return match?.[0] ?? "";
 }
 
+function tokenizeAptBlock(aptBlock) {
+  return aptBlock
+    .replace(/\\\r?\n/g, " ")
+    .replace(/#[^\r\n]*/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function aptBlockContainsPackage(aptBlock, packageName) {
+  if (!/^[A-Za-z0-9.+-]+$/.test(packageName)) {
+    throw new Error(`invalid package name guard: "${packageName}"`);
+  }
+  const aptTokens = new Set(tokenizeAptBlock(aptBlock));
+  return aptTokens.has(packageName);
+}
+
 function assertDoesNotContainAptPackage(aptBlock, packageName) {
-  const pattern = new RegExp(`\\b${packageName}\\b`);
-  if (pattern.test(aptBlock)) {
+  if (aptBlockContainsPackage(aptBlock, packageName)) {
     fail(`apt install block contains forbidden package "${packageName}"`);
   }
 }
@@ -65,7 +82,14 @@ async function main() {
   console.log("desktop hardening check passed.");
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  fail(message);
-});
+const isCliEntrypoint =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isCliEntrypoint) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(message);
+  });
+}
+
+export { aptBlockContainsPackage, extractAptInstallBlock, tokenizeAptBlock };
