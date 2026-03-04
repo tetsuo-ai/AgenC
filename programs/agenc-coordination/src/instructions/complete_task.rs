@@ -156,12 +156,27 @@ pub fn handler(
             CoordinationError::MissingTokenAccounts
         );
 
-        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
-        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
-        let treasury_ta = ctx.accounts.treasury_token_account.as_ref().unwrap();
+        let mint = ctx
+            .accounts
+            .reward_mint
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let token_escrow = ctx
+            .accounts
+            .token_escrow_ata
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let treasury_ta = ctx
+            .accounts
+            .treasury_token_account
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let expected_mint = task
+            .reward_mint
+            .ok_or(CoordinationError::InvalidTokenMint)?;
 
         require!(
-            mint.key() == task.reward_mint.unwrap(),
+            mint.key() == expected_mint,
             CoordinationError::InvalidTokenMint
         );
 
@@ -179,7 +194,7 @@ pub fn handler(
             .accounts
             .worker_token_account
             .as_ref()
-            .unwrap()
+            .ok_or(CoordinationError::MissingTokenAccounts)?
             .to_account_info();
         validate_unchecked_token_mint(&worker_ta_info, &mint.key(), &ctx.accounts.authority.key())?;
 
@@ -192,7 +207,7 @@ pub fn handler(
                 .accounts
                 .token_program
                 .as_ref()
-                .unwrap()
+                .ok_or(CoordinationError::MissingTokenAccounts)?
                 .to_account_info(),
             escrow_authority: escrow.to_account_info(),
             escrow_bump: escrow.bump,

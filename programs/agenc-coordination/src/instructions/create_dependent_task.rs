@@ -157,11 +157,31 @@ pub fn handler(
             CoordinationError::MissingTokenAccounts
         );
 
-        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
-        let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
-        let token_escrow_ata = ctx.accounts.token_escrow_ata.as_ref().unwrap();
-        let token_program = ctx.accounts.token_program.as_ref().unwrap();
-        let ata_program = ctx.accounts.associated_token_program.as_ref().unwrap();
+        let mint = ctx
+            .accounts
+            .reward_mint
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let creator_ta = ctx
+            .accounts
+            .creator_token_account
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let token_escrow_ata = ctx
+            .accounts
+            .token_escrow_ata
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let token_program = ctx
+            .accounts
+            .token_program
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let ata_program = ctx
+            .accounts
+            .associated_token_program
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
 
         require!(
             mint.key() == expected_mint,

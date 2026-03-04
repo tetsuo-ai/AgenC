@@ -123,7 +123,10 @@ pub struct ExpireDispute<'info> {
 /// - Allows third-party cleanup services
 /// - No economic risk since only valid expirations succeed
 pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
-    require!(ctx.accounts.authority.is_signer, CoordinationError::InvalidInput);
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::InvalidInput
+    );
 
     let dispute = &mut ctx.accounts.dispute;
     let task = &mut ctx.accounts.task;
@@ -190,7 +193,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         .accounts
         .worker_claim
         .as_ref()
-        .expect("worker claim validated above")
+        .ok_or(CoordinationError::WorkerClaimRequired)?
         .is_completed;
     let no_votes = dispute.total_voters == 0;
 
@@ -202,17 +205,32 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                     && ctx.accounts.token_program.is_some(),
                 CoordinationError::MissingTokenAccounts
             );
-            let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+            let mint = ctx
+                .accounts
+                .reward_mint
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let expected_mint = task
+                .reward_mint
+                .ok_or(CoordinationError::InvalidTokenMint)?;
             require!(
-                mint.key() == task.reward_mint.unwrap(),
+                mint.key() == expected_mint,
                 CoordinationError::InvalidTokenMint
             );
-            let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+            let token_escrow = ctx
+                .accounts
+                .token_escrow_ata
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
             validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
             let token_escrow_starting_amount =
                 anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
                     .map_err(|_| CoordinationError::TokenTransferFailed)?;
-            let token_program = ctx.accounts.token_program.as_ref().unwrap();
+            let token_program = ctx
+                .accounts
+                .token_program
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
             let task_key_bytes = task_key.to_bytes();
             let bump_slice = [escrow.bump];
             let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
@@ -240,7 +258,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                         &ctx.accounts
                             .worker_wallet
                             .as_ref()
-                            .expect("worker wallet validated above")
+                            .ok_or(CoordinationError::IncompleteWorkerAccounts)?
                             .key(),
                     )?;
                 }
@@ -262,7 +280,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                         &ctx.accounts
                             .worker_wallet
                             .as_ref()
-                            .expect("worker wallet validated above")
+                            .ok_or(CoordinationError::IncompleteWorkerAccounts)?
                             .key(),
                     )?;
                 }
@@ -326,7 +344,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                 &ctx.accounts
                     .worker_wallet
                     .as_ref()
-                    .expect("worker wallet validated above")
+                    .ok_or(CoordinationError::IncompleteWorkerAccounts)?
                     .to_account_info(),
                 remaining_funds,
                 worker_completed,
@@ -342,7 +360,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         .accounts
         .worker
         .as_mut()
-        .expect("worker account validated above");
+        .ok_or(CoordinationError::WorkerAgentRequired)?;
     worker.active_tasks = worker
         .active_tasks
         .checked_sub(1)
@@ -426,12 +444,12 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         .accounts
         .worker_claim
         .as_ref()
-        .expect("worker claim validated above");
+        .ok_or(CoordinationError::WorkerClaimRequired)?;
     let worker_wallet = ctx
         .accounts
         .worker_wallet
         .as_ref()
-        .expect("worker wallet validated above");
+        .ok_or(CoordinationError::IncompleteWorkerAccounts)?;
     claim.close(worker_wallet.to_account_info())?;
 
     emit!(DisputeExpired {

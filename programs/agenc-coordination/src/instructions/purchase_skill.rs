@@ -127,9 +127,16 @@ pub fn handler(ctx: Context<PurchaseSkill>, expected_price: u64) -> Result<()> {
                 CoordinationError::MissingTokenAccounts
             );
 
-            let mint = ctx.accounts.price_mint.as_ref().unwrap();
+            let mint = ctx
+                .accounts
+                .price_mint
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let expected_mint = skill
+                .price_mint
+                .ok_or(CoordinationError::InvalidTokenMint)?;
             require!(
-                mint.key() == skill.price_mint.unwrap(),
+                mint.key() == expected_mint,
                 CoordinationError::InvalidTokenMint
             );
 
@@ -143,10 +150,26 @@ pub fn handler(ctx: Context<PurchaseSkill>, expected_price: u64) -> Result<()> {
                 .checked_sub(protocol_fee)
                 .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-            let buyer_ta = ctx.accounts.buyer_token_account.as_ref().unwrap();
-            let author_ta = ctx.accounts.author_token_account.as_ref().unwrap();
-            let treasury_ta = ctx.accounts.treasury_token_account.as_ref().unwrap();
-            let token_program = ctx.accounts.token_program.as_ref().unwrap();
+            let buyer_ta = ctx
+                .accounts
+                .buyer_token_account
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let author_ta = ctx
+                .accounts
+                .author_token_account
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let treasury_ta = ctx
+                .accounts
+                .treasury_token_account
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let token_program = ctx
+                .accounts
+                .token_program
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
 
             // Validate token account mints match the skill's price mint
             let expected_mint = mint.key();

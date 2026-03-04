@@ -59,7 +59,10 @@ pub struct ApplyInitiatorSlash<'info> {
 }
 
 pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
-    require!(ctx.accounts.authority.is_signer, CoordinationError::InvalidInput);
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::InvalidInput
+    );
 
     let dispute = &mut ctx.accounts.dispute;
     let task = &ctx.accounts.task;

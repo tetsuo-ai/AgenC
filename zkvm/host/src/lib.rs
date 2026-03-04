@@ -4,9 +4,9 @@ use std::{ffi::OsStr, fmt};
 
 pub mod config;
 
-use agenc_zkvm_guest::{JournalField, JournalFields};
 #[cfg(feature = "production-prover")]
 use agenc_zkvm_guest::{serialize_journal, JOURNAL_TOTAL_LEN};
+use agenc_zkvm_guest::{JournalField, JournalFields};
 #[cfg(feature = "production-prover")]
 use borsh::BorshSerialize;
 use verifier_router::Selector;
@@ -158,7 +158,8 @@ fn generate_proof_with_dev_mode(
         let _ = request;
         Err(ProveError::ProverFailed(
             "Proof generation requires building with --features production-prover. \
-             Install the RISC Zero toolchain: curl -L https://risczero.com/install | bash && rzup".into()
+             Install the RISC Zero toolchain: curl -L https://risczero.com/install | bash && rzup"
+                .into(),
         ))
     }
 }
@@ -258,7 +259,8 @@ pub fn render_prove_response(response: &ProveResponse) -> String {
         journal: response.journal.clone(),
         image_id: response.image_id.to_vec(),
     };
-    serde_json::to_string(&json_resp).expect("ProveResponse serialization cannot fail")
+    serde_json::to_string(&json_resp)
+        .unwrap_or_else(|_| "{\"seal_bytes\":[],\"journal\":[],\"image_id\":[]}".to_string())
 }
 
 #[cfg(feature = "production-prover")]
@@ -341,7 +343,10 @@ mod tests {
                 .expect_err("must fail without production-prover");
             match err {
                 ProveError::ProverFailed(msg) => {
-                    assert!(msg.contains("--features production-prover"), "error should mention feature flag: {msg}");
+                    assert!(
+                        msg.contains("--features production-prover"),
+                        "error should mention feature flag: {msg}"
+                    );
                 }
                 other => panic!("expected ProverFailed, got: {other}"),
             }

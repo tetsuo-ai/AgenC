@@ -126,13 +126,32 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
             CoordinationError::MissingTokenAccounts
         );
 
-        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
-        let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
-        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
-        let token_program = ctx.accounts.token_program.as_ref().unwrap();
+        let token_escrow = ctx
+            .accounts
+            .token_escrow_ata
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let creator_ta = ctx
+            .accounts
+            .creator_token_account
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let mint = ctx
+            .accounts
+            .reward_mint
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let token_program = ctx
+            .accounts
+            .token_program
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let expected_mint = task
+            .reward_mint
+            .ok_or(CoordinationError::InvalidTokenMint)?;
 
         require!(
-            mint.key() == task.reward_mint.unwrap(),
+            mint.key() == expected_mint,
             CoordinationError::InvalidTokenMint
         );
         validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
@@ -270,9 +289,21 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
 
     // Close token escrow ATA AFTER all worker claims are processed
     if is_token_task {
-        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
-        let token_program = ctx.accounts.token_program.as_ref().unwrap();
-        let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+        let token_escrow = ctx
+            .accounts
+            .token_escrow_ata
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let token_program = ctx
+            .accounts
+            .token_program
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let creator_ta = ctx
+            .accounts
+            .creator_token_account
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
         let residual_amount = token_escrow_starting_amount
             .ok_or(CoordinationError::MissingTokenAccounts)?
             .checked_sub(refund_amount)
