@@ -213,7 +213,10 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
             worker.authority == rent_recipient_info.key(),
             CoordinationError::InvalidRentRecipient
         );
-        require!(rent_recipient_info.is_writable, CoordinationError::InvalidInput);
+        require!(
+            rent_recipient_info.is_writable,
+            CoordinationError::InvalidInput
+        );
         // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker.active_tasks = worker.active_tasks.saturating_sub(1);
         // Use AnchorSerialize::serialize (Borsh only) — see dispute_helpers.rs comment (fix #960).

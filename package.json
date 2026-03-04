@@ -29,7 +29,10 @@
     "test:fixtures": "cd runtime && npx vitest run src/eval/replay.test.ts src/eval/replay-comparison.test.ts --reporter=verbose",
     "test:e2e-zk": "bash ./scripts/run-e2e-zk-local.sh",
     "demo": "npx tsx demo/private_task_demo.ts",
-    "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts"
+    "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts",
+    "fender:list": "node scripts/solana-fender-mcp.mjs list",
+    "fender:check:file": "node scripts/solana-fender-mcp.mjs check-file",
+    "fender:check:program": "node scripts/solana-fender-mcp.mjs check-program"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

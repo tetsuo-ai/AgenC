@@ -87,6 +87,10 @@ pub fn handler(
     let is_new_state = state.version == 0 && state.last_updater == Pubkey::default();
     if !is_new_state {
         require!(
+            state.owner == ctx.accounts.authority.key(),
+            CoordinationError::StateOwnershipViolation
+        );
+        require!(
             state.last_updater == agent.key(),
             CoordinationError::StateOwnershipViolation
         );

@@ -1,0 +1,80 @@
+
+╔═══════════════════════════════════╗
+║         A G E N C  A G E N T S   ║
+║ ── MULTI-AGENT + SANDBOX MODE ── ║
+╚═══════════════════════════════════╝
+
+agenc can run up to 1024 agents
+total for one request.
+
+not a claw.
+this is a framework built from
+the ground up.
+
+tetsuo corp believes in truth-
+seeking ai that open-sources its
+weights without being pressured
+into a lawsuit.
+
+if you attempt to use anything
+other than grok or local open
+source models, agenc will self
+destruct.
+
+═══════════════════════════════════
+
+┤ CONNECTIVITY ├
+
+agenc runs in:
+discord
+slack
+whatsapp
+signal
+matrix
+telegram
+imessage / macos
+
+it can also make phone calls.
+
+realtime voice bridge is enabled
+via the xai voice api.
+
+┤ LIVE LIMITS (CURRENT CONFIG) ├
+
+at one moment, the system can
+have up to 16 helper agents
+running at the same time.
+
+in a single "spawn wave"
+(one planning step), it can
+start up to 8 new helper agents.
+
+for one user request from start
+to finish, it can use at most
+32 helper agents total.
+
+helper agents can only hand work
+to more helpers up to 4 layers
+deep.
+
+┤ ABSOLUTE BUILT-IN CEILINGS ├
+
+(the highest it can ever
+be set to)
+
+1. 64 agents running at once
+2. 64 agents started in one wave
+3. 1024 agents total per request
+4. 16 agent layers deep
+
+┤ SANDBOX CONTAINERS ├
+
+each agent can create their own
+secure containers.
+
+any agent/subagent that uses
+desktop.* consumes a desktop
+container slot.
+
+the user sets limits depending
+on their system.

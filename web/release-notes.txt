@@ -1,0 +1,336 @@
+
+╔═══════════════════════════════════╗
+║       A G E N C   v 0 . 2       ║
+║ ── ORCHESTRATION + TERMINAL ──  ║
+╚═══════════════════════════════════╝
+
+we built SOTA subagent orchestration.
+
+the agent decomposes tasks into
+DAGs, spawns child agents with
+scoped tools and curated context,
+verifies their outputs, synthesizes
+results with provenance, and learns
+from outcomes to improve policy.
+
+9 workstreams. 108 files. ~20k lines.
+
+grounded in primary research:
+
+ AOrchestra  dynamic agent tuples
+ BOAD        bandit optimization
+ Agent Lightning  trajectory logs
+ AFlow       DAG workflow search
+ Magentic-One  manager baseline
+ SWE-search  tree decomposition
+ Anthropic   pass@k vs pass^k
+ OpenAI      multi-agent SDK
+
+═══════════════════════════════════
+
+┤ ORCHESTRATION ENGINE ├
+
+ SubAgentOrchestrator materializes
+ planner DAGs into executable
+ work. serial and bounded-parallel
+ modes. built on Deterministic-
+ PipelineExecutor. preserves
+ completed / failed / halted +
+ resume semantics.
+
+ ChatExecutor planner now emits:
+ - deterministic_tool steps
+ - subagent_task steps
+ - synthesis steps
+
+ each subtask specifies:
+ objective, input_contract,
+ acceptance_criteria,
+ required_tool_capabilities,
+ context_requirements,
+ max_budget_hint,
+ can_run_parallel
+
+┤ DELEGATION INTELLIGENCE ├
+
+ DelegationDecision scorer:
+ - decomposition benefit
+ - coordination overhead
+ - latency/cost risk
+ - safety risk
+ - confidence score
+
+ gated by threshold + guardrails.
+ explicit "do not delegate" for
+ trivial requests.
+
+ validation:
+ rejects malformed graphs
+ prevents cycles
+ enforces max fanout + depth
+ structured diagnostics
+
+┤ CONTEXT CURATION ├
+
+ AOrchestra-style child packing:
+ - targeted history slice
+ - relevant tool outputs only
+ - required memory results only
+ - minimal prompt envelope
+
+ no full parent history dumps.
+ context size caps + diagnostics.
+
+ least-privilege tool scoping:
+ child allowlist from parent
+ policy + subtask requirements.
+ privilege expansion blocked.
+ deny-list and SSRF preserved.
+
+┤ VERIFIER + SYNTHESIS ├
+
+ verifier stage for child outputs:
+ - contract adherence
+ - evidence quality
+ - hallucination detection
+ - tool-result consistency
+
+ low-confidence rejected/retried.
+
+ parent synthesis includes:
+ child outputs + confidence
+ failure markers + unresolved
+ provenance citations in answers.
+
+ anti-feedback-loop:
+ max verification rounds enforced.
+ global timeout across planner +
+ children + synthesis.
+
+┤ SAFETY ├
+
+ approval continuity:
+ policies enforced in all children.
+ parent context in prompts.
+ child cannot bypass denials.
+
+ hard anti-runaway constraints:
+ max recursion depth
+ max fanout per turn
+ max children per request
+ max cumulative tool calls
+ max cumulative tokens
+ circuit breaker on breach
+
+ hard-blocked task classes:
+ wallet_signing
+ wallet_transfer
+ stake_or_rewards
+ destructive_host_mutation
+ credential_exfiltration
+
+ data boundary controls:
+ memory artifact limits
+ redact filters before prompts
+ tool-call ordering invariants
+
+┤ EVALUATION GATES ├
+
+ 12 new pipeline quality metrics:
+ delegationAttemptRate
+ usefulDelegationRate
+ harmfulDelegationRate
+ plannerToExecutionMismatchRate
+ childTimeoutRate
+ childFailureRate
+ synthesisConflictRate
+ depthCapHitRate
+ fanoutCapHitRate
+ costDeltaVsBaseline
+ latencyDeltaVsBaseline
+ qualityDeltaVsBaseline
+
+ CI thresholds:
+ fail-fast harmful delegation
+ fail-fast runaway behavior
+ no safety regression
+ pass@k + pass^k vs baseline
+
+ benchmark fixtures:
+ no delegation / single child /
+ parallel / handoff / verifier
+ comparison vs baseline executor
+
+┤ LEARNING OPTIMIZATION ├
+
+ trajectory logging:
+ Agent Lightning normalized
+ records. state, action,
+ outcomes, rewards.
+ runtime + trainer decoupled.
+
+ bandit policy tuning (BOAD):
+ strategies modeled as arms
+ reward distributions tracked
+ per arm and context cluster
+ exploration budget maintained
+
+ workflow search (AFlow):
+ offline search over DAG
+ variants on replay traces
+ promotes policies improving
+ quality-cost Pareto frontier
+
+ usefulness proxy v1:
+ threshold 0.62
+ reward + verifier confidence +
+ recalls avoided + tool failures
+ + stop-reason penalty
+
+ aggressiveness profiles:
+ conservative / balanced /
+ aggressive / adaptive
+ runtime /delegation command
+ no restart required
+
+ handoff confidence gate: 0.82
+ child provider strategy:
+ same_as_parent |
+ capability_matched
+
+┤ OBSERVABILITY ├
+
+ 10 new subagent event types:
+ subagents.planned
+ subagents.spawned
+ subagents.started
+ subagents.progress
+ subagents.tool.executing
+ subagents.tool.result
+ subagents.completed
+ subagents.failed
+ subagents.cancelled
+ subagents.synthesized
+
+ shared protocol schema replaced
+ duplicated runtime/web types.
+ eliminated drift on 5 events.
+ filter-aware server dispatch.
+
+ live delegation in chat:
+ child id + objective + status
+ tools used + elapsed time
+ output summary + error reason
+
+ activity feed + trace:
+ correlation IDs linking
+ parent -> child -> tool calls
+
+┤ DOCS ├
+
+ updated:
+ runtime-chat-pipeline.md
+ INCIDENT_REPLAY_RUNBOOK.md
+ RUNTIME_API.md
+
+ new:
+ subagent-orchestration.md
+ message flow + policy gates +
+ failure matrix + kill-switch +
+ observability map
+
+═══════════════════════════════════
+
+then we rebuilt the entire web UI.
+
+═══════════════════════════════════
+
+┤ BBS TERMINAL UI ├
+
+ full retro BBS conversion.
+ not a theme. every component.
+
+ JetBrains Mono. always dark.
+ ASCII box-drawing for chrome.
+ 0 new dependencies.
+
+ splash screen:
+ ANSI art + progress bar
+ [████████████░░░░░░░░]  87%
+ "initializing agent runtime..."
+
+ BBSHeader:
+ ASCII logo + "agenc" wordmark
+ NODE 01 | SYSOP: tetsuo
+
+ BBSMenuBar:
+ [1] CHAT [2] DASH [3] TOOLS
+ [4] TASKS [5] DESKTOP [6] FEED
+ keyboard shortcuts 1-6
+
+ chat messages:
+ USER> prefix (orange)
+ ┤ AGENT RESPONSE ├ bordered
+ [C]opy [R]etry [S]peak
+
+ tool calls:
+ ┤ TOOL CALLS ├ green border
+ * tool [N args] [DONE] 42ms
+
+ subagents:
+ ┤ SUBAGENTS ├ magenta border
+ [COMPLETED] [RUNNING] [FAILED]
+
+ input:
+ > prompt (purple)
+ [FILE] [MIC] [SEND] [STOP]
+
+ context:
+ CONTEXT [████░░░░░░] 12%
+
+ voice:
+ [MIC] [SPK] [...] [WORK]
+ [VAD]/[PTT] text toggle
+
+ approvals:
+ ┤ APPROVAL REQUIRED ├
+ [DENY] [APPROVE]
+
+ all features preserved:
+ voice, desktop, sessions,
+ tool calls, subagents,
+ approvals, search, attachments,
+ slash cmds, token usage
+
+═══════════════════════════════════
+
+ 108 files changed
+ 19,884 lines added
+ 1,701 lines removed
+ 9 workstreams completed
+ 12 new quality metrics
+ 10 new event types
+ 5 hard-blocked task classes
+ 4 aggressiveness profiles
+ 61 web tests passing
+ 0 new dependencies
+
+┌───────────────────────────────────┐
+│                                   │
+│ privacy-preserving AI agent       │
+│ protocol built on Solana          │
+│                                   │
+│ zero-knowledge proofs             │
+│ on-chain coordination             │
+│ SOTA subagent orchestration       │
+│ learning-based policy tuning      │
+│ retro BBS terminal interface      │
+│                                   │
+│ github.com/tetsuo-ai/AgenC       │
+│ PR #1326                          │
+│                                   │
+└───────────────────────────────────┘
+
+╔═══════════════════════════════════╗
+║  END OF LINE                      ║
+╚═══════════════════════════════════╝

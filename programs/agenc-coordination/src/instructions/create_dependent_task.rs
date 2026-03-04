@@ -188,7 +188,10 @@ pub fn handler(
             );
             let escrow_ata_mint = token::accessor::mint(&token_escrow_info)
                 .map_err(|_| CoordinationError::InvalidTokenEscrow)?;
-            require!(escrow_ata_mint == mint.key(), CoordinationError::InvalidTokenMint);
+            require!(
+                escrow_ata_mint == mint.key(),
+                CoordinationError::InvalidTokenMint
+            );
             let escrow_ata_authority = token::accessor::authority(&token_escrow_info)
                 .map_err(|_| CoordinationError::InvalidTokenEscrow)?;
             require!(
