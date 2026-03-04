@@ -11,9 +11,15 @@ The machine-readable baselines are:
 - `docs/security/fender-medium-baseline.json`
 - `docs/security/fender-full-baseline.json`
 
+Shared source of truth:
+
+- `scripts/fender-baseline-shared.mjs`
+
 The gate script is:
 
 - `scripts/check-fender-baseline.mjs`
+- `scripts/generate-fender-baselines.mjs`
+- `npm run -s fender:baseline:generate`
 - `npm run -s fender:gate:program`
 - `npm run -s fender:gate:full`
 
@@ -27,18 +33,19 @@ The gate script is:
 - Finding: account reinitialization risk.
 - Why false positive: no account creation/reinitialization in the handler. Accounts are validated with PDA seeds and status constraints.
 
-3. `src/instructions/complete_task_private.rs` line 194 (`complete_task_private`)
+3. `src/instructions/complete_task_private.rs` lines 288/461 (`decode_private_completion_payload`, `build_router_verify_ix`)
 - Finding: account reinitialization risk.
-- Why false positive: spend accounts use `init` (not `init_if_needed`) and deterministic one-time seeds (`binding_spend`, `nullifier_spend`) to enforce replay resistance. Existing accounts are PDA-constrained.
+- Why false positive: helper extraction split validation/CPI-construction into additional pure functions, but none introduces `init_if_needed`/reinit behavior. Spend accounts still use one-time `init` seeds (`binding_spend`, `nullifier_spend`) for replay resistance, and mutable task/claim/escrow accounts remain PDA-constrained.
 
-4. `src/instructions/complete_task_private.rs` line 298 (CPI validation)
+4. `src/instructions/complete_task_private.rs` lines 284/396/444 (CPI validation)
 - Finding: arbitrary CPI without program-id validation.
 - Why false positive: router CPI is pinned in three layers:
 - account constraint `router_program` fixed to trusted id
 - explicit runtime `require!` id checks
 - `Instruction.program_id` fixed to trusted router id and checked against `router_program`
+- strict instruction-shape/meta validation via `validate_router_verify_ix(...)` before `invoke`
 
-5. `src/lib.rs` lines 285/296/393/414
+5. `src/lib.rs` lines 302/321/442/463
 - Finding: account reinitialization risk on `#[program]` entrypoint functions.
 - Why false positive: these are thin wrappers delegating to instruction handlers; they do not perform account init/reinit themselves.
 

@@ -21,15 +21,15 @@
       "id": "complete-task-private-reinit-heuristic",
       "severity": "Medium",
       "file": "src/instructions/complete_task_private.rs",
-      "descriptionRegex": "Function 'complete_task_private' may be vulnerable to account reinitialization",
-      "rationale": "False positive: spend-tracking accounts use init (not init_if_needed) with one-time seeds, and existing task/claim/escrow accounts are PDA-constrained."
+      "descriptionRegex": "Function '(complete_task_private|decode_private_completion_payload|build_router_verify_ix)' may be vulnerable to account reinitialization",
+      "rationale": "False positive: helper split moved logic into pure validation/CPI-construction functions; no helper introduces init_if_needed or account reinitialization. Spend-tracking accounts still use one-time init seeds and mutable accounts remain PDA-constrained."
     },
     {
       "id": "complete-task-private-cpi-heuristic",
       "severity": "Medium",
       "file": "src/instructions/complete_task_private.rs",
       "descriptionRegex": "Potential arbitrary CPI detected without program ID validation",
-      "rationale": "False positive: CPI program is hard-pinned via account address constraint, explicit runtime equality checks, and Instruction.program_id fixed to trusted router id."
+      "rationale": "False positive: CPI program is hard-pinned via account address constraint, explicit runtime equality checks, strict instruction-shape validation (validate_router_verify_ix), and Instruction.program_id fixed to trusted router id."
     },
     {
       "id": "lib-wrapper-apply-initiator-slash",
