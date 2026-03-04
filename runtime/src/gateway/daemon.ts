@@ -3670,6 +3670,38 @@ export class DaemonManager {
     }));
     registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
     registry.register(createExecuteWithAgentTool());
+    const walletResult = await this.loadWallet(config);
+    const marketplaceActorId = walletResult
+      ? Buffer.from(walletResult.agentId).toString('hex')
+      : 'gateway-agent';
+
+    if (config.marketplace?.enabled) {
+      try {
+        const { createMarketplaceTools } = await import('../tools/marketplace/index.js');
+        registry.registerAll(createMarketplaceTools({
+          getMarketplace: () => this._marketplace,
+          actorId: marketplaceActorId,
+          logger: this.logger,
+        }));
+      } catch (error) {
+        this.logger.warn?.('Marketplace tools unavailable:', error);
+      }
+    }
+
+    if (config.social?.enabled) {
+      try {
+        const { createSocialTools } = await import('../tools/social/index.js');
+        registry.registerAll(createSocialTools({
+          getDiscovery: () => this._agentDiscovery,
+          getMessaging: () => this._agentMessaging,
+          getFeed: () => this._agentFeed,
+          getCollaboration: () => this._collaborationProtocol,
+          logger: this.logger,
+        }));
+      } catch (error) {
+        this.logger.warn?.('Social tools unavailable:', error);
+      }
+    }
 
     // macOS native automation tools (AppleScript, JXA, open, notifications)
     if (process.platform === 'darwin') {
@@ -3856,7 +3888,6 @@ export class DaemonManager {
         this._connectionManager = connMgr;
 
         const { createAgencTools } = await import('../tools/agenc/index.js');
-        const walletResult = await this.loadWallet(config);
         registry.registerAll(createAgencTools({
           connection: connMgr.getConnection(),
           wallet: walletResult?.wallet,
