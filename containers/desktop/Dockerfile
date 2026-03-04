@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DISPLAY=:1 \
@@ -13,19 +13,17 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright
 # =============================================================================
 # System packages
 # =============================================================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     # Virtual display + desktop environment
     xvfb xfce4 xfce4-terminal xfce4-whiskermenu-plugin dbus-x11 xterm kitty \
     # File manager
     thunar \
-    # GUI browser fallback
-    epiphany-browser \
     # VNC
     x11vnc novnc websockify \
     # Input automation
     xdotool xclip xsel \
     # Screenshot + display info + SVG rendering
-    scrot imagemagick x11-utils librsvg2-bin \
+    scrot x11-utils librsvg2-bin \
     # Process management
     supervisor \
     # Fonts (system + monospace for terminal/coding)
@@ -38,8 +36,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git vim nano neovim tmux htop tree jq unzip sudo \
     # Modern CLI tools (agent-optimized)
     ripgrep fd-find bat fzf \
-    # Video recording
-    ffmpeg \
     # Python
     python3 python3-pip python3-venv \
     # Misc utilities
@@ -71,9 +67,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p ${PLAYWRIGHT_BROWSERS_PATH} \
     && node /usr/lib/node_modules/@playwright/mcp/node_modules/playwright/cli.js install --with-deps chromium \
     && CHROME_BIN="$(find ${PLAYWRIGHT_BROWSERS_PATH} -path '*/chrome-linux64/chrome' | head -n1)" \
+    && FFMPEG_BIN="$(find ${PLAYWRIGHT_BROWSERS_PATH} -path '*/ffmpeg-linux' | head -n1)" \
     && if [ -n "$CHROME_BIN" ]; then \
          ln -sf "$CHROME_BIN" /usr/bin/chromium; \
          ln -sf /usr/bin/chromium /usr/bin/chromium-browser; \
+       fi \
+    && if [ -n "$FFMPEG_BIN" ]; then \
+         ln -sf "$FFMPEG_BIN" /usr/bin/ffmpeg; \
        fi \
     && rm -rf /home/agenc/.npm \
     # Cleanup
@@ -222,12 +222,14 @@ RUN chown -R agenc:agenc /home/agenc /opt/server /tmp
 # uv (Python package manager) + kitty-mcp
 # =============================================================================
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && python3 -m pip install --no-cache-dir --upgrade pip wheel==0.46.2 jaraco.context==6.1.0 \
+    && python3 -m pip install --break-system-packages --ignore-installed --no-cache-dir --upgrade pip wheel==0.46.2 jaraco.context==6.1.0 \
     && git clone https://github.com/den-tanui/kitty-mcp.git /tmp/kitty-mcp \
     && sed -i '30,34d' /tmp/kitty-mcp/pyproject.toml \
     && /home/agenc/.local/bin/uv tool install /tmp/kitty-mcp \
-    && UV_PYTHON_BIN="$(find /home/agenc/.local/share/uv/python -path '*/bin/python' | head -n1)" \
-    && "$UV_PYTHON_BIN" -m pip install --break-system-packages --no-cache-dir --upgrade --pre setuptools \
+    && UV_PYTHON_BIN="$(find /home/agenc/.local/share/uv/python -path '*/bin/python' 2>/dev/null | head -n1 || true)" \
+    && if [ -n "$UV_PYTHON_BIN" ]; then \
+         "$UV_PYTHON_BIN" -m pip install --break-system-packages --no-cache-dir --upgrade --pre setuptools; \
+       fi \
     && rm -rf /tmp/kitty-mcp \
     && chown -R agenc:agenc /home/agenc/.local
 

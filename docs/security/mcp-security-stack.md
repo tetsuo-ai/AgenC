@@ -94,6 +94,20 @@ npm run -s security:trivy:image -- agenc/desktop:latest
 trivy image --scanners vuln,misconfig,secret --format json --quiet --output .tmp/trivy-image.json agenc/desktop:latest
 ```
 
+## Desktop Hardening Regression Check
+
+Run the Dockerfile hardening guard before rebuilding desktop images:
+
+```bash
+npm run -s security:desktop:hardening:check
+```
+
+This check enforces:
+- `ubuntu:24.04` base image with `apt-get upgrade -y`
+- no apt install reintroduction of `imagemagick`, `epiphany-browser`, or system `ffmpeg`
+- Playwright ffmpeg symlink wiring
+- no forced `risc0-zkvm` guest `std` feature in `zkvm/methods/guest/Cargo.toml`
+
 ## Optional Snyk MCP
 
 If your installed Snyk binary supports MCP mode, add this server:

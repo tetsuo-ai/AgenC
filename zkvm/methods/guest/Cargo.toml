@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-risc0-zkvm = { version = "~3.0", default-features = false, features = ["std"] }
+risc0-zkvm = { version = "~3.0", default-features = false }
 agenc-zkvm-guest = { path = "../../guest" }
