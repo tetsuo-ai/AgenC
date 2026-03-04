@@ -359,7 +359,7 @@ export async function handleTasksCancel(
     await program.methods
       .cancelTask()
       .accountsPartial({
-        creator: keypair.publicKey,
+        authority: keypair.publicKey,
         task: taskPda,
         escrow: escrowPda,
         systemProgram: SystemProgram.programId,

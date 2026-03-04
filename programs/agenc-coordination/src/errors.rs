@@ -255,6 +255,9 @@ pub enum CoordinationError {
     #[msg("Agent has active disputes as defendant and cannot deregister")]
     ActiveDisputesExist,
 
+    #[msg("Dispute has reached maximum voter capacity")]
+    TooManyDisputeVoters,
+
     #[msg("Worker agent account required when creator initiates dispute")]
     WorkerAgentRequired,
 

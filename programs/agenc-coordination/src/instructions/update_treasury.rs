@@ -6,7 +6,7 @@
 use crate::errors::CoordinationError;
 use crate::events::TreasuryUpdated;
 use crate::state::ProtocolConfig;
-use crate::utils::multisig::require_multisig;
+use crate::utils::multisig::{require_multisig_threshold, unique_account_infos};
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
@@ -24,10 +24,17 @@ pub struct UpdateTreasury<'info> {
     /// - program-owned (preferred), or
     /// - a system-owned signer account (legacy compatibility).
     pub new_treasury: UncheckedAccount<'info>,
+
+    pub authority: Signer<'info>,
 }
 
 pub fn handler(ctx: Context<UpdateTreasury>) -> Result<()> {
-    require_multisig(&ctx.accounts.protocol_config, ctx.remaining_accounts)?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::MultisigNotEnoughSigners
+    );
+    let unique_signers = unique_account_infos(ctx.remaining_accounts);
+    require_multisig_threshold(&ctx.accounts.protocol_config, &unique_signers)?;
 
     let new_treasury = &ctx.accounts.new_treasury;
     require!(
@@ -52,12 +59,7 @@ pub fn handler(ctx: Context<UpdateTreasury>) -> Result<()> {
     let old_treasury = config.treasury;
     config.treasury = new_treasury.key();
 
-    let updated_by = ctx
-        .remaining_accounts
-        .iter()
-        .find(|account| account.is_signer)
-        .map(|account| account.key())
-        .unwrap_or_default();
+    let updated_by = ctx.accounts.authority.key();
 
     emit!(TreasuryUpdated {
         old_treasury,

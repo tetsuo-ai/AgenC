@@ -623,7 +623,7 @@ export async function expireClaim(
   const tx = await program.methods
     .expireClaim()
     .accountsPartial({
-      caller: caller.publicKey,
+      authority: caller.publicKey,
       task: taskPda,
       escrow: escrowPda,
       claim: claimPda,
@@ -1006,7 +1006,7 @@ export async function cancelTask(
     .accountsPartial({
       task: taskPda,
       escrow: escrowPda,
-      creator: creator.publicKey,
+      authority: creator.publicKey,
       protocolConfig: protocolPda,
       systemProgram: SystemProgram.programId,
       ...tokenAccounts,

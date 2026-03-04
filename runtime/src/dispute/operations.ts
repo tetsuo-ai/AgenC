@@ -486,11 +486,11 @@ export class DisputeOperations {
         task: params.taskPda,
         escrow: escrowPda,
         protocolConfig: this.protocolPda,
-        resolver: this.program.provider.publicKey,
+        authority: this.program.provider.publicKey,
         creator: params.creatorPubkey,
         workerClaim: params.workerClaimPda ?? null,
         worker: params.workerAgentPda ?? null,
-        workerAuthority: params.workerAuthority ?? null,
+        workerWallet: params.workerAuthority ?? null,
         systemProgram: SystemProgram.programId,
         ...tokenAccounts,
       });
@@ -627,9 +627,10 @@ export class DisputeOperations {
         escrow: escrowPda,
         protocolConfig: this.protocolPda,
         creator: params.creatorPubkey,
+        authority: this.program.provider.publicKey,
         workerClaim: params.workerClaimPda ?? null,
         worker: params.workerAgentPda ?? null,
-        workerAuthority: params.workerAuthority ?? null,
+        workerWallet: params.workerAuthority ?? null,
         ...tokenAccounts,
       });
 
@@ -694,6 +695,7 @@ export class DisputeOperations {
           workerAgent: params.workerAgentPda,
           protocolConfig: this.protocolPda,
           treasury,
+          authority: this.program.provider.publicKey,
           ...tokenAccounts,
         })
         .rpc();

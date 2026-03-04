@@ -502,7 +502,9 @@ export async function disableRateLimitsForTests(params: {
     }
     signerByPubkey.set(signer.publicKey.toBase58(), signer);
   }
-  const sanitizedAdditionalSigners = Array.from(signerByPubkey.values());
+  const sanitizedAdditionalSigners = Array.from(signerByPubkey.values()).filter(
+    (signer) => signer.publicKey.toBase58() !== authority.toBase58(),
+  );
 
   const remainingAccounts = [
     { pubkey: authority, isSigner: true, isWritable: false },
@@ -521,7 +523,7 @@ export async function disableRateLimitsForTests(params: {
       255, // max_disputes_per_24h = 255 (effectively unlimited)
       new BN(minStakeForDisputeLamports), // min_stake_for_dispute (>= 1000)
     )
-    .accountsPartial({ protocolConfig: protocolPda })
+    .accountsPartial({ protocolConfig: protocolPda, authority })
     .remainingAccounts(remainingAccounts);
 
   if (sanitizedAdditionalSigners.length > 0) {

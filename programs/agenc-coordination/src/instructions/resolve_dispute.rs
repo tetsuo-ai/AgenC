@@ -56,10 +56,10 @@ pub struct ResolveDispute<'info> {
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
-        constraint = resolver.key() == protocol_config.authority
+        constraint = authority.key() == protocol_config.authority
             @ CoordinationError::UnauthorizedResolver
     )]
-    pub resolver: Signer<'info>,
+    pub authority: Signer<'info>,
 
     /// CHECK: Task creator for refund - validated to match task.creator (fix #58)
     #[account(
@@ -123,6 +123,10 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     let clock = Clock::get()?;
 
     check_version_compatible(config)?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::UnauthorizedResolver
+    );
 
     // Verify dispute is active
     require!(

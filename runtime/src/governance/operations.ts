@@ -313,7 +313,7 @@ export class GovernanceOperations {
           proposal: params.proposalPda,
           protocolConfig: this.protocolPda,
           governanceConfig: this.governanceConfigPda,
-          executor: this.program.provider.publicKey,
+          authority: this.program.provider.publicKey,
           treasury: params.treasuryPubkey ?? null,
           recipient: params.recipientPubkey ?? null,
           systemProgram: SystemProgram.programId,

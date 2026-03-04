@@ -33,7 +33,7 @@ const GRACE_PERIOD: i64 = 60;
 pub struct ExpireClaim<'info> {
     /// Caller who triggers the expiration - receives cleanup reward
     #[account(mut)]
-    pub caller: Signer<'info>,
+    pub authority: Signer<'info>,
 
     #[account(
         mut,
@@ -95,6 +95,10 @@ pub struct ExpireClaim<'info> {
 /// timely cleanup of expired claims.
 pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     check_version_compatible(&ctx.accounts.protocol_config)?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::InvalidInput
+    );
 
     let task = &mut ctx.accounts.task;
     let worker = &mut ctx.accounts.worker;
@@ -129,7 +133,7 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     // their own claim. This prevents griefing attacks where malicious actors race
     // workers to expire their claims exactly at timeout.
     let grace_period_ended = clock.unix_timestamp > claim.expires_at.saturating_add(GRACE_PERIOD);
-    let is_worker_authority = ctx.accounts.caller.key() == worker.authority;
+    let is_worker_authority = ctx.accounts.authority.key() == worker.authority;
 
     require!(
         grace_period_ended || is_worker_authority,
@@ -146,7 +150,7 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     if reward > 0 {
         transfer_lamports(
             &escrow.to_account_info(),
-            &ctx.accounts.caller.to_account_info(),
+            &ctx.accounts.authority.to_account_info(),
             reward,
         )?;
         escrow.distributed = escrow

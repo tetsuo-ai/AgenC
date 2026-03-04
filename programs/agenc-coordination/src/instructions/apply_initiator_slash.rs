@@ -54,16 +54,19 @@ pub struct ApplyInitiatorSlash<'info> {
         constraint = treasury.key() == protocol_config.treasury @ CoordinationError::InvalidInput
     )]
     pub treasury: UncheckedAccount<'info>,
+
+    pub authority: Signer<'info>,
 }
 
 pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
+    require!(ctx.accounts.authority.is_signer, CoordinationError::InvalidInput);
+
     let dispute = &mut ctx.accounts.dispute;
     let task = &ctx.accounts.task;
     let initiator_agent = &mut ctx.accounts.initiator_agent;
     let config = &ctx.accounts.protocol_config;
 
     check_version_compatible(config)?;
-
     require!(
         dispute.status == DisputeStatus::Resolved || dispute.status == DisputeStatus::Cancelled,
         CoordinationError::DisputeNotResolved

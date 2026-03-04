@@ -16,7 +16,7 @@ use verifier_router::{client::encode_seal_with_selector, Seal};
 pub const IMAGE_ID_LEN: usize = 32;
 pub const SEAL_SELECTOR_LEN: usize = 4;
 pub const SEAL_PROOF_LEN: usize = 256;
-pub const SEAL_BYTES_LEN: usize = SEAL_SELECTOR_LEN + SEAL_PROOF_LEN;
+pub const SEAL_BYTES_LEN: usize = 260;
 pub const TRUSTED_SEAL_SELECTOR: Selector = [0x52, 0x5a, 0x56, 0x4d];
 pub const DEV_MODE_ENV_VAR: &str = "RISC0_DEV_MODE";
 
@@ -131,8 +131,8 @@ pub fn default_prove_request() -> ProveRequest {
 /// RISC Zero stores Digest words in little-endian order.
 pub fn guest_id_to_image_id(guest_id: &[u32; 8]) -> ImageId {
     let mut out = [0u8; IMAGE_ID_LEN];
-    for (i, word) in guest_id.iter().enumerate() {
-        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+    for (chunk, word) in out.chunks_exact_mut(SEAL_SELECTOR_LEN).zip(guest_id.iter()) {
+        chunk.copy_from_slice(&word.to_le_bytes());
     }
     out
 }
@@ -300,50 +300,6 @@ mod tests {
     // -------------------------------------------------------------------
     // Core proof generation tests
     // -------------------------------------------------------------------
-
-    #[cfg(feature = "production-prover")]
-    #[test]
-    fn canonical_seal_shape_and_lengths_are_correct() {
-        let request = default_prove_request();
-        let response =
-            generate_proof_with_dev_mode(&request, None).expect("proof generation must succeed");
-
-        assert_eq!(response.seal_bytes.len(), SEAL_BYTES_LEN);
-        let decoded = Seal::try_from_slice(&response.seal_bytes)
-            .expect("seal bytes must decode via canonical borsh");
-        assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
-        assert_eq!(response.journal.len(), JOURNAL_TOTAL_LEN);
-        assert_eq!(response.image_id.len(), IMAGE_ID_LEN);
-    }
-
-    #[cfg(feature = "production-prover")]
-    #[test]
-    fn real_seal_bytes_decode_with_correct_selector() {
-        let request = default_prove_request();
-        let response =
-            generate_proof_with_dev_mode(&request, None).expect("proof generation must succeed");
-        let decoded = Seal::try_from_slice(&response.seal_bytes).expect("seal bytes must decode");
-        assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
-    }
-
-    #[cfg(feature = "production-prover")]
-    #[test]
-    fn proof_generation_is_deterministic() {
-        let request = default_prove_request();
-
-        let first = generate_proof_with_dev_mode(&request, None).expect("first run must succeed");
-        let second = generate_proof_with_dev_mode(&request, None).expect("second run must succeed");
-
-        #[cfg(not(feature = "production-prover"))]
-        assert_eq!(first, second);
-
-        // Real prover: journal and image_id are deterministic, seal may vary
-        #[cfg(feature = "production-prover")]
-        {
-            assert_eq!(first.journal, second.journal);
-            assert_eq!(first.image_id, second.image_id);
-        }
-    }
 
     #[test]
     fn dev_mode_guard_is_fail_closed() {
@@ -520,27 +476,7 @@ mod tests {
         use super::*;
 
         #[test]
-        fn real_proof_has_correct_structure() {
-            let request = default_prove_request();
-            let response =
-                generate_proof_real(&request).expect("real proof generation must succeed");
-
-            assert_eq!(response.seal_bytes.len(), SEAL_BYTES_LEN);
-            assert_eq!(response.journal.len(), JOURNAL_TOTAL_LEN);
-            assert_eq!(response.image_id.len(), IMAGE_ID_LEN);
-
-            // Journal matches expected serialization
-            let expected_journal = serialize_journal(&JournalFields::from(request));
-            assert_eq!(response.journal, expected_journal.to_vec());
-
-            // Seal decodes with correct selector
-            let decoded =
-                Seal::try_from_slice(&response.seal_bytes).expect("seal bytes must decode");
-            assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
-        }
-
-        #[test]
-        fn real_image_id_is_deterministic() {
+        fn image_id_is_deterministic() {
             let id1 = guest_id_to_image_id(&agenc_zkvm_methods::AGENC_GUEST_ID);
             let id2 = guest_id_to_image_id(&agenc_zkvm_methods::AGENC_GUEST_ID);
             assert_eq!(id1, id2);

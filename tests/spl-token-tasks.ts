@@ -729,7 +729,7 @@ describe("spl-token-tasks (issue #860)", () => {
         .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
-          creator: creator.publicKey,
+          authority: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: escrowAta,
@@ -1566,7 +1566,7 @@ describe("spl-token-tasks (issue #860)", () => {
         .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
-          creator: creator.publicKey,
+          authority: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: escrowAta,
@@ -1705,7 +1705,7 @@ describe("spl-token-tasks (issue #860)", () => {
           creator: creator.publicKey,
           workerClaim: claimPda,
           worker: workerAgentPda,
-          workerAuthority: worker.publicKey,
+          workerWallet: worker.publicKey,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: escrowAta,
           creatorTokenAccount: creatorAta,
@@ -1813,7 +1813,7 @@ describe("spl-token-tasks (issue #860)", () => {
           creator: creator.publicKey,
           workerClaim: claimPda,
           worker: workerAgentPda,
-          workerAuthority: worker.publicKey,
+          workerWallet: worker.publicKey,
           tokenEscrowAta: escrowAta,
           creatorTokenAccount: creatorAta,
           workerTokenAccountAta: workerAta,
@@ -1967,7 +1967,7 @@ describe("spl-token-tasks (issue #860)", () => {
             resolver: provider.wallet.publicKey,
             workerClaim: null,
             worker: null,
-            workerAuthority: null,
+            workerWallet: null,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: disputeEscrowAta,
             creatorTokenAccount: creatorAta,
@@ -2128,7 +2128,7 @@ describe("spl-token-tasks (issue #860)", () => {
           creator: creator.publicKey,
           workerClaim: claimPda,
           worker: workerAgentPda,
-          workerAuthority: worker.publicKey,
+          workerWallet: worker.publicKey,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: escrowAta,
           creatorTokenAccount: creatorAta,
@@ -2350,7 +2350,7 @@ describe("spl-token-tasks (issue #860)", () => {
           creator: creator.publicKey,
           workerClaim: claimPda,
           worker: workerAgentPda,
-          workerAuthority: worker.publicKey,
+          workerWallet: worker.publicKey,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: escrowAta,
           creatorTokenAccount: creatorAta,
@@ -2418,6 +2418,7 @@ describe("spl-token-tasks (issue #860)", () => {
       expect(escrowPdaAccount).to.equal(null);
       expect(escrowAtaAccount).to.equal(null);
     });
+
   });
 
   describe("token dispute destination validation", () => {
@@ -2516,7 +2517,7 @@ describe("spl-token-tasks (issue #860)", () => {
             creator: creator.publicKey,
             workerClaim: claimPda,
             worker: workerAgentPda,
-            workerAuthority: worker.publicKey,
+            workerWallet: worker.publicKey,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: escrowAta,
             creatorTokenAccount: workerAta, // wrong owner: worker, not creator
@@ -2614,7 +2615,7 @@ describe("spl-token-tasks (issue #860)", () => {
             creator: creator.publicKey,
             workerClaim: claimPda,
             worker: workerAgentPda,
-            workerAuthority: worker.publicKey,
+            workerWallet: worker.publicKey,
             tokenEscrowAta: escrowAta,
             creatorTokenAccount: workerAta, // wrong owner: worker, not creator
             workerTokenAccountAta: workerAta,

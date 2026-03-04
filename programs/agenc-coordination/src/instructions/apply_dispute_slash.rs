@@ -11,7 +11,7 @@
 use crate::errors::CoordinationError;
 use crate::instructions::slash_helpers::{
     apply_reputation_penalty, calculate_approval_percentage, calculate_slash_amount,
-    transfer_slash_to_treasury, validate_slash_window,
+    transfer_slash_to_treasury, SLASH_WINDOW,
 };
 use crate::instructions::token_helpers::{
     close_token_escrow, transfer_tokens_from_escrow, validate_token_account,
@@ -67,6 +67,8 @@ pub struct ApplyDisputeSlash<'info> {
     )]
     pub treasury: UncheckedAccount<'info>,
 
+    pub authority: Signer<'info>,
+
     // === Optional SPL Token slash accounts (token-denominated tasks only) ===
     /// Escrow PDA for the disputed task (kept open until slash for token disputes)
     #[account(mut)]
@@ -88,12 +90,13 @@ pub struct ApplyDisputeSlash<'info> {
 }
 
 pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
+    require!(ctx.accounts.authority.is_signer, CoordinationError::InvalidInput);
+
     let dispute = &mut ctx.accounts.dispute;
     let worker_agent = &mut ctx.accounts.worker_agent;
     let config = &ctx.accounts.protocol_config;
 
     check_version_compatible(config)?;
-
     // Verify the worker being slashed is the actual defendant (fix #827)
     // Prevents slashing wrong worker on collaborative tasks with multiple claimants
     require!(
@@ -117,9 +120,9 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         CoordinationError::SlashAlreadyApplied
     );
 
-    // Check slash window hasn't expired (fix #414)
     let clock = Clock::get()?;
-    validate_slash_window(dispute.resolved_at, &clock)?;
+    let slash_window_open =
+        clock.unix_timestamp <= dispute.resolved_at.saturating_add(SLASH_WINDOW);
 
     let (_total_votes, approval_pct) =
         calculate_approval_percentage(dispute.votes_for, dispute.votes_against)?;
@@ -147,33 +150,50 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
     require!(worker_lost, CoordinationError::InvalidInput);
 
-    // Calculate slash from stake snapshot and cap by current stake (fix #836).
-    let slash_amount = calculate_slash_amount(
-        dispute.worker_stake_at_dispute,
-        worker_agent.stake,
-        config.slash_percentage,
-    )?;
-
-    // Apply reputation penalty for losing the dispute (before lamport transfer to satisfy borrow checker)
-    apply_reputation_penalty(worker_agent, &clock)?;
-
-    if slash_amount > 0 {
-        worker_agent.stake = worker_agent
-            .stake
-            .checked_sub(slash_amount)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-    }
-
-    // Token-denominated disputes that slash a losing worker must settle reserved
-    // tokens during this instruction.
-    let token_task_requires_settlement = ctx.accounts.task.reward_mint.is_some() && worker_lost;
-
-    // If any token accounts are provided, require a complete set.
+    // Any provided token settlement accounts indicate an explicit token-settlement
+    // attempt (used to unlock deferred token slash reserves).
     let token_accounts_provided = ctx.accounts.escrow.is_some()
         || ctx.accounts.token_escrow_ata.is_some()
         || ctx.accounts.treasury_token_account.is_some()
         || ctx.accounts.reward_mint.is_some()
         || ctx.accounts.token_program.is_some();
+
+    // Token-denominated disputes that slash a losing worker must settle reserved
+    // tokens during this instruction. Treat explicit token account sets as a
+    // settlement intent to avoid false SlashWindowExpired rejections.
+    let token_task_requires_settlement =
+        worker_lost && (ctx.accounts.task.reward_mint.is_some() || token_accounts_provided);
+
+    // If the slash window has elapsed, disallow lamport/reputation slashing but
+    // still allow settlement of deferred token slash reserves so escrow cannot
+    // remain permanently locked.
+    if !slash_window_open && !token_task_requires_settlement {
+        return Err(error!(CoordinationError::SlashWindowExpired));
+    }
+
+    // Calculate slash from stake snapshot and cap by current stake (fix #836).
+    let slash_amount = if slash_window_open {
+        calculate_slash_amount(
+            dispute.worker_stake_at_dispute,
+            worker_agent.stake,
+            config.slash_percentage,
+        )?
+    } else {
+        0
+    };
+
+    if slash_window_open {
+        // Apply reputation penalty for losing the dispute (before lamport transfer to satisfy borrow checker)
+        apply_reputation_penalty(worker_agent, &clock)?;
+        if slash_amount > 0 {
+            worker_agent.stake = worker_agent
+                .stake
+                .checked_sub(slash_amount)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+        }
+    } else {
+        msg!("slash window expired; settling token reserve without stake/reputation slash");
+    }
 
     if token_accounts_provided || token_task_requires_settlement {
         require!(

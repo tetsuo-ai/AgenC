@@ -17,13 +17,13 @@ pub struct CancelTask<'info> {
         mut,
         seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
         bump = task.bump,
-        has_one = creator @ CoordinationError::UnauthorizedTaskAction
+        constraint = task.creator == authority.key() @ CoordinationError::UnauthorizedTaskAction
     )]
     pub task: Account<'info, Task>,
 
     #[account(
         mut,
-        close = creator,
+        close = authority,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump,
         constraint = escrow.key() != task.key() @ CoordinationError::InvalidInput
@@ -31,7 +31,7 @@ pub struct CancelTask<'info> {
     pub escrow: Account<'info, TaskEscrow>,
 
     #[account(mut)]
-    pub creator: Signer<'info>,
+    pub authority: Signer<'info>,
 
     #[account(
         seeds = [b"protocol"],
@@ -59,11 +59,19 @@ pub struct CancelTask<'info> {
 }
 
 pub fn process_cancel_task(ctx: Context<CancelTask>) -> Result<()> {
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::UnauthorizedTaskAction
+    );
     process_cancel_task_impl(ctx)
 }
 
 fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
     check_version_compatible(&ctx.accounts.protocol_config)?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::UnauthorizedTaskAction
+    );
 
     let task = &mut ctx.accounts.task;
     let escrow = &mut ctx.accounts.escrow;
@@ -154,7 +162,7 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
         // SOL path: existing lamport transfer (unchanged)
         transfer_lamports(
             &escrow.to_account_info(),
-            &ctx.accounts.creator.to_account_info(),
+            &ctx.accounts.authority.to_account_info(),
             refund_amount,
         )?;
     }
@@ -277,7 +285,7 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
             token_escrow,
             residual_amount,
             &creator_ta.to_account_info(),
-            &ctx.accounts.creator.to_account_info(),
+            &ctx.accounts.authority.to_account_info(),
             &escrow.to_account_info(),
             escrow_seeds,
             token_program,

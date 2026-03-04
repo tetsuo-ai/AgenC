@@ -489,7 +489,7 @@ describe("Task lifecycle guards (#959)", () => {
         .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
-          creator: creator.publicKey,
+          authority: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: null,
@@ -611,7 +611,7 @@ describe("Task lifecycle guards (#959)", () => {
       .accountsPartial({
         task: taskPda,
         escrow: escrowPda,
-        creator: creator.publicKey,
+        authority: creator.publicKey,
         protocolConfig: protocolPda,
         systemProgram: SystemProgram.programId,
         tokenEscrowAta: null,
@@ -663,7 +663,7 @@ describe("Task lifecycle guards (#959)", () => {
       .accountsPartial({
         task: taskPda,
         escrow: escrowPda,
-        creator: creator.publicKey,
+        authority: creator.publicKey,
         protocolConfig: protocolPda,
         systemProgram: SystemProgram.programId,
         tokenEscrowAta: null,

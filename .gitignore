@@ -37,6 +37,8 @@ obj/
 !runtime/src/replay/alert-schema-lockfile.json
 !runtime/benchmarks/v1/delegation-manifest.json
 !docs/api-baseline/*.json
+!docs/security/fender-medium-baseline.json
+!docs/security/fender-full-baseline.json
 !scripts/idl/*.json
 !tests/fixtures/*.json
 !containers/desktop/seccomp.json

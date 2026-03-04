@@ -286,7 +286,7 @@ describe("instruction-coverage", () => {
     await program.methods
       .expireClaim()
       .accountsPartial({
-        caller: worker.publicKey,
+        authority: worker.publicKey,
         task: taskPda,
         escrow: escrowPda,
         claim: claimPda,

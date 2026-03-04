@@ -62,6 +62,7 @@ function buildMultisigRemainingAccounts(signers: Keypair[]): AccountMeta[] {
 type MultisigInstructionBuilder = {
   accountsPartial(accounts: {
     protocolConfig: PublicKey;
+    authority: PublicKey;
   }): MultisigInstructionBuilder;
   signers(signers: Keypair[]): MultisigInstructionBuilder;
   remainingAccounts(accounts: AccountMeta[]): MultisigInstructionBuilder;
@@ -85,10 +86,12 @@ async function executeMultisigProtocolInstruction(
   createBuilder: () => MultisigInstructionBuilder,
 ): Promise<{ txSignature: string }> {
   validateMultisigSigners(multisigSigners, operationName);
+  const authority = multisigSigners[0]!.publicKey;
 
   const builder = createBuilder()
     .accountsPartial({
       protocolConfig: deriveProtocolPda(program.programId),
+      authority,
     })
     .signers(multisigSigners);
 

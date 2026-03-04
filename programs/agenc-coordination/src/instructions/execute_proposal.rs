@@ -43,8 +43,8 @@ pub struct ExecuteProposal<'info> {
     )]
     pub governance_config: Box<Account<'info, GovernanceConfig>>,
 
-    /// Executor can be anyone (permissionless after voting ends)
-    pub executor: Signer<'info>,
+    /// Authority can be anyone (permissionless after voting ends)
+    pub authority: Signer<'info>,
 
     /// CHECK: Treasury account for TreasurySpend proposals.
     /// Must match protocol_config.treasury. Spend path supports:
@@ -68,6 +68,10 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
     let clock = Clock::get()?;
 
     check_version_compatible(config)?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::InvalidInput
+    );
 
     // Verify proposal is active
     require!(
