@@ -84,5 +84,29 @@ export const sharedBaseline = {
       rationale:
         "False positive: RISC Zero guest entrypoint reads inputs and commits journal bytes only; it does not perform Solana account initialization/reinitialization.",
     },
+    {
+      id: "zkvm-ark-relations-impl-lc-unchecked-arithmetic-heuristic",
+      severity: "Medium",
+      file: "zkvm/patches/ark-relations/src/r1cs/impl_lc.rs",
+      descriptionRegex: "Unchecked arithmetic operation found: .*",
+      rationale:
+        "False positive on vendored finite-field algebra code: additions/multiplications are over field elements, not unchecked integer balance math in Solana account logic.",
+    },
+    {
+      id: "zkvm-ark-relations-constraint-system-unchecked-arithmetic-heuristic",
+      severity: "Medium",
+      file: "zkvm/patches/ark-relations/src/r1cs/constraint_system.rs",
+      descriptionRegex: "Unchecked arithmetic operation found: .*",
+      rationale:
+        "False positive on vendored finite-field algebra code: operations are intentional in R1CS construction and not user-controlled integer arithmetic.",
+    },
+    {
+      id: "zkvm-ark-relations-mod-unchecked-arithmetic-heuristic",
+      severity: "Medium",
+      file: "zkvm/patches/ark-relations/src/r1cs/mod.rs",
+      descriptionRegex: "Unchecked arithmetic operation found: .*",
+      rationale:
+        "False positive on vendored field/index mapping helper where arithmetic is bounded by circuit variable indexing semantics.",
+    },
   ],
 };

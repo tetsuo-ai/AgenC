@@ -295,7 +295,7 @@ fn decode_private_completion_payload(
         proof.seal_bytes.len() == RISC0_SEAL_BORSH_LEN,
         CoordinationError::InvalidSealEncoding
     );
-    let seal = Risc0Seal::try_from_slice(&proof.seal_bytes)
+    let seal = crate::utils::borsh::try_from_slice_non_zst::<Risc0Seal>(&proof.seal_bytes)
         .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
     require!(
         seal.selector == TRUSTED_RISC0_SELECTOR,

@@ -50,6 +50,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Enforce Borsh non-ZST deserialization guard
+        run: node scripts/check-borsh-zst-guard.mjs
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
