@@ -71,6 +71,8 @@ The skill writes a structured report to:
 
 `trivy fs` scans the repository filesystem and lockfiles.  
 It does **not** scan built container images/layers.
+If a sweep report says `Trivy Image: Skipped` or `No image tag provided`,
+it means only filesystem/lockfile coverage ran.
 
 To include container image coverage:
 
@@ -89,7 +91,7 @@ npm run -s security:trivy:image -- agenc/desktop:latest
 3. Optional JSON artifact for reports:
 
 ```bash
-/home/tetsuo/.local/bin/trivy image --scanners vuln,misconfig,secret --format json --quiet --output .tmp/trivy-image.json agenc/desktop:latest
+trivy image --scanners vuln,misconfig,secret --format json --quiet --output .tmp/trivy-image.json agenc/desktop:latest
 ```
 
 ## Optional Snyk MCP

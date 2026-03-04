@@ -82,7 +82,9 @@ export function createAES256GCMProvider(
       const authTag = combined.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
       const encrypted = combined.subarray(IV_BYTES + TAG_BYTES);
 
-      const decipher = createDecipheriv(ALGORITHM, keyBuf, iv);
+      const decipher = createDecipheriv(ALGORITHM, keyBuf, iv, {
+        authTagLength: TAG_BYTES,
+      });
       decipher.setAuthTag(authTag);
 
       const decrypted = Buffer.concat([

@@ -32,7 +32,7 @@
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts",
     "security:mcp:check": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose --allow-fail",
     "security:mcp:check:strict": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose",
-    "security:trivy:image": "/home/tetsuo/.local/bin/trivy image --scanners vuln,misconfig,secret",
+    "security:trivy:image": "trivy image --scanners vuln,misconfig,secret",
     "fender:list": "node scripts/solana-fender-mcp.mjs list",
     "fender:check:file": "node scripts/solana-fender-mcp.mjs check-file",
     "fender:check:program": "node scripts/solana-fender-mcp.mjs check-program",
@@ -44,6 +44,26 @@
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.95.0",
     "openai": "^6.22.0"
+  },
+  "overrides": {
+    "ajv": "^8.18.0",
+    "bn.js": "^5.2.3",
+    "esbuild": "^0.27.2",
+    "hono": "^4.11.10",
+    "matrix-js-sdk": "^38.2.0",
+    "prismjs": "^1.30.0",
+    "rollup": "^4.59.0",
+    "undici": "^6.23.0"
+  },
+  "resolutions": {
+    "ajv": "^8.18.0",
+    "bn.js": "^5.2.3",
+    "esbuild": "^0.27.2",
+    "hono": "^4.11.10",
+    "matrix-js-sdk": "^38.2.0",
+    "prismjs": "^1.30.0",
+    "rollup": "^4.59.0",
+    "undici": "^6.23.0"
   },
   "devDependencies": {
     "@agenc/mcp": "file:./mcp",

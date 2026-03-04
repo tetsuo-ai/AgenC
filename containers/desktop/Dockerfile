@@ -59,12 +59,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # npm@11.11.0 still bundles minimatch 10.2.2 (CVE-2026-27903/27904).
     # Replace only npm's embedded minimatch with 10.2.3 until npm ships the bump.
     && TMP_NPM_PATCH="$(mktemp -d)" \
-    && cd "${TMP_NPM_PATCH}" \
-    && npm pack minimatch@10.2.3 >/dev/null \
-    && tar -xzf minimatch-10.2.3.tgz \
+    && NPM_PATCH_TARBALL="$(npm pack minimatch@10.2.3 --silent --pack-destination "${TMP_NPM_PATCH}")" \
+    && tar -xzf "${TMP_NPM_PATCH}/${NPM_PATCH_TARBALL}" -C "${TMP_NPM_PATCH}" \
     && rm -rf /usr/lib/node_modules/npm/node_modules/minimatch \
-    && mv package /usr/lib/node_modules/npm/node_modules/minimatch \
-    && cd / \
+    && mv "${TMP_NPM_PATCH}/package" /usr/lib/node_modules/npm/node_modules/minimatch \
     && rm -rf "${TMP_NPM_PATCH}" \
     # =========================================================================
     # Playwright MCP + bundled Chromium
@@ -226,8 +224,7 @@ RUN chown -R agenc:agenc /home/agenc /opt/server /tmp
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && python3 -m pip install --no-cache-dir --upgrade pip wheel==0.46.2 jaraco.context==6.1.0 \
     && git clone https://github.com/den-tanui/kitty-mcp.git /tmp/kitty-mcp \
-    && cd /tmp/kitty-mcp \
-    && sed -i '30,34d' pyproject.toml \
+    && sed -i '30,34d' /tmp/kitty-mcp/pyproject.toml \
     && /home/agenc/.local/bin/uv tool install /tmp/kitty-mcp \
     && UV_PYTHON_BIN="$(find /home/agenc/.local/share/uv/python -path '*/bin/python' | head -n1)" \
     && "$UV_PYTHON_BIN" -m pip install --break-system-packages --no-cache-dir --upgrade --pre setuptools \

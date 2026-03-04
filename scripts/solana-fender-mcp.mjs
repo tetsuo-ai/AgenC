@@ -2,18 +2,37 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
+function defaultAnchorWalletPath() {
+  const home = process.env.HOME;
+  if (!home) return ".config/solana/id.json";
+  return path.join(home, ".config/solana/id.json");
+}
+
+function resolveFenderCommand() {
+  if (process.env.FENDER_MCP_COMMAND) return process.env.FENDER_MCP_COMMAND;
+  if (process.env.ANCHOR_MCP_COMMAND) return process.env.ANCHOR_MCP_COMMAND;
+
+  const home = process.env.HOME;
+  if (home) {
+    const cargoPath = path.join(home, ".cargo", "bin", "anchor-mcp");
+    if (fs.existsSync(cargoPath)) return cargoPath;
+  }
+
+  return "anchor-mcp";
+}
+
 const DEFAULT_SERVER_CONFIG = {
   name: "solana-fender",
-  command: process.env.FENDER_MCP_COMMAND ?? "/home/tetsuo/.cargo/bin/anchor-mcp",
+  command: resolveFenderCommand(),
   args: ["--mcp"],
   env: {
     ANCHOR_PROVIDER_URL:
       process.env.ANCHOR_PROVIDER_URL ?? "https://api.devnet.solana.com",
-    ANCHOR_WALLET:
-      process.env.ANCHOR_WALLET ?? "/home/tetsuo/.config/solana/id.json",
+    ANCHOR_WALLET: process.env.ANCHOR_WALLET ?? defaultAnchorWalletPath(),
   },
   timeout: 30_000,
 };
@@ -64,9 +83,9 @@ function usage() {
       "  node scripts/solana-fender-mcp.mjs check-program <path>",
       "",
       "Env overrides:",
-      "  FENDER_MCP_COMMAND (default: /home/tetsuo/.cargo/bin/anchor-mcp)",
+      "  FENDER_MCP_COMMAND (default: anchor-mcp or $HOME/.cargo/bin/anchor-mcp if present)",
       "  ANCHOR_PROVIDER_URL (default: https://api.devnet.solana.com)",
-      "  ANCHOR_WALLET (default: /home/tetsuo/.config/solana/id.json)",
+      "  ANCHOR_WALLET (default: $HOME/.config/solana/id.json)",
     ].join("\n"),
   );
 }

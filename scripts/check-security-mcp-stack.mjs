@@ -88,7 +88,12 @@ function looksLikeSemgrepConfig(serverConfig) {
 
 function looksLikeTrivyConfig(serverConfig) {
   if (!serverConfig || typeof serverConfig !== "object") return false;
-  return serverConfig.command === "trivy" && Array.isArray(serverConfig.args) && serverConfig.args[0] === "mcp";
+  if (!Array.isArray(serverConfig.args)) return false;
+  const commandBasename =
+    typeof serverConfig.command === "string"
+      ? path.basename(serverConfig.command)
+      : "";
+  return commandBasename === "trivy" && serverConfig.args.includes("mcp");
 }
 
 function looksLikeAnchorMcpConfig(serverConfig) {
@@ -112,7 +117,7 @@ function buildProbe(serverName, serverConfig) {
   if (looksLikeTrivyConfig(serverConfig)) {
     return {
       args: ["mcp", "--help"],
-      command: "trivy",
+      command: serverConfig.command,
       note: "Trivy MCP plugin probe",
     };
   }
