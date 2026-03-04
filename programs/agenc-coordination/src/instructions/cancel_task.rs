@@ -100,6 +100,7 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
 
     // Transfer refund to creator
     let is_token_task = task.reward_mint.is_some();
+    let mut token_escrow_starting_amount: Option<u64> = None;
     if is_token_task {
         // Token path: transfer tokens back to creator
         require!(
@@ -120,6 +121,10 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
             CoordinationError::InvalidTokenMint
         );
         validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+        token_escrow_starting_amount = Some(
+            anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+                .map_err(|_| CoordinationError::TokenTransferFailed)?,
+        );
 
         let task_key = task.key();
         let task_key_bytes = task_key.to_bytes();
@@ -158,26 +163,28 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         timestamp: clock.unix_timestamp,
     });
 
-    // After task cancellation, decrement active_tasks for all claimants
-    // remaining_accounts should contain pairs of (claim, worker_agent)
-    // Claims are closed to return rent to creator (fix #396)
+    // After task cancellation, decrement active_tasks for all claimants.
+    // remaining_accounts must contain triples of:
+    //   (claim_account, worker_agent_account, worker_authority_rent_recipient)
+    // Claim rent is returned to worker authority (not creator) to prevent rent siphoning.
     require!(
-        ctx.remaining_accounts.len() % 2 == 0,
+        ctx.remaining_accounts.len() % 3 == 0,
         CoordinationError::InvalidInput
     );
-    let num_pairs = ctx.remaining_accounts.len() / 2;
+    let num_triples = ctx.remaining_accounts.len() / 3;
 
     // SECURITY FIX #361: Validate ALL worker claims are provided BEFORE processing
     // Without this check, a malicious caller could pass only a subset of claims,
     // leaving some workers with permanently inflated active_tasks counters (DoS vector)
     require!(
-        num_pairs == task.current_workers as usize,
+        num_triples == task.current_workers as usize,
         CoordinationError::IncompleteWorkerAccounts
     );
 
-    for i in 0..num_pairs {
-        let claim_info = &ctx.remaining_accounts[i * 2];
-        let worker_info = &ctx.remaining_accounts[i * 2 + 1];
+    for i in 0..num_triples {
+        let claim_info = &ctx.remaining_accounts[i * 3];
+        let worker_info = &ctx.remaining_accounts[i * 3 + 1];
+        let rent_recipient_info = &ctx.remaining_accounts[i * 3 + 2];
 
         // Validate claim belongs to this task
         require!(
@@ -202,17 +209,21 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         );
         let mut worker_data = worker_info.try_borrow_mut_data()?;
         let mut worker = AgentRegistration::try_deserialize(&mut &worker_data[..])?;
+        require!(
+            worker.authority == rent_recipient_info.key(),
+            CoordinationError::InvalidRentRecipient
+        );
+        require!(rent_recipient_info.is_writable, CoordinationError::InvalidInput);
         // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker.active_tasks = worker.active_tasks.saturating_sub(1);
         // Use AnchorSerialize::serialize (Borsh only) — see dispute_helpers.rs comment (fix #960).
         AnchorSerialize::serialize(&worker, &mut &mut worker_data[8..])
             .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotSerialize)?;
 
-        // Close claim account and return rent to creator (fix #396)
+        // Close claim account and return rent to worker authority.
         let claim_lamports = claim_info.lamports();
         **claim_info.try_borrow_mut_lamports()? = 0;
-        let creator_info = ctx.accounts.creator.to_account_info();
-        **creator_info.try_borrow_mut_lamports()? = creator_info
+        **rent_recipient_info.try_borrow_mut_lamports()? = rent_recipient_info
             .lamports()
             .checked_add(claim_lamports)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -229,12 +240,19 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     if is_token_task {
         let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
         let token_program = ctx.accounts.token_program.as_ref().unwrap();
+        let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+        let residual_amount = token_escrow_starting_amount
+            .ok_or(CoordinationError::MissingTokenAccounts)?
+            .checked_sub(refund_amount)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
         let task_key = task.key();
         let task_key_bytes = task_key.to_bytes();
         let bump_slice = [escrow.bump];
         let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
         close_token_escrow(
             token_escrow,
+            residual_amount,
+            &creator_ta.to_account_info(),
             &ctx.accounts.creator.to_account_info(),
             &escrow.to_account_info(),
             escrow_seeds,

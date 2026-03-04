@@ -14,6 +14,7 @@ import {
   TASK_TYPE_EXCLUSIVE,
   VALID_EVIDENCE,
   deriveProgramDataPda,
+  getSharedMultisigSigners,
 } from "./test-utils";
 
 describe("rate-limiting", () => {
@@ -59,8 +60,8 @@ describe("rate-limiting", () => {
   };
 
   before(async () => {
-    treasury = Keypair.generate();
-    const thirdSigner = Keypair.generate();
+    const { secondSigner, thirdSigner } = getSharedMultisigSigners();
+    treasury = secondSigner;
     creator = Keypair.generate();
     worker = Keypair.generate();
 
@@ -1002,5 +1003,39 @@ describe("rate-limiting", () => {
         ),
       ).to.be.at.least(0);
     });
+  });
+
+  after(async () => {
+    // Restore permissive test defaults so later suites on shared localnet
+    // don't inherit strict cooldowns from this file.
+    try {
+      await program.methods
+        .updateRateLimits(
+          new BN(1),
+          255,
+          new BN(1),
+          255,
+          new BN(1000),
+        )
+        .accountsPartial({
+          protocolConfig: protocolPda,
+        })
+        .remainingAccounts([
+          {
+            pubkey: provider.wallet.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
+          {
+            pubkey: treasury.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
+        ])
+        .signers([treasury])
+        .rpc();
+    } catch {
+      // Best effort cleanup.
+    }
   });
 });

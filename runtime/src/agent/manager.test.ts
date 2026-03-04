@@ -564,23 +564,53 @@ describe('AgentManager protocol config caching', () => {
   describe('getProtocolConfig options', () => {
     it('accepts forceRefresh option', async () => {
       const manager = new AgentManager(createConfig());
+      const fetchSpy = vi
+        .spyOn(
+          manager as unknown as {
+            fetchAndCacheProtocolConfig: () => Promise<unknown>;
+          },
+          'fetchAndCacheProtocolConfig',
+        )
+        .mockRejectedValue(new Error('simulated fetch failure'));
 
-      // Will fail due to no connection, but validates the option is accepted
       await expect(
         manager.getProtocolConfig({ forceRefresh: true })
-      ).rejects.toThrow();
+      ).rejects.toThrow('simulated fetch failure');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
     it('accepts empty options object', async () => {
       const manager = new AgentManager(createConfig());
+      const fetchSpy = vi
+        .spyOn(
+          manager as unknown as {
+            fetchAndCacheProtocolConfig: () => Promise<unknown>;
+          },
+          'fetchAndCacheProtocolConfig',
+        )
+        .mockRejectedValue(new Error('simulated fetch failure'));
 
-      await expect(manager.getProtocolConfig({})).rejects.toThrow();
+      await expect(manager.getProtocolConfig({})).rejects.toThrow(
+        'simulated fetch failure',
+      );
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
     it('accepts no options (default behavior)', async () => {
       const manager = new AgentManager(createConfig());
+      const fetchSpy = vi
+        .spyOn(
+          manager as unknown as {
+            fetchAndCacheProtocolConfig: () => Promise<unknown>;
+          },
+          'fetchAndCacheProtocolConfig',
+        )
+        .mockRejectedValue(new Error('simulated fetch failure'));
 
-      await expect(manager.getProtocolConfig()).rejects.toThrow();
+      await expect(manager.getProtocolConfig()).rejects.toThrow(
+        'simulated fetch failure',
+      );
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

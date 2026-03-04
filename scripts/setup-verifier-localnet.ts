@@ -21,8 +21,31 @@ import * as path from "path";
 const ROUTER_PROGRAM_ID = new PublicKey("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
 const VERIFIER_PROGRAM_ID = new PublicKey("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
 const GROTH16_SELECTOR: number[] = [0x52, 0x5a, 0x56, 0x4d]; // "RZVM"
+const VERIFIER_ENTRY_DISCRIMINATOR = Buffer.from([
+  102, 247, 148, 158, 33, 153, 100, 93,
+]);
+const VERIFIER_ENTRY_ACCOUNT_LEN = 8 + 4 + 32 + 1;
 
 const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+
+function isExpectedVerifierEntryData(data: Buffer): boolean {
+  if (data.length !== VERIFIER_ENTRY_ACCOUNT_LEN) {
+    return false;
+  }
+  const discriminator = data.subarray(0, 8);
+  if (!discriminator.equals(VERIFIER_ENTRY_DISCRIMINATOR)) {
+    return false;
+  }
+  const selector = data.subarray(8, 12);
+  if (!selector.equals(Buffer.from(GROTH16_SELECTOR))) {
+    return false;
+  }
+  const verifierProgram = new PublicKey(data.subarray(12, 44));
+  if (!verifierProgram.equals(VERIFIER_PROGRAM_ID)) {
+    return false;
+  }
+  return data[44] === 0;
+}
 
 async function main() {
   const provider = anchor.AnchorProvider.env();
@@ -54,6 +77,30 @@ async function main() {
     BPF_LOADER_UPGRADEABLE,
   );
   console.log("Verifier Program Data:", verifierProgramData.toBase58());
+
+  // If prerequisites are already provisioned (real or mock mode), avoid
+  // re-running router initialization on every test invocation.
+  const [routerProgramInfo, verifierProgramInfo, routerPdaInfo, verifierEntryInfo] =
+    await Promise.all([
+      provider.connection.getAccountInfo(ROUTER_PROGRAM_ID),
+      provider.connection.getAccountInfo(VERIFIER_PROGRAM_ID),
+      provider.connection.getAccountInfo(routerPda),
+      provider.connection.getAccountInfo(verifierEntryPda),
+    ]);
+
+  const routerProgramReady = Boolean(routerProgramInfo?.executable);
+  const verifierProgramReady = Boolean(verifierProgramInfo?.executable);
+  const routerPdaReady = Boolean(routerPdaInfo && routerPdaInfo.owner.equals(ROUTER_PROGRAM_ID));
+  const verifierEntryReady = Boolean(
+    verifierEntryInfo &&
+      verifierEntryInfo.owner.equals(ROUTER_PROGRAM_ID) &&
+      isExpectedVerifierEntryData(verifierEntryInfo.data),
+  );
+
+  if (routerProgramReady && verifierProgramReady && routerPdaReady && verifierEntryReady) {
+    console.log("Verifier prerequisites already provisioned; skipping router bootstrap.");
+    return;
+  }
 
   // 1. Initialize the router
   console.log("\n--- Step 1: Initialize Router ---");

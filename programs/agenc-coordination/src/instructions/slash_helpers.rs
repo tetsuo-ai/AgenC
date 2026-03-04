@@ -51,10 +51,7 @@ pub fn calculate_slash_amount(
     current_stake: u64,
     slash_percentage: u8,
 ) -> Result<u64> {
-    require!(
-        slash_percentage <= 100,
-        CoordinationError::InvalidInput
-    );
+    require!(slash_percentage <= 100, CoordinationError::InvalidInput);
 
     let slash_amount = stake_at_dispute
         .checked_mul(slash_percentage as u64)

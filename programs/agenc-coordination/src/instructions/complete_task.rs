@@ -171,6 +171,9 @@ pub fn handler(
             &mint.key(),
             &ctx.accounts.protocol_config.treasury,
         )?;
+        let token_escrow_starting_amount =
+            anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+                .map_err(|_| CoordinationError::TokenTransferFailed)?;
 
         let worker_ta_info = ctx
             .accounts
@@ -182,6 +185,7 @@ pub fn handler(
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),
+            token_escrow_starting_amount,
             worker_token_account: worker_ta_info,
             treasury_token_account: treasury_ta.to_account_info(),
             token_program: ctx

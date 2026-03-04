@@ -24,6 +24,7 @@ import {
   deriveEscrowPda as _deriveEscrowPda,
   deriveClaimPda as _deriveClaimPda,
   deriveProgramDataPda,
+  buildCancelTaskRemainingAccounts,
   disableRateLimitsForTests,
 } from "./test-utils";
 import {
@@ -2616,7 +2617,8 @@ describe("test_1", () => {
 
         // The program DOES allow cancelling InProgress tasks after deadline if no completions
         // See cancel_task.rs: task.deadline > 0 && clock.unix_timestamp > task.deadline && task.completions == 0
-        // When task has workers, remaining_accounts must contain (claim, worker_agent) pairs
+        // When task has workers, remaining_accounts must contain
+        // (claim, worker_agent, worker_authority_recipient) triples.
         await program.methods
           .cancelTask()
           .accountsPartial({
@@ -2630,10 +2632,15 @@ describe("test_1", () => {
             rewardMint: null,
             tokenProgram: null,
           })
-          .remainingAccounts([
-            { pubkey: claimPda, isSigner: false, isWritable: true },
-            { pubkey: worker.agentPda, isSigner: false, isWritable: true },
-          ])
+          .remainingAccounts(
+            buildCancelTaskRemainingAccounts([
+              {
+                claim: claimPda,
+                workerAgent: worker.agentPda,
+                workerAuthority: worker.wallet.publicKey,
+              },
+            ]),
+          )
           .signers([creator])
           .rpc();
 
@@ -4130,7 +4137,8 @@ describe("test_1", () => {
         advanceClock(svm, 10);
 
         // 4. Creator cancels task (status becomes Cancelled)
-        // When task has workers, remaining_accounts must contain (claim, worker_agent) pairs
+        // When task has workers, remaining_accounts must contain
+        // (claim, worker_agent, worker_authority_recipient) triples.
         await program.methods
           .cancelTask()
           .accountsPartial({
@@ -4144,10 +4152,15 @@ describe("test_1", () => {
             rewardMint: null,
             tokenProgram: null,
           })
-          .remainingAccounts([
-            { pubkey: claimPda, isSigner: false, isWritable: true },
-            { pubkey: worker.agentPda, isSigner: false, isWritable: true },
-          ])
+          .remainingAccounts(
+            buildCancelTaskRemainingAccounts([
+              {
+                claim: claimPda,
+                workerAgent: worker.agentPda,
+                workerAuthority: worker.wallet.publicKey,
+              },
+            ]),
+          )
           .signers([creator])
           .rpc();
 

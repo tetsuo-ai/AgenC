@@ -33,6 +33,7 @@ import {
   deriveDisputePda,
   deriveVotePda,
   deriveProgramDataPda,
+  buildCancelTaskRemainingAccounts,
   getDefaultDeadline,
   fundWallet,
   disableRateLimitsForTests,
@@ -97,38 +98,62 @@ describe("security-audit-fixes", () => {
     maxWorkers: number = 1,
     taskType: number = TASK_TYPE_EXCLUSIVE,
     constraintHash: number[] | null = null,
+    deadline: BN = getDefaultDeadline(),
   ) {
+    const minCreatorLamports = reward + LAMPORTS_PER_SOL;
+    const creatorBalance = await provider.connection.getBalance(creator.publicKey);
+    if (creatorBalance < minCreatorLamports) {
+      await fundWallet(
+        provider.connection,
+        creator.publicKey,
+        10 * LAMPORTS_PER_SOL,
+      );
+    }
+
     const taskPda = deriveTaskPda(creator.publicKey, taskId, program.programId);
     const escrowPda = deriveEscrowPda(taskPda, program.programId);
-    await program.methods
-      .createTask(
-        Array.from(taskId),
-        new BN(CAPABILITY_COMPUTE),
-        Buffer.from("Security test task".padEnd(64, "\0")),
-        new BN(reward),
-        maxWorkers,
-        getDefaultDeadline(),
-        taskType,
-        constraintHash,
-        0,
-        null,
-      )
-      .accountsPartial({
-        task: taskPda,
-        escrow: escrowPda,
-        protocolConfig: protocolPda,
-        creatorAgent: creatorAgentPda,
-        authority: creator.publicKey,
-        creator: creator.publicKey,
-        systemProgram: SystemProgram.programId,
-        rewardMint: null,
-        creatorTokenAccount: null,
-        tokenEscrowAta: null,
-        tokenProgram: null,
-        associatedTokenProgram: null,
-      })
-      .signers([creator])
-      .rpc();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Security test task".padEnd(64, "\0")),
+            new BN(reward),
+            maxWorkers,
+            deadline,
+            taskType,
+            constraintHash,
+            0,
+            null,
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+          })
+          .signers([creator])
+          .rpc();
+        return { taskPda, escrowPda };
+      } catch (error) {
+        const message =
+          (error as { message?: string })?.message ?? String(error);
+        if (attempt === 0 && message.includes("CooldownNotElapsed")) {
+          await new Promise((resolve) => setTimeout(resolve, 1100));
+          continue;
+        }
+        throw error;
+      }
+    }
     return { taskPda, escrowPda };
   }
 
@@ -151,6 +176,21 @@ describe("security-audit-fixes", () => {
       .signers([workerWallet])
       .rpc();
     return claimPda;
+  }
+
+  async function waitUntilAfterTimestamp(targetTimestamp: number): Promise<void> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 15000) {
+      const slot = await provider.connection.getSlot();
+      const now =
+        (await provider.connection.getBlockTime(slot)) ??
+        Math.floor(Date.now() / 1000);
+      if (now > targetTimestamp) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(`Timed out waiting for timestamp > ${targetTimestamp}`);
   }
 
   before(async () => {
@@ -252,14 +292,15 @@ describe("security-audit-fixes", () => {
             rewardMint: null,
             tokenProgram: null,
           })
-          .remainingAccounts([
-            {
-              pubkey: fakeAccount.publicKey,
-              isSigner: false,
-              isWritable: true,
-            },
-            { pubkey: workerPda, isSigner: false, isWritable: true },
-          ])
+          .remainingAccounts(
+            buildCancelTaskRemainingAccounts([
+              {
+                claim: fakeAccount.publicKey,
+                workerAgent: workerPda,
+                workerAuthority: worker.publicKey,
+              },
+            ]),
+          )
           .signers([creator])
           .rpc();
         expect.fail("Should reject System-owned account as claim");
@@ -310,10 +351,15 @@ describe("security-audit-fixes", () => {
             rewardMint: null,
             tokenProgram: null,
           })
-          .remainingAccounts([
-            { pubkey: claim2ForTaskB, isSigner: false, isWritable: true },
-            { pubkey: worker2Pda, isSigner: false, isWritable: true },
-          ])
+          .remainingAccounts(
+            buildCancelTaskRemainingAccounts([
+              {
+                claim: claim2ForTaskB,
+                workerAgent: worker2Pda,
+                workerAuthority: worker2.publicKey,
+              },
+            ]),
+          )
           .signers([creator])
           .rpc();
         expect.fail("Should reject mismatched claim/worker pair");
@@ -331,7 +377,7 @@ describe("security-audit-fixes", () => {
       const { taskPda, escrowPda } = await createTask(taskId);
       await claimTask(taskPda, workerPda, worker);
 
-      // Pass only 1 account instead of the expected pair
+      // Pass only 1 account instead of the expected claim/worker/recipient triple
       try {
         await program.methods
           .cancelTask()
@@ -368,6 +414,141 @@ describe("security-audit-fixes", () => {
   // ==========================================================================
 
   describe("B. Escrow accounting", () => {
+    it("cancel_task returns each closed-claim rent to corresponding worker authority", async () => {
+      const worker1 = await freshKeypair();
+      const worker1Id = makeAgentId("secCr1", runId);
+      const worker1Pda = await registerAgent(worker1, worker1Id);
+
+      const worker2 = await freshKeypair();
+      const worker2Id = makeAgentId("secCr2", runId);
+      const worker2Pda = await registerAgent(worker2, worker2Id);
+
+      const slot = await provider.connection.getSlot();
+      const now =
+        (await provider.connection.getBlockTime(slot)) ??
+        Math.floor(Date.now() / 1000);
+      const deadline = now + 3;
+
+      const taskId = makeTaskId("secRent", runId);
+      const { taskPda, escrowPda } = await createTask(
+        taskId,
+        LAMPORTS_PER_SOL,
+        2,
+        TASK_TYPE_COLLABORATIVE,
+        null,
+        new BN(deadline),
+      );
+
+      const claim1 = await claimTask(taskPda, worker1Pda, worker1);
+      const claim2 = await claimTask(taskPda, worker2Pda, worker2);
+
+      const claim1Rent = await provider.connection.getBalance(claim1);
+      const claim2Rent = await provider.connection.getBalance(claim2);
+      const worker1Before = await provider.connection.getBalance(
+        worker1.publicKey,
+      );
+      const worker2Before = await provider.connection.getBalance(
+        worker2.publicKey,
+      );
+
+      await waitUntilAfterTimestamp(deadline);
+
+      await program.methods
+        .cancelTask()
+        .accountsPartial({
+          task: taskPda,
+          escrow: escrowPda,
+          creator: creator.publicKey,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          creatorTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
+        })
+        .remainingAccounts(
+          buildCancelTaskRemainingAccounts([
+            {
+              claim: claim1,
+              workerAgent: worker1Pda,
+              workerAuthority: worker1.publicKey,
+            },
+            {
+              claim: claim2,
+              workerAgent: worker2Pda,
+              workerAuthority: worker2.publicKey,
+            },
+          ]),
+        )
+        .signers([creator])
+        .rpc();
+
+      const worker1After = await provider.connection.getBalance(
+        worker1.publicKey,
+      );
+      const worker2After = await provider.connection.getBalance(
+        worker2.publicKey,
+      );
+      expect(worker1After - worker1Before).to.equal(claim1Rent);
+      expect(worker2After - worker2Before).to.equal(claim2Rent);
+    });
+
+    it("cancel_task rejects creator as claim-rent recipient", async () => {
+      const worker = await freshKeypair();
+      const workerId = makeAgentId("secCr3", runId);
+      const workerPda = await registerAgent(worker, workerId);
+
+      const slot = await provider.connection.getSlot();
+      const now =
+        (await provider.connection.getBlockTime(slot)) ??
+        Math.floor(Date.now() / 1000);
+      const deadline = now + 3;
+
+      const taskId = makeTaskId("secBadR", runId);
+      const { taskPda, escrowPda } = await createTask(
+        taskId,
+        LAMPORTS_PER_SOL,
+        1,
+        TASK_TYPE_EXCLUSIVE,
+        null,
+        new BN(deadline),
+      );
+      const claimPda = await claimTask(taskPda, workerPda, worker);
+
+      await waitUntilAfterTimestamp(deadline);
+
+      try {
+        await program.methods
+          .cancelTask()
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            protocolConfig: protocolPda,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+          })
+          .remainingAccounts(
+            buildCancelTaskRemainingAccounts([
+              {
+                claim: claimPda,
+                workerAgent: workerPda,
+                workerAuthority: creator.publicKey,
+              },
+            ]),
+          )
+          .signers([creator])
+          .rpc();
+        expect.fail("Should reject non-worker-authority claim rent recipient");
+      } catch (e: any) {
+        const message = e?.error?.errorCode?.code || e?.message || String(e);
+        expect(String(message)).to.contain("InvalidRentRecipient");
+      }
+    });
+
     it("collaborative task: escrow stays open until all completions done", async () => {
       const worker1 = await freshKeypair();
       const worker1Id = makeAgentId("secEw1", runId);
@@ -469,10 +650,15 @@ describe("security-audit-fixes", () => {
             rewardMint: null,
             tokenProgram: null,
           })
-          .remainingAccounts([
-            { pubkey: claimPda, isSigner: false, isWritable: true },
-            { pubkey: workerPda, isSigner: false, isWritable: true },
-          ])
+          .remainingAccounts(
+            buildCancelTaskRemainingAccounts([
+              {
+                claim: claimPda,
+                workerAgent: workerPda,
+                workerAuthority: worker.publicKey,
+              },
+            ]),
+          )
           .signers([creator])
           .rpc();
         expect.fail("Cancellation should be rejected once claim exists");

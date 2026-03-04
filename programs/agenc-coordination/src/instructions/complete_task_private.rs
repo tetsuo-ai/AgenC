@@ -310,6 +310,9 @@ pub fn complete_task_private(
             &mint.key(),
             &ctx.accounts.protocol_config.treasury,
         )?;
+        let token_escrow_starting_amount =
+            anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+                .map_err(|_| CoordinationError::TokenTransferFailed)?;
         validate_unchecked_token_mint(
             &worker_token_account.to_account_info(),
             &mint.key(),
@@ -318,6 +321,7 @@ pub fn complete_task_private(
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),
+            token_escrow_starting_amount,
             worker_token_account: worker_token_account.to_account_info(),
             treasury_token_account: treasury_ta.to_account_info(),
             token_program: token_program.to_account_info(),

@@ -206,6 +206,9 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             );
             let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
             validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+            let token_escrow_starting_amount =
+                anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+                    .map_err(|_| CoordinationError::TokenTransferFailed)?;
             let token_program = ctx.accounts.token_program.as_ref().unwrap();
             let task_key_bytes = task_key.to_bytes();
             let bump_slice = [escrow.bump];
@@ -286,9 +289,28 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             creator_amount = ca;
             worker_amount = wa;
 
+            // Sweep any unsolicited residual dust to the same class of recipient
+            // used by this expiration branch, then close escrow ATA.
+            let dust_destination_ta = match (no_votes, worker_completed) {
+                (true, true) => worker_ta_info
+                    .as_ref()
+                    .ok_or(CoordinationError::MissingTokenAccounts)?,
+                (true, false) => creator_ta_info
+                    .as_ref()
+                    .ok_or(CoordinationError::MissingTokenAccounts)?,
+                (false, _) => creator_ta_info
+                    .as_ref()
+                    .ok_or(CoordinationError::MissingTokenAccounts)?,
+            };
+            let residual_amount = token_escrow_starting_amount
+                .checked_sub(remaining_funds)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+
             // Close token escrow ATA
             close_token_escrow(
                 token_escrow,
+                residual_amount,
+                dust_destination_ta,
                 &ctx.accounts.creator.to_account_info(),
                 &escrow.to_account_info(),
                 escrow_seeds,

@@ -236,6 +236,8 @@ describe("coordination-security", () => {
   // Ensure all shared agents are active before each test
   // and top up creator balance for long-running task lifecycle scenarios.
   beforeEach(async () => {
+    // update_rate_limits enforces a 1s minimum task/dispute cooldown on-chain.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     await ensureWalletBalance(creator.publicKey, MIN_CREATOR_BALANCE_LAMPORTS);
   });
 
@@ -790,6 +792,9 @@ describe("coordination-security", () => {
           })
           .signers([worker3])
           .rpc();
+
+        // Ensure we do not trip the 1s task_creation_cooldown.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
 
         await program.methods
           .createTask(

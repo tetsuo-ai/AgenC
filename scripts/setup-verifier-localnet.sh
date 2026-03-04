@@ -18,13 +18,15 @@
 #   - solana CLI (v3.0.13+)
 #   - anchor CLI (v0.32.1+)
 #   - Built AgenC program (anchor build)
-#   - /tmp/risc0-solana/solana-verifier cloned and built
+#   - Optional for real verifier mode: /tmp/risc0-solana/solana-verifier
 #
 set -euo pipefail
 
 RISC0_SOLANA_DIR="/tmp/risc0-solana/solana-verifier"
 AGENC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 AGENC_SO="${AGENC_DIR}/target/deploy/agenc_coordination.so"
+MOCK_ROUTER_SO="${AGENC_DIR}/tests/fixtures/mock_verifier_router.so"
+MOCK_ACCOUNT_DIR="${AGENC_DIR}/target/verifier-bootstrap"
 
 ROUTER_PROGRAM_ID="6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7"
 VERIFIER_PROGRAM_ID="THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge"
@@ -34,15 +36,53 @@ AGENC_PROGRAM_ID="5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
 DEPLOYER_PUBKEY=$(solana address)
 echo "Deployer pubkey: ${DEPLOYER_PUBKEY}"
 
-# 2. Rebuild router with INITIAL_OWNER = deployer pubkey
-echo "Building Verifier Router with INITIAL_OWNER=${DEPLOYER_PUBKEY}..."
-(cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build)
-echo "Router build complete."
+# 2. Compute verifier PDAs used by setup/testing.
+ROUTER_PDA=$(node -e "
+const { PublicKey } = require('@solana/web3.js');
+const [pda] = PublicKey.findProgramAddressSync(
+  [Buffer.from('router')],
+  new PublicKey('${ROUTER_PROGRAM_ID}')
+);
+console.log(pda.toBase58());
+")
+VERIFIER_ENTRY_PDA=$(node -e "
+const { PublicKey } = require('@solana/web3.js');
+const selector = Buffer.from([0x52, 0x5a, 0x56, 0x4d]); // RZVM
+const [pda] = PublicKey.findProgramAddressSync(
+  [Buffer.from('verifier'), selector],
+  new PublicKey('${ROUTER_PROGRAM_ID}')
+);
+console.log(pda.toBase58());
+")
+echo "Router PDA: ${ROUTER_PDA}"
+echo "Verifier Entry PDA: ${VERIFIER_ENTRY_PDA}"
 
+# 3. Prefer real verifier artifacts; fallback to mock verifier/router when unavailable.
+MODE="real"
 ROUTER_SO="${RISC0_SOLANA_DIR}/target/deploy/verifier_router.so"
 VERIFIER_SO="${RISC0_SOLANA_DIR}/target/deploy/groth_16_verifier.so"
 
-# Verify built artifacts exist
+if [ -d "${RISC0_SOLANA_DIR}" ]; then
+  echo "Building Verifier Router with INITIAL_OWNER=${DEPLOYER_PUBKEY}..."
+  if (cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build); then
+    if [ ! -f "${ROUTER_SO}" ] || [ ! -f "${VERIFIER_SO}" ]; then
+      echo "Real verifier artifacts missing after build; switching to mock verifier mode."
+      MODE="mock"
+    fi
+  else
+    echo "Failed to build real verifier stack; switching to mock verifier mode."
+    MODE="mock"
+  fi
+else
+  echo "Real verifier repository not found at ${RISC0_SOLANA_DIR}; using mock verifier mode."
+  MODE="mock"
+fi
+
+if [ "${MODE}" = "mock" ]; then
+  ROUTER_SO="${MOCK_ROUTER_SO}"
+  VERIFIER_SO="${MOCK_ROUTER_SO}"
+fi
+
 for f in "${AGENC_SO}" "${ROUTER_SO}" "${VERIFIER_SO}"; do
   if [ ! -f "$f" ]; then
     echo "ERROR: Missing artifact: $f"
@@ -50,31 +90,92 @@ for f in "${AGENC_SO}" "${ROUTER_SO}" "${VERIFIER_SO}"; do
   fi
 done
 
-# 3. Compute router PDA (seeds=["router"], program=ROUTER_PROGRAM_ID)
-#    The TS setup script needs this, but we also need it for --upgradeable-program.
-#    We derive it using a small inline node script.
-ROUTER_PDA=$(node -e "
-  const { PublicKey } = require('@solana/web3.js');
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('router')],
-    new PublicKey('${ROUTER_PROGRAM_ID}')
-  );
-  console.log(pda.toBase58());
-")
-echo "Router PDA: ${ROUTER_PDA}"
+if [ "${MODE}" = "mock" ]; then
+  mkdir -p "${MOCK_ACCOUNT_DIR}"
+  export ROUTER_PDA
+  export VERIFIER_ENTRY_PDA
+  export ROUTER_PROGRAM_ID
+  export VERIFIER_PROGRAM_ID
+  export MOCK_ACCOUNT_DIR
+  node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const { PublicKey } = require('@solana/web3.js');
+
+const outDir = process.env.MOCK_ACCOUNT_DIR;
+const routerPda = process.env.ROUTER_PDA;
+const verifierEntryPda = process.env.VERIFIER_ENTRY_PDA;
+const routerProgramId = process.env.ROUTER_PROGRAM_ID;
+const verifierProgramId = process.env.VERIFIER_PROGRAM_ID;
+
+const writeAccount = (file, pubkey, owner, data) => {
+  const payload = {
+    pubkey,
+    account: {
+      lamports: 10_000_000,
+      data: [data.toString('base64'), 'base64'],
+      owner,
+      executable: false,
+      rentEpoch: 0,
+      space: data.length,
+    },
+  };
+  fs.writeFileSync(file, JSON.stringify(payload, null, 2));
+};
+
+// Router PDA account (data is not validated by AgenC, only owner/PDA address).
+writeAccount(path.join(outDir, 'router-pda.json'), routerPda, routerProgramId, Buffer.alloc(0));
+
+// VerifierEntry account layout expected by complete_task_private:
+// [0..8] discriminator
+// [8..12] selector "RZVM"
+// [12..44] verifier program pubkey bytes
+// [44] estopped flag = 0
+const discriminator = Buffer.from([102, 247, 148, 158, 33, 153, 100, 93]);
+const selector = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
+const verifierPubkey = new PublicKey(verifierProgramId).toBuffer();
+const estopped = Buffer.from([0]);
+const verifierEntryData = Buffer.concat([discriminator, selector, verifierPubkey, estopped]);
+
+writeAccount(
+  path.join(outDir, 'verifier-entry.json'),
+  verifierEntryPda,
+  routerProgramId,
+  verifierEntryData
+);
+NODE
+fi
 
 # 4. Start solana-test-validator with all three programs
 #    AgenC must be --upgradeable-program (not --bpf-program) so the ProgramData
 #    account exists — initialize_protocol checks it via remaining_accounts.
 echo ""
 echo "Starting solana-test-validator with:"
+echo "  Mode:             ${MODE}"
 echo "  AgenC:            ${AGENC_PROGRAM_ID} (upgrade authority = ${DEPLOYER_PUBKEY})"
 echo "  Verifier Router:  ${ROUTER_PROGRAM_ID}"
-echo "  Groth16 Verifier: ${VERIFIER_PROGRAM_ID} (upgrade authority = ${ROUTER_PDA})"
+if [ "${MODE}" = "real" ]; then
+  echo "  Groth16 Verifier: ${VERIFIER_PROGRAM_ID} (upgrade authority = ${ROUTER_PDA})"
+else
+  echo "  Groth16 Verifier: ${VERIFIER_PROGRAM_ID} (mock BPF)"
+  echo "  Preloaded mock accounts:"
+  echo "    - ${MOCK_ACCOUNT_DIR}/router-pda.json"
+  echo "    - ${MOCK_ACCOUNT_DIR}/verifier-entry.json"
+fi
 echo ""
 
-exec solana-test-validator \
-  --upgradeable-program "${AGENC_PROGRAM_ID}" "${AGENC_SO}" "${DEPLOYER_PUBKEY}" \
-  --bpf-program "${ROUTER_PROGRAM_ID}" "${ROUTER_SO}" \
-  --upgradeable-program "${VERIFIER_PROGRAM_ID}" "${VERIFIER_SO}" "${ROUTER_PDA}" \
-  --reset
+if [ "${MODE}" = "real" ]; then
+  exec solana-test-validator \
+    --upgradeable-program "${AGENC_PROGRAM_ID}" "${AGENC_SO}" "${DEPLOYER_PUBKEY}" \
+    --bpf-program "${ROUTER_PROGRAM_ID}" "${ROUTER_SO}" \
+    --upgradeable-program "${VERIFIER_PROGRAM_ID}" "${VERIFIER_SO}" "${ROUTER_PDA}" \
+    --reset
+else
+  exec solana-test-validator \
+    --upgradeable-program "${AGENC_PROGRAM_ID}" "${AGENC_SO}" "${DEPLOYER_PUBKEY}" \
+    --bpf-program "${ROUTER_PROGRAM_ID}" "${ROUTER_SO}" \
+    --bpf-program "${VERIFIER_PROGRAM_ID}" "${VERIFIER_SO}" \
+    --account "${ROUTER_PDA}" "${MOCK_ACCOUNT_DIR}/router-pda.json" \
+    --account "${VERIFIER_ENTRY_PDA}" "${MOCK_ACCOUNT_DIR}/verifier-entry.json" \
+    --reset
+fi
