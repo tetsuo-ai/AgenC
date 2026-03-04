@@ -331,6 +331,15 @@ describe("AES-256-GCM encryption", () => {
     expect(() => provider.decrypt(tampered)).toThrow();
   });
 
+  it("rejects ciphertext shorter than iv+authTag", () => {
+    const tooShort = Buffer.alloc(
+      MEMORY_OPERATIONAL_LIMITS.ENCRYPTION_IV_SIZE_BYTES +
+        MEMORY_OPERATIONAL_LIMITS.ENCRYPTION_AUTH_TAG_SIZE_BYTES -
+        1,
+    ).toString("base64");
+    expect(() => provider.decrypt(tooShort)).toThrow(/Ciphertext too short/);
+  });
+
   it("rejects key shorter than 32 bytes", () => {
     expect(() => createAES256GCMProvider({ key: randomBytes(16) })).toThrow(
       /must be exactly 32 bytes/,

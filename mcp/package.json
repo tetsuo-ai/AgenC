@@ -45,8 +45,24 @@
   "dependencies": {
     "@agenc/runtime": "file:../runtime",
     "@agenc/sdk": "file:../sdk",
-    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "zod": "^3.24.2"
+  },
+  "overrides": {
+    "ajv": "^8.18.0",
+    "hono": "^4.11.10",
+    "minimatch": "^9.0.9",
+    "matrix-js-sdk": "^38.2.0",
+    "rollup": "^4.59.0",
+    "undici": "^6.23.0"
+  },
+  "resolutions": {
+    "ajv": "^8.18.0",
+    "hono": "^4.11.10",
+    "minimatch": "^9.0.9",
+    "matrix-js-sdk": "^38.2.0",
+    "rollup": "^4.59.0",
+    "undici": "^6.23.0"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.32.1",

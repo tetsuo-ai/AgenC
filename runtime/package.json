@@ -68,11 +68,19 @@
     "edge-tts": "^1.0.0",
     "grammy": "^1.0.0",
     "ioredis": "^5.0.0",
-    "matrix-js-sdk": "^34.0.0",
+    "matrix-js-sdk": "^38.2.0",
     "ollama": "^0.5.0",
     "openai": "^4.0.0",
     "playwright": "^1.40.0",
     "ws": "^8.0.0"
+  },
+  "overrides": {
+    "matrix-js-sdk": "^38.2.0",
+    "undici": "^6.23.0"
+  },
+  "resolutions": {
+    "matrix-js-sdk": "^38.2.0",
+    "undici": "^6.23.0"
   },
   "dependencies": {
     "@agenc/sdk": "file:../sdk",
