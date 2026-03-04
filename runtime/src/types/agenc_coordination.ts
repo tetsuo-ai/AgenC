@@ -161,6 +161,10 @@ export type AgencCoordination = {
           "writable": true
         },
         {
+          "name": "authority",
+          "signer": true
+        },
+        {
           "name": "escrow",
           "docs": [
             "Escrow PDA for the disputed task (kept open until slash for token disputes)"
@@ -320,6 +324,10 @@ export type AgencCoordination = {
         {
           "name": "treasury",
           "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true
         }
       ],
       "args": []
@@ -525,12 +533,9 @@ export type AgencCoordination = {
           }
         },
         {
-          "name": "creator",
+          "name": "authority",
           "writable": true,
-          "signer": true,
-          "relations": [
-            "task"
-          ]
+          "signer": true
         },
         {
           "name": "protocolConfig",
@@ -2269,9 +2274,9 @@ export type AgencCoordination = {
           }
         },
         {
-          "name": "executor",
+          "name": "authority",
           "docs": [
-            "Executor can be anyone (permissionless after voting ends)"
+            "Authority can be anyone (permissionless after voting ends)"
           ],
           "signer": true
         },
@@ -2318,7 +2323,7 @@ export type AgencCoordination = {
       ],
       "accounts": [
         {
-          "name": "caller",
+          "name": "authority",
           "docs": [
             "Caller who triggers the expiration - receives cleanup reward"
           ],
@@ -2571,6 +2576,10 @@ export type AgencCoordination = {
           "writable": true
         },
         {
+          "name": "authority",
+          "signer": true
+        },
+        {
           "name": "workerClaim",
           "docs": [
             "Worker's claim on the disputed task (fix #137)",
@@ -2612,7 +2621,7 @@ export type AgencCoordination = {
           "optional": true
         },
         {
-          "name": "workerAuthority",
+          "name": "workerWallet",
           "docs": [
             "Required when worker should receive funds on expiration"
           ],
@@ -3096,6 +3105,10 @@ export type AgencCoordination = {
               }
             ]
           }
+        },
+        {
+          "name": "authority",
+          "signer": true
         }
       ],
       "args": [
@@ -4006,7 +4019,7 @@ export type AgencCoordination = {
           }
         },
         {
-          "name": "resolver",
+          "name": "authority",
           "signer": true
         },
         {
@@ -4055,7 +4068,7 @@ export type AgencCoordination = {
           "optional": true
         },
         {
-          "name": "workerAuthority",
+          "name": "workerWallet",
           "writable": true,
           "optional": true
         },
@@ -4516,6 +4529,10 @@ export type AgencCoordination = {
               }
             ]
           }
+        },
+        {
+          "name": "authority",
+          "signer": true
         }
       ],
       "args": [
@@ -4565,6 +4582,10 @@ export type AgencCoordination = {
               }
             ]
           }
+        },
+        {
+          "name": "authority",
+          "signer": true
         }
       ],
       "args": [
@@ -4616,6 +4637,10 @@ export type AgencCoordination = {
               }
             ]
           }
+        },
+        {
+          "name": "authority",
+          "signer": true
         }
       ],
       "args": [
@@ -4669,6 +4694,10 @@ export type AgencCoordination = {
               }
             ]
           }
+        },
+        {
+          "name": "authority",
+          "signer": true
         }
       ],
       "args": [
@@ -4999,6 +5028,10 @@ export type AgencCoordination = {
             "- program-owned (preferred), or",
             "- a system-owned signer account (legacy compatibility)."
           ]
+        },
+        {
+          "name": "authority",
+          "signer": true
         }
       ],
       "args": []
@@ -6903,586 +6936,591 @@ export type AgencCoordination = {
     },
     {
       "code": 6081,
+      "name": "tooManyDisputeVoters",
+      "msg": "Dispute has reached maximum voter capacity"
+    },
+    {
+      "code": 6082,
       "name": "workerAgentRequired",
       "msg": "Worker agent account required when creator initiates dispute"
     },
     {
-      "code": 6082,
+      "code": 6083,
       "name": "workerClaimRequired",
       "msg": "Worker claim account required when creator initiates dispute"
     },
     {
-      "code": 6083,
+      "code": 6084,
       "name": "workerNotInDispute",
       "msg": "Worker was not involved in this dispute"
     },
     {
-      "code": 6084,
+      "code": 6085,
       "name": "initiatorCannotResolve",
       "msg": "Dispute initiator cannot resolve their own dispute"
     },
     {
-      "code": 6085,
+      "code": 6086,
       "name": "versionMismatch",
       "msg": "State version mismatch (concurrent modification)"
     },
     {
-      "code": 6086,
+      "code": 6087,
       "name": "stateKeyExists",
       "msg": "State key already exists"
     },
     {
-      "code": 6087,
+      "code": 6088,
       "name": "stateNotFound",
       "msg": "State not found"
     },
     {
-      "code": 6088,
+      "code": 6089,
       "name": "invalidStateValue",
       "msg": "Invalid state value: state_value cannot be all zeros"
     },
     {
-      "code": 6089,
+      "code": 6090,
       "name": "stateOwnershipViolation",
       "msg": "State ownership violation: only the creator agent can update this state"
     },
     {
-      "code": 6090,
+      "code": 6091,
       "name": "invalidStateKey",
       "msg": "Invalid state key: state_key cannot be all zeros"
     },
     {
-      "code": 6091,
+      "code": 6092,
       "name": "protocolAlreadyInitialized",
       "msg": "Protocol is already initialized"
     },
     {
-      "code": 6092,
+      "code": 6093,
       "name": "protocolNotInitialized",
       "msg": "Protocol is not initialized"
     },
     {
-      "code": 6093,
+      "code": 6094,
       "name": "invalidProtocolFee",
       "msg": "Invalid protocol fee (must be <= 1000 bps)"
     },
     {
-      "code": 6094,
+      "code": 6095,
       "name": "invalidTreasury",
       "msg": "Invalid treasury: treasury account cannot be default pubkey"
     },
     {
-      "code": 6095,
+      "code": 6096,
       "name": "invalidDisputeThreshold",
       "msg": "Invalid dispute threshold: must be 1-100 (percentage of votes required)"
     },
     {
-      "code": 6096,
+      "code": 6097,
       "name": "insufficientStake",
       "msg": "Insufficient stake for arbiter registration"
     },
     {
-      "code": 6097,
+      "code": 6098,
       "name": "multisigInvalidThreshold",
       "msg": "Invalid multisig threshold"
     },
     {
-      "code": 6098,
+      "code": 6099,
       "name": "multisigInvalidSigners",
       "msg": "Invalid multisig signer configuration"
     },
     {
-      "code": 6099,
+      "code": 6100,
       "name": "multisigNotEnoughSigners",
       "msg": "Not enough multisig signers"
     },
     {
-      "code": 6100,
+      "code": 6101,
       "name": "multisigDuplicateSigner",
       "msg": "Duplicate multisig signer provided"
     },
     {
-      "code": 6101,
+      "code": 6102,
       "name": "multisigDefaultSigner",
       "msg": "Multisig signer cannot be default pubkey"
     },
     {
-      "code": 6102,
+      "code": 6103,
       "name": "multisigSignerNotSystemOwned",
       "msg": "Multisig signer account not owned by System Program"
     },
     {
-      "code": 6103,
+      "code": 6104,
       "name": "invalidInput",
       "msg": "Invalid input parameter"
     },
     {
-      "code": 6104,
+      "code": 6105,
       "name": "arithmeticOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6105,
+      "code": 6106,
       "name": "voteOverflow",
       "msg": "Vote count overflow"
     },
     {
-      "code": 6106,
+      "code": 6107,
       "name": "insufficientFunds",
       "msg": "Insufficient funds"
     },
     {
-      "code": 6107,
+      "code": 6108,
       "name": "rewardTooSmall",
       "msg": "Reward too small: worker must receive at least 1 lamport"
     },
     {
-      "code": 6108,
+      "code": 6109,
       "name": "corruptedData",
       "msg": "Account data is corrupted"
     },
     {
-      "code": 6109,
+      "code": 6110,
       "name": "stringTooLong",
       "msg": "String too long"
     },
     {
-      "code": 6110,
+      "code": 6111,
       "name": "invalidAccountOwner",
       "msg": "Account owner validation failed: account not owned by this program"
     },
     {
-      "code": 6111,
+      "code": 6112,
       "name": "rateLimitExceeded",
       "msg": "Rate limit exceeded: maximum actions per 24h window reached"
     },
     {
-      "code": 6112,
+      "code": 6113,
       "name": "cooldownNotElapsed",
       "msg": "Cooldown period has not elapsed since last action"
     },
     {
-      "code": 6113,
+      "code": 6114,
       "name": "updateTooFrequent",
       "msg": "Agent update too frequent: must wait cooldown period"
     },
     {
-      "code": 6114,
+      "code": 6115,
       "name": "invalidCooldown",
       "msg": "Cooldown value cannot be negative"
     },
     {
-      "code": 6115,
+      "code": 6116,
       "name": "cooldownTooLarge",
       "msg": "Cooldown value exceeds maximum (24 hours)"
     },
     {
-      "code": 6116,
+      "code": 6117,
       "name": "rateLimitTooHigh",
       "msg": "Rate limit value exceeds maximum allowed (1000)"
     },
     {
-      "code": 6117,
+      "code": 6118,
       "name": "cooldownTooLong",
       "msg": "Cooldown value exceeds maximum allowed (1 week)"
     },
     {
-      "code": 6118,
+      "code": 6119,
       "name": "insufficientStakeForDispute",
       "msg": "Insufficient stake to initiate dispute"
     },
     {
-      "code": 6119,
+      "code": 6120,
       "name": "insufficientStakeForCreatorDispute",
       "msg": "Creator-initiated disputes require 2x the minimum stake"
     },
     {
-      "code": 6120,
+      "code": 6121,
       "name": "versionMismatchProtocol",
       "msg": "Protocol version mismatch: account version incompatible with current program"
     },
     {
-      "code": 6121,
+      "code": 6122,
       "name": "accountVersionTooOld",
       "msg": "Account version too old: migration required"
     },
     {
-      "code": 6122,
+      "code": 6123,
       "name": "accountVersionTooNew",
       "msg": "Account version too new: program upgrade required"
     },
     {
-      "code": 6123,
+      "code": 6124,
       "name": "invalidMigrationSource",
       "msg": "Migration not allowed: invalid source version"
     },
     {
-      "code": 6124,
+      "code": 6125,
       "name": "invalidMigrationTarget",
       "msg": "Migration not allowed: invalid target version"
     },
     {
-      "code": 6125,
+      "code": 6126,
       "name": "unauthorizedUpgrade",
       "msg": "Only upgrade authority can perform this action"
     },
     {
-      "code": 6126,
+      "code": 6127,
       "name": "invalidMinVersion",
       "msg": "Minimum version cannot exceed current protocol version"
     },
     {
-      "code": 6127,
+      "code": 6128,
       "name": "protocolConfigRequired",
       "msg": "Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts"
     },
     {
-      "code": 6128,
+      "code": 6129,
       "name": "parentTaskCancelled",
       "msg": "Parent task has been cancelled"
     },
     {
-      "code": 6129,
+      "code": 6130,
       "name": "parentTaskDisputed",
       "msg": "Parent task is in disputed state"
     },
     {
-      "code": 6130,
+      "code": 6131,
       "name": "invalidDependencyType",
       "msg": "Invalid dependency type"
     },
     {
-      "code": 6131,
+      "code": 6132,
       "name": "parentTaskNotCompleted",
       "msg": "Parent task must be completed before completing a proof-dependent task"
     },
     {
-      "code": 6132,
+      "code": 6133,
       "name": "parentTaskAccountRequired",
       "msg": "Parent task account required for proof-dependent task completion"
     },
     {
-      "code": 6133,
+      "code": 6134,
       "name": "unauthorizedCreator",
       "msg": "Parent task does not belong to the same creator"
     },
     {
-      "code": 6134,
+      "code": 6135,
       "name": "nullifierAlreadySpent",
       "msg": "Nullifier has already been spent - proof/knowledge reuse detected"
     },
     {
-      "code": 6135,
+      "code": 6136,
       "name": "invalidNullifier",
       "msg": "Invalid nullifier: nullifier value cannot be all zeros"
     },
     {
-      "code": 6136,
+      "code": 6137,
       "name": "incompleteWorkerAccounts",
       "msg": "All worker accounts must be provided when cancelling a task with active claims"
     },
     {
-      "code": 6137,
+      "code": 6138,
       "name": "workerAccountsRequired",
       "msg": "Worker accounts required when task has active workers"
     },
     {
-      "code": 6138,
+      "code": 6139,
       "name": "duplicateArbiter",
       "msg": "Duplicate arbiter provided in remaining_accounts"
     },
     {
-      "code": 6139,
+      "code": 6140,
       "name": "insufficientEscrowBalance",
       "msg": "Escrow has insufficient balance for reward transfer"
     },
     {
-      "code": 6140,
+      "code": 6141,
       "name": "invalidStatusTransition",
       "msg": "Invalid task status transition"
     },
     {
-      "code": 6141,
+      "code": 6142,
       "name": "stakeTooLow",
       "msg": "Stake value is below minimum required (0.001 SOL)"
     },
     {
-      "code": 6142,
+      "code": 6143,
       "name": "invalidMinStake",
       "msg": "min_stake_for_dispute must be greater than zero"
     },
     {
-      "code": 6143,
+      "code": 6144,
       "name": "invalidSlashAmount",
       "msg": "Slash amount must be greater than zero"
     },
     {
-      "code": 6144,
+      "code": 6145,
       "name": "bondAmountTooLow",
       "msg": "Bond amount too low"
     },
     {
-      "code": 6145,
+      "code": 6146,
       "name": "bondAlreadyExists",
       "msg": "Bond already exists"
     },
     {
-      "code": 6146,
+      "code": 6147,
       "name": "bondNotFound",
       "msg": "Bond not found"
     },
     {
-      "code": 6147,
+      "code": 6148,
       "name": "bondNotMatured",
       "msg": "Bond not yet matured"
     },
     {
-      "code": 6148,
+      "code": 6149,
       "name": "insufficientReputation",
       "msg": "Agent reputation below task minimum requirement"
     },
     {
-      "code": 6149,
+      "code": 6150,
       "name": "invalidMinReputation",
       "msg": "Invalid minimum reputation: must be <= 10000"
     },
     {
-      "code": 6150,
+      "code": 6151,
       "name": "developmentKeyNotAllowed",
       "msg": "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use."
     },
     {
-      "code": 6151,
+      "code": 6152,
       "name": "selfTaskNotAllowed",
       "msg": "Cannot claim own task: worker authority matches task creator"
     },
     {
-      "code": 6152,
+      "code": 6153,
       "name": "missingTokenAccounts",
       "msg": "Token accounts not provided for token-denominated task"
     },
     {
-      "code": 6153,
+      "code": 6154,
       "name": "invalidTokenEscrow",
       "msg": "Token escrow ATA does not match expected derivation"
     },
     {
-      "code": 6154,
+      "code": 6155,
       "name": "invalidTokenMint",
       "msg": "Provided mint does not match task's reward_mint"
     },
     {
-      "code": 6155,
+      "code": 6156,
       "name": "tokenTransferFailed",
       "msg": "SPL token transfer CPI failed"
     },
     {
-      "code": 6156,
+      "code": 6157,
       "name": "proposalNotActive",
       "msg": "Proposal is not active"
     },
     {
-      "code": 6157,
+      "code": 6158,
       "name": "proposalVotingNotEnded",
       "msg": "Voting period has not ended"
     },
     {
-      "code": 6158,
+      "code": 6159,
       "name": "proposalVotingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6159,
+      "code": 6160,
       "name": "proposalAlreadyExecuted",
       "msg": "Proposal has already been executed"
     },
     {
-      "code": 6160,
+      "code": 6161,
       "name": "proposalInsufficientQuorum",
       "msg": "Insufficient quorum for proposal execution"
     },
     {
-      "code": 6161,
+      "code": 6162,
       "name": "proposalNotApproved",
       "msg": "Proposal did not achieve majority"
     },
     {
-      "code": 6162,
+      "code": 6163,
       "name": "proposalUnauthorizedCancel",
       "msg": "Only the proposer can cancel this proposal"
     },
     {
-      "code": 6163,
+      "code": 6164,
       "name": "proposalInsufficientStake",
       "msg": "Insufficient stake to create a proposal"
     },
     {
-      "code": 6164,
+      "code": 6165,
       "name": "invalidProposalPayload",
       "msg": "Invalid proposal payload"
     },
     {
-      "code": 6165,
+      "code": 6166,
       "name": "invalidProposalType",
       "msg": "Invalid proposal type"
     },
     {
-      "code": 6166,
+      "code": 6167,
       "name": "treasuryInsufficientBalance",
       "msg": "Treasury spend amount exceeds available balance"
     },
     {
-      "code": 6167,
+      "code": 6168,
       "name": "timelockNotElapsed",
       "msg": "Execution timelock has not elapsed"
     },
     {
-      "code": 6168,
+      "code": 6169,
       "name": "invalidGovernanceParam",
       "msg": "Invalid governance configuration parameter"
     },
     {
-      "code": 6169,
+      "code": 6170,
       "name": "treasuryNotProgramOwned",
       "msg": "Treasury must be a program-owned PDA"
     },
     {
-      "code": 6170,
+      "code": 6171,
       "name": "treasuryNotSpendable",
       "msg": "Treasury must be program-owned, or a signer system account for governance spends"
     },
     {
-      "code": 6171,
+      "code": 6172,
       "name": "skillInvalidId",
       "msg": "Skill ID cannot be all zeros"
     },
     {
-      "code": 6172,
+      "code": 6173,
       "name": "skillInvalidName",
       "msg": "Skill name cannot be all zeros"
     },
     {
-      "code": 6173,
+      "code": 6174,
       "name": "skillInvalidContentHash",
       "msg": "Skill content hash cannot be all zeros"
     },
     {
-      "code": 6174,
+      "code": 6175,
       "name": "skillNotActive",
       "msg": "Skill is not active"
     },
     {
-      "code": 6175,
+      "code": 6176,
       "name": "skillInvalidRating",
       "msg": "Rating must be between 1 and 5"
     },
     {
-      "code": 6176,
+      "code": 6177,
       "name": "skillSelfRating",
       "msg": "Cannot rate own skill"
     },
     {
-      "code": 6177,
+      "code": 6178,
       "name": "skillUnauthorizedUpdate",
       "msg": "Only the skill author can update this skill"
     },
     {
-      "code": 6178,
+      "code": 6179,
       "name": "skillSelfPurchase",
       "msg": "Cannot purchase own skill"
     },
     {
-      "code": 6179,
+      "code": 6180,
       "name": "feedInvalidContentHash",
       "msg": "Feed content hash cannot be all zeros"
     },
     {
-      "code": 6180,
+      "code": 6181,
       "name": "feedInvalidTopic",
       "msg": "Feed topic cannot be all zeros"
     },
     {
-      "code": 6181,
+      "code": 6182,
       "name": "feedPostNotFound",
       "msg": "Feed post not found"
     },
     {
-      "code": 6182,
+      "code": 6183,
       "name": "feedSelfUpvote",
       "msg": "Cannot upvote own post"
     },
     {
-      "code": 6183,
+      "code": 6184,
       "name": "reputationStakeAmountTooLow",
       "msg": "Reputation stake amount must be greater than zero"
     },
     {
-      "code": 6184,
+      "code": 6185,
       "name": "reputationStakeLocked",
       "msg": "Reputation stake is locked: withdrawal before cooldown"
     },
     {
-      "code": 6185,
+      "code": 6186,
       "name": "reputationStakeInsufficientBalance",
       "msg": "Reputation stake has insufficient balance for withdrawal"
     },
     {
-      "code": 6186,
+      "code": 6187,
       "name": "reputationDelegationAmountInvalid",
       "msg": "Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT"
     },
     {
-      "code": 6187,
+      "code": 6188,
       "name": "reputationCannotDelegateSelf",
       "msg": "Cannot delegate reputation to self"
     },
     {
-      "code": 6188,
+      "code": 6189,
       "name": "reputationDelegationExpired",
       "msg": "Reputation delegation has expired"
     },
     {
-      "code": 6189,
+      "code": 6190,
       "name": "reputationAgentNotActive",
       "msg": "Agent must be Active to participate in reputation economy"
     },
     {
-      "code": 6190,
+      "code": 6191,
       "name": "reputationDisputesPending",
       "msg": "Agent has pending disputes as defendant: cannot withdraw stake"
     },
     {
-      "code": 6191,
+      "code": 6192,
       "name": "privateTaskRequiresZkProof",
       "msg": "Private tasks (non-zero constraint_hash) must use complete_task_private"
     },
     {
-      "code": 6192,
+      "code": 6193,
       "name": "invalidTokenAccountOwner",
       "msg": "Token account owner does not match expected authority"
     },
     {
-      "code": 6193,
+      "code": 6194,
       "name": "insufficientSeedEntropy",
       "msg": "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
     },
     {
-      "code": 6194,
+      "code": 6195,
       "name": "skillPriceBelowMinimum",
       "msg": "Skill price below minimum required"
     },
     {
-      "code": 6195,
+      "code": 6196,
       "name": "skillPriceChanged",
       "msg": "Skill price changed since transaction was prepared"
     },
     {
-      "code": 6196,
+      "code": 6197,
       "name": "delegationCooldownNotElapsed",
       "msg": "Delegation must be active for minimum duration before revocation"
     },
     {
-      "code": 6197,
+      "code": 6198,
       "name": "rateLimitBelowMinimum",
       "msg": "Rate limit value below protocol minimum"
     }

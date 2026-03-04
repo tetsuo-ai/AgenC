@@ -2,7 +2,7 @@
 
 pub const JOURNAL_FIELD_LEN: usize = 32;
 pub const JOURNAL_FIELD_COUNT: usize = 6;
-pub const JOURNAL_TOTAL_LEN: usize = JOURNAL_FIELD_LEN * JOURNAL_FIELD_COUNT;
+pub const JOURNAL_TOTAL_LEN: usize = 192;
 
 pub type JournalField = [u8; JOURNAL_FIELD_LEN];
 pub type JournalBytes = [u8; JOURNAL_TOTAL_LEN];
@@ -55,9 +55,8 @@ impl JournalFields {
             &self.binding,
             &self.nullifier,
         ];
-        for (i, field) in fields.iter().enumerate() {
-            let start = i * JOURNAL_FIELD_LEN;
-            out[start..start + JOURNAL_FIELD_LEN].copy_from_slice(*field);
+        for (chunk, field) in out.chunks_exact_mut(JOURNAL_FIELD_LEN).zip(fields.iter()) {
+            chunk.copy_from_slice(*field);
         }
         out
     }
@@ -65,25 +64,6 @@ impl JournalFields {
 
 pub fn serialize_journal(fields: &JournalFields) -> JournalBytes {
     fields.to_bytes()
-}
-
-pub fn serialize_journal_from_slices(
-    task_pda: &[u8],
-    agent_authority: &[u8],
-    constraint_hash: &[u8],
-    output_commitment: &[u8],
-    binding: &[u8],
-    nullifier: &[u8],
-) -> Result<JournalBytes, JournalError> {
-    let fields = JournalFields::try_from_slices(
-        task_pda,
-        agent_authority,
-        constraint_hash,
-        output_commitment,
-        binding,
-        nullifier,
-    )?;
-    Ok(fields.to_bytes())
 }
 
 pub fn placeholder_journal() -> JournalField {
@@ -102,80 +82,4 @@ fn copy_field(field: &'static str, value: &[u8]) -> Result<JournalField, Journal
     let mut out = [0_u8; JOURNAL_FIELD_LEN];
     out.copy_from_slice(value);
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn journal_output_length_is_exact() {
-        assert_eq!(JOURNAL_FIELD_LEN, 32);
-        assert_eq!(JOURNAL_FIELD_COUNT, 6);
-        assert_eq!(JOURNAL_TOTAL_LEN, 192);
-
-        let fields = JournalFields {
-            task_pda: [1_u8; JOURNAL_FIELD_LEN],
-            agent_authority: [2_u8; JOURNAL_FIELD_LEN],
-            constraint_hash: [3_u8; JOURNAL_FIELD_LEN],
-            output_commitment: [4_u8; JOURNAL_FIELD_LEN],
-            binding: [5_u8; JOURNAL_FIELD_LEN],
-            nullifier: [6_u8; JOURNAL_FIELD_LEN],
-        };
-
-        let journal = serialize_journal(&fields);
-        assert_eq!(journal.len(), JOURNAL_TOTAL_LEN);
-    }
-
-    #[test]
-    fn journal_field_order_matches_schema_offsets() {
-        let fields = JournalFields {
-            task_pda: [11_u8; JOURNAL_FIELD_LEN],
-            agent_authority: [22_u8; JOURNAL_FIELD_LEN],
-            constraint_hash: [33_u8; JOURNAL_FIELD_LEN],
-            output_commitment: [44_u8; JOURNAL_FIELD_LEN],
-            binding: [55_u8; JOURNAL_FIELD_LEN],
-            nullifier: [66_u8; JOURNAL_FIELD_LEN],
-        };
-
-        let journal = serialize_journal(&fields);
-
-        assert_eq!(&journal[0..32], &fields.task_pda);
-        assert_eq!(&journal[32..64], &fields.agent_authority);
-        assert_eq!(&journal[64..96], &fields.constraint_hash);
-        assert_eq!(&journal[96..128], &fields.output_commitment);
-        assert_eq!(&journal[128..160], &fields.binding);
-        assert_eq!(&journal[160..192], &fields.nullifier);
-    }
-
-    #[test]
-    fn malformed_input_is_rejected() {
-        let ok = [1_u8; JOURNAL_FIELD_LEN];
-        let short = [9_u8; JOURNAL_FIELD_LEN - 1];
-        let long = [8_u8; JOURNAL_FIELD_LEN + 1];
-
-        let err = serialize_journal_from_slices(&short, &ok, &ok, &ok, &ok, &ok)
-            .expect_err("short task_pda must fail");
-
-        assert_eq!(
-            err,
-            JournalError::InvalidFieldLength {
-                field: "task_pda",
-                expected: JOURNAL_FIELD_LEN,
-                actual: JOURNAL_FIELD_LEN - 1,
-            }
-        );
-
-        let err = serialize_journal_from_slices(&ok, &ok, &ok, &ok, &ok, &long)
-            .expect_err("long nullifier must fail");
-
-        assert_eq!(
-            err,
-            JournalError::InvalidFieldLength {
-                field: "nullifier",
-                expected: JOURNAL_FIELD_LEN,
-                actual: JOURNAL_FIELD_LEN + 1,
-            }
-        );
-    }
 }

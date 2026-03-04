@@ -431,6 +431,7 @@ export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void>
       )
       .accountsPartial({
         protocolConfig: protocolPda,
+        authority: payer.publicKey,
       })
       .remainingAccounts([
         { pubkey: payer.publicKey, isSigner: true, isWritable: false },

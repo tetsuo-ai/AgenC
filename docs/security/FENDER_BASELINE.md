@@ -1,17 +1,23 @@
 # Solana Fender Medium Baseline
 
 This document records the reviewed Solana Fender medium findings that are currently
-classified as false positives for `programs/agenc-coordination`.
+classified as false positives for two scopes:
 
-The machine-readable baseline is:
+- `programs/agenc-coordination` (program-only scan)
+- `.` (full-repo scan)
+
+The machine-readable baselines are:
 
 - `docs/security/fender-medium-baseline.json`
+- `docs/security/fender-full-baseline.json`
 
 The gate script is:
 
 - `scripts/check-fender-baseline.mjs`
+- `npm run -s fender:gate:program`
+- `npm run -s fender:gate:full`
 
-## Reviewed Findings
+## Program-Only Baseline (`programs/agenc-coordination`)
 
 1. `src/instructions/cancel_task.rs` line 65 (`process_cancel_task_impl`)
 - Finding: account reinitialization risk.
@@ -36,8 +42,14 @@ The gate script is:
 - Finding: account reinitialization risk on `#[program]` entrypoint functions.
 - Why false positive: these are thin wrappers delegating to instruction handlers; they do not perform account init/reinit themselves.
 
+## Full-Repo Baseline (`.`)
+
+1. Includes all eight program-only entries above with repository-root paths, plus:
+- `zkvm/methods/guest/src/main.rs` (`guest_entry`)
+- Why false positive: this is a RISC Zero guest entrypoint that reads pre-committed guest inputs and commits a journal payload. It does not initialize or reinitialize Solana accounts.
+
 ## Policy
 
-- The baseline is strict:
+- Baselines are strict:
 - Any new medium/high/critical finding fails the gate.
 - Any stale baseline entry also fails the gate (forces baseline cleanup).

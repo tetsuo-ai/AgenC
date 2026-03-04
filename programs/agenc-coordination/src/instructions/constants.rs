@@ -47,6 +47,13 @@ pub const REPUTATION_DECAY_MIN: u16 = 1000;
 /// Minimum number of voters required for dispute resolution
 pub const MIN_VOTERS_FOR_RESOLUTION: usize = 3;
 
+/// Hard cap on dispute voters to keep resolve/expire account fan-out bounded.
+///
+/// Both `resolve_dispute` and `expire_dispute` require `(vote, arbiter)` account
+/// pairs for each recorded voter in `remaining_accounts`. Capping voters avoids
+/// creating disputes that cannot be resolved within practical transaction limits.
+pub const MAX_DISPUTE_VOTERS: u8 = 20;
+
 // ============================================================================
 // Reputation Economy Constants
 // ============================================================================

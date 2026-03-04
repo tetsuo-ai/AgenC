@@ -21,6 +21,7 @@ pub mod instructions;
 pub mod state;
 pub mod utils;
 
+use crate::errors::CoordinationError;
 use instructions::*;
 
 #[program]
@@ -180,6 +181,10 @@ pub mod agenc_coordination {
     /// Expire a stale claim to free up task slot.
     /// Can only be called after claim.expires_at has passed.
     pub fn expire_claim(ctx: Context<ExpireClaim>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::InvalidInput
+        );
         instructions::expire_claim::handler(ctx)
     }
 
@@ -209,6 +214,10 @@ pub mod agenc_coordination {
 
     /// Cancel an unclaimed or expired task and reclaim funds.
     pub fn cancel_task(ctx: Context<CancelTask>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::UnauthorizedTaskAction
+        );
         instructions::cancel_task::process_cancel_task(ctx)
     }
 
@@ -271,11 +280,19 @@ pub mod agenc_coordination {
     /// Execute the resolved dispute outcome.
     /// Requires sufficient votes to meet threshold.
     pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::UnauthorizedResolver
+        );
         instructions::resolve_dispute::handler(ctx)
     }
 
     /// Apply slashing to a worker after losing a dispute.
     pub fn apply_dispute_slash(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::InvalidInput
+        );
         instructions::apply_dispute_slash::handler(ctx)
     }
 
@@ -283,11 +300,19 @@ pub mod agenc_coordination {
     /// This provides symmetric slashing: workers are slashed for bad work,
     /// initiators are slashed for frivolous disputes.
     pub fn apply_initiator_slash(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::InvalidInput
+        );
         instructions::apply_initiator_slash::handler(ctx)
     }
 
     /// Expire a dispute after the maximum duration has passed.
     pub fn expire_dispute(ctx: Context<ExpireDispute>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::InvalidInput
+        );
         instructions::expire_dispute::handler(ctx)
     }
 
@@ -318,6 +343,10 @@ pub mod agenc_coordination {
         ctx: Context<UpdateProtocolFee>,
         protocol_fee_bps: u16,
     ) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::MultisigNotEnoughSigners
+        );
         instructions::update_protocol_fee::handler(ctx, protocol_fee_bps)
     }
 
@@ -327,6 +356,10 @@ pub mod agenc_coordination {
     /// - Allows treasury rotation/recovery.
     /// - New treasury must be program-owned, or a signer system account.
     pub fn update_treasury(ctx: Context<UpdateTreasury>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::MultisigNotEnoughSigners
+        );
         instructions::update_treasury::handler(ctx)
     }
 
@@ -340,6 +373,10 @@ pub mod agenc_coordination {
         new_threshold: u8,
         new_owners: Vec<Pubkey>,
     ) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::MultisigNotEnoughSigners
+        );
         instructions::update_multisig::handler(ctx, new_threshold, new_owners)
     }
 
@@ -360,6 +397,10 @@ pub mod agenc_coordination {
         max_disputes_per_24h: u8,
         min_stake_for_dispute: u64,
     ) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::MultisigNotEnoughSigners
+        );
         instructions::update_rate_limits::handler(
             ctx,
             task_creation_cooldown,
@@ -376,6 +417,10 @@ pub mod agenc_coordination {
     /// # Arguments
     /// * `target_version` - The version to migrate to
     pub fn migrate_protocol(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::MultisigNotEnoughSigners
+        );
         instructions::migrate::handler(ctx, target_version)
     }
 
@@ -385,6 +430,10 @@ pub mod agenc_coordination {
     /// # Arguments
     /// * `new_min_version` - The new minimum supported version
     pub fn update_min_version(ctx: Context<UpdateMinVersion>, new_min_version: u8) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::MultisigNotEnoughSigners
+        );
         instructions::migrate::update_min_version_handler(ctx, new_min_version)
     }
 
@@ -440,6 +489,10 @@ pub mod agenc_coordination {
     /// Execute an approved governance proposal after voting period ends.
     /// Permissionless — anyone can call after quorum + majority is met.
     pub fn execute_proposal(ctx: Context<ExecuteProposal>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.is_signer,
+            CoordinationError::InvalidInput
+        );
         instructions::execute_proposal::handler(ctx)
     }
 

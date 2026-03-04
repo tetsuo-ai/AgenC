@@ -555,7 +555,7 @@ describe("dispute-slash-logic (issue #136)", () => {
           dispute: disputePda,
           task: taskPda,
           workerClaim: claimPda,
-          defendantAgent: null,
+          defendantAgent: workerAgentPda,
           vote: votePda,
           authorityVote: authorityVotePda,
           arbiter: arbiter1Pda,
@@ -987,7 +987,7 @@ describe("dispute-slash-logic (issue #136)", () => {
         creator: creator.publicKey,
         workerClaim: claimPda,
         worker: wrkPda,
-        workerAuthority: wrkAuthority.publicKey,
+        workerWallet: wrkAuthority.publicKey,
         systemProgram: SystemProgram.programId,
         tokenEscrowAta: null,
         creatorTokenAccount: null,
@@ -1066,7 +1066,7 @@ describe("dispute-slash-logic (issue #136)", () => {
           creator: creator.publicKey,
           workerClaim: s.claimPda,
           worker: s.workerPda,
-          workerAuthority: worker.publicKey,
+          workerWallet: worker.publicKey,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: null,
           creatorTokenAccount: null,
@@ -1105,7 +1105,7 @@ describe("dispute-slash-logic (issue #136)", () => {
             creator: creator.publicKey,
             workerClaim: s.claimPda,
             worker: s.workerPda,
-            workerAuthority: worker.publicKey,
+            workerWallet: worker.publicKey,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
             creatorTokenAccount: null,
@@ -1119,6 +1119,94 @@ describe("dispute-slash-logic (issue #136)", () => {
         expect.fail("Should have failed with VotingNotEnded");
       } catch (e: unknown) {
         expect((e as any).error?.errorCode?.code).to.equal("VotingNotEnded");
+      }
+    });
+  });
+
+  // =========================================================================
+  // New vote hardening checks
+  // =========================================================================
+  describe("Vote hardening", () => {
+    it("rejects creator-initiated dispute vote when defendantAgent is omitted", async () => {
+      const s = await setupDispute("vh1");
+      const dispute = await program.account.dispute.fetch(s.disputePda);
+      if (dispute.votingDeadline.toNumber() <= getClockTimestamp(svm)) {
+        return;
+      }
+
+      const arbiterPda = deriveAgentPda(arbiter1AgentId);
+      const votePda = deriveVotePda(s.disputePda, arbiterPda);
+      const authorityVotePda = deriveAuthorityVotePda(
+        s.disputePda,
+        arbiter1.publicKey,
+      );
+
+      try {
+        await program.methods
+          .voteDispute(true)
+          .accountsPartial({
+            dispute: s.disputePda,
+            task: s.taskPda,
+            workerClaim: s.claimPda,
+            defendantAgent: null,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiter1.publicKey,
+          })
+          .signers([arbiter1])
+          .rpc();
+        expect.fail("Should have failed with WorkerAgentRequired");
+      } catch (e: unknown) {
+        expectErrorCode(e, "WorkerAgentRequired");
+      }
+    });
+
+    it("rejects votes when dispute has reached max voter capacity", async () => {
+      const s = await setupDispute("vh2");
+      const dispute = await program.account.dispute.fetch(s.disputePda);
+      if (dispute.votingDeadline.toNumber() <= getClockTimestamp(svm)) {
+        return;
+      }
+
+      // Dispute account offsets:
+      // [202] total_voters (u8), [203..211) voting_deadline (i64 LE)
+      const disputeAccount = svm.getAccount(s.disputePda);
+      expect(disputeAccount).to.not.equal(null);
+      const patchedData = new Uint8Array(disputeAccount!.data);
+      patchedData[202] = 20; // MAX_DISPUTE_VOTERS
+      svm.setAccount(s.disputePda, {
+        ...disputeAccount!,
+        data: patchedData,
+      });
+
+      const arbiterPda = deriveAgentPda(arbiter1AgentId);
+      const votePda = deriveVotePda(s.disputePda, arbiterPda);
+      const authorityVotePda = deriveAuthorityVotePda(
+        s.disputePda,
+        arbiter1.publicKey,
+      );
+
+      try {
+        await program.methods
+          .voteDispute(true)
+          .accountsPartial({
+            dispute: s.disputePda,
+            task: s.taskPda,
+            workerClaim: s.claimPda,
+            defendantAgent: s.workerPda,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiter1.publicKey,
+          })
+          .signers([arbiter1])
+          .rpc();
+        expect.fail("Should have failed with TooManyDisputeVoters");
+      } catch (e: unknown) {
+        expectErrorCode(e, "TooManyDisputeVoters");
       }
     });
   });

@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 
 use crate::errors::CoordinationError;
 use crate::state::ProtocolConfig;
-use crate::utils::multisig::require_multisig;
+use crate::utils::multisig::{require_multisig_threshold, unique_account_infos};
 
 /// Maximum rate limit value
 const MAX_RATE_LIMIT: u64 = 1000;
@@ -23,6 +23,8 @@ pub struct UpdateRateLimits<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
+
+    pub authority: Signer<'info>,
 }
 
 /// Update rate limiting parameters
@@ -35,7 +37,12 @@ pub fn handler(
     max_disputes_per_24h: u8,
     min_stake_for_dispute: u64,
 ) -> Result<()> {
-    require_multisig(&ctx.accounts.protocol_config, ctx.remaining_accounts)?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::MultisigNotEnoughSigners
+    );
+    let unique_signers = unique_account_infos(ctx.remaining_accounts);
+    require_multisig_threshold(&ctx.accounts.protocol_config, &unique_signers)?;
 
     // Validate cooldown values are non-negative
     require!(

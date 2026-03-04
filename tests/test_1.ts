@@ -1432,7 +1432,7 @@ describe("test_1", () => {
         .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
-          creator: creator.publicKey,
+          authority: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: null,
@@ -1823,7 +1823,7 @@ describe("test_1", () => {
         .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
-          creator: creator.publicKey,
+          authority: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: null,
@@ -2536,7 +2536,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -2624,7 +2624,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -2830,7 +2830,7 @@ describe("test_1", () => {
             .accountsPartial({
               task: taskPda,
               escrow: escrowPda,
-              creator: creator.publicKey,
+              authority: creator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
               tokenEscrowAta: null,
@@ -2894,7 +2894,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -3035,7 +3035,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -3053,7 +3053,7 @@ describe("test_1", () => {
             .accountsPartial({
               task: taskPda,
               escrow: escrowPda,
-              creator: creator.publicKey,
+              authority: creator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
               tokenEscrowAta: null,
@@ -3380,7 +3380,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -4047,7 +4047,7 @@ describe("test_1", () => {
             .accountsPartial({
               task: taskPda,
               escrow: escrowPda,
-              creator: nonCreator.publicKey,
+              authority: nonCreator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
               tokenEscrowAta: null,
@@ -4144,7 +4144,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -4893,7 +4893,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: unauthorized.publicKey,
+            authority: unauthorized.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -5074,7 +5074,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -5137,7 +5137,7 @@ describe("test_1", () => {
         .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
-          creator: creator.publicKey,
+          authority: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
           tokenEscrowAta: null,
@@ -5699,7 +5699,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -5832,7 +5832,7 @@ describe("test_1", () => {
             .accountsPartial({
               task: taskPda,
               escrow: escrowPda,
-              creator: creator.publicKey,
+              authority: creator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
               tokenEscrowAta: null,
@@ -6076,7 +6076,7 @@ describe("test_1", () => {
             .accountsPartial({
               task: taskPda,
               escrow: escrowPda,
-              creator: creator.publicKey,
+              authority: creator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
               tokenEscrowAta: null,
@@ -6247,7 +6247,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,
@@ -7036,7 +7036,7 @@ describe("test_1", () => {
           .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
-            creator: creator.publicKey,
+            authority: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
             tokenEscrowAta: null,

@@ -7,7 +7,9 @@
 use crate::errors::CoordinationError;
 use crate::events::MultisigUpdated;
 use crate::state::ProtocolConfig;
-use crate::utils::multisig::{require_multisig, validate_multisig_owners};
+use crate::utils::multisig::{
+    require_multisig_threshold, unique_account_infos, validate_multisig_owners,
+};
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use std::collections::BTreeSet;
@@ -20,6 +22,8 @@ pub struct UpdateMultisig<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
+
+    pub authority: Signer<'info>,
 }
 
 pub fn handler(
@@ -28,7 +32,12 @@ pub fn handler(
     new_owners: Vec<Pubkey>,
 ) -> Result<()> {
     let config = &mut ctx.accounts.protocol_config;
-    require_multisig(config, ctx.remaining_accounts)?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::MultisigNotEnoughSigners
+    );
+    let unique_signers = unique_account_infos(ctx.remaining_accounts);
+    require_multisig_threshold(config, &unique_signers)?;
 
     require!(
         !new_owners.is_empty(),
@@ -52,7 +61,7 @@ pub fn handler(
     // unreachable signer set due to typo/misconfiguration.
     let mut counted = BTreeSet::new();
     let mut new_set_approvals = 0usize;
-    for account in ctx.remaining_accounts {
+    for account in &unique_signers {
         if account.is_signer
             && account.owner == &system_program::ID
             && new_owners.contains(account.key)
@@ -77,12 +86,7 @@ pub fn handler(
         config.multisig_owners[index] = *owner;
     }
 
-    let updated_by = ctx
-        .remaining_accounts
-        .iter()
-        .find(|account| account.is_signer)
-        .map(|account| account.key())
-        .unwrap_or_default();
+    let updated_by = ctx.accounts.authority.key();
 
     emit!(MultisigUpdated {
         old_threshold,

@@ -71,6 +71,8 @@ pub struct ExpireDispute<'info> {
     )]
     pub creator: UncheckedAccount<'info>,
 
+    pub authority: Signer<'info>,
+
     /// Worker's claim on the disputed task (fix #137)
     /// Optional - when provided, allows decrementing worker's active_tasks
     /// and enables fair refund distribution (fix #418)
@@ -121,6 +123,8 @@ pub struct ExpireDispute<'info> {
 /// - Allows third-party cleanup services
 /// - No economic risk since only valid expirations succeed
 pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
+    require!(ctx.accounts.authority.is_signer, CoordinationError::InvalidInput);
+
     let dispute = &mut ctx.accounts.dispute;
     let task = &mut ctx.accounts.task;
     let escrow = &mut ctx.accounts.escrow;
@@ -128,7 +132,6 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     let clock = Clock::get()?;
 
     check_version_compatible(config)?;
-
     require!(
         dispute.status == DisputeStatus::Active,
         CoordinationError::DisputeNotActive

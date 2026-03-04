@@ -254,7 +254,7 @@ export async function executeProposal(
     proposal: proposalPda,
     protocolConfig: protocolPda,
     governanceConfig: governanceConfigPda,
-    executor: executor.publicKey,
+    authority: executor.publicKey,
     systemProgram: SystemProgram.programId,
   };
   if (treasury) accounts.treasury = treasury;

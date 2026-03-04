@@ -426,11 +426,11 @@ export async function resolveDispute(
       task: params.taskPda,
       escrow: escrowPda,
       protocolConfig: protocolPda,
-      resolver: resolver.publicKey,
+      authority: resolver.publicKey,
       creator: params.creatorPubkey,
       workerClaim: params.workerClaimPda ?? undefined,
       worker: params.workerAgentPda ?? undefined,
-      workerAuthority: params.workerAuthority ?? undefined,
+      workerWallet: params.workerAuthority ?? undefined,
       systemProgram: SystemProgram.programId,
       ...tokenAccounts,
     })
@@ -484,6 +484,7 @@ export async function applyDisputeSlash(
       workerAgent: params.workerAgentPda,
       protocolConfig: protocolPda,
       treasury: protocolConfig.treasury,
+      authority: payer.publicKey,
       ...tokenAccounts,
     })
     .signers([payer])
@@ -514,6 +515,7 @@ export async function applyInitiatorSlash(
       initiatorAgent: params.initiatorAgentPda,
       protocolConfig: protocolPda,
       treasury: protocolConfig.treasury,
+      authority: payer.publicKey,
     })
     .signers([payer])
     .rpc();
@@ -581,9 +583,10 @@ export async function expireDispute(
       escrow: escrowPda,
       protocolConfig: protocolPda,
       creator: params.creatorPubkey,
+      authority: caller.publicKey,
       workerClaim: params.workerClaimPda ?? undefined,
       worker: params.workerAgentPda ?? undefined,
-      workerAuthority: params.workerAuthority ?? undefined,
+      workerWallet: params.workerAuthority ?? undefined,
       ...tokenAccounts,
     })
     .signers([caller]);

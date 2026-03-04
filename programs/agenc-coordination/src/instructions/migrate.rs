@@ -6,7 +6,7 @@
 use crate::errors::CoordinationError;
 use crate::events::{MigrationCompleted, ProtocolVersionUpdated};
 use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
-use crate::utils::multisig::require_multisig;
+use crate::utils::multisig::{require_multisig_threshold, unique_account_infos};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -17,6 +17,8 @@ pub struct MigrateProtocol<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
+
+    pub authority: Signer<'info>,
 }
 
 /// Migrate protocol configuration to a new version
@@ -34,9 +36,14 @@ pub struct MigrateProtocol<'info> {
 pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> {
     let config = &mut ctx.accounts.protocol_config;
     let clock = Clock::get()?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::MultisigNotEnoughSigners
+    );
 
     // Require multisig approval for migrations
-    require_multisig(config, ctx.remaining_accounts)?;
+    let unique_signers = unique_account_infos(ctx.remaining_accounts);
+    require_multisig_threshold(config, &unique_signers)?;
 
     // Validate reserved fields are zeroed before migration (defense-in-depth).
     // If padding contains non-zero data, the account may be corrupted or
@@ -74,15 +81,12 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
     let old_version = config.protocol_version;
     config.protocol_version = target_version;
 
-    // Only emit MigrationCompleted if there was an authority in remaining_accounts
-    if let Some(authority_account) = ctx.remaining_accounts.first() {
-        emit!(MigrationCompleted {
-            from_version: old_version,
-            to_version: target_version,
-            authority: authority_account.key(),
-            timestamp: clock.unix_timestamp,
-        });
-    }
+    emit!(MigrationCompleted {
+        from_version: old_version,
+        to_version: target_version,
+        authority: ctx.accounts.authority.key(),
+        timestamp: clock.unix_timestamp,
+    });
 
     emit!(ProtocolVersionUpdated {
         old_version,
@@ -130,6 +134,8 @@ pub struct UpdateMinVersion<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
+
+    pub authority: Signer<'info>,
 }
 
 pub fn update_min_version_handler(
@@ -138,9 +144,14 @@ pub fn update_min_version_handler(
 ) -> Result<()> {
     let config = &mut ctx.accounts.protocol_config;
     let clock = Clock::get()?;
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::MultisigNotEnoughSigners
+    );
 
     // Require multisig approval
-    require_multisig(config, ctx.remaining_accounts)?;
+    let unique_signers = unique_account_infos(ctx.remaining_accounts);
+    require_multisig_threshold(config, &unique_signers)?;
 
     // Validate new minimum version
     require!(

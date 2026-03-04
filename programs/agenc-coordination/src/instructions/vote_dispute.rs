@@ -2,6 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::DisputeVoteCast;
+use crate::instructions::constants::MAX_DISPUTE_VOTERS;
 use crate::state::{
     capability, AgentRegistration, AgentStatus, AuthorityDisputeVote, Dispute, DisputeStatus,
     DisputeVote, ProtocolConfig, Task, TaskClaim,
@@ -155,6 +156,12 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
         0
     };
 
+    // Keep dispute voter fan-out bounded so resolve/expire remain executable.
+    require!(
+        dispute.total_voters < MAX_DISPUTE_VOTERS,
+        CoordinationError::TooManyDisputeVoters
+    );
+
     // Record vote
     vote.dispute = dispute.key();
     vote.voter = arbiter.key();
@@ -261,7 +268,27 @@ fn validate_arbiter_not_participant(
             CoordinationError::ArbiterIsDisputeParticipant
         );
     }
-    if let Some(ref defendant) = defendant_agent {
+
+    // For creator-initiated disputes, authority-level defendant exclusion requires
+    // loading the defendant agent account. Make that account mandatory in this path.
+    if dispute.initiated_by_creator {
+        let defendant = defendant_agent
+            .as_ref()
+            .ok_or(CoordinationError::WorkerAgentRequired)?;
+        require!(
+            defendant.key() == dispute.defendant,
+            CoordinationError::WorkerNotInDispute
+        );
+        require!(
+            arbiter.authority != defendant.authority,
+            CoordinationError::ArbiterIsDisputeParticipant
+        );
+    } else if let Some(ref defendant) = defendant_agent {
+        // Defense-in-depth for worker-initiated disputes if the account is supplied.
+        require!(
+            defendant.key() == dispute.defendant,
+            CoordinationError::WorkerNotInDispute
+        );
         require!(
             arbiter.authority != defendant.authority,
             CoordinationError::ArbiterIsDisputeParticipant
