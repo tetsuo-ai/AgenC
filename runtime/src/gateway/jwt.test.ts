@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { createToken, verifyToken } from "./jwt.js";
 
-const SECRET = "a-very-secure-secret-key-at-least-32-chars!!";
+const SECRET = randomBytes(32).toString("hex");
 const SUBJECT = "agent_001";
 
 describe("JWT utility", () => {

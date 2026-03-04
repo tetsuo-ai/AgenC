@@ -128,7 +128,7 @@ export function registerModuleTools(server: McpServer, docs: Map<string, DocEntr
       module_name: z.string().describe('Module name in lowercase (e.g. "gateway", "social")'),
       module_type: z.enum(MODULE_TYPES).describe('Module category for layer placement'),
     },
-    async ({ module_name, module_type }) => {
+    async ({ module_name, module_type: _module_type }) => {
       const primaryClass = module_name.charAt(0).toUpperCase() + module_name.slice(1) + 'Manager';
       const errorCode = module_name.toUpperCase() + '_ERROR';
 
@@ -175,8 +175,11 @@ export function registerModuleTools(server: McpServer, docs: Map<string, DocEntr
       // Try to find related architecture doc
       const relatedDoc = docs.get(`architecture/runtime-layers.md`);
       if (relatedDoc) {
-        const moduleSection = relatedDoc.content.match(new RegExp(`\\|.*\`${moduleName}/\`.*\\|`, 'g'));
-        if (moduleSection) {
+        const moduleTag = `\`${moduleName}/\``;
+        const moduleSection = relatedDoc.content
+          .split('\n')
+          .filter((line) => line.includes(moduleTag) && line.includes('|'));
+        if (moduleSection.length > 0) {
           lines.push('', '## From Architecture Docs', '');
           for (const line of moduleSection) {
             lines.push(line);

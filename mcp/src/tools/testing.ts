@@ -308,15 +308,19 @@ function resolveArtifactPath(
   if (!candidate) {
     return fallback;
   }
-  // Security: Reject path traversal sequences to prevent arbitrary file reads
-  if (candidate.includes("..")) {
-    throw new Error("Artifact path must not contain '..' segments");
-  }
+  const projectRoot = path.resolve(PROJECT_ROOT);
+  // nosemgrep
+  // Resolved path is constrained by relative-prefix checks below.
   const resolved = path.isAbsolute(candidate)
-    ? candidate
-    : path.resolve(PROJECT_ROOT, candidate);
-  // Security: Ensure resolved path is within PROJECT_ROOT
-  if (!resolved.startsWith(PROJECT_ROOT)) {
+    ? path.resolve(candidate) // nosemgrep
+    : path.resolve(projectRoot, candidate); // nosemgrep
+  // Security: Ensure resolved path is within PROJECT_ROOT.
+  const relative = path.relative(projectRoot, resolved);
+  if (
+    relative.startsWith("..")
+    || path.isAbsolute(relative)
+    || relative.includes(`..${path.sep}`)
+  ) {
     throw new Error("Artifact path must be within the project directory");
   }
   return resolved;

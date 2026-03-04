@@ -367,10 +367,10 @@ describe("MessagingSendError", () => {
 
 describe("MessagingConnectionError", () => {
   it("has correct code and properties", () => {
-    const err = new MessagingConnectionError("ws://localhost", "refused");
+    const err = new MessagingConnectionError("wss://localhost", "refused");
     expect(err.code).toBe(RuntimeErrorCodes.MESSAGING_CONNECTION_ERROR);
     expect(err.name).toBe("MessagingConnectionError");
-    expect(err.endpoint).toBe("ws://localhost");
+    expect(err.endpoint).toBe("wss://localhost");
     expect(err.reason).toBe("refused");
   });
 });
@@ -788,7 +788,7 @@ describe("AgentMessaging — off-chain send", () => {
 
   it("rejects content exceeding maxOffChainSize", async () => {
     const discovery = createMockPeerResolver({
-      resolveEndpoint: vi.fn().mockResolvedValue("ws://peer:8080"),
+      resolveEndpoint: vi.fn().mockResolvedValue("wss://peer:8080"),
     });
     const wallet = Keypair.generate();
     const agentId = generateAgentId(wallet.publicKey);
@@ -998,7 +998,7 @@ describe("AgentMessaging — default PeerResolver", () => {
     const agentId = generateAgentId(wallet.publicKey);
 
     const fetchNullable = vi.fn().mockResolvedValue({
-      endpoint: "ws://agent.example.com:9999",
+      endpoint: "wss://agent.example.com:9999",
     });
     const program = createMockProgram({
       account: {
