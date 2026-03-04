@@ -1,0 +1,873 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const anchor = __importStar(require("@coral-xyz/anchor"));
+const bn_js_1 = __importDefault(require("bn.js"));
+const chai_1 = require("chai");
+const web3_js_1 = require("@solana/web3.js");
+const test_utils_1 = require("./test-utils");
+describe("audit-high-severity", () => {
+    const provider = anchor.AnchorProvider.env();
+    anchor.setProvider(provider);
+    const program = anchor.workspace
+        .AgencCoordination;
+    const [protocolPda] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("protocol")], program.programId);
+    // Generate unique run ID to prevent conflicts with persisted validator state
+    const runId = (0, test_utils_1.generateRunId)();
+    let treasury;
+    let thirdSigner;
+    let treasuryPubkey;
+    let creator;
+    let worker1;
+    let worker2;
+    let worker3;
+    let arbiter1;
+    let unauthorized;
+    // Use unique IDs per test run to avoid conflicts with persisted state
+    let creatorAgentId;
+    let workerAgentId1;
+    let workerAgentId2;
+    let workerAgentId3;
+    let arbiterAgentId1;
+    const deriveAgentPda = (agentId) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId], program.programId)[0];
+    const deriveTaskPda = (creatorKey, taskId) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("task"), creatorKey.toBuffer(), taskId], program.programId)[0];
+    const deriveEscrowPda = (taskPda) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), taskPda.toBuffer()], program.programId)[0];
+    const deriveClaimPda = (taskPda, workerKey) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("claim"), taskPda.toBuffer(), workerKey.toBuffer()], program.programId)[0];
+    const deriveVotePda = (disputePda, arbiterPda) => web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()], program.programId)[0];
+    const deriveAuthorityVotePda = (disputePda, authority) => web3_js_1.PublicKey.findProgramAddressSync([
+        Buffer.from("authority_vote"),
+        disputePda.toBuffer(),
+        authority.toBuffer(),
+    ], program.programId)[0];
+    const airdrop = async (wallets) => {
+        for (const wallet of wallets) {
+            await provider.connection.confirmTransaction(await provider.connection.requestAirdrop(wallet.publicKey, 10 * web3_js_1.LAMPORTS_PER_SOL), "confirmed");
+        }
+    };
+    // Evidence must be at least 50 characters per initiate_dispute.rs requirements
+    const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
+    const ensureProtocol = async () => {
+        try {
+            const config = await program.account.protocolConfig.fetch(protocolPda);
+            treasuryPubkey = config.treasury;
+        }
+        catch {
+            const programDataPda = (0, test_utils_1.deriveProgramDataPda)(program.programId);
+            await program.methods
+                .initializeProtocol(51, 100, new bn_js_1.default(web3_js_1.LAMPORTS_PER_SOL / 100), new bn_js_1.default(web3_js_1.LAMPORTS_PER_SOL / 100), 2, [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey])
+                .accountsPartial({
+                protocolConfig: protocolPda,
+                treasury: treasury.publicKey,
+                authority: provider.wallet.publicKey,
+                secondSigner: treasury.publicKey,
+                systemProgram: web3_js_1.SystemProgram.programId,
+            })
+                .remainingAccounts([
+                {
+                    pubkey: (0, test_utils_1.deriveProgramDataPda)(program.programId),
+                    isSigner: false,
+                    isWritable: false,
+                },
+                {
+                    pubkey: thirdSigner.publicKey,
+                    isSigner: true,
+                    isWritable: false,
+                },
+            ])
+                .signers([treasury, thirdSigner])
+                .rpc();
+            treasuryPubkey = treasury.publicKey;
+        }
+        // Disable rate limiting for tests
+        await (0, test_utils_1.disableRateLimitsForTests)({
+            program,
+            protocolPda,
+            authority: provider.wallet.publicKey,
+            additionalSigners: [treasury],
+        });
+    };
+    const ensureAgent = async (agentId, authority, capabilities) => {
+        const agentPda = deriveAgentPda(agentId);
+        try {
+            await program.account.agentRegistration.fetch(agentPda);
+        }
+        catch {
+            await program.methods
+                .registerAgent(Array.from(agentId), new bn_js_1.default(capabilities), "https://example.com", null, new bn_js_1.default(web3_js_1.LAMPORTS_PER_SOL))
+                .accountsPartial({
+                agent: agentPda,
+                protocolConfig: protocolPda,
+                authority: authority.publicKey,
+            })
+                .signers([authority])
+                .rpc();
+        }
+        return agentPda;
+    };
+    before(async () => {
+        treasury = web3_js_1.Keypair.generate();
+        thirdSigner = web3_js_1.Keypair.generate();
+        creator = web3_js_1.Keypair.generate();
+        worker1 = web3_js_1.Keypair.generate();
+        worker2 = web3_js_1.Keypair.generate();
+        worker3 = web3_js_1.Keypair.generate();
+        arbiter1 = web3_js_1.Keypair.generate();
+        unauthorized = web3_js_1.Keypair.generate();
+        // Initialize unique IDs per test run
+        creatorAgentId = (0, test_utils_1.makeAgentId)("cre", runId);
+        workerAgentId1 = (0, test_utils_1.makeAgentId)("w1", runId);
+        workerAgentId2 = (0, test_utils_1.makeAgentId)("w2", runId);
+        workerAgentId3 = (0, test_utils_1.makeAgentId)("w3", runId);
+        arbiterAgentId1 = (0, test_utils_1.makeAgentId)("arb", runId);
+        // Increase airdrop to prevent lamport depletion
+        for (const wallet of [
+            treasury,
+            thirdSigner,
+            creator,
+            worker1,
+            worker2,
+            worker3,
+            arbiter1,
+            unauthorized,
+        ]) {
+            await provider.connection.confirmTransaction(await provider.connection.requestAirdrop(wallet.publicKey, 10 * web3_js_1.LAMPORTS_PER_SOL), "confirmed");
+        }
+        await ensureProtocol();
+        await ensureAgent(creatorAgentId, creator, test_utils_1.CAPABILITY_COMPUTE);
+        await ensureAgent(workerAgentId1, worker1, test_utils_1.CAPABILITY_COMPUTE);
+        await ensureAgent(workerAgentId2, worker2, test_utils_1.CAPABILITY_COMPUTE);
+        await ensureAgent(workerAgentId3, worker3, test_utils_1.CAPABILITY_COMPUTE);
+        await ensureAgent(arbiterAgentId1, arbiter1, test_utils_1.CAPABILITY_ARBITER);
+    });
+    // Ensure all shared agents are active before each test
+    // This prevents cascading failures when a test deactivates an agent
+    beforeEach(async () => {
+        const agentsToCheck = [
+            { id: workerAgentId1, wallet: worker1 },
+            { id: workerAgentId2, wallet: worker2 },
+            { id: workerAgentId3, wallet: worker3 },
+            { id: creatorAgentId, wallet: creator },
+        ];
+        for (const agent of agentsToCheck) {
+            try {
+                const agentPda = deriveAgentPda(agent.id);
+                const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+                // If agent is inactive, reactivate it
+                if (agentAccount.status && "inactive" in agentAccount.status) {
+                    await program.methods
+                        .updateAgent(null, null, null, 1) // 1 = Active
+                        .accountsPartial({
+                        agent: agentPda,
+                        authority: agent.wallet.publicKey,
+                    })
+                        .signers([agent.wallet])
+                        .rpc();
+                }
+            }
+            catch (e) {
+                // Agent may not exist yet or other error - skip
+            }
+        }
+    });
+    it("rejects task creation without agent registration (issue #63)", async () => {
+        const nonAgent = web3_js_1.Keypair.generate();
+        await airdrop([nonAgent]);
+        const nonAgentId = Buffer.from("no-agent-audit-00000000001".padEnd(32, "\0"));
+        const taskId = Buffer.from("task-noagent-audit-000001".padEnd(32, "\0"));
+        const taskPda = deriveTaskPda(nonAgent.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+        const nonAgentPda = deriveAgentPda(nonAgentId);
+        try {
+            await program.methods
+                .createTask(Array.from(taskId), new bn_js_1.default(test_utils_1.CAPABILITY_COMPUTE), Buffer.from("No agent task".padEnd(64, "\0")), new bn_js_1.default(10), 1, new bn_js_1.default(Math.floor(Date.now() / 1000) + 3600), test_utils_1.TASK_TYPE_COMPETITIVE, null, // constraint_hash
+            0, // min_reputation
+            null)
+                .accountsPartial({
+                task: taskPda,
+                escrow: escrowPda,
+                protocolConfig: protocolPda,
+                creatorAgent: nonAgentPda,
+                authority: nonAgent.publicKey,
+                creator: nonAgent.publicKey,
+                systemProgram: web3_js_1.SystemProgram.programId,
+                rewardMint: null,
+                creatorTokenAccount: null,
+                tokenEscrowAta: null,
+                tokenProgram: null,
+                associatedTokenProgram: null,
+            })
+                .signers([nonAgent])
+                .rpc();
+            chai_1.expect.fail("Should have failed - no agent registration");
+        }
+        catch (e) {
+            // Verify error occurred - Anchor returns AnchorError with errorCode
+            const anchorError = e;
+            (0, chai_1.expect)(anchorError.error?.errorCode?.code || anchorError.message).to
+                .exist;
+        }
+    });
+    it("pays remainder to last collaborative worker (issue #64)", async () => {
+        const creatorAgentPda = deriveAgentPda(creatorAgentId);
+        const taskId = Buffer.from("task-remainder-audit-01".padEnd(32, "\0"));
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+        await program.methods
+            .createTask(Array.from(taskId), new bn_js_1.default(test_utils_1.CAPABILITY_COMPUTE), Buffer.from("Remainder task".padEnd(64, "\0")), new bn_js_1.default(10), 3, new bn_js_1.default(Math.floor(Date.now() / 1000) + 3600), test_utils_1.TASK_TYPE_COLLABORATIVE, null, // constraint_hash
+        0, // min_reputation
+        null)
+            .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+        })
+            .signers([creator])
+            .rpc();
+        const workerPda1 = deriveAgentPda(workerAgentId1);
+        const workerPda2 = deriveAgentPda(workerAgentId2);
+        const workerPda3 = deriveAgentPda(workerAgentId3);
+        const claimPda1 = deriveClaimPda(taskPda, workerPda1);
+        const claimPda2 = deriveClaimPda(taskPda, workerPda2);
+        const claimPda3 = deriveClaimPda(taskPda, workerPda3);
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            protocolConfig: protocolPda,
+            worker: workerPda1,
+            authority: worker1.publicKey,
+        })
+            .signers([worker1])
+            .rpc();
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            protocolConfig: protocolPda,
+            worker: workerPda2,
+            authority: worker2.publicKey,
+        })
+            .signers([worker2])
+            .rpc();
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            protocolConfig: protocolPda,
+            worker: workerPda3,
+            authority: worker3.publicKey,
+        })
+            .signers([worker3])
+            .rpc();
+        const proofHash1 = Buffer.from("proof-remainder-000000000001".padEnd(32, "\0"));
+        const proofHash2 = Buffer.from("proof-remainder-000000000002".padEnd(32, "\0"));
+        const proofHash3 = Buffer.from("proof-remainder-000000000003".padEnd(32, "\0"));
+        const w1Before = await provider.connection.getBalance(worker1.publicKey);
+        const w2Before = await provider.connection.getBalance(worker2.publicKey);
+        const w3Before = await provider.connection.getBalance(worker3.publicKey);
+        await program.methods
+            .completeTask(Array.from(proofHash1), null)
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            worker: workerPda1,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker1.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+        })
+            .signers([worker1])
+            .rpc();
+        await program.methods
+            .completeTask(Array.from(proofHash2), null)
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            worker: workerPda2,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker2.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+        })
+            .signers([worker2])
+            .rpc();
+        await program.methods
+            .completeTask(Array.from(proofHash3), null)
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda3,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            worker: workerPda3,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker3.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+        })
+            .signers([worker3])
+            .rpc();
+        const w1After = await provider.connection.getBalance(worker1.publicKey);
+        const w2After = await provider.connection.getBalance(worker2.publicKey);
+        const w3After = await provider.connection.getBalance(worker3.publicKey);
+        const w1Delta = w1After - w1Before;
+        const w2Delta = w2After - w2Before;
+        const w3Delta = w3After - w3Before;
+        (0, chai_1.expect)(w1Delta).to.be.greaterThan(0);
+        (0, chai_1.expect)(w2Delta).to.be.greaterThan(0);
+        (0, chai_1.expect)(w3Delta).to.be.greaterThan(0);
+        (0, chai_1.expect)(w3Delta).to.be.greaterThanOrEqual(w1Delta - 10000);
+        (0, chai_1.expect)(w3Delta).to.be.greaterThanOrEqual(w2Delta - 10000);
+    });
+    it("rejects unauthorized dispute resolution (issue #65)", async () => {
+        const creatorAgentPda = deriveAgentPda(creatorAgentId);
+        const workerPda1 = deriveAgentPda(workerAgentId1);
+        const arbiterPda1 = deriveAgentPda(arbiterAgentId1);
+        const taskId = Buffer.from("task-unauth-resolve-01".padEnd(32, "\0"));
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+        const claimPda = deriveClaimPda(taskPda, workerPda1);
+        await program.methods
+            .createTask(Array.from(taskId), new bn_js_1.default(test_utils_1.CAPABILITY_COMPUTE), Buffer.from("Dispute auth test".padEnd(64, "\0")), new bn_js_1.default(5), 1, new bn_js_1.default(Math.floor(Date.now() / 1000) + 3600), test_utils_1.TASK_TYPE_COMPETITIVE, null, // constraint_hash
+        0, // min_reputation
+        null)
+            .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+        })
+            .signers([creator])
+            .rpc();
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            protocolConfig: protocolPda,
+            worker: workerPda1,
+            authority: worker1.publicKey,
+        })
+            .signers([worker1])
+            .rpc();
+        const disputeId = (0, test_utils_1.makeDisputeId)("dispute-unauth", runId);
+        const [disputePda] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("dispute"), disputeId], program.programId);
+        await program.methods
+            .initiateDispute(Array.from(disputeId), Array.from(taskId), Array.from(Buffer.from("evidence".padEnd(32, "\0"))), test_utils_1.RESOLUTION_TYPE_REFUND, VALID_EVIDENCE)
+            .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: workerPda1,
+            protocolConfig: protocolPda,
+            initiatorClaim: claimPda,
+            workerAgent: workerPda1,
+            workerClaim: claimPda,
+            authority: worker1.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .signers([worker1])
+            .rpc();
+        const votePda = deriveVotePda(disputePda, arbiterPda1);
+        const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiter1.publicKey);
+        await program.methods
+            .voteDispute(true)
+            .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            workerClaim: claimPda,
+            defendantAgent: workerPda1,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiterPda1,
+            protocolConfig: protocolPda,
+            authority: arbiter1.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .signers([arbiter1])
+            .rpc();
+        try {
+            await program.methods
+                .resolveDispute()
+                .accountsPartial({
+                dispute: disputePda,
+                task: taskPda,
+                escrow: escrowPda,
+                protocolConfig: protocolPda,
+                resolver: unauthorized.publicKey,
+                creator: creator.publicKey,
+                workerClaim: claimPda,
+                worker: deriveAgentPda(workerAgentId1),
+                workerAuthority: worker1.publicKey,
+                systemProgram: web3_js_1.SystemProgram.programId,
+                tokenEscrowAta: null,
+                creatorTokenAccount: null,
+                workerTokenAccountAta: null,
+                treasuryTokenAccount: null,
+                rewardMint: null,
+                tokenProgram: null,
+            })
+                .remainingAccounts([
+                { pubkey: votePda, isSigner: false, isWritable: false },
+                { pubkey: arbiterPda1, isSigner: false, isWritable: true },
+            ])
+                .signers([unauthorized])
+                .rpc();
+            chai_1.expect.fail("Should have failed - unauthorized resolver");
+        }
+        catch (e) {
+            // Verify error occurred - Anchor returns AnchorError with errorCode
+            const anchorError = e;
+            (0, chai_1.expect)(anchorError.error?.errorCode?.code || anchorError.message).to
+                .exist;
+        }
+    });
+    it("rejects second competitive completion (issue #66)", async () => {
+        const creatorAgentPda = deriveAgentPda(creatorAgentId);
+        const workerPda1 = deriveAgentPda(workerAgentId1);
+        const workerPda2 = deriveAgentPda(workerAgentId2);
+        const taskId = Buffer.from("task-competitive-audit01".padEnd(32, "\0"));
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+        await program.methods
+            .createTask(Array.from(taskId), new bn_js_1.default(test_utils_1.CAPABILITY_COMPUTE), Buffer.from("Competitive audit".padEnd(64, "\0")), new bn_js_1.default(9), 2, new bn_js_1.default(Math.floor(Date.now() / 1000) + 3600), test_utils_1.TASK_TYPE_COMPETITIVE, null, // constraint_hash
+        0, // min_reputation
+        null)
+            .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+        })
+            .signers([creator])
+            .rpc();
+        const claimPda1 = deriveClaimPda(taskPda, workerPda1);
+        const claimPda2 = deriveClaimPda(taskPda, workerPda2);
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            protocolConfig: protocolPda,
+            worker: workerPda1,
+            authority: worker1.publicKey,
+        })
+            .signers([worker1])
+            .rpc();
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda2,
+            protocolConfig: protocolPda,
+            worker: workerPda2,
+            authority: worker2.publicKey,
+        })
+            .signers([worker2])
+            .rpc();
+        const proofHash1 = Buffer.from("proof-competitive-000000001".padEnd(32, "\0"));
+        const proofHash2 = Buffer.from("proof-competitive-000000002".padEnd(32, "\0"));
+        await program.methods
+            .completeTask(Array.from(proofHash1), null)
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda1,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            worker: workerPda1,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+            authority: worker1.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+        })
+            .signers([worker1])
+            .rpc();
+        try {
+            await program.methods
+                .completeTask(Array.from(proofHash2), null)
+                .accountsPartial({
+                task: taskPda,
+                claim: claimPda2,
+                escrow: escrowPda,
+                creator: creator.publicKey,
+                worker: workerPda2,
+                protocolConfig: protocolPda,
+                treasury: treasuryPubkey,
+                authority: worker2.publicKey,
+                systemProgram: web3_js_1.SystemProgram.programId,
+                tokenEscrowAta: null,
+                workerTokenAccount: null,
+                treasuryTokenAccount: null,
+                rewardMint: null,
+                tokenProgram: null,
+            })
+                .signers([worker2])
+                .rpc();
+            chai_1.expect.fail("Should have failed - second competitive completion");
+        }
+        catch (e) {
+            // Verify error occurred - Anchor returns AnchorError with errorCode
+            const anchorError = e;
+            (0, chai_1.expect)(anchorError.error?.errorCode?.code || anchorError.message).to
+                .exist;
+        }
+    });
+    it("blocks arbiter deregistration right after voting (issue #67)", async () => {
+        const creatorAgentPda = deriveAgentPda(creatorAgentId);
+        const workerPda1 = deriveAgentPda(workerAgentId1);
+        const arbiterPda1 = deriveAgentPda(arbiterAgentId1);
+        const taskId = Buffer.from("task-dispute-audit-01".padEnd(32, "\0"));
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+        const claimPda = deriveClaimPda(taskPda, workerPda1);
+        await program.methods
+            .createTask(Array.from(taskId), new bn_js_1.default(test_utils_1.CAPABILITY_COMPUTE), Buffer.from("Dispute vote test".padEnd(64, "\0")), new bn_js_1.default(7), 1, new bn_js_1.default(Math.floor(Date.now() / 1000) + 3600), test_utils_1.TASK_TYPE_COMPETITIVE, null, // constraint_hash
+        0, // min_reputation
+        null)
+            .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+        })
+            .signers([creator])
+            .rpc();
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            protocolConfig: protocolPda,
+            worker: workerPda1,
+            authority: worker1.publicKey,
+        })
+            .signers([worker1])
+            .rpc();
+        const disputeId = (0, test_utils_1.makeDisputeId)("dispute-deregister", runId);
+        const [disputePda] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("dispute"), disputeId], program.programId);
+        await program.methods
+            .initiateDispute(Array.from(disputeId), Array.from(taskId), Array.from(Buffer.from("evidence".padEnd(32, "\0"))), test_utils_1.RESOLUTION_TYPE_REFUND, VALID_EVIDENCE)
+            .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            agent: workerPda1,
+            protocolConfig: protocolPda,
+            initiatorClaim: claimPda,
+            workerAgent: workerPda1,
+            workerClaim: claimPda,
+            authority: worker1.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .signers([worker1])
+            .rpc();
+        const votePda = deriveVotePda(disputePda, arbiterPda1);
+        const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiter1.publicKey);
+        await program.methods
+            .voteDispute(true)
+            .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            workerClaim: claimPda,
+            defendantAgent: workerPda1,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiterPda1,
+            protocolConfig: protocolPda,
+            authority: arbiter1.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .signers([arbiter1])
+            .rpc();
+        const dispute = await program.account.dispute.fetch(disputePda);
+        const now = Math.floor(Date.now() / 1000);
+        const waitMs = Math.max(0, (dispute.votingDeadline.toNumber() - now + 1) * 1000);
+        if (waitMs > 30000) {
+            // Keep local test runs deterministic and avoid multi-minute waits.
+            return;
+        }
+        if (waitMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+        await program.methods
+            .resolveDispute()
+            .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            resolver: provider.wallet.publicKey,
+            creator: creator.publicKey,
+            workerClaim: null,
+            worker: null,
+            workerAuthority: null,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            workerTokenAccountAta: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
+        })
+            .remainingAccounts([
+            { pubkey: votePda, isSigner: false, isWritable: false },
+            { pubkey: arbiterPda1, isSigner: false, isWritable: true },
+        ])
+            .rpc();
+        try {
+            await program.methods
+                .deregisterAgent()
+                .accountsPartial({
+                agent: arbiterPda1,
+                protocolConfig: protocolPda,
+                authority: arbiter1.publicKey,
+            })
+                .signers([arbiter1])
+                .rpc();
+            chai_1.expect.fail("Should have failed - arbiter has pending dispute");
+        }
+        catch (e) {
+            // Verify error occurred - Anchor returns AnchorError with errorCode
+            const anchorError = e;
+            (0, chai_1.expect)(anchorError.error?.errorCode?.code || anchorError.message).to
+                .exist;
+        }
+    });
+    it("prevents suspended agent from bypassing suspension via update_agent (issue #151)", async () => {
+        // Create an agent owned by protocol authority (so it can be suspended)
+        const suspendTestAgentId = (0, test_utils_1.makeAgentId)("susp", runId);
+        const suspendTestAgentPda = deriveAgentPda(suspendTestAgentId);
+        // Register agent with protocol authority as owner
+        await program.methods
+            .registerAgent(Array.from(suspendTestAgentId), new bn_js_1.default(test_utils_1.CAPABILITY_COMPUTE), "https://example.com", null, new bn_js_1.default(web3_js_1.LAMPORTS_PER_SOL))
+            .accountsPartial({
+            agent: suspendTestAgentPda,
+            protocolConfig: protocolPda,
+            authority: provider.wallet.publicKey,
+        })
+            .rpc();
+        // Verify agent is active
+        let agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
+        (0, chai_1.expect)("active" in agentAccount.status).to.be.true;
+        // Suspend the agent via dedicated instruction (fix #819)
+        await program.methods
+            .suspendAgent()
+            .accountsPartial({
+            agent: suspendTestAgentPda,
+            protocolConfig: protocolPda,
+            authority: provider.wallet.publicKey,
+        })
+            .rpc();
+        // Verify agent is now suspended
+        agentAccount =
+            await program.account.agentRegistration.fetch(suspendTestAgentPda);
+        (0, chai_1.expect)("suspended" in agentAccount.status).to.be.true;
+        // Try to bypass suspension by setting status to Active (should fail)
+        try {
+            await program.methods
+                .updateAgent(null, null, null, 1) // 1 = Active
+                .accountsPartial({
+                agent: suspendTestAgentPda,
+                authority: provider.wallet.publicKey,
+            })
+                .rpc();
+            chai_1.expect.fail("Should have failed - suspended agent cannot change own status to Active");
+        }
+        catch (e) {
+            const anchorError = e;
+            (0, chai_1.expect)(["AgentSuspended", "UpdateTooFrequent"]).to.include(anchorError.error?.errorCode?.code);
+        }
+        // Also try Inactive (0) - should fail
+        try {
+            await program.methods
+                .updateAgent(null, null, null, 0) // 0 = Inactive
+                .accountsPartial({
+                agent: suspendTestAgentPda,
+                authority: provider.wallet.publicKey,
+            })
+                .rpc();
+            chai_1.expect.fail("Should have failed - suspended agent cannot change own status to Inactive");
+        }
+        catch (e) {
+            const anchorError = e;
+            (0, chai_1.expect)(["AgentSuspended", "UpdateTooFrequent"]).to.include(anchorError.error?.errorCode?.code);
+        }
+        // Also try Busy (2) - should fail
+        try {
+            await program.methods
+                .updateAgent(null, null, null, 2) // 2 = Busy
+                .accountsPartial({
+                agent: suspendTestAgentPda,
+                authority: provider.wallet.publicKey,
+            })
+                .rpc();
+            chai_1.expect.fail("Should have failed - suspended agent cannot change own status to Busy");
+        }
+        catch (e) {
+            const anchorError = e;
+            (0, chai_1.expect)(["AgentSuspended", "UpdateTooFrequent"]).to.include(anchorError.error?.errorCode?.code);
+        }
+        // Verify agent is still suspended after all attempts
+        agentAccount =
+            await program.account.agentRegistration.fetch(suspendTestAgentPda);
+        (0, chai_1.expect)("suspended" in agentAccount.status).to.be.true;
+    });
+    it("rejects dispute initiation from non-participant (issue #294)", async () => {
+        const creatorAgentPda = deriveAgentPda(creatorAgentId);
+        const workerPda1 = deriveAgentPda(workerAgentId1);
+        // Create a task
+        const taskId = (0, test_utils_1.makeTaskId)("task-294", runId);
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const claimPda = deriveClaimPda(taskPda, workerPda1);
+        await program.methods
+            .createTask(Array.from(taskId), new bn_js_1.default(test_utils_1.CAPABILITY_COMPUTE), Buffer.from("Dispute auth test 294".padEnd(64, "\0")), new bn_js_1.default(5), 1, new bn_js_1.default(Math.floor(Date.now() / 1000) + 3600), test_utils_1.TASK_TYPE_COMPETITIVE, null, 0, // min_reputation
+        null)
+            .accountsPartial({
+            task: taskPda,
+            escrow: deriveEscrowPda(taskPda),
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
+        })
+            .signers([creator])
+            .rpc();
+        // Worker1 claims the task
+        await program.methods
+            .claimTask()
+            .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            protocolConfig: protocolPda,
+            worker: workerPda1,
+            authority: worker1.publicKey,
+        })
+            .signers([worker1])
+            .rpc();
+        // Create an unauthorized agent (worker2 has no claim on this task)
+        const unauthorizedAgentPda = deriveAgentPda(workerAgentId2);
+        const disputeId = (0, test_utils_1.makeDisputeId)("disp-294", runId);
+        const [disputePda] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("dispute"), disputeId], program.programId);
+        // Attempt to initiate dispute as non-participant (should fail)
+        try {
+            await program.methods
+                .initiateDispute(Array.from(disputeId), Array.from(taskId), Array.from(Buffer.from("evidence".padEnd(32, "\0"))), test_utils_1.RESOLUTION_TYPE_REFUND, VALID_EVIDENCE)
+                .accountsPartial({
+                dispute: disputePda,
+                task: taskPda,
+                agent: unauthorizedAgentPda,
+                protocolConfig: protocolPda,
+                initiatorClaim: null,
+                workerAgent: null,
+                workerClaim: null,
+                authority: worker2.publicKey,
+                systemProgram: web3_js_1.SystemProgram.programId,
+            })
+                .signers([worker2])
+                .rpc();
+            chai_1.expect.fail("Should have failed - non-participant cannot initiate dispute");
+        }
+        catch (e) {
+            const anchorError = e;
+            (0, chai_1.expect)(anchorError.error?.errorCode?.code).to.equal("NotTaskParticipant");
+        }
+    });
+});

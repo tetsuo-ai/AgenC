@@ -60,6 +60,13 @@ pub const RECOMMENDED_CU_VOTE_DISPUTE: u32 = 30_000;
 /// Resolve dispute: vote counting + reward transfer + state updates (~45k measured)
 pub const RECOMMENDED_CU_RESOLVE_DISPUTE: u32 = 60_000;
 
+// Compile-time ordering invariants for recommended CU budgets.
+const _: () = {
+    assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_COMPLETE_TASK);
+    assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_CREATE_TASK);
+    assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_RESOLVE_DISPUTE);
+};
+
 // ============================================================================
 // Fee Tier Structure
 // ============================================================================
@@ -224,14 +231,6 @@ mod tests {
         assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE <= max_cu);
         assert!(RECOMMENDED_CU_INITIATE_DISPUTE <= max_cu);
         assert!(RECOMMENDED_CU_RESOLVE_DISPUTE <= max_cu);
-    }
-
-    #[test]
-    fn test_zk_budget_highest() {
-        // ZK verification should have the highest CU budget
-        assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_COMPLETE_TASK);
-        assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_CREATE_TASK);
-        assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_RESOLVE_DISPUTE);
     }
 
     #[test]
