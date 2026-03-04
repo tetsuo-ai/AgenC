@@ -6,11 +6,20 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EscrowInvariantResult {
     Valid,
-    DistributedExceedsAmount { distributed: u64, amount: u64 },
-    BalanceConservationViolation { expected: u64, actual: u64 },
+    DistributedExceedsAmount {
+        distributed: u64,
+        amount: u64,
+    },
+    BalanceConservationViolation {
+        expected: u64,
+        actual: u64,
+    },
     ClosedEscrowModified,
     /// E2: Monotonic distribution violation - distributed decreased
-    MonotonicityViolation { old_distributed: u64, new_distributed: u64 },
+    MonotonicityViolation {
+        old_distributed: u64,
+        new_distributed: u64,
+    },
 }
 
 /// Task state machine invariant results
@@ -63,7 +72,10 @@ pub enum AuthorityInvariantResult {
 /// `TaskEscrow.distributed <= TaskEscrow.amount` must always hold.
 pub fn check_escrow_distribution_bounded(distributed: u64, amount: u64) -> EscrowInvariantResult {
     if distributed > amount {
-        EscrowInvariantResult::DistributedExceedsAmount { distributed, amount }
+        EscrowInvariantResult::DistributedExceedsAmount {
+            distributed,
+            amount,
+        }
     } else {
         EscrowInvariantResult::Valid
     }
@@ -80,7 +92,10 @@ pub fn check_escrow_balance_conservation(
     let expected_remaining = match amount.checked_sub(distributed) {
         Some(r) => r,
         None => {
-            return EscrowInvariantResult::DistributedExceedsAmount { distributed, amount };
+            return EscrowInvariantResult::DistributedExceedsAmount {
+                distributed,
+                amount,
+            };
         }
     };
     if remaining_lamports != expected_remaining {
@@ -338,12 +353,15 @@ pub fn check_dispute_threshold(
             // Overflow in vote counting - this is a serious invariant violation
             return DisputeInvariantResult::InsufficientVotes {
                 total: u8::MAX,
-                required: 1
+                required: 1,
             };
         }
     };
     if total == 0 {
-        return DisputeInvariantResult::InsufficientVotes { total: 0, required: 1 };
+        return DisputeInvariantResult::InsufficientVotes {
+            total: 0,
+            required: 1,
+        };
     }
 
     let approval_pct = (votes_for as u64)
@@ -401,14 +419,17 @@ pub struct ArithmeticCheck {
 
 impl ArithmeticCheck {
     pub fn new() -> Self {
-        Self { overflows: Vec::new() }
+        Self {
+            overflows: Vec::new(),
+        }
     }
 
     pub fn check_add(&mut self, name: &str, a: u64, b: u64) -> Option<u64> {
         match a.checked_add(b) {
             Some(result) => Some(result),
             None => {
-                self.overflows.push(format!("{}: {} + {} overflows", name, a, b));
+                self.overflows
+                    .push(format!("{}: {} + {} overflows", name, a, b));
                 None
             }
         }
@@ -418,7 +439,8 @@ impl ArithmeticCheck {
         match a.checked_sub(b) {
             Some(result) => Some(result),
             None => {
-                self.overflows.push(format!("{}: {} - {} underflows", name, a, b));
+                self.overflows
+                    .push(format!("{}: {} - {} underflows", name, a, b));
                 None
             }
         }
@@ -428,7 +450,8 @@ impl ArithmeticCheck {
         match a.checked_mul(b) {
             Some(result) => Some(result),
             None => {
-                self.overflows.push(format!("{}: {} * {} overflows", name, a, b));
+                self.overflows
+                    .push(format!("{}: {} * {} overflows", name, a, b));
                 None
             }
         }
@@ -436,7 +459,8 @@ impl ArithmeticCheck {
 
     pub fn check_div(&mut self, name: &str, a: u64, b: u64) -> Option<u64> {
         if b == 0 {
-            self.overflows.push(format!("{}: {} / 0 division by zero", name, a));
+            self.overflows
+                .push(format!("{}: {} / 0 division by zero", name, a));
             None
         } else {
             a.checked_div(b)
@@ -500,8 +524,14 @@ mod tests {
     #[test]
     fn test_reputation_bounds() {
         assert_eq!(check_reputation_bounds(0), ReputationInvariantResult::Valid);
-        assert_eq!(check_reputation_bounds(5000), ReputationInvariantResult::Valid);
-        assert_eq!(check_reputation_bounds(10000), ReputationInvariantResult::Valid);
+        assert_eq!(
+            check_reputation_bounds(5000),
+            ReputationInvariantResult::Valid
+        );
+        assert_eq!(
+            check_reputation_bounds(10000),
+            ReputationInvariantResult::Valid
+        );
         assert!(matches!(
             check_reputation_bounds(10001),
             ReputationInvariantResult::OutOfBounds { .. }

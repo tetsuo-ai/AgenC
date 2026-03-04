@@ -202,21 +202,22 @@ pub fn complete_task_private(
     settle_private_completion(&mut ctx, &decoded_proof, &clock)
 }
 
+#[inline(never)]
 fn settle_private_completion(
     ctx: &mut Context<CompleteTaskPrivate>,
     decoded_proof: &DecodedPrivateProof,
     clock: &Clock,
 ) -> Result<()> {
     record_private_spends(
-        &mut ctx.accounts,
+        ctx.accounts,
         &decoded_proof.parsed_journal,
         clock,
         ctx.bumps.binding_spend,
         ctx.bumps.nullifier_spend,
     );
-    let token_accounts = build_token_payment_accounts(&ctx.accounts)?;
+    let token_accounts = build_token_payment_accounts(ctx.accounts)?;
     finalize_private_completion(
-        &mut ctx.accounts,
+        ctx.accounts,
         decoded_proof.parsed_journal.output_commitment,
         clock,
         token_accounts,
@@ -260,6 +261,7 @@ struct DecodedPrivateProof {
     journal_digest: [u8; HASH_SIZE],
 }
 
+#[inline(never)]
 fn verify_private_completion_stage(
     ctx: &Context<CompleteTaskPrivate>,
     task_key: &Pubkey,
@@ -281,10 +283,11 @@ fn verify_private_completion_stage(
         &decoded_proof.parsed_journal,
         clock,
     )?;
-    invoke_router_verification(&ctx.accounts, proof, &decoded_proof)?;
+    invoke_router_verification(ctx.accounts, proof, &decoded_proof)?;
     Ok(decoded_proof)
 }
 
+#[inline(never)]
 fn decode_private_completion_payload(
     proof: &PrivateCompletionPayload,
 ) -> Result<DecodedPrivateProof> {
@@ -309,6 +312,7 @@ fn decode_private_completion_payload(
     })
 }
 
+#[inline(never)]
 fn validate_completion_inputs<'info>(
     task: &Task,
     task_key: &Pubkey,
@@ -384,6 +388,7 @@ fn validate_parsed_journal(
     Ok(())
 }
 
+#[inline(never)]
 fn invoke_router_verification<'info>(
     accounts: &CompleteTaskPrivate<'info>,
     proof: &PrivateCompletionPayload,
@@ -515,6 +520,7 @@ fn record_private_spends<'info>(
     nullifier_spend.bump = nullifier_spend_bump;
 }
 
+#[inline(never)]
 fn finalize_private_completion<'info>(
     accounts: &mut CompleteTaskPrivate<'info>,
     output_commitment: [u8; HASH_SIZE],
@@ -548,6 +554,7 @@ fn finalize_private_completion<'info>(
     )
 }
 
+#[inline(never)]
 fn build_token_payment_accounts<'info>(
     accounts: &CompleteTaskPrivate<'info>,
 ) -> Result<Option<TokenPaymentAccounts<'info>>> {
@@ -556,30 +563,24 @@ fn build_token_payment_accounts<'info>(
         return Ok(None);
     }
 
-    let (mint, token_escrow, worker_token_account, treasury_ta, token_program, expected_mint) =
-        extract_required_token_accounts(accounts)?;
-    let token_payment_accounts = build_validated_token_payment_accounts(
-        accounts,
-        mint,
-        token_escrow,
-        worker_token_account,
-        treasury_ta,
-        token_program,
-        expected_mint,
-    )?;
+    let required_accounts = extract_required_token_accounts(accounts)?;
+    let token_payment_accounts =
+        build_validated_token_payment_accounts(accounts, required_accounts)?;
     Ok(Some(token_payment_accounts))
+}
+
+struct RequiredTokenAccounts<'a, 'info> {
+    mint: &'a Account<'info, Mint>,
+    token_escrow: &'a Account<'info, TokenAccount>,
+    worker_token_account: &'a UncheckedAccount<'info>,
+    treasury_ta: &'a Account<'info, TokenAccount>,
+    token_program: &'a Program<'info, Token>,
+    expected_mint: Pubkey,
 }
 
 fn extract_required_token_accounts<'a, 'info>(
     accounts: &'a CompleteTaskPrivate<'info>,
-) -> Result<(
-    &'a Account<'info, Mint>,
-    &'a Account<'info, TokenAccount>,
-    &'a UncheckedAccount<'info>,
-    &'a Account<'info, TokenAccount>,
-    &'a Program<'info, Token>,
-    Pubkey,
-)> {
+) -> Result<RequiredTokenAccounts<'a, 'info>> {
     let mint = accounts
         .reward_mint
         .as_ref()
@@ -605,25 +606,29 @@ fn extract_required_token_accounts<'a, 'info>(
         .reward_mint
         .ok_or(CoordinationError::InvalidTokenMint)?;
 
-    Ok((
+    Ok(RequiredTokenAccounts {
         mint,
         token_escrow,
         worker_token_account,
         treasury_ta,
         token_program,
         expected_mint,
-    ))
+    })
 }
 
 fn build_validated_token_payment_accounts<'a, 'info>(
     accounts: &'a CompleteTaskPrivate<'info>,
-    mint: &'a Account<'info, Mint>,
-    token_escrow: &'a Account<'info, TokenAccount>,
-    worker_token_account: &'a UncheckedAccount<'info>,
-    treasury_ta: &'a Account<'info, TokenAccount>,
-    token_program: &'a Program<'info, Token>,
-    expected_mint: Pubkey,
+    required_accounts: RequiredTokenAccounts<'a, 'info>,
 ) -> Result<TokenPaymentAccounts<'info>> {
+    let RequiredTokenAccounts {
+        mint,
+        token_escrow,
+        worker_token_account,
+        treasury_ta,
+        token_program,
+        expected_mint,
+    } = required_accounts;
+
     require!(
         mint.key() == expected_mint,
         CoordinationError::InvalidTokenMint

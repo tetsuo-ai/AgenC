@@ -76,7 +76,7 @@ proptest! {
             min_arbiter_stake: seq.min_arbiter_stake,
         };
 
-        let init_result = simulate_initiate_dispute(&mut task, &mut dispute);
+        let init_result = simulate_dispute_open(&mut task, &mut dispute);
         prop_assert!(!init_result.is_invariant_violation(),
             "Invariant violation on dispute init: {:?}\nSeq: {:?}", init_result, seq);
 
@@ -186,4 +186,3 @@ proptest! {
         }
     }
 }
-

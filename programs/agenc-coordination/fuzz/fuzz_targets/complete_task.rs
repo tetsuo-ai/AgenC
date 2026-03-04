@@ -283,7 +283,8 @@ mod edge_cases {
 
         let config = SimulatedConfig::default();
 
-        let result = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
         assert!(result.is_success());
         assert_eq!(escrow.distributed, 0);
     }
@@ -315,7 +316,8 @@ mod edge_cases {
             ..Default::default()
         };
 
-        let result = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
         // Should succeed but worker gets 0
         assert!(result.is_success());
     }
@@ -345,12 +347,14 @@ mod edge_cases {
         let config = SimulatedConfig::default();
 
         // First completion
-        let result1 = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result1 =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
         assert!(result1.is_success());
         assert_eq!(task.status, task_status::COMPLETED);
 
         // Second completion should fail
-        let result2 = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result2 =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
         assert!(result2.is_error());
     }
 
@@ -378,7 +382,8 @@ mod edge_cases {
 
         let config = SimulatedConfig::default();
 
-        let result = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
         assert!(result.is_error());
     }
 }
