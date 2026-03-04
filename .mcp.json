@@ -3,6 +3,34 @@
     "agenc-docs": {
       "command": "node",
       "args": ["docs-mcp/dist/index.cjs"]
+    },
+    "solana-fender": {
+      "command": "/home/tetsuo/.cargo/bin/anchor-mcp",
+      "args": ["--mcp"],
+      "env": {
+        "ANCHOR_PROVIDER_URL": "https://api.devnet.solana.com",
+        "ANCHOR_WALLET": "/home/tetsuo/.config/solana/id.json"
+      }
+    },
+    "knip": {
+      "command": "npx",
+      "args": ["@genar/knip-mcp-server"],
+      "env": {
+        "KNIP_PROJECT_ROOT": ".",
+        "KNIP_SAFE_MODE": "true"
+      }
+    },
+    "ast-grep": {
+      "command": "node",
+      "args": ["/home/tetsuo/.local/share/mcp-ast-grep/dist/index.js"]
+    },
+    "codebase-memory": {
+      "command": "/home/tetsuo/.local/bin/codebase-memory-mcp",
+      "args": []
+    },
+    "codebase-index": {
+      "command": "/home/tetsuo/.local/pipx-venvs/mcp-codebase-index/bin/mcp-codebase-index",
+      "args": ["--root", "."]
     }
   }
 }

@@ -83,7 +83,9 @@ fn run_claim_task_fuzz(iterations: usize) -> (usize, usize) {
             reward_amount: input.task_reward,
             max_workers: input.task_max_workers.max(1),
             // Using saturating_sub intentionally - safe boundary calculation for tests
-            current_workers: input.task_current_workers.min(input.task_max_workers.saturating_sub(1)),
+            current_workers: input
+                .task_current_workers
+                .min(input.task_max_workers.saturating_sub(1)),
             required_capabilities: input.task_required_capabilities,
             deadline: input.task_deadline,
             completions: 0,
@@ -147,7 +149,9 @@ fn run_complete_task_fuzz(iterations: usize) -> (usize, usize) {
         let mut escrow = SimulatedEscrow {
             amount: escrow_amount,
             // Using saturating_sub intentionally - safe boundary calculation for tests
-            distributed: input.escrow_distributed.min(escrow_amount.saturating_sub(input.task_reward)),
+            distributed: input
+                .escrow_distributed
+                .min(escrow_amount.saturating_sub(input.task_reward)),
             is_closed: false,
         };
 
@@ -205,7 +209,9 @@ fn run_vote_dispute_fuzz(iterations: usize) -> (usize, usize) {
             resolution_type: 0,
             votes_for: input.current_votes_for,
             votes_against: input.current_votes_against,
-            total_voters: input.current_votes_for.saturating_add(input.current_votes_against),
+            total_voters: input
+                .current_votes_for
+                .saturating_add(input.current_votes_against),
             voting_deadline: input.voting_deadline,
         };
 
@@ -233,13 +239,8 @@ fn run_vote_dispute_fuzz(iterations: usize) -> (usize, usize) {
             input.voting_deadline.saturating_sub(1)
         };
 
-        let result = simulate_vote_dispute(
-            &mut dispute,
-            &arbiter,
-            &config,
-            input.approve,
-            current_time,
-        );
+        let result =
+            simulate_vote_dispute(&mut dispute, &arbiter, &config, input.approve, current_time);
 
         if result.is_invariant_violation() {
             println!("  [FAIL] Iteration {}: {:?}", i, result);
@@ -306,13 +307,8 @@ fn run_resolve_dispute_fuzz(iterations: usize) -> (usize, usize) {
         // Use timestamp after deadline
         let current_time = input.voting_deadline.saturating_add(1);
 
-        let result = simulate_resolve_dispute(
-            &mut dispute,
-            &mut task,
-            &mut escrow,
-            &config,
-            current_time,
-        );
+        let result =
+            simulate_resolve_dispute(&mut dispute, &mut task, &mut escrow, &config, current_time);
 
         if result.is_invariant_violation() {
             println!("  [FAIL] Iteration {}: {:?}", i, result);
@@ -353,7 +349,8 @@ fn run_edge_case_tests() -> (usize, usize) {
 
         let config = SimulatedConfig::default();
 
-        let result = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
 
         if result.is_invariant_violation() {
             println!("  [FAIL] u64::MAX reward: {:?}", result);
@@ -386,7 +383,8 @@ fn run_edge_case_tests() -> (usize, usize) {
 
         let config = SimulatedConfig::default();
 
-        let result = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
 
         if result.is_invariant_violation() {
             println!("  [FAIL] zero reward: {:?}", result);
@@ -441,7 +439,8 @@ fn run_edge_case_tests() -> (usize, usize) {
             ..Default::default()
         };
 
-        let result = simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
+        let result =
+            simulate_complete_task(&mut task, &mut escrow, &mut worker, &config, [0u8; 32]);
 
         if result.is_invariant_violation() {
             println!("  [FAIL] 100% protocol fee: {:?}", result);
@@ -494,7 +493,10 @@ fn run_race_condition_tests(iterations: usize) -> (usize, usize) {
         let has_violation = results.iter().any(|r| r.is_invariant_violation());
 
         if has_violation || task.current_workers > task.max_workers {
-            println!("  [FAIL] Race condition test {}: workers={}/{}", i, task.current_workers, max_workers);
+            println!(
+                "  [FAIL] Race condition test {}: workers={}/{}",
+                i, task.current_workers, max_workers
+            );
             failed += 1;
         } else {
             passed += 1;

@@ -74,7 +74,7 @@ proptest! {
                 LifecycleAction::ExpireClaim => simulate_expire_claim(&mut task, &mut worker, seq.current_timestamp),
                 LifecycleAction::InitiateDispute { dispute_id } => {
                     dispute.dispute_id = *dispute_id;
-                    simulate_initiate_dispute(&mut task, &mut dispute)
+                    simulate_dispute_open(&mut task, &mut dispute)
                 }
             };
 
@@ -128,4 +128,3 @@ proptest! {
         }
     }
 }
-
