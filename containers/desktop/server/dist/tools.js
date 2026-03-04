@@ -67,13 +67,7 @@ function normalizeAptCommand(command) {
 async function screenshot() {
     const path = `/tmp/screenshot-${randomUUID()}.png`;
     try {
-        try {
-            await exec("scrot", ["-o", path]);
-        }
-        catch {
-            // Fallback to ImageMagick
-            await exec("import", ["-window", "root", path]);
-        }
+        await exec("scrot", ["-o", path]);
         const buf = await readFile(path);
         const size = await screenSize();
         const sizeData = JSON.parse(size.content);

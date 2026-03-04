@@ -3,7 +3,9 @@
 # Re-evaluate on next Anchor major/minor bump cycle.
 GHSA-fjx5-qpf4-xjf2
 
-# CVE-2025-58160 (tracing-subscriber 0.2.25) is transitive in zkvm guest via risc0/ark stack.
-# Upgrade blocked by upstream semver constraints in the current RISC0 toolchain.
+# CVE-2025-58160 (tracing-subscriber 0.2.25) remains transitive in zkvm host
+# (risc0-zkvm -> risc0-groth16 -> ark-relations ^0.5 -> tracing-subscriber ^0.2).
+# Guest-side std feature pin was removed to reduce exposure; remaining upgrade is blocked
+# by upstream semver constraints in the current RISC0/ark toolchain.
 # Re-evaluate on next RISC0 release line.
 CVE-2025-58160

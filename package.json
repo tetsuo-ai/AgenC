@@ -32,6 +32,7 @@
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts",
     "security:mcp:check": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose --allow-fail",
     "security:mcp:check:strict": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose",
+    "security:desktop:hardening:check": "node scripts/check-desktop-image-hardening.mjs",
     "security:trivy:image": "trivy image --scanners vuln,misconfig,secret",
     "fender:list": "node scripts/solana-fender-mcp.mjs list",
     "fender:check:file": "node scripts/solana-fender-mcp.mjs check-file",
