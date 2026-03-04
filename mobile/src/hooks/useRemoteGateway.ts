@@ -7,12 +7,18 @@
 
 import { useRef, useState, useCallback, useEffect } from 'react';
 import type { ConnectionStatus, GatewayConnection } from '../types';
+import {
+  computeReconnectDelayMs,
+  DEFAULT_GATEWAY_SOCKET_BACKOFF,
+  enqueueBounded,
+  flushQueueIfOpen,
+  parseJsonMessage,
+  serializeAuthMessage,
+  serializePingMessage,
+} from '../../../runtime/src/channels/webchat/socket-client-core';
 
 const MAX_OFFLINE_QUEUE = 1000;
 const PING_INTERVAL_MS = 30_000;
-const RECONNECT_BASE_DELAY_MS = 1_000;
-const RECONNECT_MAX_DELAY_MS = 30_000;
-const JITTER_FACTOR = 0.2;
 
 interface UseRemoteGatewayOptions {
   connection: GatewayConnection | null;
@@ -62,7 +68,7 @@ export function useRemoteGateway({
     stopPing();
     pingTimerRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'ping' }));
+        wsRef.current.send(serializePingMessage());
       }
     }, PING_INTERVAL_MS);
   }, [stopPing]);
@@ -75,19 +81,16 @@ export function useRemoteGateway({
   }, []);
 
   const flushQueue = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    while (offlineQueueRef.current.length > 0) {
-      ws.send(offlineQueueRef.current.shift()!);
-    }
-    setQueueSize(0);
+    const remaining = flushQueueIfOpen(
+      wsRef.current,
+      WebSocket.OPEN,
+      offlineQueueRef.current,
+    );
+    setQueueSize(remaining);
   }, []);
 
   const enqueue = useCallback((msg: string) => {
-    if (offlineQueueRef.current.length >= MAX_OFFLINE_QUEUE) {
-      offlineQueueRef.current.shift();
-    }
-    offlineQueueRef.current.push(msg);
+    enqueueBounded(offlineQueueRef.current, msg, MAX_OFFLINE_QUEUE);
     setQueueSize(offlineQueueRef.current.length);
   }, []);
 
@@ -103,13 +106,13 @@ export function useRemoteGateway({
 
     ws.onopen = () => {
       setStatus('authenticating');
-      ws.send(JSON.stringify({ type: 'auth', payload: { token: conn.token } }));
+      ws.send(serializeAuthMessage(conn.token));
     };
 
     ws.onmessage = (event) => {
       let parsed: unknown;
       try {
-        parsed = JSON.parse(event.data as string);
+        parsed = parseJsonMessage(event.data as string);
       } catch {
         onMessageRef.current?.(event.data);
         return;
@@ -147,12 +150,10 @@ export function useRemoteGateway({
       }
 
       setStatus('reconnecting');
-      const base = Math.min(
-        RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptRef.current),
-        RECONNECT_MAX_DELAY_MS,
+      const delay = computeReconnectDelayMs(
+        reconnectAttemptRef.current,
+        DEFAULT_GATEWAY_SOCKET_BACKOFF,
       );
-      const jitter = 1 + Math.random() * JITTER_FACTOR;
-      const delay = Math.round(base * jitter);
       reconnectAttemptRef.current++;
       reconnectTimerRef.current = setTimeout(connect, delay);
     };

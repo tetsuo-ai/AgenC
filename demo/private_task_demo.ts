@@ -74,6 +74,59 @@ interface RouterAccounts {
   nullifierSpend: PublicKey;
 }
 
+interface PrivacyCashModule {
+  PrivacyCash: new (config: {
+    RPC_url: string;
+    owner: Keypair;
+    enableDebug?: boolean;
+  }) => {
+    withdraw(params: {
+      lamports: number;
+      recipientAddress: string;
+    }): Promise<unknown>;
+  };
+}
+
+function parsePrivateKey(value: string): Keypair {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("PRIVATE_KEY must be set when simulation mode is disabled");
+  }
+
+  if (trimmed.startsWith("[")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      throw new Error("PRIVATE_KEY JSON array is not valid JSON");
+    }
+    if (!Array.isArray(parsed) || parsed.length !== 64) {
+      throw new Error("PRIVATE_KEY JSON array must contain exactly 64 bytes");
+    }
+    const bytes = Uint8Array.from(parsed);
+    return Keypair.fromSecretKey(bytes);
+  }
+
+  const decoded = Buffer.from(trimmed, "base64");
+  if (decoded.length === 64) {
+    return Keypair.fromSecretKey(new Uint8Array(decoded));
+  }
+
+  throw new Error(
+    "PRIVATE_KEY must be a 64-byte JSON array or a base64-encoded 64-byte secret key",
+  );
+}
+
+function extractSignature(result: unknown): string | undefined {
+  if (result && typeof result === "object") {
+    const maybeSignature = (result as { signature?: unknown }).signature;
+    if (typeof maybeSignature === "string" && maybeSignature.length > 0) {
+      return maybeSignature;
+    }
+  }
+  return undefined;
+}
+
 function sha256(...chunks: Buffer[]): Buffer {
   const hasher = createHash('sha256');
   for (const chunk of chunks) {
@@ -273,10 +326,11 @@ async function main() {
     await sleep(DEMO_CONFIG.submissionDelayMs);
     signature = `DEMO_SIGNATURE_${Date.now().toString(36)}`;
   } else {
-    const owner = process.env.PRIVATE_KEY as string;
-    const { PrivacyCash } = await import('../sdk/privacy-cash-sdk/src/index.js');
+    const owner = parsePrivateKey(process.env.PRIVATE_KEY as string);
+    const privacyCashModuleName = process.env.PRIVACYCASH_MODULE ?? "privacycash";
+    const { PrivacyCash } = await import(privacyCashModuleName) as PrivacyCashModule;
     const privacyCash = new PrivacyCash({
-      RPC_url: HELIUS_RPC,
+      RPC_url: rpcUrl,
       owner,
       enableDebug: true,
     });
@@ -286,7 +340,7 @@ async function main() {
       recipientAddress: recipientWallet.publicKey.toBase58(),
     });
 
-    signature = withdrawResult.signature || 'completed';
+    signature = extractSignature(withdrawResult) ?? "completed";
   }
 
   console.log('Transaction:', signature);

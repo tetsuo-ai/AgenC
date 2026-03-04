@@ -19,6 +19,9 @@ import type { MemoryBackend } from "../memory/types.js";
 import type { ApprovalEngine } from "../gateway/approvals.js";
 import type { ProactiveCommunicator } from "../gateway/proactive.js";
 import type { GatewayMessage } from "../gateway/message.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { toErrorMessage } from "../utils/async.js";
 
 // ============================================================================
 // Types
@@ -39,6 +42,8 @@ export interface DesktopExecutorConfig {
   approvalEngine?: ApprovalEngine;
   /** Progress update broadcaster. */
   communicator?: ProactiveCommunicator;
+  /** Logger for non-fatal cleanup/reporting paths. */
+  logger?: Logger;
   /** Maximum execution steps before aborting (default: 20). */
   maxSteps?: number;
   /** Maximum consecutive failures before marking as stuck (default: 3). */
@@ -154,6 +159,7 @@ export class DesktopExecutor {
   private readonly memory: MemoryBackend;
   private readonly approvalEngine?: ApprovalEngine;
   private readonly communicator?: ProactiveCommunicator;
+  private readonly logger: Logger;
   private readonly maxSteps: number;
   private readonly maxConsecutiveFailures: number;
   private readonly screenshotQuality: "low" | "medium" | "high";
@@ -169,6 +175,7 @@ export class DesktopExecutor {
     this.memory = config.memory;
     this.approvalEngine = config.approvalEngine;
     this.communicator = config.communicator;
+    this.logger = config.logger ?? silentLogger;
     this.maxSteps = config.maxSteps ?? 20;
     this.maxConsecutiveFailures = config.maxConsecutiveFailures ?? 3;
     this.screenshotQuality = config.screenshotQuality ?? "medium";
@@ -414,7 +421,11 @@ export class DesktopExecutor {
             .broadcast(
               `Desktop executor progress: step ${stepNumber}/${planSteps.length} — ${planStep.description}`,
             )
-            .catch(() => {});
+            .catch((error) => {
+              this.logger.debug("Desktop progress broadcast failed", {
+                error: toErrorMessage(error),
+              });
+            });
         }
 
         stepNumber++;
@@ -442,7 +453,11 @@ export class DesktopExecutor {
           .broadcast(
             `Desktop goal ${success ? "completed" : status}: "${goal}"`,
           )
-          .catch(() => {});
+          .catch((error) => {
+            this.logger.debug("Desktop completion broadcast failed", {
+              error: toErrorMessage(error),
+            });
+          });
       }
 
       return this.buildResult(
@@ -463,7 +478,11 @@ export class DesktopExecutor {
           role: "assistant",
           content: `[Error @ ${new Date().toISOString()}] Goal "${goal}" failed: ${String(err)}. ID: ${goalId}`,
         })
-        .catch(() => {});
+        .catch((error) => {
+          this.logger.debug("Desktop executor failure memory write failed", {
+            error: toErrorMessage(error),
+          });
+        });
 
       return this.buildResult(
         goalId,
