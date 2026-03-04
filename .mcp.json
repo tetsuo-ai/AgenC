@@ -12,6 +12,25 @@
         "ANCHOR_WALLET": "/home/tetsuo/.config/solana/id.json"
       }
     },
+    "semgrep": {
+      "command": "uvx",
+      "args": ["semgrep-mcp", "--transport", "stdio"],
+      "timeout": 30000
+    },
+    "trivy": {
+      "command": "/home/tetsuo/.local/bin/trivy",
+      "args": ["mcp", "--transport", "stdio"],
+      "timeout": 30000
+    },
+    "gitguardian": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/GitGuardian/ggmcp",
+        "developer-mcp-server"
+      ],
+      "timeout": 30000
+    },
     "knip": {
       "command": "npx",
       "args": ["@genar/knip-mcp-server"],

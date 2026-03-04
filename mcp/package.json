@@ -45,8 +45,16 @@
   "dependencies": {
     "@agenc/runtime": "file:../runtime",
     "@agenc/sdk": "file:../sdk",
-    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "zod": "^3.24.2"
+  },
+  "overrides": {
+    "minimatch": "^9.0.9",
+    "rollup": "^4.59.0"
+  },
+  "resolutions": {
+    "minimatch": "^9.0.9",
+    "rollup": "^4.59.0"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.32.1",

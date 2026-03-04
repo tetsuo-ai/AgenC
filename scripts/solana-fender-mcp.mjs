@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const runtimeDist = path.resolve(__dirname, "../runtime/dist/index.mjs");
 
 const DEFAULT_SERVER_CONFIG = {
   name: "solana-fender",
@@ -20,6 +17,43 @@ const DEFAULT_SERVER_CONFIG = {
   },
   timeout: 30_000,
 };
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
+async function createClient(config) {
+  const transport = new StdioClientTransport({
+    command: config.command,
+    args: config.args,
+    env: {
+      ...process.env,
+      ...(config.env ?? {}),
+    },
+  });
+
+  const client = new Client(
+    {
+      name: "solana-fender-wrapper",
+      version: "0.1.0",
+    },
+    {
+      capabilities: {},
+    },
+  );
+
+  await withTimeout(client.connect(transport), config.timeout, "MCP connect");
+  return client;
+}
 
 function usage() {
   console.log(
@@ -69,12 +103,15 @@ async function main() {
     process.exit(0);
   }
 
-  const { createMCPConnection } = await import(runtimeDist);
-  const client = await createMCPConnection(DEFAULT_SERVER_CONFIG);
+  const client = await createClient(DEFAULT_SERVER_CONFIG);
 
   try {
     if (action === "list") {
-      const tools = await client.listTools();
+      const tools = await withTimeout(
+        client.listTools(),
+        DEFAULT_SERVER_CONFIG.timeout,
+        "listTools",
+      );
       console.log(JSON.stringify(tools, null, 2));
       return;
     }
@@ -87,10 +124,14 @@ async function main() {
 
     if (action === "check-file") {
       const filePath = path.resolve(process.cwd(), target);
-      const result = await client.callTool({
-        name: "security_check_file",
-        arguments: { file_path: filePath },
-      });
+      const result = await withTimeout(
+        client.callTool({
+          name: "security_check_file",
+          arguments: { file_path: filePath },
+        }),
+        DEFAULT_SERVER_CONFIG.timeout,
+        "security_check_file",
+      );
       const text = normalizeContent(result?.content);
       if (text) console.log(text);
       process.exit(result?.isError ? 1 : 0);
@@ -99,10 +140,14 @@ async function main() {
 
     if (action === "check-program") {
       const programPath = path.resolve(process.cwd(), target);
-      const result = await client.callTool({
-        name: "security_check_program",
-        arguments: { program_path: programPath },
-      });
+      const result = await withTimeout(
+        client.callTool({
+          name: "security_check_program",
+          arguments: { program_path: programPath },
+        }),
+        DEFAULT_SERVER_CONFIG.timeout,
+        "security_check_program",
+      );
       const text = normalizeContent(result?.content);
       if (text) console.log(text);
       process.exit(result?.isError ? 1 : 0);

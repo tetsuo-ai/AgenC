@@ -34,8 +34,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     greybird-gtk-theme papirus-icon-theme adwaita-icon-theme-full \
     # Networking/utils
     curl ca-certificates wget gnupg \
-    # Build essentials
-    build-essential gcc g++ make cmake \
     # Developer tools
     git vim nano neovim tmux htop tree jq unzip sudo \
     # Modern CLI tools (agent-optimized)
@@ -57,10 +55,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # =========================================================================
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g npm@latest \
+    # npm@11.11.0 still bundles minimatch 10.2.2 (CVE-2026-27903/27904).
+    # Replace only npm's embedded minimatch with 10.2.3 until npm ships the bump.
+    && TMP_NPM_PATCH="$(mktemp -d)" \
+    && cd "${TMP_NPM_PATCH}" \
+    && npm pack minimatch@10.2.3 >/dev/null \
+    && tar -xzf minimatch-10.2.3.tgz \
+    && rm -rf /usr/lib/node_modules/npm/node_modules/minimatch \
+    && mv package /usr/lib/node_modules/npm/node_modules/minimatch \
+    && cd / \
+    && rm -rf "${TMP_NPM_PATCH}" \
     # =========================================================================
     # Playwright MCP + bundled Chromium
     # =========================================================================
-    && npm install -g @playwright/mcp@0.0.68 tmux-mcp mcp-neovim-server \
+    && npm install -g @playwright/mcp@latest tmux-mcp@latest mcp-neovim-server@latest \
     && mkdir -p ${PLAYWRIGHT_BROWSERS_PATH} \
     && node /usr/lib/node_modules/@playwright/mcp/node_modules/playwright/cli.js install --with-deps chromium \
     && CHROME_BIN="$(find ${PLAYWRIGHT_BROWSERS_PATH} -path '*/chrome-linux64/chrome' | head -n1)" \
@@ -68,6 +77,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
          ln -sf "$CHROME_BIN" /usr/bin/chromium; \
          ln -sf /usr/bin/chromium /usr/bin/chromium-browser; \
        fi \
+    && rm -rf /home/agenc/.npm \
     # Cleanup
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -214,10 +224,13 @@ RUN chown -R agenc:agenc /home/agenc /opt/server /tmp
 # uv (Python package manager) + kitty-mcp
 # =============================================================================
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && python3 -m pip install --no-cache-dir --upgrade pip wheel==0.46.2 jaraco.context==6.1.0 \
     && git clone https://github.com/den-tanui/kitty-mcp.git /tmp/kitty-mcp \
     && cd /tmp/kitty-mcp \
     && sed -i '30,34d' pyproject.toml \
     && /home/agenc/.local/bin/uv tool install /tmp/kitty-mcp \
+    && UV_PYTHON_BIN="$(find /home/agenc/.local/share/uv/python -path '*/bin/python' | head -n1)" \
+    && "$UV_PYTHON_BIN" -m pip install --break-system-packages --no-cache-dir --upgrade --pre setuptools \
     && rm -rf /tmp/kitty-mcp \
     && chown -R agenc:agenc /home/agenc/.local
 
