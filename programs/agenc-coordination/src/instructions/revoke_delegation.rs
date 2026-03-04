@@ -21,6 +21,7 @@ pub struct RevokeDelegation<'info> {
         close = authority,
         seeds = [b"reputation_delegation", delegator_agent.key().as_ref(), delegation.delegatee.as_ref()],
         bump = delegation.bump,
+        constraint = delegation.key() != delegator_agent.key() @ CoordinationError::InvalidInput
     )]
     pub delegation: Account<'info, ReputationDelegation>,
 }

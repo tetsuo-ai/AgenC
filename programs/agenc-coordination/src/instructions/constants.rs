@@ -52,7 +52,7 @@ pub const MIN_VOTERS_FOR_RESOLUTION: usize = 3;
 // ============================================================================
 
 /// Cooldown period before staked SOL can be withdrawn (7 days in seconds)
-pub const REPUTATION_STAKING_COOLDOWN: i64 = 7 * 24 * 60 * 60;
+pub const REPUTATION_STAKING_COOLDOWN: i64 = 604_800;
 
 /// Minimum delegation amount in reputation points (1% of max reputation)
 pub const MIN_DELEGATION_AMOUNT: u16 = 100;
@@ -61,14 +61,14 @@ pub const MIN_DELEGATION_AMOUNT: u16 = 100;
 pub const MIN_SKILL_PRICE: u64 = 1_000;
 
 /// Minimum duration a delegation must be active before revocation (7 days in seconds)
-pub const MIN_DELEGATION_DURATION: i64 = 7 * 24 * 60 * 60;
+pub const MIN_DELEGATION_DURATION: i64 = 604_800;
 
 // ============================================================================
 // Default Rate Limit Constants
 // ============================================================================
 
 /// Maximum deadline relative to current time (1 year in seconds)
-pub const MAX_DEADLINE_SECONDS: i64 = 365 * 24 * 3600;
+pub const MAX_DEADLINE_SECONDS: i64 = 31_536_000;
 
 /// Default cooldown between task creations in seconds
 pub const DEFAULT_TASK_CREATION_COOLDOWN: i64 = 60;

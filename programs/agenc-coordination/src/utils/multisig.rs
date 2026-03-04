@@ -13,7 +13,10 @@ pub fn validate_multisig_owners(owners: &[Pubkey]) -> Result<()> {
             *owner != Pubkey::default(),
             CoordinationError::MultisigDefaultSigner
         );
-        for other in owners.iter().skip(index + 1) {
+        let next_index = index
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        for other in owners.iter().skip(next_index) {
             require!(*owner != *other, CoordinationError::MultisigDuplicateSigner);
         }
     }

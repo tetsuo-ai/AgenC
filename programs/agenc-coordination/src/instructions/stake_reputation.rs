@@ -22,7 +22,8 @@ pub struct StakeReputation<'info> {
         payer = authority,
         space = ReputationStake::SIZE,
         seeds = [b"reputation_stake", agent.key().as_ref()],
-        bump
+        bump,
+        constraint = reputation_stake.key() != agent.key() @ CoordinationError::InvalidInput
     )]
     pub reputation_stake: Account<'info, ReputationStake>,
 

@@ -9,7 +9,7 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
-use super::rate_limit_helpers::check_dispute_initiation_rate_limits;
+use super::rate_limit_helpers::{check_rate_limits, RateLimitAction};
 
 /// Maximum evidence string length
 const MAX_EVIDENCE_LEN: usize = 256;
@@ -30,7 +30,8 @@ pub struct InitiateDispute<'info> {
         mut,
         seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
         bump = task.bump,
-        constraint = task.task_id == task_id @ CoordinationError::TaskNotFound
+        constraint = task.task_id == task_id @ CoordinationError::TaskNotFound,
+        constraint = task.key() != dispute.key() @ CoordinationError::InvalidInput
     )]
     pub task: Box<Account<'info, Task>>,
 
@@ -167,7 +168,7 @@ pub fn handler(
     }
 
     // Check rate limits and update counters
-    check_dispute_initiation_rate_limits(agent, config, &clock)?;
+    check_rate_limits(agent, config, &clock, RateLimitAction::DisputeInitiation)?;
 
     // === Determine Worker Stake to Snapshot (fix #550) ===
     // Snapshot the worker's stake at dispute initiation time to prevent

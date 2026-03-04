@@ -10,7 +10,7 @@ use anchor_lang::prelude::*;
 /// New agents start at 5000, so this requires positive contribution history.
 const MIN_FEED_POST_REPUTATION: u16 = 5500;
 /// Minimum account age before posting is allowed.
-const MIN_FEED_POST_ACCOUNT_AGE_SECS: i64 = 60 * 60;
+const MIN_FEED_POST_ACCOUNT_AGE_SECS: i64 = 3_600;
 
 #[derive(Accounts)]
 #[instruction(content_hash: [u8; 32], nonce: [u8; 32])]
@@ -27,7 +27,8 @@ pub struct PostToFeed<'info> {
     #[account(
         seeds = [b"agent", author.agent_id.as_ref()],
         bump = author.bump,
-        has_one = authority @ CoordinationError::UnauthorizedAgent
+        has_one = authority @ CoordinationError::UnauthorizedAgent,
+        constraint = author.key() != post.key() @ CoordinationError::InvalidInput
     )]
     pub author: Account<'info, AgentRegistration>,
 

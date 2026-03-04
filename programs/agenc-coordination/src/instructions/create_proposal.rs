@@ -14,7 +14,7 @@ use anchor_lang::prelude::*;
 const MAX_RATE_LIMIT: u64 = 1000;
 
 /// Maximum cooldown value: 1 week in seconds (matches update_rate_limits.rs)
-const MAX_COOLDOWN: i64 = 86400 * 7;
+const MAX_COOLDOWN: i64 = 604_800;
 
 #[derive(Accounts)]
 #[instruction(nonce: u64)]

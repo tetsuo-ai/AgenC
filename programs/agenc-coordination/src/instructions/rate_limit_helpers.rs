@@ -125,7 +125,10 @@ fn maybe_reset_window(agent: &mut AgentRegistration, clock: &Clock) {
         >= WINDOW_24H
     {
         // Round window start to prevent drift
-        let window_start = (clock.unix_timestamp / WINDOW_24H) * WINDOW_24H;
+        let window_start = clock
+            .unix_timestamp
+            .div_euclid(WINDOW_24H)
+            .saturating_mul(WINDOW_24H);
         agent.rate_limit_window_start = window_start;
         // Note: Both counters reset together when window expires.
         // This is intentional - ensures clean state at window boundary.
@@ -232,25 +235,4 @@ pub fn check_task_creation_rate_limits(
     clock: &Clock,
 ) -> Result<()> {
     check_rate_limits(creator_agent, config, clock, RateLimitAction::TaskCreation)
-}
-
-/// Check rate limits for dispute initiation and update agent state.
-///
-/// Wrapper around `check_rate_limits` for backwards compatibility.
-///
-/// # Arguments
-/// * `agent` - Mutable reference to the agent's registration
-/// * `config` - Protocol configuration containing rate limit settings
-/// * `clock` - Current clock for timestamp comparisons
-///
-/// # Errors
-/// * `CooldownNotElapsed` - Dispute initiation cooldown has not passed
-/// * `RateLimitExceeded` - 24-hour dispute limit exceeded
-/// * `ArithmeticOverflow` - Counter overflow (shouldn't happen in practice)
-pub fn check_dispute_initiation_rate_limits(
-    agent: &mut AgentRegistration,
-    config: &ProtocolConfig,
-    clock: &Clock,
-) -> Result<()> {
-    check_rate_limits(agent, config, clock, RateLimitAction::DisputeInitiation)
 }

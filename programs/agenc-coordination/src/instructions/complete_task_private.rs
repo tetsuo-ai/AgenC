@@ -21,22 +21,18 @@ use solana_sha256_hasher::hashv;
 const RISC0_JOURNAL_LEN: usize = 192;
 const RISC0_SELECTOR_LEN: usize = 4;
 const RISC0_IMAGE_ID_LEN: usize = 32;
-const RISC0_GROTH16_SEAL_LEN: usize = 256;
-const RISC0_SEAL_BORSH_LEN: usize = RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
+const RISC0_SEAL_BORSH_LEN: usize = 260;
 
 // Journal field offsets (each field is HASH_SIZE=32 bytes)
 const JOURNAL_TASK_PDA_OFFSET: usize = 0;
 const JOURNAL_AUTHORITY_OFFSET: usize = HASH_SIZE; // 32
-const JOURNAL_CONSTRAINT_OFFSET: usize = 2 * HASH_SIZE; // 64
-const JOURNAL_COMMITMENT_OFFSET: usize = 3 * HASH_SIZE; // 96
-const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE; // 128
-const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE; // 160
+const JOURNAL_CONSTRAINT_OFFSET: usize = 64;
+const JOURNAL_COMMITMENT_OFFSET: usize = 96;
+const JOURNAL_BINDING_OFFSET: usize = 128;
+const JOURNAL_NULLIFIER_OFFSET: usize = 160;
 const ROUTER_VERIFY_IX_DISCRIMINATOR: [u8; 8] = [133, 161, 141, 48, 120, 198, 88, 150];
 const VERIFIER_ENTRY_DISCRIMINATOR: [u8; 8] = [102, 247, 148, 158, 33, 153, 100, 93];
-const PUBKEY_BYTES: usize = 32;
-const ESTOPPED_FLAG_BYTES: usize = 1;
-const VERIFIER_ENTRY_ACCOUNT_LEN: usize =
-    8 + RISC0_SELECTOR_LEN + PUBKEY_BYTES + ESTOPPED_FLAG_BYTES;
+const VERIFIER_ENTRY_ACCOUNT_LEN: usize = 45;
 
 // Byte offsets within the VerifierEntry account data:
 // [0..8]   discriminator
@@ -44,8 +40,8 @@ const VERIFIER_ENTRY_ACCOUNT_LEN: usize =
 // [12..44] verifier pubkey (32 bytes)
 // [44]     estopped flag (1 byte)
 const VERIFIER_ENTRY_SELECTOR_OFFSET: usize = 8;
-const VERIFIER_ENTRY_VERIFIER_OFFSET: usize = VERIFIER_ENTRY_SELECTOR_OFFSET + RISC0_SELECTOR_LEN;
-const VERIFIER_ENTRY_ESTOPPED_OFFSET: usize = VERIFIER_ENTRY_VERIFIER_OFFSET + 32;
+const VERIFIER_ENTRY_VERIFIER_OFFSET: usize = 12;
+const VERIFIER_ENTRY_ESTOPPED_OFFSET: usize = 44;
 
 const TRUSTED_RISC0_SELECTOR: [u8; RISC0_SELECTOR_LEN] = [0x52, 0x5a, 0x56, 0x4d];
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
@@ -225,7 +221,16 @@ pub fn complete_task_private(
         CoordinationError::NotPrivateTask
     );
 
-    let decoded_seal = decode_and_validate_seal(&proof.seal_bytes)?;
+    require!(
+        proof.seal_bytes.len() == RISC0_SEAL_BORSH_LEN,
+        CoordinationError::InvalidSealEncoding
+    );
+    let decoded_seal = Risc0Seal::try_from_slice(&proof.seal_bytes)
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    require!(
+        decoded_seal.selector == TRUSTED_RISC0_SELECTOR,
+        CoordinationError::TrustedSelectorMismatch
+    );
     let parsed_journal = parse_and_validate_journal(&proof.journal)?;
 
     require!(
@@ -256,7 +261,54 @@ pub fn complete_task_private(
     validate_verifier_entry(&ctx.accounts.verifier_entry, &ctx.accounts.verifier_program)?;
 
     let journal_digest = hashv(&[proof.journal.as_slice()]).to_bytes();
-    verify_with_router_cpi(&ctx, decoded_seal, proof.image_id, journal_digest)?;
+    require!(
+        ctx.accounts.router_program.key() == TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+        CoordinationError::RouterAccountMismatch
+    );
+    require!(
+        ctx.accounts.verifier_program.key() == TRUSTED_RISC0_VERIFIER_PROGRAM_ID,
+        CoordinationError::TrustedVerifierProgramMismatch
+    );
+
+    let mut cpi_data = Vec::with_capacity(332);
+    cpi_data.extend_from_slice(&ROUTER_VERIFY_IX_DISCRIMINATOR);
+    RouterVerifyArgs {
+        seal: decoded_seal,
+        image_id: proof.image_id,
+        journal_digest,
+    }
+    .serialize(&mut cpi_data)
+    .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+
+    let verify_ix = Instruction {
+        program_id: TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(ctx.accounts.router.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.verifier_entry.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.verifier_program.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+        ],
+        data: cpi_data,
+    };
+    require!(
+        verify_ix.program_id == ctx.accounts.router_program.key(),
+        CoordinationError::RouterAccountMismatch
+    );
+
+    invoke(
+        &verify_ix,
+        &[
+            ctx.accounts.router_program.to_account_info(),
+            ctx.accounts.router.to_account_info(),
+            ctx.accounts.verifier_entry.to_account_info(),
+            ctx.accounts.verifier_program.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+    )
+    .map_err(|err| {
+        msg!("router verification CPI failed: {:?}", err);
+        error!(CoordinationError::ZkVerificationFailed)
+    })?;
 
     let binding_spend = &mut ctx.accounts.binding_spend;
     binding_spend.binding = parsed_journal.binding;
@@ -386,23 +438,6 @@ struct ParsedJournal {
     output_commitment: [u8; HASH_SIZE],
     binding: [u8; HASH_SIZE],
     nullifier: [u8; HASH_SIZE],
-}
-
-fn decode_and_validate_seal(seal_bytes: &[u8]) -> Result<Risc0Seal> {
-    require!(
-        seal_bytes.len() == RISC0_SEAL_BORSH_LEN,
-        CoordinationError::InvalidSealEncoding
-    );
-
-    let seal = Risc0Seal::try_from_slice(seal_bytes)
-        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
-
-    require!(
-        seal.selector == TRUSTED_RISC0_SELECTOR,
-        CoordinationError::TrustedSelectorMismatch
-    );
-
-    Ok(seal)
 }
 
 fn parse_and_validate_journal(journal: &[u8]) -> Result<ParsedJournal> {
@@ -545,50 +580,6 @@ fn validate_verifier_entry_data(data: &[u8], verifier_program_key: &Pubkey) -> R
     Ok(())
 }
 
-fn verify_with_router_cpi(
-    ctx: &Context<CompleteTaskPrivate>,
-    seal: Risc0Seal,
-    image_id: [u8; RISC0_IMAGE_ID_LEN],
-    journal_digest: [u8; HASH_SIZE],
-) -> Result<()> {
-    let mut data = Vec::with_capacity(8 + RISC0_SEAL_BORSH_LEN + RISC0_IMAGE_ID_LEN + HASH_SIZE);
-    data.extend_from_slice(&ROUTER_VERIFY_IX_DISCRIMINATOR);
-    RouterVerifyArgs {
-        seal,
-        image_id,
-        journal_digest,
-    }
-    .serialize(&mut data)
-    .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
-
-    let ix = Instruction {
-        program_id: ctx.accounts.router_program.key(),
-        accounts: vec![
-            AccountMeta::new_readonly(ctx.accounts.router.key(), false),
-            AccountMeta::new_readonly(ctx.accounts.verifier_entry.key(), false),
-            AccountMeta::new_readonly(ctx.accounts.verifier_program.key(), false),
-            AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
-        ],
-        data,
-    };
-
-    invoke(
-        &ix,
-        &[
-            ctx.accounts.router.to_account_info(),
-            ctx.accounts.verifier_entry.to_account_info(),
-            ctx.accounts.verifier_program.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-        ],
-    )
-    .map_err(|err| {
-        msg!("router verification CPI failed: {:?}", err);
-        error!(CoordinationError::ZkVerificationFailed)
-    })?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -644,7 +635,8 @@ mod tests {
 
     #[test]
     fn journal_rejects_invalid_length() {
-        let err = parse_and_validate_journal(&[0u8; RISC0_JOURNAL_LEN - 1]).expect_err("must fail");
+        let err = parse_and_validate_journal(&[0u8; RISC0_JOURNAL_LEN.saturating_sub(1)])
+            .expect_err("must fail");
         assert_error_name(err, "InvalidJournalLength");
     }
 
@@ -675,21 +667,6 @@ mod tests {
         assert_eq!(parsed.output_commitment, output);
         assert_eq!(parsed.binding, binding);
         assert_eq!(parsed.nullifier, nullifier);
-    }
-
-    #[test]
-    fn seal_decode_rejects_invalid_encoding() {
-        let err = decode_and_validate_seal(&[7u8; 12]).expect_err("must fail");
-        assert_error_name(err, "InvalidSealEncoding");
-    }
-
-    #[test]
-    fn seal_decode_rejects_untrusted_selector() {
-        let mut selector = TRUSTED_RISC0_SELECTOR;
-        selector[0] ^= 1;
-        let seal = sample_seal_bytes(selector);
-        let err = decode_and_validate_seal(&seal).expect_err("must fail");
-        assert_error_name(err, "TrustedSelectorMismatch");
     }
 
     #[test]

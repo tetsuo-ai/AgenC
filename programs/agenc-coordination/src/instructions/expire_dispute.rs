@@ -86,10 +86,10 @@ pub struct ExpireDispute<'info> {
     #[account(mut)]
     pub worker: Option<Box<Account<'info, AgentRegistration>>>,
 
-    /// CHECK: Worker's authority wallet for receiving payment (fix #418)
+    /// CHECK: Worker's wallet for receiving payment (fix #418)
     /// Required when worker should receive funds on expiration
     #[account(mut)]
-    pub worker_authority: Option<UncheckedAccount<'info>>,
+    pub worker_wallet: Option<UncheckedAccount<'info>>,
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
     /// Token escrow ATA holding reward tokens (optional)
@@ -167,7 +167,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         dispute.as_ref(),
         &ctx.accounts.worker,
         &ctx.accounts.worker_claim,
-        &ctx.accounts.worker_authority,
+        &ctx.accounts.worker_wallet,
         &task.key(),
     )?;
 
@@ -235,9 +235,9 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                         worker_ta,
                         &mint.key(),
                         &ctx.accounts
-                            .worker_authority
+                            .worker_wallet
                             .as_ref()
-                            .expect("worker authority validated above")
+                            .expect("worker wallet validated above")
                             .key(),
                     )?;
                 }
@@ -257,9 +257,9 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                         worker_ta,
                         &mint.key(),
                         &ctx.accounts
-                            .worker_authority
+                            .worker_wallet
                             .as_ref()
-                            .expect("worker authority validated above")
+                            .expect("worker wallet validated above")
                             .key(),
                     )?;
                 }
@@ -321,9 +321,9 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                 &escrow.to_account_info(),
                 &ctx.accounts.creator.to_account_info(),
                 &ctx.accounts
-                    .worker_authority
+                    .worker_wallet
                     .as_ref()
-                    .expect("worker authority validated above")
+                    .expect("worker wallet validated above")
                     .to_account_info(),
                 remaining_funds,
                 worker_completed,
@@ -357,9 +357,12 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     check_duplicate_arbiters(ctx.remaining_accounts, arbiter_accounts)?;
 
     for i in (0..arbiter_accounts).step_by(2) {
+        let arbiter_index = i
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
         process_arbiter_vote_pair(
             &ctx.remaining_accounts[i],
-            &ctx.remaining_accounts[i + 1],
+            &ctx.remaining_accounts[arbiter_index],
             &dispute.key(),
             &crate::ID,
         )?;
@@ -371,7 +374,14 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         arbiter_count: dispute.total_voters,
     });
 
-    let worker_pairs = (ctx.remaining_accounts.len() - arbiter_accounts) / 2;
+    let remaining_worker_accounts = ctx
+        .remaining_accounts
+        .len()
+        .checked_sub(arbiter_accounts)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let worker_pairs = remaining_worker_accounts
+        .checked_div(2)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
     let expected_worker_pairs = usize::from(
         task.current_workers
             .checked_sub(1)
@@ -391,9 +401,12 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
 
     // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
     for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
+        let worker_index = i
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
         process_worker_claim_pair(
             &ctx.remaining_accounts[i],
-            &ctx.remaining_accounts[i + 1],
+            &ctx.remaining_accounts[worker_index],
             &task.key(),
             &crate::ID,
         )?;
@@ -405,18 +418,18 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     dispute.resolved_at = clock.unix_timestamp;
     escrow.is_closed = true;
 
-    // Close defendant claim account and return rent to worker authority.
+    // Close defendant claim account and return rent to worker wallet.
     let claim = ctx
         .accounts
         .worker_claim
         .as_ref()
         .expect("worker claim validated above");
-    let worker_authority = ctx
+    let worker_wallet = ctx
         .accounts
-        .worker_authority
+        .worker_wallet
         .as_ref()
-        .expect("worker authority validated above");
-    claim.close(worker_authority.to_account_info())?;
+        .expect("worker wallet validated above");
+    claim.close(worker_wallet.to_account_info())?;
 
     emit!(DisputeExpired {
         dispute_id: dispute.dispute_id,
@@ -434,7 +447,7 @@ fn validate_worker_accounts(
     dispute: &Dispute,
     worker: &Option<Box<Account<AgentRegistration>>>,
     worker_claim: &Option<Box<Account<TaskClaim>>>,
-    worker_authority: &Option<UncheckedAccount>,
+    worker_wallet: &Option<UncheckedAccount>,
     task_key: &Pubkey,
 ) -> Result<()> {
     let worker = worker
@@ -443,7 +456,7 @@ fn validate_worker_accounts(
     let worker_claim = worker_claim
         .as_ref()
         .ok_or(CoordinationError::WorkerClaimRequired)?;
-    let worker_authority = worker_authority
+    let worker_wallet = worker_wallet
         .as_ref()
         .ok_or(CoordinationError::IncompleteWorkerAccounts)?;
 
@@ -460,7 +473,7 @@ fn validate_worker_accounts(
         CoordinationError::NotClaimed
     );
     require!(
-        worker_authority.key() == worker.authority,
+        worker_wallet.key() == worker.authority,
         CoordinationError::UnauthorizedAgent
     );
 
@@ -477,7 +490,7 @@ fn validate_worker_accounts(
 fn distribute_expired_funds<'a>(
     escrow_info: &AccountInfo<'a>,
     creator_info: &AccountInfo<'a>,
-    worker_authority_info: &AccountInfo<'a>,
+    worker_wallet_info: &AccountInfo<'a>,
     remaining_funds: u64,
     worker_completed: bool,
     no_votes: bool,
@@ -487,7 +500,7 @@ fn distribute_expired_funds<'a>(
 
     if no_votes && worker_completed {
         worker_amount = remaining_funds;
-        transfer_lamports(escrow_info, worker_authority_info, remaining_funds)?;
+        transfer_lamports(escrow_info, worker_wallet_info, remaining_funds)?;
     } else if no_votes {
         let worker_share = remaining_funds
             .checked_div(2)
@@ -500,7 +513,7 @@ fn distribute_expired_funds<'a>(
 
         debit_lamports(escrow_info, remaining_funds)?;
         credit_lamports(creator_info, creator_share)?;
-        credit_lamports(worker_authority_info, worker_share)?;
+        credit_lamports(worker_wallet_info, worker_share)?;
     } else {
         creator_amount = remaining_funds;
         transfer_lamports(escrow_info, creator_info, remaining_funds)?;

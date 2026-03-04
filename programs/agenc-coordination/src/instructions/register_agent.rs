@@ -27,7 +27,8 @@ pub struct RegisterAgent<'info> {
     #[account(
         mut,
         seeds = [b"protocol"],
-        bump = protocol_config.bump
+        bump = protocol_config.bump,
+        constraint = protocol_config.key() != agent.key() @ CoordinationError::InvalidInput
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
@@ -109,7 +110,10 @@ pub fn handler(
     agent.task_count_24h = 0;
     agent.dispute_count_24h = 0;
     // Round window start to prevent drift
-    let window_start = (clock.unix_timestamp / WINDOW_24H) * WINDOW_24H;
+    let window_start = clock
+        .unix_timestamp
+        .div_euclid(WINDOW_24H)
+        .saturating_mul(WINDOW_24H);
     agent.rate_limit_window_start = window_start;
     agent.active_dispute_votes = 0;
     agent.last_vote_timestamp = 0;

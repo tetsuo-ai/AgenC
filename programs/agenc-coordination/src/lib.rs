@@ -209,7 +209,7 @@ pub mod agenc_coordination {
 
     /// Cancel an unclaimed or expired task and reclaim funds.
     pub fn cancel_task(ctx: Context<CancelTask>) -> Result<()> {
-        instructions::cancel_task::handler(ctx)
+        instructions::cancel_task::process_cancel_task(ctx)
     }
 
     /// Cancel a dispute before any votes are cast.

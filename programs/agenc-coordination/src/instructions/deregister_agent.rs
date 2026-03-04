@@ -20,7 +20,8 @@ pub struct DeregisterAgent<'info> {
     #[account(
         mut,
         seeds = [b"protocol"],
-        bump = protocol_config.bump
+        bump = protocol_config.bump,
+        constraint = protocol_config.key() != agent.key() @ CoordinationError::InvalidInput
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 

@@ -33,7 +33,10 @@ pub(crate) fn validate_remaining_accounts_structure(
     );
 
     // Additional accounts must come in pairs (claim, worker)
-    let extra_accounts = remaining_accounts.len() - arbiter_accounts;
+    let extra_accounts = remaining_accounts
+        .len()
+        .checked_sub(arbiter_accounts)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
     require!(extra_accounts % 2 == 0, CoordinationError::InvalidInput);
 
     Ok(arbiter_accounts)
@@ -50,7 +53,10 @@ pub(crate) fn check_duplicate_arbiters(
     let mut seen_votes: HashSet<Pubkey> = HashSet::new();
     for i in (0..arbiter_accounts).step_by(2) {
         let vote_key = remaining_accounts[i].key();
-        let arbiter_key = remaining_accounts[i + 1].key();
+        let arbiter_index = i
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let arbiter_key = remaining_accounts[arbiter_index].key();
         require!(
             seen_votes.insert(vote_key),
             CoordinationError::DuplicateArbiter
@@ -77,7 +83,10 @@ pub(crate) fn check_duplicate_workers(
         seen_workers.insert(worker_key);
     }
     for i in (arbiter_accounts..remaining_accounts.len()).step_by(2) {
-        let worker_key = remaining_accounts[i + 1].key();
+        let worker_index = i
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let worker_key = remaining_accounts[worker_index].key();
         require!(
             seen_workers.insert(worker_key),
             CoordinationError::InvalidInput

@@ -22,7 +22,8 @@ pub struct RegisterSkill<'info> {
     #[account(
         seeds = [b"agent", author.agent_id.as_ref()],
         bump = author.bump,
-        has_one = authority @ CoordinationError::UnauthorizedAgent
+        has_one = authority @ CoordinationError::UnauthorizedAgent,
+        constraint = author.key() != skill.key() @ CoordinationError::InvalidInput
     )]
     pub author: Account<'info, AgentRegistration>,
 
