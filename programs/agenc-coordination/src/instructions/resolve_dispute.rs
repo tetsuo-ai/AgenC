@@ -83,9 +83,9 @@ pub struct ResolveDispute<'info> {
     #[account(mut)]
     pub worker: Option<Box<Account<'info, AgentRegistration>>>,
 
-    /// CHECK: Worker's authority wallet for receiving payment
+    /// CHECK: Worker's wallet for receiving payment
     #[account(mut)]
-    pub worker_authority: Option<UncheckedAccount<'info>>,
+    pub worker_wallet: Option<UncheckedAccount<'info>>,
 
     pub system_program: Program<'info, System>,
 
@@ -141,7 +141,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         dispute.as_ref(),
         &ctx.accounts.worker,
         &ctx.accounts.worker_claim,
-        &ctx.accounts.worker_authority,
+        &ctx.accounts.worker_wallet,
         &task.key(),
     )?;
 
@@ -298,7 +298,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 task.status = TaskStatus::Cancelled;
             }
             ResolutionType::Complete => {
-                let worker_authority = ctx.accounts.worker_authority.as_ref().unwrap();
+                let worker_wallet = ctx.accounts.worker_wallet.as_ref().unwrap();
                 if is_token_task {
                     let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
                     let token_program = ctx.accounts.token_program.as_ref().unwrap();
@@ -311,7 +311,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                     validate_unchecked_token_mint(
                         &worker_ta.to_account_info(),
                         &mint.key(),
-                        &worker_authority.key(),
+                        &worker_wallet.key(),
                     )?;
                     transfer_tokens_from_escrow(
                         token_escrow,
@@ -336,7 +336,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 } else {
                     transfer_lamports(
                         &escrow.to_account_info(),
-                        &worker_authority.to_account_info(),
+                        &worker_wallet.to_account_info(),
                         remaining_funds,
                     )?;
                 }
@@ -356,7 +356,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         .checked_sub(worker_share)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-                    let worker_authority = ctx.accounts.worker_authority.as_ref().unwrap();
+                    let worker_wallet = ctx.accounts.worker_wallet.as_ref().unwrap();
 
                     if is_token_task {
                         let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
@@ -377,7 +377,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         validate_unchecked_token_mint(
                             &worker_ta.to_account_info(),
                             &mint.key(),
-                            &worker_authority.key(),
+                            &worker_wallet.key(),
                         )?;
                         transfer_tokens_from_escrow(
                             token_escrow,
@@ -416,7 +416,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         debit_lamports(&escrow.to_account_info(), remaining_funds)?;
                         let creator_info = ctx.accounts.creator.to_account_info();
                         credit_lamports(&creator_info, creator_share)?;
-                        credit_lamports(&worker_authority.to_account_info(), worker_share)?;
+                        credit_lamports(&worker_wallet.to_account_info(), worker_share)?;
                     }
                 }
                 task.status = TaskStatus::Cancelled;
@@ -495,15 +495,25 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     check_duplicate_arbiters(ctx.remaining_accounts, arbiter_accounts)?;
 
     for i in (0..arbiter_accounts).step_by(2) {
+        let arbiter_index = i
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
         process_arbiter_vote_pair(
             &ctx.remaining_accounts[i],
-            &ctx.remaining_accounts[i + 1],
+            &ctx.remaining_accounts[arbiter_index],
             &dispute.key(),
             &crate::ID,
         )?;
     }
 
-    let worker_pairs = (ctx.remaining_accounts.len() - arbiter_accounts) / 2;
+    let remaining_worker_accounts = ctx
+        .remaining_accounts
+        .len()
+        .checked_sub(arbiter_accounts)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let worker_pairs = remaining_worker_accounts
+        .checked_div(2)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
     let expected_worker_pairs = usize::from(
         task.current_workers
             .checked_sub(1)
@@ -522,9 +532,12 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     )?;
 
     for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
+        let worker_index = i
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
         process_worker_claim_pair(
             &ctx.remaining_accounts[i],
-            &ctx.remaining_accounts[i + 1],
+            &ctx.remaining_accounts[worker_index],
             &task.key(),
             &crate::ID,
         )?;
@@ -546,20 +559,20 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         escrow.close(ctx.accounts.creator.to_account_info())?;
     }
 
-    // Close worker_claim account and return rent lamports to worker authority (fix #838)
-    // The claim rent was paid by worker authority at creation, so return it there
+    // Close worker_claim account and return rent lamports to worker wallet (fix #838)
+    // The claim rent was paid by worker wallet at creation, so return it there
     if !defer_worker_claim_close {
         let claim = ctx
             .accounts
             .worker_claim
             .as_ref()
             .expect("worker claim validated above");
-        let worker_authority = ctx
+        let worker_wallet = ctx
             .accounts
-            .worker_authority
+            .worker_wallet
             .as_ref()
-            .expect("worker authority validated above");
-        claim.close(worker_authority.to_account_info())?;
+            .expect("worker wallet validated above");
+        claim.close(worker_wallet.to_account_info())?;
     }
 
     emit!(DisputeResolved {
@@ -579,7 +592,7 @@ fn validate_worker_accounts(
     dispute: &Dispute,
     worker: &Option<Box<Account<AgentRegistration>>>,
     worker_claim: &Option<Box<Account<TaskClaim>>>,
-    worker_authority: &Option<UncheckedAccount>,
+    worker_wallet: &Option<UncheckedAccount>,
     task_key: &Pubkey,
 ) -> Result<()> {
     let worker = worker
@@ -588,7 +601,7 @@ fn validate_worker_accounts(
     let worker_claim = worker_claim
         .as_ref()
         .ok_or(CoordinationError::WorkerClaimRequired)?;
-    let worker_authority = worker_authority
+    let worker_wallet = worker_wallet
         .as_ref()
         .ok_or(CoordinationError::IncompleteWorkerAccounts)?;
 
@@ -610,9 +623,9 @@ fn validate_worker_accounts(
         CoordinationError::NotClaimed
     );
 
-    // Verify worker authority binding.
+    // Verify worker wallet binding.
     require!(
-        worker_authority.key() == worker.authority,
+        worker_wallet.key() == worker.authority,
         CoordinationError::UnauthorizedAgent
     );
 

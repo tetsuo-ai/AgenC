@@ -460,8 +460,8 @@ fn run_race_condition_tests(iterations: usize) -> (usize, usize) {
     let mut failed = 0;
 
     for i in 0..iterations {
-        let max_workers = ((i % 5) + 1) as u8;
-        let num_claimants = (i % 10) + 1;
+        let max_workers = (i % 5).saturating_add(1) as u8;
+        let num_claimants = (i % 10).saturating_add(1);
 
         let mut task = SimulatedTask {
             task_id: [i as u8; 32],

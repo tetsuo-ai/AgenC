@@ -20,7 +20,8 @@ pub struct UnsuspendAgent<'info> {
     #[account(
         seeds = [b"protocol"],
         bump = protocol_config.bump,
-        has_one = authority @ CoordinationError::UnauthorizedUpgrade
+        has_one = authority @ CoordinationError::UnauthorizedUpgrade,
+        constraint = protocol_config.key() != agent.key() @ CoordinationError::InvalidInput
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 

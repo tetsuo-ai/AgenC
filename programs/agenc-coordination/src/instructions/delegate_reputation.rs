@@ -18,6 +18,9 @@ pub struct DelegateReputation<'info> {
     )]
     pub delegator_agent: Account<'info, AgentRegistration>,
 
+    #[account(
+        constraint = delegatee_agent.key() != delegator_agent.key() @ CoordinationError::ReputationCannotDelegateSelf
+    )]
     pub delegatee_agent: Account<'info, AgentRegistration>,
 
     #[account(

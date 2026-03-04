@@ -21,7 +21,8 @@ pub struct UpdateState<'info> {
         mut,
         seeds = [b"agent", agent.agent_id.as_ref()],
         bump = agent.bump,
-        has_one = authority @ CoordinationError::UnauthorizedAgent
+        has_one = authority @ CoordinationError::UnauthorizedAgent,
+        constraint = agent.key() != state.key() @ CoordinationError::InvalidInput
     )]
     pub agent: Account<'info, AgentRegistration>,
 

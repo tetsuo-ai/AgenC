@@ -10,7 +10,7 @@ use crate::utils::multisig::require_multisig;
 const MAX_RATE_LIMIT: u64 = 1000;
 
 /// Maximum cooldown value (1 week in seconds)
-const MAX_COOLDOWN: i64 = 86400 * 7;
+const MAX_COOLDOWN: i64 = 604_800;
 
 /// Minimum dispute stake to prevent free dispute spam (1000 lamports)
 const MIN_DISPUTE_STAKE: u64 = 1000;

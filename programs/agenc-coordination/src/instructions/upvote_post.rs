@@ -9,7 +9,7 @@ use anchor_lang::prelude::*;
 /// Minimum reputation required to upvote feed posts.
 const MIN_FEED_UPVOTE_REPUTATION: u16 = 5200;
 /// Minimum account age before upvoting is allowed.
-const MIN_FEED_UPVOTE_ACCOUNT_AGE_SECS: i64 = 15 * 60;
+const MIN_FEED_UPVOTE_ACCOUNT_AGE_SECS: i64 = 900;
 
 #[derive(Accounts)]
 pub struct UpvotePost<'info> {
@@ -25,7 +25,8 @@ pub struct UpvotePost<'info> {
         payer = authority,
         space = FeedVote::SIZE,
         seeds = [b"upvote", post.key().as_ref(), voter.key().as_ref()],
-        bump
+        bump,
+        constraint = vote.key() != post.key() @ CoordinationError::InvalidInput
     )]
     pub vote: Account<'info, FeedVote>,
 

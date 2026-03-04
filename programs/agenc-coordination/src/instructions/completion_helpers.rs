@@ -538,7 +538,7 @@ mod tests {
     use crate::state::{DependencyType, TaskStatus};
 
     /// Create a test task with configurable parameters
-    fn create_test_task(
+    fn build_test_task_fixture(
         task_type: TaskType,
         reward_amount: u64,
         required_completions: u8,
@@ -576,14 +576,14 @@ mod tests {
 
         #[test]
         fn test_exclusive_task_full_reward() {
-            let task = create_test_task(TaskType::Exclusive, 1000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 1000, 1, 0);
             let reward = calculate_reward_per_worker(&task).unwrap();
             assert_eq!(reward, 1000);
         }
 
         #[test]
         fn test_competitive_task_full_reward() {
-            let task = create_test_task(TaskType::Competitive, 1000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Competitive, 1000, 1, 0);
             let reward = calculate_reward_per_worker(&task).unwrap();
             assert_eq!(reward, 1000);
         }
@@ -591,7 +591,7 @@ mod tests {
         #[test]
         fn test_collaborative_task_even_split() {
             // 1000 / 4 = 250 per worker
-            let task = create_test_task(TaskType::Collaborative, 1000, 4, 0);
+            let task = build_test_task_fixture(TaskType::Collaborative, 1000, 4, 0);
             let reward = calculate_reward_per_worker(&task).unwrap();
             assert_eq!(reward, 250);
         }
@@ -600,7 +600,7 @@ mod tests {
         fn test_collaborative_task_fair_rounding_first_worker_gets_extra() {
             // 1003 / 4 = 250 with remainder 3
             // First 3 workers (indices 0,1,2) get 251, last worker gets 250
-            let task = create_test_task(TaskType::Collaborative, 1003, 4, 0);
+            let task = build_test_task_fixture(TaskType::Collaborative, 1003, 4, 0);
             let reward = calculate_reward_per_worker(&task).unwrap();
             assert_eq!(reward, 251); // Worker 0 gets +1
         }
@@ -609,7 +609,7 @@ mod tests {
         fn test_collaborative_task_fair_rounding_middle_worker() {
             // 1003 / 4 = 250 with remainder 3
             // Worker index 2 (third worker) still gets +1
-            let task = create_test_task(TaskType::Collaborative, 1003, 4, 2);
+            let task = build_test_task_fixture(TaskType::Collaborative, 1003, 4, 2);
             let reward = calculate_reward_per_worker(&task).unwrap();
             assert_eq!(reward, 251); // Worker 2 gets +1
         }
@@ -618,7 +618,7 @@ mod tests {
         fn test_collaborative_task_fair_rounding_last_worker_no_extra() {
             // 1003 / 4 = 250 with remainder 3
             // Last worker (index 3) doesn't get extra since 3 >= remainder
-            let task = create_test_task(TaskType::Collaborative, 1003, 4, 3);
+            let task = build_test_task_fixture(TaskType::Collaborative, 1003, 4, 3);
             let reward = calculate_reward_per_worker(&task).unwrap();
             assert_eq!(reward, 250); // Worker 3 gets base only
         }
@@ -629,7 +629,7 @@ mod tests {
             // Verify total: 251 + 251 + 251 + 250 = 1003
             let mut total = 0u64;
             for i in 0..4 {
-                let task = create_test_task(TaskType::Collaborative, 1003, 4, i);
+                let task = build_test_task_fixture(TaskType::Collaborative, 1003, 4, i);
                 total += calculate_reward_per_worker(&task).unwrap();
             }
             assert_eq!(total, 1003);
@@ -637,16 +637,17 @@ mod tests {
 
         #[test]
         fn test_collaborative_single_worker() {
-            let task = create_test_task(TaskType::Collaborative, 1000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Collaborative, 1000, 1, 0);
             let reward = calculate_reward_per_worker(&task).unwrap();
             assert_eq!(reward, 1000);
         }
 
         #[test]
         fn test_large_reward_no_overflow() {
-            let task = create_test_task(TaskType::Exclusive, u64::MAX - 1, 1, 0);
+            let task =
+                build_test_task_fixture(TaskType::Exclusive, u64::MAX.saturating_sub(1), 1, 0);
             let reward = calculate_reward_per_worker(&task).unwrap();
-            assert_eq!(reward, u64::MAX - 1);
+            assert_eq!(reward, u64::MAX.saturating_sub(1));
         }
     }
 
@@ -655,7 +656,7 @@ mod tests {
 
         #[test]
         fn test_zero_protocol_fee() {
-            let task = create_test_task(TaskType::Exclusive, 1000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 1000, 1, 0);
             let (worker, fee) = calculate_reward_split(&task, 0).unwrap();
             assert_eq!(worker, 1000);
             assert_eq!(fee, 0);
@@ -664,7 +665,7 @@ mod tests {
         #[test]
         fn test_1_percent_fee() {
             // 1% = 100 basis points
-            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 10000, 1, 0);
             let (worker, fee) = calculate_reward_split(&task, 100).unwrap();
             assert_eq!(fee, 100); // 1% of 10000
             assert_eq!(worker, 9900);
@@ -673,7 +674,7 @@ mod tests {
         #[test]
         fn test_10_percent_fee() {
             // 10% = 1000 basis points
-            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 10000, 1, 0);
             let (worker, fee) = calculate_reward_split(&task, 1000).unwrap();
             assert_eq!(fee, 1000); // 10% of 10000
             assert_eq!(worker, 9000);
@@ -682,7 +683,7 @@ mod tests {
         #[test]
         fn test_fee_rounds_down() {
             // 1% of 99 = 0.99, rounds down to 0
-            let task = create_test_task(TaskType::Exclusive, 99, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 99, 1, 0);
             let (worker, fee) = calculate_reward_split(&task, 100).unwrap();
             assert_eq!(fee, 0);
             assert_eq!(worker, 99);
@@ -692,7 +693,7 @@ mod tests {
         fn test_collaborative_with_fee() {
             // 4 workers, 10000 total = 2500 each
             // 5% fee on 2500 = 125
-            let task = create_test_task(TaskType::Collaborative, 10000, 4, 0);
+            let task = build_test_task_fixture(TaskType::Collaborative, 10000, 4, 0);
             let (worker, fee) = calculate_reward_split(&task, 500).unwrap();
             assert_eq!(fee, 125); // 5% of 2500
             assert_eq!(worker, 2375);
@@ -702,7 +703,7 @@ mod tests {
         fn test_max_fee_100_percent() {
             // 100% = 10000 basis points - takes all funds, leaving 0 for worker
             // This must fail with RewardTooSmall since worker_reward == 0
-            let task = create_test_task(TaskType::Exclusive, 1000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 1000, 1, 0);
             let result = calculate_reward_split(&task, 10000);
             assert!(result.is_err(), "100% fee should fail: worker gets nothing");
         }
@@ -710,7 +711,7 @@ mod tests {
         #[test]
         fn test_small_reward_small_fee() {
             // 1 lamport reward with 1% fee = 0 fee (rounds down)
-            let task = create_test_task(TaskType::Exclusive, 1, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 1, 1, 0);
             let (worker, fee) = calculate_reward_split(&task, 100).unwrap();
             assert_eq!(fee, 0);
             assert_eq!(worker, 1);
@@ -723,7 +724,7 @@ mod tests {
         #[test]
         fn test_zero_reward() {
             // Zero reward must fail with RewardTooSmall since worker gets nothing
-            let task = create_test_task(TaskType::Exclusive, 0, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 0, 1, 0);
             let result = calculate_reward_split(&task, 100);
             assert!(
                 result.is_err(),
@@ -733,7 +734,7 @@ mod tests {
 
         #[test]
         fn test_max_completions() {
-            let task = create_test_task(TaskType::Collaborative, 25500, 255, 254);
+            let task = build_test_task_fixture(TaskType::Collaborative, 25500, 255, 254);
             let reward = calculate_reward_per_worker(&task).unwrap();
             // 25500 / 255 = 100, remainder 0
             assert_eq!(reward, 100);
@@ -745,7 +746,7 @@ mod tests {
 
         #[test]
         fn test_completion_counters_update_together() {
-            let mut task = create_test_task(TaskType::Collaborative, 1000, 3, 1);
+            let mut task = build_test_task_fixture(TaskType::Collaborative, 1000, 3, 1);
             task.current_workers = 2;
 
             update_task_completion_counters(&mut task).unwrap();
@@ -756,7 +757,7 @@ mod tests {
 
         #[test]
         fn test_completion_counters_fail_on_worker_underflow() {
-            let mut task = create_test_task(TaskType::Collaborative, 1000, 3, 1);
+            let mut task = build_test_task_fixture(TaskType::Collaborative, 1000, 3, 1);
             task.current_workers = 0;
 
             let result = update_task_completion_counters(&mut task);
@@ -771,7 +772,7 @@ mod tests {
         #[test]
         fn test_tiered_split_base_tier() {
             // New creator with 0 completed tasks -> no discount
-            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 10000, 1, 0);
             let (worker, fee, effective_bps) =
                 calculate_reward_split_tiered(&task, 100, 0).unwrap();
             assert_eq!(effective_bps, 100); // No discount
@@ -782,7 +783,7 @@ mod tests {
         #[test]
         fn test_tiered_split_bronze() {
             // Creator with 50 completed tasks -> 10 bps discount
-            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 10000, 1, 0);
             let (worker, fee, effective_bps) =
                 calculate_reward_split_tiered(&task, 100, 50).unwrap();
             assert_eq!(effective_bps, 90); // 10 bps discount
@@ -793,7 +794,7 @@ mod tests {
         #[test]
         fn test_tiered_split_gold() {
             // Creator with 1000+ completed tasks -> 40 bps discount
-            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let task = build_test_task_fixture(TaskType::Exclusive, 10000, 1, 0);
             let (worker, fee, effective_bps) =
                 calculate_reward_split_tiered(&task, 100, 1500).unwrap();
             assert_eq!(effective_bps, 60); // 40 bps discount
@@ -804,7 +805,7 @@ mod tests {
         #[test]
         fn test_tiered_split_collaborative() {
             // 4 workers, 10000 total = 2500 each, bronze tier
-            let task = create_test_task(TaskType::Collaborative, 10000, 4, 0);
+            let task = build_test_task_fixture(TaskType::Collaborative, 10000, 4, 0);
             let (worker, fee, effective_bps) =
                 calculate_reward_split_tiered(&task, 500, 100).unwrap();
             assert_eq!(effective_bps, 490); // 10 bps discount on 500

@@ -64,7 +64,7 @@ pub mod capability {
     pub const AGGREGATOR: u64 = 1 << 9;
 
     /// Bitmask covering all currently defined capabilities (bits 0-9)
-    pub const ALL_DEFINED: u64 = (1 << 10) - 1;
+    pub const ALL_DEFINED: u64 = 0x03ff;
 }
 
 /// Agent status
@@ -309,42 +309,15 @@ impl Default for ProtocolConfig {
 
 impl ProtocolConfig {
     pub const MAX_MULTISIG_OWNERS: usize = 5;
-    pub const DEFAULT_MAX_CLAIM_DURATION: i64 = 7 * 24 * 60 * 60; // 7 days
-    pub const DEFAULT_MAX_DISPUTE_DURATION: i64 = 7 * 24 * 60 * 60; // 7 days
+    pub const DEFAULT_MAX_CLAIM_DURATION: i64 = 604_800; // 7 days
+    pub const DEFAULT_MAX_DISPUTE_DURATION: i64 = 604_800; // 7 days
     /// Default percentage of stake slashed for malicious behavior.
     /// Increased from 10% to 25% to provide stronger deterrence against bad actors
     /// while remaining proportionate to typical violation severity.
     pub const DEFAULT_SLASH_PERCENTAGE: u8 = 25;
     /// Default voting period for disputes: 24 hours
-    pub const DEFAULT_VOTING_PERIOD: i64 = 24 * 60 * 60;
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // authority
-        32 + // treasury
-        1 +  // dispute_threshold
-        2 +  // protocol_fee_bps
-        8 +  // min_arbiter_stake
-        8 +  // min_agent_stake
-        8 +  // max_claim_duration
-        8 +  // max_dispute_duration
-        8 +  // total_agents
-        8 +  // total_tasks
-        8 +  // completed_tasks
-        8 +  // total_value_distributed
-        1 +  // bump
-        1 +  // multisig_threshold
-        1 +  // multisig_owners_len
-        8 +  // task_creation_cooldown
-        1 +  // max_tasks_per_24h
-        8 +  // dispute_initiation_cooldown
-        1 +  // max_disputes_per_24h
-        8 +  // min_stake_for_dispute
-        1 +  // slash_percentage
-        8 +  // state_update_cooldown
-        8 +  // voting_period
-        1 +  // protocol_version
-        1 +  // min_supported_version
-        2 +  // padding
-        (32 * Self::MAX_MULTISIG_OWNERS); // multisig owners
+    pub const DEFAULT_VOTING_PERIOD: i64 = 86_400;
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // multisig owners
 
     /// Validates that padding bytes are zeroed.
     /// Called during migration to ensure no data corruption.
@@ -424,31 +397,7 @@ pub struct AgentRegistration {
 }
 
 impl AgentRegistration {
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // agent_id
-        32 + // authority
-        8 +  // capabilities
-        1 +  // status
-        4 + 256 + // endpoint (string)
-        4 + 128 + // metadata_uri (string)
-        8 +  // registered_at
-        8 +  // last_active
-        8 +  // tasks_completed
-        8 +  // total_earned
-        2 +  // reputation
-        2 +  // active_tasks
-        8 +  // stake
-        1 +  // bump
-        8 +  // last_task_created
-        8 +  // last_dispute_initiated
-        1 +  // task_count_24h
-        1 +  // dispute_count_24h
-        8 +  // rate_limit_window_start
-        1 +  // active_dispute_votes
-        8 +  // last_vote_timestamp
-        8 +  // last_state_update
-        1 +  // disputes_as_defendant
-        4; // reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // reserved
 
     /// Validates that reserved bytes are zeroed.
     /// Called during migration to ensure no data corruption.
@@ -551,30 +500,7 @@ impl Default for Task {
 impl Task {
     /// Prefer using `8 + Task::INIT_SPACE` (from #[derive(InitSpace)]).
     /// This manual constant is kept for backwards compatibility.
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // task_id
-        32 + // creator
-        8 +  // required_capabilities
-        64 + // description
-        32 + // constraint_hash
-        8 +  // reward_amount
-        1 +  // max_workers
-        1 +  // current_workers
-        1 +  // status
-        1 +  // task_type
-        8 +  // created_at
-        8 +  // deadline
-        8 +  // completed_at
-        32 + // escrow
-        64 + // result
-        1 +  // completions
-        1 +  // required_completions
-        1 +  // bump
-        2 +  // protocol_fee_bps
-        33 + // depends_on (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
-        1 +  // dependency_type
-        2 +  // min_reputation
-        33; // reward_mint (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // reward_mint (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
 }
 
 /// Worker's claim on a task
@@ -625,18 +551,7 @@ impl Default for TaskClaim {
 }
 
 impl TaskClaim {
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // task
-        32 + // worker
-        8 +  // claimed_at
-        8 +  // expires_at
-        8 +  // completed_at
-        32 + // proof_hash
-        64 + // result_data
-        1 +  // is_completed
-        1 +  // is_validated
-        8 +  // reward_paid
-        1; // bump
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
 }
 
 /// Shared coordination state
@@ -675,14 +590,7 @@ impl Default for CoordinationState {
 }
 
 impl CoordinationState {
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // owner
-        32 + // state_key
-        64 + // state_value
-        32 + // last_updater
-        8 +  // version
-        8 +  // updated_at
-        1; // bump
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
 }
 
 /// Dispute account for conflict resolution
@@ -740,27 +648,7 @@ pub struct Dispute {
 }
 
 impl Dispute {
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // dispute_id
-        32 + // task
-        32 + // initiator
-        32 + // initiator_authority
-        32 + // evidence_hash
-        1 +  // resolution_type
-        1 +  // status
-        8 +  // created_at
-        8 +  // resolved_at
-        8 +  // votes_for
-        8 +  // votes_against
-        1 +  // total_voters
-        8 +  // voting_deadline
-        8 +  // expires_at
-        1 +  // slash_applied
-        1 +  // initiator_slash_applied
-        8 +  // worker_stake_at_dispute
-        1 +  // initiated_by_creator
-        1 +  // bump
-        32; // defendant (fix #827)
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // defendant (fix #827)
 }
 
 /// Vote record for dispute
@@ -783,13 +671,7 @@ pub struct DisputeVote {
 }
 
 impl DisputeVote {
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // dispute
-        32 + // voter
-        1 +  // approved
-        8 +  // voted_at
-        8 +  // stake_at_vote
-        1; // bump
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
 }
 
 /// Authority-level vote record to prevent Sybil attacks
@@ -811,12 +693,7 @@ pub struct AuthorityDisputeVote {
 }
 
 impl AuthorityDisputeVote {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // dispute
-        32 + // authority
-        32 + // voting_agent
-        8 + // voted_at
-        1; // bump
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
 }
 
 /// Task escrow account
@@ -837,12 +714,7 @@ pub struct TaskEscrow {
 }
 
 impl TaskEscrow {
-    pub const SIZE: usize = 8 + // discriminator
-        32 + // task
-        8 +  // amount
-        8 +  // distributed
-        1 +  // is_closed
-        1; // bump
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
 }
 
 /// Agent's speculation bond account
@@ -859,7 +731,7 @@ pub struct SpeculationBond {
 }
 
 impl SpeculationBond {
-    pub const SIZE: usize = 8 + 32 + 8 + 8 + 8 + 8 + 1;
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8);
 }
 
 /// On-chain record of a speculative commitment
@@ -877,7 +749,7 @@ pub struct SpeculativeCommitment {
 }
 
 impl SpeculativeCommitment {
-    pub const SIZE: usize = 8 + 32 + 32 + 32 + 1 + 8 + 8 + 8 + 1; // 130 bytes
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // 130 bytes
 }
 
 /// Binding spend account to prevent statement replay for the same
@@ -899,12 +771,7 @@ pub struct BindingSpend {
 }
 
 impl BindingSpend {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // binding
-        32 + // task
-        32 + // agent
-        8 +  // spent_at
-        1; // bump
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
 }
 
 /// Nullifier spend account to prevent global proof/knowledge replay.
@@ -925,12 +792,7 @@ pub struct NullifierSpend {
 }
 
 impl NullifierSpend {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // nullifier
-        32 + // task
-        32 + // agent
-        8 +  // spent_at
-        1; // bump
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
 }
 
 // ============================================================================
@@ -963,28 +825,19 @@ pub struct GovernanceConfig {
 }
 
 impl GovernanceConfig {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // authority
-        8 +  // min_proposal_stake
-        8 +  // voting_period
-        8 +  // execution_delay
-        2 +  // quorum_bps
-        2 +  // approval_threshold_bps
-        8 +  // total_proposals
-        1 +  // bump
-        64; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 
     /// Default voting period: 3 days
-    pub const DEFAULT_VOTING_PERIOD: i64 = 3 * 24 * 60 * 60;
+    pub const DEFAULT_VOTING_PERIOD: i64 = 259_200;
 
     /// Maximum voting period: 7 days
-    pub const MAX_VOTING_PERIOD: i64 = 7 * 24 * 60 * 60;
+    pub const MAX_VOTING_PERIOD: i64 = 604_800;
 
     /// Default execution delay: 1 day
-    pub const DEFAULT_EXECUTION_DELAY: i64 = 24 * 60 * 60;
+    pub const DEFAULT_EXECUTION_DELAY: i64 = 86_400;
 
     /// Maximum execution delay: 7 days
-    pub const MAX_EXECUTION_DELAY: i64 = 7 * 24 * 60 * 60;
+    pub const MAX_EXECUTION_DELAY: i64 = 604_800;
 }
 
 /// Governance proposal type
@@ -1064,25 +917,7 @@ pub struct Proposal {
 }
 
 impl Proposal {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // proposer
-        32 + // proposer_authority
-        8 +  // nonce
-        1 +  // proposal_type
-        32 + // title_hash
-        32 + // description_hash
-        64 + // payload
-        1 +  // status
-        8 +  // created_at
-        8 +  // voting_deadline
-        8 +  // execution_after
-        8 +  // executed_at
-        8 +  // votes_for
-        8 +  // votes_against
-        2 +  // total_voters
-        8 +  // quorum
-        1 +  // bump
-        64; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 /// Governance vote record
@@ -1107,14 +942,7 @@ pub struct GovernanceVote {
 }
 
 impl GovernanceVote {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // proposal
-        32 + // voter
-        1 +  // approved
-        8 +  // voted_at
-        8 +  // vote_weight
-        1 +  // bump
-        8; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 // ============================================================================
@@ -1161,23 +989,7 @@ pub struct SkillRegistration {
 }
 
 impl SkillRegistration {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // author
-        32 + // skill_id
-        32 + // name
-        32 + // content_hash
-        8 +  // price
-        33 + // price_mint (Option<Pubkey>)
-        64 + // tags
-        8 +  // total_rating
-        4 +  // rating_count
-        4 +  // download_count
-        1 +  // version
-        1 +  // is_active
-        8 +  // created_at
-        8 +  // updated_at
-        1 +  // bump
-        8; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 /// Skill rating record (one per rater per skill)
@@ -1204,15 +1016,7 @@ pub struct SkillRating {
 }
 
 impl SkillRating {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // skill
-        32 + // rater
-        1 +  // rating
-        33 + // review_hash (Option<[u8;32]>)
-        2 +  // rater_reputation
-        8 +  // timestamp
-        1 +  // bump
-        4; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 /// Purchase record (one per buyer per skill, prevents double purchase)
@@ -1235,13 +1039,7 @@ pub struct PurchaseRecord {
 }
 
 impl PurchaseRecord {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // skill
-        32 + // buyer
-        8 +  // price_paid
-        8 +  // timestamp
-        1 +  // bump
-        4; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 /// Agent feed post (content hash stored on-chain, content on IPFS)
@@ -1270,16 +1068,7 @@ pub struct FeedPost {
 }
 
 impl FeedPost {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // author
-        32 + // content_hash
-        32 + // topic
-        33 + // parent_post (Option<Pubkey>)
-        32 + // nonce
-        4 +  // upvote_count
-        8 +  // created_at
-        1 +  // bump
-        8; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 /// Feed upvote record (one per voter per post, prevents double voting)
@@ -1300,12 +1089,7 @@ pub struct FeedVote {
 }
 
 impl FeedVote {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // post
-        32 + // voter
-        8 +  // timestamp
-        1 +  // bump
-        4; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 // ============================================================================
@@ -1336,14 +1120,7 @@ pub struct ReputationStake {
 }
 
 impl ReputationStake {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // agent
-        8 +  // staked_amount
-        8 +  // locked_until
-        1 +  // slash_count
-        8 +  // created_at
-        1 +  // bump
-        8; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 /// Reputation delegation — agent delegates reputation points to a trusted peer.
@@ -1369,14 +1146,7 @@ pub struct ReputationDelegation {
 }
 
 impl ReputationDelegation {
-    pub const SIZE: usize = 8 +  // discriminator
-        32 + // delegator
-        32 + // delegatee
-        2 +  // amount
-        8 +  // expires_at
-        8 +  // created_at
-        1 +  // bump
-        8; // _reserved
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // _reserved
 }
 
 #[cfg(test)]

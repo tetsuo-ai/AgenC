@@ -662,7 +662,7 @@ pub fn simulate_expire_claim(
 }
 
 /// Simulate initiating a dispute for a task
-pub fn simulate_initiate_dispute(
+pub fn simulate_dispute_open(
     task: &mut SimulatedTask,
     dispute: &mut SimulatedDispute,
 ) -> SimulationResult {
@@ -797,7 +797,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    fn setup_valid_task() -> SimulatedTask {
+    fn build_valid_task_fixture() -> SimulatedTask {
         SimulatedTask {
             task_id: [1u8; 32],
             status: task_status::OPEN,
@@ -812,7 +812,7 @@ mod tests {
         }
     }
 
-    fn setup_valid_worker() -> SimulatedAgent {
+    fn build_valid_worker_fixture() -> SimulatedAgent {
         SimulatedAgent {
             agent_id: [2u8; 32],
             capabilities: 0xFF, // All capabilities
@@ -827,8 +827,8 @@ mod tests {
 
     #[test]
     fn test_claim_task_success() {
-        let mut task = setup_valid_task();
-        let mut worker = setup_valid_worker();
+        let mut task = build_valid_task_fixture();
+        let mut worker = build_valid_worker_fixture();
 
         let result = simulate_claim_task(&mut task, &mut worker, 100);
         assert!(result.is_success());
@@ -839,11 +839,11 @@ mod tests {
 
     #[test]
     fn test_claim_task_exceeds_max_workers() {
-        let mut task = setup_valid_task();
+        let mut task = build_valid_task_fixture();
         task.max_workers = 1;
         task.current_workers = 1;
 
-        let mut worker = setup_valid_worker();
+        let mut worker = build_valid_worker_fixture();
 
         let result = simulate_claim_task(&mut task, &mut worker, 100);
         assert!(result.is_error());
@@ -851,7 +851,7 @@ mod tests {
 
     #[test]
     fn test_complete_task_success() {
-        let mut task = setup_valid_task();
+        let mut task = build_valid_task_fixture();
         task.status = task_status::IN_PROGRESS;
         task.current_workers = 1;
 
@@ -861,7 +861,7 @@ mod tests {
             is_closed: false,
         };
 
-        let mut worker = setup_valid_worker();
+        let mut worker = build_valid_worker_fixture();
         worker.active_tasks = 1; // Worker must have claimed the task first
         let config = SimulatedConfig::default();
 
@@ -885,7 +885,7 @@ mod tests {
             amount in 1u64..u64::MAX/2,
             fee_bps in 0u16..10000u16,
         ) {
-            let mut task = setup_valid_task();
+            let mut task = build_valid_task_fixture();
             task.status = task_status::IN_PROGRESS;
             task.reward_amount = amount;
 
@@ -895,7 +895,7 @@ mod tests {
                 is_closed: false,
             };
 
-            let mut worker = setup_valid_worker();
+            let mut worker = build_valid_worker_fixture();
             let config = SimulatedConfig {
                 protocol_fee_bps: fee_bps,
                 ..Default::default()
@@ -925,7 +925,7 @@ mod tests {
             initial_rep in 0u16..=10000u16,
             num_completions in 0usize..200usize,
         ) {
-            let mut worker = setup_valid_worker();
+            let mut worker = build_valid_worker_fixture();
             worker.reputation = initial_rep;
 
             for _ in 0..num_completions {
@@ -941,12 +941,12 @@ mod tests {
             max_workers in 1u8..=10u8,
             num_claimants in 1usize..20usize,
         ) {
-            let mut task = setup_valid_task();
+            let mut task = build_valid_task_fixture();
             task.max_workers = max_workers;
 
             let mut workers: Vec<_> = (0..num_claimants)
                 .map(|i| {
-                    let mut w = setup_valid_worker();
+                    let mut w = build_valid_worker_fixture();
                     w.agent_id[0] = i as u8;
                     w
                 })
@@ -987,11 +987,11 @@ mod tests {
             is_closed: false,
         };
 
-        let mut worker1 = setup_valid_worker();
+        let mut worker1 = build_valid_worker_fixture();
         worker1.agent_id[0] = 1;
         worker1.active_tasks = 1;
 
-        let mut worker2 = setup_valid_worker();
+        let mut worker2 = build_valid_worker_fixture();
         worker2.agent_id[0] = 2;
         worker2.active_tasks = 1;
 

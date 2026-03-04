@@ -26,12 +26,6 @@ fn has_path(graph: &[Vec<usize>], from: usize, to: usize, visited: &mut [bool]) 
     false
 }
 
-fn would_create_cycle(graph: &[Vec<usize>], parent: usize, child: usize) -> bool {
-    // Adding parent -> child creates a cycle if there is already a path child -> parent
-    let mut visited = vec![false; graph.len()];
-    has_path(graph, child, parent, &mut visited)
-}
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
 
@@ -65,7 +59,8 @@ proptest! {
                 continue;
             }
 
-            if would_create_cycle(&graph, p, c) {
+            let mut visited = vec![false; graph.len()];
+            if has_path(&graph, c, p, &mut visited) {
                 continue;
             }
 
@@ -121,4 +116,3 @@ proptest! {
         }
     }
 }
-

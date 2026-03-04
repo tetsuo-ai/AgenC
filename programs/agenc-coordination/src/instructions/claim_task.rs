@@ -23,7 +23,8 @@ pub struct ClaimTask<'info> {
         payer = authority,
         space = TaskClaim::SIZE,
         seeds = [b"claim", task.key().as_ref(), worker.key().as_ref()],
-        bump
+        bump,
+        constraint = claim.key() != task.key() @ CoordinationError::InvalidInput
     )]
     pub claim: Account<'info, TaskClaim>,
 
@@ -122,7 +123,12 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
         .unwrap_or(0);
     if inactive_periods > 0 && worker.reputation > REPUTATION_DECAY_MIN {
         // Clamp periods to prevent u16 truncation (max useful = MAX_REPUTATION / DECAY_RATE + 1)
-        let max_periods = ((MAX_REPUTATION / REPUTATION_DECAY_RATE) as i64) + 1;
+        let max_periods = i64::from(
+            MAX_REPUTATION
+                .checked_div(REPUTATION_DECAY_RATE)
+                .unwrap_or(0),
+        )
+        .saturating_add(1);
         let capped_periods = inactive_periods.min(max_periods) as u16;
         let decay = capped_periods.saturating_mul(REPUTATION_DECAY_RATE);
         let old_rep = worker.reputation;

@@ -32,7 +32,8 @@
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts",
     "fender:list": "node scripts/solana-fender-mcp.mjs list",
     "fender:check:file": "node scripts/solana-fender-mcp.mjs check-file",
-    "fender:check:program": "node scripts/solana-fender-mcp.mjs check-program"
+    "fender:check:program": "node scripts/solana-fender-mcp.mjs check-program",
+    "fender:gate:program": "npm run -s fender:check:program -- programs/agenc-coordination > .tmp/fender-program-scan-current.txt && node scripts/check-fender-baseline.mjs --scan .tmp/fender-program-scan-current.txt --baseline docs/security/fender-medium-baseline.json"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

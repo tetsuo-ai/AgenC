@@ -239,8 +239,8 @@ pub fn check_reputation_bounds(reputation: u16) -> ReputationInvariantResult {
     }
 }
 
-/// R2: Initial Reputation
-pub fn check_initial_reputation(reputation: u16, is_new_agent: bool) -> ReputationInvariantResult {
+/// R2: Initial reputation for newly created simulated agents.
+pub fn check_genesis_reputation(reputation: u16, is_new_agent: bool) -> ReputationInvariantResult {
     if is_new_agent && reputation != 5000 {
         ReputationInvariantResult::InitialReputationWrong {
             expected: 5000,
@@ -346,7 +346,10 @@ pub fn check_dispute_threshold(
         return DisputeInvariantResult::InsufficientVotes { total: 0, required: 1 };
     }
 
-    let approval_pct = (votes_for as u64 * 100) / (total as u64);
+    let approval_pct = (votes_for as u64)
+        .checked_mul(100)
+        .and_then(|value| value.checked_div(total as u64))
+        .unwrap_or(0);
     let should_approve = approval_pct >= threshold as u64;
 
     // D4: The approved result must match the threshold calculation
@@ -436,7 +439,7 @@ impl ArithmeticCheck {
             self.overflows.push(format!("{}: {} / 0 division by zero", name, a));
             None
         } else {
-            Some(a / b)
+            a.checked_div(b)
         }
     }
 

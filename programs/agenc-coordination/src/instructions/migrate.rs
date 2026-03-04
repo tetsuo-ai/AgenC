@@ -63,7 +63,10 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
     );
 
     // Apply migrations sequentially
-    for version in (current_version + 1)..=target_version {
+    let first_version = current_version
+        .checked_add(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    for version in first_version..=target_version {
         apply_migration(config, version)?;
     }
 

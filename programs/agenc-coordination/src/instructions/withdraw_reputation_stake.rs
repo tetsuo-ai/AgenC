@@ -19,6 +19,7 @@ pub struct WithdrawReputationStake<'info> {
         mut,
         seeds = [b"reputation_stake", agent.key().as_ref()],
         bump = reputation_stake.bump,
+        constraint = reputation_stake.key() != agent.key() @ CoordinationError::InvalidInput
     )]
     pub reputation_stake: Account<'info, ReputationStake>,
 }

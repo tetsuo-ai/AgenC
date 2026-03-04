@@ -16,7 +16,7 @@ use anchor_lang::system_program;
 const MAX_RATE_LIMIT: u64 = 1000;
 
 /// Maximum cooldown value: 1 week in seconds (matches update_rate_limits.rs)
-const MAX_COOLDOWN: i64 = 86400 * 7;
+const MAX_COOLDOWN: i64 = 604_800;
 
 /// Minimum dispute stake to prevent free dispute spam (matches update_rate_limits.rs)
 const MIN_DISPUTE_STAKE: u64 = 1000;

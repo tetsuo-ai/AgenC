@@ -25,7 +25,8 @@ pub struct CancelTask<'info> {
         mut,
         close = creator,
         seeds = [b"escrow", task.key().as_ref()],
-        bump = escrow.bump
+        bump = escrow.bump,
+        constraint = escrow.key() != task.key() @ CoordinationError::InvalidInput
     )]
     pub escrow: Account<'info, TaskEscrow>,
 
@@ -57,12 +58,18 @@ pub struct CancelTask<'info> {
     pub token_program: Option<Program<'info, Token>>,
 }
 
-pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
+pub fn process_cancel_task(ctx: Context<CancelTask>) -> Result<()> {
+    process_cancel_task_impl(ctx)
+}
+
+fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
     check_version_compatible(&ctx.accounts.protocol_config)?;
 
     let task = &mut ctx.accounts.task;
     let escrow = &mut ctx.accounts.escrow;
     let clock = Clock::get()?;
+    require!(task.bump > 0, CoordinationError::CorruptedData);
+    require!(escrow.bump > 0, CoordinationError::CorruptedData);
 
     // Validate status transition is allowed (fix #538)
     require!(
@@ -171,7 +178,11 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         ctx.remaining_accounts.len() % 3 == 0,
         CoordinationError::InvalidInput
     );
-    let num_triples = ctx.remaining_accounts.len() / 3;
+    let num_triples = ctx
+        .remaining_accounts
+        .len()
+        .checked_div(3)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // SECURITY FIX #361: Validate ALL worker claims are provided BEFORE processing
     // Without this check, a malicious caller could pass only a subset of claims,
@@ -182,9 +193,19 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     );
 
     for i in 0..num_triples {
-        let claim_info = &ctx.remaining_accounts[i * 3];
-        let worker_info = &ctx.remaining_accounts[i * 3 + 1];
-        let rent_recipient_info = &ctx.remaining_accounts[i * 3 + 2];
+        let base = i
+            .checked_mul(3)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let worker_index = base
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let rent_recipient_index = base
+            .checked_add(2)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+        let claim_info = &ctx.remaining_accounts[base];
+        let worker_info = &ctx.remaining_accounts[worker_index];
+        let rent_recipient_info = &ctx.remaining_accounts[rent_recipient_index];
 
         // Validate claim belongs to this task
         require!(
