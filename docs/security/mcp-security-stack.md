@@ -31,7 +31,7 @@ No single scanner catches everything. This stack intentionally overlaps:
 Recommended environment variables:
 
 - `SEMGREP_APP_TOKEN` (for Semgrep AppSec platform features/rules)
-- `GITGUARDIAN_API_KEY` (avoids interactive OAuth prompt)
+- `GITGUARDIAN_API_KEY` (optional for `ggshield`; MCP mode can use OAuth login instead)
 - `ANCHOR_PROVIDER_URL` and `ANCHOR_WALLET` (for Solana Fender environment)
 
 ## Healthcheck
@@ -66,6 +66,19 @@ Optional arguments:
 The skill writes a structured report to:
 
 `.claude/notes/security-mcp-sweep-YYYY-MM-DD.md`
+
+## GitGuardian MCP Scan (No `ggshield` dependency)
+
+Use the direct MCP scanner wrapper (adaptive batch split + retry/backoff):
+
+```bash
+npm run -s security:gitguardian:mcp:scan -- --scope . --output .tmp/security-mcp-sweep/gitguardian-mcp.json
+```
+
+Notes:
+- Uses MCP `scan_secrets` from the configured `gitguardian` server in `mcp/security-stack.mcp.json`
+- Automatically splits oversized batches when the API returns `400 Bad Request`
+- Retries transient and rate-limit failures with exponential backoff
 
 ## Trivy Image Scan (Closes "No image scan" gap)
 

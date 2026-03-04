@@ -505,7 +505,14 @@ export function createDesktopAwareToolHandler(
       log.warn?.(
         `Desktop tool "${name}" failed with transient error for session ${sessionId}; recycling sandbox and retrying once`,
       );
-      await recycleDesktopSession(sessionId, desktopManager, bridges, playwrightBridges, containerMCPBridges);
+      await recycleDesktopSession(
+        sessionId,
+        desktopManager,
+        bridges,
+        playwrightBridges,
+        containerMCPBridges,
+        log,
+      );
       const recovered = await ensureBridge(sessionId, desktopManager, bridges, log);
       if (recovered) {
         const retryTool = recovered.getTools().find((t) => t.name === `desktop.${toolName}`);
@@ -564,6 +571,7 @@ export function destroySessionBridge(
   bridges: Map<string, DesktopRESTBridge>,
   playwrightBridges?: Map<string, MCPToolBridge>,
   containerMCPBridges?: Map<string, MCPToolBridge[]>,
+  log: Logger = silentLogger,
 ): void {
   const bridge = bridges.get(sessionId);
   if (bridge) {
@@ -573,14 +581,24 @@ export function destroySessionBridge(
 
   const pwBridge = playwrightBridges?.get(sessionId);
   if (pwBridge) {
-    void pwBridge.dispose().catch(() => {});
+    void pwBridge.dispose().catch((error) => {
+      log.debug("Failed to dispose Playwright bridge during session cleanup", {
+        sessionId,
+        error: toErrorMessage(error),
+      });
+    });
     playwrightBridges!.delete(sessionId);
   }
 
   const mcpBridges = containerMCPBridges?.get(sessionId);
   if (mcpBridges) {
     for (const b of mcpBridges) {
-      void b.dispose().catch(() => {});
+      void b.dispose().catch((error) => {
+        log.debug("Failed to dispose container MCP bridge during session cleanup", {
+          sessionId,
+          error: toErrorMessage(error),
+        });
+      });
     }
     containerMCPBridges!.delete(sessionId);
   }
@@ -663,7 +681,14 @@ async function ensureBridge(
     log.warn?.(
       `Desktop bridge bootstrap failed for session ${sessionId}: ${toErrorMessage(firstErr)}. Recycling sandbox and retrying once.`,
     );
-    await recycleDesktopSession(sessionId, desktopManager, bridges);
+    await recycleDesktopSession(
+      sessionId,
+      desktopManager,
+      bridges,
+      undefined,
+      undefined,
+      log,
+    );
     try {
       return await connectBridge();
     } catch (secondErr) {
@@ -688,12 +713,14 @@ async function recycleDesktopSession(
   bridges: Map<string, DesktopRESTBridge>,
   playwrightBridges?: Map<string, MCPToolBridge>,
   containerMCPBridges?: Map<string, MCPToolBridge[]>,
+  log: Logger = silentLogger,
 ): Promise<void> {
   destroySessionBridge(
     sessionId,
     bridges,
     playwrightBridges,
     containerMCPBridges,
+    log,
   );
   try {
     await desktopManager.destroyBySession(sessionId);

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionState, WSMessage } from '../types';
+import {
+  computeReconnectDelayMs,
+  DEFAULT_GATEWAY_SOCKET_BACKOFF,
+  enqueueBounded,
+  flushQueueIfOpen,
+  parseJsonMessage,
+  serializeAuthMessage,
+  serializePingMessage,
+} from '../../../runtime/src/channels/webchat/socket-client-core';
 
 function getDefaultWsUrl(): string {
   if (typeof window !== 'undefined') {
@@ -14,9 +23,6 @@ function getDefaultWsUrl(): string {
 
 const DEFAULT_URL = getDefaultWsUrl();
 const PING_INTERVAL_MS = 30_000;
-const RECONNECT_BASE_DELAY_MS = 1_000;
-const RECONNECT_MAX_DELAY_MS = 30_000;
-const JITTER_FACTOR = 0.2;
 const MAX_OFFLINE_QUEUE = 1_000;
 
 interface UseWebSocketOptions {
@@ -60,7 +66,7 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
     stopPing();
     pingTimerRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'ping' }));
+        wsRef.current.send(serializePingMessage());
       }
     }, PING_INTERVAL_MS);
   }, [stopPing]);
@@ -73,23 +79,11 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
   }, []);
 
   const flushQueue = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    while (offlineQueueRef.current.length > 0) {
-      const next = offlineQueueRef.current.shift();
-      if (next) {
-        ws.send(next);
-      }
-    }
+    flushQueueIfOpen(wsRef.current, WebSocket.OPEN, offlineQueueRef.current);
   }, []);
 
   const enqueue = useCallback((payload: string) => {
-    if (offlineQueueRef.current.length >= MAX_OFFLINE_QUEUE) {
-      offlineQueueRef.current.shift();
-    }
-    offlineQueueRef.current.push(payload);
+    enqueueBounded(offlineQueueRef.current, payload, MAX_OFFLINE_QUEUE);
   }, []);
 
   const connect = useCallback(() => {
@@ -112,7 +106,7 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
       const token = tokenRef.current;
       if (token && token.length > 0) {
         setState('authenticating');
-        ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
+        ws.send(serializeAuthMessage(token));
         return;
       }
 
@@ -129,7 +123,7 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
 
       let parsed: unknown;
       try {
-        parsed = JSON.parse(event.data as string);
+        parsed = parseJsonMessage(event.data as string);
       } catch {
         return;
       }
@@ -173,13 +167,12 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
       }
 
       setState('reconnecting');
-      const base = Math.min(
-        RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptRef.current),
-        RECONNECT_MAX_DELAY_MS,
+      const delay = computeReconnectDelayMs(
+        reconnectAttemptRef.current,
+        DEFAULT_GATEWAY_SOCKET_BACKOFF,
       );
-      const jitter = 1 + Math.random() * JITTER_FACTOR;
       reconnectAttemptRef.current += 1;
-      reconnectTimerRef.current = setTimeout(connect, Math.round(base * jitter));
+      reconnectTimerRef.current = setTimeout(connect, delay);
     };
 
     ws.onerror = () => {

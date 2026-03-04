@@ -2249,6 +2249,7 @@ export class DaemonManager {
             this._desktopBridges,
             this._playwrightBridges,
             this._containerMCPBridges,
+            this.logger,
           );
         });
       },
@@ -3322,6 +3323,7 @@ export class DaemonManager {
 
           // Wrap awareness to pipe noteworthy output through goal bridge (attached below)
           let awarenessBridgeCallback: ((text: string) => Promise<unknown>) | null = null;
+          const daemonLogger = this.logger;
           const originalAwarenessExecute = awarenessAction.execute.bind(awarenessAction);
           const wrappedAwareness: typeof awarenessAction = {
             name: awarenessAction.name,
@@ -3329,7 +3331,11 @@ export class DaemonManager {
             async execute(ctx) {
               const result = await originalAwarenessExecute(ctx);
               if (result.hasOutput && result.output && awarenessBridgeCallback) {
-                await awarenessBridgeCallback(result.output).catch(() => {});
+                await awarenessBridgeCallback(result.output).catch((error) => {
+                  daemonLogger.debug("Awareness bridge callback failed", {
+                    error: toErrorMessage(error),
+                  });
+                });
               }
               return result;
             },
@@ -3362,6 +3368,7 @@ export class DaemonManager {
             memory: this._memoryBackend!,
             approvalEngine: this._approvalEngine ?? undefined,
             communicator,
+            logger: this.logger,
           });
           this.logger.info(
             "Desktop executor ready (Peekaboo action tools available)",
@@ -3438,6 +3445,7 @@ export class DaemonManager {
             goalManager: this._goalManager,
             desktopExecutor: this._desktopExecutor,
             memory: this._memoryBackend!,
+            logger: this.logger,
           }),
         );
       }
@@ -4035,16 +4043,27 @@ export class DaemonManager {
     this._toolRouter?.resetSession(webSessionId);
     this._sessionModelInfo.delete(webSessionId);
     await progressTracker?.clear(webSessionId);
-    await memoryBackend.deleteThread(webSessionId).catch(() => {});
+    await memoryBackend.deleteThread(webSessionId).catch((error) => {
+      this.logger.debug("Failed to delete memory thread during session reset", {
+        sessionId: webSessionId,
+        error: toErrorMessage(error),
+      });
+    });
 
     if (this._desktopManager) {
-      await this._desktopManager.destroyBySession(webSessionId).catch(() => {});
+      await this._desktopManager.destroyBySession(webSessionId).catch((error) => {
+        this.logger.debug("Failed to destroy desktop session during reset", {
+          sessionId: webSessionId,
+          error: toErrorMessage(error),
+        });
+      });
       const { destroySessionBridge } = await import('../desktop/session-router.js');
       destroySessionBridge(
         webSessionId,
         this._desktopBridges,
         this._playwrightBridges,
         this._containerMCPBridges,
+        this.logger,
       );
     }
   }
@@ -4696,7 +4715,13 @@ export class DaemonManager {
           } else if (sub === 'stop') {
             await desktopMgr.destroyBySession(sessionId);
             const { destroySessionBridge } = await import('../desktop/session-router.js');
-            destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges, this._containerMCPBridges);
+            destroySessionBridge(
+              sessionId,
+              this._desktopBridges,
+              this._playwrightBridges,
+              this._containerMCPBridges,
+              this.logger,
+            );
             await ctx.reply('Desktop sandbox stopped.');
           } else if (sub === 'status') {
             const handle = desktopMgr.getHandleBySession(sessionId);
@@ -4757,7 +4782,13 @@ export class DaemonManager {
               const { destroySessionBridge } = await import('../desktop/session-router.js');
               // Reset any existing bridge for this session so follow-up desktop tool
               // calls reconnect against the newly attached container.
-              destroySessionBridge(sessionId, this._desktopBridges, this._playwrightBridges, this._containerMCPBridges);
+              destroySessionBridge(
+                sessionId,
+                this._desktopBridges,
+                this._playwrightBridges,
+                this._containerMCPBridges,
+                this.logger,
+              );
               const handle = desktopMgr.assignSession(resolved.containerId, sessionId);
               const label = resolved.label ?? findDesktopLabel(handle.containerId) ?? 'desktop';
               await ctx.reply(
@@ -6056,13 +6087,21 @@ export class DaemonManager {
       this._desktopBridges.clear();
       // Disconnect Playwright MCP bridges
       for (const pwBridge of this._playwrightBridges.values()) {
-        await pwBridge.dispose().catch(() => {});
+        await pwBridge.dispose().catch((error) => {
+          this.logger.debug("Failed to dispose Playwright MCP bridge", {
+            error: toErrorMessage(error),
+          });
+        });
       }
       this._playwrightBridges.clear();
       // Disconnect container MCP bridges
       for (const bridges of this._containerMCPBridges.values()) {
         for (const bridge of bridges) {
-          await bridge.dispose().catch(() => {});
+          await bridge.dispose().catch((error) => {
+            this.logger.debug("Failed to dispose container MCP bridge", {
+              error: toErrorMessage(error),
+            });
+          });
         }
       }
       this._containerMCPBridges.clear();

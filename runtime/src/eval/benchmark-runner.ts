@@ -5,7 +5,7 @@
  */
 
 import path from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import type {
   EvalRunRecord,
   EvaluationScorecard,
@@ -17,11 +17,7 @@ import {
   serializeEvaluationScorecard,
 } from "./metrics.js";
 import { TrajectoryReplayEngine } from "./replay.js";
-import {
-  parseTrajectoryTrace,
-  stableStringifyJson,
-  type JsonValue,
-} from "./types.js";
+import { stableStringifyJson, type JsonValue } from "./types.js";
 import {
   hashBenchmarkManifest,
   loadBenchmarkManifest,
@@ -29,6 +25,13 @@ import {
   type BenchmarkManifest,
   type BenchmarkScenarioManifest,
 } from "./benchmark-manifest.js";
+import {
+  computeScorecardMetricDelta,
+  readBenchmarkFixtureTrace,
+  riskTierToScore,
+  toRewardString,
+  type ScorecardMetricDelta,
+} from "./runner-shared.js";
 
 export const BENCHMARK_ARTIFACT_SCHEMA_VERSION = 1 as const;
 
@@ -45,14 +48,7 @@ export interface BenchmarkScenarioRunArtifact {
   rewardLamports?: string;
 }
 
-export interface BenchmarkMetricDelta {
-  passRate: number;
-  passAtK: number;
-  passCaretK: number;
-  riskWeightedSuccess: number;
-  conformanceScore: number;
-  costNormalizedUtility: number;
-}
+export type BenchmarkMetricDelta = ScorecardMetricDelta;
 
 export interface BenchmarkScenarioReportArtifact {
   scenarioId: string;
@@ -110,59 +106,6 @@ export interface BenchmarkRunOptions {
   k?: number;
 }
 
-function riskTierToScore(tier: BenchmarkScenarioManifest["riskTier"]): number {
-  if (tier === "low") return 0.2;
-  if (tier === "medium") return 0.5;
-  return 0.85;
-}
-
-function toRewardString(
-  value: EvalRunRecord["rewardLamports"],
-): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === "bigint") return value.toString();
-  return String(value);
-}
-
-function computeDeltas(
-  aggregate: EvaluationScorecard["aggregate"],
-  baseline: EvaluationScorecard["aggregate"],
-): BenchmarkMetricDelta {
-  return {
-    passRate: aggregate.passRate - baseline.passRate,
-    passAtK: aggregate.passAtK - baseline.passAtK,
-    passCaretK: aggregate.passCaretK - baseline.passCaretK,
-    riskWeightedSuccess:
-      aggregate.riskWeightedSuccess - baseline.riskWeightedSuccess,
-    conformanceScore: aggregate.conformanceScore - baseline.conformanceScore,
-    costNormalizedUtility:
-      aggregate.costNormalizedUtility - baseline.costNormalizedUtility,
-  };
-}
-
-async function readFixtureTrace(
-  scenario: BenchmarkScenarioManifest,
-  seed: number,
-  manifestDir: string | undefined,
-): Promise<unknown> {
-  if (!scenario.fixtureTrace) {
-    throw new Error(
-      `scenario "${scenario.id}" has no runner and no fixtureTrace`,
-    );
-  }
-  const fixturePath = path.isAbsolute(scenario.fixtureTrace)
-    ? scenario.fixtureTrace
-    : path.resolve(manifestDir ?? process.cwd(), scenario.fixtureTrace);
-  const raw = await readFile(fixturePath, "utf8");
-  const parsed = JSON.parse(raw) as unknown;
-  const trace = parseTrajectoryTrace(parsed);
-  return {
-    ...trace,
-    traceId: `${scenario.id}:seed-${seed}`,
-    seed,
-  };
-}
-
 /**
  * Deterministic benchmark runner.
  */
@@ -211,7 +154,7 @@ export class BenchmarkRunner {
         const execution = scenarioRunner
           ? await scenarioRunner({ manifest, scenario, seed })
           : {
-              trace: await readFixtureTrace(
+              trace: await readBenchmarkFixtureTrace(
                 scenario,
                 seed,
                 options.manifestDir,
@@ -276,7 +219,7 @@ export class BenchmarkRunner {
 
     if (baselineAggregate) {
       for (const scenario of scenarioReports) {
-        scenario.deltasFromBaseline = computeDeltas(
+        scenario.deltasFromBaseline = computeScorecardMetricDelta(
           scenario.scorecard.aggregate,
           baselineAggregate,
         );
@@ -295,7 +238,10 @@ export class BenchmarkRunner {
         scorecard: aggregateScorecard,
         serializedScorecard: serializeEvaluationScorecard(aggregateScorecard),
         deltasFromBaseline: baselineAggregate
-          ? computeDeltas(aggregateScorecard.aggregate, baselineAggregate)
+          ? computeScorecardMetricDelta(
+              aggregateScorecard.aggregate,
+              baselineAggregate,
+            )
           : undefined,
       },
       scenarios: scenarioReports,

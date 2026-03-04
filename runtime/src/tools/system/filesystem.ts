@@ -528,7 +528,22 @@ function createListDirTool(allowedPaths: readonly string[]): Tool {
             entries.push({ name: d.name, type, size });
           }
         } finally {
-          await dir.close().catch(() => {});
+          try {
+            await dir.close();
+          } catch (error) {
+            const code =
+              typeof error === "object" &&
+              error !== null &&
+              "code" in error &&
+              typeof (error as { code?: unknown }).code === "string"
+                ? (error as { code: string }).code
+                : "";
+            if (code !== "ERR_DIR_CLOSED") {
+              // Best-effort close; list result is already computed.
+              // Keep unexpected close failures visible for diagnosing leaks.
+              console.warn(`[system.listDir] ${safeError(error, "close")}`);
+            }
+          }
         }
         return {
           content: safeStringify({

@@ -32,6 +32,7 @@
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts",
     "security:mcp:check": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose --allow-fail",
     "security:mcp:check:strict": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose",
+    "security:gitguardian:mcp:scan": "node scripts/gitguardian-mcp-scan.mjs",
     "security:cargo:lock:check": "node scripts/check-cargo-lock-security.mjs",
     "security:desktop:hardening:check": "node scripts/check-desktop-image-hardening.mjs",
     "security:trivy:image": "trivy image --scanners vuln,misconfig,secret",
@@ -44,8 +45,7 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/web3.js": "^1.95.0",
-    "openai": "^6.22.0"
+    "@solana/web3.js": "^1.95.0"
   },
   "overrides": {
     "ajv": "^8.18.0",
@@ -68,22 +68,21 @@
     "undici": "^6.23.0"
   },
   "devDependencies": {
-    "@agenc/mcp": "file:./mcp",
-    "@agenc/runtime": "file:./runtime",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@agenc/sdk": "file:./sdk",
     "@solana/spl-token": "0.4.6",
     "@types/bn.js": "^5.2.0",
     "@types/chai": "^4.3.0",
-    "@types/chai-as-promised": "^7.1.8",
     "@types/mocha": "^10.0.0",
     "anchor-litesvm": "^0.2.1",
     "bn.js": "^5.2.3",
+    "bs58": "^6.0.0",
     "chai": "^4.3.0",
-    "chai-as-promised": "^7.1.2",
     "litesvm": "^0.5.0",
     "mocha": "^10.0.0",
     "ts-mocha": "^10.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "ws": "^8.18.3"
   }
 }

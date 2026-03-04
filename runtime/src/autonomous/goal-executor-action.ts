@@ -17,6 +17,9 @@ import type {
 import type { MemoryBackend } from "../memory/types.js";
 import type { DesktopExecutor } from "./desktop-executor.js";
 import type { GoalManager } from "./goal-manager.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { toErrorMessage } from "../utils/async.js";
 
 // ============================================================================
 // Types
@@ -26,6 +29,7 @@ export interface GoalExecutorActionConfig {
   goalManager: GoalManager;
   desktopExecutor: DesktopExecutor;
   memory: MemoryBackend;
+  logger?: Logger;
   /** Only execute goals whose description matches desktop keywords. Default: true. */
   desktopOnly?: boolean;
 }
@@ -45,6 +49,7 @@ export function createGoalExecutorAction(
   config: GoalExecutorActionConfig,
 ): HeartbeatAction {
   const { goalManager, desktopExecutor, memory } = config;
+  const logger = config.logger ?? silentLogger;
   const desktopOnly = config.desktopOnly ?? true;
 
   return {
@@ -106,7 +111,11 @@ export function createGoalExecutorAction(
               timestamp: Date.now(),
             },
           })
-          .catch(() => {});
+          .catch((error) => {
+            logger.debug("Goal executor result memory write failed", {
+              error: toErrorMessage(error),
+            });
+          });
 
         return {
           hasOutput: true,

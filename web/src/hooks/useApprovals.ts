@@ -3,6 +3,13 @@ import type { ApprovalRequest, WSMessage } from '../types';
 
 const AUTO_APPROVE_KEY = 'agenc-auto-approve';
 
+function logStorageWarning(context: string, error: unknown): void {
+  const isDev = (import.meta as { env?: Record<string, unknown> }).env?.DEV === true;
+  if (!isDev) return;
+  const message = error instanceof Error ? error.message : String(error);
+  console.debug(`[useApprovals] ${context}: ${message}`);
+}
+
 interface UseApprovalsOptions {
   send: (msg: Record<string, unknown>) => void;
 }
@@ -17,7 +24,12 @@ export interface UseApprovalsReturn {
 export function useApprovals({ send }: UseApprovalsOptions): UseApprovalsReturn {
   const [pending, setPending] = useState<ApprovalRequest[]>([]);
   const [autoApprove, setAutoApproveState] = useState(() => {
-    try { return localStorage.getItem(AUTO_APPROVE_KEY) === 'true'; } catch { return false; }
+    try {
+      return localStorage.getItem(AUTO_APPROVE_KEY) === 'true';
+    } catch (error) {
+      logStorageWarning('failed to read auto-approve setting', error);
+      return false;
+    }
   });
   const respondedRef = useRef<Set<string>>(new Set());
   const autoApproveRef = useRef(autoApprove);
@@ -25,7 +37,11 @@ export function useApprovals({ send }: UseApprovalsOptions): UseApprovalsReturn 
   const setAutoApprove = useCallback((v: boolean) => {
     setAutoApproveState(v);
     autoApproveRef.current = v;
-    try { localStorage.setItem(AUTO_APPROVE_KEY, String(v)); } catch {}
+    try {
+      localStorage.setItem(AUTO_APPROVE_KEY, String(v));
+    } catch (error) {
+      logStorageWarning('failed to persist auto-approve setting', error);
+    }
   }, []);
 
   // Keep ref in sync
