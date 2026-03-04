@@ -19,6 +19,31 @@ export default defineConfig({
       '@agenc/runtime': path.resolve(__dirname, '../runtime/dist/index.js'),
     };
     // Mark native Node modules as external
-    options.external = ['fs', 'path', 'os', 'crypto', 'http', 'https', 'net', 'tls', 'stream', 'url', 'zlib', 'events', 'util', 'buffer', 'assert', 'child_process', 'worker_threads', 'node:*'];
+    options.external = [
+      'fs',
+      'path',
+      'os',
+      'crypto',
+      'http',
+      'https',
+      'net',
+      'tls',
+      'stream',
+      'url',
+      'zlib',
+      'events',
+      'util',
+      'buffer',
+      'assert',
+      'child_process',
+      'worker_threads',
+      'node:*',
+      // Keep browser automation internals external to avoid bundling optional
+      // playwright-core/chromium-bidi dependency trees into MCP.
+      'playwright',
+      'playwright-core',
+      'chromium-bidi',
+      'chromium-bidi/*',
+    ];
   },
 });

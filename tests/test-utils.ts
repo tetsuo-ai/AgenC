@@ -50,6 +50,27 @@ export const CAPABILITY_AGGREGATOR = 1 << 9;
  */
 export const MIN_DISPUTE_STAKE_LAMPORTS = 1000;
 
+const SHARED_MULTISIG_SECOND_SEED = Uint8Array.from(
+  Array.from({ length: 32 }, (_, i) => i + 17),
+);
+const SHARED_MULTISIG_THIRD_SEED = Uint8Array.from(
+  Array.from({ length: 32 }, (_, i) => i + 97),
+);
+
+/**
+ * Stable multisig signers for suites that need deterministic config updates
+ * across a shared local validator run.
+ */
+export function getSharedMultisigSigners(): {
+  secondSigner: Keypair;
+  thirdSigner: Keypair;
+} {
+  return {
+    secondSigner: Keypair.fromSeed(SHARED_MULTISIG_SECOND_SEED),
+    thirdSigner: Keypair.fromSeed(SHARED_MULTISIG_THIRD_SEED),
+  };
+}
+
 // ============================================================================
 // Task Type Constants (matches program)
 // ============================================================================
@@ -155,6 +176,32 @@ export function deriveClaimPda(
     [Buffer.from("claim"), taskPda.toBuffer(), workerAgentPda.toBuffer()],
     programId,
   )[0];
+}
+
+export type RemainingAccountMeta = {
+  pubkey: PublicKey;
+  isSigner: boolean;
+  isWritable: boolean;
+};
+
+export type CancelTaskClaimCleanupAccounts = {
+  claim: PublicKey;
+  workerAgent: PublicKey;
+  workerAuthority: PublicKey;
+};
+
+/**
+ * Build cancel_task remaining_accounts triples in canonical order:
+ *   (claim_account, worker_agent_account, worker_authority_rent_recipient)
+ */
+export function buildCancelTaskRemainingAccounts(
+  triplets: CancelTaskClaimCleanupAccounts[],
+): RemainingAccountMeta[] {
+  return triplets.flatMap((triplet) => [
+    { pubkey: triplet.claim, isSigner: false, isWritable: true },
+    { pubkey: triplet.workerAgent, isSigner: false, isWritable: true },
+    { pubkey: triplet.workerAuthority, isSigner: false, isWritable: true },
+  ]);
 }
 
 /**
@@ -375,9 +422,91 @@ export async function disableRateLimitsForTests(params: {
     skipPreflight = true,
   } = params;
 
+  const asNumber = (value: unknown): number | null => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value === "bigint") {
+      return Number(value);
+    }
+    if (value && typeof value === "object") {
+      const maybeBn = value as { toNumber?: () => number };
+      if (typeof maybeBn.toNumber === "function") {
+        return maybeBn.toNumber();
+      }
+    }
+    return null;
+  };
+
+  const readNumericField = (
+    account: Record<string, unknown>,
+    keys: string[],
+  ): number | null => {
+    for (const key of keys) {
+      if (key in account) {
+        return asNumber(account[key]);
+      }
+    }
+    return null;
+  };
+
+  const alreadyConfigured = async (): Promise<boolean> => {
+    try {
+      const config = (await program.account.protocolConfig.fetch(
+        protocolPda,
+      )) as Record<string, unknown>;
+
+      const taskCreationCooldown = readNumericField(config, [
+        "taskCreationCooldown",
+        "task_creation_cooldown",
+      ]);
+      const maxTasksPer24h = readNumericField(config, [
+        "maxTasksPer24h",
+        "maxTasksPer24H",
+        "max_tasks_per_24h",
+      ]);
+      const disputeInitiationCooldown = readNumericField(config, [
+        "disputeInitiationCooldown",
+        "dispute_initiation_cooldown",
+      ]);
+      const maxDisputesPer24h = readNumericField(config, [
+        "maxDisputesPer24h",
+        "maxDisputesPer24H",
+        "max_disputes_per_24h",
+      ]);
+      const minStakeForDispute = readNumericField(config, [
+        "minStakeForDispute",
+        "min_stake_for_dispute",
+      ]);
+
+      return (
+        taskCreationCooldown === 1 &&
+        maxTasksPer24h === 255 &&
+        disputeInitiationCooldown === 1 &&
+        maxDisputesPer24h === 255 &&
+        minStakeForDispute === minStakeForDisputeLamports
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  if (await alreadyConfigured()) {
+    return;
+  }
+
+  const signerByPubkey = new Map<string, Keypair>();
+  for (const signer of additionalSigners as Array<Keypair | undefined>) {
+    if (!signer) {
+      continue;
+    }
+    signerByPubkey.set(signer.publicKey.toBase58(), signer);
+  }
+  const sanitizedAdditionalSigners = Array.from(signerByPubkey.values());
+
   const remainingAccounts = [
     { pubkey: authority, isSigner: true, isWritable: false },
-    ...additionalSigners.map((s) => ({
+    ...sanitizedAdditionalSigners.map((s) => ({
       pubkey: s.publicKey,
       isSigner: true,
       isWritable: false,
@@ -395,11 +524,20 @@ export async function disableRateLimitsForTests(params: {
     .accountsPartial({ protocolConfig: protocolPda })
     .remainingAccounts(remainingAccounts);
 
-  if (additionalSigners.length > 0) {
-    builder.signers(additionalSigners);
+  if (sanitizedAdditionalSigners.length > 0) {
+    builder.signers(sanitizedAdditionalSigners);
   }
 
-  await builder.rpc({ skipPreflight });
+  try {
+    await builder.rpc({ skipPreflight });
+  } catch (error) {
+    // When another suite already set these exact values, treat this helper as
+    // idempotent and avoid failing due signer ownership mismatch on shared localnet.
+    if (await alreadyConfigured()) {
+      return;
+    }
+    throw error;
+  }
 }
 
 /**

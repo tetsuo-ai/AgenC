@@ -207,6 +207,13 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
         validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
     }
+    let token_escrow_starting_amount = if is_token_task {
+        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+            .map_err(|_| CoordinationError::TokenTransferFailed)?
+    } else {
+        0
+    };
 
     // A worker "loses" when dispute is approved and resolution is not Complete.
     // This matches apply_dispute_slash semantics.
@@ -268,8 +275,13 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         token_program,
                     )?;
                     if !defer_token_escrow_close {
+                        let residual_amount = token_escrow_starting_amount
+                            .checked_sub(creator_refund)
+                            .ok_or(CoordinationError::ArithmeticOverflow)?;
                         close_token_escrow(
                             token_escrow,
+                            residual_amount,
+                            &creator_ta.to_account_info(),
                             &ctx.accounts.creator.to_account_info(),
                             &escrow.to_account_info(),
                             escrow_seeds,
@@ -309,8 +321,13 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         escrow_seeds,
                         token_program,
                     )?;
+                    let residual_amount = token_escrow_starting_amount
+                        .checked_sub(remaining_funds)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
                     close_token_escrow(
                         token_escrow,
+                        residual_amount,
+                        &worker_ta.to_account_info(),
                         &ctx.accounts.creator.to_account_info(),
                         &escrow.to_account_info(),
                         escrow_seeds,
@@ -379,8 +396,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                             token_program,
                         )?;
                         if !defer_token_escrow_close {
+                            let split_total = creator_share
+                                .checked_add(worker_share)
+                                .ok_or(CoordinationError::ArithmeticOverflow)?;
+                            let residual_amount = token_escrow_starting_amount
+                                .checked_sub(split_total)
+                                .ok_or(CoordinationError::ArithmeticOverflow)?;
                             close_token_escrow(
                                 token_escrow,
+                                residual_amount,
+                                &creator_ta.to_account_info(),
                                 &ctx.accounts.creator.to_account_info(),
                                 &escrow.to_account_info(),
                                 escrow_seeds,
@@ -421,8 +446,13 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 escrow_seeds,
                 token_program,
             )?;
+            let residual_amount = token_escrow_starting_amount
+                .checked_sub(remaining_funds)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
             close_token_escrow(
                 token_escrow,
+                residual_amount,
+                &creator_ta.to_account_info(),
                 &ctx.accounts.creator.to_account_info(),
                 &escrow.to_account_info(),
                 escrow_seeds,

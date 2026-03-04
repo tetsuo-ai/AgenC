@@ -258,15 +258,23 @@ fn execute_rate_limit_change(proposal: &Proposal, config: &mut ProtocolConfig) -
 
     // Validate bounds (same as update_rate_limits.rs)
     require!(
-        (0..=MAX_COOLDOWN).contains(&task_creation_cooldown),
+        (1..=MAX_COOLDOWN).contains(&task_creation_cooldown),
         CoordinationError::InvalidProposalPayload
     );
     require!(
-        (0..=MAX_COOLDOWN).contains(&dispute_initiation_cooldown),
+        (1..=MAX_COOLDOWN).contains(&dispute_initiation_cooldown),
+        CoordinationError::InvalidProposalPayload
+    );
+    require!(
+        max_tasks_per_24h >= 1,
         CoordinationError::InvalidProposalPayload
     );
     require!(
         (max_tasks_per_24h as u64) <= MAX_RATE_LIMIT,
+        CoordinationError::InvalidProposalPayload
+    );
+    require!(
+        max_disputes_per_24h >= 1,
         CoordinationError::InvalidProposalPayload
     );
     require!(

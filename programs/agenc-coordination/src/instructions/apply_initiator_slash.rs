@@ -65,8 +65,7 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
     check_version_compatible(config)?;
 
     require!(
-        dispute.status == DisputeStatus::Resolved
-            || dispute.status == DisputeStatus::Cancelled,
+        dispute.status == DisputeStatus::Resolved || dispute.status == DisputeStatus::Cancelled,
         CoordinationError::DisputeNotResolved
     );
     require!(

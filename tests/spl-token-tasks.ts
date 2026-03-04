@@ -23,10 +23,13 @@ import {
   PublicKey,
   SystemProgram,
   LAMPORTS_PER_SOL,
+  Transaction,
+  sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import {
   createMint,
   createAssociatedTokenAccount,
+  createAssociatedTokenAccountInstruction,
   mintTo,
   getAccount,
   getAssociatedTokenAddressSync,
@@ -173,6 +176,42 @@ describe("spl-token-tasks (issue #860)", () => {
   async function getTokenBalance(ata: PublicKey): Promise<bigint> {
     const acct = await getAccount(provider.connection, ata);
     return acct.amount;
+  }
+
+  /** Pre-create escrow ATA for PDA owner (simulates attacker front-running ATA creation). */
+  async function precreateEscrowAta(
+    tokenMint: PublicKey,
+    escrowPda: PublicKey,
+  ): Promise<PublicKey> {
+    const escrowAta = deriveEscrowAta(tokenMint, escrowPda);
+    const tx = new Transaction().add(
+      createAssociatedTokenAccountInstruction(
+        payer().publicKey,
+        escrowAta,
+        escrowPda,
+        tokenMint,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      ),
+    );
+    await sendAndConfirmTransaction(provider.connection, tx, [payer()]);
+    return escrowAta;
+  }
+
+  /** Inject unsolicited tokens into an escrow ATA (used to simulate dust griefing). */
+  async function injectEscrowDust(
+    tokenMint: PublicKey,
+    escrowAta: PublicKey,
+    amount: bigint,
+  ): Promise<void> {
+    await mintTo(
+      provider.connection,
+      payer(),
+      tokenMint,
+      escrowAta,
+      payer(),
+      amount,
+    );
   }
 
   const airdrop = (
@@ -889,6 +928,185 @@ describe("spl-token-tasks (issue #860)", () => {
       }
     });
 
+    it("should create token task when escrow ATA is pre-created", async () => {
+      const taskId = makeId("t-pre-ata");
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const rewardAmount = 900_000_000;
+
+      const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
+      const escrowAta = await precreateEscrowAta(mint, escrowPda);
+      const precreatedInfo = await provider.connection.getAccountInfo(escrowAta);
+      expect(precreatedInfo).to.not.equal(null);
+      expect(precreatedInfo!.owner.toBase58()).to.equal(
+        TOKEN_PROGRAM_ID.toBase58(),
+      );
+      const precreatedToken = await getAccount(provider.connection, escrowAta);
+      expect(precreatedToken.owner.toBase58()).to.equal(escrowPda.toBase58());
+
+      const escrowBefore = await getTokenBalance(escrowAta);
+      expect(Number(escrowBefore)).to.equal(0);
+
+      const creatorBefore = await getTokenBalance(creatorAta);
+      const created = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+
+      expect(created.escrowAta.toBase58()).to.equal(escrowAta.toBase58());
+
+      const escrowAfter = await getTokenBalance(escrowAta);
+      const creatorAfter = await getTokenBalance(creatorAta);
+      expect(Number(escrowAfter)).to.equal(rewardAmount);
+      expect(Number(creatorBefore - creatorAfter)).to.equal(rewardAmount);
+    });
+
+    it("should reject createTask when token_escrow_ata does not match reward mint ATA", async () => {
+      const taskId = makeId("t-wrong-ata");
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
+
+      // Valid ATA for escrow PDA but with a different mint than reward_mint.
+      const wrongEscrowAta = await precreateEscrowAta(zeroDecMint, escrowPda);
+
+      try {
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Wrong escrow ATA".padEnd(64, "\0")),
+            new BN(700_000_000),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,
+            0,
+            mint,
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: mint,
+            creatorTokenAccount: creatorAta,
+            tokenEscrowAta: wrongEscrowAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          })
+          .signers([creator])
+          .rpc();
+        expect.fail("Should have failed due mismatched token_escrow_ata");
+      } catch (e: unknown) {
+        expect(e).to.exist;
+      }
+    });
+
+    it("should create dependent token task when child escrow ATA is pre-created", async () => {
+      const parentTaskId = makeId("t-predep-par");
+      const childTaskId = makeId("t-predep-child");
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+
+      const parentTaskPda = deriveTaskPda(creator.publicKey, parentTaskId);
+      const parentEscrowPda = deriveEscrowPda(parentTaskPda);
+
+      await program.methods
+        .createTask(
+          Array.from(parentTaskId),
+          new BN(CAPABILITY_COMPUTE),
+          Buffer.from("Precreate parent".padEnd(64, "\0")),
+          new BN(LAMPORTS_PER_SOL / 10),
+          1,
+          getDefaultDeadline(),
+          TASK_TYPE_EXCLUSIVE,
+          null,
+          0,
+          null,
+        )
+        .accountsPartial({
+          task: parentTaskPda,
+          escrow: parentEscrowPda,
+          protocolConfig: protocolPda,
+          creatorAgent: creatorAgentPda,
+          authority: creator.publicKey,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
+        })
+        .signers([creator])
+        .rpc();
+
+      advanceClock(svm, 2);
+
+      const childTaskPda = deriveTaskPda(creator.publicKey, childTaskId);
+      const childEscrowPda = deriveEscrowPda(childTaskPda);
+      const childEscrowAta = await precreateEscrowAta(mint, childEscrowPda);
+      const precreatedChildInfo =
+        await provider.connection.getAccountInfo(childEscrowAta);
+      expect(precreatedChildInfo).to.not.equal(null);
+      expect(precreatedChildInfo!.owner.toBase58()).to.equal(
+        TOKEN_PROGRAM_ID.toBase58(),
+      );
+      const precreatedChildToken = await getAccount(
+        provider.connection,
+        childEscrowAta,
+      );
+      expect(precreatedChildToken.owner.toBase58()).to.equal(
+        childEscrowPda.toBase58(),
+      );
+      const rewardAmount = 600_000_000;
+
+      await program.methods
+        .createDependentTask(
+          Array.from(childTaskId),
+          new BN(CAPABILITY_COMPUTE),
+          Buffer.from("Precreated child ATA".padEnd(64, "\0")),
+          new BN(rewardAmount),
+          1,
+          getDefaultDeadline(),
+          TASK_TYPE_EXCLUSIVE,
+          null,
+          1,
+          0,
+          mint,
+        )
+        .accountsPartial({
+          task: childTaskPda,
+          escrow: childEscrowPda,
+          parentTask: parentTaskPda,
+          protocolConfig: protocolPda,
+          creatorAgent: creatorAgentPda,
+          authority: creator.publicKey,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+          rewardMint: mint,
+          creatorTokenAccount: creatorAta,
+          tokenEscrowAta: childEscrowAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        })
+        .signers([creator])
+        .rpc();
+
+      const childTask = await program.account.task.fetch(childTaskPda);
+      expect(childTask.rewardMint?.toBase58()).to.equal(mint.toBase58());
+
+      const escrowBalance = await getTokenBalance(childEscrowAta);
+      expect(Number(escrowBalance)).to.equal(rewardAmount);
+    });
+
     it("should fail when creator has insufficient token balance", async () => {
       // Create a new keypair with an empty ATA
       const poorCreator = Keypair.generate();
@@ -1269,6 +1487,355 @@ describe("spl-token-tasks (issue #860)", () => {
       const solDiff = Math.abs(workerSolBefore - workerSolAfter);
       // The SOL change should be well under 1 SOL (just tx fees + rent refunds)
       expect(solDiff).to.be.lessThan(LAMPORTS_PER_SOL / 10);
+    });
+  });
+
+  describe("token escrow dust hardening", () => {
+    it("should complete token task even when escrow ATA receives unsolicited dust", async () => {
+      const taskId = makeId("t-dust-complete");
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+      const rewardAmount = 1_500_000_000;
+      const dust = 333n;
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+      const claimPda = await claimTask(taskPda, workerAgentPda, worker);
+
+      await injectEscrowDust(mint, escrowAta, dust);
+      const escrowWithDust = await getTokenBalance(escrowAta);
+      expect(Number(escrowWithDust)).to.equal(rewardAmount + Number(dust));
+
+      const workerBefore = await getTokenBalance(workerAta);
+      const treasuryBefore = await getTokenBalance(treasuryAta);
+
+      await completeTokenTask({
+        taskPda,
+        claimPda,
+        escrowPda,
+        escrowAta,
+        workerAgentPda,
+        workerKp: worker,
+        workerTokenAccount: workerAta,
+        tokenMint: mint,
+        treasuryTokenAccount: treasuryAta,
+      });
+
+      const fee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
+      const workerExpected = rewardAmount - fee;
+
+      const workerAfter = await getTokenBalance(workerAta);
+      const treasuryAfter = await getTokenBalance(treasuryAta);
+      expect(Number(workerAfter - workerBefore)).to.equal(workerExpected);
+      expect(Number(treasuryAfter - treasuryBefore)).to.equal(fee + Number(dust));
+
+      const escrowAtaInfo = await provider.connection.getAccountInfo(escrowAta);
+      const escrowPdaInfo = await provider.connection.getAccountInfo(escrowPda);
+      expect(escrowAtaInfo).to.equal(null);
+      expect(escrowPdaInfo).to.equal(null);
+    });
+
+    it("should cancel token task even when escrow ATA receives unsolicited dust", async () => {
+      const taskId = makeId("t-dust-cancel");
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const rewardAmount = 2_000_000_000;
+      const dust = 77n;
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+
+      await injectEscrowDust(mint, escrowAta, dust);
+      const escrowWithDust = await getTokenBalance(escrowAta);
+      expect(Number(escrowWithDust)).to.equal(rewardAmount + Number(dust));
+      const creatorBefore = await getTokenBalance(creatorAta);
+
+      await program.methods
+        .cancelTask()
+        .accountsPartial({
+          task: taskPda,
+          escrow: escrowPda,
+          creator: creator.publicKey,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+          tokenEscrowAta: escrowAta,
+          creatorTokenAccount: creatorAta,
+          rewardMint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([creator])
+        .rpc();
+
+      const creatorAfter = await getTokenBalance(creatorAta);
+      expect(Number(creatorAfter - creatorBefore)).to.equal(
+        rewardAmount + Number(dust),
+      );
+
+      const escrowAtaInfo = await provider.connection.getAccountInfo(escrowAta);
+      const escrowPdaInfo = await provider.connection.getAccountInfo(escrowPda);
+      expect(escrowAtaInfo).to.equal(null);
+      expect(escrowPdaInfo).to.equal(null);
+    });
+
+    it("should resolve rejected token dispute with dust and close escrow ATA", async () => {
+      const taskId = makeId("t-dust-resolve");
+      const disputeId = makeId("d-dust-resolve");
+      const rewardAmount = 3_000_000_000;
+      const dust = 55n;
+
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+      const arbiter1Pda = deriveAgentPda(arbiter1AgentId);
+      const arbiter2Pda = deriveAgentPda(arbiter2AgentId);
+      const arbiter3Pda = deriveAgentPda(arbiter3AgentId);
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+      const claimPda = await claimTask(taskPda, workerAgentPda, worker);
+      const disputePda = deriveDisputePda(disputeId);
+
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("dust-resolve-evidence".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE,
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          workerAgent: workerAgentPda,
+          workerClaim: claimPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      const currentClock = Number(svm.getClock().unixTimestamp);
+      const initiatedDispute = await program.account.dispute.fetch(disputePda);
+      if (currentClock >= initiatedDispute.votingDeadline.toNumber()) {
+        const disputeAccount = svm.getAccount(disputePda);
+        expect(disputeAccount).to.not.equal(null);
+        const patchedData = new Uint8Array(disputeAccount!.data);
+        const view = new DataView(
+          patchedData.buffer,
+          patchedData.byteOffset,
+          patchedData.byteLength,
+        );
+        view.setBigInt64(203, BigInt(currentClock + 3600), true); // voting_deadline
+        view.setBigInt64(211, BigInt(currentClock + 7200), true); // expires_at
+        svm.setAccount(disputePda, {
+          ...disputeAccount!,
+          data: patchedData,
+        });
+      }
+
+      const arbiters = [
+        { kp: arbiter1, pda: arbiter1Pda },
+        { kp: arbiter2, pda: arbiter2Pda },
+        { kp: arbiter3, pda: arbiter3Pda },
+      ];
+      for (const arbiter of arbiters) {
+        const votePda = deriveVotePda(disputePda, arbiter.pda);
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          arbiter.kp.publicKey,
+        );
+        await program.methods
+          .voteDispute(false)
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            workerClaim: claimPda,
+            defendantAgent: workerAgentPda,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiter.pda,
+            protocolConfig: protocolPda,
+            authority: arbiter.kp.publicKey,
+          })
+          .signers([arbiter.kp])
+          .rpc();
+      }
+
+      const secondsUntilVotingEnds = Math.max(
+        1,
+        (
+          await program.account.dispute.fetch(disputePda)
+        ).votingDeadline.toNumber() -
+          Number(svm.getClock().unixTimestamp) +
+          1,
+      );
+      advanceClock(svm, secondsUntilVotingEnds);
+
+      await injectEscrowDust(mint, escrowAta, dust);
+      const escrowWithDust = await getTokenBalance(escrowAta);
+      expect(Number(escrowWithDust)).to.equal(rewardAmount + Number(dust));
+      const creatorBefore = await getTokenBalance(creatorAta);
+
+      await program.methods
+        .resolveDispute()
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          resolver: provider.wallet.publicKey,
+          creator: creator.publicKey,
+          workerClaim: claimPda,
+          worker: workerAgentPda,
+          workerAuthority: worker.publicKey,
+          systemProgram: SystemProgram.programId,
+          tokenEscrowAta: escrowAta,
+          creatorTokenAccount: creatorAta,
+          workerTokenAccountAta: null,
+          treasuryTokenAccount: treasuryAta,
+          rewardMint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .remainingAccounts([
+          {
+            pubkey: deriveVotePda(disputePda, arbiter1Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter1Pda, isSigner: false, isWritable: true },
+          {
+            pubkey: deriveVotePda(disputePda, arbiter2Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter2Pda, isSigner: false, isWritable: true },
+          {
+            pubkey: deriveVotePda(disputePda, arbiter3Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter3Pda, isSigner: false, isWritable: true },
+        ])
+        .rpc();
+
+      const creatorAfter = await getTokenBalance(creatorAta);
+      expect(Number(creatorAfter - creatorBefore)).to.equal(
+        rewardAmount + Number(dust),
+      );
+
+      const escrowAtaInfo = await provider.connection.getAccountInfo(escrowAta);
+      const escrowPdaInfo = await provider.connection.getAccountInfo(escrowPda);
+      expect(escrowAtaInfo).to.equal(null);
+      expect(escrowPdaInfo).to.equal(null);
+    });
+
+    it("should expire token dispute with dust and close escrow ATA", async () => {
+      const taskId = makeId("t-dust-expire");
+      const disputeId = makeId("d-dust-expire");
+      const rewardAmount = 2_000_000_000;
+      const dust = 101n;
+
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+      const claimPda = await claimTask(taskPda, workerAgentPda, worker);
+      const disputePda = deriveDisputePda(disputeId);
+
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("dust-expire-evidence".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE,
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          workerAgent: workerAgentPda,
+          workerClaim: claimPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      await injectEscrowDust(mint, escrowAta, dust);
+      const escrowWithDust = await getTokenBalance(escrowAta);
+      expect(Number(escrowWithDust)).to.equal(rewardAmount + Number(dust));
+      const creatorBefore = await getTokenBalance(creatorAta);
+      const workerBefore = await getTokenBalance(workerAta);
+
+      const dispute = await program.account.dispute.fetch(disputePda);
+      const secondsUntilExpirable = Math.max(
+        1,
+        dispute.votingDeadline.toNumber() +
+          121 -
+          Number(svm.getClock().unixTimestamp),
+      );
+      advanceClock(svm, secondsUntilExpirable);
+
+      await program.methods
+        .expireDispute()
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          creator: creator.publicKey,
+          workerClaim: claimPda,
+          worker: workerAgentPda,
+          workerAuthority: worker.publicKey,
+          tokenEscrowAta: escrowAta,
+          creatorTokenAccount: creatorAta,
+          workerTokenAccountAta: workerAta,
+          rewardMint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      const creatorAfter = await getTokenBalance(creatorAta);
+      const workerAfter = await getTokenBalance(workerAta);
+      const workerShare = Math.floor(rewardAmount / 2);
+      const creatorShare = rewardAmount - workerShare;
+
+      expect(Number(workerAfter - workerBefore)).to.equal(workerShare);
+      expect(Number(creatorAfter - creatorBefore)).to.equal(
+        creatorShare + Number(dust),
+      );
+
+      const escrowAtaInfo = await provider.connection.getAccountInfo(escrowAta);
+      const escrowPdaInfo = await provider.connection.getAccountInfo(escrowPda);
+      expect(escrowAtaInfo).to.equal(null);
+      expect(escrowPdaInfo).to.equal(null);
     });
   });
 
@@ -1656,6 +2223,193 @@ describe("spl-token-tasks (issue #860)", () => {
       expect(
         workerBeforeSlash.stake.sub(workerAfterSlash.stake).toNumber(),
       ).to.equal(expectedSlash);
+
+      const escrowPdaAccount =
+        await provider.connection.getAccountInfo(escrowPda);
+      const escrowAtaAccount =
+        await provider.connection.getAccountInfo(escrowAta);
+      expect(escrowPdaAccount).to.equal(null);
+      expect(escrowAtaAccount).to.equal(null);
+    });
+
+    it("should settle token slash with unsolicited dust injected before applyDisputeSlash", async () => {
+      const taskId = makeId("t-slash-dust");
+      const disputeId = makeId("d-slash-dust");
+      const rewardAmount = 4_200_000_000;
+      const dust = 91n;
+
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+      const arbiter1Pda = deriveAgentPda(arbiter1AgentId);
+      const arbiter2Pda = deriveAgentPda(arbiter2AgentId);
+      const arbiter3Pda = deriveAgentPda(arbiter3AgentId);
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+      const claimPda = await claimTask(taskPda, workerAgentPda, worker);
+
+      const disputePda = deriveDisputePda(disputeId);
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("slash-dust-evidence".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE,
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          workerAgent: workerAgentPda,
+          workerClaim: claimPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      const initiatedDispute = await program.account.dispute.fetch(disputePda);
+      const votingDeadline = initiatedDispute.votingDeadline.toNumber();
+      const currentClock = Number(svm.getClock().unixTimestamp);
+      if (currentClock >= votingDeadline) {
+        const disputeAccount = svm.getAccount(disputePda);
+        expect(disputeAccount).to.not.equal(null);
+        const patchedData = new Uint8Array(disputeAccount!.data);
+        const view = new DataView(
+          patchedData.buffer,
+          patchedData.byteOffset,
+          patchedData.byteLength,
+        );
+        view.setBigInt64(203, BigInt(currentClock + 3600), true); // voting_deadline
+        view.setBigInt64(211, BigInt(currentClock + 7200), true); // expires_at
+        svm.setAccount(disputePda, {
+          ...disputeAccount!,
+          data: patchedData,
+        });
+      }
+
+      const arbiters = [
+        { kp: arbiter1, pda: arbiter1Pda },
+        { kp: arbiter2, pda: arbiter2Pda },
+        { kp: arbiter3, pda: arbiter3Pda },
+      ];
+      for (const arbiter of arbiters) {
+        const votePda = deriveVotePda(disputePda, arbiter.pda);
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          arbiter.kp.publicKey,
+        );
+        await program.methods
+          .voteDispute(true)
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            workerClaim: claimPda,
+            defendantAgent: workerAgentPda,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiter.pda,
+            protocolConfig: protocolPda,
+            authority: arbiter.kp.publicKey,
+          })
+          .signers([arbiter.kp])
+          .rpc();
+      }
+
+      const config = await program.account.protocolConfig.fetch(protocolPda);
+      const expectedReserved = Math.floor(
+        (rewardAmount * config.slashPercentage) / 100,
+      );
+
+      const secondsUntilVotingEnds = Math.max(
+        1,
+        (
+          await program.account.dispute.fetch(disputePda)
+        ).votingDeadline.toNumber() -
+          Number(svm.getClock().unixTimestamp) +
+          1,
+      );
+      advanceClock(svm, secondsUntilVotingEnds);
+
+      await program.methods
+        .resolveDispute()
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          resolver: provider.wallet.publicKey,
+          creator: creator.publicKey,
+          workerClaim: claimPda,
+          worker: workerAgentPda,
+          workerAuthority: worker.publicKey,
+          systemProgram: SystemProgram.programId,
+          tokenEscrowAta: escrowAta,
+          creatorTokenAccount: creatorAta,
+          workerTokenAccountAta: null,
+          treasuryTokenAccount: treasuryAta,
+          rewardMint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .remainingAccounts([
+          {
+            pubkey: deriveVotePda(disputePda, arbiter1Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter1Pda, isSigner: false, isWritable: true },
+          {
+            pubkey: deriveVotePda(disputePda, arbiter2Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter2Pda, isSigner: false, isWritable: true },
+          {
+            pubkey: deriveVotePda(disputePda, arbiter3Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter3Pda, isSigner: false, isWritable: true },
+        ])
+        .rpc();
+
+      const escrowAfterResolve = await getTokenBalance(escrowAta);
+      expect(Number(escrowAfterResolve)).to.equal(expectedReserved);
+
+      await injectEscrowDust(mint, escrowAta, dust);
+      const escrowWithDust = await getTokenBalance(escrowAta);
+      expect(Number(escrowWithDust)).to.equal(expectedReserved + Number(dust));
+
+      const treasuryBeforeSlash = await getTokenBalance(treasuryAta);
+      await program.methods
+        .applyDisputeSlash()
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          workerClaim: claimPda,
+          workerAgent: workerAgentPda,
+          protocolConfig: protocolPda,
+          treasury: treasuryPubkey,
+          escrow: escrowPda,
+          tokenEscrowAta: escrowAta,
+          treasuryTokenAccount: treasuryAta,
+          rewardMint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      const treasuryAfterSlash = await getTokenBalance(treasuryAta);
+      expect(Number(treasuryAfterSlash - treasuryBeforeSlash)).to.equal(
+        expectedReserved + Number(dust),
+      );
 
       const escrowPdaAccount =
         await provider.connection.getAccountInfo(escrowPda);

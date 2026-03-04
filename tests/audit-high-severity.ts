@@ -21,6 +21,7 @@ import {
   makeDisputeId,
   deriveProgramDataPda,
   disableRateLimitsForTests,
+  getSharedMultisigSigners,
 } from "./test-utils";
 
 describe("audit-high-severity", () => {
@@ -124,7 +125,7 @@ describe("audit-high-severity", () => {
         .initializeProtocol(
           51,
           100,
-          new BN(LAMPORTS_PER_SOL / 100),
+          new BN(LAMPORTS_PER_SOL),
           new BN(LAMPORTS_PER_SOL / 100),
           2,
           [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey],
@@ -191,8 +192,7 @@ describe("audit-high-severity", () => {
   };
 
   before(async () => {
-    treasury = Keypair.generate();
-    thirdSigner = Keypair.generate();
+    ({ secondSigner: treasury, thirdSigner } = getSharedMultisigSigners());
     creator = Keypair.generate();
     worker1 = Keypair.generate();
     worker2 = Keypair.generate();

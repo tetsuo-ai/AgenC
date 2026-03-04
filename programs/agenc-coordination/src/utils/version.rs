@@ -51,7 +51,6 @@ pub fn check_version_compatible(config: &ProtocolConfig) -> Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,8 +14,8 @@
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
 use crate::instructions::constants::{
-    DEFAULT_DISPUTE_INITIATION_COOLDOWN, DEFAULT_MAX_DISPUTES_PER_24H,
-    DEFAULT_MAX_TASKS_PER_24H, DEFAULT_TASK_CREATION_COOLDOWN, MAX_PROTOCOL_FEE_BPS,
+    DEFAULT_DISPUTE_INITIATION_COOLDOWN, DEFAULT_MAX_DISPUTES_PER_24H, DEFAULT_MAX_TASKS_PER_24H,
+    DEFAULT_TASK_CREATION_COOLDOWN, MAX_PROTOCOL_FEE_BPS,
 };
 use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
 use crate::utils::multisig::validate_multisig_owners;

@@ -190,6 +190,9 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         let treasury_ta = ctx.accounts.treasury_token_account.as_ref().unwrap();
         let mint = ctx.accounts.reward_mint.as_ref().unwrap();
         let token_program = ctx.accounts.token_program.as_ref().unwrap();
+        let token_escrow_starting_amount =
+            anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+                .map_err(|_| CoordinationError::TokenTransferFailed)?;
 
         require!(
             escrow.task == ctx.accounts.task.key() && ctx.accounts.task.escrow == escrow.key(),
@@ -212,7 +215,7 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
         // ResolveDispute leaves only the token slash reserve in escrow ATA.
         // Settling the slash transfers the full remaining escrow token balance.
-        let token_slash_amount = token_escrow.amount;
+        let token_slash_amount = token_escrow_starting_amount;
         if token_slash_amount > 0 {
             transfer_tokens_from_escrow(
                 token_escrow,
@@ -223,9 +226,14 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
                 token_program,
             )?;
         }
+        let residual_amount = token_escrow_starting_amount
+            .checked_sub(token_slash_amount)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
 
         close_token_escrow(
             token_escrow,
+            residual_amount,
+            &treasury_ta.to_account_info(),
             &ctx.accounts.treasury.to_account_info(),
             &escrow.to_account_info(),
             escrow_seeds,

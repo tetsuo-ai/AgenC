@@ -32,6 +32,7 @@ import {
   errorContainsAny,
   disableRateLimitsForTests,
   ensureAgentRegistered,
+  getSharedMultisigSigners,
 } from "./test-utils";
 import {
   createLiteSVMContext,
@@ -191,8 +192,7 @@ describe("agent-feed (issue #1103)", () => {
   };
 
   before(async () => {
-    secondSigner = Keypair.generate();
-    thirdSigner = Keypair.generate();
+    ({ secondSigner, thirdSigner } = getSharedMultisigSigners());
     treasury = Keypair.generate();
     poster1 = Keypair.generate();
     poster2 = Keypair.generate();

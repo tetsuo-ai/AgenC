@@ -82,6 +82,8 @@ describe("governance (issue #1106)", () => {
   // With min_arbiter_stake=0.01SOL and reputation=5000, weight = 0.1SOL * 0.5 = 50M lamports
   // Set min_proposal_stake low enough that a single vote can meet quorum
   const MIN_PROPOSAL_STAKE = 10_000_000; // 0.01 SOL (quorum = 10M, easily met by 50M vote weight)
+  // Proposal account layout offset where the 64-byte payload begins.
+  const PROPOSAL_PAYLOAD_OFFSET = 145;
 
   // Agent stake (must meet min_proposal_stake)
   const AGENT_STAKE = LAMPORTS_PER_SOL;
@@ -521,6 +523,51 @@ describe("governance (issue #1106)", () => {
       }
     });
 
+    it("should reject zero floor values in RateLimitChange payload at creation", async () => {
+      const basePayload = () => {
+        const payload = Buffer.alloc(64);
+        payload.writeBigInt64LE(30n, 0);
+        payload.writeUInt8(20, 8);
+        payload.writeBigInt64LE(60n, 9);
+        payload.writeUInt8(10, 17);
+        return payload;
+      };
+
+      const cases = [
+        {
+          label: "task_creation_cooldown",
+          apply: (payload: Buffer) => payload.writeBigInt64LE(0n, 0),
+        },
+        {
+          label: "max_tasks_per_24h",
+          apply: (payload: Buffer) => payload.writeUInt8(0, 8),
+        },
+        {
+          label: "dispute_initiation_cooldown",
+          apply: (payload: Buffer) => payload.writeBigInt64LE(0n, 9),
+        },
+        {
+          label: "max_disputes_per_24h",
+          apply: (payload: Buffer) => payload.writeUInt8(0, 17),
+        },
+      ];
+
+      for (const testCase of cases) {
+        const nonce = proposalNonce++;
+        const payload = basePayload();
+        testCase.apply(payload);
+
+        try {
+          await createProposal(nonce, PROPOSAL_TYPE_RATE_LIMIT_CHANGE, payload);
+          expect.fail(
+            `Should have rejected RateLimitChange with zero ${testCase.label}`,
+          );
+        } catch (err: any) {
+          expect(errorContainsAny(err, ["InvalidProposalPayload"])).to.be.true;
+        }
+      }
+    });
+
     it("should increment governance total_proposals counter", async () => {
       const configBefore =
         await program.account.governanceConfig.fetch(governanceConfigPda);
@@ -726,6 +773,46 @@ describe("governance (issue #1106)", () => {
       expect(config.minStakeForDispute.toNumber()).to.equal(
         LAMPORTS_PER_SOL / 2,
       );
+    });
+
+    it("should reject execution when RateLimitChange payload floor is zeroed", async () => {
+      const nonce = rlProposalNonce++;
+      const payload = Buffer.alloc(64);
+      payload.writeBigInt64LE(45n, 0);
+      payload.writeUInt8(30, 8);
+      payload.writeBigInt64LE(90n, 9);
+      payload.writeUInt8(15, 17);
+      payload.writeBigUInt64LE(BigInt(LAMPORTS_PER_SOL / 2), 18);
+
+      const proposalPda = await createProposal(
+        nonce,
+        PROPOSAL_TYPE_RATE_LIMIT_CHANGE,
+        payload,
+      );
+
+      await voteOnProposal(proposalPda, voter2, voter2AgentPda, true);
+
+      const proposalAccount = svm.getAccount(proposalPda);
+      expect(proposalAccount).to.not.equal(null);
+
+      const patchedData = new Uint8Array(proposalAccount!.data);
+      patchedData[PROPOSAL_PAYLOAD_OFFSET + 8] = 0; // max_tasks_per_24h
+
+      svm.setAccount(proposalPda, {
+        ...proposalAccount!,
+        data: patchedData,
+      });
+
+      advanceClock(svm, VOTING_PERIOD + EXECUTION_DELAY + 10);
+
+      try {
+        await executeProposal(proposalPda);
+        expect.fail(
+          "Should reject execution when RateLimitChange payload disables floor",
+        );
+      } catch (err: any) {
+        expect(errorContainsAny(err, ["InvalidProposalPayload"])).to.be.true;
+      }
     });
 
     after(async () => {

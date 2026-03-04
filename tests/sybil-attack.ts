@@ -539,7 +539,7 @@ describe("sybil-attack", () => {
       const task1Id = makeId("multi-t1");
       const task2Id = makeId("multi-t2");
 
-      for (const taskId of [task1Id, task2Id]) {
+      for (const [index, taskId] of [task1Id, task2Id].entries()) {
         const taskPda = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), taskId],
           program.programId,
@@ -596,6 +596,10 @@ describe("sybil-attack", () => {
           })
           .signers([multiArbiter])
           .rpc();
+
+        if (index === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1100));
+        }
       }
 
       // Create two disputes
