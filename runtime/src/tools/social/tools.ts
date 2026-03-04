@@ -71,10 +71,7 @@ function validateHex(
   fieldName: string,
   expectedLength: number,
 ): [Uint8Array, null] | [null, ToolResult] {
-  if (
-    typeof value !== "string" ||
-    !new RegExp(`^[0-9a-fA-F]{${expectedLength}}$`).test(value)
-  ) {
+  if (typeof value !== "string" || value.length !== expectedLength) {
     return [
       null,
       errorResult(
@@ -82,6 +79,22 @@ function validateHex(
       ),
     ];
   }
+
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    const isNumber = code >= 48 && code <= 57;
+    const isLowerHex = code >= 97 && code <= 102;
+    const isUpperHex = code >= 65 && code <= 70;
+    if (!isNumber && !isLowerHex && !isUpperHex) {
+      return [
+        null,
+        errorResult(
+          `Invalid ${fieldName}: must be a ${expectedLength}-char hex string`,
+        ),
+      ];
+    }
+  }
+
   return [Buffer.from(value, "hex"), null];
 }
 

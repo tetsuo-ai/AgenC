@@ -71,7 +71,7 @@ async function connectAndOpen(client: RemoteGatewayClient): Promise<void> {
 
 function makeConfig(overrides?: Record<string, unknown>) {
   return {
-    url: "ws://localhost:9100",
+    url: "wss://localhost:9100",
     token: "test-token",
     reconnect: false, // Disable reconnect by default for cleaner tests
     ...overrides,
@@ -296,12 +296,12 @@ describe("RemoteGatewayClient", () => {
 
     // Switch to new gateway — reset instance tracker
     mockWsInstance = undefined as unknown as MockWs;
-    const switchPromise = client.switchGateway("ws://other:9200", "new-token");
+    const switchPromise = client.switchGateway("wss://other:9200", "new-token");
     await tick();
     mockWsInstance.simulateOpen();
 
     // New WS instance created with new URL
-    expect(mockWsInstance.url).toBe("ws://other:9200");
+    expect(mockWsInstance.url).toBe("wss://other:9200");
 
     // Simulate auth on new connection
     const authMsg = JSON.parse(mockWsInstance.send.mock.calls[0][0]);

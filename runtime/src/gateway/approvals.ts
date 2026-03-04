@@ -100,12 +100,33 @@ export interface ApprovalEngineConfig {
 
 /**
  * Simple glob matcher — supports `*` as a wildcard for any sequence of chars.
- * Escapes regex special chars, then replaces `*` with `.*`.
  */
 export function globMatch(pattern: string, value: string): boolean {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
-  return regex.test(value);
+  if (pattern === "*") return true;
+  if (!pattern.includes("*")) return value === pattern;
+
+  const parts = pattern.split("*");
+  let cursor = 0;
+  const [first, ...rest] = parts;
+
+  if (!value.startsWith(first ?? "")) return false;
+  cursor = (first ?? "").length;
+
+  for (let i = 0; i < rest.length; i += 1) {
+    const part = rest[i] ?? "";
+    if (part.length === 0) continue;
+
+    // Last segment must match the end.
+    if (i === rest.length - 1) {
+      return value.slice(cursor).endsWith(part);
+    }
+
+    const next = value.indexOf(part, cursor);
+    if (next === -1) return false;
+    cursor = next + part.length;
+  }
+
+  return true;
 }
 
 /**

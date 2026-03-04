@@ -80,17 +80,30 @@ function parseFindings(markdown) {
   return findings;
 }
 
+function compileBaselineRegex(pattern, fieldName) {
+  if (typeof pattern !== "string" || pattern.length === 0) {
+    throw new Error(`Invalid ${fieldName}: expected non-empty regex string`);
+  }
+  if (pattern.length > 512) {
+    throw new Error(`Invalid ${fieldName}: regex too long (${pattern.length} chars)`);
+  }
+  // nosemgrep
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+  // Baseline patterns are repository-controlled review artifacts, not user input.
+  return new RegExp(pattern); // nosemgrep
+}
+
 function matchesEntry(finding, entry) {
   if (finding.severity !== entry.severity) return false;
   if (finding.file !== entry.file) return false;
 
   if (entry.locationRegex) {
-    const regex = new RegExp(entry.locationRegex);
+    const regex = compileBaselineRegex(entry.locationRegex, "locationRegex");
     if (!regex.test(finding.location)) return false;
   }
 
   if (entry.descriptionRegex) {
-    const regex = new RegExp(entry.descriptionRegex);
+    const regex = compileBaselineRegex(entry.descriptionRegex, "descriptionRegex");
     if (!regex.test(finding.description)) return false;
   }
 

@@ -153,9 +153,28 @@ export class ToolPolicyEvaluator {
       return toolName === pattern;
     }
 
-    // Convert glob pattern to regex: escape dots, replace * with [^.]*
-    const escaped = pattern.replace(/\./g, "\\.").replace(/\*/g, "[^.]*");
-    return new RegExp(`^${escaped}$`).test(toolName);
+    const parts = pattern.split("*");
+    const [prefix, ...rest] = parts;
+
+    if (!toolName.startsWith(prefix ?? "")) return false;
+    let cursor = (prefix ?? "").length;
+
+    for (const segment of rest) {
+      if (segment.length === 0) continue;
+      const segmentStart = toolName.indexOf(segment, cursor);
+      if (segmentStart < 0) return false;
+
+      // `*` in this policy syntax does not cross dot boundaries.
+      const wildcardSlice = toolName.slice(cursor, segmentStart);
+      if (wildcardSlice.includes(".")) return false;
+      cursor = segmentStart + segment.length;
+    }
+
+    const tail = toolName.slice(cursor);
+    if (pattern.endsWith("*")) {
+      return !tail.includes(".");
+    }
+    return tail.length === 0;
   }
 
   /**

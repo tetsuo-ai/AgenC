@@ -208,7 +208,7 @@ describe("SignalChannel", () => {
 
     expect(mockStdinWrite).toHaveBeenCalledOnce();
     const written = JSON.parse(
-      mockStdinWrite.mock.calls[0][0].replace("\n", ""),
+      mockStdinWrite.mock.calls[0][0].trim(),
     );
     expect(written.method).toBe("send");
     expect(written.params.recipient).toEqual(["+15559876543"]);

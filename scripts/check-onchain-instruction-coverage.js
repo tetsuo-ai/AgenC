@@ -12,14 +12,29 @@ function readFileText(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
 
+function resolveInsideRoot(rootPath, relativePath) {
+  // nosemgrep
+  // Path resolution is followed by strict root-boundary checks below.
+  const resolvedRoot = path.resolve(rootPath); // nosemgrep
+  const resolvedPath = path.resolve(resolvedRoot, relativePath); // nosemgrep
+  const relative = path.relative(resolvedRoot, resolvedPath);
+  if (
+    relative.startsWith("..") ||
+    path.isAbsolute(relative) ||
+    relative.includes(`..${path.sep}`)
+  ) {
+    throw new Error(`Path escapes repository root: ${relativePath}`);
+  }
+  return resolvedPath;
+}
+
 function loadInstructionNames(repoRoot) {
-  const libPath = path.join(
-    repoRoot,
+  const libPath = resolveInsideRoot(repoRoot, path.join(
     "programs",
     "agenc-coordination",
     "src",
     "lib.rs",
-  );
+  ));
   const libText = readFileText(libPath);
   const fnRegex = /pub fn\s+([a-zA-Z0-9_]+)\s*\(/g;
   const ignore = new Set(["initialize", "id"]);
@@ -50,7 +65,7 @@ function loadTestFilePaths(repoRoot) {
     return [];
   }
 
-  return output.split("\n").map((relativePath) => path.join(repoRoot, relativePath));
+  return output.split("\n").map((relativePath) => resolveInsideRoot(repoRoot, relativePath));
 }
 
 function loadInvokedMethodNames(testFiles) {

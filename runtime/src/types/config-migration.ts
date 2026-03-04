@@ -183,9 +183,16 @@ export const DEPRECATED_KEYS: Readonly<Record<string, string>> = {
   strict_mode: "strictMode",
 };
 
+const BLOCKED_PATH_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
+
+function isBlockedPathSegment(segment: string): boolean {
+  return BLOCKED_PATH_SEGMENTS.has(segment);
+}
+
 function flattenKeys(obj: Record<string, unknown>, prefix = ""): string[] {
   const result: string[] = [];
   for (const key of Object.keys(obj)) {
+    if (isBlockedPathSegment(key)) continue;
     const path = prefix ? `${prefix}.${key}` : key;
     result.push(path);
     const value = obj[key];
@@ -200,8 +207,11 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".");
   let current: unknown = obj;
   for (const part of parts) {
+    if (isBlockedPathSegment(part)) return undefined;
     if (typeof current !== "object" || current === null) return undefined;
-    current = (current as Record<string, unknown>)[part];
+    const record = current as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(record, part)) return undefined;
+    current = record[part];
   }
   return current;
 }

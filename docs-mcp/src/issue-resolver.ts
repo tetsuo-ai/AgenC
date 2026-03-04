@@ -236,24 +236,43 @@ export class IssueResolver {
   }
 
   private extractPhaseSection(phaseContent: string, section: string, issueNumber: number): string | null {
-    // Try to find the section by issue number or section number
-    const patterns = [
-      new RegExp(`^###\\s+${section.replace('.', '\\.')}[:\\s]`, 'm'),
-      new RegExp(`#${issueNumber}`, 'm'),
-    ];
+    const start = this.findPhaseSectionStart(phaseContent, section, issueNumber);
+    if (start === null) return null;
+    // Find next ### or end
+    const rest = phaseContent.slice(start);
+    const nextSection = rest.indexOf('\n### ', 10);
+    const extracted = nextSection > 0 ? rest.slice(0, nextSection) : rest.slice(0, 2000);
+    return extracted.trim();
+  }
 
-    for (const pattern of patterns) {
-      const match = phaseContent.match(pattern);
-      if (match && match.index !== undefined) {
-        const start = match.index;
-        // Find next ### or end
-        const rest = phaseContent.slice(start);
-        const nextSection = rest.indexOf('\n### ', 10);
-        const extracted = nextSection > 0 ? rest.slice(0, nextSection) : rest.slice(0, 2000);
-        return extracted.trim();
+  private findPhaseSectionStart(
+    phaseContent: string,
+    section: string,
+    issueNumber: number,
+  ): number | null {
+    const sectionLabel = section.trim();
+    const lines = phaseContent.split('\n');
+    let offset = 0;
+
+    // Prefer direct section heading match first.
+    for (const line of lines) {
+      if (line.startsWith('### ')) {
+        const heading = line.slice(4).trimStart();
+        if (
+          heading === sectionLabel
+          || heading.startsWith(`${sectionLabel}:`)
+          || heading.startsWith(`${sectionLabel} `)
+        ) {
+          return offset;
+        }
       }
+      offset += line.length + 1;
     }
 
+    // Fallback: locate by issue number marker.
+    const issueMarker = `#${issueNumber}`;
+    const issueStart = phaseContent.indexOf(issueMarker);
+    if (issueStart >= 0) return issueStart;
     return null;
   }
 }

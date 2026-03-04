@@ -43,16 +43,16 @@ export function createLogger(
 
       switch (level) {
         case "debug":
-          console.debug(fullMessage, ...args);
+          console.debug("%s", fullMessage, ...args);
           break;
         case "info":
-          console.info(fullMessage, ...args);
+          console.info("%s", fullMessage, ...args);
           break;
         case "warn":
-          console.warn(fullMessage, ...args);
+          console.warn("%s", fullMessage, ...args);
           break;
         case "error":
-          console.error(fullMessage, ...args);
+          console.error("%s", fullMessage, ...args);
           break;
       }
     }

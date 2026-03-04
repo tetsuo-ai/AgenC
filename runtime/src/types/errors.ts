@@ -1200,11 +1200,13 @@ export function isAnchorError(error: unknown, code: AnchorErrorCode): boolean {
 
   // Check transaction logs for error code pattern
   if ("logs" in err && Array.isArray(err.logs)) {
-    const errorPattern = new RegExp(
-      `Error Code: \\w+\\. Error Number: ${code}\\.`,
-    );
+    const codeNeedle = `Error Number: ${code}.`;
     for (const log of err.logs) {
-      if (typeof log === "string" && errorPattern.test(log)) {
+      if (
+        typeof log === "string"
+        && log.includes("Error Code:")
+        && log.includes(codeNeedle)
+      ) {
         return true;
       }
     }

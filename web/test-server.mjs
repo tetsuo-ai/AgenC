@@ -43,7 +43,7 @@ const TEST_AGENTS = [
     reputation: 98,
     tasksCompleted: 12,
     stake: '12.5',
-    endpoint: 'ws://localhost:3100',
+    endpoint: 'wss://localhost:3100',
     metadataUri: 'https://example.com/metadata/main.json',
     registeredAt: 1_700_000_000,
     lastActive: 1_700_000_000,
@@ -87,7 +87,7 @@ const clients = new Map();
 
 const wss = new WebSocketServer({ port: PORT, host: HOST });
 
-console.log(`WebChat test server listening on ws://${HOST}:${PORT}`);
+console.log(`WebChat test server listening on ${HOST}:${PORT} (ws)`);
 console.log('Run "cd web && npm run dev" and open http://localhost:5173\n');
 
 wss.on('connection', (ws) => {
@@ -107,7 +107,7 @@ wss.on('connection', (ws) => {
     const id = typeof msg.id === 'string' ? msg.id : undefined;
     const payload = msg.payload ?? {};
 
-    console.log(`[${clientId}] ${msg.type}`, payload.content ? `"${payload.content}"` : '');
+    console.log('%s %s', `[${clientId}] ${msg.type}`, payload.content ? `"${payload.content}"` : '');
 
     switch (msg.type) {
       case 'ping':
