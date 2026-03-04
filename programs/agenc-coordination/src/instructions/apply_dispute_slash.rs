@@ -90,7 +90,10 @@ pub struct ApplyDisputeSlash<'info> {
 }
 
 pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
-    require!(ctx.accounts.authority.is_signer, CoordinationError::InvalidInput);
+    require!(
+        ctx.accounts.authority.is_signer,
+        CoordinationError::InvalidInput
+    );
 
     let dispute = &mut ctx.accounts.dispute;
     let worker_agent = &mut ctx.accounts.worker_agent;
@@ -205,11 +208,36 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
             CoordinationError::MissingTokenAccounts
         );
 
-        let escrow = ctx.accounts.escrow.as_mut().unwrap();
-        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
-        let treasury_ta = ctx.accounts.treasury_token_account.as_ref().unwrap();
-        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
-        let token_program = ctx.accounts.token_program.as_ref().unwrap();
+        let escrow = ctx
+            .accounts
+            .escrow
+            .as_mut()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let token_escrow = ctx
+            .accounts
+            .token_escrow_ata
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let treasury_ta = ctx
+            .accounts
+            .treasury_token_account
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let mint = ctx
+            .accounts
+            .reward_mint
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let token_program = ctx
+            .accounts
+            .token_program
+            .as_ref()
+            .ok_or(CoordinationError::MissingTokenAccounts)?;
+        let expected_mint = ctx
+            .accounts
+            .task
+            .reward_mint
+            .ok_or(CoordinationError::InvalidTokenMint)?;
         let token_escrow_starting_amount =
             anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
                 .map_err(|_| CoordinationError::TokenTransferFailed)?;
@@ -219,7 +247,7 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
             CoordinationError::TaskNotFound
         );
         require!(
-            mint.key() == ctx.accounts.task.reward_mint.unwrap(),
+            mint.key() == expected_mint,
             CoordinationError::InvalidTokenMint
         );
         validate_token_account(token_escrow, &mint.key(), &escrow.key())?;

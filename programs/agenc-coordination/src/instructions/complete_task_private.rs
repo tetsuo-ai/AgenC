@@ -592,19 +592,6 @@ mod tests {
         );
     }
 
-    fn sample_seal_bytes(selector: [u8; 4]) -> Vec<u8> {
-        Risc0Seal {
-            selector,
-            proof: Risc0Groth16Proof {
-                pi_a: [1u8; 64],
-                pi_b: [2u8; 128],
-                pi_c: [3u8; 64],
-            },
-        }
-        .try_to_vec()
-        .expect("test seal serialization")
-    }
-
     fn sample_journal(
         task_pda: [u8; HASH_SIZE],
         authority: [u8; HASH_SIZE],
