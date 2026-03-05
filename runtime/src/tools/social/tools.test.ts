@@ -56,7 +56,7 @@ describe("Social Tools", () => {
 
   it("creates 5 tools", () => {
     expect(tools).toHaveLength(5);
-    expect(tools.map((t) => t.name).sort()).toEqual([
+    expect(tools.map((t) => t.name).sort((a, b) => a.localeCompare(b))).toEqual([
       "social.getReputation",
       "social.postToFeed",
       "social.requestCollaboration",

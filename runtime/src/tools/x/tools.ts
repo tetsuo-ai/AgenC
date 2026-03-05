@@ -44,7 +44,7 @@ function buildOAuthHeader(
   };
 
   const allParams = { ...params, ...oauthParams };
-  const sortedKeys = Object.keys(allParams).sort();
+  const sortedKeys = Object.keys(allParams).sort((a, b) => a.localeCompare(b));
   const paramString = sortedKeys.map((k) => `${percentEncode(k)}=${percentEncode(allParams[k])}`).join('&');
 
   const signatureBase = `${method.toUpperCase()}&${percentEncode(url)}&${percentEncode(paramString)}`;
@@ -54,7 +54,7 @@ function buildOAuthHeader(
   oauthParams.oauth_signature = signature;
 
   const headerParts = Object.keys(oauthParams)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`)
     .join(', ');
 

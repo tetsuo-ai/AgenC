@@ -273,7 +273,7 @@ export function parseQueryDSL(input: string): QueryDSL {
         }
 
         if (invalid.length === 0) {
-          dsl.walletSet = [...wallets].sort();
+          dsl.walletSet = [...wallets].sort((a, b) => a.localeCompare(b));
         } else {
           dsl.walletSet = wallets;
         }
@@ -307,8 +307,8 @@ export function normalizeQuery(dsl: QueryDSL): CanonicalQuery {
       from: dsl.slotRange?.from ?? null,
       to: dsl.slotRange?.to ?? null,
     },
-    walletSet: [...(dsl.walletSet ?? [])].sort(),
-    anomalyCodes: [...(dsl.anomalyCodes ?? [])].sort(),
+    walletSet: [...(dsl.walletSet ?? [])].sort((a, b) => a.localeCompare(b)),
+    anomalyCodes: [...(dsl.anomalyCodes ?? [])].sort((a, b) => a.localeCompare(b)),
   };
 
   const canonical = stableStringifyJson(normalized as unknown as JsonValue);

@@ -92,14 +92,14 @@ function conformanceSuite(
         await backend.set("ns:b", 2);
         await backend.set("other:c", 3);
         const keys = await backend.listKeys("ns:");
-        expect(keys.sort()).toEqual(["ns:a", "ns:b"]);
+        expect(keys.sort((a, b) => a.localeCompare(b))).toEqual(["ns:a", "ns:b"]);
       });
 
       it("listKeys without prefix returns all", async () => {
         await backend.set("a", 1);
         await backend.set("b", 2);
         const keys = await backend.listKeys();
-        expect(keys.sort()).toEqual(["a", "b"]);
+        expect(keys.sort((a, b) => a.localeCompare(b))).toEqual(["a", "b"]);
       });
     });
 
@@ -254,7 +254,7 @@ function conformanceSuite(
           content: "b",
         });
         const sessions = await backend.listSessions();
-        expect(sessions.sort()).toEqual(["alpha", "beta"]);
+        expect(sessions.sort((a, b) => a.localeCompare(b))).toEqual(["alpha", "beta"]);
       });
 
       it("listSessions filters by prefix", async () => {
@@ -274,7 +274,7 @@ function conformanceSuite(
           content: "c",
         });
         const sessions = await backend.listSessions("proj:");
-        expect(sessions.sort()).toEqual(["proj:a", "proj:b"]);
+        expect(sessions.sort((a, b) => a.localeCompare(b))).toEqual(["proj:a", "proj:b"]);
       });
     });
   });

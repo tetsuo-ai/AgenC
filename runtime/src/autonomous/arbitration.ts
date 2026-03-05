@@ -93,7 +93,7 @@ function collectReasonCodes(
       seen.add(reason.code);
     }
   }
-  return [...seen].sort();
+  return [...seen].sort((a, b) => a.localeCompare(b));
 }
 
 /**

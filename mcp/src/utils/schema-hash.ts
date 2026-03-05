@@ -27,7 +27,7 @@ function normalizeLiteral(value: unknown): JsonLike {
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     const out: Record<string, JsonLike> = {};
-    for (const key of Object.keys(record).sort()) {
+    for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
       out[key] = normalizeLiteral(record[key]);
     }
     return out;
@@ -66,7 +66,7 @@ function extractSchemaDescription(schema: ZodTypeAny): unknown {
         | undefined;
       const shape = shapeFn ? shapeFn() : {};
       const fields: Record<string, unknown> = {};
-      for (const key of Object.keys(shape).sort()) {
+      for (const key of Object.keys(shape).sort((a, b) => a.localeCompare(b))) {
         fields[key] = extractSchemaDescription(shape[key]);
       }
       return {

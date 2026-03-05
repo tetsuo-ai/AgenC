@@ -707,7 +707,7 @@ describe("TaskOperations", () => {
       expect(mocks.completeTaskPrivateMethod).toHaveBeenCalledTimes(1);
       const proofArg = mocks.completeTaskPrivateMethod.mock
         .calls[0][1] as Record<string, unknown>;
-      expect(Object.keys(proofArg).sort()).toEqual([
+      expect(Object.keys(proofArg).sort((a, b) => a.localeCompare(b))).toEqual([
         "bindingSeed",
         "imageId",
         "journal",

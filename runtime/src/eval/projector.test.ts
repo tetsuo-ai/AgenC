@@ -281,13 +281,13 @@ it("projects a full-quality fixture deterministically with full event-surface co
 
   const observedSourceNames = [
     ...new Set(resultA.events.map((entry) => entry.sourceEventName)),
-  ].sort();
+  ].sort((a, b) => a.localeCompare(b));
   const expectedSourceNames = [
     ...new Set(fixtureInputs.map((entry) => entry.eventName)),
-  ].sort();
+  ].sort((a, b) => a.localeCompare(b));
   const observedTypes = [
     ...new Set(resultA.events.map((entry) => entry.type)),
-  ].sort();
+  ].sort((a, b) => a.localeCompare(b));
   const expectedTypes = [
     "agent:registered",
     "agent:updated",
@@ -318,7 +318,7 @@ it("projects a full-quality fixture deterministically with full event-surface co
     "speculation_started",
     "speculation_confirmed",
     "speculation_aborted",
-  ].sort();
+  ].sort((a, b) => a.localeCompare(b));
 
   expect(resultA.telemetry.unknownEvents).toHaveLength(0);
   expect(resultA.telemetry.malformedInputs).toHaveLength(0);

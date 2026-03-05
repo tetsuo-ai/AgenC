@@ -299,7 +299,7 @@ function sortRecordByKey(
   record: Record<string, number>,
 ): Record<string, number> {
   const sorted: Record<string, number> = {};
-  for (const key of Object.keys(record).sort()) {
+  for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
     sorted[key] = record[key]!;
   }
   return sorted;
@@ -385,8 +385,8 @@ export function summarizeReplayIncidentRecords(
     };
   });
 
-  const uniqueTaskIds = [...taskIds].sort();
-  const uniqueDisputeIds = [...disputeIds].sort();
+  const uniqueTaskIds = [...taskIds].sort((a, b) => a.localeCompare(b));
+  const uniqueDisputeIds = [...disputeIds].sort((a, b) => a.localeCompare(b));
   const sortedEventTypeCounts = sortRecordByKey(sourceEventTypeCounts);
   const sortedEventNameCounts = sortRecordByKey(sourceEventNameCounts);
   const sortedTraceIdCounts = sortRecordByKey(traceIdCounts);

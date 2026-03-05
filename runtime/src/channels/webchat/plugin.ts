@@ -241,11 +241,8 @@ export class WebChatChannel
 
     if (type === "chat.cancel") {
       const sessionId = this.clientSessions.get(clientId);
-      if (sessionId && this.cancelSession(sessionId)) {
-        send({ type: "chat.cancelled", payload: { cancelled: true }, id });
-      } else {
-        send({ type: "chat.cancelled", payload: { cancelled: true }, id });
-      }
+      const cancelled = !!(sessionId && this.cancelSession(sessionId));
+      send({ type: "chat.cancelled", payload: { cancelled }, id });
       return;
     }
 

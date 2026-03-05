@@ -71,7 +71,7 @@ function sumMatchingMetrics(
   workflowId: string,
 ): number {
   let total = 0;
-  const keys = Object.keys(values).sort();
+  const keys = Object.keys(values).sort((a, b) => a.localeCompare(b));
 
   for (const key of keys) {
     const parsed = parseCompositeMetricKey(key);
@@ -134,7 +134,7 @@ function computeDepthByNode(state: WorkflowState): Map<string, number> {
 
 function orderedRecord(map: Map<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const key of [...map.keys()].sort()) {
+  for (const key of [...map.keys()].sort((a, b) => a.localeCompare(b))) {
     out[key] = map.get(key) ?? 0;
   }
   return out;
@@ -217,7 +217,7 @@ function buildMetadata(
   const out = new Map<string, string>();
 
   if (base) {
-    for (const key of Object.keys(base).sort()) {
+    for (const key of Object.keys(base).sort((a, b) => a.localeCompare(b))) {
       out.set(key, base[key]);
     }
   }
@@ -232,7 +232,7 @@ function buildMetadata(
 
     if (roleCounts.size > 0) {
       out.set("workflow_source", "team_adapter");
-      for (const role of [...roleCounts.keys()].sort()) {
+      for (const role of [...roleCounts.keys()].sort((a, b) => a.localeCompare(b))) {
         out.set(`role_count.${role}`, String(roleCounts.get(role) ?? 0));
       }
     }
@@ -243,7 +243,7 @@ function buildMetadata(
   if (out.size === 0) return undefined;
 
   const object: Record<string, string> = {};
-  for (const key of [...out.keys()].sort()) {
+  for (const key of [...out.keys()].sort((a, b) => a.localeCompare(b))) {
     object[key] = out.get(key) ?? "";
   }
   return object;

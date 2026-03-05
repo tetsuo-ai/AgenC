@@ -266,7 +266,7 @@ function listGitFiles(pathSpecs) {
       .map((line) => line.trim())
       .filter(Boolean),
   );
-  return Array.from(unique).sort();
+  return Array.from(unique).sort((a, b) => a.localeCompare(b));
 }
 
 function isLikelyText(buffer) {

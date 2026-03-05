@@ -53,7 +53,7 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
       </div>
 
       {/* iframe container */}
-      <div className="relative flex-1 min-h-0" onClick={handleContainerClick}>
+      <div role="presentation" className="relative flex-1 min-h-0" onClick={handleContainerClick}>
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-bbs-black pointer-events-none">
             <span className="text-xs text-bbs-gray animate-pulse">Connecting to desktop...</span>

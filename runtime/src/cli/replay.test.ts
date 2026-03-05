@@ -104,7 +104,7 @@ describe("summarizeReplayIncidentRecords determinism (#968)", () => {
     });
 
     const keys = Object.keys(summary.sourceEventNameCounts);
-    expect(keys).toEqual([...keys].sort());
+    expect(keys).toEqual([...keys].sort((a, b) => a.localeCompare(b)));
   });
 });
 

@@ -314,7 +314,10 @@ function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat, agents
           return (
             <div
               key={session.sessionId}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectSession?.(session.sessionId)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelectSession?.(session.sessionId); }}
               onMouseEnter={() => setHoveredChat(i)}
               onMouseLeave={() => setHoveredChat(null)}
               className={`animate-list-item flex items-center justify-between px-6 py-3.5 transition-all duration-200 cursor-pointer ${

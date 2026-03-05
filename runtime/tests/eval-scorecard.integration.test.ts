@@ -249,7 +249,7 @@ describe('eval scorecard integration', () => {
         verifierGated: run.verifierGated,
       })),
       degradedRuns.map((run) => ({
-        verifierVerdict: run.passed ? 'pass' : 'pass',
+        verifierVerdict: 'pass',
         judgeVerdict: run.passed ? 'pass' : 'fail',
         confidence: 0.9,
         taskType: run.taskType,

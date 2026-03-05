@@ -429,7 +429,7 @@ export function ChatView({
       {/* Mobile sessions bottom sheet */}
       {sessionsOpen && (
         <div className="absolute inset-0 z-50 lg:hidden flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setSessionsOpen(false)} />
+          <div role="presentation" className="absolute inset-0 bg-black/60" onClick={() => setSessionsOpen(false)} onKeyDown={(e) => { if (e.key === 'Escape') setSessionsOpen(false); }} />
           <div className="relative bg-bbs-dark border-t border-bbs-border max-h-[70vh] flex flex-col animate-slide-up">
             <div className="flex items-center justify-between px-4 py-3 border-b border-bbs-border">
               <span className="text-xs font-bold text-bbs-white">RECENT SESSIONS</span>

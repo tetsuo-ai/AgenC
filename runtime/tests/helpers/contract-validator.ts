@@ -60,7 +60,7 @@ function assertTopLevelKeys(
 
   const payload = value as Record<string, unknown>;
   const allowedKeys = new Set([...requiredKeys, ...optionalKeys, 'command']);
-  const actualKeys = Object.keys(payload).sort();
+  const actualKeys = Object.keys(payload).sort((a, b) => a.localeCompare(b));
 
   for (const key of requiredKeys) {
     expect(actualKeys).toContain(key);

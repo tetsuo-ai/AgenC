@@ -201,7 +201,7 @@ describe('createAgencTools', () => {
     });
 
     expect(tools).toHaveLength(7);
-    expect(tools.map((t) => t.name).sort()).toEqual([
+    expect(tools.map((t) => t.name).sort((a, b) => a.localeCompare(b))).toEqual([
       'agenc.createTask',
       'agenc.getAgent',
       'agenc.getProtocolConfig',

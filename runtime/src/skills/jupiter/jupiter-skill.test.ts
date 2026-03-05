@@ -93,7 +93,7 @@ describe("JupiterSkill", () => {
       await skill.initialize(createMockContext());
       const actions = skill.getActions();
       expect(actions).toHaveLength(7);
-      expect(actions.map((a) => a.name).sort()).toEqual([
+      expect(actions.map((a) => a.name).sort((a, b) => a.localeCompare(b))).toEqual([
         "executeSwap",
         "getQuote",
         "getSolBalance",

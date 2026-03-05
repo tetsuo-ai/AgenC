@@ -235,7 +235,7 @@ export class ReplayBackfillService {
               cursor,
               duplicateReport:
                 duplicateKeys.length > 0
-                  ? { count: duplicates, keys: [...duplicateKeys].sort() }
+                  ? { count: duplicates, keys: [...duplicateKeys].sort((a, b) => a.localeCompare(b)) }
                   : undefined,
             };
           }
@@ -311,7 +311,7 @@ export class ReplayBackfillService {
           cursor,
           duplicateReport:
             duplicateKeys.length > 0
-              ? { count: duplicates, keys: [...duplicateKeys].sort() }
+              ? { count: duplicates, keys: [...duplicateKeys].sort((a, b) => a.localeCompare(b)) }
               : undefined,
         };
       }
@@ -324,7 +324,7 @@ export class ReplayBackfillService {
           cursor,
           duplicateReport:
             duplicateKeys.length > 0
-              ? { count: duplicates, keys: [...duplicateKeys].sort() }
+              ? { count: duplicates, keys: [...duplicateKeys].sort((a, b) => a.localeCompare(b)) }
               : undefined,
         };
       }

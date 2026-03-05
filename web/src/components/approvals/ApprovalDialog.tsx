@@ -34,16 +34,21 @@ export function ApprovalDialog({ request, onApprove, onDeny, onClose }: Approval
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
       className={`fixed inset-0 flex items-center justify-center z-50 p-4 transition-colors duration-150 ${
         visible ? 'bg-black/70' : 'bg-transparent'
       }`}
       onClick={handleClose}
+      onKeyDown={(e) => { if (e.key === 'Escape') handleClose(); }}
+      tabIndex={-1}
     >
       <div
         className={`bg-bbs-dark border border-bbs-yellow/50 max-w-md w-full transition-all duration-200 ${
           visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
         }`}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="px-4 py-2 border-b border-bbs-yellow/30 flex items-center justify-between">

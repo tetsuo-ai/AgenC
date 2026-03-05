@@ -220,7 +220,7 @@ describe("buildConfigSchemaSnapshot", () => {
 
   it("keys are sorted", () => {
     const snap = buildConfigSchemaSnapshot(CURRENT_CONFIG_VERSION, "default");
-    const sorted = [...snap.keys].sort();
+    const sorted = [...snap.keys].sort((a, b) => a.localeCompare(b));
     expect(snap.keys).toEqual(sorted);
   });
 

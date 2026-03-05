@@ -385,7 +385,7 @@ describe("replay.alert.v1 golden schema (#967)", () => {
   });
 
   it("required fields list matches expected set", () => {
-    const fields = [...REPLAY_ALERT_V1_REQUIRED_FIELDS].sort();
+    const fields = [...REPLAY_ALERT_V1_REQUIRED_FIELDS].sort((a, b) => a.localeCompare(b));
     expect(fields).toEqual([
       "code",
       "emittedAtMs",
@@ -397,7 +397,7 @@ describe("replay.alert.v1 golden schema (#967)", () => {
   });
 
   it("valid severities match expected set", () => {
-    expect([...REPLAY_ALERT_V1_VALID_SEVERITIES].sort()).toEqual([
+    expect([...REPLAY_ALERT_V1_VALID_SEVERITIES].sort((a, b) => a.localeCompare(b))).toEqual([
       "error",
       "info",
       "warning",
@@ -405,7 +405,7 @@ describe("replay.alert.v1 golden schema (#967)", () => {
   });
 
   it("valid kinds match expected set", () => {
-    expect([...REPLAY_ALERT_V1_VALID_KINDS].sort()).toEqual([
+    expect([...REPLAY_ALERT_V1_VALID_KINDS].sort((a, b) => a.localeCompare(b))).toEqual([
       "replay_anomaly_repeat",
       "replay_hash_mismatch",
       "replay_ingestion_lag",
@@ -442,13 +442,13 @@ describe("replay.alert.v1 golden schema (#967)", () => {
 
     expect(lockfile.schemaVersion).toBe(REPLAY_ALERT_SCHEMA_VERSION);
     expect(lockfile.requiredFields).toEqual(
-      [...REPLAY_ALERT_V1_REQUIRED_FIELDS].sort(),
+      [...REPLAY_ALERT_V1_REQUIRED_FIELDS].sort((a, b) => a.localeCompare(b)),
     );
     expect(lockfile.validSeverities).toEqual(
-      [...REPLAY_ALERT_V1_VALID_SEVERITIES].sort(),
+      [...REPLAY_ALERT_V1_VALID_SEVERITIES].sort((a, b) => a.localeCompare(b)),
     );
     expect(lockfile.validKinds).toEqual(
-      [...REPLAY_ALERT_V1_VALID_KINDS].sort(),
+      [...REPLAY_ALERT_V1_VALID_KINDS].sort((a, b) => a.localeCompare(b)),
     );
   });
 });

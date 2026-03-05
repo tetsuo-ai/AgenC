@@ -520,7 +520,7 @@ export class ToolRouter {
       break;
     }
 
-    return Array.from(terms).sort();
+    return Array.from(terms).sort((a, b) => a.localeCompare(b));
   }
 
   private scoreTools(intentTerms: readonly string[]): Array<{ tool: IndexedTool; score: number }> {

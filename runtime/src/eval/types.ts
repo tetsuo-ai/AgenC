@@ -290,7 +290,7 @@ function canonicalizeJson(value: JsonValue): JsonValue {
 
   if (isPlainObject(value)) {
     const output: JsonObject = {};
-    for (const key of Object.keys(value).sort()) {
+    for (const key of Object.keys(value).sort((a, b) => a.localeCompare(b))) {
       output[key] = canonicalizeJson(value[key] as JsonValue);
     }
     return output;

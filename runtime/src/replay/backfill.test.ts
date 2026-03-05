@@ -112,7 +112,7 @@ describe("ReplayBackfillService", () => {
     expect(result.duplicateReport).toBeDefined();
     expect(result.duplicateReport!.count).toBe(result.duplicates);
     expect(result.duplicateReport!.keys).toEqual(
-      [...result.duplicateReport!.keys].sort(),
+      [...result.duplicateReport!.keys].sort((a, b) => a.localeCompare(b)),
     );
   });
 

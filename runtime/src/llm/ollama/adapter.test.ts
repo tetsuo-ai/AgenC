@@ -279,6 +279,7 @@ describe("OllamaProvider", () => {
   it("throws when stream fails before any content is received", async () => {
     mockChat.mockResolvedValueOnce(
       (async function* () {
+        yield* []; // ensure valid generator before error
         throw new Error("stream failed");
       })(),
     );

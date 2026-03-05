@@ -115,7 +115,7 @@ function writeTraceFixture(
 }
 
 function toTopLevelKeys(payload: Record<string, unknown>): string[] {
-  return Object.keys(payload).sort();
+  return Object.keys(payload).sort((a, b) => a.localeCompare(b));
 }
 
 function assertOutputSchema(payload: Record<string, unknown>, expectedSchema: string, expectedCommand: string, schemaDef: { requiredTopLevel: string[]; optionalTopLevel?: string[] }): void {

@@ -2,7 +2,7 @@ Object.defineProperty(window, 'matchMedia', {
   configurable: true,
   writable: true,
   value: (query: string) => ({
-    matches: query === '(prefers-color-scheme: dark)' ? false : false,
+    matches: false,
     media: query,
     onchange: null,
     addEventListener: () => {},

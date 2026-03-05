@@ -34,7 +34,7 @@ export function buildKey(
   labels?: Record<string, string>,
 ): string {
   if (!labels || Object.keys(labels).length === 0) return name;
-  const sorted = Object.keys(labels).sort();
+  const sorted = Object.keys(labels).sort((a, b) => a.localeCompare(b));
   const parts = sorted.map((k) => `${k}=${labels[k]}`);
   return `${name}|${parts.join("|")}`;
 }

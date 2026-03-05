@@ -127,7 +127,7 @@ describe("JUPITER_ACTION_SCHEMAS", () => {
       "transferToken",
       "getTokenPrice",
     ];
-    expect(Object.keys(JUPITER_ACTION_SCHEMAS).sort()).toEqual(expected.sort());
+    expect(Object.keys(JUPITER_ACTION_SCHEMAS).sort((a, b) => a.localeCompare(b))).toEqual(expected.sort((a, b) => a.localeCompare(b)));
   });
 
   it("each schema has type: object", () => {

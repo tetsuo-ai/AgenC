@@ -369,7 +369,7 @@ function Picker({ value, options, onChange, title }: {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setOpen(false)}>
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setOpen(false)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }} tabIndex={-1}>
           {/* Backdrop */}
           <div className="absolute inset-0 bg-black/50" />
 
@@ -377,6 +377,7 @@ function Picker({ value, options, onChange, title }: {
           <div
             className="relative w-full sm:max-w-sm bg-surface rounded-t-2xl sm:rounded-2xl overflow-hidden animate-slide-up"
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
           >
             {/* Handle bar (mobile) */}
             <div className="flex justify-center pt-3 pb-1 sm:hidden">

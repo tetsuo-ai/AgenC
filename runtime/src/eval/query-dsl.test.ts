@@ -58,7 +58,7 @@ describe("query-dsl", () => {
     const key3 = pubkey(4);
 
     const parsed = parseQueryDSL(`walletSet=${key1},${key2},${key3}`);
-    expect(parsed.walletSet).toEqual([key2, key1, key3].sort());
+    expect(parsed.walletSet).toEqual([key2, key1, key3].sort((a, b) => a.localeCompare(b)));
   });
 
   it("throws validation error when missing equals", () => {
@@ -150,7 +150,7 @@ describe("query-dsl", () => {
     ];
 
     const filtered = applyAnomalyFilter(anomalies, { severity: "error" });
-    expect(filtered.map((entry) => entry.code).sort()).toEqual([
+    expect(filtered.map((entry) => entry.code).sort((a, b) => a.localeCompare(b))).toEqual([
       "hash_mismatch",
       "type_mismatch",
     ]);

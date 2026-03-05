@@ -368,7 +368,7 @@ describe("SkillMonetizationManager", () => {
 
       const active = manager.getActiveSubscriptions();
       expect(active).toHaveLength(2);
-      expect(active.map((s) => s.skillId).sort()).toEqual([
+      expect(active.map((s) => s.skillId).sort((a, b) => a.localeCompare(b))).toEqual([
         "active-skill",
         "trial-skill",
       ]);

@@ -281,7 +281,7 @@ function summarizeOperators(
   }
 
   const output: Record<string, number> = {};
-  for (const key of [...counts.keys()].sort()) {
+  for (const key of [...counts.keys()].sort((a, b) => a.localeCompare(b))) {
     output[key] = counts.get(key) ?? 0;
   }
   return output;

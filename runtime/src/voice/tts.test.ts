@@ -287,6 +287,7 @@ describe("EdgeTTSProvider", () => {
   it("wraps errors in VoiceSynthesisError", async () => {
     mockStream.mockReturnValue(
       (async function* () {
+        yield* []; // ensure valid generator before error
         throw new Error("Connection failed");
       })(),
     );

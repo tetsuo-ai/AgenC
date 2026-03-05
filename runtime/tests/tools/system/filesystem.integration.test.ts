@@ -679,7 +679,7 @@ describe('Edge cases', () => {
 
   it('returns correct tool count (8 tools)', () => {
     expect(tools.length).toBe(8);
-    const names = tools.map((t) => t.name).sort();
+    const names = tools.map((t) => t.name).sort((a, b) => a.localeCompare(b));
     expect(names).toEqual([
       'system.appendFile',
       'system.delete',

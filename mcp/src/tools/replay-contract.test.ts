@@ -117,7 +117,7 @@ const COMPARE_TRACE_PATH = join(
 const COMPARE_TRACE_RELATIVE = "tmp/mcp-replay-compare-success.trace.json";
 
 function normalizeKeys(payload: unknown): string[] {
-  return Object.keys(payload as Record<string, unknown>).sort();
+  return Object.keys(payload as Record<string, unknown>).sort((a, b) => a.localeCompare(b));
 }
 
 function makeStore(records: ReplayRecord[] = []): FakeReplayStore {

@@ -178,7 +178,7 @@ describe("parseCapabilities", () => {
     const original: CapabilityName[] = ["COMPUTE", "STORAGE", "ARBITER"];
     const caps = parseCapabilities(original);
     const names = getCapabilityNames(caps);
-    expect(names.sort()).toEqual(original.sort());
+    expect(names.sort((a, b) => a.localeCompare(b))).toEqual(original.sort((a, b) => a.localeCompare(b)));
   });
 });
 

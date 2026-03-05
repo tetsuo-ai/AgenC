@@ -202,7 +202,7 @@ describe("createFilesystemTools", () => {
   it("returns all 8 filesystem tools", () => {
     const tools = createFilesystemTools(CONFIG);
     expect(tools).toHaveLength(8);
-    expect(tools.map((t) => t.name).sort()).toEqual([
+    expect(tools.map((t) => t.name).sort((a, b) => a.localeCompare(b))).toEqual([
       "system.appendFile",
       "system.delete",
       "system.listDir",

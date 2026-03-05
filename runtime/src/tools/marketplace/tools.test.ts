@@ -37,7 +37,7 @@ describe("Marketplace Tools", () => {
 
   it("creates 4 tools", () => {
     expect(tools).toHaveLength(4);
-    expect(tools.map((t) => t.name).sort()).toEqual([
+    expect(tools.map((t) => t.name).sort((a, b) => a.localeCompare(b))).toEqual([
       "marketplace.bidOnService",
       "marketplace.createService",
       "marketplace.listBids",

@@ -42,7 +42,7 @@ describe("PriorityQueue", () => {
 
       const results = [pq.pop(), pq.pop(), pq.pop()];
       expect(results).toHaveLength(3);
-      expect(results.sort()).toEqual(["a", "b", "c"]);
+      expect(results.sort((a, b) => a.localeCompare(b))).toEqual(["a", "b", "c"]);
     });
 
     it("handles many items correctly", () => {
