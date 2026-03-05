@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  TEST_LOOPBACK_IP,
+  TEST_PUBLIC_IP,
+  ipv4LookupResults,
+} from "./dnsTestFixtures.js";
 import { silentLogger } from "../../utils/logger.js";
 
 vi.mock("node:dns/promises", () => ({
@@ -373,9 +378,7 @@ beforeEach(() => {
     );
   vi.stubGlobal("fetch", mockFetch);
   mockDnsLookup.mockReset();
-  mockDnsLookup.mockResolvedValue([
-    { address: "93.184.216.34", family: 4 },
-  ]);
+  mockDnsLookup.mockResolvedValue(ipv4LookupResults(TEST_PUBLIC_IP));
 
   _resetForTesting();
 
@@ -395,6 +398,44 @@ beforeEach(() => {
   mockBrowser.close.mockClear();
   mockLaunch.mockClear().mockResolvedValue(mockBrowser);
 });
+
+function makeRedirectResponse(location: string, url: string): Response {
+  return {
+    status: 302,
+    statusText: "Found",
+    headers: new Headers({ location }),
+    url,
+    text: vi.fn().mockResolvedValue(""),
+    body: null,
+  } as unknown as Response;
+}
+
+function queueDnsLookup(...addresses: string[]) {
+  mockDnsLookup.mockResolvedValueOnce(ipv4LookupResults(...addresses));
+}
+
+async function expectDnsRebindingError(params: {
+  url: string;
+  redirectLocation?: string;
+  expectedFetchCalls: number;
+}) {
+  if (params.redirectLocation) {
+    mockFetch.mockResolvedValueOnce(
+      makeRedirectResponse(params.redirectLocation, params.url),
+    );
+    queueDnsLookup(TEST_PUBLIC_IP);
+  }
+
+  queueDnsLookup(TEST_PUBLIC_IP, TEST_LOOPBACK_IP);
+
+  const [browse] = createBrowserTools({ mode: "basic" }, silentLogger);
+  const result = await browse.execute({ url: params.url });
+
+  expect(result.isError).toBe(true);
+  const parsed = JSON.parse(result.content);
+  expect(parsed.error).toContain(`resolved to ${TEST_LOOPBACK_IP}`);
+  expect(mockFetch).toHaveBeenCalledTimes(params.expectedFetchCalls);
+}
 
 // ============================================================================
 // Factory
@@ -1063,25 +1104,11 @@ describe("redirect handling", () => {
   });
 
   it("redirect to hostname resolving privately is stopped", async () => {
-    mockFetch.mockResolvedValueOnce({
-      status: 302,
-      statusText: "Found",
-      headers: new Headers({ location: "https://attacker.example/trap" }),
+    await expectDnsRebindingError({
       url: "https://safe.example/start",
-      text: vi.fn().mockResolvedValue(""),
-      body: null,
-    } as unknown as Response);
-    mockDnsLookup
-      .mockResolvedValueOnce([{ address: "93.184.216.34", family: 4 }])
-      .mockResolvedValueOnce([{ address: "127.0.0.1", family: 4 }]);
-
-    const [browse] = createBrowserTools({ mode: "basic" }, silentLogger);
-    const result = await browse.execute({ url: "https://safe.example/start" });
-
-    expect(result.isError).toBe(true);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.error).toContain("resolved to 127.0.0.1");
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+      redirectLocation: "https://attacker.example/trap",
+      expectedFetchCalls: 1,
+    });
   });
 });
 
@@ -1115,20 +1142,10 @@ describe("domain validation", () => {
   });
 
   it("blocks hostnames when DNS resolves to a private IP", async () => {
-    mockDnsLookup.mockResolvedValueOnce([
-      { address: "93.184.216.34", family: 4 },
-      { address: "127.0.0.1", family: 4 },
-    ]);
-
-    const [browse] = createBrowserTools({ mode: "basic" }, silentLogger);
-    const result = await browse.execute({
+    await expectDnsRebindingError({
       url: "https://attacker.example/hidden",
+      expectedFetchCalls: 0,
     });
-
-    expect(result.isError).toBe(true);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.error).toContain("resolved to 127.0.0.1");
-    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("blocks non-HTTP schemes", async () => {

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { createHttpTools, isDomainAllowed } from "./http.js";
+import {
+  TEST_LOOPBACK_IP,
+  TEST_PUBLIC_IP,
+  ipv4LookupResults,
+} from "./dnsTestFixtures.js";
 import { silentLogger } from "../../utils/logger.js";
 
 vi.mock("node:dns/promises", () => ({
@@ -51,9 +56,7 @@ beforeEach(() => {
   mockFetch = vi.fn().mockResolvedValue(makeMockResponse('{"ok":true}'));
   vi.stubGlobal("fetch", mockFetch);
   mockDnsLookup.mockReset();
-  mockDnsLookup.mockResolvedValue([
-    { address: "93.184.216.34", family: 4 },
-  ]);
+  mockDnsLookup.mockResolvedValue(ipv4LookupResults(TEST_PUBLIC_IP));
 });
 
 // ============================================================================
@@ -511,10 +514,9 @@ describe("redirects", () => {
   });
 
   it("blocks hostnames when any resolved IP is private", async () => {
-    mockDnsLookup.mockResolvedValueOnce([
-      { address: "93.184.216.34", family: 4 },
-      { address: "127.0.0.1", family: 4 },
-    ]);
+    mockDnsLookup.mockResolvedValueOnce(
+      ipv4LookupResults(TEST_PUBLIC_IP, TEST_LOOPBACK_IP),
+    );
 
     const [httpGet] = createHttpTools({}, silentLogger);
     const result = await httpGet.execute({
@@ -523,7 +525,7 @@ describe("redirects", () => {
 
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content);
-    expect(parsed.error).toContain("resolved to 127.0.0.1");
+    expect(parsed.error).toContain(`resolved to ${TEST_LOOPBACK_IP}`);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -537,8 +539,8 @@ describe("redirects", () => {
       body: null,
     } as unknown as Response);
     mockDnsLookup
-      .mockResolvedValueOnce([{ address: "93.184.216.34", family: 4 }])
-      .mockResolvedValueOnce([{ address: "127.0.0.1", family: 4 }]);
+      .mockResolvedValueOnce(ipv4LookupResults(TEST_PUBLIC_IP))
+      .mockResolvedValueOnce(ipv4LookupResults(TEST_LOOPBACK_IP));
 
     const [httpGet] = createHttpTools({}, silentLogger);
     const result = await httpGet.execute({
@@ -547,7 +549,7 @@ describe("redirects", () => {
 
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content);
-    expect(parsed.error).toContain("resolved to 127.0.0.1");
+    expect(parsed.error).toContain(`resolved to ${TEST_LOOPBACK_IP}`);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
