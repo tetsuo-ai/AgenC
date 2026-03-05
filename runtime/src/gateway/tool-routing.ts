@@ -133,6 +133,14 @@ const MCP_TERMS = new Set([
   "window",
 ]);
 
+const REQUIRED_MCP_FAMILY_BY_TERM: Record<string, string> = {
+  kitty: "mcp.kitty",
+  tmux: "mcp.tmux",
+  neovim: "mcp.neovim",
+  nvim: "mcp.neovim",
+  vim: "mcp.neovim",
+};
+
 interface NormalizedRoutingConfig {
   enabled: boolean;
   minToolsPerTurn: number;
@@ -245,6 +253,19 @@ function familyFromToolName(name: string): string {
     }
   }
   return prefix;
+}
+
+function requiredFamiliesForTerms(terms: readonly string[]): Set<string> {
+  const required = new Set<string>();
+  for (const term of terms) {
+    const family = REQUIRED_MCP_FAMILY_BY_TERM[term];
+    if (family) required.add(family);
+  }
+  return required;
+}
+
+function hasAnyToolInFamily(toolNames: readonly string[], family: string): boolean {
+  return toolNames.some((name) => familyFromToolName(name) === family);
 }
 
 function normalizeConfig(config: ToolRoutingConfig | undefined): NormalizedRoutingConfig {
@@ -377,6 +398,7 @@ export class ToolRouter {
     const clusterKey = intentTerms.slice(0, 6).join("|") || "general";
     const now = Date.now();
     const cached = this.cache.get(params.sessionId);
+    const requiredFamilies = requiredFamiliesForTerms(intentTerms);
 
     let invalidatedReason: string | undefined;
     if (cached) {
@@ -386,6 +408,12 @@ export class ToolRouter {
         invalidatedReason = "ttl_expired";
       } else if (EXPLICIT_PIVOT_RE.test(params.messageText)) {
         invalidatedReason = "explicit_redirect";
+      } else if (
+        Array.from(requiredFamilies).some(
+          (family) => !hasAnyToolInFamily(cached.routedToolNames, family),
+        )
+      ) {
+        invalidatedReason = "missing_required_family";
       } else {
         const similarity = jaccardSimilarity(intentTerms, cached.terms);
         if (intentTerms.length > 0 && similarity < this.config.pivotSimilarityThreshold) {
@@ -410,7 +438,7 @@ export class ToolRouter {
     }
 
     const scored = this.scoreTools(intentTerms);
-    const routedToolNames = this.selectRoutedTools(scored);
+    const routedToolNames = this.selectRoutedTools(scored, requiredFamilies);
     const expandedToolNames = this.selectExpandedTools(scored, routedToolNames);
     const confidence = this.estimateConfidence(scored, intentTerms, routedToolNames);
 
@@ -501,6 +529,7 @@ export class ToolRouter {
     const hasFileIntent = intentTerms.some((term) => FILE_TERMS.has(term));
     const hasNetworkIntent = intentTerms.some((term) => NETWORK_TERMS.has(term));
     const hasMCPIntent = intentTerms.some((term) => MCP_TERMS.has(term));
+    const requiredFamilies = requiredFamiliesForTerms(intentTerms);
 
     const scored = this.indexedTools.map((tool) => {
       let score = 0;
@@ -525,6 +554,9 @@ export class ToolRouter {
       }
       if (hasMCPIntent && tool.family.startsWith("mcp.")) {
         score += 3;
+      }
+      if (requiredFamilies.has(tool.family)) {
+        score += 6;
       }
       if (hasFileIntent && tool.family === "system") {
         if (
@@ -558,6 +590,7 @@ export class ToolRouter {
 
   private selectRoutedTools(
     scored: ReadonlyArray<{ tool: IndexedTool; score: number }>,
+    requiredFamilies: ReadonlySet<string>,
   ): string[] {
     const selected = new Set<string>();
     const familyCounts = new Map<string, number>();
@@ -585,6 +618,12 @@ export class ToolRouter {
       selected.add(candidate.name);
       familyCounts.set(candidate.family, usedInFamily + 1);
     };
+
+    for (const requiredFamily of requiredFamilies) {
+      const bestRequired = scored.find((entry) => entry.tool.family === requiredFamily);
+      if (!bestRequired) continue;
+      tryAdd(bestRequired.tool);
+    }
 
     for (const entry of scored) {
       if (entry.score <= 0 && selected.size >= minTools) break;

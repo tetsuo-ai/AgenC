@@ -183,6 +183,7 @@ export class ToolRegistry {
         const result = await tool.execute(args);
         if (result.isError) {
           this.logger.warn(`Tool "${name}" returned error: ${result.content}`);
+          return normalizeToolErrorContent(result.content);
         }
         return result.content;
       } catch (err) {
@@ -203,4 +204,20 @@ function inferToolAccess(toolName: string): "read" | "write" {
   const readPrefixes = ["get", "list", "query", "inspect", "read"];
   if (readPrefixes.some((p) => action.startsWith(p))) return "read";
   return "write";
+}
+
+function normalizeToolErrorContent(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return content;
+    }
+  } catch {
+    // Non-JSON error payloads are wrapped below.
+  }
+
+  const message = content.trim();
+  return safeStringify({
+    error: message.length > 0 ? message : "Tool execution failed",
+  });
 }

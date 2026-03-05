@@ -17,18 +17,24 @@ import {
 } from "./chat-executor-constants.js";
 import { safeStringify } from "../tools/types.js";
 
+const NON_JSON_FAILURE_PREFIXES = [
+  "mcp tool \"",
+  "error executing tool",
+];
+
 export function didToolCallFail(isError: boolean, result: string): boolean {
   if (isError) return true;
   try {
     const parsed = JSON.parse(result) as unknown;
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return false;
+      return isLikelyFailureText(result);
     }
     const obj = parsed as Record<string, unknown>;
     if (typeof obj.error === "string" && obj.error.trim().length > 0) return true;
     if (typeof obj.exitCode === "number" && obj.exitCode !== 0) return true;
   } catch {
-    // Non-JSON tool output — treat as non-failure unless isError=true.
+    // Non-JSON tool output — detect known tool-wrapper failure signatures.
+    return isLikelyFailureText(result);
   }
   return false;
 }
@@ -128,4 +134,11 @@ export function enrichToolResultMetadata(
     ...parsed,
     ...metadata,
   });
+}
+
+function isLikelyFailureText(result: string): boolean {
+  const text = result.trim().toLowerCase();
+  if (text.length === 0) return false;
+  if (text.startsWith("mcp tool \"") && text.includes("\" failed:")) return true;
+  return NON_JSON_FAILURE_PREFIXES.some((prefix) => text.startsWith(prefix));
 }

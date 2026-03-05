@@ -181,6 +181,25 @@ describe("ToolRegistry", () => {
     expect(result).toBe('{"error":"invalid input"}');
   });
 
+  it("createToolHandler wraps plain-text tool errors as JSON", async () => {
+    const registry = new ToolRegistry();
+    registry.register(
+      makeTool("test.soft-fail-text", {
+        execute: async (): Promise<ToolResult> => ({
+          content: 'MCP tool "launch" failed: timed out',
+          isError: true,
+        }),
+      }),
+    );
+
+    const handler = registry.createToolHandler();
+    const result = await handler("test.soft-fail-text", {});
+
+    expect(JSON.parse(result)).toEqual({
+      error: 'MCP tool "launch" failed: timed out',
+    });
+  });
+
   it("createToolHandler blocks denied tools via policy engine", async () => {
     const policyEngine = new PolicyEngine({
       policy: {
