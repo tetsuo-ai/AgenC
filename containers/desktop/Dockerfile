@@ -225,6 +225,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && python3 -m pip install --break-system-packages --ignore-installed --no-cache-dir --upgrade pip wheel==0.46.2 jaraco.context==6.1.0 \
     && git clone https://github.com/den-tanui/kitty-mcp.git /tmp/kitty-mcp \
     && sed -i '30,34d' /tmp/kitty-mcp/pyproject.toml \
+    && sed -i 's/--app-id=/--class=/g' /tmp/kitty-mcp/src/kitty_mcp/kitty.py \
     && /home/agenc/.local/bin/uv tool install /tmp/kitty-mcp \
     && UV_PYTHON_BIN="$(find /home/agenc/.local/share/uv/python -path '*/bin/python' 2>/dev/null | head -n1 || true)" \
     && if [ -n "$UV_PYTHON_BIN" ]; then \

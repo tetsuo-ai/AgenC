@@ -34,6 +34,14 @@ const TOOLS: LLMTool[] = [
   makeTool("agenc.getTask", "Read task details"),
 ];
 
+const MCP_TERMINAL_TOOLS: LLMTool[] = [
+  ...TOOLS,
+  makeTool("mcp.kitty.launch", "Launch kitty terminal window"),
+  makeTool("mcp.kitty.send_text", "Send text to a kitty instance"),
+  makeTool("mcp.tmux.execute-command", "Execute command in tmux session"),
+  makeTool("mcp.tmux.list-sessions", "List tmux sessions"),
+];
+
 describe("ToolRouter", () => {
   it("returns full toolset when disabled", () => {
     const router = new ToolRouter(TOOLS, { enabled: false });
@@ -114,6 +122,31 @@ describe("ToolRouter", () => {
 
     expect(next.diagnostics.cacheHit).toBe(false);
     expect(next.diagnostics.invalidatedReason).toBe("explicit_redirect");
+  });
+
+  it("invalidates cached route when explicit tmux intent needs mcp.tmux family", () => {
+    const router = new ToolRouter(MCP_TERMINAL_TOOLS, {
+      maxToolsPerTurn: 8,
+      minCacheConfidence: 0,
+    });
+
+    const first = router.route({
+      sessionId: "s-tmux",
+      messageText: "open a kitty terminal and keep using it",
+      history: [],
+    });
+    expect(first.routedToolNames.some((name) => name.startsWith("mcp.kitty."))).toBe(true);
+    expect(first.routedToolNames.some((name) => name.startsWith("mcp.tmux."))).toBe(false);
+
+    const second = router.route({
+      sessionId: "s-tmux",
+      messageText: "in that same terminal start tmux",
+      history: [{ role: "user", content: "open a kitty terminal", toolCalls: undefined }],
+    });
+
+    expect(second.diagnostics.cacheHit).toBe(false);
+    expect(second.diagnostics.invalidatedReason).toBe("missing_required_family");
+    expect(second.routedToolNames.some((name) => name.startsWith("mcp.tmux."))).toBe(true);
   });
 
   it("invalidates cache after repeated routing misses", () => {
