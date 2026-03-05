@@ -471,7 +471,7 @@ describe("spl-token-tasks (issue #860)", () => {
     arbiter3AgentId = makeId("ar3");
 
     // Airdrop SOL
-    await airdrop([
+    airdrop([
       treasury,
       secondSigner,
       thirdSigner,
@@ -1111,7 +1111,7 @@ describe("spl-token-tasks (issue #860)", () => {
       // Create a new keypair with an empty ATA
       const poorCreator = Keypair.generate();
       const poorAgentId = makeId("poor");
-      await airdrop([poorCreator]);
+      airdrop([poorCreator]);
       await registerAgent(
         poorAgentId,
         poorCreator,

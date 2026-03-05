@@ -20,6 +20,7 @@ while [ $# -gt 0 ]; do
         mainnet|devnet|localnet)
             NETWORK="$1"
             ;;
+        *) ;;
     esac
     shift
 done

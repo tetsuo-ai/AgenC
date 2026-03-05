@@ -761,10 +761,11 @@ export function createBashTool(config?: BashToolConfig): Tool {
 
           // Resolve on exit (NOT close) — close waits for pipes,
           // exit fires when bash process terminates.
-          child.on("exit", (code) => {
+          const onExit = (code: number | null) => {
             // Brief delay to flush any remaining pipe data from bash itself
-            setTimeout(() => doResolve(code), 50);
-          });
+            setTimeout(doResolve.bind(null, code), 50);
+          };
+          child.on("exit", onExit);
 
 	          child.on("error", (err) => {
 	            if (resolved) return;

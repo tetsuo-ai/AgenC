@@ -295,7 +295,7 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
       this.db.pragma("journal_mode = WAL");
     }
 
-    await this.ensureSchema(this.db);
+    this.ensureSchema(this.db);
     return this.db;
   }
 

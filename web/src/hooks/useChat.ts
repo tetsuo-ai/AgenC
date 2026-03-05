@@ -38,6 +38,34 @@ import {
   WS_TOOLS_RESULT,
 } from '../constants';
 
+/** Read a File as a base64 data URL and produce wire + display representations. */
+function readFileAttachment(
+  file: File,
+): Promise<{ wire: ChatAttachment; display: ChatMessageAttachment }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      resolve({
+        wire: {
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          data: base64,
+          sizeBytes: file.size,
+        },
+        display: {
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          ...(file.type.startsWith('image/') && { dataUrl }),
+        },
+      });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 export interface ChatAttachment {
   filename: string;
   mimeType: string;
@@ -297,31 +325,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     }
 
     // Read files as base64, build display attachments, then send
-    const readers = files.map(
-      (file) =>
-        new Promise<{ wire: ChatAttachment; display: ChatMessageAttachment }>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = reader.result as string;
-            const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-            resolve({
-              wire: {
-                filename: file.name,
-                mimeType: file.type || 'application/octet-stream',
-                data: base64,
-                sizeBytes: file.size,
-              },
-              display: {
-                filename: file.name,
-                mimeType: file.type || 'application/octet-stream',
-                ...(file.type.startsWith('image/') && { dataUrl }),
-              },
-            });
-          };
-          reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(file);
-        }),
-    );
+    const readers = files.map((file) => readFileAttachment(file));
 
     void Promise.all(readers).then((results) => {
       const id = `user_${++msgCounterRef.current}`;

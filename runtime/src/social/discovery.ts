@@ -76,7 +76,6 @@ export class AgentDiscovery {
     this.logger = config.logger ?? silentLogger;
     this.cache = config.cache ? new ProfileCache(config.cache) : null;
     // programId stored for future use by downstream modules (e.g. #1101 Agent Profiles)
-    void this.programId;
   }
 
   // --------------------------------------------------------------------------

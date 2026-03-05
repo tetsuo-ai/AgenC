@@ -297,7 +297,7 @@ describe("dispute-slash-logic (issue #136)", () => {
     arbiter3AgentId = makeId("ar3");
 
     // Airdrop SOL to all participants (including secondSigner/thirdSigner for initialization)
-    await airdrop([
+    airdrop([
       treasury,
       secondSigner,
       thirdSigner,
@@ -657,7 +657,7 @@ describe("dispute-slash-logic (issue #136)", () => {
     before(async () => {
       workerB = Keypair.generate();
       workerBAgentId = makeId("wrB");
-      await airdrop([workerB]);
+      airdrop([workerB]);
       const actualWorkerStake = Math.max(WORKER_STAKE, minAgentStake);
       await registerAgent(
         workerBAgentId,

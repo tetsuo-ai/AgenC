@@ -89,11 +89,11 @@ export class ReputationScorer {
    * @param upvotes - Current upvote count.
    * @returns Reputation points earned by the post author.
    */
-  scorePost(postId: string, upvotes: number): number {
+  scorePost(_postId: string, upvotes: number): number {
     if (upvotes < 0) {
       throw new ReputationScoringError("upvote count cannot be negative");
     }
-    void postId; // retained for logging / downstream tracking
+    // postId retained for logging / downstream tracking
     return upvotes * this.weights.upvoteWeight + this.weights.postWeight;
   }
 
@@ -108,13 +108,13 @@ export class ReputationScorer {
    * @returns Map of participant base58 key → reputation delta.
    */
   scoreCollaboration(
-    taskId: string,
+    _taskId: string,
     participants: Uint8Array[],
   ): Map<string, number> {
     if (participants.length < 1) {
       throw new ReputationScoringError("participants array must not be empty");
     }
-    void taskId; // retained for logging / downstream tracking
+    // taskId retained for logging / downstream tracking
     const perParticipant = Math.max(
       1,
       Math.floor(this.weights.collaborationWeight / participants.length),
@@ -136,8 +136,8 @@ export class ReputationScorer {
    * @param message - The agent message that was sent.
    * @returns Reputation points earned.
    */
-  scoreMessage(message: AgentMessage): number {
-    void message; // retained for future content-quality scoring
+  scoreMessage(_message: AgentMessage): number {
+    // message retained for future content-quality scoring
     return this.weights.messageWeight;
   }
 
@@ -148,11 +148,11 @@ export class ReputationScorer {
    * @param severity - Severity multiplier (1 = normal, higher = worse).
    * @returns Negative reputation delta.
    */
-  penalizeSpam(agentId: Uint8Array, severity: number): number {
+  penalizeSpam(_agentId: Uint8Array, severity: number): number {
     if (severity < 0) {
       throw new ReputationScoringError("severity cannot be negative");
     }
-    void agentId; // retained for logging / downstream tracking
+    // agentId retained for logging / downstream tracking
     return -(this.weights.spamPenaltyBase * severity);
   }
 

@@ -426,11 +426,11 @@ export class DAGMonitor {
       this.pollTimer = null;
     }
     if (this.completedListenerId !== null) {
-      void this.program.removeEventListener(this.completedListenerId);
+      this.program.removeEventListener(this.completedListenerId);
       this.completedListenerId = null;
     }
     if (this.cancelledListenerId !== null) {
-      void this.program.removeEventListener(this.cancelledListenerId);
+      this.program.removeEventListener(this.cancelledListenerId);
       this.cancelledListenerId = null;
     }
     this.started = false;

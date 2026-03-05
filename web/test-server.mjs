@@ -90,6 +90,54 @@ const wss = new WebSocketServer({ port: PORT, host: HOST });
 console.log(`WebChat test server listening on ${HOST}:${PORT} (ws)`);
 console.log('Run "cd web && npm run dev" and open http://localhost:5173\n');
 
+function sendToolSimulation(ws, toolCallId) {
+  ws.send(JSON.stringify({
+    type: 'tools.executing',
+    payload: {
+      toolName: 'agenc.listTasks',
+      toolCallId,
+      args: { status: 'open' },
+    },
+  }));
+
+  setTimeout(() => {
+    ws.send(JSON.stringify({
+      type: 'tools.result',
+      payload: {
+        toolName: 'agenc.listTasks',
+        toolCallId,
+        result: JSON.stringify([{ id: 'task_1', status: 'Open' }]),
+        durationMs: 42,
+        isError: false,
+      },
+    }));
+  }, 400);
+}
+
+function handleChatMessage(ws, content) {
+  setTimeout(() => {
+    ws.send(JSON.stringify({ type: 'chat.typing', payload: { active: true } }));
+    ws.send(JSON.stringify({ type: 'chat.session', payload: { sessionId: CHAT_SESSION_ID } }));
+
+    if (content.toLowerCase().includes('tool')) {
+      const toolCallId = `tool-${nextToolCallId++}`;
+      setTimeout(() => sendToolSimulation(ws, toolCallId), 150);
+    }
+
+    setTimeout(() => {
+      ws.send(JSON.stringify({ type: 'chat.typing', payload: { active: false } }));
+      ws.send(JSON.stringify({
+        type: 'chat.message',
+        payload: {
+          content: `You said: "${content}"`,
+          sender: 'agent',
+          timestamp: Date.now(),
+        },
+      }));
+    }, 650);
+  }, 50);
+}
+
 wss.on('connection', (ws) => {
   const clientId = `client_${++clientCounter}`;
   clients.set(clientId, ws);
@@ -116,50 +164,7 @@ wss.on('connection', (ws) => {
 
       case 'chat.message': {
         const content = payload.content ?? '';
-
-        setTimeout(() => {
-          ws.send(JSON.stringify({ type: 'chat.typing', payload: { active: true } }));
-          ws.send(JSON.stringify({ type: 'chat.session', payload: { sessionId: CHAT_SESSION_ID } }));
-
-          if (content.toLowerCase().includes('tool')) {
-            const toolCallId = `tool-${nextToolCallId++}`;
-            setTimeout(() => {
-              ws.send(JSON.stringify({
-                type: 'tools.executing',
-                payload: {
-                  toolName: 'agenc.listTasks',
-                  toolCallId,
-                  args: { status: 'open' },
-                },
-              }));
-
-              setTimeout(() => {
-                ws.send(JSON.stringify({
-                  type: 'tools.result',
-                  payload: {
-                    toolName: 'agenc.listTasks',
-                    toolCallId,
-                    result: JSON.stringify([{ id: 'task_1', status: 'Open' }]),
-                    durationMs: 42,
-                    isError: false,
-                  },
-                }));
-              }, 400);
-            }, 150);
-          }
-
-          setTimeout(() => {
-            ws.send(JSON.stringify({ type: 'chat.typing', payload: { active: false } }));
-            ws.send(JSON.stringify({
-              type: 'chat.message',
-              payload: {
-                content: `You said: "${content}"`,
-                sender: 'agent',
-                timestamp: Date.now(),
-              },
-            }));
-          }, 650);
-        }, 50);
+        handleChatMessage(ws, content);
         break;
       }
 

@@ -16,6 +16,7 @@ is_external_link() {
     *://* )
       return 0
       ;;
+    *) ;;
   esac
   return 1
 }
@@ -58,6 +59,7 @@ while IFS= read -r -d '' FILE; do
       \<* )
         continue
         ;;
+      *) ;;
     esac
 
     RESOLVED="$DIR/$TARGET"
