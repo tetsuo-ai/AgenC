@@ -43,6 +43,18 @@ function parseContent(result: { content: string }): Record<string, unknown> {
   return JSON.parse(result.content) as Record<string, unknown>;
 }
 
+async function expectShellModeExecutionError(
+  command: string,
+  expectedMessage: string,
+): Promise<void> {
+  const tool = createBashTool();
+
+  const result = await tool.execute({ command });
+  expect(result.isError).toBe(true);
+  expect(parseContent(result).error).toContain(expectedMessage);
+  expect(mockSpawn).not.toHaveBeenCalled();
+}
+
 /** Simulate a successful execFile callback (direct mode). */
 function mockSuccess(stdout = "", stderr = "") {
   mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
@@ -946,18 +958,6 @@ describe("system.bash tool", () => {
   // ---- Shell mode safety ----
 
   describe("shell safety guards", () => {
-    async function expectShellModeExecutionError(
-      command: string,
-      expectedMessage: string,
-    ): Promise<void> {
-      const tool = createBashTool();
-
-      const result = await tool.execute({ command });
-      expect(result.isError).toBe(true);
-      expect(parseContent(result).error).toContain(expectedMessage);
-      expect(mockSpawn).not.toHaveBeenCalled();
-    }
-
     it("blocks sudo in shell mode", async () => {
       const tool = createBashTool();
 

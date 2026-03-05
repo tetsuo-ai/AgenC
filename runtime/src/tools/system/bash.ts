@@ -378,10 +378,11 @@ function extractShellExecutables(
   const tokens = tokenizeShellCommand(command);
   const executables: string[] = [];
   let expectCommand = true;
+  let index = 0;
 
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    const next = tokens[i + 1];
+  while (index < tokens.length) {
+    const token = tokens[index];
+    const next = tokens[index + 1];
 
     if (expectCommand) {
       const dynamicExecutableReason = getDynamicShellExecutableReason(
@@ -395,24 +396,28 @@ function extractShellExecutables(
 
     if (SHELL_COMMAND_SEPARATORS.has(token)) {
       expectCommand = true;
+      index += 1;
       continue;
     }
 
     if (!expectCommand) {
+      index += 1;
       continue;
     }
 
-    const redirectionSkipIndex = getShellRedirectionSkipIndex(tokens, i);
+    const redirectionSkipIndex = getShellRedirectionSkipIndex(tokens, index);
     if (redirectionSkipIndex !== null) {
-      i = redirectionSkipIndex;
+      index = redirectionSkipIndex + 1;
       continue;
     }
 
     if (shouldSkipExecutableCandidate(token)) {
+      index += 1;
       continue;
     }
 
     expectCommand = !consumeShellExecutable(token, executables);
+    index += 1;
   }
 
   return { executables, dynamicExecutableReason: null };
