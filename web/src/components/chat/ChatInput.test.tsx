@@ -42,6 +42,45 @@ describe('ChatInput', () => {
     expect(onSend).toHaveBeenCalledWith('line one', undefined);
   });
 
+  it('keeps textarea focused after sending on Enter', () => {
+    const onSend = vi.fn();
+    const { container } = render(<ChatInput onSend={onSend} />);
+
+    const input = container.querySelector(
+      'textarea[placeholder="Enter command..."]',
+    ) as HTMLTextAreaElement;
+    input.focus();
+    fireEvent.change(input, { target: { value: 'sticky focus' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', shiftKey: false });
+
+    expect(onSend).toHaveBeenCalledWith('sticky focus', undefined);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('keeps textarea focused after selecting a slash command with Enter', () => {
+    const onSend = vi.fn();
+    const { container } = render(<ChatInput onSend={onSend} />);
+
+    const input = container.querySelector(
+      'textarea[placeholder="Enter command..."]',
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: '/res' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    expect(input.value).toBe('/reset ');
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('focuses textarea on mount when nothing else is focused', () => {
+    const onSend = vi.fn();
+    const { container } = render(<ChatInput onSend={onSend} />);
+    const input = container.querySelector(
+      'textarea[placeholder="Enter command..."]',
+    ) as HTMLTextAreaElement;
+
+    expect(document.activeElement).toBe(input);
+  });
+
   it('attaches files and sends them with the message', async () => {
     const onSend = vi.fn();
     const { container } = render(<ChatInput onSend={onSend} />);

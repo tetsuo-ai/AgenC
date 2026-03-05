@@ -181,7 +181,7 @@ describe("DesktopSandboxManager", () => {
       const args = runCall![1] as string[];
       expect(args).toContain("--detach");
       expect(args).toContain("--pids-limit");
-      expect(args).toContain("256");
+      expect(args).toContain("1024");
       expect(args).toContain("agenc/desktop:latest");
     });
 

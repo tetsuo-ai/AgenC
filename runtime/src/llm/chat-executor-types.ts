@@ -28,6 +28,7 @@ import type {
 } from "./policy.js";
 import type {
   Pipeline,
+  PipelineExecutionOptions,
   PipelinePlannerContext,
   PipelineResult,
   PipelineStep,
@@ -39,6 +40,7 @@ import type {
   DelegationBanditSelection,
   DelegationTrajectorySink,
 } from "./delegation-learning.js";
+import { deriveDelegationContextClusterId } from "./delegation-learning.js";
 import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 // ============================================================================
@@ -248,7 +250,11 @@ export interface ChatExecutorResult {
 
 /** Minimal pipeline executor interface required by ChatExecutor planner path. */
 export interface DeterministicPipelineExecutor {
-  execute(pipeline: Pipeline, startFrom?: number): Promise<PipelineResult>;
+  execute(
+    pipeline: Pipeline,
+    startFrom?: number,
+    options?: PipelineExecutionOptions,
+  ): Promise<PipelineResult>;
 }
 
 export type LLMRetryPolicyOverrides = Partial<{
@@ -617,4 +623,150 @@ export interface ExecutionContext {
   plannedSynthesisSteps: number;
   plannedDependencyDepth: number;
   plannedFanout: number;
+}
+
+// ============================================================================
+// ExecutionContext builder (extracted from initializeExecutionContext)
+// ============================================================================
+
+/** Parameters for building the default ExecutionContext object. */
+export interface BuildExecutionContextParams {
+  readonly message: GatewayMessage;
+  readonly messageText: string;
+  readonly systemPrompt: string;
+  readonly sessionId: string;
+  readonly signal?: AbortSignal;
+  readonly history: readonly LLMMessage[];
+  readonly plannerDecision: PlannerDecision;
+  readonly compacted: boolean;
+  readonly toolHandler?: ToolHandler;
+  readonly streamCallback?: StreamProgressCallback;
+  readonly toolRouting?: ChatExecuteParams["toolRouting"];
+  readonly initialRoutedToolNames: readonly string[];
+  readonly expandedRoutedToolNames: readonly string[];
+  readonly baseDelegationThreshold: number;
+}
+
+/** Configuration values from ChatExecutor instance needed for context building. */
+export interface BuildExecutionContextConfig {
+  readonly maxToolRounds: number;
+  readonly toolBudgetPerRequest: number;
+  readonly maxModelRecallsPerRequest: number;
+  readonly maxFailureBudgetPerRequest: number;
+  readonly requestTimeoutMs: number;
+  readonly providerName: string;
+  readonly plannerEnabled: boolean;
+  readonly subagentVerifierEnabled: boolean;
+  readonly delegationBanditTunerEnabled: boolean;
+  readonly delegationScoreThreshold: number;
+}
+
+/** Build the default ExecutionContext object with all mutable state initialized. */
+export function buildDefaultExecutionContext(
+  params: BuildExecutionContextParams,
+  config: BuildExecutionContextConfig,
+): ExecutionContext {
+  const startTime = Date.now();
+  const hasHistory = params.history.length > 0;
+  return {
+    // --- Immutable request params ---
+    message: params.message,
+    messageText: params.messageText,
+    systemPrompt: params.systemPrompt,
+    sessionId: params.sessionId,
+    signal: params.signal,
+    activeToolHandler: params.toolHandler,
+    activeStreamCallback: params.streamCallback,
+    effectiveMaxToolRounds: config.maxToolRounds,
+    effectiveToolBudget: config.toolBudgetPerRequest,
+    effectiveMaxModelRecalls: config.maxModelRecallsPerRequest,
+    effectiveFailureBudget: config.maxFailureBudgetPerRequest,
+    startTime,
+    requestDeadlineAt: startTime + config.requestTimeoutMs,
+    parentTurnId: `parent:${params.sessionId}:${startTime}`,
+    trajectoryTraceId: `trace:${params.sessionId}:${startTime}`,
+    initialRoutedToolNames: params.initialRoutedToolNames,
+    expandedRoutedToolNames: params.expandedRoutedToolNames,
+    canExpandOnRoutingMiss: Boolean(
+      params.toolRouting?.expandOnMiss &&
+      params.expandedRoutedToolNames.length > 0,
+    ),
+    hasHistory,
+    plannerDecision: params.plannerDecision,
+    baseDelegationThreshold: params.baseDelegationThreshold,
+    toolRouting: params.toolRouting,
+
+    // --- Mutable accumulator state ---
+    history: params.history,
+    messages: [],
+    messageSections: [],
+    cumulativeUsage: {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+    },
+    callUsage: [],
+    callIndex: 0,
+    modelCalls: 0,
+    allToolCalls: [],
+    failedToolCalls: 0,
+    usedFallback: false,
+    providerName: config.providerName,
+    responseModel: undefined,
+    response: undefined,
+    evaluation: undefined,
+    finalContent: "",
+    compacted: params.compacted,
+    stopReason: "completed",
+    stopReasonDetail: undefined,
+    activeRoutedToolNames: params.initialRoutedToolNames,
+    routedToolsExpanded: false,
+    routedToolMisses: 0,
+    plannerHandled: false,
+    plannerSummaryState: {
+      enabled: config.plannerEnabled,
+      used: false,
+      routeReason: params.plannerDecision.reason,
+      complexityScore: params.plannerDecision.score,
+      plannerCalls: 0,
+      plannedSteps: 0,
+      deterministicStepsExecuted: 0,
+      estimatedRecallsAvoided: 0,
+      diagnostics: [] as PlannerDiagnostic[],
+      delegationDecision: undefined as DelegationDecision | undefined,
+      subagentVerification: {
+        enabled: config.subagentVerifierEnabled,
+        performed: false,
+        rounds: 0,
+        overall: "skipped" as "pass" | "retry" | "fail" | "skipped",
+        confidence: 1,
+        unresolvedItems: [] as string[],
+      },
+      delegationPolicyTuning: {
+        enabled: config.delegationBanditTunerEnabled,
+        contextClusterId: undefined as string | undefined,
+        selectedArmId: undefined as string | undefined,
+        selectedArmReason: undefined as string | undefined,
+        tunedThreshold: undefined as number | undefined,
+        exploration: false,
+        finalReward: undefined as number | undefined,
+        usefulDelegation: undefined as boolean | undefined,
+        usefulDelegationScore: undefined as number | undefined,
+        rewardProxyVersion: undefined as string | undefined,
+      },
+    },
+    trajectoryContextClusterId: deriveDelegationContextClusterId({
+      complexityScore: params.plannerDecision.score,
+      subagentStepCount: 0,
+      hasHistory,
+      highRiskPlan: false,
+    }),
+    selectedBanditArm: undefined,
+    tunedDelegationThreshold: params.baseDelegationThreshold,
+    plannedSubagentSteps: 0,
+    plannedDeterministicSteps: 0,
+    plannedSynthesisSteps: 0,
+    plannedDependencyDepth: 0,
+    plannedFanout: 0,
+  };
 }

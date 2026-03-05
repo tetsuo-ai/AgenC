@@ -4,22 +4,29 @@
  * @module
  */
 
-import type { ToolCallRecord } from "./chat-executor-types.js";
+import type { LLMToolCall, LLMMessage, ToolHandler } from "./types.js";
+import type { ToolCallRecord, ToolCallAction, ToolLoopState, RecoveryHint, LLMRetryPolicyOverrides } from "./chat-executor-types.js";
 import type { LLMRetryPolicyMatrix } from "./policy.js";
 import { DEFAULT_LLM_RETRY_POLICY_MATRIX } from "./policy.js";
 import type { LLMFailureClass, LLMRetryPolicyRule } from "./policy.js";
-import type { LLMRetryPolicyOverrides } from "./chat-executor-types.js";
 import {
   HIGH_RISK_TOOLS,
   HIGH_RISK_TOOL_PREFIXES,
   SAFE_TOOL_RETRY_TOOLS,
   SAFE_TOOL_RETRY_PREFIXES,
+  MACOS_SIDE_EFFECT_TOOLS,
+  MAX_CONSECUTIVE_IDENTICAL_FAILURES,
+  MAX_CONSECUTIVE_ALL_FAILED_ROUNDS,
+  MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS,
+  RECOVERY_HINT_PREFIX,
 } from "./chat-executor-constants.js";
+import { buildSemanticToolCallKey } from "./chat-executor-recovery.js";
 import { safeStringify } from "../tools/types.js";
 
 const NON_JSON_FAILURE_PREFIXES = [
   "mcp tool \"",
   "error executing tool",
+  "tool not found:",
 ];
 
 export function didToolCallFail(isError: boolean, result: string): boolean {
@@ -140,5 +147,379 @@ function isLikelyFailureText(result: string): boolean {
   const text = result.trim().toLowerCase();
   if (text.length === 0) return false;
   if (text.startsWith("mcp tool \"") && text.includes("\" failed:")) return true;
+  if (text.includes("requires desktop session")) return true;
   return NON_JSON_FAILURE_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
+
+// ============================================================================
+// Permission / argument / retry helpers (extracted from executeSingleToolCall)
+// ============================================================================
+
+/** Result of checking whether a tool call is permitted. */
+export interface ToolCallPermissionResult {
+  readonly action: ToolCallAction;
+  readonly errorResult?: string;
+  readonly expandAfterRound?: boolean;
+  readonly routingMiss?: boolean;
+}
+
+/** Check side-effect dedup, global allowlist, and routed subset for a tool call. */
+export function checkToolCallPermission(
+  toolCall: LLMToolCall,
+  allowedTools: Set<string> | null,
+  routedToolSet: Set<string> | null,
+  canExpandOnRoutingMiss: boolean,
+  routedToolsExpanded: boolean,
+  sideEffectExecuted: boolean,
+): ToolCallPermissionResult {
+  // Side-effect dedup check.
+  if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
+    return {
+      action: "skip",
+      errorResult: safeStringify({
+        error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
+      }),
+    };
+  }
+
+  // Global allowlist check.
+  if (allowedTools && !allowedTools.has(toolCall.name)) {
+    return {
+      action: "skip",
+      errorResult: safeStringify({
+        error: `Tool "${toolCall.name}" is not permitted`,
+      }),
+    };
+  }
+
+  // Dynamic routed subset check.
+  if (routedToolSet && !routedToolSet.has(toolCall.name)) {
+    return {
+      action: "skip",
+      errorResult: safeStringify({
+        error:
+          `Tool "${toolCall.name}" was not available in the routed tool subset for this turn`,
+        routingMiss: true,
+      }),
+      expandAfterRound: canExpandOnRoutingMiss && !routedToolsExpanded,
+      routingMiss: true,
+    };
+  }
+
+  return { action: "processed" };
+}
+
+/** Result of parsing tool call arguments. */
+export type ParseToolCallArgsResult =
+  | { readonly ok: true; readonly args: Record<string, unknown> }
+  | { readonly ok: false; readonly error: string };
+
+/** Parse and validate tool call JSON arguments. */
+export function parseToolCallArguments(
+  toolCall: LLMToolCall,
+): ParseToolCallArgsResult {
+  try {
+    const parsed = JSON.parse(toolCall.arguments) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error("Tool arguments must be a JSON object");
+    }
+    return { ok: true, args: parsed as Record<string, unknown> };
+  } catch (parseErr) {
+    return {
+      ok: false,
+      error: safeStringify({
+        error: `Invalid tool arguments: ${(parseErr as Error).message}`,
+      }),
+    };
+  }
+}
+
+/** Configuration for tool execution with retry. */
+export interface ToolExecutionConfig {
+  readonly toolCallTimeoutMs: number;
+  readonly retryPolicyMatrix: LLMRetryPolicyMatrix;
+  readonly signal?: AbortSignal;
+  readonly requestDeadlineAt: number;
+}
+
+/** Result of executing a tool with retry logic. */
+export interface ToolExecutionResult {
+  result: string;
+  isError: boolean;
+  toolFailed: boolean;
+  timedOut: boolean;
+  retryCount: number;
+  retrySuppressedReason?: string;
+  durationMs: number;
+  finalToolTimeoutMs: number;
+}
+
+/** Execute a tool call with timeout racing and transport-failure retry. */
+export async function executeToolWithRetry(
+  toolCall: LLMToolCall,
+  args: Record<string, unknown>,
+  handler: ToolHandler,
+  config: ToolExecutionConfig,
+): Promise<ToolExecutionResult> {
+  const toolStart = Date.now();
+  let result = safeStringify({ error: "Tool execution failed" });
+  let isError = false;
+  let toolFailed = false;
+  let timedOut = false;
+  let finalToolTimeoutMs = config.toolCallTimeoutMs;
+  let retrySuppressedReason: string | undefined;
+  let retryCount = 0;
+  const maxToolRetries = Math.max(
+    0,
+    config.retryPolicyMatrix.tool_error.maxRetries,
+  );
+
+  for (let attempt = 0; attempt <= maxToolRetries; attempt++) {
+    const remainingRequestMs = config.requestDeadlineAt - Date.now();
+    const toolTimeoutMs = Math.min(
+      config.toolCallTimeoutMs,
+      Math.max(1, remainingRequestMs),
+    );
+    finalToolTimeoutMs = toolTimeoutMs;
+    let toolTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const toolCallPromise = (async (): Promise<{
+      result: string;
+      isError: boolean;
+      timedOut: boolean;
+      threw: boolean;
+    }> => {
+      try {
+        const value = await handler(toolCall.name, args);
+        return {
+          result: value,
+          isError: false,
+          timedOut: false,
+          threw: false,
+        };
+      } catch (toolErr) {
+        return {
+          result: safeStringify({ error: (toolErr as Error).message }),
+          isError: true,
+          timedOut: false,
+          threw: true,
+        };
+      }
+    })();
+    const timeoutPromise = new Promise<{
+      result: string;
+      isError: boolean;
+      timedOut: boolean;
+      threw: boolean;
+    }>((resolve) => {
+      toolTimeoutHandle = setTimeout(() => {
+        resolve({
+          result: safeStringify({
+            error: `Tool "${toolCall.name}" timed out after ${toolTimeoutMs}ms`,
+          }),
+          isError: true,
+          timedOut: true,
+          threw: false,
+        });
+      }, toolTimeoutMs);
+    });
+    const toolOutcome = await Promise.race([
+      toolCallPromise,
+      timeoutPromise,
+    ]);
+    if (toolTimeoutHandle !== undefined) {
+      clearTimeout(toolTimeoutHandle);
+    }
+
+    result = toolOutcome.result;
+    isError = toolOutcome.isError;
+    timedOut = toolOutcome.timedOut;
+
+    toolFailed = didToolCallFail(isError, result);
+    const failureText = toolFailed
+      ? extractToolFailureText({
+        name: toolCall.name,
+        args,
+        result,
+        isError: toolFailed,
+        durationMs: 0,
+      })
+      : "";
+    const transportFailure =
+      timedOut ||
+      toolOutcome.threw ||
+      isLikelyToolTransportFailure(failureText);
+    if (!toolFailed) break;
+
+    const canRetryTransportFailure =
+      transportFailure &&
+      attempt < maxToolRetries &&
+      !config.signal?.aborted &&
+      (config.requestDeadlineAt - Date.now()) > 0;
+    if (!canRetryTransportFailure) break;
+
+    const highRiskTool = isHighRiskToolCall(toolCall.name);
+    const hasIdempotency = hasExplicitIdempotencyKey(args);
+    const retrySafe = highRiskTool
+      ? hasIdempotency
+      : isToolRetrySafe(toolCall.name);
+    if (!retrySafe) {
+      retrySuppressedReason = highRiskTool && !hasIdempotency
+        ? `Suppressed auto-retry for high-risk tool "${toolCall.name}" without idempotencyKey`
+        : `Suppressed auto-retry for potentially side-effecting tool "${toolCall.name}"`;
+      break;
+    }
+
+    retryCount++;
+  }
+  const durationMs = Date.now() - toolStart;
+  if (retryCount > 0) {
+    result = enrichToolResultMetadata(result, { retryAttempts: retryCount });
+  }
+  if (retrySuppressedReason) {
+    result = enrichToolResultMetadata(result, { retrySuppressedReason });
+  }
+
+  return {
+    result,
+    isError,
+    toolFailed,
+    timedOut,
+    retryCount,
+    retrySuppressedReason,
+    durationMs,
+    finalToolTimeoutMs,
+  };
+}
+
+/** Update loop-state consecutive failure tracking. */
+export function trackToolCallFailureState(
+  toolFailed: boolean,
+  semanticToolKey: string,
+  loopState: ToolLoopState,
+): void {
+  const failKey = toolFailed ? semanticToolKey : "";
+  if (toolFailed && failKey === loopState.lastFailKey) {
+    loopState.consecutiveFailCount++;
+  } else {
+    loopState.lastFailKey = failKey;
+    loopState.consecutiveFailCount = toolFailed ? 1 : 0;
+  }
+}
+
+// ============================================================================
+// Stuck-loop detection (extracted from executeToolCallLoop)
+// ============================================================================
+
+/** Mutable counters for cross-round stuck detection. */
+export interface RoundStuckState {
+  consecutiveAllFailedRounds: number;
+  lastRoundSemanticKey: string;
+  consecutiveSemanticDuplicateRounds: number;
+}
+
+/** Result of stuck-loop detection check. */
+export interface StuckDetectionResult {
+  readonly shouldBreak: boolean;
+  readonly reason?: string;
+}
+
+/** Check for stuck tool loop patterns across rounds. */
+export function checkToolLoopStuckDetection(
+  roundCalls: readonly ToolCallRecord[],
+  loopState: ToolLoopState,
+  stuckState: RoundStuckState,
+): StuckDetectionResult {
+  // Per-call consecutive identical failure check.
+  if (loopState.consecutiveFailCount >= MAX_CONSECUTIVE_IDENTICAL_FAILURES) {
+    return {
+      shouldBreak: true,
+      reason: "Detected repeated semantically-equivalent failing tool calls",
+    };
+  }
+
+  if (roundCalls.length === 0) return { shouldBreak: false };
+
+  const roundFailures = roundCalls.filter((call) =>
+    didToolCallFail(call.isError, call.result),
+  ).length;
+  if (roundFailures === roundCalls.length) {
+    stuckState.consecutiveAllFailedRounds++;
+  } else {
+    stuckState.consecutiveAllFailedRounds = 0;
+    stuckState.consecutiveSemanticDuplicateRounds = 0;
+    stuckState.lastRoundSemanticKey = "";
+  }
+  if (stuckState.consecutiveAllFailedRounds >= MAX_CONSECUTIVE_ALL_FAILED_ROUNDS) {
+    return {
+      shouldBreak: true,
+      reason: `All tool calls failed for ${MAX_CONSECUTIVE_ALL_FAILED_ROUNDS} consecutive rounds`,
+    };
+  }
+
+  if (roundFailures === roundCalls.length) {
+    const roundSemanticKey = roundCalls
+      .map((call) => buildSemanticToolCallKey(call.name, call.args))
+      .sort()
+      .join("|");
+    if (
+      roundSemanticKey.length > 0 &&
+      roundSemanticKey === stuckState.lastRoundSemanticKey
+    ) {
+      stuckState.consecutiveSemanticDuplicateRounds++;
+    } else {
+      stuckState.consecutiveSemanticDuplicateRounds = 0;
+    }
+    stuckState.lastRoundSemanticKey = roundSemanticKey;
+    if (
+      stuckState.consecutiveSemanticDuplicateRounds >=
+      MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS
+    ) {
+      return {
+        shouldBreak: true,
+        reason:
+          "Detected repeated semantically equivalent tool rounds with no material progress",
+      };
+    }
+  }
+
+  return { shouldBreak: false };
+}
+
+/** Build recovery hint messages for injection after a tool round. */
+export function buildToolLoopRecoveryMessages(
+  recoveryHints: readonly RecoveryHint[],
+  maxRuntimeSystemHints: number,
+  currentRuntimeHintCount: number,
+): LLMMessage[] {
+  const messages: LLMMessage[] = [];
+  if (maxRuntimeSystemHints <= 0) return messages;
+  let hintCount = currentRuntimeHintCount;
+  for (const hint of recoveryHints) {
+    if (hintCount >= maxRuntimeSystemHints) break;
+    messages.push({
+      role: "system",
+      content: `${RECOVERY_HINT_PREFIX} ${hint.message}`,
+    });
+    hintCount++;
+  }
+  return messages;
+}
+
+/** Build a routing expansion hint message when tool routing misses are detected. */
+export function buildRoutingExpansionMessage(
+  maxRuntimeSystemHints: number,
+  currentRuntimeHintCount: number,
+): LLMMessage | null {
+  if (maxRuntimeSystemHints <= 0) return null;
+  if (currentRuntimeHintCount >= maxRuntimeSystemHints) return null;
+  return {
+    role: "system",
+    content:
+      `${RECOVERY_HINT_PREFIX} The previous tool request targeted a tool outside the routed subset. ` +
+      "Tool availability has been expanded for one retry. Choose the best available tool and continue.",
+  };
 }

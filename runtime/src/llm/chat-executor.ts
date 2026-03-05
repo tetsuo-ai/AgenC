@@ -24,7 +24,6 @@ import {
   LLMRateLimitError,
   classifyLLMFailure,
 } from "./errors.js";
-import { safeStringify } from "../tools/types.js";
 import {
   applyPromptBudget,
   type PromptBudgetConfig,
@@ -41,14 +40,10 @@ import type {
 import type {
   Pipeline,
   PipelinePlannerContext,
-  PipelinePlannerStep,
   PipelineResult,
 } from "../workflow/pipeline.js";
 import {
-  assessDelegationDecision,
   resolveDelegationDecisionConfig,
-  type DelegationDecision,
-  type DelegationDecisionConfig,
   type ResolvedDelegationDecisionConfig,
 } from "./delegation-decision.js";
 import {
@@ -65,6 +60,7 @@ import {
 
 import {
   ChatBudgetExceededError,
+  buildDefaultExecutionContext,
 } from "./chat-executor-types.js";
 import type {
   SkillInjector,
@@ -74,7 +70,6 @@ import type {
   ChatPromptShape,
   ChatCallUsageRecord,
   ChatPlannerSummary,
-  PlannerDiagnostic,
   ChatExecutorResult,
   DeterministicPipelineExecutor,
   ChatExecutorConfig,
@@ -94,9 +89,6 @@ import type {
   ExecutionContext,
 } from "./chat-executor-types.js";
 import {
-  MAX_CONSECUTIVE_IDENTICAL_FAILURES,
-  MAX_CONSECUTIVE_ALL_FAILED_ROUNDS,
-  RECOVERY_HINT_PREFIX,
   MAX_EVAL_USER_CHARS,
   MAX_EVAL_RESPONSE_CHARS,
   MAX_CONTEXT_INJECTION_CHARS,
@@ -111,7 +103,6 @@ import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_SUBAGENT_VERIFIER_MIN_CONFIDENCE,
   DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS,
-  MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS,
   DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
   DEFAULT_TOOL_FAILURE_BREAKER_WINDOW_MS,
   DEFAULT_TOOL_FAILURE_BREAKER_COOLDOWN_MS,
@@ -121,14 +112,17 @@ import {
 } from "./chat-executor-constants.js";
 import {
   didToolCallFail,
-  extractToolFailureText,
   resolveRetryPolicyMatrix,
-  hasExplicitIdempotencyKey,
-  isHighRiskToolCall,
-  isToolRetrySafe,
-  isLikelyToolTransportFailure,
   enrichToolResultMetadata,
+  checkToolCallPermission,
+  parseToolCallArguments,
+  executeToolWithRetry,
+  trackToolCallFailureState,
+  checkToolLoopStuckDetection,
+  buildToolLoopRecoveryMessages,
+  buildRoutingExpansionMessage,
 } from "./chat-executor-tool-utils.js";
+import type { RoundStuckState } from "./chat-executor-tool-utils.js";
 import {
   extractMessageText,
   truncateText,
@@ -146,6 +140,9 @@ import {
   buildSemanticToolCallKey,
   summarizeStateful,
   buildRecoveryHints,
+  computeQualityProxy,
+  buildDelegationTrajectoryEntry,
+  buildPlannerSummary,
 } from "./chat-executor-recovery.js";
 import {
   assessPlannerDecision,
@@ -159,6 +156,9 @@ import {
   buildPlannerSynthesisMessages,
   ensureSubagentProvenanceCitations,
   pipelineResultToToolCalls,
+  resolveDelegationBanditArm,
+  assessAndRecordDelegationDecision,
+  mapPlannerStepsToPipelineSteps,
 } from "./chat-executor-planner.js";
 import {
   evaluateSubagentDeterministicChecks,
@@ -566,7 +566,13 @@ export class ChatExecutor {
     });
     try {
       return await Promise.race([
-        this.pipelineExecutor!.execute(pipeline),
+        this.pipelineExecutor!.execute(
+          pipeline,
+          0,
+          ctx.activeToolHandler
+            ? { toolHandler: ctx.activeToolHandler }
+            : undefined,
+        ),
         timeoutPromise,
       ]);
     } catch (error) {
@@ -651,17 +657,9 @@ export class ChatExecutor {
   private async initializeExecutionContext(
     params: ChatExecuteParams,
   ): Promise<ExecutionContext> {
-    const {
-      message,
-      systemPrompt,
-      sessionId,
-      signal,
-      maxToolRounds: paramMaxToolRounds,
-    } = params;
+    const { message, systemPrompt, sessionId, signal } = params;
     let { history } = params;
-    const startTime = Date.now();
     const messageText = extractMessageText(message);
-    const hasHistory = history.length > 0;
     const plannerDecision = assessPlannerDecision(this.plannerEnabled, messageText, history);
     const initialRoutedToolNames = params.toolRouting?.routedToolNames
       ? Array.from(new Set(params.toolRouting.routedToolNames))
@@ -695,107 +693,36 @@ export class ChatExecutor {
       }
     }
 
-    const ctx: ExecutionContext = {
-      // --- Immutable request params ---
-      message,
-      messageText,
-      systemPrompt,
-      sessionId,
-      signal,
-      activeToolHandler: params.toolHandler ?? this.toolHandler,
-      activeStreamCallback: params.onStreamChunk ?? this.onStreamChunk,
-      effectiveMaxToolRounds: paramMaxToolRounds ?? this.maxToolRounds,
-      effectiveToolBudget: this.toolBudgetPerRequest,
-      effectiveMaxModelRecalls: this.maxModelRecallsPerRequest,
-      effectiveFailureBudget: this.maxFailureBudgetPerRequest,
-      startTime,
-      requestDeadlineAt: startTime + this.requestTimeoutMs,
-      parentTurnId: `parent:${sessionId}:${startTime}`,
-      trajectoryTraceId: `trace:${sessionId}:${startTime}`,
-      initialRoutedToolNames,
-      expandedRoutedToolNames,
-      canExpandOnRoutingMiss: Boolean(
-        params.toolRouting?.expandOnMiss &&
-        expandedRoutedToolNames.length > 0,
-      ),
-      hasHistory,
-      plannerDecision,
-      baseDelegationThreshold,
-      toolRouting: params.toolRouting,
-
-      // --- Mutable accumulator state ---
-      history,
-      messages: [],
-      messageSections: [],
-      cumulativeUsage: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
+    const ctx = buildDefaultExecutionContext(
+      {
+        message,
+        messageText,
+        systemPrompt,
+        sessionId,
+        signal,
+        history,
+        plannerDecision,
+        compacted,
+        toolHandler: params.toolHandler ?? this.toolHandler,
+        streamCallback: params.onStreamChunk ?? this.onStreamChunk,
+        toolRouting: params.toolRouting,
+        initialRoutedToolNames,
+        expandedRoutedToolNames,
+        baseDelegationThreshold,
       },
-      callUsage: [],
-      callIndex: 0,
-      modelCalls: 0,
-      allToolCalls: [],
-      failedToolCalls: 0,
-      usedFallback: false,
-      providerName: this.providers[0]?.name ?? "unknown",
-      responseModel: undefined,
-      response: undefined,
-      evaluation: undefined,
-      finalContent: "",
-      compacted,
-      stopReason: "completed",
-      stopReasonDetail: undefined,
-      activeRoutedToolNames: initialRoutedToolNames,
-      routedToolsExpanded: false,
-      routedToolMisses: 0,
-      plannerHandled: false,
-      plannerSummaryState: {
-        enabled: this.plannerEnabled,
-        used: false,
-        routeReason: plannerDecision.reason,
-        complexityScore: plannerDecision.score,
-        plannerCalls: 0,
-        plannedSteps: 0,
-        deterministicStepsExecuted: 0,
-        estimatedRecallsAvoided: 0,
-        diagnostics: [] as PlannerDiagnostic[],
-        delegationDecision: undefined as DelegationDecision | undefined,
-        subagentVerification: {
-          enabled: this.subagentVerifierConfig.enabled,
-          performed: false,
-          rounds: 0,
-          overall: "skipped" as "pass" | "retry" | "fail" | "skipped",
-          confidence: 1,
-          unresolvedItems: [] as string[],
-        },
-        delegationPolicyTuning: {
-          enabled: Boolean(this.delegationBanditTuner),
-          contextClusterId: undefined as string | undefined,
-          selectedArmId: undefined as string | undefined,
-          selectedArmReason: undefined as string | undefined,
-          tunedThreshold: undefined as number | undefined,
-          exploration: false,
-          finalReward: undefined as number | undefined,
-          usefulDelegation: undefined as boolean | undefined,
-          usefulDelegationScore: undefined as number | undefined,
-          rewardProxyVersion: undefined as string | undefined,
-        },
+      {
+        maxToolRounds: params.maxToolRounds ?? this.maxToolRounds,
+        toolBudgetPerRequest: this.toolBudgetPerRequest,
+        maxModelRecallsPerRequest: this.maxModelRecallsPerRequest,
+        maxFailureBudgetPerRequest: this.maxFailureBudgetPerRequest,
+        requestTimeoutMs: this.requestTimeoutMs,
+        providerName: this.providers[0]?.name ?? "unknown",
+        plannerEnabled: this.plannerEnabled,
+        subagentVerifierEnabled: this.subagentVerifierConfig.enabled,
+        delegationBanditTunerEnabled: Boolean(this.delegationBanditTuner),
+        delegationScoreThreshold: this.delegationDecisionConfig.scoreThreshold,
       },
-      trajectoryContextClusterId: deriveDelegationContextClusterId({
-        complexityScore: plannerDecision.score,
-        subagentStepCount: 0,
-        hasHistory,
-        highRiskPlan: false,
-      }),
-      selectedBanditArm: undefined,
-      tunedDelegationThreshold: baseDelegationThreshold,
-      plannedSubagentSteps: 0,
-      plannedDeterministicSteps: 0,
-      plannedSynthesisSteps: 0,
-      plannedDependencyDepth: 0,
-      plannedFanout: 0,
-    };
+    );
 
     // Build messages array with explicit section tags for prompt budgeting.
     this.pushMessage(ctx, { role: "system", content: ctx.systemPrompt }, "system_anchor");
@@ -853,31 +780,14 @@ export class ChatExecutor {
     durationMs: number;
   } {
     const durationMs = Date.now() - ctx.startTime;
-    const stopReasonQualityBase = ctx.stopReason === "completed"
-      ? 0.85
-      : ctx.stopReason === "tool_calls"
-        ? 0.6
-        : 0.25;
-    const verifierBonus = ctx.plannerSummaryState.subagentVerification.performed
-      ? (
-        ctx.plannerSummaryState.subagentVerification.overall === "pass"
-          ? 0.1
-          : ctx.plannerSummaryState.subagentVerification.overall === "retry"
-            ? 0
-            : -0.15
-      )
-      : 0;
-    const evaluatorBonus = ctx.evaluation
-      ? (ctx.evaluation.passed ? 0.1 : -0.1)
-      : 0;
-    const failurePenalty = Math.min(0.25, ctx.failedToolCalls * 0.05);
-    const qualityProxy = Math.max(
-      0,
-      Math.min(
-        1,
-        stopReasonQualityBase + verifierBonus + evaluatorBonus - failurePenalty,
-      ),
-    );
+    const verifierSnapshot = ctx.plannerSummaryState.subagentVerification;
+    const qualityProxy = computeQualityProxy({
+      stopReason: ctx.stopReason,
+      verifierPerformed: verifierSnapshot.performed,
+      verifierOverall: verifierSnapshot.overall,
+      evaluation: ctx.evaluation,
+      failedToolCalls: ctx.failedToolCalls,
+    });
     const rewardSignal = computeDelegationFinalReward({
       qualityProxy,
       tokenCost: ctx.cumulativeUsage.totalTokens,
@@ -894,7 +804,6 @@ export class ChatExecutor {
       : 0;
     const delegatedThisTurn =
       ctx.plannerSummaryState.delegationDecision?.shouldDelegate === true;
-    const verifierSnapshot = ctx.plannerSummaryState.subagentVerification;
     const usefulnessProxy = computeUsefulDelegationProxy({
       delegated: delegatedThisTurn,
       stopReason: ctx.stopReason,
@@ -934,78 +843,27 @@ export class ChatExecutor {
       const selectedTools = ctx.activeRoutedToolNames.length > 0
         ? [...ctx.activeRoutedToolNames]
         : (this.allowedTools ? [...this.allowedTools] : []);
-      this.delegationTrajectorySink.record({
-        schemaVersion: 1,
-        traceId: ctx.trajectoryTraceId,
-        turnId: ctx.parentTurnId,
-        turnType: "parent",
-        timestampMs: Date.now(),
-        stateFeatures: {
-          sessionId: ctx.sessionId,
-          contextClusterId: ctx.trajectoryContextClusterId,
-          complexityScore: ctx.plannerDecision.score,
-          plannerStepCount: ctx.plannerSummaryState.plannedSteps,
-          subagentStepCount: ctx.plannedSubagentSteps,
-          deterministicStepCount: ctx.plannedDeterministicSteps,
-          synthesisStepCount: ctx.plannedSynthesisSteps,
-          dependencyDepth: ctx.plannedDependencyDepth,
-          fanout: ctx.plannedFanout,
-        },
-        action: {
-          delegated:
-            ctx.plannerSummaryState.delegationDecision?.shouldDelegate === true,
-          strategyArmId:
-            ctx.selectedBanditArm?.armId ?? this.delegationDefaultStrategyArmId,
-          threshold: ctx.tunedDelegationThreshold,
-          selectedTools,
-          childConfig: {
-            maxDepth: this.delegationDecisionConfig.maxDepth,
-            maxFanoutPerTurn: this.delegationDecisionConfig.maxFanoutPerTurn,
-            timeoutMs: this.requestTimeoutMs,
-          },
-        },
-        immediateOutcome: {
+      this.delegationTrajectorySink.record(
+        buildDelegationTrajectoryEntry({
+          ctx,
           qualityProxy,
-          tokenCost: ctx.cumulativeUsage.totalTokens,
-          latencyMs: durationMs,
-          errorCount:
-            ctx.failedToolCalls + (ctx.stopReason === "completed" ? 0 : 1),
-          ...(ctx.stopReason !== "completed" ? { errorClass: ctx.stopReason } : {}),
-        },
-        finalReward: rewardSignal,
-        metadata: {
-          plannerUsed: ctx.plannerSummaryState.used,
-          routeReason: ctx.plannerSummaryState.routeReason ?? "none",
-          stopReason: ctx.stopReason,
-          usefulDelegation: usefulnessProxy.useful,
-          usefulDelegationScore: Number(usefulnessProxy.score.toFixed(4)),
+          durationMs,
+          rewardSignal,
+          usefulnessProxy,
+          selectedTools,
+          defaultStrategyArmId: this.delegationDefaultStrategyArmId,
+          delegationMaxDepth: this.delegationDecisionConfig.maxDepth,
+          delegationMaxFanoutPerTurn: this.delegationDecisionConfig.maxFanoutPerTurn,
+          requestTimeoutMs: this.requestTimeoutMs,
           usefulDelegationProxyVersion: DELEGATION_USEFULNESS_PROXY_VERSION,
-        },
-      });
+        }),
+      );
     }
 
-    const plannerSummary: ChatPlannerSummary = {
-      enabled: ctx.plannerSummaryState.enabled,
-      used: ctx.plannerSummaryState.used,
-      routeReason: ctx.plannerSummaryState.routeReason,
-      complexityScore: ctx.plannerSummaryState.complexityScore,
-      plannerCalls: ctx.plannerSummaryState.plannerCalls,
-      plannedSteps: ctx.plannerSummaryState.plannedSteps,
-      deterministicStepsExecuted: ctx.plannerSummaryState.deterministicStepsExecuted,
-      estimatedRecallsAvoided: ctx.plannerSummaryState.used
-        ? estimatedRecallsAvoided
-        : 0,
-      diagnostics: ctx.plannerSummaryState.diagnostics.length > 0
-        ? ctx.plannerSummaryState.diagnostics
-        : undefined,
-      delegationDecision: ctx.plannerSummaryState.delegationDecision,
-      subagentVerification: ctx.plannerSummaryState.subagentVerification.enabled
-        ? ctx.plannerSummaryState.subagentVerification
-        : undefined,
-      delegationPolicyTuning: ctx.plannerSummaryState.delegationPolicyTuning.enabled
-        ? ctx.plannerSummaryState.delegationPolicyTuning
-        : undefined,
-    };
+    const plannerSummary = buildPlannerSummary(
+      ctx.plannerSummaryState,
+      estimatedRecallsAvoided,
+    );
 
     return { plannerSummary, durationMs };
   }
@@ -1141,15 +999,13 @@ export class ChatExecutor {
         "Initial completion blocked by max model recalls per request budget",
     });
 
-    // Tool call loop — side-effect deduplication prevents the model from
-    // repeating desktop actions (e.g. opening 3 YouTube tabs). Once ANY
-    // side-effect tool executes, all others are skipped for this request.
     let rounds = 0;
     const emittedRecoveryHints = new Set<string>();
-    // Track consecutive identical failing calls to break stuck loops.
-    let consecutiveAllFailedRounds = 0;
-    let lastRoundSemanticKey = "";
-    let consecutiveSemanticDuplicateRounds = 0;
+    const stuckState: RoundStuckState = {
+      consecutiveAllFailedRounds: 0,
+      lastRoundSemanticKey: "",
+      consecutiveSemanticDuplicateRounds: 0,
+    };
     const loopState: ToolLoopState = {
       sideEffectExecuted: false,
       remainingToolImageChars: MAX_TOOL_IMAGE_CHARS_BUDGET,
@@ -1166,14 +1022,11 @@ export class ChatExecutor {
       ctx.activeToolHandler &&
       rounds < ctx.effectiveMaxToolRounds
     ) {
-      // Check for cancellation before each round.
       if (ctx.signal?.aborted) {
         this.setStopReason(ctx, "cancelled", "Execution cancelled by caller");
         break;
       }
-      if (this.checkRequestTimeout(ctx, "tool loop")) {
-        break;
-      }
+      if (this.checkRequestTimeout(ctx, "tool loop")) break;
       const activeCircuit = this.getActiveToolFailureCircuit(ctx.sessionId);
       if (activeCircuit) {
         this.setStopReason(ctx, "no_progress", activeCircuit.reason);
@@ -1187,15 +1040,12 @@ export class ChatExecutor {
         : null;
       loopState.expandAfterRound = false;
 
-      // Append the assistant message with tool calls.
       this.pushMessage(
         ctx,
         {
           role: "assistant",
           content: ctx.response.content,
-          toolCalls: sanitizeToolCallsForReplay(
-            ctx.response.toolCalls,
-          ),
+          toolCalls: sanitizeToolCallsForReplay(ctx.response.toolCalls),
         },
         "assistant_runtime",
       );
@@ -1207,123 +1057,50 @@ export class ChatExecutor {
           abortRound = true;
           break;
         }
-        // "skip" and "processed" both continue the loop
       }
 
-      // Check for cancellation before re-calling LLM.
       if (ctx.signal?.aborted) {
         this.setStopReason(ctx, "cancelled", "Execution cancelled by caller");
         break;
       }
-      if (this.checkRequestTimeout(ctx, "tool follow-up")) {
-        break;
-      }
+      if (this.checkRequestTimeout(ctx, "tool follow-up")) break;
 
       const roundCalls = ctx.allToolCalls.slice(roundToolCallStart);
       if (abortRound) break;
 
-      // Break stuck loops — if semantically equivalent failing call repeats
-      // too many times, stop and surface no-progress.
-      if (loopState.consecutiveFailCount >= MAX_CONSECUTIVE_IDENTICAL_FAILURES) {
-        this.setStopReason(
-          ctx,
-          "no_progress",
-          "Detected repeated semantically-equivalent failing tool calls",
-        );
+      // Stuck-loop detection (consecutive failures, semantic duplicates).
+      const stuckResult = checkToolLoopStuckDetection(roundCalls, loopState, stuckState);
+      if (stuckResult.shouldBreak) {
+        this.setStopReason(ctx, "no_progress", stuckResult.reason);
         break;
       }
 
-      // Break stuck loops — if all tool calls fail for multiple consecutive
-      // rounds, stop retrying and let the model respond with what it learned.
-      if (roundCalls.length > 0) {
-        const roundFailures = roundCalls.filter((call) =>
-          didToolCallFail(call.isError, call.result),
-        ).length;
-        if (roundFailures === roundCalls.length) {
-          consecutiveAllFailedRounds++;
-        } else {
-          consecutiveAllFailedRounds = 0;
-          consecutiveSemanticDuplicateRounds = 0;
-          lastRoundSemanticKey = "";
-        }
-        if (consecutiveAllFailedRounds >= MAX_CONSECUTIVE_ALL_FAILED_ROUNDS) {
-          this.setStopReason(
-            ctx,
-            "no_progress",
-            `All tool calls failed for ${MAX_CONSECUTIVE_ALL_FAILED_ROUNDS} consecutive rounds`,
-          );
-          break;
-        }
-
-        if (roundFailures === roundCalls.length) {
-          const roundSemanticKey = roundCalls
-            .map((call) =>
-              buildSemanticToolCallKey(call.name, call.args),
-            )
-            .sort()
-            .join("|");
-          if (
-            roundSemanticKey.length > 0 &&
-            roundSemanticKey === lastRoundSemanticKey
-          ) {
-            consecutiveSemanticDuplicateRounds++;
-          } else {
-            consecutiveSemanticDuplicateRounds = 0;
-          }
-          lastRoundSemanticKey = roundSemanticKey;
-          if (
-            consecutiveSemanticDuplicateRounds >=
-            MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS
-          ) {
-            this.setStopReason(
-              ctx,
-              "no_progress",
-              "Detected repeated semantically equivalent tool rounds with no material progress",
-            );
-            break;
-          }
-        }
+      // Recovery hints.
+      const recoveryHints = buildRecoveryHints(roundCalls, emittedRecoveryHints);
+      const runtimeHintCount = ctx.messageSections.filter(
+        (s) => s === "system_runtime",
+      ).length;
+      for (const msg of buildToolLoopRecoveryMessages(
+        recoveryHints,
+        this.maxRuntimeSystemHints,
+        runtimeHintCount,
+      )) {
+        this.pushMessage(ctx, msg, "system_runtime");
       }
 
-      const recoveryHints = buildRecoveryHints(
-        roundCalls,
-        emittedRecoveryHints,
-      );
-      for (const hint of recoveryHints) {
-        if (this.maxRuntimeSystemHints <= 0) break;
-        const runtimeHintCount = ctx.messageSections.filter(
-          (section) => section === "system_runtime",
-        ).length;
-        if (runtimeHintCount >= this.maxRuntimeSystemHints) break;
-        this.pushMessage(
-          ctx,
-          {
-            role: "system",
-            content: `${RECOVERY_HINT_PREFIX} ${hint.message}`,
-          },
-          "system_runtime",
-        );
-      }
-
+      // Routing expansion on miss.
       if (loopState.expandAfterRound && ctx.expandedRoutedToolNames.length > 0) {
         ctx.routedToolsExpanded = true;
         ctx.activeRoutedToolNames = ctx.expandedRoutedToolNames;
-        if (this.maxRuntimeSystemHints > 0) {
-          const runtimeHintCount = ctx.messageSections.filter(
-            (section) => section === "system_runtime",
-          ).length;
-          if (runtimeHintCount < this.maxRuntimeSystemHints) {
-            this.pushMessage(
-              ctx,
-              {
-                role: "system",
-                content:
-                  `${RECOVERY_HINT_PREFIX} The previous tool request targeted a tool outside the routed subset. ` +
-                  "Tool availability has been expanded for one retry. Choose the best available tool and continue.",
-              },
-              "system_runtime",
-            );
-          }
+        const updatedHintCount = ctx.messageSections.filter(
+          (s) => s === "system_runtime",
+        ).length;
+        const expansionMsg = buildRoutingExpansionMessage(
+          this.maxRuntimeSystemHints,
+          updatedHintCount,
+        );
+        if (expansionMsg) {
+          this.pushMessage(ctx, expansionMsg, "system_runtime");
         }
       }
 
@@ -1355,9 +1132,6 @@ export class ChatExecutor {
       );
     }
 
-    // If the LLM returned empty content after tool calls (common when maxToolRounds
-    // is hit while the LLM still wanted to make more calls), generate a fallback
-    // summary from the last successful tool result.
     ctx.finalContent = ctx.response?.content ?? "";
     if (!ctx.finalContent && ctx.allToolCalls.length > 0) {
       ctx.finalContent =
@@ -1385,15 +1159,22 @@ export class ChatExecutor {
       return "abort_loop";
     }
 
-    if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name) && loopState.sideEffectExecuted) {
-      const skipResult = safeStringify({
-        error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
-      });
+    // Permission check (side-effect dedup, allowlist, routed subset).
+    const permission = checkToolCallPermission(
+      toolCall,
+      this.allowedTools,
+      loopState.activeRoutedToolSet,
+      ctx.canExpandOnRoutingMiss,
+      ctx.routedToolsExpanded,
+      loopState.sideEffectExecuted,
+    );
+    if (permission.errorResult) {
+      if (permission.routingMiss) ctx.routedToolMisses++;
       this.pushMessage(
         ctx,
         {
           role: "tool",
-          content: skipResult,
+          content: permission.errorResult,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
         },
@@ -1402,90 +1183,23 @@ export class ChatExecutor {
       this.appendToolRecord(ctx, {
         name: toolCall.name,
         args: {},
-        result: skipResult,
+        result: permission.errorResult,
         isError: true,
         durationMs: 0,
       });
+      if (permission.expandAfterRound) loopState.expandAfterRound = true;
       return "skip";
     }
     if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name)) loopState.sideEffectExecuted = true;
 
-    // Global allowlist check.
-    if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
-      const errorResult = safeStringify({
-        error: `Tool "${toolCall.name}" is not permitted`,
-      });
-      this.pushMessage(
-        ctx,
-        {
-          role: "tool",
-          content: errorResult,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        },
-        "tools",
-      );
-      this.appendToolRecord(ctx, {
-        name: toolCall.name,
-        args: {},
-        result: errorResult,
-        isError: true,
-        durationMs: 0,
-      });
-      return "skip";
-    }
-    // Dynamic routed subset check.
-    if (loopState.activeRoutedToolSet && !loopState.activeRoutedToolSet.has(toolCall.name)) {
-      ctx.routedToolMisses++;
-      const errorResult = safeStringify({
-        error:
-          `Tool "${toolCall.name}" was not available in the routed tool subset for this turn`,
-        routingMiss: true,
-      });
-      this.pushMessage(
-        ctx,
-        {
-          role: "tool",
-          content: errorResult,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        },
-        "tools",
-      );
-      this.appendToolRecord(ctx, {
-        name: toolCall.name,
-        args: {},
-        result: errorResult,
-        isError: true,
-        durationMs: 0,
-      });
-      if (ctx.canExpandOnRoutingMiss && !ctx.routedToolsExpanded) {
-        loopState.expandAfterRound = true;
-      }
-      return "skip";
-    }
-
     // Parse arguments.
-    let args: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(toolCall.arguments) as unknown;
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
-        throw new Error("Tool arguments must be a JSON object");
-      }
-      args = parsed as Record<string, unknown>;
-    } catch (parseErr) {
-      const errorResult = safeStringify({
-        error: `Invalid tool arguments: ${(parseErr as Error).message}`,
-      });
+    const parseResult = parseToolCallArguments(toolCall);
+    if (!parseResult.ok) {
       this.pushMessage(
         ctx,
         {
           role: "tool",
-          content: errorResult,
+          content: parseResult.error,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
         },
@@ -1494,149 +1208,39 @@ export class ChatExecutor {
       this.appendToolRecord(ctx, {
         name: toolCall.name,
         args: {},
-        result: errorResult,
+        result: parseResult.error,
         isError: true,
         durationMs: 0,
       });
       return "skip";
     }
+    const args = parseResult.args;
 
-    // Execute tool.
-    const toolStart = Date.now();
-    let result = safeStringify({ error: "Tool execution failed" });
-    let isError = false;
-    let toolFailed = false;
-    let transportFailure = false;
-    let timedOut = false;
-    let finalToolTimeoutMs = this.toolCallTimeoutMs;
-    let retrySuppressedReason: string | undefined;
-    let retryCount = 0;
-    const maxToolRetries = Math.max(
-      0,
-      this.retryPolicyMatrix.tool_error.maxRetries,
+    // Execute tool with retry.
+    const exec = await executeToolWithRetry(
+      toolCall,
+      args,
+      ctx.activeToolHandler!,
+      {
+        toolCallTimeoutMs: this.toolCallTimeoutMs,
+        retryPolicyMatrix: this.retryPolicyMatrix,
+        signal: ctx.signal,
+        requestDeadlineAt: ctx.requestDeadlineAt,
+      },
     );
 
-    for (let attempt = 0; attempt <= maxToolRetries; attempt++) {
-      const remainingRequestMs = this.getRemainingRequestMs(ctx);
-      const toolTimeoutMs = Math.min(
-        this.toolCallTimeoutMs,
-        Math.max(1, remainingRequestMs),
-      );
-      finalToolTimeoutMs = toolTimeoutMs;
-      let toolTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
-      const toolCallPromise = (async (): Promise<{
-        result: string;
-        isError: boolean;
-        timedOut: boolean;
-        threw: boolean;
-      }> => {
-        try {
-          const value = await ctx.activeToolHandler!(toolCall.name, args);
-          return {
-            result: value,
-            isError: false,
-            timedOut: false,
-            threw: false,
-          };
-        } catch (toolErr) {
-          return {
-            result: safeStringify({ error: (toolErr as Error).message }),
-            isError: true,
-            timedOut: false,
-            threw: true,
-          };
-        }
-      })();
-      const timeoutPromise = new Promise<{
-        result: string;
-        isError: boolean;
-        timedOut: boolean;
-        threw: boolean;
-      }>((resolve) => {
-        toolTimeoutHandle = setTimeout(() => {
-          resolve({
-            result: safeStringify({
-              error: `Tool "${toolCall.name}" timed out after ${toolTimeoutMs}ms`,
-            }),
-            isError: true,
-            timedOut: true,
-            threw: false,
-          });
-        }, toolTimeoutMs);
-      });
-      const toolOutcome = await Promise.race([
-        toolCallPromise,
-        timeoutPromise,
-      ]);
-      if (toolTimeoutHandle !== undefined) {
-        clearTimeout(toolTimeoutHandle);
-      }
-
-      result = toolOutcome.result;
-      isError = toolOutcome.isError;
-      timedOut = toolOutcome.timedOut;
-
-      toolFailed = didToolCallFail(isError, result);
-      const failureText = toolFailed
-        ? extractToolFailureText({
-          name: toolCall.name,
-          args,
-          result,
-          isError: toolFailed,
-          durationMs: 0,
-        })
-        : "";
-      transportFailure =
-        timedOut ||
-        toolOutcome.threw ||
-        isLikelyToolTransportFailure(failureText);
-      if (!toolFailed) break;
-
-      const canRetryTransportFailure =
-        transportFailure &&
-        attempt < maxToolRetries &&
-        !ctx.signal?.aborted &&
-        this.getRemainingRequestMs(ctx) > 0;
-      if (!canRetryTransportFailure) break;
-
-      const highRiskTool = isHighRiskToolCall(toolCall.name);
-      const hasIdempotencyKey = hasExplicitIdempotencyKey(args);
-      const retrySafe = highRiskTool
-        ? hasIdempotencyKey
-        : isToolRetrySafe(toolCall.name);
-      if (!retrySafe) {
-        retrySuppressedReason = highRiskTool && !hasIdempotencyKey
-          ? `Suppressed auto-retry for high-risk tool "${toolCall.name}" without idempotencyKey`
-          : `Suppressed auto-retry for potentially side-effecting tool "${toolCall.name}"`;
-        break;
-      }
-
-      retryCount++;
-    }
-    const toolDuration = Date.now() - toolStart;
-    if (retryCount > 0) {
-      result = enrichToolResultMetadata(result, { retryAttempts: retryCount });
-    }
-    if (retrySuppressedReason) {
-      result = enrichToolResultMetadata(result, {
-        retrySuppressedReason,
-      });
-    }
-
+    let { result } = exec;
     let abortRound = false;
-    if (timedOut && toolFailed) {
+    if (exec.timedOut && exec.toolFailed) {
       this.setStopReason(
         ctx,
         "timeout",
-        `Tool "${toolCall.name}" timed out after ${finalToolTimeoutMs}ms`,
+        `Tool "${toolCall.name}" timed out after ${exec.finalToolTimeoutMs}ms`,
       );
       abortRound = true;
     }
 
-    if (
-      this.toolFailureBreakerEnabled &&
-      toolFailed
-    ) {
+    if (this.toolFailureBreakerEnabled && exec.toolFailed) {
       const failKey = buildSemanticToolCallKey(toolCall.name, args);
       const circuitReason = this.recordToolFailurePattern(
         ctx.sessionId,
@@ -1657,8 +1261,8 @@ export class ChatExecutor {
       name: toolCall.name,
       args,
       result,
-      isError: toolFailed,
-      durationMs: toolDuration,
+      isError: exec.toolFailed,
+      durationMs: exec.durationMs,
     });
 
     if (ctx.failedToolCalls > ctx.effectiveFailureBudget) {
@@ -1671,21 +1275,11 @@ export class ChatExecutor {
     }
 
     // Track consecutive semantic failures to detect stuck loops.
-    const failDetected = toolFailed;
-    const semanticToolKey = buildSemanticToolCallKey(
-      toolCall.name,
-      args,
-    );
-    const failKey = failDetected ? semanticToolKey : "";
-    if (!failDetected && this.toolFailureBreakerEnabled) {
+    const semanticToolKey = buildSemanticToolCallKey(toolCall.name, args);
+    if (!exec.toolFailed && this.toolFailureBreakerEnabled) {
       this.clearToolFailurePattern(ctx.sessionId, semanticToolKey);
     }
-    if (failDetected && failKey === loopState.lastFailKey) {
-      loopState.consecutiveFailCount++;
-    } else {
-      loopState.lastFailKey = failKey;
-      loopState.consecutiveFailCount = failDetected ? 1 : 0;
-    }
+    trackToolCallFailureState(exec.toolFailed, semanticToolKey, loopState);
 
     const promptToolContent = buildPromptToolContent(
       result,
@@ -1766,12 +1360,7 @@ export class ChatExecutor {
             step.stepType === "subagent_task",
         );
         if (subagentSteps.length > 0) {
-          const synthesisSteps = plannerPlan.steps.filter(
-            (step) => step.stepType === "synthesis",
-          ).length;
-          const highRiskPlan = isHighRiskSubagentPlan(
-            subagentSteps,
-          );
+          const highRiskPlan = isHighRiskSubagentPlan(subagentSteps);
           ctx.trajectoryContextClusterId = deriveDelegationContextClusterId({
             complexityScore: ctx.plannerDecision.score,
             subagentStepCount: subagentSteps.length,
@@ -1779,131 +1368,34 @@ export class ChatExecutor {
             highRiskPlan,
           });
 
-          if (this.delegationBanditTuner) {
-            ctx.selectedBanditArm = this.delegationBanditTuner.selectArm({
-              contextClusterId: ctx.trajectoryContextClusterId,
-              preferredArmId: this.delegationDefaultStrategyArmId,
-            });
-            ctx.tunedDelegationThreshold =
-              this.delegationBanditTuner.applyThresholdOffset(
-                ctx.baseDelegationThreshold,
-                ctx.selectedBanditArm.armId,
-              );
-            ctx.plannerSummaryState.delegationPolicyTuning = {
-              enabled: true,
-              contextClusterId: ctx.trajectoryContextClusterId,
-              selectedArmId: ctx.selectedBanditArm.armId,
-              selectedArmReason: ctx.selectedBanditArm.reason,
-              tunedThreshold: ctx.tunedDelegationThreshold,
-              exploration: ctx.selectedBanditArm.exploration,
-              finalReward: undefined,
-              usefulDelegation: undefined,
-              usefulDelegationScore: undefined,
-              rewardProxyVersion: undefined,
-            };
-          } else {
-            ctx.plannerSummaryState.delegationPolicyTuning = {
-              enabled: false,
-              contextClusterId: ctx.trajectoryContextClusterId,
-              selectedArmId: this.delegationDefaultStrategyArmId,
-              selectedArmReason: "fallback",
-              tunedThreshold: ctx.baseDelegationThreshold,
-              exploration: false,
-              finalReward: undefined,
-              usefulDelegation: undefined,
-              usefulDelegationScore: undefined,
-              rewardProxyVersion: undefined,
-            };
-          }
+          const banditResult = resolveDelegationBanditArm(
+            this.delegationBanditTuner,
+            ctx.trajectoryContextClusterId,
+            this.delegationDefaultStrategyArmId,
+            ctx.baseDelegationThreshold,
+          );
+          ctx.selectedBanditArm = banditResult.selectedArm;
+          ctx.tunedDelegationThreshold = banditResult.tunedThreshold;
+          ctx.plannerSummaryState.delegationPolicyTuning = banditResult.policyTuning;
 
-          const tunedDecisionConfig: DelegationDecisionConfig = {
-            enabled: this.delegationDecisionConfig.enabled,
-            mode: this.delegationDecisionConfig.mode,
-            scoreThreshold: ctx.tunedDelegationThreshold,
-            maxFanoutPerTurn: this.delegationDecisionConfig.maxFanoutPerTurn,
-            maxDepth: this.delegationDecisionConfig.maxDepth,
-            handoffMinPlannerConfidence:
-              this.delegationDecisionConfig.handoffMinPlannerConfidence,
-            hardBlockedTaskClasses: [
-              ...this.delegationDecisionConfig.hardBlockedTaskClasses,
-            ],
-          };
-          const delegationDecision = assessDelegationDecision({
-            messageText: ctx.messageText,
-            plannerConfidence: plannerPlan.confidence,
-            complexityScore: ctx.plannerDecision.score,
-            totalSteps: plannerPlan.steps.length,
-            synthesisSteps,
-            edges: plannerPlan.edges,
-            subagentSteps: subagentSteps.map((step) => ({
-              name: step.name,
-              dependsOn: step.dependsOn,
-              acceptanceCriteria: step.acceptanceCriteria,
-              requiredToolCapabilities: step.requiredToolCapabilities,
-              contextRequirements: step.contextRequirements,
-              maxBudgetHint: step.maxBudgetHint,
-              canRunParallel: step.canRunParallel,
-            })),
-            config: tunedDecisionConfig,
-          });
-          ctx.plannerSummaryState.delegationDecision = delegationDecision;
-          if (!delegationDecision.shouldDelegate) {
-            ctx.plannerSummaryState.routeReason =
-              `delegation_veto_${delegationDecision.reason}`;
-            ctx.plannerSummaryState.diagnostics.push({
-              category: "policy",
-              code: "delegation_veto",
-              message:
-                `Delegation vetoed by policy scorer: ${delegationDecision.reason}`,
-              details: {
-                reason: delegationDecision.reason,
-                threshold: delegationDecision.threshold,
-                utilityScore: Number(
-                  delegationDecision.utilityScore.toFixed(4),
-                ),
-                safetyRisk: Number(delegationDecision.safetyRisk.toFixed(4)),
-              },
-            });
-          }
+          assessAndRecordDelegationDecision(
+            {
+              messageText: ctx.messageText,
+              plannerPlan,
+              subagentSteps,
+              complexityScore: ctx.plannerDecision.score,
+              tunedThreshold: ctx.tunedDelegationThreshold,
+              delegationConfig: this.delegationDecisionConfig,
+            },
+            ctx.plannerSummaryState,
+          );
         }
         const deterministicSteps = plannerPlan.steps.filter(
           (step): step is PlannerDeterministicToolStepIntent =>
             step.stepType === "deterministic_tool",
         );
-        const plannerPipelineSteps: PipelinePlannerStep[] = plannerPlan.steps.map(
-          (step) => {
-            if (step.stepType === "deterministic_tool") {
-              return {
-                name: step.name,
-                stepType: step.stepType,
-                dependsOn: step.dependsOn,
-                tool: step.tool,
-                args: step.args,
-                onError: step.onError,
-                maxRetries: step.maxRetries,
-              };
-            }
-            if (step.stepType === "subagent_task") {
-              return {
-                name: step.name,
-                stepType: step.stepType,
-                dependsOn: step.dependsOn,
-                objective: step.objective,
-                inputContract: step.inputContract,
-                acceptanceCriteria: step.acceptanceCriteria,
-                requiredToolCapabilities: step.requiredToolCapabilities,
-                contextRequirements: step.contextRequirements,
-                maxBudgetHint: step.maxBudgetHint,
-                canRunParallel: step.canRunParallel,
-              };
-            }
-            return {
-              name: step.name,
-              stepType: step.stepType,
-              dependsOn: step.dependsOn,
-              objective: step.objective,
-            };
-          },
+        const plannerPipelineSteps = mapPlannerStepsToPipelineSteps(
+          plannerPlan.steps,
         );
         const plannerExecutionContext = buildPlannerExecutionContext(
           ctx.messageText,

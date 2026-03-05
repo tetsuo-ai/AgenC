@@ -152,8 +152,9 @@ export function extractAmount(
 /**
  * Built-in approval rules for common dangerous operations.
  *
- * Note: both `system.bash` and `desktop.bash` are included by default because
- * they are general-purpose execution surfaces.
+ * Note: `system.bash` and `desktop.bash` are intentionally NOT included by
+ * default to avoid blocking normal terminal workflows. Teams that require
+ * blanket shell approvals can add explicit rules via configuration.
  */
 export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
   {
@@ -163,14 +164,6 @@ export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
   {
     tool: "system.evaluateJs",
     description: "JavaScript evaluation",
-  },
-  {
-    tool: "system.bash",
-    description: "Shell command execution",
-  },
-  {
-    tool: "desktop.bash",
-    description: "Desktop sandbox shell command execution",
   },
   {
     tool: "wallet.sign",

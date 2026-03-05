@@ -72,6 +72,26 @@ describe("PipelineExecutor", () => {
       expect(result.context.results["fetch"]).toBe('{"ok":true}');
     });
 
+    it("uses per-execution tool handler override when provided", async () => {
+      const baseHandler = createMockToolHandler({ "tool.a": "base-result" });
+      const overrideHandler = vi
+        .fn()
+        .mockResolvedValue("override-result");
+      const executor = createExecutor({ toolHandler: baseHandler });
+      const pipeline = createPipeline([
+        { name: "step-a", tool: "tool.a", args: {} },
+      ]);
+
+      const result = await executor.execute(pipeline, 0, {
+        toolHandler: overrideHandler,
+      });
+
+      expect(result.status).toBe("completed");
+      expect(result.context.results["step-a"]).toBe("override-result");
+      expect(overrideHandler).toHaveBeenCalledWith("tool.a", {});
+      expect(baseHandler).not.toHaveBeenCalled();
+    });
+
     it("returns failed on tool error with abort policy", async () => {
       const handler = createMockToolHandler(
         {},
@@ -307,6 +327,42 @@ describe("PipelineExecutor", () => {
       await expect(executor.resume("nonexistent")).rejects.toThrow(
         /No checkpoint found/,
       );
+    });
+
+    it("uses per-execution tool handler override during resume", async () => {
+      const backend = createMockMemoryBackend();
+      const baseHandler = createMockToolHandler({ "tool.b": "base-b" });
+      const overrideHandler = vi.fn().mockResolvedValue("override-b");
+      const executor = createExecutor({
+        toolHandler: baseHandler,
+        memoryBackend: backend,
+      });
+
+      await backend.set("pipeline:p2", {
+        pipelineId: "p2",
+        pipeline: {
+          id: "p2",
+          steps: [
+            { name: "a", tool: "tool.a", args: {} },
+            { name: "b", tool: "tool.b", args: {} },
+          ],
+          context: { results: {} },
+          createdAt: Date.now(),
+        },
+        stepIndex: 1,
+        context: { results: { a: "old-a" } },
+        status: "halted",
+        updatedAt: Date.now(),
+      });
+
+      const result = await executor.resume("p2", {
+        toolHandler: overrideHandler,
+      });
+
+      expect(result.status).toBe("completed");
+      expect(result.context.results["b"]).toBe("override-b");
+      expect(overrideHandler).toHaveBeenCalledWith("tool.b", {});
+      expect(baseHandler).not.toHaveBeenCalled();
     });
   });
 

@@ -133,16 +133,14 @@ describe('ApprovalEngine', () => {
       expect(rule!.tool).toBe('system.delete');
     });
 
-    it('requires approval for system.bash by default', () => {
+    it('does not require approval for system.bash by default', () => {
       const rule = engine.requiresApproval('system.bash', { command: 'npm' });
-      expect(rule).not.toBeNull();
-      expect(rule!.tool).toBe('system.bash');
+      expect(rule).toBeNull();
     });
 
-    it('requires approval for desktop.bash by default', () => {
+    it('does not require approval for desktop.bash by default', () => {
       const rule = engine.requiresApproval('desktop.bash', { command: 'whoami' });
-      expect(rule).not.toBeNull();
-      expect(rule!.tool).toBe('desktop.bash');
+      expect(rule).toBeNull();
     });
 
     it('returns null for unmatched tool', () => {
@@ -570,16 +568,16 @@ describe('ApprovalEngine', () => {
   // ============================================================================
 
   describe('DEFAULT_APPROVAL_RULES', () => {
-    it('has 12 rules', () => {
-      expect(DEFAULT_APPROVAL_RULES).toHaveLength(12);
+    it('has 10 rules', () => {
+      expect(DEFAULT_APPROVAL_RULES).toHaveLength(10);
     });
 
     it('covers system.delete and system.evaluateJs', () => {
       const tools = DEFAULT_APPROVAL_RULES.map((r) => r.tool);
       expect(tools).toContain('system.delete');
       expect(tools).toContain('system.evaluateJs');
-      expect(tools).toContain('system.bash');
-      expect(tools).toContain('desktop.bash');
+      expect(tools).not.toContain('system.bash');
+      expect(tools).not.toContain('desktop.bash');
     });
 
     it('covers wallet.sign, wallet.transfer, agenc.createTask, agenc.registerAgent', () => {

@@ -647,6 +647,46 @@ describe("ChatExecutor", () => {
       }
     });
 
+    it("sanitizes mixed markdown + embedded JSON base64 screenshot blobs", async () => {
+      const hugeBase64 = "C".repeat(95_000);
+      const toolHandler = vi.fn().mockResolvedValue(
+        [
+          "### Result",
+          '- [Screenshot of viewport](../../tmp/screenshot.png)',
+          '{"type":"image","data":"' + hugeBase64 + '"}',
+        ].join("\n"),
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                { id: "tc-1", name: "mcp.browser.browser_take_screenshot", arguments: "{}" },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "done" })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      await executor.execute(createParams());
+
+      const followupMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as LLMMessage[];
+      const toolMessage = followupMessages.find(
+        (m) => m.role === "tool" && m.toolCallId === "tc-1",
+      );
+      expect(toolMessage).toBeDefined();
+      expect(typeof toolMessage?.content).toBe("string");
+      const text = String(toolMessage?.content);
+      expect(text).toContain('"data":"(base64 omitted)"');
+      expect(text).not.toContain(hugeBase64.slice(0, 256));
+      expect(text.length).toBeLessThan(13_000);
+    });
+
     it("multi-round tool calls chain with context", async () => {
       const toolHandler = vi
         .fn()
@@ -1011,6 +1051,135 @@ describe("ChatExecutor", () => {
       expect(injectedHint).toBeDefined();
       expect(String(injectedHint?.content)).toContain("system.bash");
       expect(String(injectedHint?.content)).toContain("CANNOT reach");
+    });
+
+    it("injects a recovery hint when desktop.bash is unavailable", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"error":"Tool not found: \\"desktop.bash\\""}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "desktop.bash",
+                  arguments: '{"command":"ls"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("Desktop/container tools are unavailable"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("/desktop attach");
+      expect(String(injectedHint?.content)).toContain("desktop.bash");
+    });
+
+    it("injects a recovery hint when container MCP tools require desktop session", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue("Container MCP tool — requires desktop session");
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "mcp.kitty.launch",
+                  arguments: '{"instance":"terminal1"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("Desktop/container tools are unavailable"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("/desktop attach");
+      expect(String(injectedHint?.content)).toContain("mcp.*");
+    });
+
+    it("injects a recovery hint when desktop-targeted command fails on system.bash", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"error":"Command \\"gdb\\" is denied"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments: '{"command":"gdb","args":["--version"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("host shell"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("/desktop attach");
+      expect(String(injectedHint?.content)).toContain("desktop.bash");
     });
 
     it("does not break loop when tool calls differ", async () => {
@@ -2046,6 +2215,81 @@ describe("ChatExecutor", () => {
       expect(result.content.toLowerCase()).toContain("hi");
     });
 
+    it("passes the active session tool handler into deterministic pipeline execution", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "multi_step_cues",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "step_1",
+                  step_type: "deterministic_tool",
+                  tool: "desktop.bash",
+                  args: { command: "echo", args: ["session"] },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockImplementation(
+          async (
+            _pipeline: unknown,
+            _startFrom?: number,
+            options?: { toolHandler?: (name: string, args: Record<string, unknown>) => Promise<string> },
+          ) => {
+            if (!options?.toolHandler) {
+              throw new Error("missing per-session tool handler");
+            }
+            const stepResult = await options.toolHandler("desktop.bash", {
+              command: "echo",
+              args: ["session"],
+            });
+            return {
+              status: "completed",
+              context: { results: { step_1: stepResult } },
+              completedSteps: 1,
+              totalSteps: 1,
+            };
+          },
+        ),
+      };
+      const defaultToolHandler = vi.fn().mockResolvedValue("default-handler-result");
+      const sessionToolHandler = vi
+        .fn()
+        .mockResolvedValue('{"stdout":"session-handler-result","exitCode":0}');
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: defaultToolHandler,
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First run a desktop command, then summarize the outcome.",
+          ),
+          toolHandler: sessionToolHandler,
+        }),
+      );
+
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      const pipelineCallArgs = (pipelineExecutor.execute as ReturnType<typeof vi.fn>)
+        .mock.calls[0];
+      expect(pipelineCallArgs[2]).toBeDefined();
+      expect(pipelineCallArgs[2].toolHandler).toBe(sessionToolHandler);
+      expect(sessionToolHandler).toHaveBeenCalledWith("desktop.bash", {
+        command: "echo",
+        args: ["session"],
+      });
+      expect(defaultToolHandler).not.toHaveBeenCalled();
+      expect(result.stopReason).toBe("completed");
+    });
+
     it("applies bandit arm tuning and records parent trajectory rewards", async () => {
       const { DelegationBanditPolicyTuner, InMemoryDelegationTrajectorySink } =
         await import("./delegation-learning.js");
@@ -2260,6 +2504,10 @@ describe("ChatExecutor", () => {
               tool: "system.bash",
             }),
           ],
+        }),
+        0,
+        expect.objectContaining({
+          toolHandler: expect.any(Function),
         }),
       );
       expect(result.content).toBe("final synthesized answer");

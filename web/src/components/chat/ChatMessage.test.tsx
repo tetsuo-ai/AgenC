@@ -75,4 +75,26 @@ describe('ChatMessage', () => {
     fireEvent.click(screen.getByRole('button', { name: /show tools/i }));
     expect(screen.getByText('desktop.bash')).toBeDefined();
   });
+
+  it('renders tool-result screenshots from non-desktop screenshot tools', () => {
+    const message: ChatMessageType = {
+      id: '4',
+      sender: 'agent',
+      content: 'Captured screenshot.',
+      timestamp: Date.now(),
+      toolCalls: [
+        {
+          toolName: 'mcp.browser.browser_take_screenshot',
+          status: 'completed',
+          args: { type: 'png' },
+          result: '### Result\n{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}',
+        },
+      ],
+    };
+
+    render(<ChatMessage message={message} />);
+
+    const image = screen.getByAltText('Desktop screenshot') as HTMLImageElement;
+    expect(image.src).toContain('data:image/png;base64,aGVsbG8=');
+  });
 });

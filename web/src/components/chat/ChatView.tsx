@@ -371,7 +371,7 @@ export function ChatView({
           </div>
 
           {contextPanelOpen && (
-            <div className="absolute bottom-[40px] right-4 z-20 w-[min(420px,calc(100vw-2rem))] border border-bbs-border bg-bbs-dark p-3">
+            <div className="absolute bottom-[40px] left-4 z-20 w-[min(420px,calc(100vw-2rem))] border border-bbs-border bg-bbs-dark p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold text-bbs-white">

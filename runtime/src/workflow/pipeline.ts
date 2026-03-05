@@ -171,6 +171,14 @@ export interface PipelineExecutorConfig {
   readonly checkpointTtlMs?: number;
 }
 
+export interface PipelineExecutionOptions {
+  /**
+   * Optional per-execution tool handler override.
+   * Use this to run pipelines with session-scoped routing (for example desktop-aware handlers).
+   */
+  readonly toolHandler?: ToolHandler;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -207,7 +215,11 @@ export class PipelineExecutor {
    * Execute a pipeline from a given step index.
    * Returns the result including status and resume info if halted.
    */
-  async execute(pipeline: Pipeline, startFrom = 0): Promise<PipelineResult> {
+  async execute(
+    pipeline: Pipeline,
+    startFrom = 0,
+    options?: PipelineExecutionOptions,
+  ): Promise<PipelineResult> {
     if (this.active.has(pipeline.id)) {
       return {
         status: "failed",
@@ -219,6 +231,7 @@ export class PipelineExecutor {
     }
 
     this.active.add(pipeline.id);
+    const executionToolHandler = options?.toolHandler ?? this.toolHandler;
     const mutableResults: Record<string, string> = { ...pipeline.context.results };
     let completedSteps = startFrom;
 
@@ -259,10 +272,15 @@ export class PipelineExecutor {
         }
 
         // Execute the tool and handle errors per step policy
-        const stepResult = await this.executeStep(step);
+        const stepResult = await this.executeStep(step, executionToolHandler);
 
         if (stepResult.error) {
-          const recovery = await this.handleStepError(pipeline.id, step, stepResult.error);
+          const recovery = await this.handleStepError(
+            pipeline.id,
+            step,
+            stepResult.error,
+            executionToolHandler,
+          );
           if (recovery.terminal) {
             this.active.delete(pipeline.id);
             return {
@@ -304,7 +322,10 @@ export class PipelineExecutor {
   }
 
   /** Resume a halted or interrupted pipeline from its checkpoint. */
-  async resume(pipelineId: string): Promise<PipelineResult> {
+  async resume(
+    pipelineId: string,
+    options?: PipelineExecutionOptions,
+  ): Promise<PipelineResult> {
     const checkpoint = await this.backend.get<PipelineCheckpoint>(
       checkpointKey(pipelineId),
     );
@@ -320,7 +341,7 @@ export class PipelineExecutor {
       context: checkpoint.context,
     };
 
-    return this.execute(pipeline, checkpoint.stepIndex);
+    return this.execute(pipeline, checkpoint.stepIndex, options);
   }
 
   /** List active pipeline IDs with their checkpoint status. */
@@ -353,6 +374,7 @@ export class PipelineExecutor {
     pipelineId: string,
     step: PipelineStep,
     error: string,
+    toolHandler: ToolHandler,
   ): Promise<{ terminal: true; error: string } | { terminal: false; result: string }> {
     const policy = step.onError ?? "abort";
 
@@ -364,7 +386,7 @@ export class PipelineExecutor {
     if (policy === "retry") {
       const maxRetries = step.maxRetries ?? 0;
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        const retryResult = await this.executeStep(step);
+        const retryResult = await this.executeStep(step, toolHandler);
         if (!retryResult.error) {
           return { terminal: false, result: retryResult.result };
         }
@@ -381,9 +403,10 @@ export class PipelineExecutor {
 
   private async executeStep(
     step: PipelineStep,
+    toolHandler: ToolHandler,
   ): Promise<{ result: string; error?: string }> {
     try {
-      const result = await this.toolHandler(step.tool, step.args);
+      const result = await toolHandler(step.tool, step.args);
       return { result };
     } catch (err) {
       return { result: "", error: toErrorMessage(err) };

@@ -213,6 +213,27 @@ export function isBase64Like(value: string): boolean {
   return /^[A-Za-z0-9+/=\r\n]+$/.test(value);
 }
 
+const DATA_IMAGE_URL_PATTERN =
+  /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/;
+const DATA_IMAGE_URL_GLOBAL_PATTERN =
+  /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
+const JSON_BINARY_FIELD_PATTERN =
+  /"([A-Za-z0-9_.-]*(?:image|dataurl|data|base64)[A-Za-z0-9_.-]*)"\s*:\s*"([A-Za-z0-9+/=\r\n]{128,})"/gi;
+const QUOTED_BASE64_BLOB_PATTERN = /"([A-Za-z0-9+/=\r\n]{512,})"/g;
+const RAW_BASE64_BLOB_PATTERN = /[A-Za-z0-9+/=\r\n]{2048,}/g;
+
+function sanitizeRawToolResultText(value: string): string {
+  return value
+    .replace(DATA_IMAGE_URL_GLOBAL_PATTERN, "(see image)")
+    .replace(
+      JSON_BINARY_FIELD_PATTERN,
+      (_match: string, key: string) => `"${key}":"(base64 omitted)"`,
+    )
+    .replace(QUOTED_BASE64_BLOB_PATTERN, '"(base64 omitted)"')
+    .replace(RAW_BASE64_BLOB_PATTERN, "(base64 omitted)")
+    .trim();
+}
+
 // ============================================================================
 // Prompt shape estimation
 // ============================================================================
@@ -415,12 +436,17 @@ export function sanitizeJsonForPrompt(
         if (
           keyLower === "image" ||
           keyLower === "dataurl" ||
+          keyLower === "data" ||
           keyLower.endsWith("base64")
         ) {
           if (isBase64Like(field)) {
             out[key] = "(base64 omitted)";
             continue;
           }
+        }
+        if (isBase64Like(field)) {
+          out[key] = "(base64 omitted)";
+          continue;
         }
         out[key] = truncateText(
           field,
@@ -459,16 +485,8 @@ export function prepareToolResultForPrompt(result: string): {
       ...(capturedDataUrl ? { dataUrl: capturedDataUrl } : {}),
     };
   } catch {
-    const dataUrlMatch = result.match(
-      /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/,
-    );
-    const text = result
-      .replace(
-        /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g,
-        "(see image)",
-      )
-      .replace(/"[Ii]mage"\s*:\s*"[A-Za-z0-9+/=\r\n]{128,}"/g, '"image":"(base64 omitted)"')
-      .trim();
+    const dataUrlMatch = result.match(DATA_IMAGE_URL_PATTERN);
+    const text = sanitizeRawToolResultText(result);
     return {
       text: truncateText(text, MAX_TOOL_RESULT_CHARS),
       ...(dataUrlMatch ? { dataUrl: dataUrlMatch[0] } : {}),

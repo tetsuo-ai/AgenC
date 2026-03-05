@@ -1,49 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { ToolCall } from '../../types';
+import { parseToolResultMedia } from './toolResultMedia';
 
 interface ToolCallCardProps {
   toolCall: ToolCall;
-}
-
-function extractScreenshot(result: string | undefined): string | null {
-  if (!result) return null;
-  try {
-    let obj = JSON.parse(result) as Record<string, unknown>;
-    if (typeof obj.content === 'string') {
-      try {
-        obj = JSON.parse(obj.content) as Record<string, unknown>;
-      } catch { /* */ }
-    }
-    if (typeof obj.dataUrl === 'string' && obj.dataUrl.startsWith('data:image/')) {
-      return obj.dataUrl;
-    }
-    if (typeof obj.image === 'string' && obj.image.length > 100) {
-      return `data:image/png;base64,${obj.image}`;
-    }
-  } catch { /* */ }
-  return null;
-}
-
-function summarizeResult(result: string): string {
-  try {
-    let parsed = JSON.parse(result) as Record<string, unknown>;
-    if (typeof parsed.content === 'string') {
-      try {
-        parsed = JSON.parse(parsed.content) as Record<string, unknown>;
-      } catch { /* */ }
-    }
-    const summary: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if ((key === 'image' || key === 'dataUrl') && typeof value === 'string' && value.length > 200) {
-        summary[key] = `<${Math.round(value.length / 1024)}KB base64>`;
-      } else {
-        summary[key] = value;
-      }
-    }
-    return JSON.stringify(summary, null, 2);
-  } catch {
-    return result;
-  }
 }
 
 function formatDuration(durationMs: number | undefined): string | null {
@@ -64,17 +24,17 @@ function statusLabel(toolCall: ToolCall): { text: string; color: string } {
 
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const isScreenshot = toolCall.toolName === 'desktop.screenshot';
   const badge = statusLabel(toolCall);
   const durationLabel = formatDuration(toolCall.durationMs);
   const argCount = Object.keys(toolCall.args).length;
 
-  const screenshotUrl = useMemo(
-    () => (isScreenshot ? extractScreenshot(toolCall.result) : null),
-    [isScreenshot, toolCall.result],
+  const media = useMemo(
+    () => parseToolResultMedia(toolCall.result),
+    [toolCall.result],
   );
+  const hasImages = media.imageUrls.length > 0;
 
-  const showContent = expanded || (isScreenshot && screenshotUrl !== null);
+  const showContent = expanded || hasImages;
 
   return (
     <div className="mt-1">
@@ -107,13 +67,14 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
             </div>
           )}
 
-          {screenshotUrl && (
+          {media.imageUrls.map((imageUrl, idx) => (
             <img
-              src={screenshotUrl}
-              alt="Desktop screenshot"
+              key={`tool-result-image-${idx}`}
+              src={imageUrl}
+              alt="Tool result image"
               className="max-w-full border border-bbs-border"
             />
-          )}
+          ))}
 
           {toolCall.result && (
             <div>
@@ -127,7 +88,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
                     : 'border-bbs-border bg-bbs-dark text-bbs-lightgray'
                 }`}
               >
-                {screenshotUrl ? summarizeResult(toolCall.result) : toolCall.result}
+                {media.redactedText || toolCall.result}
               </pre>
             </div>
           )}

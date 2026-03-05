@@ -33,6 +33,16 @@ describe("chat-executor-tool-utils", () => {
       ).toBe(true);
     });
 
+    it("returns true for plain-text tool-not-found failures", () => {
+      expect(didToolCallFail(false, 'Tool not found: "desktop.bash"')).toBe(true);
+    });
+
+    it("returns true for desktop-session requirement failures", () => {
+      expect(
+        didToolCallFail(false, "Container MCP tool — requires desktop session"),
+      ).toBe(true);
+    });
+
     it("returns false for normal non-JSON output", () => {
       expect(didToolCallFail(false, "all good")).toBe(false);
     });

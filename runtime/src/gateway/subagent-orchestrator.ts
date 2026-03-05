@@ -11,6 +11,7 @@
 import type { DeterministicPipelineExecutor } from "../llm/chat-executor.js";
 import type {
   Pipeline,
+  PipelineExecutionOptions,
   PipelinePlannerContextHistoryEntry,
   PipelinePlannerContextMemorySource,
   PipelinePlannerContextMemoryEntry,
@@ -375,10 +376,14 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     this.fallbackBehavior = config.fallbackBehavior ?? DEFAULT_FALLBACK_BEHAVIOR;
   }
 
-  async execute(pipeline: Pipeline, startFrom = 0): Promise<PipelineResult> {
+  async execute(
+    pipeline: Pipeline,
+    startFrom = 0,
+    options?: PipelineExecutionOptions,
+  ): Promise<PipelineResult> {
     const plannerSteps = pipeline.plannerSteps;
     if (!plannerSteps || plannerSteps.length === 0) {
-      return this.fallbackExecutor.execute(pipeline, startFrom);
+      return this.fallbackExecutor.execute(pipeline, startFrom, options);
     }
 
     if (startFrom > 0) {
@@ -457,6 +462,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           pipeline,
           mutableResults,
           budgetTracker,
+          options,
         );
         running.set(node.step.name, { promise, exclusive: exclusiveNode });
         pending.delete(node.step.name);
@@ -722,9 +728,10 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     pipeline: Pipeline,
     results: Record<string, string>,
     budgetTracker: RequestTreeBudgetTracker,
+    options?: PipelineExecutionOptions,
   ): Promise<NodeExecutionOutcome> {
     if (step.stepType === "deterministic_tool") {
-      return this.executeDeterministicStep(step, pipeline, results);
+      return this.executeDeterministicStep(step, pipeline, results, options);
     }
     if (step.stepType === "subagent_task") {
       return this.executeSubagentStep(step, pipeline, results, budgetTracker);
@@ -744,6 +751,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     step: PipelinePlannerDeterministicStep,
     pipeline: Pipeline,
     results: Record<string, string>,
+    options?: PipelineExecutionOptions,
   ): Promise<NodeExecutionOutcome> {
     const singleStep: PipelineStep = {
       name: step.name,
@@ -758,7 +766,11 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       context: { results: { ...results } },
       steps: [singleStep],
     };
-    const outcome = await this.fallbackExecutor.execute(stepPipeline);
+    const outcome = await this.fallbackExecutor.execute(
+      stepPipeline,
+      0,
+      options,
+    );
     if (outcome.status === "halted") {
       return {
         status: "halted",

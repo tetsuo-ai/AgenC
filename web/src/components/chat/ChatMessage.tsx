@@ -4,6 +4,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { ChatMessage as ChatMessageType, SubagentTimelineItem, ToolCall } from '../../types';
 import { ToolCallCard } from './ToolCallCard';
+import { parseToolResultMedia } from './toolResultMedia';
 
 /** Allow data: URLs (for inline screenshots) in addition to the default safe protocols. */
 function urlTransform(url: string): string {
@@ -29,18 +30,11 @@ function extractScreenshotsFromToolCalls(toolCalls: ToolCall[] | undefined): str
   if (!toolCalls) return [];
   const urls: string[] = [];
   for (const tc of toolCalls) {
-    if (tc.toolName !== 'desktop.screenshot' || !tc.result) continue;
-    try {
-      let obj = JSON.parse(tc.result) as Record<string, unknown>;
-      if (typeof obj.content === 'string') {
-        try { obj = JSON.parse(obj.content) as Record<string, unknown>; } catch { /* */ }
-      }
-      if (typeof obj.dataUrl === 'string' && obj.dataUrl.startsWith('data:image/')) {
-        urls.push(obj.dataUrl);
-      } else if (typeof obj.image === 'string' && obj.image.length > 100) {
-        urls.push(`data:image/png;base64,${obj.image}`);
-      }
-    } catch { /* not JSON */ }
+    if (!tc.result) continue;
+    const parsed = parseToolResultMedia(tc.result);
+    for (const imageUrl of parsed.imageUrls) {
+      if (!urls.includes(imageUrl)) urls.push(imageUrl);
+    }
   }
   return urls;
 }
