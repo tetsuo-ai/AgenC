@@ -1028,6 +1028,52 @@ export async function cancelTask(
 }
 
 // ============================================================================
+// Internal helpers
+// ============================================================================
+
+interface TaskAccountData {
+  taskId?: number[] | Uint8Array;
+  status?: { [key: string]: Record<string, never> } | number;
+  creator?: PublicKey;
+  rewardAmount?: { toString: () => string };
+  deadline?: { toNumber: () => number };
+  constraintHash?: number[] | Uint8Array | null;
+  currentWorkers?: number;
+  maxWorkers?: number;
+  completedAt?: { toNumber: () => number } | null;
+  rewardMint?: PublicKey | null;
+}
+
+function parseTaskAccountData(data: TaskAccountData): TaskStatus | null {
+  if (data.creator === undefined || data.status === undefined) {
+    return null;
+  }
+
+  const state = parseTaskState(data.status);
+
+  let constraintHash: Uint8Array | null = null;
+  if (data.constraintHash) {
+    const bytes = new Uint8Array(data.constraintHash);
+    if (bytes.some((b) => b !== 0)) {
+      constraintHash = bytes;
+    }
+  }
+
+  return {
+    taskId: data.taskId ? new Uint8Array(data.taskId) : new Uint8Array(32),
+    state,
+    creator: data.creator,
+    rewardAmount: BigInt(data.rewardAmount?.toString() ?? "0"),
+    deadline: data.deadline?.toNumber() ?? 0,
+    constraintHash,
+    currentWorkers: data.currentWorkers ?? 0,
+    maxWorkers: data.maxWorkers ?? 1,
+    completedAt: data.completedAt?.toNumber() ?? null,
+    rewardMint: data.rewardMint ?? null,
+  };
+}
+
+// ============================================================================
 // Query Functions
 // ============================================================================
 
@@ -1040,51 +1086,15 @@ export async function getTask(
 ): Promise<TaskStatus | null> {
   try {
     const task = await getAccount(program, "task").fetch(taskPda);
-
-    interface TaskAccountData {
-      taskId?: number[] | Uint8Array;
-      status?: { [key: string]: Record<string, never> } | number;
-      creator?: PublicKey;
-      rewardAmount?: { toString: () => string };
-      deadline?: { toNumber: () => number };
-      constraintHash?: number[] | Uint8Array | null;
-      currentWorkers?: number;
-      maxWorkers?: number;
-      completedAt?: { toNumber: () => number } | null;
-      rewardMint?: PublicKey | null;
-    }
-
     const data = task as TaskAccountData;
+    const parsed = parseTaskAccountData(data);
 
-    if (data.creator === undefined || data.status === undefined) {
+    if (!parsed) {
       getSdkLogger().warn("Task account data missing required fields");
       return null;
     }
 
-    // Parse Anchor enum status (e.g. { open: {} } → 0)
-    const state = parseTaskState(data.status);
-
-    // Parse constraint hash — check if all zeros (means no constraint)
-    let constraintHash: Uint8Array | null = null;
-    if (data.constraintHash) {
-      const bytes = new Uint8Array(data.constraintHash);
-      if (bytes.some((b) => b !== 0)) {
-        constraintHash = bytes;
-      }
-    }
-
-    return {
-      taskId: data.taskId ? new Uint8Array(data.taskId) : new Uint8Array(32),
-      state,
-      creator: data.creator,
-      rewardAmount: BigInt(data.rewardAmount?.toString() ?? "0"),
-      deadline: data.deadline?.toNumber() ?? 0,
-      constraintHash,
-      currentWorkers: data.currentWorkers ?? 0,
-      maxWorkers: data.maxWorkers ?? 1,
-      completedAt: data.completedAt?.toNumber() ?? null,
-      rewardMint: data.rewardMint ?? null,
-    };
+    return parsed;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (
@@ -1113,54 +1123,21 @@ export async function getTasksByCreator(
     },
   ]);
 
-  interface TaskAccountData {
-    taskId?: number[] | Uint8Array;
-    status?: { [key: string]: Record<string, never> } | number;
-    creator?: PublicKey;
-    rewardAmount?: { toString: () => string };
-    deadline?: { toNumber: () => number };
-    constraintHash?: number[] | Uint8Array | null;
-    currentWorkers?: number;
-    maxWorkers?: number;
-    completedAt?: { toNumber: () => number } | null;
-    rewardMint?: PublicKey | null;
-  }
-
   const result: TaskStatus[] = [];
 
   for (let idx = 0; idx < tasks.length; idx++) {
     const t = tasks[idx];
     const data = t.account as TaskAccountData;
+    const parsed = parseTaskAccountData(data);
 
-    if (data.creator === undefined || data.status === undefined) {
+    if (!parsed) {
       getSdkLogger().warn(
         `Task at index ${idx} missing required fields, skipping`,
       );
       continue;
     }
 
-    const state = parseTaskState(data.status);
-
-    let constraintHash: Uint8Array | null = null;
-    if (data.constraintHash) {
-      const bytes = new Uint8Array(data.constraintHash);
-      if (bytes.some((b) => b !== 0)) {
-        constraintHash = bytes;
-      }
-    }
-
-    result.push({
-      taskId: data.taskId ? new Uint8Array(data.taskId) : new Uint8Array(32),
-      state,
-      creator: data.creator,
-      rewardAmount: BigInt(data.rewardAmount?.toString() ?? "0"),
-      deadline: data.deadline?.toNumber() ?? 0,
-      constraintHash,
-      currentWorkers: data.currentWorkers ?? 0,
-      maxWorkers: data.maxWorkers ?? 1,
-      completedAt: data.completedAt?.toNumber() ?? null,
-      rewardMint: data.rewardMint ?? null,
-    });
+    result.push(parsed);
   }
 
   return result;

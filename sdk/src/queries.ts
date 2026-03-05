@@ -10,7 +10,7 @@ import {
   GetProgramAccountsFilter,
 } from "@solana/web3.js";
 import type { Program } from "@coral-xyz/anchor";
-import { PROGRAM_ID, DISCRIMINATOR_SIZE } from "./constants";
+import { PROGRAM_ID } from "./constants";
 import { getAccount } from "./anchor-utils";
 import { getSdkLogger } from "./logger";
 
