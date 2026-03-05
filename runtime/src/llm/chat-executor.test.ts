@@ -1089,6 +1089,43 @@ describe("ChatExecutor", () => {
       expect(toolHandler).toHaveBeenCalledTimes(3);
     });
 
+    it("breaks loop sooner when all failed rounds are opaque", async () => {
+      let callCount = 0;
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"exitCode":1,"stdout":"","stderr":""}');
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation(() => {
+          callCount++;
+          return Promise.resolve(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: `call-${callCount}`,
+                  name: "desktop.bash",
+                  arguments: `{"command":"mkdir attempt-${callCount}"}`,
+                },
+              ],
+            }),
+          );
+        }),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+      });
+      const result = await executor.execute(createParams());
+
+      expect(result.stopReason).toBe("no_progress");
+      expect(result.stopReasonDetail).toContain("All tool calls failed for 3 consecutive rounds");
+      expect(result.toolCalls.length).toBe(3);
+      expect(toolHandler).toHaveBeenCalledTimes(3);
+    });
+
     it("marks structured overall result as fail when any tool call fails", async () => {
       const toolHandler = vi
         .fn()
@@ -1907,6 +1944,53 @@ describe("ChatExecutor", () => {
   });
 
   describe("phase 4 planner/executor and budgets", () => {
+    it("routes implementation-heavy build requests through planner even without numbered steps", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "implementation_scope",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "step_1",
+                  step_type: "deterministic_tool",
+                  tool: "system.bash",
+                  args: { command: "echo", args: ["hi"] },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: { results: { step_1: '{"stdout":"hi\\n","exitCode":0}' } },
+          completedSteps: 1,
+          totalSteps: 1,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Build an issue tracker API with CRUD endpoints and integration tests.",
+          ),
+        }),
+      );
+
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["planner"]);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.plannerSummary?.used).toBe(true);
+    });
+
     it("routes high-complexity turns through deterministic planner/executor path", async () => {
       const provider = createMockProvider("primary", {
         chat: vi.fn().mockResolvedValue(
@@ -4379,6 +4463,54 @@ describe("ChatExecutor", () => {
       const tail = promptSizes.slice(-4);
       const tailRange = Math.max(...tail) - Math.min(...tail);
       expect(tailRange).toBeLessThan(8_000);
+    });
+
+    it("truncates oversized assistant tool-call arguments before follow-up model calls", async () => {
+      let callCount = 0;
+      const oversizedArgs = safeJson({
+        command:
+          "cat <<'EOF'\n" +
+          "x".repeat(8_000) +
+          "\nEOF",
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return Promise.resolve(
+              mockResponse({
+                content: "",
+                finishReason: "tool_calls",
+                toolCalls: [
+                  {
+                    id: "tc-1",
+                    name: "desktop.bash",
+                    arguments: oversizedArgs,
+                  },
+                ],
+              }),
+            );
+          }
+          return Promise.resolve(mockResponse({ content: "done" }));
+        }),
+      });
+      const toolHandler = vi.fn().mockResolvedValue('{"exitCode":0,"stdout":"ok"}');
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const assistantWithToolCalls = secondCallMessages.find(
+        (message) =>
+          message.role === "assistant" &&
+          Array.isArray(message.toolCalls) &&
+          message.toolCalls.length > 0,
+      );
+      expect(assistantWithToolCalls).toBeDefined();
+      const replayedArgs = assistantWithToolCalls!.toolCalls![0]!.arguments;
+      expect(replayedArgs.length).toBeLessThanOrEqual(512);
+      expect(replayedArgs).toContain("__truncatedToolCallArgs");
     });
 
     it("reports section-level budget diagnostics when constrained", async () => {

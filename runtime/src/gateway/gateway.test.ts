@@ -14,6 +14,37 @@ import type { GatewayConfig, ChannelHandle } from "./types.js";
 import { silentLogger } from "../utils/logger.js";
 import { createToken } from "./jwt.js";
 
+const walletAirdropMocks = vi.hoisted(() => ({
+  connectionCtor: vi.fn(),
+  requestAirdrop: vi.fn(),
+  confirmTransaction: vi.fn(),
+  getBalance: vi.fn(),
+  loadKeypairFromFile: vi.fn(),
+  getDefaultKeypairPath: vi.fn(),
+}));
+
+vi.mock("@solana/web3.js", () => {
+  class MockConnection {
+    constructor(...args: unknown[]) {
+      walletAirdropMocks.connectionCtor(...args);
+    }
+
+    requestAirdrop = walletAirdropMocks.requestAirdrop;
+    confirmTransaction = walletAirdropMocks.confirmTransaction;
+    getBalance = walletAirdropMocks.getBalance;
+  }
+
+  return {
+    Connection: MockConnection,
+    LAMPORTS_PER_SOL: 1_000_000_000,
+  };
+});
+
+vi.mock("../types/wallet.js", () => ({
+  loadKeypairFromFile: walletAirdropMocks.loadKeypairFromFile,
+  getDefaultKeypairPath: walletAirdropMocks.getDefaultKeypairPath,
+}));
+
 // Mock ws module so tests don't need a real WebSocket server
 // We track registered handlers to simulate client connections in auth tests
 let wssConnectionHandler: ((...args: unknown[]) => void) | null = null;
@@ -54,6 +85,23 @@ describe("Gateway", () => {
   let gateway: Gateway;
 
   beforeEach(() => {
+    walletAirdropMocks.connectionCtor.mockReset();
+    walletAirdropMocks.requestAirdrop.mockReset();
+    walletAirdropMocks.confirmTransaction.mockReset();
+    walletAirdropMocks.getBalance.mockReset();
+    walletAirdropMocks.loadKeypairFromFile.mockReset();
+    walletAirdropMocks.getDefaultKeypairPath.mockReset();
+
+    walletAirdropMocks.requestAirdrop.mockResolvedValue("mock-airdrop-sig");
+    walletAirdropMocks.confirmTransaction.mockResolvedValue(undefined);
+    walletAirdropMocks.getBalance.mockResolvedValue(2_000_000_000);
+    walletAirdropMocks.getDefaultKeypairPath.mockReturnValue(
+      "/tmp/mock-wallet.json",
+    );
+    walletAirdropMocks.loadKeypairFromFile.mockResolvedValue({
+      publicKey: { toBase58: () => "MockWallet1111111111111111111111111111111" },
+    });
+
     gateway = new Gateway(makeConfig(), { logger: silentLogger });
   });
 
@@ -317,6 +365,18 @@ describe("Gateway", () => {
       };
     }
 
+    async function waitForSocketSend(
+      mockSocket: ReturnType<typeof createMockSocket>,
+    ): Promise<void> {
+      for (let i = 0; i < 20; i++) {
+        if (mockSocket.send.mock.calls.length > 0) {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      throw new Error("Timed out waiting for socket response");
+    }
+
     it("no auth config allows all messages", async () => {
       // Default config has no auth — all messages should work
       await gateway.start();
@@ -396,6 +456,95 @@ describe("Gateway", () => {
       const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
       expect(response.type).toBe("chat.message");
       expect(response.payload.ok).toBe(true);
+    });
+
+    it("wallet.airdrop rejects invalid amount values", async () => {
+      await gateway.start();
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "127.0.0.1" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({
+        type: "wallet.airdrop",
+        payload: { amount: 0 },
+      });
+      await waitForSocketSend(mockSocket);
+
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("wallet.airdrop");
+      expect(response.error).toContain("Invalid airdrop amount");
+      expect(walletAirdropMocks.requestAirdrop).not.toHaveBeenCalled();
+    });
+
+    it("wallet.airdrop maps rate-limit errors to actionable messages", async () => {
+      gateway = new Gateway(
+        makeConfig({ connection: { rpcUrl: "https://api.devnet.solana.com" } }),
+        { logger: silentLogger },
+      );
+      await gateway.start();
+      walletAirdropMocks.requestAirdrop.mockRejectedValueOnce(
+        new Error(
+          "429 Too Many Requests: You've either reached your airdrop limit today or the faucet has run dry.",
+        ),
+      );
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "127.0.0.1" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({
+        type: "wallet.airdrop",
+        payload: { amount: 1 },
+      });
+      await waitForSocketSend(mockSocket);
+
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("wallet.airdrop");
+      expect(response.error).toContain("rate-limited");
+      expect(response.error).toContain("Wait 60-120 seconds");
+    });
+
+    it("wallet.airdrop maps internal RPC errors to actionable messages", async () => {
+      await gateway.start();
+      walletAirdropMocks.requestAirdrop.mockRejectedValueOnce(
+        new Error("Internal error"),
+      );
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "127.0.0.1" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({
+        type: "wallet.airdrop",
+        payload: { amount: 1 },
+      });
+      await waitForSocketSend(mockSocket);
+
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("wallet.airdrop");
+      expect(response.error).toContain("internal airdrop error");
+    });
+
+    it("wallet.airdrop caps amount at 2 SOL", async () => {
+      await gateway.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: "127.0.0.1" } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({
+        type: "wallet.airdrop",
+        payload: { amount: 10 },
+      });
+      await waitForSocketSend(mockSocket);
+
+      expect(walletAirdropMocks.requestAirdrop).toHaveBeenCalledWith(
+        expect.anything(),
+        2_000_000_000,
+      );
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe("wallet.airdrop");
+      expect(response.payload.amount).toBe(2);
     });
 
     it("auth config rejects unauthenticated non-local client", async () => {

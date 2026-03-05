@@ -58,4 +58,70 @@ describe('ChatView delegation summary', () => {
 
     expect(screen.getAllByText(/3 agents: 2 running/).length).toBeGreaterThan(0);
   });
+
+  it('shows delegation summary for the latest subagent run only', () => {
+    render(
+      <ChatView
+        messages={[
+          {
+            id: 'agent-old',
+            sender: 'agent',
+            content: 'Old run',
+            timestamp: Date.now() - 10_000,
+            subagents: [
+              {
+                subagentSessionId: 'subagent:old-1',
+                status: 'completed',
+                tools: [],
+                events: [],
+              },
+              {
+                subagentSessionId: 'subagent:old-2',
+                status: 'completed',
+                tools: [],
+                events: [],
+              },
+            ],
+          },
+          {
+            id: 'agent-new',
+            sender: 'agent',
+            content: 'New run',
+            timestamp: Date.now(),
+            subagents: [
+              {
+                subagentSessionId: 'subagent:new-1',
+                status: 'running',
+                tools: [],
+                events: [],
+              },
+              {
+                subagentSessionId: 'subagent:new-2',
+                status: 'running',
+                tools: [],
+                events: [],
+              },
+              {
+                subagentSessionId: 'subagent:new-3',
+                status: 'completed',
+                tools: [],
+                events: [],
+              },
+              {
+                subagentSessionId: 'subagent:new-4',
+                status: 'completed',
+                tools: [],
+                events: [],
+              },
+            ],
+          },
+        ]}
+        isTyping={false}
+        onSend={vi.fn()}
+        connected
+      />,
+    );
+
+    expect(screen.getAllByText(/4 agents: 2 running/).length).toBeGreaterThan(0);
+  });
 });

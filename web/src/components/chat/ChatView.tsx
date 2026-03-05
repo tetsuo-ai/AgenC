@@ -135,13 +135,16 @@ export function ChatView({
   const contextBarStr = '\u2588'.repeat(contextBarFilled) + '\u2591'.repeat(contextBarEmpty);
 
   const delegationSummary = useMemo(() => {
+    const latestSubagentMessage = [...messages]
+      .reverse()
+      .find((message) => (message.subagents?.length ?? 0) > 0);
+    if (!latestSubagentMessage?.subagents?.length) return null;
+
     const bySession = new Map<string, string>();
-    for (const message of messages) {
-      for (const subagent of message.subagents ?? []) {
-        const id = subagent.subagentSessionId;
-        if (!id || id === '__synthesis__') continue;
-        bySession.set(id, subagent.status);
-      }
+    for (const subagent of latestSubagentMessage.subagents) {
+      const id = subagent.subagentSessionId;
+      if (!id || id === '__synthesis__') continue;
+      bySession.set(id, subagent.status);
     }
     if (bySession.size === 0) return null;
 

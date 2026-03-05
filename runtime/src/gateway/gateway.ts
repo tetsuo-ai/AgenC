@@ -831,12 +831,12 @@ export class Gateway {
     payload: unknown,
     id?: string,
   ): Promise<void> {
+    const rpcUrl = this._config.connection.rpcUrl;
     try {
       const { Connection, LAMPORTS_PER_SOL } = await import("@solana/web3.js");
       const { loadKeypairFromFile, getDefaultKeypairPath } =
         await import("../types/wallet.js");
 
-      const rpcUrl = this._config.connection.rpcUrl;
       if (rpcUrl.includes("mainnet")) {
         this.sendResponse(socket, {
           type: "wallet.airdrop",
@@ -846,8 +846,27 @@ export class Gateway {
         return;
       }
 
-      const amount = isRecord(payload) ? Number(payload.amount ?? 1) : 1;
-      const lamports = Math.floor(Math.min(amount, 2) * LAMPORTS_PER_SOL); // max 2 SOL per airdrop
+      const requestedAmount = isRecord(payload) ? Number(payload.amount ?? 1) : 1;
+      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+        this.sendResponse(socket, {
+          type: "wallet.airdrop",
+          error: "Invalid airdrop amount; provide a positive number of SOL",
+          id,
+        });
+        return;
+      }
+
+      const lamports = Math.floor(
+        Math.min(requestedAmount, 2) * LAMPORTS_PER_SOL,
+      ); // max 2 SOL per airdrop
+      if (lamports <= 0) {
+        this.sendResponse(socket, {
+          type: "wallet.airdrop",
+          error: "Airdrop amount is too small",
+          id,
+        });
+        return;
+      }
 
       const keypairPath =
         this._config.connection.keypairPath || getDefaultKeypairPath();
@@ -871,9 +890,12 @@ export class Gateway {
         id,
       });
     } catch (err) {
+      this.logger.warn(
+        `wallet.airdrop failed (rpc=${rpcUrl}): ${describeUnknownError(err)}`,
+      );
       this.sendResponse(socket, {
         type: "wallet.airdrop",
-        error: (err as Error).message,
+        error: normalizeWalletAirdropError(err, rpcUrl),
         id,
       });
     }
@@ -1008,4 +1030,94 @@ function stripMaskedSecrets(
     }
   }
   return result;
+}
+
+function normalizeWalletAirdropError(error: unknown, rpcUrl: string): string {
+  const rawMessage = getErrorMessage(error).trim();
+  const lower = rawMessage.toLowerCase();
+  const statusCode = extractErrorStatusCode(error);
+  const isDevnetRpc = rpcUrl.toLowerCase().includes("devnet");
+
+  const looksRateLimited =
+    statusCode === 429 ||
+    lower.includes("429") ||
+    lower.includes("too many requests") ||
+    lower.includes("rate limit") ||
+    lower.includes("faucet") ||
+    lower.includes("airdrop request failed");
+
+  if (looksRateLimited) {
+    return isDevnetRpc
+      ? "Devnet faucet is rate-limited right now. Wait 60-120 seconds and retry, or switch to another devnet RPC endpoint."
+      : "Airdrop request was rate-limited by the RPC provider. Retry shortly or switch RPC endpoint.";
+  }
+
+  const looksInternalRpcFailure =
+    lower.includes("internal error") ||
+    lower.includes("-32603") ||
+    lower.includes("server error");
+
+  if (looksInternalRpcFailure) {
+    return isDevnetRpc
+      ? "RPC returned an internal airdrop error. The faucet may be temporarily unavailable; retry in a minute or switch RPC endpoint."
+      : "RPC returned an internal airdrop error. Retry in a minute or switch RPC endpoint.";
+  }
+
+  return rawMessage.length > 0 ? rawMessage : "Airdrop request failed";
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (isRecord(error)) {
+    const message = error.message;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+  return String(error);
+}
+
+function extractErrorStatusCode(error: unknown): number | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const candidates: unknown[] = [error.status];
+  if (isRecord(error.response)) {
+    candidates.push(error.response.status);
+  }
+  if (isRecord(error.cause)) {
+    candidates.push(error.cause.status);
+    if (isRecord(error.cause.response)) {
+      candidates.push(error.cause.response.status);
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return candidate;
+    }
+    if (typeof candidate === "string" && candidate.length > 0) {
+      const parsed = Number(candidate);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  if (isRecord(error)) {
+    return safeStringify(error);
+  }
+  return String(error);
 }

@@ -287,11 +287,9 @@ export {
   RECOMMENDED_CU_VOTE_PROPOSAL,
   RECOMMENDED_CU_EXECUTE_PROPOSAL,
   RECOMMENDED_CU_CANCEL_PROPOSAL,
-} from "./governance";
-export type {
-  InitializeGovernanceParams,
-  CreateProposalParams,
-  ProposalState,
+  type InitializeGovernanceParams,
+  type CreateProposalParams,
+  type ProposalState,
 } from "./governance";
 
 export {
@@ -319,5 +317,5 @@ export {
   type Risc0PayloadLike,
 } from "./validation";
 
-// Version info
-export const VERSION = "1.3.0";
+// Version info — re-exported from version.ts (sourced from package.json)
+export { SDK_PACKAGE_VERSION as VERSION } from "./version";

@@ -2013,7 +2013,7 @@ export class DaemonManager {
       progressProvider: progressTracker,
       promptBudget: buildPromptBudgetConfig(config.llm, contextWindowTokens),
       maxToolRounds: config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config),
-      plannerEnabled: config.llm?.plannerEnabled,
+      plannerEnabled: config.llm?.plannerEnabled ?? resolvedSubAgentConfig.enabled,
       plannerMaxTokens: config.llm?.plannerMaxTokens,
       toolBudgetPerRequest: config.llm?.toolBudgetPerRequest,
       maxModelRecallsPerRequest: config.llm?.maxModelRecallsPerRequest,
@@ -3742,7 +3742,7 @@ export class DaemonManager {
         progressProvider,
         promptBudget: buildPromptBudgetConfig(newConfig.llm, contextWindowTokens),
         maxToolRounds: newConfig.llm?.maxToolRounds ?? getDefaultMaxToolRounds(newConfig),
-        plannerEnabled: newConfig.llm?.plannerEnabled,
+        plannerEnabled: newConfig.llm?.plannerEnabled ?? resolvedSubAgentConfig.enabled,
         plannerMaxTokens: newConfig.llm?.plannerMaxTokens,
         toolBudgetPerRequest: newConfig.llm?.toolBudgetPerRequest,
         maxModelRecallsPerRequest: newConfig.llm?.maxModelRecallsPerRequest,
@@ -4310,6 +4310,37 @@ export class DaemonManager {
       },
     });
     commandRegistry.register({
+      name: 'context',
+      description: 'Show current context window usage',
+      global: true,
+      handler: async (ctx) => {
+        const executor = this._chatExecutor;
+        if (!executor) {
+          await ctx.reply(`Session: ${ctx.sessionId}\nContext usage unavailable (LLM not initialized).`);
+          return;
+        }
+
+        const totalTokens = executor.getSessionTokenUsage(ctx.sessionId);
+        const contextWindowTokens = this._resolvedContextWindowTokens;
+        const sessionTokenBudget = resolveSessionTokenBudget(
+          this.gateway?.config.llm,
+          contextWindowTokens,
+        );
+        const ratio = sessionTokenBudget > 0 ? totalTokens / sessionTokenBudget : 0;
+        const percent = Math.min(100, Math.max(0, ratio * 100));
+
+        await ctx.reply(
+          `Session: ${ctx.sessionId}\n` +
+          `Usage: ${totalTokens.toLocaleString()} / ${sessionTokenBudget.toLocaleString()} tokens (${percent.toFixed(percent >= 10 ? 0 : 1)}%)\n` +
+          (
+            contextWindowTokens && contextWindowTokens > 0
+              ? `Model context window: ${contextWindowTokens.toLocaleString()} tokens`
+              : 'Model context window: unknown'
+          ),
+        );
+      },
+    });
+    commandRegistry.register({
       name: 'status',
       description: 'Show agent status',
       global: true,
@@ -4799,6 +4830,28 @@ export class DaemonManager {
                 'Use /desktop list and attach by number (for example, /desktop attach 1).',
             };
           };
+          const resolveActiveSessionHandle = (): {
+            handle?: ReturnType<typeof desktopMgr.getHandleBySession>;
+            sourceSessionId?: string;
+          } => {
+            const direct = desktopMgr.getHandleBySession(sessionId);
+            if (direct) {
+              return { handle: direct, sourceSessionId: sessionId };
+            }
+
+            // Voice/session routing previously used senderId as the desktop
+            // router key. Keep /desktop stop/status/vnc compatible with those
+            // existing sandboxes while newer sessions converge on sessionId.
+            const senderSessionId = ctx.senderId?.trim();
+            if (senderSessionId && senderSessionId !== sessionId) {
+              const senderHandle = desktopMgr.getHandleBySession(senderSessionId);
+              if (senderHandle) {
+                return { handle: senderHandle, sourceSessionId: senderSessionId };
+              }
+            }
+
+            return {};
+          };
 
           if (sub === 'start') {
             const parseStartResourceOverrides = (): {
@@ -4869,18 +4922,66 @@ export class DaemonManager {
               await ctx.reply(`Failed to start desktop: ${err instanceof Error ? err.message : err}`);
             }
           } else if (sub === 'stop') {
-            await desktopMgr.destroyBySession(sessionId);
+            const stopTarget = ctx.argv[1]?.trim();
             const { destroySessionBridge } = await import('../desktop/session-router.js');
-            destroySessionBridge(
-              sessionId,
-              this._desktopBridges,
-              this._playwrightBridges,
-              this._containerMCPBridges,
-              this.logger,
-            );
+
+            if (stopTarget && stopTarget.length > 0) {
+              const resolved = resolveAttachTarget(stopTarget);
+              if (!resolved.containerId) {
+                await ctx.reply(resolved.error ?? 'Failed to resolve desktop target.');
+                return;
+              }
+
+              const targetHandle = desktopMgr.getHandle(resolved.containerId);
+              await desktopMgr.destroy(resolved.containerId);
+
+              const sessionsToReset = new Set<string>([sessionId]);
+              if (targetHandle?.sessionId) {
+                sessionsToReset.add(targetHandle.sessionId);
+              }
+              for (const targetSessionId of sessionsToReset) {
+                destroySessionBridge(
+                  targetSessionId,
+                  this._desktopBridges,
+                  this._playwrightBridges,
+                  this._containerMCPBridges,
+                  this.logger,
+                );
+              }
+
+              await ctx.reply(
+                `Desktop sandbox stopped (${resolved.label ?? resolved.containerId}).`,
+              );
+              return;
+            }
+
+            const activeResolution = resolveActiveSessionHandle();
+            const active = activeResolution.handle;
+            if (!active) {
+              await ctx.reply(
+                'No active desktop sandbox for this session.\n' +
+                'Use /desktop list and stop by number (for example, /desktop stop 1).',
+              );
+              return;
+            }
+
+            await desktopMgr.destroy(active.containerId);
+            const sessionsToReset = new Set<string>([sessionId]);
+            if (activeResolution.sourceSessionId) {
+              sessionsToReset.add(activeResolution.sourceSessionId);
+            }
+            for (const targetSessionId of sessionsToReset) {
+              destroySessionBridge(
+                targetSessionId,
+                this._desktopBridges,
+                this._playwrightBridges,
+                this._containerMCPBridges,
+                this.logger,
+              );
+            }
             await ctx.reply('Desktop sandbox stopped.');
           } else if (sub === 'status') {
-            const handle = desktopMgr.getHandleBySession(sessionId);
+            const handle = resolveActiveSessionHandle().handle;
             if (!handle) {
               await ctx.reply('No active desktop sandbox for this session.');
             } else {
@@ -4896,7 +4997,7 @@ export class DaemonManager {
               );
             }
           } else if (sub === 'vnc') {
-            const handle = desktopMgr.getHandleBySession(sessionId);
+            const handle = resolveActiveSessionHandle().handle;
             if (!handle) {
               await ctx.reply('No active desktop sandbox. Use /desktop start first.');
             } else {

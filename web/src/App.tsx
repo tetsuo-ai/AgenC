@@ -247,15 +247,7 @@ export default function App() {
               error={desktop.error}
               activeSessionId={chat.sessionId}
               onRefresh={desktop.refresh}
-              onCreate={(options) =>
-                desktop.create(
-                  {
-                    sessionId: `desktop-ui:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
-                    maxMemory: options?.maxMemory,
-                    maxCpu: options?.maxCpu,
-                  },
-                )
-              }
+              onCreate={desktop.create}
               onAttach={(containerId, sessionId) => desktop.attach(containerId, sessionId)}
               onDestroy={desktop.destroy}
             />

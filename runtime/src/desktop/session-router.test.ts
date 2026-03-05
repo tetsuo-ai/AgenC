@@ -200,6 +200,34 @@ describe("createDesktopAwareToolHandler", () => {
     expect(parsed.error).toContain("interactive shell/REPL");
   });
 
+  it("guards desktop.bash against interactive terminal app launches", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "cd /home/agenc/snake-game && ./build/snake",
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.error).toContain("interactive terminal app");
+    expect(parsed.error).toContain("mcp.tmux.execute-command");
+  });
+
+  it("allows interactive terminal app launches when explicitly backgrounded", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "cd /home/agenc/snake-game && ./build/snake >/tmp/snake.log 2>&1 &",
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
   it("guards desktop.bash against incomplete single-word commands", async () => {
     const manager = mockManager();
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
