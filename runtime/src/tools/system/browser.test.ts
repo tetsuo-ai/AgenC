@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { silentLogger } from "../../utils/logger.js";
 
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(),
+}));
+
 // ============================================================================
 // Mock cheerio — intercept import('cheerio') used by ensureLazyModule
 // ============================================================================
@@ -349,6 +353,8 @@ function makeHtmlResponse(
 }
 
 let mockFetch: ReturnType<typeof vi.fn>;
+const { lookup: dnsLookup } = await import("node:dns/promises");
+const mockDnsLookup = vi.mocked(dnsLookup);
 
 // ============================================================================
 // Import after mocks
@@ -366,6 +372,10 @@ beforeEach(() => {
       ),
     );
   vi.stubGlobal("fetch", mockFetch);
+  mockDnsLookup.mockReset();
+  mockDnsLookup.mockResolvedValue([
+    { address: "93.184.216.34", family: 4 },
+  ]);
 
   _resetForTesting();
 
@@ -1051,6 +1061,28 @@ describe("redirect handling", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.error).toContain("Location header");
   });
+
+  it("redirect to hostname resolving privately is stopped", async () => {
+    mockFetch.mockResolvedValueOnce({
+      status: 302,
+      statusText: "Found",
+      headers: new Headers({ location: "https://attacker.example/trap" }),
+      url: "https://safe.example/start",
+      text: vi.fn().mockResolvedValue(""),
+      body: null,
+    } as unknown as Response);
+    mockDnsLookup
+      .mockResolvedValueOnce([{ address: "93.184.216.34", family: 4 }])
+      .mockResolvedValueOnce([{ address: "127.0.0.1", family: 4 }]);
+
+    const [browse] = createBrowserTools({ mode: "basic" }, silentLogger);
+    const result = await browse.execute({ url: "https://safe.example/start" });
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error).toContain("resolved to 127.0.0.1");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ============================================================================
@@ -1079,6 +1111,23 @@ describe("domain validation", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.error).toContain("blocked");
     expect(parsed.error).toContain("desktop.bash");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks hostnames when DNS resolves to a private IP", async () => {
+    mockDnsLookup.mockResolvedValueOnce([
+      { address: "93.184.216.34", family: 4 },
+      { address: "127.0.0.1", family: 4 },
+    ]);
+
+    const [browse] = createBrowserTools({ mode: "basic" }, silentLogger);
+    const result = await browse.execute({
+      url: "https://attacker.example/hidden",
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error).toContain("resolved to 127.0.0.1");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

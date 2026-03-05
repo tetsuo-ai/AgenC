@@ -14,6 +14,10 @@ import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP } from "node:net";
+import { Agent, interceptors } from "undici";
+import type { Dispatcher } from "undici";
 
 // ============================================================================
 // Types
@@ -64,6 +68,17 @@ const SSRF_BLOCKED_HOSTNAMES: readonly string[] = [
 
 /** Wildcard patterns always blocked. */
 const SSRF_BLOCKED_WILDCARDS: readonly string[] = ["*.localhost", "*.internal"];
+const RESOLVED_ADDRESS_TTL_MS = 60_000;
+
+type ResolvedAddress = {
+  readonly address: string;
+  readonly family: 4 | 6;
+  readonly ttl: number;
+};
+
+function stripIpv6Brackets(hostname: string): string {
+  return hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+}
 
 /**
  * Check if a hostname is a private/loopback IP address.
@@ -71,8 +86,7 @@ const SSRF_BLOCKED_WILDCARDS: readonly string[] = ["*.localhost", "*.internal"];
  * Also handles IPv4-mapped IPv6 in both dotted and hex-normalized forms.
  */
 function isPrivateIP(hostname: string): boolean {
-  // Strip IPv6 brackets
-  const h = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+  const h = stripIpv6Brackets(hostname);
 
   // IPv6 loopback and private
   if (
@@ -258,6 +272,84 @@ function errorResult(message: string): ToolResult {
   return { content: safeStringify({ error: message }), isError: true };
 }
 
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function toResolvedAddressError(
+  hostname: string,
+  address: string,
+): NodeJS.ErrnoException {
+  const err = new Error(
+    `Private/loopback address blocked: ${hostname} resolved to ${address}`,
+  ) as NodeJS.ErrnoException;
+  err.code = "EHOSTUNREACH";
+  return err;
+}
+
+async function lookupValidatedAddresses(
+  hostname: string,
+): Promise<ResolvedAddress[]> {
+  const addresses = await dnsLookup(hostname, { all: true, verbatim: true });
+  const unique = new Map<string, ResolvedAddress>();
+
+  for (const address of addresses) {
+    if (isPrivateIP(address.address)) {
+      throw toResolvedAddressError(hostname, address.address);
+    }
+
+    unique.set(`${address.address}:${address.family}`, {
+      address: address.address,
+      family: address.family as 4 | 6,
+      ttl: RESOLVED_ADDRESS_TTL_MS,
+    });
+  }
+
+  return [...unique.values()];
+}
+
+type DnsLookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  addresses: ResolvedAddress[],
+) => void;
+type DnsLookup = (
+  hostname: string,
+  options: unknown,
+  callback: DnsLookupCallback,
+) => void;
+
+export async function createSafeFetchDispatcher(
+  url: string,
+): Promise<Dispatcher | undefined> {
+  const parsed = new URL(url);
+  const hostname = stripIpv6Brackets(parsed.hostname);
+  if (isIP(hostname) !== 0) {
+    return undefined;
+  }
+
+  const validatedAddresses = await lookupValidatedAddresses(hostname);
+
+  const lookup: DnsLookup = (_hostname, _options, callback) => {
+    callback(null, validatedAddresses);
+  };
+
+  return new Agent().compose(interceptors.dns({ lookup }));
+}
+
+export async function closeSafeFetchDispatcher(
+  dispatcher?: Dispatcher,
+): Promise<void> {
+  if (!dispatcher) {
+    return;
+  }
+
+  try {
+    await dispatcher.close();
+  } catch {
+    // Ignore cleanup errors so the primary fetch failure is preserved.
+  }
+}
+
 /** Find auth headers for a hostname by matching against authHeaders patterns. */
 function getAuthHeaders(
   hostname: string,
@@ -379,6 +471,17 @@ async function doFetch(
   const maxResponseBytes =
     config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   const maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+  let dispatcher: Dispatcher | undefined;
+
+  try {
+    dispatcher = await createSafeFetchDispatcher(url);
+  } catch (err) {
+    return errorResult(formatDomainBlockReason(getErrorMessage(err)));
+  }
+
+  if (dispatcher) {
+    mergedHeaders.host = parsed.host;
+  }
 
   try {
     const response = await fetch(url, {
@@ -387,6 +490,7 @@ async function doFetch(
       headers: mergedHeaders,
       signal: AbortSignal.timeout(timeoutMs),
       redirect: "manual",
+      dispatcher,
     });
 
     // Manual redirect handling
@@ -412,6 +516,8 @@ async function doFetch(
       const redirectInit: RequestInit = preserveMethod
         ? init
         : { ...init, method: "GET", body: undefined };
+      await closeSafeFetchDispatcher(dispatcher);
+      dispatcher = undefined;
 
       return doFetch(
         redirectUrl,
@@ -453,6 +559,8 @@ async function doFetch(
       return errorResult(`Connection failed: ${err.message}`);
     }
     return errorResult(`Connection failed: ${String(err)}`);
+  } finally {
+    await closeSafeFetchDispatcher(dispatcher);
   }
 }
 

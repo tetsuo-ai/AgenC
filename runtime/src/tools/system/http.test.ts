@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { createHttpTools, isDomainAllowed } from "./http.js";
 import { silentLogger } from "../../utils/logger.js";
+
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(),
+}));
 
 // ============================================================================
 // Mock fetch
@@ -40,10 +45,15 @@ function makeMockResponse(
 }
 
 let mockFetch: ReturnType<typeof vi.fn>;
+const mockDnsLookup = vi.mocked(dnsLookup);
 
 beforeEach(() => {
   mockFetch = vi.fn().mockResolvedValue(makeMockResponse('{"ok":true}'));
   vi.stubGlobal("fetch", mockFetch);
+  mockDnsLookup.mockReset();
+  mockDnsLookup.mockResolvedValue([
+    { address: "93.184.216.34", family: 4 },
+  ]);
 });
 
 // ============================================================================
@@ -498,6 +508,47 @@ describe("redirects", () => {
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content);
     expect(parsed.error).toContain("Too many redirects");
+  });
+
+  it("blocks hostnames when any resolved IP is private", async () => {
+    mockDnsLookup.mockResolvedValueOnce([
+      { address: "93.184.216.34", family: 4 },
+      { address: "127.0.0.1", family: 4 },
+    ]);
+
+    const [httpGet] = createHttpTools({}, silentLogger);
+    const result = await httpGet.execute({
+      url: "https://attacker.example/hidden",
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error).toContain("resolved to 127.0.0.1");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks redirects when redirect target resolves to a private IP", async () => {
+    mockFetch.mockResolvedValueOnce({
+      status: 302,
+      statusText: "Found",
+      headers: new Headers({ location: "https://attacker.example/trap" }),
+      url: "https://safe.example/start",
+      text: vi.fn().mockResolvedValue(""),
+      body: null,
+    } as unknown as Response);
+    mockDnsLookup
+      .mockResolvedValueOnce([{ address: "93.184.216.34", family: 4 }])
+      .mockResolvedValueOnce([{ address: "127.0.0.1", family: 4 }]);
+
+    const [httpGet] = createHttpTools({}, silentLogger);
+    const result = await httpGet.execute({
+      url: "https://safe.example/start",
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error).toContain("resolved to 127.0.0.1");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 
