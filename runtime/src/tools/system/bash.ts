@@ -319,25 +319,53 @@ function tokenizeShellCommand(command: string): string[] {
   return tokens;
 }
 
+const DYNAMIC_SHELL_EXECUTABLE_REASON =
+  "Command-substitution executables are not allowed in shell mode; " +
+  "use an explicit command name/path.";
+
 function getDynamicShellExecutableReason(
   token: string,
   next: string | undefined,
 ): string | null {
   if ((token === "$" && next === "(") || token.startsWith("$(")) {
-    return (
-      "Command-substitution executables are not allowed in shell mode; " +
-      "use an explicit command name/path."
-    );
+    return DYNAMIC_SHELL_EXECUTABLE_REASON;
   }
 
   if (token === "`" || token.startsWith("`")) {
-    return (
-      "Command-substitution executables are not allowed in shell mode; " +
-      "use an explicit command name/path."
-    );
+    return DYNAMIC_SHELL_EXECUTABLE_REASON;
   }
 
   return null;
+}
+
+function getShellRedirectionSkipIndex(
+  tokens: string[],
+  index: number,
+): number | null {
+  const token = tokens[index];
+  const next = tokens[index + 1];
+
+  if (SHELL_REDIRECT_OPERATORS.has(token)) {
+    return Math.min(index + 1, tokens.length - 1);
+  }
+
+  if (/^\d+$/.test(token) && next && SHELL_REDIRECT_OPERATORS.has(next)) {
+    return Math.min(index + 2, tokens.length - 1);
+  }
+
+  return null;
+}
+
+function shouldSkipExecutableCandidate(token: string): boolean {
+  return ENV_ASSIGNMENT_RE.test(token) || token === "$";
+}
+
+function consumeShellExecutable(
+  token: string,
+  executables: string[],
+): boolean {
+  executables.push(token);
+  return !SHELL_PREFIX_COMMANDS.has(token.toLowerCase());
 }
 
 /**
@@ -374,39 +402,17 @@ function extractShellExecutables(
       continue;
     }
 
-    // Skip redirection operators and their operands while still waiting for a command.
-    if (SHELL_REDIRECT_OPERATORS.has(token)) {
-      if (i + 1 < tokens.length) {
-        i += 1;
-      }
+    const redirectionSkipIndex = getShellRedirectionSkipIndex(tokens, i);
+    if (redirectionSkipIndex !== null) {
+      i = redirectionSkipIndex;
       continue;
     }
 
-    // Handle numeric file-descriptor redirects like `2>/tmp/x`.
-    if (/^\d+$/.test(token) && next && SHELL_REDIRECT_OPERATORS.has(next)) {
-      i += 2;
+    if (shouldSkipExecutableCandidate(token)) {
       continue;
     }
 
-    // Skip environment assignments (`FOO=bar cmd`).
-    if (ENV_ASSIGNMENT_RE.test(token)) {
-      continue;
-    }
-
-    // Skip command-substitution marker tokens.
-    if (token === "$") {
-      continue;
-    }
-
-    // Prefix commands still matter for policy checks, but the actual command follows.
-    const lower = token.toLowerCase();
-    if (SHELL_PREFIX_COMMANDS.has(lower)) {
-      executables.push(token);
-      continue;
-    }
-
-    executables.push(token);
-    expectCommand = false;
+    expectCommand = !consumeShellExecutable(token, executables);
   }
 
   return { executables, dynamicExecutableReason: null };
