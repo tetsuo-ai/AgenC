@@ -34,6 +34,52 @@ const DESKTOP_BIASED_SYSTEM_COMMANDS = new Set([
   "playwright",
   "gdb",
 ]);
+const SHELL_WRAPPER_COMMANDS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "csh",
+  "fish",
+  "ksh",
+  "tcsh",
+]);
+
+function extractDeniedCommand(failureText: string): string | undefined {
+  const quotedDouble = failureText.match(/command\s+"([^"]+)"\s+is denied/i);
+  if (quotedDouble && quotedDouble[1]?.trim().length) {
+    return quotedDouble[1].trim();
+  }
+  const quotedSingle = failureText.match(/command\s+'([^']+)'\s+is denied/i);
+  if (quotedSingle && quotedSingle[1]?.trim().length) {
+    return quotedSingle[1].trim();
+  }
+  return undefined;
+}
+
+function commandBasename(command: string): string {
+  const normalized = command.trim().replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  return (parts[parts.length - 1] ?? normalized).toLowerCase();
+}
+
+function isNodeInterpreterCommand(command: string): boolean {
+  const base = commandBasename(command);
+  return base === "node" || base.startsWith("node");
+}
+
+function isAgencRuntimeNodeInvocation(args: Record<string, unknown>): boolean {
+  const raw = args.args;
+  if (!Array.isArray(raw)) return false;
+  const first = raw.find((value) => typeof value === "string");
+  if (typeof first !== "string") return false;
+  const normalized = first.toLowerCase().replace(/\\/g, "/");
+  return (
+    normalized.endsWith("runtime/dist/bin/agenc-runtime.js") ||
+    normalized.endsWith("bin/agenc-runtime.js") ||
+    normalized === "agenc-runtime.js"
+  );
+}
 
 function isDesktopSessionUnavailable(failureTextLower: string): boolean {
   return (
@@ -204,6 +250,55 @@ export function inferRecoveryHint(
           'Example: instead of command="bash -c \'curl http://...\'" use command="curl http://...".',
       };
     }
+    const deniedCommand = extractDeniedCommand(failureText);
+    if (deniedCommand) {
+      if (SHELL_WRAPPER_COMMANDS.has(commandBasename(deniedCommand))) {
+        return {
+          key: "system-bash-command-denied-shell-wrapper",
+          message:
+            'system.bash blocks shell wrapper executables like `bash`/`sh`. Do NOT call `bash -c` or `sh -c`. ' +
+            "Call the target executable directly via `command` + `args`.",
+        };
+      }
+      if (isNodeInterpreterCommand(deniedCommand)) {
+        if (isAgencRuntimeNodeInvocation(call.args)) {
+          return {
+            key: "system-bash-command-denied-node-agenc-runtime",
+            message:
+              "Node interpreter commands are blocked on system.bash. For daemon checks, invoke the CLI directly: " +
+              '`command:"agenc-runtime", args:["status","--output","json"]`.',
+          };
+        }
+        return {
+          key: "system-bash-command-denied-node",
+          message:
+            "Node interpreter commands are blocked on system.bash. Use an allowed host binary directly " +
+            "(for example `agenc-runtime`) or run interpreter-based workflows in `desktop.bash`.",
+        };
+      }
+    }
+  }
+
+  if (
+    (call.name.startsWith("system.") &&
+      (call.name.endsWith("readFile") ||
+        call.name.endsWith("writeFile") ||
+        call.name.endsWith("appendFile") ||
+        call.name.endsWith("listDir") ||
+        call.name.endsWith("stat") ||
+        call.name.endsWith("mkdir") ||
+        call.name.endsWith("move") ||
+        call.name.endsWith("delete"))) &&
+    (failureTextLower.includes("path is outside allowed directories") ||
+      failureTextLower.includes("access denied: path"))
+  ) {
+    return {
+      key: "filesystem-path-allowlist",
+      message:
+        "This filesystem tool call was blocked by path allowlisting. " +
+        "Use files under allowed roots (`~/.agenc/workspace`, project root, `~/Desktop`, `/tmp`) " +
+        "or switch to `system.bash` with an explicit `cwd` for repo-local reads.",
+    };
   }
 
   if (

@@ -65,6 +65,7 @@ import {
   resolveBashToolEnv,
   resolveBashDenyExclusions,
   ensureChromiumCompatShims,
+  ensureAgencRuntimeShim,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
@@ -348,12 +349,20 @@ describe("resolveBashToolEnv", () => {
 });
 
 describe("resolveBashDenyExclusions", () => {
-  it("uses minimal Linux desktop exclusions", () => {
+  it("includes Linux desktop workflow exclusions", () => {
     const exclusions = resolveBashDenyExclusions(
       { desktop: { enabled: true } },
       "linux",
     );
-    expect(exclusions).toEqual(["killall", "pkill", "gdb"]);
+    expect(exclusions).toEqual([
+      "killall",
+      "pkill",
+      "gdb",
+      "curl",
+      "wget",
+      "node",
+      "nodejs",
+    ]);
   });
 
   it("keeps desktop-only exclusions off for non-desktop Linux", () => {
@@ -429,6 +438,57 @@ describe("ensureChromiumCompatShims", () => {
         undefined,
         "linux",
         tempHome,
+      );
+      expect(shimDir).toBeUndefined();
+    } finally {
+      await rm(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ensureAgencRuntimeShim", () => {
+  it("creates agenc-runtime shim when runtime dist binary exists", async () => {
+    const tempHome = await mkdtemp(join(tmpdir(), "agenc-runtime-shim-"));
+    try {
+      const fakeRepoRoot = join(tempHome, "repo");
+      const runtimeDistBin = join(fakeRepoRoot, "runtime", "dist", "bin");
+      await mkdir(runtimeDistBin, { recursive: true });
+
+      const runtimeEntry = join(runtimeDistBin, "agenc-runtime.js");
+      await writeFile(
+        runtimeEntry,
+        "#!/usr/bin/env node\nconsole.log('ok')\n",
+        "utf-8",
+      );
+      await chmod(runtimeEntry, 0o755);
+
+      const shimDir = await ensureAgencRuntimeShim(
+        { desktop: { enabled: true } },
+        "/usr/bin:/bin",
+        undefined,
+        tempHome,
+        fakeRepoRoot,
+        join(tempHome, "nonexistent", "daemon.js"),
+      );
+
+      expect(shimDir).toBe(join(tempHome, ".agenc", "bin"));
+      const shim = await readFile(join(shimDir!, "agenc-runtime"), "utf-8");
+      expect(shim).toContain(`exec "${runtimeEntry}" "$@"`);
+    } finally {
+      await rm(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("does not create shim when runtime binary cannot be resolved", async () => {
+    const tempHome = await mkdtemp(join(tmpdir(), "agenc-runtime-shim-"));
+    try {
+      const shimDir = await ensureAgencRuntimeShim(
+        { desktop: { enabled: true } },
+        "/usr/bin:/bin",
+        undefined,
+        tempHome,
+        join(tempHome, "empty-repo"),
+        join(tempHome, "nonexistent", "daemon.js"),
       );
       expect(shimDir).toBeUndefined();
     } finally {

@@ -220,7 +220,15 @@ const DEFAULT_HARD_BLOCKED_TASK_CLASSES: readonly DelegationHardBlockedTaskClass
 const BASH_SAFE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'SOLANA_RPC_URL'] as const;
 const BASH_DESKTOP_ENV_KEYS = ['DOCKER_HOST', 'CARGO_HOME', 'GOPATH', 'DISPLAY'] as const;
 const MAC_DESKTOP_BASH_DENY_EXCLUSIONS = ['killall', 'pkill', 'curl', 'wget'] as const;
-const LINUX_DESKTOP_BASH_DENY_EXCLUSIONS = ['killall', 'pkill', 'gdb'] as const;
+const LINUX_DESKTOP_BASH_DENY_EXCLUSIONS = [
+  'killall',
+  'pkill',
+  'gdb',
+  'curl',
+  'wget',
+  'node',
+  'nodejs',
+] as const;
 const CHROMIUM_COMPAT_COMMANDS = ['chromium', 'chromium-browser'] as const;
 const CHROMIUM_HOST_CHROME_CANDIDATES = [
   'google-chrome',
@@ -228,6 +236,7 @@ const CHROMIUM_HOST_CHROME_CANDIDATES = [
   '/opt/google/chrome/chrome',
 ] as const;
 const CHROMIUM_SHIM_DIR_SEGMENTS = ['.agenc', 'bin'] as const;
+const HOST_RUNTIME_SHIM_COMMAND = 'agenc-runtime' as const;
 
 /**
  * Build a minimal environment for system.bash.
@@ -253,7 +262,7 @@ export function resolveBashToolEnv(
 
 /**
  * Resolve deny-list exclusions for system.bash by platform.
- * Linux desktop mode intentionally keeps this minimal.
+ * Linux desktop mode allows a narrow set of developer workflow binaries.
  */
 export function resolveBashDenyExclusions(
   config: Pick<GatewayConfig, 'desktop'>,
@@ -320,6 +329,27 @@ function buildChromiumShimScript(targetExecutable: string): string {
   ].join('\n');
 }
 
+function buildRuntimeShimScript(targetExecutable: string): string {
+  return [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    `exec ${JSON.stringify(targetExecutable)} "$@"`,
+    '',
+  ].join('\n');
+}
+
+function resolveAgencRuntimeBinaryCandidates(
+  currentWorkingDirectory: string = process.cwd(),
+  currentFilePath: string = __filename,
+): string[] {
+  const packageRoot = resolvePath(dirname(currentFilePath), '..', '..');
+  return [
+    resolvePath(packageRoot, 'dist', 'bin', 'agenc-runtime.js'),
+    resolvePath(currentWorkingDirectory, 'runtime', 'dist', 'bin', 'agenc-runtime.js'),
+    resolvePath(currentWorkingDirectory, 'dist', 'bin', 'agenc-runtime.js'),
+  ];
+}
+
 /**
  * Ensure host-level Chromium compatibility commands exist for system.bash checks.
  *
@@ -375,6 +405,55 @@ export async function ensureChromiumCompatShims(
     );
   }
 
+  return shimDir;
+}
+
+/**
+ * Ensure `agenc-runtime` is resolvable on PATH for system.bash host checks.
+ *
+ * Recovery and orchestration flows may invoke `agenc-runtime status --output json`
+ * directly after a denied `node .../agenc-runtime.js` attempt. Provide a
+ * deterministic user-scoped shim that points at the runtime CLI bundle.
+ */
+export async function ensureAgencRuntimeShim(
+  config: Pick<GatewayConfig, 'desktop'>,
+  envPath: string | undefined,
+  logger: Logger | undefined = silentLogger,
+  homeDir: string = homedir(),
+  currentWorkingDirectory: string = process.cwd(),
+  currentFilePath: string = __filename,
+): Promise<string | undefined> {
+  if (!config.desktop?.enabled) {
+    return undefined;
+  }
+
+  const existingRuntimeCommand = await resolveExecutablePath(HOST_RUNTIME_SHIM_COMMAND, envPath);
+  if (existingRuntimeCommand) {
+    return undefined;
+  }
+
+  let runtimeTarget: string | undefined;
+  for (const candidate of resolveAgencRuntimeBinaryCandidates(
+    currentWorkingDirectory,
+    currentFilePath,
+  )) {
+    runtimeTarget = await resolveExecutablePath(candidate, envPath);
+    if (runtimeTarget) break;
+  }
+
+  if (!runtimeTarget) {
+    return undefined;
+  }
+
+  const shimDir = join(homeDir, ...CHROMIUM_SHIM_DIR_SEGMENTS);
+  await mkdir(shimDir, { recursive: true });
+  const shimPath = join(shimDir, HOST_RUNTIME_SHIM_COMMAND);
+  await writeFile(shimPath, buildRuntimeShimScript(runtimeTarget), 'utf-8');
+  await chmod(shimPath, 0o755);
+
+  (logger ?? silentLogger).info(
+    `Installed host runtime shim: ${HOST_RUNTIME_SHIM_COMMAND} -> ${runtimeTarget}`,
+  );
   return shimDir;
 }
 
@@ -3941,14 +4020,18 @@ export class DaemonManager {
     // Security: Only expose a minimal host env to system.bash.
     // Token-like secrets are intentionally excluded by default.
     const safeEnv = resolveBashToolEnv(config);
-    const chromiumShimDir = await ensureChromiumCompatShims(
+    const hostShimDir = join(homedir(), ...CHROMIUM_SHIM_DIR_SEGMENTS);
+    safeEnv.PATH = prependPathEntry(safeEnv.PATH, hostShimDir);
+    await ensureChromiumCompatShims(
       config,
       safeEnv.PATH,
       this.logger,
     );
-    if (chromiumShimDir) {
-      safeEnv.PATH = prependPathEntry(safeEnv.PATH, chromiumShimDir);
-    }
+    await ensureAgencRuntimeShim(
+      config,
+      safeEnv.PATH,
+      this.logger,
+    );
 
     // Security: Do NOT use unrestricted mode — the default deny list prevents
     // dangerous commands (rm -rf, curl for exfiltration, etc.) from being
@@ -3957,8 +4040,8 @@ export class DaemonManager {
     // On macOS desktop agents, allow process management (killall, pkill) and
     // network tools for closing apps — the security boundary is Telegram user auth.
     //
-    // On Linux desktop mode keep exclusions minimal (process cleanup only)
-    // to reduce command-exfiltration and interpreter bypass surface.
+    // On Linux desktop mode, include the minimum developer workflow binaries
+    // required by host health checks and orchestration smoke tests.
     const denyExclusions = resolveBashDenyExclusions(config);
 
     registry.register(createBashTool({
@@ -3970,12 +4053,17 @@ export class DaemonManager {
     }));
     registry.registerAll(createHttpTools({}, this.logger));
 
-    // Security: Restrict filesystem access to workspace + Desktop + /tmp.
+    // Security: Restrict filesystem access to workspace + project root + Desktop + /tmp.
     // Excludes ~/.ssh, ~/.gnupg, ~/.config/solana (private keys), etc.
     const workspacePath = join(homedir(), '.agenc', 'workspace');
     const desktopPath = join(homedir(), 'Desktop');
+    const projectPath = resolvePath(process.cwd());
+    const allowedFilesystemPaths = [workspacePath, desktopPath, '/tmp'];
+    if (projectPath !== '/' && !allowedFilesystemPaths.includes(projectPath)) {
+      allowedFilesystemPaths.push(projectPath);
+    }
     registry.registerAll(createFilesystemTools({
-      allowedPaths: [workspacePath, desktopPath, '/tmp'],
+      allowedPaths: allowedFilesystemPaths,
       allowDelete: false,
     }));
     registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));

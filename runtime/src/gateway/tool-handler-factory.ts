@@ -9,6 +9,7 @@
 
 import type { ControlResponse } from './types.js';
 import type { ToolHandler } from '../llm/types.js';
+import { didToolCallFail } from '../llm/chat-executor-tool-utils.js';
 import type { HookDispatcher } from './hooks.js';
 import type { ApprovalEngine } from './approvals.js';
 import {
@@ -30,6 +31,10 @@ const COLLAPSE_WHITESPACE_RE = /\s+/g;
 const APPROVAL_TASK_PREVIEW_MAX_CHARS = 180;
 const DELEGATION_POLL_INTERVAL_MS = 75;
 const DELEGATION_PROGRESS_INTERVAL_MS = 1000;
+const MIN_DELEGATION_TIMEOUT_MS = 60_000;
+const MAX_DELEGATION_TIMEOUT_MS = 3_600_000;
+const DELEGATION_FAILURE_SIGNAL_RE =
+  /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
 
 function normalizeDesktopBashCommand(
   name: string,
@@ -105,6 +110,35 @@ function parseDelegationFailureReason(output: string): string {
     // Fall back to raw output.
   }
   return trimmed;
+}
+
+function countFailedChildToolCalls(
+  toolCalls: readonly {
+    readonly isError: boolean;
+    readonly result: string;
+  }[],
+): number {
+  return toolCalls.reduce((count, toolCall) => {
+    return didToolCallFail(toolCall.isError, toolCall.result) ? count + 1 : count;
+  }, 0);
+}
+
+function hasDelegationFailureSignal(output: string): boolean {
+  return DELEGATION_FAILURE_SIGNAL_RE.test(output);
+}
+
+function normalizeDelegationTimeoutMs(
+  timeoutMs: number | undefined,
+): number | undefined {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
+    return undefined;
+  }
+  const rounded = Math.floor(timeoutMs);
+  if (rounded <= 0) return undefined;
+  return Math.min(
+    MAX_DELEGATION_TIMEOUT_MS,
+    Math.max(MIN_DELEGATION_TIMEOUT_MS, rounded),
+  );
 }
 
 type DelegationContext = NonNullable<
@@ -346,12 +380,13 @@ async function executeDelegationTool(params: {
 
   const input = parsedInput.value;
   const objective = input.objective ?? input.task;
+  const effectiveTimeoutMs = normalizeDelegationTimeoutMs(input.timeoutMs);
   let childSessionId: string;
   try {
     childSessionId = await subAgentManager.spawn({
       parentSessionId: sessionId,
       task: input.task,
-      ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+      ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       ...(input.tools ? { tools: input.tools } : {}),
       ...(input.requiredToolCapabilities
         ? { requiredCapabilities: input.requiredToolCapabilities }
@@ -387,7 +422,7 @@ async function executeDelegationTool(params: {
     toolName: name,
     payload: {
       objective,
-      ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+      ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       ...(input.tools ? { tools: input.tools } : {}),
       ...(input.requiredToolCapabilities
         ? { requiredToolCapabilities: input.requiredToolCapabilities }
@@ -437,7 +472,12 @@ async function executeDelegationTool(params: {
     const finalStatus =
       childInfo?.status ?? (childResult.success ? "completed" : "failed");
 
-    if (childResult.success) {
+    const failedChildToolCalls = countFailedChildToolCalls(childResult.toolCalls);
+    const unresolvedChildFailure =
+      failedChildToolCalls > 0 &&
+      hasDelegationFailureSignal(childResult.output);
+
+    if (childResult.success && !unresolvedChildFailure) {
       lifecycleEmitter?.emit({
         type: "subagents.completed",
         timestamp: Date.now(),
@@ -463,12 +503,15 @@ async function executeDelegationTool(params: {
         output: childResult.output,
         durationMs: childResult.durationMs,
         toolCalls: childResult.toolCalls.length,
+        failedToolCalls: failedChildToolCalls,
         providerName: childResult.providerName,
         tokenUsage: childResult.tokenUsage,
       });
     }
 
-    const reason = parseDelegationFailureReason(childResult.output);
+    const reason = unresolvedChildFailure
+      ? `Sub-agent completed with unresolved tool failures (${failedChildToolCalls})`
+      : parseDelegationFailureReason(childResult.output);
     const terminalType =
       finalStatus === "cancelled" ? "subagents.cancelled" : "subagents.failed";
     lifecycleEmitter?.emit({
@@ -484,6 +527,7 @@ async function executeDelegationTool(params: {
         output: childResult.output,
         durationMs: childResult.durationMs,
         toolCalls: childResult.toolCalls.length,
+        failedToolCalls: failedChildToolCalls,
         toolCallId,
       },
     });
@@ -496,6 +540,7 @@ async function executeDelegationTool(params: {
       output: childResult.output,
       durationMs: childResult.durationMs,
       toolCalls: childResult.toolCalls.length,
+      failedToolCalls: failedChildToolCalls,
       providerName: childResult.providerName,
       tokenUsage: childResult.tokenUsage,
     });
