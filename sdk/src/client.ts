@@ -47,12 +47,12 @@ export interface PrivacyClientConfig {
 }
 
 export class PrivacyClient {
-  private connection: Connection;
+  private readonly connection: Connection;
   private program: Program | null = null;
   private config: PrivacyClientConfig;
   private wallet: Keypair | null = null;
-  private agentId: Uint8Array | number[] | null = null;
-  private proverConfig: ProverConfig | null = null;
+  private readonly agentId: Uint8Array | number[] | null = null;
+  private readonly proverConfig: ProverConfig | null = null;
   private logger: Logger;
 
   constructor(config: PrivacyClientConfig = {}) {
@@ -62,16 +62,16 @@ export class PrivacyClient {
 
     // Validate RPC URL format if provided
     if (config.rpcUrl !== undefined) {
+      let url: URL;
       try {
-        const url = new URL(config.rpcUrl);
-        if (url.protocol !== "http:" && url.protocol !== "https:") {
-          throw new Error("RPC URL must use http or https protocol");
-        }
-      } catch (e) {
-        if ((e as Error).message.includes("http or https")) {
-          throw new Error(`Invalid RPC URL: ${(e as Error).message}`);
-        }
+        url = new URL(config.rpcUrl);
+      } catch {
         throw new Error(`Invalid RPC URL: ${config.rpcUrl}`);
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error(
+          `Invalid RPC URL: RPC URL must use http or https protocol`,
+        );
       }
     }
 
@@ -224,7 +224,7 @@ export class PrivacyClient {
     this.logger.debug(`Proof generated in ${proofResult.generationTime}ms`);
 
     // Submit private completion on-chain
-    const result = await submitCompleteTaskPrivate(
+    return await submitCompleteTaskPrivate(
       this.connection,
       this.program,
       this.wallet,
@@ -238,8 +238,6 @@ export class PrivacyClient {
         nullifierSeed: proofResult.nullifierSeed,
       },
     );
-
-    return result;
   }
 
   /**

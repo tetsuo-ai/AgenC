@@ -14,12 +14,8 @@ import type { ProverConfig } from "./prover.js";
 import {
   HASH_SIZE,
   OUTPUT_FIELD_COUNT,
-  RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
-  RISC0_SEAL_BORSH_LEN,
   RISC0_SELECTOR_LEN,
-  TRUSTED_RISC0_IMAGE_ID,
-  TRUSTED_RISC0_SELECTOR,
 } from "./constants";
 
 /** BN254 scalar field modulus */
