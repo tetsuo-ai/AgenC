@@ -330,7 +330,7 @@ export class WorkspaceManager {
       }
     }
 
-    return results.sort();
+    return results.sort((a, b) => a.localeCompare(b));
   }
 
   async createWorkspace(

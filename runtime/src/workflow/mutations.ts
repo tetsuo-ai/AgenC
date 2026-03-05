@@ -195,7 +195,9 @@ function mutateEdgeRewire(
   baseline: WorkflowDefinition,
   rng: () => number,
 ): MutationAttemptResult | null {
-  const names = baseline.tasks.map((task) => task.name).sort();
+  const names = baseline.tasks
+    .map((task) => task.name)
+    .sort((a, b) => a.localeCompare(b));
   if (names.length < 2) return null;
 
   const edgeByChild = new Map(baseline.edges.map((edge) => [edge.to, edge]));

@@ -168,7 +168,7 @@ export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
             typeof entry === "string" && entry.length > 0,
         ),
     ),
-  ].sort();
+  ].sort((a, b) => a.localeCompare(b));
 
   const disputeIds = collectDisputeIds(windowedEvents);
   const caseId = computeCaseId(traceWindow, taskIds, disputeIds);
@@ -407,7 +407,7 @@ function collectDisputeIds(
     const disputePda = extractDisputePda(event);
     if (disputePda) disputeIds.add(disputePda);
   }
-  return [...disputeIds].sort();
+  return [...disputeIds].sort((a, b) => a.localeCompare(b));
 }
 
 function extractDisputePda(event: ProjectedTimelineEvent): string | undefined {

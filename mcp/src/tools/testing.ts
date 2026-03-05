@@ -672,7 +672,9 @@ export function registerTestingTools(server: McpServer): void {
     {},
     withToolErrorResponse(async () => {
       const entries = await readdir(TESTS_DIR);
-      const testFiles = entries.filter((e) => e.endsWith(".ts")).sort();
+      const testFiles = entries
+        .filter((e) => e.endsWith(".ts"))
+        .sort((a, b) => a.localeCompare(b));
 
       const descriptions: Record<string, string> = {
         "test_1.ts": "Main integration test suite",

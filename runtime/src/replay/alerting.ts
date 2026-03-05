@@ -490,7 +490,9 @@ export function validateAlertSchema(
 export function computeAnomalySetHash(
   alerts: ReadonlyArray<ReplayAnomalyAlert>,
 ): string {
-  const sortedIds = alerts.map((alert) => alert.id).sort();
+  const sortedIds = alerts
+    .map((alert) => alert.id)
+    .sort((a, b) => a.localeCompare(b));
   const payload = stableStringifyJson(sortedIds as JsonValue);
   return createHash("sha256").update(payload).digest("hex");
 }
@@ -507,7 +509,7 @@ export function computeAnomalySetHashFromContexts(
       const base = buildAlertPayload(ctx);
       return makeAlertId(base);
     })
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   return createHash("sha256")
     .update(stableStringifyJson(ids as JsonValue))
     .digest("hex");

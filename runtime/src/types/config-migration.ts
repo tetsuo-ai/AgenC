@@ -274,7 +274,7 @@ export function buildConfigSchemaSnapshot(
   version: ConfigVersion,
   profile: string,
 ): ConfigSchemaSnapshot {
-  const keys = [...KNOWN_CONFIG_KEYS].sort();
+  const keys = [...KNOWN_CONFIG_KEYS].sort((a, b) => a.localeCompare(b));
   const sha256 = createHash("sha256").update(keys.join("\n")).digest("hex");
 
   return { version, profile, keys, sha256 };

@@ -463,7 +463,7 @@ export function checkToolLoopStuckDetection(
   if (roundFailures === roundCalls.length) {
     const roundSemanticKey = roundCalls
       .map((call) => buildSemanticToolCallKey(call.name, call.args))
-      .sort()
+      .sort((a, b) => a.localeCompare(b))
       .join("|");
     if (
       roundSemanticKey.length > 0 &&

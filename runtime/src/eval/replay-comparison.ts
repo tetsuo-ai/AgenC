@@ -899,8 +899,8 @@ export class ReplayComparisonService {
     }
 
     return {
-      taskIds: [...taskIds].sort(),
-      disputeIds: [...disputeIds].sort(),
+      taskIds: [...taskIds].sort((a, b) => a.localeCompare(b)),
+      disputeIds: [...disputeIds].sort((a, b) => a.localeCompare(b)),
     };
   }
 }

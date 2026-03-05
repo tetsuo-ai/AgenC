@@ -126,7 +126,7 @@ export class DailyLogManager {
       return files
         .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
         .map((f) => basename(f, ".md"))
-        .sort();
+        .sort((a, b) => a.localeCompare(b));
     } catch (err) {
       if (isEnoent(err)) return [];
       throw err;

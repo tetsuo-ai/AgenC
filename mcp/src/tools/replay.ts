@@ -833,8 +833,8 @@ function summarizeReplayIncident(
     dispute_pda_filters: [filters.disputePda ?? null],
     from_slot: filters.fromSlot,
     to_slot: filters.toSlot,
-    unique_task_ids: [...taskIds].sort(),
-    unique_dispute_ids: [...disputeIds].sort(),
+    unique_task_ids: [...taskIds].sort((a, b) => a.localeCompare(b)),
+    unique_dispute_ids: [...disputeIds].sort((a, b) => a.localeCompare(b)),
     source_event_type_counts: sourceEventTypeCounts,
     source_event_name_counts: sourceEventNameCounts,
     trace_id_counts: traceIdCounts,
@@ -888,11 +888,11 @@ function validateReplayIncident(
   const result = {
     strict_mode: strictMode,
     event_validation: {
-      errors: [...replay.errors].sort(),
-      warnings: [...replay.warnings].sort(),
+      errors: [...replay.errors].sort((a, b) => a.localeCompare(b)),
+      warnings: [...replay.warnings].sort((a, b) => a.localeCompare(b)),
       replay_task_count: replayTaskCount,
     },
-    anomaly_ids: [...anomalyIds].sort(),
+    anomaly_ids: [...anomalyIds].sort((a, b) => a.localeCompare(b)),
   };
 
   const deterministicHash = createHash("sha256")
@@ -925,15 +925,15 @@ function buildIncidentNarrative(
   });
 
   const validationLines = [
-    ...validation.event_validation.errors.sort(),
-    ...validation.event_validation.warnings.sort(),
+    ...validation.event_validation.errors.sort((a, b) => a.localeCompare(b)),
+    ...validation.event_validation.warnings.sort((a, b) => a.localeCompare(b)),
   ].map((line) => `validation:${line}`);
 
   const lines = [...anomalyLines, ...validationLines];
   const anomaly_ids = sortedEvents
     .map((entry) => entry.anomaly_id)
     .filter((entry) => entry.length > 0)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 
   const deterministicHash = createHash("sha256")
     .update(stableStringifyJson(lines as unknown as JsonValue))
