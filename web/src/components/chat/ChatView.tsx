@@ -38,7 +38,7 @@ export function ChatView({
   isTyping,
   onSend,
   onStop,
-  connected: _connected,
+  connected,
   voiceState = 'inactive',
   voiceTranscript = '',
   voiceMode = 'vad',
@@ -166,6 +166,16 @@ export function ChatView({
 
   // ── Welcome / splash state ──
   if (isEmpty) {
+    const splashLabel = connected
+      ? 'R E A D Y'
+      : 'C O N N E C T I N G   T O   A G E N C';
+    const splashHint = connected
+      ? 'type a message to begin...'
+      : 'initializing agent runtime...';
+    const progressFilled = connected ? 28 : 0;
+    const progressEmpty = 28 - progressFilled;
+    const progressPercent = connected ? '100' : '0';
+
     return (
       <div className="relative flex flex-col h-full bg-bbs-black">
         <div className="flex-1" />
@@ -178,16 +188,19 @@ export function ChatView({
             className="max-w-[300px] w-full h-auto pixelated"
             style={{ imageRendering: 'auto' }}
           />
-          <div className="text-bbs-purple text-sm tracking-[6px] font-bold">
-            C O N N E C T I N G   T O   A G E N C
+          <div className={`text-sm tracking-[6px] font-bold ${connected ? 'text-bbs-green' : 'text-bbs-purple'}`}>
+            {splashLabel}
           </div>
           <div className="w-full max-w-md">
             <div className="text-bbs-pink font-mono text-xs">
-              [<span className="animate-bbs-progress inline-block overflow-hidden whitespace-nowrap" style={{ maxWidth: '80%' }}>{'\u2588'.repeat(20)}</span>{'\u2591'.repeat(8)}]  87%
+              {connected
+                ? `[${'\u2588'.repeat(progressFilled)}${'\u2591'.repeat(progressEmpty)}] ${progressPercent}%`
+                : <>[<span className="animate-bbs-progress inline-block overflow-hidden whitespace-nowrap" style={{ maxWidth: '100%' }}>{'\u2588'.repeat(28)}</span>{'\u2591'.repeat(28)}]</>
+              }
             </div>
           </div>
           <div className="text-bbs-gray text-xs">
-            initializing agent runtime...
+            {splashHint}
           </div>
         </div>
 
