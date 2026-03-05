@@ -80,12 +80,38 @@ export function ChatInput({
     setActiveCommandIndex(0);
   }, [slashQuery]);
 
+  const focusComposer = useCallback(() => {
+    const focus = () => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const cursor = el.value.length;
+      el.setSelectionRange(cursor, cursor);
+    };
+    focus();
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(focus);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (disabled) return;
+    const active = document.activeElement;
+    const activeIsTextInput =
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement ||
+      (active instanceof HTMLElement && active.isContentEditable);
+    if (activeIsTextInput && active !== textareaRef.current) return;
+    focusComposer();
+  }, [disabled, focusComposer]);
+
   const applyCommand = useCallback((cmd: SlashCommandOption) => {
     const nextValue = `/${cmd.name} `;
     setValue(nextValue);
     setActiveCommandIndex(0);
-    textareaRef.current?.focus();
-  }, []);
+    focusComposer();
+  }, [focusComposer]);
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
@@ -98,7 +124,8 @@ export function ChatInput({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [value, disabled, onSend, attachments]);
+    focusComposer();
+  }, [attachments, disabled, focusComposer, onSend, value]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

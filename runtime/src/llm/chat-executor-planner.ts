@@ -12,6 +12,7 @@ import type { LLMPipelineStopReason } from "./policy.js";
 import type {
   PipelinePlannerContext,
   PipelinePlannerContextMemorySource,
+  PipelinePlannerStep,
   PipelineResult,
 } from "../workflow/pipeline.js";
 import type { WorkflowGraphEdge } from "../workflow/types.js";
@@ -24,10 +25,21 @@ import type {
   PlannerParseResult,
   PlannerDiagnostic,
   PlannerGraphValidationConfig,
+  FullPlannerSummaryState,
   SubagentVerifierDecision,
   SubagentVerifierStepAssessment,
   ToolCallRecord,
 } from "./chat-executor-types.js";
+import {
+  assessDelegationDecision,
+  type DelegationDecisionConfig,
+  type DelegationDecision,
+  type DelegationHardBlockedTaskClass,
+} from "./delegation-decision.js";
+import type {
+  DelegationBanditPolicyTuner,
+  DelegationBanditSelection,
+} from "./delegation-learning.js";
 import {
   MAX_PLANNER_STEPS,
   MAX_PLANNER_CONTEXT_HISTORY_CANDIDATES,
@@ -1129,6 +1141,205 @@ export function pipelineResultToToolCalls(
     }
   }
   return records;
+}
+
+// ============================================================================
+// Extracted from executePlannerPath — delegation bandit arm resolution
+// ============================================================================
+
+/** Result of bandit arm resolution for delegation policy tuning. */
+export interface BanditArmResolution {
+  readonly selectedArm: DelegationBanditSelection | undefined;
+  readonly tunedThreshold: number;
+  readonly policyTuning: FullPlannerSummaryState["delegationPolicyTuning"];
+}
+
+/**
+ * Resolve the delegation bandit arm selection, returning the selected arm,
+ * tuned threshold, and delegation policy tuning record.
+ */
+export function resolveDelegationBanditArm(
+  banditTuner: DelegationBanditPolicyTuner | undefined,
+  trajectoryContextClusterId: string,
+  defaultArmId: string,
+  baseDelegationThreshold: number,
+): BanditArmResolution {
+  if (banditTuner) {
+    const selectedArm = banditTuner.selectArm({
+      contextClusterId: trajectoryContextClusterId,
+      preferredArmId: defaultArmId,
+    });
+    const tunedThreshold = banditTuner.applyThresholdOffset(
+      baseDelegationThreshold,
+      selectedArm.armId,
+    );
+    return {
+      selectedArm,
+      tunedThreshold,
+      policyTuning: {
+        enabled: true,
+        contextClusterId: trajectoryContextClusterId,
+        selectedArmId: selectedArm.armId,
+        selectedArmReason: selectedArm.reason,
+        tunedThreshold,
+        exploration: selectedArm.exploration,
+        finalReward: undefined,
+        usefulDelegation: undefined,
+        usefulDelegationScore: undefined,
+        rewardProxyVersion: undefined,
+      },
+    };
+  }
+
+  return {
+    selectedArm: undefined,
+    tunedThreshold: baseDelegationThreshold,
+    policyTuning: {
+      enabled: false,
+      contextClusterId: trajectoryContextClusterId,
+      selectedArmId: defaultArmId,
+      selectedArmReason: "fallback",
+      tunedThreshold: baseDelegationThreshold,
+      exploration: false,
+      finalReward: undefined,
+      usefulDelegation: undefined,
+      usefulDelegationScore: undefined,
+      rewardProxyVersion: undefined,
+    },
+  };
+}
+
+// ============================================================================
+// Extracted from executePlannerPath — delegation decision assessment
+// ============================================================================
+
+/** Input for assessing and recording a delegation decision. */
+export interface DelegationAssessmentInput {
+  readonly messageText: string;
+  readonly plannerPlan: PlannerPlan;
+  readonly subagentSteps: readonly PlannerSubAgentTaskStepIntent[];
+  readonly complexityScore: number;
+  readonly tunedThreshold: number;
+  readonly delegationConfig: {
+    readonly enabled: boolean;
+    readonly mode: string;
+    readonly maxFanoutPerTurn: number;
+    readonly maxDepth: number;
+    readonly handoffMinPlannerConfidence: number;
+    readonly hardBlockedTaskClasses: Iterable<DelegationHardBlockedTaskClass>;
+  };
+}
+
+/**
+ * Assess whether to delegate and record the decision + any veto diagnostic
+ * on the planner summary state. Returns the delegation decision.
+ */
+export function assessAndRecordDelegationDecision(
+  input: DelegationAssessmentInput,
+  summaryState: FullPlannerSummaryState,
+): DelegationDecision {
+  const synthesisSteps = input.plannerPlan.steps.filter(
+    (step) => step.stepType === "synthesis",
+  ).length;
+
+  const tunedDecisionConfig: DelegationDecisionConfig = {
+    enabled: input.delegationConfig.enabled,
+    mode: input.delegationConfig.mode as DelegationDecisionConfig["mode"],
+    scoreThreshold: input.tunedThreshold,
+    maxFanoutPerTurn: input.delegationConfig.maxFanoutPerTurn,
+    maxDepth: input.delegationConfig.maxDepth,
+    handoffMinPlannerConfidence:
+      input.delegationConfig.handoffMinPlannerConfidence,
+    hardBlockedTaskClasses: [
+      ...input.delegationConfig.hardBlockedTaskClasses,
+    ],
+  };
+
+  const delegationDecision = assessDelegationDecision({
+    messageText: input.messageText,
+    plannerConfidence: input.plannerPlan.confidence,
+    complexityScore: input.complexityScore,
+    totalSteps: input.plannerPlan.steps.length,
+    synthesisSteps,
+    edges: input.plannerPlan.edges,
+    subagentSteps: input.subagentSteps.map((step) => ({
+      name: step.name,
+      dependsOn: step.dependsOn,
+      acceptanceCriteria: step.acceptanceCriteria,
+      requiredToolCapabilities: step.requiredToolCapabilities,
+      contextRequirements: step.contextRequirements,
+      maxBudgetHint: step.maxBudgetHint,
+      canRunParallel: step.canRunParallel,
+    })),
+    config: tunedDecisionConfig,
+  });
+
+  summaryState.delegationDecision = delegationDecision;
+  if (!delegationDecision.shouldDelegate) {
+    summaryState.routeReason =
+      `delegation_veto_${delegationDecision.reason}`;
+    summaryState.diagnostics.push({
+      category: "policy",
+      code: "delegation_veto",
+      message:
+        `Delegation vetoed by policy scorer: ${delegationDecision.reason}`,
+      details: {
+        reason: delegationDecision.reason,
+        threshold: delegationDecision.threshold,
+        utilityScore: Number(
+          delegationDecision.utilityScore.toFixed(4),
+        ),
+        safetyRisk: Number(delegationDecision.safetyRisk.toFixed(4)),
+      },
+    });
+  }
+
+  return delegationDecision;
+}
+
+// ============================================================================
+// Extracted from executePlannerPath — pipeline step mapping
+// ============================================================================
+
+/**
+ * Map PlannerStepIntent[] to PipelinePlannerStep[] for the pipeline executor.
+ */
+export function mapPlannerStepsToPipelineSteps(
+  steps: readonly PlannerStepIntent[],
+): PipelinePlannerStep[] {
+  return steps.map((step) => {
+    if (step.stepType === "deterministic_tool") {
+      return {
+        name: step.name,
+        stepType: step.stepType,
+        dependsOn: step.dependsOn,
+        tool: step.tool,
+        args: step.args,
+        onError: step.onError,
+        maxRetries: step.maxRetries,
+      };
+    }
+    if (step.stepType === "subagent_task") {
+      return {
+        name: step.name,
+        stepType: step.stepType,
+        dependsOn: step.dependsOn,
+        objective: step.objective,
+        inputContract: step.inputContract,
+        acceptanceCriteria: step.acceptanceCriteria,
+        requiredToolCapabilities: step.requiredToolCapabilities,
+        contextRequirements: step.contextRequirements,
+        maxBudgetHint: step.maxBudgetHint,
+        canRunParallel: step.canRunParallel,
+      };
+    }
+    return {
+      name: step.name,
+      stepType: step.stepType,
+      dependsOn: step.dependsOn,
+      objective: step.objective,
+    };
+  });
 }
 
 export function didSubagentStepFail(result: string): boolean {

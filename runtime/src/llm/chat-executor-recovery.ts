@@ -9,13 +9,52 @@ import type {
   RecoveryHint,
   ChatCallUsageRecord,
   ChatStatefulSummary,
+  ChatPlannerSummary,
+  EvaluationResult,
+  ExecutionContext,
+  FullPlannerSummaryState,
 } from "./chat-executor-types.js";
 import type { LLMStatefulDiagnostics, LLMStatefulFallbackReason } from "./types.js";
+import type { LLMPipelineStopReason } from "./policy.js";
+import type {
+  DelegationTrajectoryFinalReward,
+  DelegationTrajectoryRecord,
+} from "./delegation-learning.js";
 import { SHELL_BUILTIN_COMMANDS } from "./chat-executor-constants.js";
 import {
   didToolCallFail,
   extractToolFailureText,
 } from "./chat-executor-tool-utils.js";
+
+const DESKTOP_BIASED_SYSTEM_COMMANDS = new Set([
+  "chromium",
+  "chromium-browser",
+  "google-chrome",
+  "google-chrome-stable",
+  "playwright",
+  "gdb",
+]);
+
+function isDesktopSessionUnavailable(failureTextLower: string): boolean {
+  return (
+    failureTextLower.includes("requires desktop session") ||
+    failureTextLower.includes('tool not found: "desktop.bash"') ||
+    failureTextLower.includes("tool not found: 'desktop.bash'")
+  );
+}
+
+function isDesktopBiasedSystemCommandFailure(
+  command: string,
+  failureTextLower: string,
+): boolean {
+  if (!DESKTOP_BIASED_SYSTEM_COMMANDS.has(command)) return false;
+  return (
+    failureTextLower.includes("enoent") ||
+    failureTextLower.includes("command not found") ||
+    failureTextLower.includes("is denied") ||
+    failureTextLower.includes("not found")
+  );
+}
 
 export function buildSemanticToolCallKey(
   name: string,
@@ -108,9 +147,30 @@ export function inferRecoveryHint(
 
   const failureText = extractToolFailureText(call);
   const failureTextLower = failureText.toLowerCase();
+  if (
+    isDesktopSessionUnavailable(failureTextLower) &&
+    (call.name === "desktop.bash" ||
+      call.name.startsWith("playwright.") ||
+      call.name.startsWith("mcp."))
+  ) {
+    return {
+      key: "desktop-session-unavailable",
+      message:
+        "Desktop/container tools are unavailable in this chat session. Attach a desktop session first (`/desktop attach`), " +
+        "then retry with `desktop.bash` or the required `playwright.*`/`mcp.*` tool.",
+    };
+  }
 
   if (call.name === "system.bash") {
     const command = String(call.args?.command ?? "").trim().toLowerCase();
+    if (isDesktopBiasedSystemCommandFailure(command, failureTextLower)) {
+      return {
+        key: "system-bash-host-desktop-mismatch",
+        message:
+          "This command failed on `system.bash` (host shell) but appears to target desktop/container tooling. " +
+          "Attach desktop (`/desktop attach`) and run it with `desktop.bash` (or `playwright.*` for browser actions).",
+      };
+    }
     const isBuiltin = command.length > 0 && SHELL_BUILTIN_COMMANDS.has(command);
     if (
       isBuiltin ||
@@ -167,4 +227,141 @@ export function inferRecoveryHint(
   }
 
   return undefined;
+}
+
+// ============================================================================
+// Quality & trajectory helpers (extracted from recordOutcomeAndFinalize)
+// ============================================================================
+
+/** Input for computing quality proxy score. */
+export interface QualityProxyInput {
+  readonly stopReason: LLMPipelineStopReason;
+  readonly verifierPerformed: boolean;
+  readonly verifierOverall: "pass" | "retry" | "fail" | "skipped";
+  readonly evaluation?: EvaluationResult;
+  readonly failedToolCalls: number;
+}
+
+/** Compute a 0–1 quality proxy score from execution outcome signals. */
+export function computeQualityProxy(input: QualityProxyInput): number {
+  const stopReasonQualityBase = input.stopReason === "completed"
+    ? 0.85
+    : input.stopReason === "tool_calls"
+      ? 0.6
+      : 0.25;
+  const verifierBonus = input.verifierPerformed
+    ? (
+      input.verifierOverall === "pass"
+        ? 0.1
+        : input.verifierOverall === "retry"
+          ? 0
+          : -0.15
+    )
+    : 0;
+  const evaluatorBonus = input.evaluation
+    ? (input.evaluation.passed ? 0.1 : -0.1)
+    : 0;
+  const failurePenalty = Math.min(0.25, input.failedToolCalls * 0.05);
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      stopReasonQualityBase + verifierBonus + evaluatorBonus - failurePenalty,
+    ),
+  );
+}
+
+/** Input for building a delegation trajectory record. */
+export interface DelegationTrajectoryInput {
+  readonly ctx: ExecutionContext;
+  readonly qualityProxy: number;
+  readonly durationMs: number;
+  readonly rewardSignal: DelegationTrajectoryFinalReward;
+  readonly usefulnessProxy: { readonly useful: boolean; readonly score: number };
+  readonly selectedTools: readonly string[];
+  readonly defaultStrategyArmId: string;
+  readonly delegationMaxDepth: number;
+  readonly delegationMaxFanoutPerTurn: number;
+  readonly requestTimeoutMs: number;
+  readonly usefulDelegationProxyVersion: string;
+}
+
+/** Build a trajectory sink record object from execution context. */
+export function buildDelegationTrajectoryEntry(input: DelegationTrajectoryInput): DelegationTrajectoryRecord {
+  const { ctx } = input;
+  return {
+    schemaVersion: 1,
+    traceId: ctx.trajectoryTraceId,
+    turnId: ctx.parentTurnId,
+    turnType: "parent",
+    timestampMs: Date.now(),
+    stateFeatures: {
+      sessionId: ctx.sessionId,
+      contextClusterId: ctx.trajectoryContextClusterId,
+      complexityScore: ctx.plannerDecision.score,
+      plannerStepCount: ctx.plannerSummaryState.plannedSteps,
+      subagentStepCount: ctx.plannedSubagentSteps,
+      deterministicStepCount: ctx.plannedDeterministicSteps,
+      synthesisStepCount: ctx.plannedSynthesisSteps,
+      dependencyDepth: ctx.plannedDependencyDepth,
+      fanout: ctx.plannedFanout,
+    },
+    action: {
+      delegated:
+        ctx.plannerSummaryState.delegationDecision?.shouldDelegate === true,
+      strategyArmId:
+        ctx.selectedBanditArm?.armId ?? input.defaultStrategyArmId,
+      threshold: ctx.tunedDelegationThreshold,
+      selectedTools: [...input.selectedTools],
+      childConfig: {
+        maxDepth: input.delegationMaxDepth,
+        maxFanoutPerTurn: input.delegationMaxFanoutPerTurn,
+        timeoutMs: input.requestTimeoutMs,
+      },
+    },
+    immediateOutcome: {
+      qualityProxy: input.qualityProxy,
+      tokenCost: ctx.cumulativeUsage.totalTokens,
+      latencyMs: input.durationMs,
+      errorCount:
+        ctx.failedToolCalls + (ctx.stopReason === "completed" ? 0 : 1),
+      ...(ctx.stopReason !== "completed" ? { errorClass: ctx.stopReason } : {}),
+    },
+    finalReward: input.rewardSignal,
+    metadata: {
+      plannerUsed: ctx.plannerSummaryState.used,
+      routeReason: ctx.plannerSummaryState.routeReason ?? "none",
+      stopReason: ctx.stopReason,
+      usefulDelegation: input.usefulnessProxy.useful,
+      usefulDelegationScore: Number(input.usefulnessProxy.score.toFixed(4)),
+      usefulDelegationProxyVersion: input.usefulDelegationProxyVersion,
+    },
+  };
+}
+
+/** Build the final ChatPlannerSummary from mutable summary state. */
+export function buildPlannerSummary(
+  state: FullPlannerSummaryState,
+  estimatedRecallsAvoided: number,
+): ChatPlannerSummary {
+  return {
+    enabled: state.enabled,
+    used: state.used,
+    routeReason: state.routeReason,
+    complexityScore: state.complexityScore,
+    plannerCalls: state.plannerCalls,
+    plannedSteps: state.plannedSteps,
+    deterministicStepsExecuted: state.deterministicStepsExecuted,
+    estimatedRecallsAvoided: state.used ? estimatedRecallsAvoided : 0,
+    diagnostics: state.diagnostics.length > 0
+      ? state.diagnostics
+      : undefined,
+    delegationDecision: state.delegationDecision,
+    subagentVerification: state.subagentVerification.enabled
+      ? state.subagentVerification
+      : undefined,
+    delegationPolicyTuning: state.delegationPolicyTuning.enabled
+      ? state.delegationPolicyTuning
+      : undefined,
+  };
 }

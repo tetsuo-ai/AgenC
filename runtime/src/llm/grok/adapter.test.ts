@@ -515,6 +515,47 @@ describe("GrokProvider", () => {
     });
   });
 
+  it("stops on response.completed even if trailing stream noise follows", async () => {
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        yield {
+          type: "response.completed",
+          response: makeCompletion({
+            output_text: "done",
+            output: [
+              {
+                type: "message",
+                content: [{ type: "output_text", text: "done" }],
+              },
+            ],
+          }),
+        };
+        // Provider-side trailing noise should be ignored after completion.
+        yield {
+          type: "response.output_text.delta",
+          delta: "ignored",
+        };
+        await new Promise(() => undefined);
+      })(),
+    );
+
+    const provider = new GrokProvider({ apiKey: "test-key", timeoutMs: 20 });
+    const onChunk = vi.fn();
+    const response = await provider.chatStream(
+      [{ role: "user", content: "test" }],
+      onChunk,
+    );
+
+    expect(response.finishReason).toBe("stop");
+    expect(response.error).toBeUndefined();
+    expect(response.content).toBe("done");
+    expect(onChunk).toHaveBeenCalledWith({
+      content: "",
+      done: true,
+      toolCalls: [],
+    });
+  });
+
   it("times out stalled streaming responses and returns partial output", async () => {
     mockCreate.mockResolvedValueOnce(
       (async function* () {
@@ -543,6 +584,25 @@ describe("GrokProvider", () => {
       done: true,
       toolCalls: [],
     });
+  });
+
+  it("enforces an absolute stream timeout even when chunks keep arriving", async () => {
+    mockCreate.mockResolvedValueOnce(
+      (async function* () {
+        while (true) {
+          yield {
+            type: "response.output_text.delta",
+            delta: "",
+          };
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      })(),
+    );
+
+    const provider = new GrokProvider({ apiKey: "test-key", timeoutMs: 35 });
+    await expect(
+      provider.chatStream([{ role: "user", content: "test" }], () => undefined),
+    ).rejects.toThrow(LLMTimeoutError);
   });
 
   it("throws when stream fails before any content is received", async () => {

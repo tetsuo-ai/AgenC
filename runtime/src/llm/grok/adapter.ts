@@ -658,6 +658,8 @@ export class GrokProvider implements LLMProvider {
     let usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     const toolCallAccum = new Map<string, LLMToolCall>();
     let streamIterator: AsyncIterator<any> | null = null;
+    const streamTimeoutMs = normalizeTimeoutMs(this.config.timeoutMs);
+    const streamDeadlineAt = Date.now() + streamTimeoutMs;
 
     try {
       let stream: AsyncIterable<any>;
@@ -692,9 +694,13 @@ export class GrokProvider implements LLMProvider {
       streamIterator = stream[Symbol.asyncIterator]();
 
       while (true) {
+        const remainingStreamMs = streamDeadlineAt - Date.now();
+        if (remainingStreamMs <= 0) {
+          throw createStreamTimeoutError(this.name, streamTimeoutMs);
+        }
         const iterResult = await nextStreamChunkWithTimeout(
           streamIterator,
-          this.config.timeoutMs,
+          remainingStreamMs,
           this.name,
         );
         if (iterResult.done) break;
@@ -738,7 +744,7 @@ export class GrokProvider implements LLMProvider {
                 typeof response.id === "string" ? String(response.id) : undefined,
             };
           }
-          continue;
+          break;
         }
 
         if (event.type === "response.failed") {
@@ -750,7 +756,7 @@ export class GrokProvider implements LLMProvider {
           responseError =
             this.extractResponseError(failedResponse, "error") ??
             new LLMProviderError(this.name, "Provider returned status failed");
-          continue;
+          break;
         }
       }
 
@@ -772,13 +778,6 @@ export class GrokProvider implements LLMProvider {
       this.persistStatefulAnchor(plan, parsed);
       return parsed;
     } catch (err: unknown) {
-      if (streamIterator && typeof streamIterator.return === "function") {
-        try {
-          void streamIterator.return();
-        } catch {
-          // best-effort stream cleanup
-        }
-      }
       const mappedError = this.mapError(err);
       this.logPromptOverflowDiagnostics(mappedError, params);
       if (content.length > 0) {
@@ -798,6 +797,14 @@ export class GrokProvider implements LLMProvider {
         };
       }
       throw mappedError;
+    } finally {
+      if (streamIterator && typeof streamIterator.return === "function") {
+        try {
+          void streamIterator.return();
+        } catch {
+          // best-effort stream cleanup
+        }
+      }
     }
   }
 

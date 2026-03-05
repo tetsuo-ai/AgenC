@@ -8,9 +8,9 @@
  * @module
  */
 
-import { mkdir, readFile, unlink, writeFile, access } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile, access, chmod } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname, join, resolve as resolvePath } from 'node:path';
+import { delimiter, dirname, join, resolve as resolvePath } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -220,7 +220,14 @@ const DEFAULT_HARD_BLOCKED_TASK_CLASSES: readonly DelegationHardBlockedTaskClass
 const BASH_SAFE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'SOLANA_RPC_URL'] as const;
 const BASH_DESKTOP_ENV_KEYS = ['DOCKER_HOST', 'CARGO_HOME', 'GOPATH', 'DISPLAY'] as const;
 const MAC_DESKTOP_BASH_DENY_EXCLUSIONS = ['killall', 'pkill', 'curl', 'wget'] as const;
-const LINUX_DESKTOP_BASH_DENY_EXCLUSIONS = ['killall', 'pkill'] as const;
+const LINUX_DESKTOP_BASH_DENY_EXCLUSIONS = ['killall', 'pkill', 'gdb'] as const;
+const CHROMIUM_COMPAT_COMMANDS = ['chromium', 'chromium-browser'] as const;
+const CHROMIUM_HOST_CHROME_CANDIDATES = [
+  'google-chrome',
+  '/usr/bin/google-chrome',
+  '/opt/google/chrome/chrome',
+] as const;
+const CHROMIUM_SHIM_DIR_SEGMENTS = ['.agenc', 'bin'] as const;
 
 /**
  * Build a minimal environment for system.bash.
@@ -259,6 +266,116 @@ export function resolveBashDenyExclusions(
     return [...LINUX_DESKTOP_BASH_DENY_EXCLUSIONS];
   }
   return undefined;
+}
+
+function splitPathEntries(pathValue: string | undefined): string[] {
+  if (!pathValue) return [];
+  return pathValue.split(delimiter).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+}
+
+async function isExecutablePath(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveExecutablePath(
+  command: string,
+  envPath: string | undefined,
+): Promise<string | undefined> {
+  if (command.includes('/')) {
+    return (await isExecutablePath(command)) ? command : undefined;
+  }
+
+  const searchDirs = splitPathEntries(envPath);
+  for (const dir of searchDirs) {
+    const candidate = join(dir, command);
+    if (await isExecutablePath(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function prependPathEntry(
+  pathValue: string | undefined,
+  entry: string,
+): string {
+  const entries = splitPathEntries(pathValue);
+  if (entries.includes(entry)) {
+    return entries.join(delimiter);
+  }
+  return [entry, ...entries].join(delimiter);
+}
+
+function buildChromiumShimScript(targetExecutable: string): string {
+  return [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    `exec ${JSON.stringify(targetExecutable)} "$@"`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Ensure host-level Chromium compatibility commands exist for system.bash checks.
+ *
+ * Some Linux hosts only install Google Chrome. When desktop mode is enabled we
+ * provide user-scoped shim binaries (`chromium`, `chromium-browser`) that
+ * forward to Chrome, then prepend that shim directory to system.bash PATH.
+ */
+export async function ensureChromiumCompatShims(
+  config: Pick<GatewayConfig, 'desktop'>,
+  envPath: string | undefined,
+  logger: Logger | undefined = silentLogger,
+  platform: NodeJS.Platform = process.platform,
+  homeDir: string = homedir(),
+): Promise<string | undefined> {
+  if (!config.desktop?.enabled || platform !== 'linux') {
+    return undefined;
+  }
+
+  const existingChromium = await resolveExecutablePath('chromium', envPath);
+  const existingChromiumBrowser = await resolveExecutablePath('chromium-browser', envPath);
+  if (existingChromium && existingChromiumBrowser) {
+    return undefined;
+  }
+
+  let chromeTarget: string | undefined;
+  for (const candidate of CHROMIUM_HOST_CHROME_CANDIDATES) {
+    chromeTarget = await resolveExecutablePath(candidate, envPath);
+    if (chromeTarget) break;
+  }
+  if (!chromeTarget) {
+    return undefined;
+  }
+
+  const shimDir = join(homeDir, ...CHROMIUM_SHIM_DIR_SEGMENTS);
+  await mkdir(shimDir, { recursive: true });
+
+  const createdShims: string[] = [];
+  for (const name of CHROMIUM_COMPAT_COMMANDS) {
+    const existing = name === 'chromium'
+      ? existingChromium
+      : existingChromiumBrowser;
+    if (existing) continue;
+
+    const shimPath = join(shimDir, name);
+    await writeFile(shimPath, buildChromiumShimScript(chromeTarget), 'utf-8');
+    await chmod(shimPath, 0o755);
+    createdShims.push(name);
+  }
+
+  if (createdShims.length > 0) {
+    (logger ?? silentLogger).info(
+      `Installed host Chromium compatibility shim(s): ${createdShims.join(', ')} -> ${chromeTarget}`,
+    );
+  }
+
+  return shimDir;
 }
 
 interface ResolvedSubAgentRuntimeConfig {
@@ -535,6 +652,24 @@ function truncateToolLogText(value: string, maxChars = TOOL_LOG_SNIPPET_MAX_CHAR
   if (value.length <= maxChars) return value;
   if (maxChars <= 3) return value.slice(0, Math.max(0, maxChars));
   return value.slice(0, maxChars - 3) + "...";
+}
+
+const TRACE_DATA_IMAGE_URL_PATTERN =
+  /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
+const TRACE_JSON_BINARY_FIELD_PATTERN =
+  /"([A-Za-z0-9_.-]*(?:image|dataurl|data|base64)[A-Za-z0-9_.-]*)"\s*:\s*"([A-Za-z0-9+/=\r\n]{128,})"/gi;
+const TRACE_QUOTED_BASE64_BLOB_PATTERN = /"([A-Za-z0-9+/=\r\n]{512,})"/g;
+const TRACE_RAW_BASE64_BLOB_PATTERN = /[A-Za-z0-9+/=\r\n]{2048,}/g;
+
+export function sanitizeToolResultTextForTrace(rawResult: string): string {
+  return rawResult
+    .replace(TRACE_DATA_IMAGE_URL_PATTERN, "(see image)")
+    .replace(
+      TRACE_JSON_BINARY_FIELD_PATTERN,
+      (_match: string, key: string) => `"${key}":"(base64 omitted)"`,
+    )
+    .replace(TRACE_QUOTED_BASE64_BLOB_PATTERN, '"(base64 omitted)"')
+    .replace(TRACE_RAW_BASE64_BLOB_PATTERN, "(base64 omitted)");
 }
 
 function summarizeArtifactText(value: string, maxChars: number): unknown {
@@ -1123,7 +1258,10 @@ function summarizeToolResultForTrace(rawResult: string, maxChars: number): unkno
     const parsed = JSON.parse(rawResult) as unknown;
     return summarizeTraceValue(parsed, maxChars);
   } catch {
-    return truncateToolLogText(rawResult, maxChars);
+    return truncateToolLogText(
+      sanitizeToolResultTextForTrace(rawResult),
+      maxChars,
+    );
   }
 }
 
@@ -3803,6 +3941,14 @@ export class DaemonManager {
     // Security: Only expose a minimal host env to system.bash.
     // Token-like secrets are intentionally excluded by default.
     const safeEnv = resolveBashToolEnv(config);
+    const chromiumShimDir = await ensureChromiumCompatShims(
+      config,
+      safeEnv.PATH,
+      this.logger,
+    );
+    if (chromiumShimDir) {
+      safeEnv.PATH = prependPathEntry(safeEnv.PATH, chromiumShimDir);
+    }
 
     // Security: Do NOT use unrestricted mode — the default deny list prevents
     // dangerous commands (rm -rf, curl for exfiltration, etc.) from being

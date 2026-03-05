@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, stat, mkdir, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -56,6 +56,7 @@ import {
   isProcessAlive,
   checkStalePid,
   isCommandUnavailableError,
+  sanitizeToolResultTextForTrace,
   resolveTraceLoggingConfig,
   summarizeToolFailureForLog,
   summarizeLLMFailureForSurface,
@@ -63,6 +64,7 @@ import {
   didEvalScriptPass,
   resolveBashToolEnv,
   resolveBashDenyExclusions,
+  ensureChromiumCompatShims,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
@@ -92,6 +94,31 @@ describe("isCommandUnavailableError", () => {
 
   it("returns false for non-availability errors", () => {
     expect(isCommandUnavailableError(new Error("HTTP 500"))).toBe(false);
+  });
+});
+
+describe("sanitizeToolResultTextForTrace", () => {
+  it("scrubs embedded base64 blobs from mixed markdown tool output", () => {
+    const hugeBase64 = "A".repeat(30_000);
+    const raw = [
+      "### Result",
+      '- [Screenshot of viewport](../../tmp/screenshot.png)',
+      `{"type":"image","data":"${hugeBase64}"}`,
+    ].join("\n");
+
+    const sanitized = sanitizeToolResultTextForTrace(raw);
+
+    expect(sanitized).toContain('"data":"(base64 omitted)"');
+    expect(sanitized).not.toContain(hugeBase64.slice(0, 256));
+    expect(sanitized.length).toBeLessThan(raw.length);
+  });
+
+  it("scrubs inline data:image URLs", () => {
+    const raw = `result data:image/png;base64,${"B".repeat(1024)}`;
+    const sanitized = sanitizeToolResultTextForTrace(raw);
+
+    expect(sanitized).toContain("(see image)");
+    expect(sanitized).not.toContain("data:image/png;base64,");
   });
 });
 
@@ -326,7 +353,7 @@ describe("resolveBashDenyExclusions", () => {
       { desktop: { enabled: true } },
       "linux",
     );
-    expect(exclusions).toEqual(["killall", "pkill"]);
+    expect(exclusions).toEqual(["killall", "pkill", "gdb"]);
   });
 
   it("keeps desktop-only exclusions off for non-desktop Linux", () => {
@@ -343,6 +370,70 @@ describe("resolveBashDenyExclusions", () => {
       "darwin",
     );
     expect(exclusions).toEqual(["killall", "pkill", "curl", "wget"]);
+  });
+});
+
+describe("ensureChromiumCompatShims", () => {
+  it("creates chromium and chromium-browser shims when only google-chrome exists", async () => {
+    const tempHome = await mkdtemp(join(tmpdir(), "agenc-chromium-shim-"));
+    try {
+      const fakeBin = join(tempHome, "fake-bin");
+      await mkdir(fakeBin, { recursive: true });
+
+      const chromePath = join(fakeBin, "google-chrome");
+      await writeFile(
+        chromePath,
+        "#!/usr/bin/env bash\nexit 0\n",
+        "utf-8",
+      );
+      await chmod(chromePath, 0o755);
+
+      const shimDir = await ensureChromiumCompatShims(
+        { desktop: { enabled: true } },
+        fakeBin,
+        undefined,
+        "linux",
+        tempHome,
+      );
+
+      expect(shimDir).toBe(join(tempHome, ".agenc", "bin"));
+
+      const chromiumShim = await readFile(join(shimDir!, "chromium"), "utf-8");
+      const chromiumBrowserShim = await readFile(
+        join(shimDir!, "chromium-browser"),
+        "utf-8",
+      );
+
+      expect(chromiumShim).toContain(`exec "${chromePath}" "$@"`);
+      expect(chromiumBrowserShim).toContain(`exec "${chromePath}" "$@"`);
+    } finally {
+      await rm(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("does not create shims when chromium commands already exist", async () => {
+    const tempHome = await mkdtemp(join(tmpdir(), "agenc-chromium-shim-"));
+    try {
+      const fakeBin = join(tempHome, "fake-bin");
+      await mkdir(fakeBin, { recursive: true });
+
+      for (const cmd of ["chromium", "chromium-browser"]) {
+        const cmdPath = join(fakeBin, cmd);
+        await writeFile(cmdPath, "#!/usr/bin/env bash\nexit 0\n", "utf-8");
+        await chmod(cmdPath, 0o755);
+      }
+
+      const shimDir = await ensureChromiumCompatShims(
+        { desktop: { enabled: true } },
+        fakeBin,
+        undefined,
+        "linux",
+        tempHome,
+      );
+      expect(shimDir).toBeUndefined();
+    } finally {
+      await rm(tempHome, { recursive: true, force: true });
+    }
   });
 });
 

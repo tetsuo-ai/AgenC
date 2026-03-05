@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatView } from './ChatView';
 
@@ -123,5 +123,43 @@ describe('ChatView delegation summary', () => {
     );
 
     expect(screen.getAllByText(/4 agents: 2 running/).length).toBeGreaterThan(0);
+  });
+
+  it('opens the context panel above the bar on the left side', () => {
+    const { container } = render(
+      <ChatView
+        messages={[
+          {
+            id: 'agent-ctx',
+            sender: 'agent',
+            content: 'Context check',
+            timestamp: Date.now(),
+          },
+        ]}
+        isTyping={false}
+        onSend={vi.fn()}
+        connected
+        tokenUsage={{
+          totalTokens: 1200,
+          budget: 4000,
+          contextWindowTokens: 8000,
+          promptTokens: 1200,
+          compacted: false,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /CONTEXT/i }));
+    const heading = screen.getByText('Model Context Window');
+    let panel: HTMLElement | null = heading as HTMLElement;
+    while (panel && !panel.className.includes('bottom-[40px]')) {
+      panel = panel.parentElement;
+    }
+
+    expect(panel).toBeTruthy();
+    expect(panel?.className).toContain('left-4');
+    expect(panel?.className).not.toContain('right-4');
+    expect(panel?.className).toContain('bottom-[40px]');
+    expect(container).toBeDefined();
   });
 });

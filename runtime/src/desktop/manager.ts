@@ -41,8 +41,8 @@ const CONTAINER_API_PORT = 9990;
 const CONTAINER_VNC_PORT = 6080;
 /** Max subprocess output buffer (1 MB). */
 const MAX_EXEC_BUFFER = 1024 * 1024;
-/** Max PIDs per container — limits fork bombs. */
-const CONTAINER_PID_LIMIT = "256";
+/** Max PIDs per container — high enough for Chromium/Playwright worker bursts. */
+const CONTAINER_PID_LIMIT = "1024";
 /** Docker memory formats accepted by `docker run --memory` (e.g. 512m, 4g). */
 const MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
 /** Docker CPU formats accepted by `docker run --cpus` (e.g. 0.5, 2, 2.0). */
