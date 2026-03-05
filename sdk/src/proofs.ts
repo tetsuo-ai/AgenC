@@ -299,13 +299,6 @@ function copyFixedBytes(
   return out;
 }
 
-function validateSelector(selector: Buffer): Buffer {
-  if (!selector.equals(Buffer.from(TRUSTED_RISC0_SELECTOR))) {
-    throw new Error("sealSelector must match TRUSTED_RISC0_SELECTOR");
-  }
-  return selector;
-}
-
 export function buildJournalBytes(fields: {
   taskPda: Uint8Array | Buffer;
   agentAuthority: Uint8Array | Buffer;

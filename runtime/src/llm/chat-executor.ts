@@ -515,6 +515,44 @@ interface ResolvedSubagentVerifierConfig {
   readonly maxRounds: number;
 }
 
+interface MutablePlannerVerificationSummary {
+  enabled: boolean;
+  performed: boolean;
+  rounds: number;
+  overall: "pass" | "retry" | "fail" | "skipped";
+  confidence: number;
+  unresolvedItems: string[];
+}
+
+interface MutablePlannerSummaryState {
+  deterministicStepsExecuted: number;
+  diagnostics: PlannerDiagnostic[];
+  subagentVerification: MutablePlannerVerificationSummary;
+}
+
+interface PlannerPipelineVerifierLoopInput {
+  pipeline: Pipeline;
+  plannerPlan: PlannerPlan;
+  subagentSteps: readonly PlannerSubAgentTaskStepIntent[];
+  deterministicSteps: readonly PlannerDeterministicToolStepIntent[];
+  plannerExecutionContext: PipelinePlannerContext;
+  shouldRunSubagentVerifier: boolean;
+  plannerSummaryState: MutablePlannerSummaryState;
+  checkRequestTimeout: (stage: string) => boolean;
+  runPipelineWithGlobalTimeout: (
+    pipeline: Pipeline,
+  ) => Promise<PipelineResult | undefined>;
+  runSubagentVerifierRound: (input: {
+    plannerPlan: PlannerPlan;
+    subagentSteps: readonly PlannerSubAgentTaskStepIntent[];
+    pipelineResult: PipelineResult;
+    plannerContext: PipelinePlannerContext;
+    round: number;
+  }) => Promise<SubagentVerifierDecision>;
+  appendToolRecord: (record: ToolCallRecord) => void;
+  setStopReason: (reason: LLMPipelineStopReason, detail?: string) => void;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -977,6 +1015,12 @@ export class ChatExecutor {
    * Execute a chat message against the provider chain.
    */
   async execute(params: ChatExecuteParams): Promise<ChatExecutorResult> {
+    return this.executeRequest(params);
+  }
+
+  private async executeRequest(
+    params: ChatExecuteParams,
+  ): Promise<ChatExecutorResult> {
     const {
       message,
       systemPrompt,
@@ -1607,101 +1651,24 @@ export class ChatExecutor {
                   this.subagentVerifierConfig.enabled ||
                   this.subagentVerifierConfig.force
                 );
-              let verifierRounds = 0;
-              let verificationDecision: SubagentVerifierDecision | undefined;
-              let pipelineResult: PipelineResult | undefined;
-
-              while (true) {
-                if (checkRequestTimeout("planner pipeline execution")) break;
-                const nextPipelineResult = await runPipelineWithGlobalTimeout(
-                  pipeline,
-                );
-                if (!nextPipelineResult) break;
-                pipelineResult = nextPipelineResult;
-
-                for (const record of ChatExecutor.pipelineResultToToolCalls(
-                  plannerPlan.steps,
-                  nextPipelineResult,
-                )) {
-                  appendToolRecord(record);
-                }
-                plannerSummaryState.deterministicStepsExecuted =
-                  deterministicSteps.filter((step) =>
-                    typeof nextPipelineResult.context.results[step.name] === "string"
-                  ).length;
-
-                if (
-                  !shouldRunSubagentVerifier ||
-                  nextPipelineResult.status !== "completed"
-                ) {
-                  break;
-                }
-
-                verifierRounds++;
-                verificationDecision = await runSubagentVerifierRound({
-                  plannerPlan,
-                  subagentSteps,
-                  pipelineResult: nextPipelineResult,
-                  plannerContext: plannerExecutionContext,
-                  round: verifierRounds,
-                });
-                plannerSummaryState.subagentVerification = {
-                  enabled: true,
-                  performed: true,
-                  rounds: verifierRounds,
-                  overall: verificationDecision.overall,
-                  confidence: verificationDecision.confidence,
-                  unresolvedItems: [...verificationDecision.unresolvedItems],
-                };
-
-                const belowConfidence =
-                  verificationDecision.confidence <
-                  this.subagentVerifierConfig.minConfidence;
-                const retryable =
-                  verificationDecision.steps.some((step) => step.retryable);
-                const canRetry =
-                  verifierRounds < this.subagentVerifierConfig.maxRounds &&
-                  (
-                    verificationDecision.overall === "retry" ||
-                    belowConfidence
-                  ) &&
-                  retryable;
-
-                if (canRetry) {
-                  plannerSummaryState.diagnostics.push({
-                    category: "policy",
-                    code: "subagent_verifier_retry",
-                    message:
-                      "Sub-agent verifier requested retry; rerunning planner pipeline",
-                    details: {
-                      round: verifierRounds,
-                      maxRounds: this.subagentVerifierConfig.maxRounds,
-                      confidence: Number(
-                        verificationDecision.confidence.toFixed(3),
-                      ),
-                      minConfidence: Number(
-                        this.subagentVerifierConfig.minConfidence.toFixed(3),
-                      ),
-                    },
-                  });
-                  continue;
-                }
-
-                if (
-                  verificationDecision.overall !== "pass" ||
-                  belowConfidence
-                ) {
-                  const unresolvedPreview =
-                    verificationDecision.unresolvedItems.slice(0, 3).join("; ");
-                  setStopReason(
-                    "validation_error",
-                    unresolvedPreview.length > 0
-                      ? `Sub-agent verifier rejected child outputs: ${unresolvedPreview}`
-                      : "Sub-agent verifier rejected child outputs",
-                  );
-                }
-                break;
-              }
+              const {
+                verifierRounds,
+                verificationDecision,
+                pipelineResult,
+              } = await this.executePlannerPipelineWithVerifier({
+                pipeline,
+                plannerPlan,
+                subagentSteps,
+                deterministicSteps,
+                plannerExecutionContext,
+                shouldRunSubagentVerifier,
+                plannerSummaryState,
+                checkRequestTimeout,
+                runPipelineWithGlobalTimeout,
+                runSubagentVerifierRound,
+                appendToolRecord,
+                setStopReason,
+              });
 
               if (
                 shouldRunSubagentVerifier &&
@@ -2663,6 +2630,114 @@ export class ChatExecutor {
       stopReason,
       stopReasonDetail,
       evaluation,
+    };
+  }
+
+  private async executePlannerPipelineWithVerifier(
+    input: PlannerPipelineVerifierLoopInput,
+  ): Promise<{
+    verifierRounds: number;
+    verificationDecision?: SubagentVerifierDecision;
+    pipelineResult?: PipelineResult;
+  }> {
+    let verifierRounds = 0;
+    let verificationDecision: SubagentVerifierDecision | undefined;
+    let pipelineResult: PipelineResult | undefined;
+
+    while (true) {
+      if (input.checkRequestTimeout("planner pipeline execution")) break;
+      const nextPipelineResult = await input.runPipelineWithGlobalTimeout(
+        input.pipeline,
+      );
+      if (!nextPipelineResult) break;
+      pipelineResult = nextPipelineResult;
+
+      for (const record of ChatExecutor.pipelineResultToToolCalls(
+        input.plannerPlan.steps,
+        nextPipelineResult,
+      )) {
+        input.appendToolRecord(record);
+      }
+      input.plannerSummaryState.deterministicStepsExecuted =
+        input.deterministicSteps.filter((step) =>
+          typeof nextPipelineResult.context.results[step.name] === "string"
+        ).length;
+
+      if (
+        !input.shouldRunSubagentVerifier ||
+        nextPipelineResult.status !== "completed"
+      ) {
+        break;
+      }
+
+      verifierRounds++;
+      verificationDecision = await input.runSubagentVerifierRound({
+        plannerPlan: input.plannerPlan,
+        subagentSteps: input.subagentSteps,
+        pipelineResult: nextPipelineResult,
+        plannerContext: input.plannerExecutionContext,
+        round: verifierRounds,
+      });
+      input.plannerSummaryState.subagentVerification = {
+        enabled: true,
+        performed: true,
+        rounds: verifierRounds,
+        overall: verificationDecision.overall,
+        confidence: verificationDecision.confidence,
+        unresolvedItems: [...verificationDecision.unresolvedItems],
+      };
+
+      const belowConfidence =
+        verificationDecision.confidence <
+        this.subagentVerifierConfig.minConfidence;
+      const retryable =
+        verificationDecision.steps.some((step) => step.retryable);
+      const canRetry =
+        verifierRounds < this.subagentVerifierConfig.maxRounds &&
+        (
+          verificationDecision.overall === "retry" ||
+          belowConfidence
+        ) &&
+        retryable;
+
+      if (canRetry) {
+        input.plannerSummaryState.diagnostics.push({
+          category: "policy",
+          code: "subagent_verifier_retry",
+          message:
+            "Sub-agent verifier requested retry; rerunning planner pipeline",
+          details: {
+            round: verifierRounds,
+            maxRounds: this.subagentVerifierConfig.maxRounds,
+            confidence: Number(verificationDecision.confidence.toFixed(3)),
+            minConfidence: Number(
+              this.subagentVerifierConfig.minConfidence.toFixed(3),
+            ),
+          },
+        });
+        continue;
+      }
+
+      if (
+        verificationDecision.overall !== "pass" ||
+        belowConfidence
+      ) {
+        const unresolvedPreview =
+          verificationDecision.unresolvedItems.slice(0, 3).join("; ");
+        input.setStopReason(
+          "validation_error",
+          unresolvedPreview.length > 0
+            ? `Sub-agent verifier rejected child outputs: ${unresolvedPreview}`
+            : "Sub-agent verifier rejected child outputs",
+        );
+      }
+      break;
+    }
+
+    return {
+      verifierRounds,
+      verificationDecision,
+      pipelineResult,
     };
   }
 

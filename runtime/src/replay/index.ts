@@ -11,6 +11,7 @@ export { FileReplayTimelineStore } from "./file-store.js";
 export { SqliteReplayTimelineStore } from "./sqlite-store.js";
 
 export { ReplayBackfillService } from "./backfill.js";
+export { toReplayStoreRecord } from "./record.js";
 
 export {
   ReplayEventBridge,

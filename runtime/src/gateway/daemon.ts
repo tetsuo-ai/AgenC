@@ -1257,6 +1257,22 @@ interface WebChatSignals {
   signalIdle: (sessionId: string) => void;
 }
 
+interface WebChatMessageHandlerDeps {
+  webChat: WebChatChannel;
+  commandRegistry: SlashCommandRegistry;
+  getChatExecutor: () => ChatExecutor | null;
+  getLoggingConfig: () => GatewayLoggingConfig | undefined;
+  hooks: HookDispatcher;
+  sessionMgr: SessionManager;
+  getSystemPrompt: () => string;
+  baseToolHandler: ToolHandler;
+  approvalEngine: ApprovalEngine;
+  memoryBackend: MemoryBackend;
+  signals: WebChatSignals;
+  sessionTokenBudget: number;
+  contextWindowTokens?: number;
+}
+
 // ============================================================================
 // PID File Types
 // ============================================================================
@@ -1902,26 +1918,9 @@ export class DaemonManager {
    */
   private async wireWebChat(gateway: Gateway, config: GatewayConfig): Promise<void> {
     const hooks = await this.createHookDispatcher(config);
-    const discovered = await this.discoverSkills();
-    const availableSkills = discovered.filter((d) => d.available);
-    const skillList: WebChatSkillSummary[] = discovered.map((d) => ({
-      name: d.skill.name,
-      description: d.skill.description,
-      enabled: d.available,
-    }));
-    const skillToggle = (name: string, enabled: boolean): void => {
-      const skill = skillList.find((entry) => entry.name === name);
-      if (skill) skill.enabled = enabled;
-    };
-
-    let telemetry: UnifiedTelemetryCollector | null = null;
-    if (config.telemetry?.enabled !== false) {
-      telemetry = new UnifiedTelemetryCollector(
-        { flushIntervalMs: config.telemetry?.flushIntervalMs ?? 60_000 },
-        this.logger,
-      );
-      this._telemetry = telemetry;
-    }
+    const { availableSkills, skillList, skillToggle } =
+      await this.buildWebChatSkillState();
+    const telemetry = this.createWebChatTelemetry(config);
 
     const registry = await this.createToolRegistry(config, telemetry ?? undefined);
     this.refreshSubAgentToolCatalog(registry);
@@ -1929,47 +1928,11 @@ export class DaemonManager {
     const llmTools = registry.toLLMTools();
     let baseToolHandler = registry.createToolHandler();
 
-    // Wrap base tool handler with desktop routing if enabled
-    if (config.desktop?.enabled && this._desktopManager) {
-      const { createDesktopAwareToolHandler } = await import('../desktop/session-router.js');
-      const desktopManager = this._desktopManager;
-      const desktopBridges = this._desktopBridges;
-      const playwrightBridges = this._playwrightBridges;
-      const desktopLogger = this.logger;
-      const playwrightEnabled = config.desktop?.playwright?.enabled !== false;
-
-      // Desktop tools are lazily initialized per session via the router.
-      // Add static desktop tool definitions to LLM tools so the model knows
-      // the full schemas (parameter names, types, required fields).
-      const { TOOL_DEFINITIONS } = await import('../desktop/tool-definitions.js');
-      const desktopToolDefs: LLMTool[] = TOOL_DEFINITIONS
-        .filter((def) => def.name !== 'screenshot')
-        .map((def) => ({
-          type: 'function' as const,
-          function: {
-            name: `desktop.${def.name}`,
-            description: def.description,
-            parameters: def.inputSchema,
-          },
-        }));
-      llmTools.push(...desktopToolDefs);
-
-      // Store the original so per-session wrapping can use it
-      const originalBaseHandler = baseToolHandler;
-      const containerMCPConfigs = this._containerMCPConfigs;
-      const containerMCPBridges = this._containerMCPBridges;
-      this._desktopRouterFactory = (sessionId: string) =>
-        createDesktopAwareToolHandler(originalBaseHandler, sessionId, {
-          desktopManager,
-          bridges: desktopBridges,
-          playwrightBridges: playwrightEnabled ? playwrightBridges : undefined,
-          containerMCPConfigs: containerMCPConfigs.length > 0 ? containerMCPConfigs : undefined,
-          containerMCPBridges: containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
-          logger: desktopLogger,
-          // Force-disable automatic screenshot capture for action tools.
-          autoScreenshot: false,
-        });
-    }
+    await this.configureDesktopRoutingForWebChat(
+      config,
+      llmTools,
+      baseToolHandler,
+    );
 
     this._llmTools = llmTools;
     this._toolRouter = new ToolRouter(
@@ -1984,93 +1947,12 @@ export class DaemonManager {
     const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
     this._memoryBackend = memoryBackend;
 
-    // --- Semantic memory stack ---
-    const embeddingProvider = await createEmbeddingProvider({
-      preferred: config.memory?.embeddingProvider,
-      apiKey: config.memory?.embeddingApiKey ?? config.llm?.apiKey,
-      baseUrl: config.memory?.embeddingBaseUrl,
-      model: config.memory?.embeddingModel,
-    });
-
-    const isSemanticAvailable = embeddingProvider.name !== 'noop';
-    let memoryRetriever: MemoryRetriever;
-
-    if (isSemanticAvailable) {
-      const workspacePath = getDefaultWorkspacePath();
-      const vectorStore = new InMemoryVectorStore({ dimension: embeddingProvider.dimension });
-
-      const curatedMemory = new CuratedMemoryManager(join(workspacePath, 'MEMORY.md'));
-      const logManager = new DailyLogManager(join(workspacePath, 'logs'));
-
-      const ingestionEngine = new MemoryIngestionEngine({
-        embeddingProvider,
-        vectorStore,
-        logManager,
-        curatedMemory,
-        generateSummaries: false,
-        enableDailyLogs: true,
-        enableEntityExtraction: false,
-        logger: this.logger,
+    const { memoryRetriever, learningProvider } =
+      await this.createWebChatMemoryRetrievers({
+        config,
+        hooks,
+        memoryBackend,
       });
-
-      const ingestionHooks = createIngestionHooks(ingestionEngine, this.logger);
-      for (const hook of ingestionHooks) {
-        hooks.on(hook);
-      }
-
-      memoryRetriever = new SemanticMemoryRetriever({
-        vectorBackend: vectorStore,
-        embeddingProvider,
-        curatedMemory,
-        maxTokenBudget: SEMANTIC_MEMORY_DEFAULTS.MAX_TOKEN_BUDGET,
-        maxResults: SEMANTIC_MEMORY_DEFAULTS.MAX_RESULTS,
-        recencyWeight: SEMANTIC_MEMORY_DEFAULTS.RECENCY_WEIGHT,
-        recencyHalfLifeMs: SEMANTIC_MEMORY_DEFAULTS.RECENCY_HALF_LIFE_MS,
-        hybridVectorWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_VECTOR_WEIGHT,
-        hybridKeywordWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_KEYWORD_WEIGHT,
-        logger: this.logger,
-      });
-
-      this.logger.info(`Semantic memory enabled (embedding: ${embeddingProvider.name}, dim: ${embeddingProvider.dimension})`);
-    } else {
-      memoryRetriever = this.createMemoryRetriever(memoryBackend);
-      this.logger.info('Semantic memory unavailable — using basic history retriever');
-    }
-
-    // Learning context provider — reads self-learning patterns per message
-    const learningProvider: MemoryRetriever = {
-      async retrieve(): Promise<string | undefined> {
-        if (!memoryBackend) return undefined;
-        try {
-          const learning = await memoryBackend.get<{
-            patterns: Array<{ type: string; description: string; lesson: string; confidence: number }>;
-            strategies: Array<{ name: string; description: string; steps: string[] }>;
-            preferences: Record<string, string>;
-          }>('learning:latest');
-          if (!learning) return undefined;
-
-          const parts: string[] = [];
-          const lessons = (learning.patterns ?? [])
-            .filter((p) => p.confidence >= MIN_LEARNING_CONFIDENCE)
-            .slice(0, 10)
-            .map((p) => `- ${p.lesson}`);
-          if (lessons.length > 0) parts.push('Lessons:\n' + lessons.join('\n'));
-
-          const strats = (learning.strategies ?? []).slice(0, 5)
-            .map((s) => `- ${s.name}: ${s.description}`);
-          if (strats.length > 0) parts.push('Strategies:\n' + strats.join('\n'));
-
-          const prefs = Object.entries(learning.preferences ?? {}).slice(0, 5)
-            .map(([k, v]) => `- ${k}: ${v}`);
-          if (prefs.length > 0) parts.push('Preferences:\n' + prefs.join('\n'));
-
-          if (parts.length === 0) return undefined;
-          return '## Learned Patterns\n\n' + parts.join('\n\n');
-        } catch {
-          return undefined;
-        }
-      },
-    };
 
     // --- Cross-session progress tracker ---
     const progressTracker = new ProgressTracker({ memoryBackend, logger: this.logger });
@@ -2092,51 +1974,11 @@ export class DaemonManager {
       },
     });
 
-    // Wire PolicyEngine as tool:before hook
-    if (config.policy?.enabled) {
-      try {
-        const { PolicyEngine } = await import('../policy/engine.js');
-        this._policyEngine = new PolicyEngine({
-          policy: {
-            enabled: true,
-            toolAllowList: config.policy.toolAllowList,
-            toolDenyList: config.policy.toolDenyList,
-            actionBudgets: config.policy.actionBudgets,
-            spendBudget: config.policy.spendBudget
-              ? { limitLamports: BigInt(config.policy.spendBudget.limitLamports), windowMs: config.policy.spendBudget.windowMs }
-              : undefined,
-            maxRiskScore: config.policy.maxRiskScore,
-            circuitBreaker: config.policy.circuitBreaker,
-          },
-          logger: this.logger,
-          metrics: telemetry ?? undefined,
-        });
-        hooks.on({
-          event: 'tool:before',
-          name: 'policy-gate',
-          priority: HOOK_PRIORITIES.POLICY_GATE,
-          handler: async (ctx) => {
-            const payload = ctx.payload as Record<string, unknown>;
-            const decision = this._policyEngine!.evaluate({
-              type: 'tool_call',
-              name: payload.toolName as string,
-              access: 'write',
-              metadata: payload,
-            });
-            if (!decision.allowed) {
-              this.logger.warn?.(
-                `Policy blocked tool "${payload.toolName}": ${decision.violations.map((v) => v.message).join('; ')}`,
-              );
-              return { continue: false };
-            }
-            return { continue: true };
-          },
-        });
-        this.logger.info('Policy engine initialized');
-      } catch (err) {
-        this.logger.warn?.('Policy engine initialization failed:', err);
-      }
-    }
+    await this.attachWebChatPolicyHook({
+      config,
+      hooks,
+      telemetry,
+    });
 
     const approvalEngine = new ApprovalEngine();
     this._approvalEngine = approvalEngine;
@@ -2287,7 +2129,324 @@ export class DaemonManager {
     this._webChatChannel = webChat;
     this.attachSubAgentLifecycleBridge(webChat);
 
-    // Hot-swap LLM provider and voice bridge when config changes at runtime
+    this.registerWebChatConfigReloadHandler({
+      gateway,
+      skillInjector,
+      memoryRetriever,
+      learningProvider,
+      progressTracker,
+      pipelineExecutor,
+      llmTools,
+      baseToolHandler,
+      voiceDeps,
+    });
+
+    const toolCount = registry.size;
+    const skillCount = availableSkills.length;
+    const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
+    this.logger.info(
+      `WebChat wired` +
+      ` with LLM [${providerNames}]` +
+      `, ${toolCount} tools, ${skillCount} skills` +
+      `, memory=${memoryBackend.name}` +
+      `, ${commandRegistry.size} commands` +
+      (telemetry ? ', telemetry' : '') +
+      `, budget=${sessionTokenBudget}` +
+      (voiceBridge ? ', voice' : '') +
+      ', hooks, sessions, approvals',
+    );
+  }
+
+  private async buildWebChatSkillState(): Promise<{
+    availableSkills: DiscoveredSkill[];
+    skillList: WebChatSkillSummary[];
+    skillToggle: (name: string, enabled: boolean) => void;
+  }> {
+    const discovered = await this.discoverSkills();
+    const availableSkills = discovered.filter((entry) => entry.available);
+    const skillList: WebChatSkillSummary[] = discovered.map((entry) => ({
+      name: entry.skill.name,
+      description: entry.skill.description,
+      enabled: entry.available,
+    }));
+    const skillToggle = (name: string, enabled: boolean): void => {
+      const skill = skillList.find((entry) => entry.name === name);
+      if (skill) {
+        skill.enabled = enabled;
+      }
+    };
+    return { availableSkills, skillList, skillToggle };
+  }
+
+  private createWebChatTelemetry(
+    config: GatewayConfig,
+  ): UnifiedTelemetryCollector | null {
+    if (config.telemetry?.enabled === false) {
+      return null;
+    }
+    const telemetry = new UnifiedTelemetryCollector(
+      { flushIntervalMs: config.telemetry?.flushIntervalMs ?? 60_000 },
+      this.logger,
+    );
+    this._telemetry = telemetry;
+    return telemetry;
+  }
+
+  private async configureDesktopRoutingForWebChat(
+    config: GatewayConfig,
+    llmTools: LLMTool[],
+    baseToolHandler: ToolHandler,
+  ): Promise<void> {
+    if (!config.desktop?.enabled || !this._desktopManager) {
+      return;
+    }
+
+    const { createDesktopAwareToolHandler } = await import('../desktop/session-router.js');
+    const desktopManager = this._desktopManager;
+    const desktopBridges = this._desktopBridges;
+    const playwrightBridges = this._playwrightBridges;
+    const desktopLogger = this.logger;
+    const playwrightEnabled = config.desktop?.playwright?.enabled !== false;
+
+    // Desktop tools are lazily initialized per session via the router.
+    // Add static desktop tool definitions to LLM tools so the model knows
+    // the full schemas (parameter names, types, required fields).
+    const { TOOL_DEFINITIONS } = await import('../desktop/tool-definitions.js');
+    const desktopToolDefs: LLMTool[] = TOOL_DEFINITIONS
+      .filter((def) => def.name !== 'screenshot')
+      .map((def) => ({
+        type: 'function' as const,
+        function: {
+          name: `desktop.${def.name}`,
+          description: def.description,
+          parameters: def.inputSchema,
+        },
+      }));
+    llmTools.push(...desktopToolDefs);
+
+    const containerMCPConfigs = this._containerMCPConfigs;
+    const containerMCPBridges = this._containerMCPBridges;
+    this._desktopRouterFactory = (sessionId: string) =>
+      createDesktopAwareToolHandler(baseToolHandler, sessionId, {
+        desktopManager,
+        bridges: desktopBridges,
+        playwrightBridges: playwrightEnabled ? playwrightBridges : undefined,
+        containerMCPConfigs:
+          containerMCPConfigs.length > 0 ? containerMCPConfigs : undefined,
+        containerMCPBridges:
+          containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
+        logger: desktopLogger,
+        // Force-disable automatic screenshot capture for action tools.
+        autoScreenshot: false,
+      });
+  }
+
+  private async createWebChatMemoryRetrievers(params: {
+    config: GatewayConfig;
+    hooks: HookDispatcher;
+    memoryBackend: MemoryBackend;
+  }): Promise<{
+    memoryRetriever: MemoryRetriever;
+    learningProvider: MemoryRetriever;
+  }> {
+    const { config, hooks, memoryBackend } = params;
+
+    const embeddingProvider = await createEmbeddingProvider({
+      preferred: config.memory?.embeddingProvider,
+      apiKey: config.memory?.embeddingApiKey ?? config.llm?.apiKey,
+      baseUrl: config.memory?.embeddingBaseUrl,
+      model: config.memory?.embeddingModel,
+    });
+    const isSemanticAvailable = embeddingProvider.name !== 'noop';
+
+    const memoryRetriever = isSemanticAvailable
+      ? await this.createSemanticMemoryRetriever(
+        embeddingProvider,
+        hooks,
+      )
+      : this.createMemoryRetriever(memoryBackend);
+
+    if (!isSemanticAvailable) {
+      this.logger.info('Semantic memory unavailable — using basic history retriever');
+    }
+
+    return {
+      memoryRetriever,
+      learningProvider: this.createLearningProvider(memoryBackend),
+    };
+  }
+
+  private async createSemanticMemoryRetriever(
+    embeddingProvider: Awaited<ReturnType<typeof createEmbeddingProvider>>,
+    hooks: HookDispatcher,
+  ): Promise<MemoryRetriever> {
+    const workspacePath = getDefaultWorkspacePath();
+    const vectorStore = new InMemoryVectorStore({ dimension: embeddingProvider.dimension });
+
+    const curatedMemory = new CuratedMemoryManager(join(workspacePath, 'MEMORY.md'));
+    const logManager = new DailyLogManager(join(workspacePath, 'logs'));
+
+    const ingestionEngine = new MemoryIngestionEngine({
+      embeddingProvider,
+      vectorStore,
+      logManager,
+      curatedMemory,
+      generateSummaries: false,
+      enableDailyLogs: true,
+      enableEntityExtraction: false,
+      logger: this.logger,
+    });
+
+    const ingestionHooks = createIngestionHooks(ingestionEngine, this.logger);
+    for (const hook of ingestionHooks) {
+      hooks.on(hook);
+    }
+
+    this.logger.info(
+      `Semantic memory enabled (embedding: ${embeddingProvider.name}, dim: ${embeddingProvider.dimension})`,
+    );
+
+    return new SemanticMemoryRetriever({
+      vectorBackend: vectorStore,
+      embeddingProvider,
+      curatedMemory,
+      maxTokenBudget: SEMANTIC_MEMORY_DEFAULTS.MAX_TOKEN_BUDGET,
+      maxResults: SEMANTIC_MEMORY_DEFAULTS.MAX_RESULTS,
+      recencyWeight: SEMANTIC_MEMORY_DEFAULTS.RECENCY_WEIGHT,
+      recencyHalfLifeMs: SEMANTIC_MEMORY_DEFAULTS.RECENCY_HALF_LIFE_MS,
+      hybridVectorWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_VECTOR_WEIGHT,
+      hybridKeywordWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_KEYWORD_WEIGHT,
+      logger: this.logger,
+    });
+  }
+
+  private createLearningProvider(memoryBackend: MemoryBackend): MemoryRetriever {
+    return {
+      async retrieve(): Promise<string | undefined> {
+        if (!memoryBackend) return undefined;
+        try {
+          const learning = await memoryBackend.get<{
+            patterns: Array<{ type: string; description: string; lesson: string; confidence: number }>;
+            strategies: Array<{ name: string; description: string; steps: string[] }>;
+            preferences: Record<string, string>;
+          }>('learning:latest');
+          if (!learning) return undefined;
+
+          const parts: string[] = [];
+          const lessons = (learning.patterns ?? [])
+            .filter((pattern) => pattern.confidence >= MIN_LEARNING_CONFIDENCE)
+            .slice(0, 10)
+            .map((pattern) => `- ${pattern.lesson}`);
+          if (lessons.length > 0) parts.push('Lessons:\n' + lessons.join('\n'));
+
+          const strategies = (learning.strategies ?? [])
+            .slice(0, 5)
+            .map((strategy) => `- ${strategy.name}: ${strategy.description}`);
+          if (strategies.length > 0) {
+            parts.push('Strategies:\n' + strategies.join('\n'));
+          }
+
+          const preferences = Object.entries(learning.preferences ?? {})
+            .slice(0, 5)
+            .map(([key, value]) => `- ${key}: ${value}`);
+          if (preferences.length > 0) {
+            parts.push('Preferences:\n' + preferences.join('\n'));
+          }
+
+          if (parts.length === 0) return undefined;
+          return '## Learned Patterns\n\n' + parts.join('\n\n');
+        } catch {
+          return undefined;
+        }
+      },
+    };
+  }
+
+  private async attachWebChatPolicyHook(params: {
+    config: GatewayConfig;
+    hooks: HookDispatcher;
+    telemetry: UnifiedTelemetryCollector | null;
+  }): Promise<void> {
+    const { config, hooks, telemetry } = params;
+    if (!config.policy?.enabled) {
+      return;
+    }
+    try {
+      const { PolicyEngine } = await import('../policy/engine.js');
+      this._policyEngine = new PolicyEngine({
+        policy: {
+          enabled: true,
+          toolAllowList: config.policy.toolAllowList,
+          toolDenyList: config.policy.toolDenyList,
+          actionBudgets: config.policy.actionBudgets,
+          spendBudget: config.policy.spendBudget
+            ? {
+              limitLamports: BigInt(config.policy.spendBudget.limitLamports),
+              windowMs: config.policy.spendBudget.windowMs,
+            }
+            : undefined,
+          maxRiskScore: config.policy.maxRiskScore,
+          circuitBreaker: config.policy.circuitBreaker,
+        },
+        logger: this.logger,
+        metrics: telemetry ?? undefined,
+      });
+      hooks.on({
+        event: 'tool:before',
+        name: 'policy-gate',
+        priority: HOOK_PRIORITIES.POLICY_GATE,
+        handler: async (ctx) => {
+          const payload = ctx.payload as Record<string, unknown>;
+          const decision = this._policyEngine!.evaluate({
+            type: 'tool_call',
+            name: payload.toolName as string,
+            access: 'write',
+            metadata: payload,
+          });
+          if (!decision.allowed) {
+            this.logger.warn?.(
+              `Policy blocked tool "${payload.toolName}": ${decision.violations.map((v) => v.message).join('; ')}`,
+            );
+            return { continue: false };
+          }
+          return { continue: true };
+        },
+      });
+      this.logger.info('Policy engine initialized');
+    } catch (error) {
+      this.logger.warn?.('Policy engine initialization failed:', error);
+    }
+  }
+
+  private registerWebChatConfigReloadHandler(params: {
+    gateway: Gateway;
+    skillInjector: SkillInjector;
+    memoryRetriever: MemoryRetriever;
+    learningProvider: MemoryRetriever;
+    progressTracker: ProgressTracker;
+    pipelineExecutor: PipelineExecutor;
+    llmTools: LLMTool[];
+    baseToolHandler: ToolHandler;
+    voiceDeps: {
+      chatExecutor: ChatExecutor | undefined;
+      sessionManager: SessionManager;
+      hooks: HookDispatcher;
+      approvalEngine: ApprovalEngine;
+      memoryBackend: MemoryBackend;
+      delegation: DelegationToolCompositionResolver;
+    };
+  }): void {
+    const {
+      gateway,
+      skillInjector,
+      memoryRetriever,
+      learningProvider,
+      progressTracker,
+      pipelineExecutor,
+      llmTools,
+      baseToolHandler,
+      voiceDeps,
+    } = params;
     gateway.on('configReloaded', (...args: unknown[]) => {
       const diff = args[0] as ConfigDiff;
       const logLevelChanged = diff.safe.includes('logging.level');
@@ -2334,7 +2493,10 @@ export class DaemonManager {
             toolDenyList: newConfig.policy.toolDenyList,
             actionBudgets: newConfig.policy.actionBudgets,
             spendBudget: newConfig.policy.spendBudget
-              ? { limitLamports: BigInt(newConfig.policy.spendBudget.limitLamports), windowMs: newConfig.policy.spendBudget.windowMs }
+              ? {
+                limitLamports: BigInt(newConfig.policy.spendBudget.limitLamports),
+                windowMs: newConfig.policy.spendBudget.windowMs,
+              }
               : undefined,
             maxRiskScore: newConfig.policy.maxRiskScore,
             circuitBreaker: newConfig.policy.circuitBreaker,
@@ -2342,10 +2504,19 @@ export class DaemonManager {
           this.logger.info('Policy engine config reloaded');
         }
       }
-      const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
+      const voiceChanged = diff.safe.some((key) =>
+        key.startsWith('voice.') || key.startsWith('llm.apiKey'),
+      );
       if (voiceChanged) {
         void this._voiceBridge?.stopAll();
-        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, this._systemPrompt, voiceDeps, this._voiceSystemPrompt);
+        const newBridge = this.createOptionalVoiceBridge(
+          gateway.config,
+          llmTools,
+          baseToolHandler,
+          this._systemPrompt,
+          voiceDeps,
+          this._voiceSystemPrompt,
+        );
         this._voiceBridge = newBridge ?? null;
         if (this._webChatChannel) {
           this._webChatChannel.updateVoiceBridge(newBridge ?? null);
@@ -2353,21 +2524,6 @@ export class DaemonManager {
         this.logger.info(`Voice bridge ${newBridge ? 'recreated' : 'disabled'}`);
       }
     });
-
-    const toolCount = registry.size;
-    const skillCount = availableSkills.length;
-    const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
-    this.logger.info(
-      `WebChat wired` +
-      ` with LLM [${providerNames}]` +
-      `, ${toolCount} tools, ${skillCount} skills` +
-      `, memory=${memoryBackend.name}` +
-      `, ${commandRegistry.size} commands` +
-      (telemetry ? ', telemetry' : '') +
-      `, budget=${sessionTokenBudget}` +
-      (voiceBridge ? ', voice' : '') +
-      ', hooks, sessions, approvals',
-    );
   }
 
   /**
@@ -5231,21 +5387,17 @@ export class DaemonManager {
     this._subAgentLifecycleUnsubscribe = null;
   }
 
-  private createWebChatMessageHandler(params: {
-    webChat: WebChatChannel;
-    commandRegistry: SlashCommandRegistry;
-    getChatExecutor: () => ChatExecutor | null;
-    getLoggingConfig: () => GatewayLoggingConfig | undefined;
-    hooks: HookDispatcher;
-    sessionMgr: SessionManager;
-    getSystemPrompt: () => string;
-    baseToolHandler: ToolHandler;
-    approvalEngine: ApprovalEngine;
-    memoryBackend: MemoryBackend;
-    signals: WebChatSignals;
-    sessionTokenBudget: number;
-    contextWindowTokens?: number;
-  }): (msg: GatewayMessage) => Promise<void> {
+  private createWebChatMessageHandler(
+    params: WebChatMessageHandlerDeps,
+  ): (msg: GatewayMessage) => Promise<void> {
+    return async (msg: GatewayMessage): Promise<void> =>
+      this.handleWebChatInboundMessage(msg, params);
+  }
+
+  private async handleWebChatInboundMessage(
+    msg: GatewayMessage,
+    params: WebChatMessageHandlerDeps,
+  ): Promise<void> {
     const {
       webChat,
       commandRegistry,
@@ -5261,424 +5413,472 @@ export class DaemonManager {
       sessionTokenBudget,
       contextWindowTokens,
     } = params;
+    const hasAttachments = msg.attachments && msg.attachments.length > 0;
+    if (!msg.content.trim() && !hasAttachments) {
+      return;
+    }
+    const turnTraceId = createTurnTraceId(msg);
 
-    return async (msg: GatewayMessage): Promise<void> => {
-      const hasAttachments = msg.attachments && msg.attachments.length > 0;
-      if (!msg.content.trim() && !hasAttachments) {
-        return;
-      }
-      const turnTraceId = createTurnTraceId(msg);
+    const traceConfig = resolveTraceLoggingConfig(getLoggingConfig());
+    if (traceConfig.enabled) {
+      this.logger.info('[trace] webchat.inbound', {
+        traceId: turnTraceId,
+        sessionId: msg.sessionId,
+        message: summarizeGatewayMessageForTrace(msg, traceConfig.maxChars),
+      });
+    }
 
-      const traceConfig = resolveTraceLoggingConfig(getLoggingConfig());
+    const reply = async (content: string): Promise<void> => {
       if (traceConfig.enabled) {
-        this.logger.info('[trace] webchat.inbound', {
+        this.logger.info("[trace] webchat.command.reply", {
           traceId: turnTraceId,
           sessionId: msg.sessionId,
-          message: summarizeGatewayMessageForTrace(msg, traceConfig.maxChars),
+          content: truncateToolLogText(content, traceConfig.maxChars),
         });
       }
-
-      const reply = async (content: string): Promise<void> => {
-        if (traceConfig.enabled) {
-          this.logger.info("[trace] webchat.command.reply", {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            content: truncateToolLogText(content, traceConfig.maxChars),
-          });
-        }
-        await webChat.send({ sessionId: msg.sessionId, content });
-      };
-      const handled = await commandRegistry.dispatch(
-        msg.content,
-        msg.sessionId,
-        msg.senderId,
-        'webchat',
-        reply,
-      );
-      if (handled) {
-        if (traceConfig.enabled) {
-          this.logger.info("[trace] webchat.command.handled", {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            command: truncateToolLogText(msg.content.trim(), traceConfig.maxChars),
-          });
-        }
-        return;
+      await webChat.send({ sessionId: msg.sessionId, content });
+    };
+    const handled = await commandRegistry.dispatch(
+      msg.content,
+      msg.sessionId,
+      msg.senderId,
+      'webchat',
+      reply,
+    );
+    if (handled) {
+      if (traceConfig.enabled) {
+        this.logger.info("[trace] webchat.command.handled", {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          command: truncateToolLogText(msg.content.trim(), traceConfig.maxChars),
+        });
       }
+      return;
+    }
 
-      // Resolve model/provider questions from runtime metadata instead of letting
-      // the model hallucinate or mirror static configuration text.
-      if (MODEL_QUERY_RE.test(msg.content)) {
-        const last = this._sessionModelInfo.get(msg.sessionId);
-        if (last) {
-          await webChat.send({
-            sessionId: msg.sessionId,
-            content:
-              `Last completion model: ${last.model} ` +
-              `(provider: ${last.provider}${last.usedFallback ? ', fallback used' : ''})`,
-          });
-          return;
-        }
-
-        const configuredProvider = this.gateway?.config.llm?.provider ?? 'none';
-        const configuredModel = normalizeGrokModel(this.gateway?.config.llm?.model) ??
-          (configuredProvider === 'grok' ? DEFAULT_GROK_MODEL : 'unknown');
+    // Resolve model/provider questions from runtime metadata instead of letting
+    // the model hallucinate or mirror static configuration text.
+    if (MODEL_QUERY_RE.test(msg.content)) {
+      const last = this._sessionModelInfo.get(msg.sessionId);
+      if (last) {
         await webChat.send({
           sessionId: msg.sessionId,
           content:
-            `No completion recorded yet for this session. ` +
-            `Configured primary is ${configuredProvider}:${configuredModel}.`,
+            `Last completion model: ${last.model} ` +
+            `(provider: ${last.provider}${last.usedFallback ? ', fallback used' : ''})`,
         });
         return;
       }
 
-      const chatExecutor = getChatExecutor();
-      if (!chatExecutor) {
-        await webChat.send({
-          sessionId: msg.sessionId,
-          content: 'No LLM provider configured. Add an `llm` section to ~/.agenc/config.json.',
-        });
-        return;
-      }
-
-      const inboundResult = await hooks.dispatch('message:inbound', {
+      const configuredProvider = this.gateway?.config.llm?.provider ?? 'none';
+      const configuredModel = normalizeGrokModel(this.gateway?.config.llm?.model) ??
+        (configuredProvider === 'grok' ? DEFAULT_GROK_MODEL : 'unknown');
+      await webChat.send({
         sessionId: msg.sessionId,
-        content: msg.content,
-        senderId: msg.senderId,
+        content:
+          `No completion recorded yet for this session. ` +
+          `Configured primary is ${configuredProvider}:${configuredModel}.`,
       });
-      if (!inboundResult.completed) {
-        return;
-      }
+      return;
+    }
 
-      webChat.broadcastEvent('chat.inbound', { sessionId: msg.sessionId });
+    const chatExecutor = getChatExecutor();
+    if (!chatExecutor) {
+      await webChat.send({
+        sessionId: msg.sessionId,
+        content: 'No LLM provider configured. Add an `llm` section to ~/.agenc/config.json.',
+      });
+      return;
+    }
 
-      const sessionStreamCallback: StreamProgressCallback = (chunk) => {
+    const inboundResult = await hooks.dispatch('message:inbound', {
+      sessionId: msg.sessionId,
+      content: msg.content,
+      senderId: msg.senderId,
+    });
+    if (!inboundResult.completed) {
+      return;
+    }
+
+    webChat.broadcastEvent('chat.inbound', { sessionId: msg.sessionId });
+
+    const sessionStreamCallback: StreamProgressCallback = (chunk) => {
+      webChat.pushToSession(msg.sessionId, {
+        type: 'chat.stream',
+        payload: { content: chunk.content, done: chunk.done },
+      });
+    };
+
+    // Detect greeting messages — block tool execution for casual conversation
+    const GREETING_RE = /^(h(i|ello|ey|ola|owdy)|yo|sup|what'?s\s*up|greetings?|good\s*(morning|afternoon|evening)|gm|gn)\s*[!?.,:;\-)*]*$/i;
+    const isGreeting = GREETING_RE.test(msg.content.trim());
+
+    const baseSessionHandler = createSessionToolHandler({
+      sessionId: msg.sessionId,
+      baseHandler: baseToolHandler,
+      desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+      routerId: msg.sessionId,
+      send: (m) => webChat.pushToSession(msg.sessionId, m),
+      hooks,
+      approvalEngine,
+      delegation: this.resolveDelegationToolContext,
+      onToolStart: (name) => {
         webChat.pushToSession(msg.sessionId, {
-          type: 'chat.stream',
-          payload: { content: chunk.content, done: chunk.done },
+          type: 'agent.status',
+          payload: { phase: 'tool_call', detail: `Calling ${name}` },
         });
-      };
+      },
+      onToolEnd: (toolName, _result, durationMs) => {
+        webChat.broadcastEvent('tool.executed', {
+          toolName,
+          durationMs,
+          sessionId: msg.sessionId,
+        });
+        webChat.pushToSession(msg.sessionId, {
+          type: 'agent.status',
+          payload: { phase: 'generating' },
+        });
+      },
+    });
 
-      // Detect greeting messages — block tool execution for casual conversation
-      const GREETING_RE = /^(h(i|ello|ey|ola|owdy)|yo|sup|what'?s\s*up|greetings?|good\s*(morning|afternoon|evening)|gm|gn)\s*[!?.,:;\-)*]*$/i;
-      const isGreeting = GREETING_RE.test(msg.content.trim());
+    const sessionToolHandler: ToolHandler = async (name, args) => {
+      if (isGreeting) {
+        return JSON.stringify({
+          error: 'This is a greeting message. Respond conversationally without using any tools.',
+        });
+      }
+      if (traceConfig.enabled) {
+        this.logger.info('[trace] webchat.tool.call', {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          tool: name,
+          ...(traceConfig.includeToolArgs
+            ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
+            : {}),
+        });
+      }
 
-      const baseSessionHandler = createSessionToolHandler({
-        sessionId: msg.sessionId,
-        baseHandler: baseToolHandler,
-        desktopRouterFactory: this._desktopRouterFactory ?? undefined,
-        routerId: msg.sessionId,
-        send: (m) => webChat.pushToSession(msg.sessionId, m),
-        hooks,
-        approvalEngine,
-        delegation: this.resolveDelegationToolContext,
-        onToolStart: (name) => {
-          webChat.pushToSession(msg.sessionId, {
-            type: 'agent.status',
-            payload: { phase: 'tool_call', detail: `Calling ${name}` },
-          });
-        },
-        onToolEnd: (toolName, _result, durationMs) => {
-          webChat.broadcastEvent('tool.executed', {
-            toolName,
-            durationMs,
-            sessionId: msg.sessionId,
-          });
-          webChat.pushToSession(msg.sessionId, {
-            type: 'agent.status',
-            payload: { phase: 'generating' },
-          });
-        },
-      });
-
-      const sessionToolHandler: ToolHandler = async (name, args) => {
-        if (isGreeting) {
-          return JSON.stringify({
-            error: 'This is a greeting message. Respond conversationally without using any tools.',
-          });
-        }
+      const toolStart = Date.now();
+      try {
+        const result = await baseSessionHandler(name, args);
         if (traceConfig.enabled) {
-          this.logger.info('[trace] webchat.tool.call', {
+          this.logger.info('[trace] webchat.tool.result', {
             traceId: turnTraceId,
             sessionId: msg.sessionId,
             tool: name,
-            ...(traceConfig.includeToolArgs
-              ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
+            durationMs: Date.now() - toolStart,
+            ...(traceConfig.includeToolResults
+              ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
               : {}),
           });
         }
-
-        const toolStart = Date.now();
-        try {
-          const result = await baseSessionHandler(name, args);
-          if (traceConfig.enabled) {
-            this.logger.info('[trace] webchat.tool.result', {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              tool: name,
-              durationMs: Date.now() - toolStart,
-              ...(traceConfig.includeToolResults
-                ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
-                : {}),
-            });
-          }
-          return result;
-        } catch (error) {
-          if (traceConfig.enabled) {
-            this.logger.error('[trace] webchat.tool.error', {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              tool: name,
-              durationMs: Date.now() - toolStart,
-              error: toErrorMessage(error),
-            });
-          }
-          throw error;
-        }
-      };
-
-      this._activeSessionTraceIds.set(msg.sessionId, turnTraceId);
-      try {
-        signals.signalThinking(msg.sessionId);
-
-        const session = sessionMgr.getOrCreate({
-          channel: 'webchat',
-          senderId: msg.sessionId,
-          scope: 'dm',
-          workspaceId: 'default',
-        });
-
+        return result;
+      } catch (error) {
         if (traceConfig.enabled) {
-          const currentPrompt = getSystemPrompt();
-          this.logger.info('[trace] webchat.chat.request', {
+          this.logger.error('[trace] webchat.tool.error', {
             traceId: turnTraceId,
             sessionId: msg.sessionId,
-            historyLength: session.history.length,
-            historyRoleCounts: summarizeRoleCounts(session.history),
-            systemPromptChars: currentPrompt.length,
-            ...(traceConfig.includeSystemPrompt
-              ? { systemPrompt: truncateToolLogText(currentPrompt, traceConfig.maxChars) }
+            tool: name,
+            durationMs: Date.now() - toolStart,
+            error: toErrorMessage(error),
+          });
+        }
+        throw error;
+      }
+    };
+
+    await this.executeWebChatConversationTurn({
+      msg,
+      webChat,
+      chatExecutor,
+      sessionMgr,
+      getSystemPrompt,
+      sessionToolHandler,
+      sessionStreamCallback,
+      signals,
+      hooks,
+      memoryBackend,
+      sessionTokenBudget,
+      contextWindowTokens,
+      traceConfig,
+      turnTraceId,
+    });
+  }
+
+  private async executeWebChatConversationTurn(params: {
+    msg: GatewayMessage;
+    webChat: WebChatChannel;
+    chatExecutor: ChatExecutor;
+    sessionMgr: SessionManager;
+    getSystemPrompt: () => string;
+    sessionToolHandler: ToolHandler;
+    sessionStreamCallback: StreamProgressCallback;
+    signals: WebChatSignals;
+    hooks: HookDispatcher;
+    memoryBackend: MemoryBackend;
+    sessionTokenBudget: number;
+    contextWindowTokens?: number;
+    traceConfig: ResolvedTraceLoggingConfig;
+    turnTraceId: string;
+  }): Promise<void> {
+    const {
+      msg,
+      webChat,
+      chatExecutor,
+      sessionMgr,
+      getSystemPrompt,
+      sessionToolHandler,
+      sessionStreamCallback,
+      signals,
+      hooks,
+      memoryBackend,
+      sessionTokenBudget,
+      contextWindowTokens,
+      traceConfig,
+      turnTraceId,
+    } = params;
+
+    this._activeSessionTraceIds.set(msg.sessionId, turnTraceId);
+    try {
+      signals.signalThinking(msg.sessionId);
+
+      const session = sessionMgr.getOrCreate({
+        channel: 'webchat',
+        senderId: msg.sessionId,
+        scope: 'dm',
+        workspaceId: 'default',
+      });
+
+      if (traceConfig.enabled) {
+        const currentPrompt = getSystemPrompt();
+        this.logger.info('[trace] webchat.chat.request', {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          historyLength: session.history.length,
+          historyRoleCounts: summarizeRoleCounts(session.history),
+          systemPromptChars: currentPrompt.length,
+          ...(traceConfig.includeSystemPrompt
+            ? { systemPrompt: truncateToolLogText(currentPrompt, traceConfig.maxChars) }
+            : {}),
+          ...(traceConfig.includeHistory
+            ? {
+              history: summarizeHistoryForTrace(session.history, traceConfig),
+            }
+            : {}),
+        });
+      }
+      const toolRoutingDecision = this.buildToolRoutingDecision(
+        msg.sessionId,
+        msg.content,
+        session.history,
+      );
+      if (traceConfig.enabled && toolRoutingDecision) {
+        this.logger.info('[trace] webchat.tool_routing', {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          routing: summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
+        });
+      }
+
+      // Create an AbortController so the user can cancel mid-execution
+      const abortController = webChat.createAbortController(msg.sessionId);
+
+      const result = await chatExecutor.execute({
+        message: msg,
+        history: session.history,
+        systemPrompt: getSystemPrompt(),
+        sessionId: msg.sessionId,
+        toolHandler: sessionToolHandler,
+        onStreamChunk: sessionStreamCallback,
+        signal: abortController.signal,
+        toolRouting: toolRoutingDecision
+          ? {
+            routedToolNames: toolRoutingDecision.routedToolNames,
+            expandedToolNames: toolRoutingDecision.expandedToolNames,
+            expandOnMiss: true,
+          }
+          : undefined,
+      });
+      this.recordToolRoutingOutcome(
+        msg.sessionId,
+        result.toolRoutingSummary,
+      );
+
+      webChat.clearAbortController(msg.sessionId);
+
+      if (result.model) {
+        this._sessionModelInfo.set(msg.sessionId, {
+          provider: result.provider,
+          model: result.model,
+          usedFallback: result.usedFallback,
+          updatedAt: Date.now(),
+        });
+      }
+
+      if (traceConfig.enabled) {
+        this.logger.info('[trace] webchat.chat.response', {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          provider: result.provider,
+          model: result.model,
+          usedFallback: result.usedFallback,
+          durationMs: result.durationMs,
+          compacted: result.compacted,
+          tokenUsage: result.tokenUsage,
+          requestShape: summarizeInitialRequestShape(result.callUsage),
+          callUsage: summarizeCallUsageForTrace(result.callUsage),
+          statefulSummary: result.statefulSummary,
+          toolRoutingDecision: summarizeToolRoutingDecisionForTrace(
+            toolRoutingDecision,
+          ),
+          toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
+            result.toolRoutingSummary,
+          ),
+          stopReason: result.stopReason,
+          stopReasonDetail: result.stopReasonDetail,
+          response: truncateToolLogText(result.content, traceConfig.maxChars),
+          toolCalls: result.toolCalls.map((toolCall) => ({
+            name: toolCall.name,
+            durationMs: toolCall.durationMs,
+            isError: toolCall.isError,
+            ...(traceConfig.includeToolArgs
+              ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
               : {}),
-            ...(traceConfig.includeHistory
+            ...(traceConfig.includeToolResults
               ? {
-                history: summarizeHistoryForTrace(session.history, traceConfig),
+                result: summarizeToolResultForTrace(
+                  toolCall.result,
+                  traceConfig.maxChars,
+                ),
               }
               : {}),
-          });
-        }
-        const toolRoutingDecision = this.buildToolRoutingDecision(
-          msg.sessionId,
-          msg.content,
-          session.history,
-        );
-        if (traceConfig.enabled && toolRoutingDecision) {
-          this.logger.info('[trace] webchat.tool_routing', {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            routing: summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
-          });
-        }
-
-        // Create an AbortController so the user can cancel mid-execution
-        const abortController = webChat.createAbortController(msg.sessionId);
-
-        const result = await chatExecutor.execute({
-          message: msg,
-          history: session.history,
-          systemPrompt: getSystemPrompt(),
-          sessionId: msg.sessionId,
-          toolHandler: sessionToolHandler,
-          onStreamChunk: sessionStreamCallback,
-          signal: abortController.signal,
-          toolRouting: toolRoutingDecision
-            ? {
-              routedToolNames: toolRoutingDecision.routedToolNames,
-              expandedToolNames: toolRoutingDecision.expandedToolNames,
-              expandOnMiss: true,
-            }
-            : undefined,
+          })),
         });
-        this.recordToolRoutingOutcome(
-          msg.sessionId,
-          result.toolRoutingSummary,
-        );
+      }
+      if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
+        this.logger.warn("[stateful] webchat fallback_to_stateless", {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
+          summary: result.statefulSummary,
+        });
+      }
 
-        webChat.clearAbortController(msg.sessionId);
+      // If ChatExecutor compacted context, also trim session history
+      if (result.compacted) {
+        void sessionMgr.compact(session.id);
+      }
 
-        if (result.model) {
-          this._sessionModelInfo.set(msg.sessionId, {
-            provider: result.provider,
-            model: result.model,
-            usedFallback: result.usedFallback,
-            updatedAt: Date.now(),
-          });
-        }
+      signals.signalIdle(msg.sessionId);
+      sessionMgr.appendMessage(session.id, { role: 'user', content: msg.content });
+      sessionMgr.appendMessage(session.id, { role: 'assistant', content: result.content });
 
-        if (traceConfig.enabled) {
-          this.logger.info('[trace] webchat.chat.response', {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            provider: result.provider,
-            model: result.model,
-            usedFallback: result.usedFallback,
-            durationMs: result.durationMs,
-            compacted: result.compacted,
-            tokenUsage: result.tokenUsage,
-            requestShape: summarizeInitialRequestShape(result.callUsage),
-            callUsage: summarizeCallUsageForTrace(result.callUsage),
-            statefulSummary: result.statefulSummary,
-            toolRoutingDecision: summarizeToolRoutingDecisionForTrace(
-              toolRoutingDecision,
-            ),
-            toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
-              result.toolRoutingSummary,
-            ),
+      await webChat.send({
+        sessionId: msg.sessionId,
+        content: result.content || '(no response)',
+      });
+
+      // Send cumulative token usage to browser
+      webChat.pushToSession(msg.sessionId, {
+        type: 'chat.usage',
+        payload: buildChatUsagePayload({
+          totalTokens: chatExecutor.getSessionTokenUsage(msg.sessionId),
+          sessionTokenBudget,
+          compacted: result.compacted ?? false,
+          contextWindowTokens,
+          callUsage: result.callUsage,
+        }),
+      });
+
+      if (
+        this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
+      ) {
+        this.relaySubAgentLifecycleEvent(webChat, {
+          type: "subagents.synthesized",
+          timestamp: Date.now(),
+          sessionId: msg.sessionId,
+          parentSessionId: msg.sessionId,
+          payload: {
             stopReason: result.stopReason,
-            stopReasonDetail: result.stopReasonDetail,
-            response: truncateToolLogText(result.content, traceConfig.maxChars),
-            toolCalls: result.toolCalls.map((toolCall) => ({
-              name: toolCall.name,
-              durationMs: toolCall.durationMs,
-              isError: toolCall.isError,
-              ...(traceConfig.includeToolArgs
-                ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
-                : {}),
-              ...(traceConfig.includeToolResults
-                ? {
-                  result: summarizeToolResultForTrace(
-                    toolCall.result,
-                    traceConfig.maxChars,
-                  ),
-                }
-                : {}),
-            })),
-          });
-        }
-        if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
-          this.logger.warn("[stateful] webchat fallback_to_stateless", {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            summary: result.statefulSummary,
-          });
-        }
-
-        // If ChatExecutor compacted context, also trim session history
-        if (result.compacted) {
-          void sessionMgr.compact(session.id);
-        }
-
-        signals.signalIdle(msg.sessionId);
-        sessionMgr.appendMessage(session.id, { role: 'user', content: msg.content });
-        sessionMgr.appendMessage(session.id, { role: 'assistant', content: result.content });
-
-        await webChat.send({
-          sessionId: msg.sessionId,
-          content: result.content || '(no response)',
+            outputChars: result.content.length,
+            toolCalls: result.toolCalls.length,
+          },
         });
+        this._subagentActivityTraceBySession.delete(msg.sessionId);
+      }
 
-        // Send cumulative token usage to browser
-        webChat.pushToSession(msg.sessionId, {
-          type: 'chat.usage',
-          payload: buildChatUsagePayload({
-            totalTokens: chatExecutor.getSessionTokenUsage(msg.sessionId),
-            sessionTokenBudget,
-            compacted: result.compacted ?? false,
-            contextWindowTokens,
-            callUsage: result.callUsage,
-          }),
-        });
+      webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
 
-        if (
-          this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
-        ) {
-          this.relaySubAgentLifecycleEvent(webChat, {
-            type: "subagents.synthesized",
-            timestamp: Date.now(),
-            sessionId: msg.sessionId,
-            parentSessionId: msg.sessionId,
-            payload: {
-              stopReason: result.stopReason,
-              outputChars: result.content.length,
-              toolCalls: result.toolCalls.length,
-            },
-          });
-          this._subagentActivityTraceBySession.delete(msg.sessionId);
-        }
+      await hooks.dispatch('message:outbound', {
+        sessionId: msg.sessionId,
+        content: result.content,
+        provider: result.provider,
+        userMessage: msg.content,
+        agentResponse: result.content,
+      });
 
-        webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
-
-        await hooks.dispatch('message:outbound', {
+      try {
+        await memoryBackend.addEntry({
           sessionId: msg.sessionId,
+          role: 'user',
+          content: msg.content,
+        });
+        await memoryBackend.addEntry({
+          sessionId: msg.sessionId,
+          role: 'assistant',
           content: result.content,
-          provider: result.provider,
-          userMessage: msg.content,
-          agentResponse: result.content,
         });
-
-        try {
-          await memoryBackend.addEntry({
-            sessionId: msg.sessionId,
-            role: 'user',
-            content: msg.content,
-          });
-          await memoryBackend.addEntry({
-            sessionId: msg.sessionId,
-            role: 'assistant',
-            content: result.content,
-          });
-        } catch (error) {
-          this.logger.warn?.('Failed to persist messages to memory:', error);
-        }
-
-        if (result.toolCalls.length > 0) {
-          const failures = result.toolCalls
-            .map((toolCall) => summarizeToolFailureForLog(toolCall))
-            .filter((entry): entry is ToolFailureSummary => entry !== null);
-
-          this.logger.info(`Chat used ${result.toolCalls.length} tool call(s)`, {
-            traceId: turnTraceId,
-            tools: result.toolCalls.map((toolCall) => toolCall.name),
-            provider: result.provider,
-            failedToolCalls: failures.length,
-            ...(failures.length > 0 ? { failureDetails: failures } : {}),
-          });
-        }
       } catch (error) {
-        const failure = summarizeLLMFailureForSurface(error);
-        webChat.clearAbortController(msg.sessionId);
-        signals.signalIdle(msg.sessionId);
-        if (traceConfig.enabled) {
-          this.logger.error('[trace] webchat.chat.error', {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            stopReason: failure.stopReason,
-            stopReasonDetail: failure.stopReasonDetail,
-            error: toErrorMessage(error),
-            ...(error instanceof Error && error.stack
-              ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
-              : {}),
-          });
-        }
-        this.logger.error('LLM chat error:', {
+        this.logger.warn?.('Failed to persist messages to memory:', error);
+      }
+
+      if (result.toolCalls.length > 0) {
+        const failures = result.toolCalls
+          .map((toolCall) => summarizeToolFailureForLog(toolCall))
+          .filter((entry): entry is ToolFailureSummary => entry !== null);
+
+        this.logger.info(`Chat used ${result.toolCalls.length} tool call(s)`, {
+          traceId: turnTraceId,
+          tools: result.toolCalls.map((toolCall) => toolCall.name),
+          provider: result.provider,
+          failedToolCalls: failures.length,
+          ...(failures.length > 0 ? { failureDetails: failures } : {}),
+        });
+      }
+    } catch (error) {
+      const failure = summarizeLLMFailureForSurface(error);
+      webChat.clearAbortController(msg.sessionId);
+      signals.signalIdle(msg.sessionId);
+      if (traceConfig.enabled) {
+        this.logger.error('[trace] webchat.chat.error', {
+          traceId: turnTraceId,
+          sessionId: msg.sessionId,
           stopReason: failure.stopReason,
           stopReasonDetail: failure.stopReasonDetail,
           error: toErrorMessage(error),
+          ...(error instanceof Error && error.stack
+            ? { stack: truncateToolLogText(error.stack, traceConfig.maxChars) }
+            : {}),
         });
-        await webChat.send({
-          sessionId: msg.sessionId,
-          content: failure.userMessage,
-        });
-      } finally {
-        if (this._activeSessionTraceIds.get(msg.sessionId) === turnTraceId) {
-          this._activeSessionTraceIds.delete(msg.sessionId);
-        }
-        if (
-          this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
-        ) {
-          this._subagentActivityTraceBySession.delete(msg.sessionId);
-        }
       }
-    };
+      this.logger.error('LLM chat error:', {
+        stopReason: failure.stopReason,
+        stopReasonDetail: failure.stopReasonDetail,
+        error: toErrorMessage(error),
+      });
+      await webChat.send({
+        sessionId: msg.sessionId,
+        content: failure.userMessage,
+      });
+    } finally {
+      if (this._activeSessionTraceIds.get(msg.sessionId) === turnTraceId) {
+        this._activeSessionTraceIds.delete(msg.sessionId);
+      }
+      if (
+        this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
+      ) {
+        this._subagentActivityTraceBySession.delete(msg.sessionId);
+      }
+    }
   }
 
   /**

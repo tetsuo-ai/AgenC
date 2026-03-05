@@ -74,6 +74,11 @@ const DEFAULT_BACKPRESSURE_CONFIG: BackpressureConfig = {
   pauseDiscovery: true,
 };
 
+const ACTIVE_TASK_WAIT_TIMEOUT_MS = 5_000;
+const ACTIVE_TASK_POLL_INTERVAL_MS = 50;
+const AUTONOMOUS_LOOP_INTERVAL_MS = 100;
+const BATCH_DRAIN_INTERVAL_MS = 50;
+
 interface PipelineRuntimeState {
   timeoutId: ReturnType<typeof setTimeout> | null;
   deadlineTimerId: ReturnType<typeof setTimeout> | null;
@@ -279,14 +284,16 @@ export class TaskExecutor {
   /**
    * Wait for all active tasks to finish or abort, with a timeout safety net.
    */
-  private async waitForActiveTasks(timeoutMs = 5000): Promise<void> {
+  private async waitForActiveTasks(
+    timeoutMs = ACTIVE_TASK_WAIT_TIMEOUT_MS,
+  ): Promise<void> {
     if (this.activeTasks.size === 0) return;
     await new Promise<void>((resolve) => {
       const checkDone = () => {
         if (this.activeTasks.size === 0) {
           resolve();
         } else {
-          setTimeout(checkDone, 50);
+          setTimeout(checkDone, ACTIVE_TASK_POLL_INTERVAL_MS);
         }
       };
       // Timeout safety: resolve after timeoutMs regardless
@@ -681,7 +688,7 @@ export class TaskExecutor {
     // Keep running until stopped — discovery callbacks drive task processing
     while (this.running) {
       this.drainQueue();
-      await sleep(100);
+      await sleep(AUTONOMOUS_LOOP_INTERVAL_MS);
     }
   }
 
@@ -725,7 +732,7 @@ export class TaskExecutor {
 
     // Wait for all active tasks to complete
     while (this.activeTasks.size > 0 || this.taskQueue.size > 0) {
-      await sleep(50);
+      await sleep(BATCH_DRAIN_INTERVAL_MS);
     }
   }
 

@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { normalizeMcpContent } from "./lib/mcp-content-normalize.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -185,32 +186,8 @@ function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function normalizeContent(content) {
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (item && typeof item === "object" && item.type === "text") {
-          return item.text ?? "";
-        }
-        try {
-          return JSON.stringify(item);
-        } catch {
-          return String(item);
-        }
-      })
-      .join("\n");
-  }
-  if (typeof content === "string") return content;
-  if (content === undefined || content === null) return "";
-  try {
-    return JSON.stringify(content);
-  } catch {
-    return String(content);
-  }
-}
-
 function parseToolPayload(content) {
-  const text = normalizeContent(content).trim();
+  const text = normalizeMcpContent(content).trim();
   if (!text) return {};
   try {
     return JSON.parse(text);

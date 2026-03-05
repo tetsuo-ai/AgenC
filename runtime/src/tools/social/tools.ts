@@ -17,6 +17,10 @@ import type { AgentMessaging } from "../../social/messaging.js";
 import type { AgentFeed } from "../../social/feed.js";
 import type { CollaborationProtocol } from "../../social/collaboration.js";
 import type { Logger } from "../../utils/logger.js";
+import {
+  parseBigIntArg,
+  toolErrorResult,
+} from "../shared/helpers.js";
 
 // ============================================================================
 // Context
@@ -34,34 +38,19 @@ export interface SocialToolsContext {
 // Helpers
 // ============================================================================
 
-function errorResult(message: string): ToolResult {
-  return { content: safeStringify({ error: message }), isError: true };
-}
-
-function safeBigInt(
-  value: unknown,
-  fieldName: string,
-): [bigint, null] | [null, ToolResult] {
-  try {
-    return [BigInt(value as string), null];
-  } catch {
-    return [null, errorResult(`Invalid ${fieldName}: must be a numeric string`)];
-  }
-}
-
 function safePublicKey(
   value: unknown,
   fieldName: string,
 ): [PublicKey, null] | [null, ToolResult] {
   if (typeof value !== "string" || value.length === 0) {
-    return [null, errorResult(`Missing or invalid ${fieldName}`)];
+    return [null, toolErrorResult(`Missing or invalid ${fieldName}`)];
   }
   try {
     return [new PublicKey(value), null];
   } catch {
     return [
       null,
-      errorResult(`Invalid ${fieldName}: must be a base58 public key`),
+      toolErrorResult(`Invalid ${fieldName}: must be a base58 public key`),
     ];
   }
 }
@@ -74,7 +63,7 @@ function validateHex(
   if (typeof value !== "string" || value.length !== expectedLength) {
     return [
       null,
-      errorResult(
+      toolErrorResult(
         `Invalid ${fieldName}: must be a ${expectedLength}-char hex string`,
       ),
     ];
@@ -88,7 +77,7 @@ function validateHex(
     if (!isNumber && !isLowerHex && !isUpperHex) {
       return [
         null,
-        errorResult(
+        toolErrorResult(
           `Invalid ${fieldName}: must be a ${expectedLength}-char hex string`,
         ),
       ];
@@ -140,12 +129,12 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const discovery = ctx.getDiscovery();
-        if (!discovery) return errorResult("Social module not enabled");
+        if (!discovery) return toolErrorResult("Social module not enabled");
 
         try {
           let capabilities: bigint | undefined;
           if (args.capabilities !== undefined) {
-            const [caps, err] = safeBigInt(args.capabilities, "capabilities");
+            const [caps, err] = parseBigIntArg(args.capabilities, "capabilities");
             if (err) return err;
             capabilities = caps;
           }
@@ -183,7 +172,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`social.searchAgents failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },
@@ -216,7 +205,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const messaging = ctx.getMessaging();
-        if (!messaging) return errorResult("Social module not enabled");
+        if (!messaging) return toolErrorResult("Social module not enabled");
 
         const [recipient, recipientErr] = safePublicKey(
           args.recipient,
@@ -225,7 +214,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
         if (recipientErr) return recipientErr;
 
         if (typeof args.content !== "string" || args.content.length === 0) {
-          return errorResult("content must be a non-empty string");
+          return toolErrorResult("content must be a non-empty string");
         }
 
         const mode = (args.mode as "on-chain" | "off-chain" | "auto") ?? "auto";
@@ -236,7 +225,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`social.sendMessage failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },
@@ -268,7 +257,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const feed = ctx.getFeed();
-        if (!feed) return errorResult("Social module not enabled");
+        if (!feed) return toolErrorResult("Social module not enabled");
 
         const [contentHash, chErr] = validateHex(
           args.contentHash,
@@ -299,7 +288,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`social.postToFeed failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },
@@ -323,14 +312,14 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const discovery = ctx.getDiscovery();
-        if (!discovery) return errorResult("Social module not enabled");
+        if (!discovery) return toolErrorResult("Social module not enabled");
 
         const [pda, pdaErr] = safePublicKey(args.agentPda, "agentPda");
         if (pdaErr) return pdaErr;
 
         try {
           const profile = await discovery.getProfile(pda);
-          if (!profile) return errorResult(`Agent not found: ${pda.toBase58()}`);
+          if (!profile) return toolErrorResult(`Agent not found: ${pda.toBase58()}`);
 
           return {
             content: safeStringify({
@@ -345,7 +334,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`social.getReputation failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },
@@ -391,26 +380,26 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const collab = ctx.getCollaboration();
-        if (!collab) return errorResult("Social module not enabled");
+        if (!collab) return toolErrorResult("Social module not enabled");
 
         if (typeof args.title !== "string" || args.title.length === 0) {
-          return errorResult("title must be a non-empty string");
+          return toolErrorResult("title must be a non-empty string");
         }
         if (args.title.length > 128) {
-          return errorResult("title must be at most 128 characters");
+          return toolErrorResult("title must be at most 128 characters");
         }
 
         if (
           typeof args.description !== "string" ||
           args.description.length === 0
         ) {
-          return errorResult("description must be a non-empty string");
+          return toolErrorResult("description must be a non-empty string");
         }
         if (args.description.length > 1024) {
-          return errorResult("description must be at most 1024 characters");
+          return toolErrorResult("description must be at most 1024 characters");
         }
 
-        const [caps, capsErr] = safeBigInt(
+        const [caps, capsErr] = parseBigIntArg(
           args.requiredCapabilities,
           "requiredCapabilities",
         );
@@ -421,7 +410,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
           args.maxMembers < 2 ||
           args.maxMembers > 20
         ) {
-          return errorResult("maxMembers must be a number between 2 and 20");
+          return toolErrorResult("maxMembers must be a number between 2 and 20");
         }
 
         const payoutMode =
@@ -454,7 +443,7 @@ export function createSocialTools(ctx: SocialToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`social.requestCollaboration failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },

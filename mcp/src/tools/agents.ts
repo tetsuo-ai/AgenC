@@ -28,6 +28,10 @@ import {
   safeBigInt,
 } from "../utils/formatting.js";
 import { toolErrorResponse } from "./response.js";
+import {
+  filterAccountsByStatus,
+  formatEmptyStatusResult,
+} from "./status-filter.js";
 
 function formatAgentState(
   account: Record<string, unknown>,
@@ -222,25 +226,18 @@ export function registerAgentTools(server: McpServer): void {
         const program = getReadOnlyProgram();
         const accounts = await program.account.agentRegistration.all();
 
-        let filtered = accounts;
-        if (status_filter) {
-          filtered = accounts.filter((a) => {
-            const status = a.account.status as Record<string, unknown>;
-            if (typeof status === "object" && status !== null) {
-              return Object.keys(status).some((k) => k === status_filter);
-            }
-            return false;
-          });
-        }
+        const filtered = filterAccountsByStatus(
+          accounts,
+          status_filter,
+          (account) => (account.account as Record<string, unknown>).status,
+        );
 
         if (filtered.length === 0) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: status_filter
-                  ? "No agents found with status: " + status_filter
-                  : "No agents found",
+                text: formatEmptyStatusResult("agents", status_filter),
               },
             ],
           };
