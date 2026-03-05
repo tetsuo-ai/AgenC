@@ -137,7 +137,11 @@ function closeAsyncIterator(iterator: AsyncIterator<unknown>): void {
   if (typeof iterator.return !== "function") return;
   try {
     const closeResult = iterator.return();
-    if (closeResult && typeof closeResult.then === "function") {
+    if (
+      closeResult !== null &&
+      closeResult !== undefined &&
+      typeof closeResult.then === "function"
+    ) {
       void closeResult.catch(() => undefined);
     }
   } catch {
