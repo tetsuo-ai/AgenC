@@ -13,7 +13,13 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright
 # =============================================================================
 # System packages
 # =============================================================================
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl wget gnupg \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
+    && chmod 644 /etc/apt/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     # Virtual display + desktop environment
     xvfb xfce4 xfce4-terminal xfce4-whiskermenu-plugin dbus-x11 xterm kitty \
     # File manager
@@ -31,7 +37,12 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # Theme + icons
     greybird-gtk-theme papirus-icon-theme adwaita-icon-theme-full \
     # Networking/utils
-    curl ca-certificates wget gnupg \
+    net-tools iproute2 iputils-ping dnsutils lsof rsync zip file \
+    # Browser (for MCP compatibility with /opt/google/chrome/chrome)
+    google-chrome-stable \
+    # Compiler/debugger toolchain
+    build-essential gcc g++ gdb make cmake ninja-build meson pkg-config \
+    clang clangd lldb lld llvm binutils valgrind strace ltrace \
     # Developer tools
     git vim nano neovim tmux htop tree jq unzip sudo \
     # Modern CLI tools (agent-optimized)
