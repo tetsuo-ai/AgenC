@@ -1052,6 +1052,32 @@ describe("system.bash tool", () => {
       expect(mockSpawn).not.toHaveBeenCalled();
     });
 
+    it("blocks command-substitution executables in shell mode (issue #1334 regression)", async () => {
+      const tool = createBashTool();
+
+      const result = await tool.execute({
+        command: "$(printf python3) --version",
+      });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain(
+        "Command-substitution executables are not allowed",
+      );
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it("blocks backtick command-substitution executables in shell mode (issue #1334 regression)", async () => {
+      const tool = createBashTool();
+
+      const result = await tool.execute({
+        command: "`printf python3` --version",
+      });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain(
+        "Command-substitution executables are not allowed",
+      );
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
     it("enforces allow list in shell mode", async () => {
       const tool = createBashTool({ allowList: ["ls", "wc"] });
       mockSpawnSuccess("1\n");

@@ -319,17 +319,51 @@ function tokenizeShellCommand(command: string): string[] {
   return tokens;
 }
 
+function getDynamicShellExecutableReason(
+  token: string,
+  next: string | undefined,
+): string | null {
+  if ((token === "$" && next === "(") || token.startsWith("$(")) {
+    return (
+      "Command-substitution executables are not allowed in shell mode; " +
+      "use an explicit command name/path."
+    );
+  }
+
+  if (token === "`" || token.startsWith("`")) {
+    return (
+      "Command-substitution executables are not allowed in shell mode; " +
+      "use an explicit command name/path."
+    );
+  }
+
+  return null;
+}
+
 /**
  * Extract executable candidates from a shell command string.
  * We validate every detected executable against deny/allow policy.
  */
-function extractShellExecutables(command: string): string[] {
+function extractShellExecutables(
+  command: string,
+): { executables: string[]; dynamicExecutableReason: string | null } {
   const tokens = tokenizeShellCommand(command);
   const executables: string[] = [];
   let expectCommand = true;
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
+    const next = tokens[i + 1];
+
+    if (expectCommand) {
+      const dynamicExecutableReason = getDynamicShellExecutableReason(
+        token,
+        next,
+      );
+      if (dynamicExecutableReason) {
+        return { executables, dynamicExecutableReason };
+      }
+    }
 
     if (SHELL_COMMAND_SEPARATORS.has(token)) {
       expectCommand = true;
@@ -349,7 +383,6 @@ function extractShellExecutables(command: string): string[] {
     }
 
     // Handle numeric file-descriptor redirects like `2>/tmp/x`.
-    const next = tokens[i + 1];
     if (/^\d+$/.test(token) && next && SHELL_REDIRECT_OPERATORS.has(next)) {
       i += 2;
       continue;
@@ -376,7 +409,7 @@ function extractShellExecutables(command: string): string[] {
     expectCommand = false;
   }
 
-  return executables;
+  return { executables, dynamicExecutableReason: null };
 }
 
 /**
@@ -541,7 +574,14 @@ export function createBashTool(config?: BashToolConfig): Tool {
 
         // Enforce deny/allow policy for each executable discovered in shell mode.
         if (!unrestricted) {
-          const shellExecutables = extractShellExecutables(command);
+          const {
+            executables: shellExecutables,
+            dynamicExecutableReason,
+          } = extractShellExecutables(command);
+          if (dynamicExecutableReason) {
+            logger.warn(`Bash tool shell-mode denied: ${dynamicExecutableReason}`);
+            return errorResult(dynamicExecutableReason);
+          }
           for (const shellExecutable of shellExecutables) {
             const check = isCommandAllowed(
               shellExecutable,
