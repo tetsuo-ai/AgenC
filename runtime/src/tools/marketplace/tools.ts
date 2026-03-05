@@ -11,6 +11,10 @@ import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import type { ServiceMarketplace } from "../../marketplace/service-marketplace.js";
 import type { Logger } from "../../utils/logger.js";
+import {
+  parseBigIntArg,
+  toolErrorResult,
+} from "../shared/helpers.js";
 
 // ============================================================================
 // Context
@@ -20,25 +24,6 @@ export interface MarketplaceToolsContext {
   getMarketplace: () => ServiceMarketplace | null;
   actorId: string;
   logger: Logger;
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function errorResult(message: string): ToolResult {
-  return { content: safeStringify({ error: message }), isError: true };
-}
-
-function safeBigInt(
-  value: unknown,
-  fieldName: string,
-): [bigint, null] | [null, ToolResult] {
-  try {
-    return [BigInt(value as string), null];
-  } catch {
-    return [null, errorResult(`Invalid ${fieldName}: must be a numeric string`)];
-  }
 }
 
 // ============================================================================
@@ -97,24 +82,24 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const marketplace = ctx.getMarketplace();
-        if (!marketplace) return errorResult("Marketplace not enabled");
+        if (!marketplace) return toolErrorResult("Marketplace not enabled");
 
         if (
           typeof args.serviceId !== "string" ||
           args.serviceId.length === 0
         ) {
-          return errorResult("serviceId must be a non-empty string");
+          return toolErrorResult("serviceId must be a non-empty string");
         }
         if (typeof args.title !== "string" || args.title.length === 0) {
-          return errorResult("title must be a non-empty string");
+          return toolErrorResult("title must be a non-empty string");
         }
 
-        const [budget, budgetErr] = safeBigInt(args.budget, "budget");
+        const [budget, budgetErr] = parseBigIntArg(args.budget, "budget");
         if (budgetErr) return budgetErr;
 
         let requiredCapabilities = 0n;
         if (args.requiredCapabilities !== undefined) {
-          const [caps, capsErr] = safeBigInt(
+          const [caps, capsErr] = parseBigIntArg(
             args.requiredCapabilities,
             "requiredCapabilities",
           );
@@ -143,7 +128,7 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`marketplace.createService failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },
@@ -179,23 +164,23 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const marketplace = ctx.getMarketplace();
-        if (!marketplace) return errorResult("Marketplace not enabled");
+        if (!marketplace) return toolErrorResult("Marketplace not enabled");
 
         if (
           typeof args.serviceId !== "string" ||
           args.serviceId.length === 0
         ) {
-          return errorResult("serviceId must be a non-empty string");
+          return toolErrorResult("serviceId must be a non-empty string");
         }
 
-        const [price, priceErr] = safeBigInt(args.price, "price");
+        const [price, priceErr] = parseBigIntArg(args.price, "price");
         if (priceErr) return priceErr;
 
         if (
           typeof args.deliveryTime !== "number" ||
           args.deliveryTime <= 0
         ) {
-          return errorResult("deliveryTime must be a positive number");
+          return toolErrorResult("deliveryTime must be a positive number");
         }
 
         try {
@@ -213,7 +198,7 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`marketplace.bidOnService failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },
@@ -245,7 +230,7 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const marketplace = ctx.getMarketplace();
-        if (!marketplace) return errorResult("Marketplace not enabled");
+        if (!marketplace) return toolErrorResult("Marketplace not enabled");
 
         try {
           const filters: Record<string, unknown> = {};
@@ -254,12 +239,12 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
             filters.status = args.status;
           }
           if (args.minBudget !== undefined) {
-            const [min, minErr] = safeBigInt(args.minBudget, "minBudget");
+            const [min, minErr] = parseBigIntArg(args.minBudget, "minBudget");
             if (minErr) return minErr;
             filters.minBudget = min;
           }
           if (args.maxBudget !== undefined) {
-            const [max, maxErr] = safeBigInt(args.maxBudget, "maxBudget");
+            const [max, maxErr] = parseBigIntArg(args.maxBudget, "maxBudget");
             if (maxErr) return maxErr;
             filters.maxBudget = max;
           }
@@ -277,7 +262,7 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`marketplace.listServices failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },
@@ -301,13 +286,13 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
       },
       async execute(args: Record<string, unknown>): Promise<ToolResult> {
         const marketplace = ctx.getMarketplace();
-        if (!marketplace) return errorResult("Marketplace not enabled");
+        if (!marketplace) return toolErrorResult("Marketplace not enabled");
 
         if (
           typeof args.serviceId !== "string" ||
           args.serviceId.length === 0
         ) {
-          return errorResult("serviceId must be a non-empty string");
+          return toolErrorResult("serviceId must be a non-empty string");
         }
 
         try {
@@ -323,7 +308,7 @@ export function createMarketplaceTools(ctx: MarketplaceToolsContext): Tool[] {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           ctx.logger.error?.(`marketplace.listBids failed: ${msg}`);
-          return errorResult(msg);
+          return toolErrorResult(msg);
         }
       },
     },

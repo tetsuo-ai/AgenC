@@ -87,6 +87,7 @@ export interface DesktopExecutorResult {
 // ============================================================================
 
 const DESKTOP_EXECUTOR_SESSION = "desktop-executor";
+const PROGRESS_BROADCAST_EVERY_STEPS = 3;
 let goalCounter = 0;
 
 function generateGoalId(): string {
@@ -416,7 +417,10 @@ export class DesktopExecutor {
         }
 
         // d. PROGRESS — broadcast every 3 steps
-        if (this.communicator && stepNumber % 3 === 0) {
+        if (
+          this.communicator &&
+          stepNumber % PROGRESS_BROADCAST_EVERY_STEPS === 0
+        ) {
           await this.communicator
             .broadcast(
               `Desktop executor progress: step ${stepNumber}/${planSteps.length} — ${planStep.description}`,

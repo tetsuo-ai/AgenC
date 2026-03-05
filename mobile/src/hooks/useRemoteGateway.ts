@@ -8,7 +8,10 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import type { ConnectionStatus, GatewayConnection } from '../types';
 import {
+  classifyGatewayControlMessage,
   computeReconnectDelayMs,
+  DEFAULT_GATEWAY_MAX_OFFLINE_QUEUE,
+  DEFAULT_GATEWAY_PING_INTERVAL_MS,
   DEFAULT_GATEWAY_SOCKET_BACKOFF,
   enqueueBounded,
   flushQueueIfOpen,
@@ -16,9 +19,6 @@ import {
   serializeAuthMessage,
   serializePingMessage,
 } from '../../../runtime/src/channels/webchat/socket-client-core';
-
-const MAX_OFFLINE_QUEUE = 1000;
-const PING_INTERVAL_MS = 30_000;
 
 interface UseRemoteGatewayOptions {
   connection: GatewayConnection | null;
@@ -70,7 +70,7 @@ export function useRemoteGateway({
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(serializePingMessage());
       }
-    }, PING_INTERVAL_MS);
+    }, DEFAULT_GATEWAY_PING_INTERVAL_MS);
   }, [stopPing]);
 
   const clearReconnect = useCallback(() => {
@@ -90,7 +90,11 @@ export function useRemoteGateway({
   }, []);
 
   const enqueue = useCallback((msg: string) => {
-    enqueueBounded(offlineQueueRef.current, msg, MAX_OFFLINE_QUEUE);
+    enqueueBounded(
+      offlineQueueRef.current,
+      msg,
+      DEFAULT_GATEWAY_MAX_OFFLINE_QUEUE,
+    );
     setQueueSize(offlineQueueRef.current.length);
   }, []);
 
@@ -118,23 +122,24 @@ export function useRemoteGateway({
         return;
       }
 
-      if (parsed && typeof parsed === 'object') {
-        const msg = parsed as Record<string, unknown>;
-        if (msg.type === 'auth') {
-          if (msg.error) {
-            offlineQueueRef.current.length = 0;
-            setQueueSize(0);
-            setStatus('disconnected');
-            onAuthFailedRef.current?.(String(msg.error));
-            ws.close();
-            return;
-          }
-          reconnectAttemptRef.current = 0;
-          setStatus('connected');
-          startPing();
-          flushQueue();
-          return;
-        }
+      const control = classifyGatewayControlMessage(parsed);
+      if (control.kind === 'auth_error') {
+        offlineQueueRef.current.length = 0;
+        setQueueSize(0);
+        setStatus('disconnected');
+        onAuthFailedRef.current?.(control.error ?? 'Authentication failed');
+        ws.close();
+        return;
+      }
+      if (control.kind === 'auth_ok') {
+        reconnectAttemptRef.current = 0;
+        setStatus('connected');
+        startPing();
+        flushQueue();
+        return;
+      }
+      if (control.kind === 'pong') {
+        return;
       }
 
       onMessageRef.current?.(parsed);

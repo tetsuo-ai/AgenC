@@ -678,22 +678,37 @@ export function createBashTool(config?: BashToolConfig): Tool {
             stderrBuf += chunk.toString();
           });
 
-          const timer = setTimeout(() => {
-            timedOut = true;
-            // Kill entire process group (bash + any backgrounded children)
-            try {
-              process.kill(-child.pid!, "SIGTERM");
-            } catch {
-              child.kill("SIGTERM");
-            }
-            try { unlinkSync(scriptPath); } catch { /* best-effort */ }
-          }, timeout);
+	          const timer = setTimeout(() => {
+	            timedOut = true;
+	            // Kill entire process group (bash + any backgrounded children)
+	            try {
+	              process.kill(-child.pid!, "SIGTERM");
+	            } catch (error) {
+	              logger.debug("Bash tool process-group SIGTERM failed; falling back to child.kill", {
+	                error: error instanceof Error ? error.message : String(error),
+	              });
+	              child.kill("SIGTERM");
+	            }
+	            try {
+	              unlinkSync(scriptPath);
+	            } catch (error) {
+	              logger.debug("Bash tool script cleanup failed after timeout", {
+	                error: error instanceof Error ? error.message : String(error),
+	              });
+	            }
+	          }, timeout);
 
-          const doResolve = (code: number | null) => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timer);
-            try { unlinkSync(scriptPath); } catch { /* best-effort cleanup */ }
+	          const doResolve = (code: number | null) => {
+	            if (resolved) return;
+	            resolved = true;
+	            clearTimeout(timer);
+	            try {
+	              unlinkSync(scriptPath);
+	            } catch (error) {
+	              logger.debug("Bash tool script cleanup failed on resolve", {
+	                error: error instanceof Error ? error.message : String(error),
+	              });
+	            }
 
             const durationMs = Date.now() - startTime;
             const exitCode = timedOut ? null : (code ?? 1);
@@ -751,12 +766,18 @@ export function createBashTool(config?: BashToolConfig): Tool {
             setTimeout(() => doResolve(code), 50);
           });
 
-          child.on("error", (err) => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timer);
-            try { unlinkSync(scriptPath); } catch { /* best-effort cleanup */ }
-            const durationMs = Date.now() - startTime;
+	          child.on("error", (err) => {
+	            if (resolved) return;
+	            resolved = true;
+	            clearTimeout(timer);
+	            try {
+	              unlinkSync(scriptPath);
+	            } catch (error) {
+	              logger.debug("Bash tool script cleanup failed on child error", {
+	                error: error instanceof Error ? error.message : String(error),
+	              });
+	            }
+	            const durationMs = Date.now() - startTime;
             resolve({
               content: safeStringify({
                 error: err.message,

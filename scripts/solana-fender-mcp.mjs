@@ -5,6 +5,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { normalizeMcpContent } from "./lib/mcp-content-normalize.mjs";
 
 function defaultAnchorWalletPath() {
   const home = process.env.HOME;
@@ -90,29 +91,6 @@ function usage() {
   );
 }
 
-function normalizeContent(content) {
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (item && typeof item === "object" && item.type === "text") {
-          return item.text ?? "";
-        }
-        try {
-          return JSON.stringify(item);
-        } catch {
-          return String(item);
-        }
-      })
-      .join("\n");
-  }
-  if (typeof content === "string") return content;
-  try {
-    return JSON.stringify(content, null, 2);
-  } catch {
-    return String(content);
-  }
-}
-
 async function main() {
   const action = process.argv[2];
   const target = process.argv[3];
@@ -151,7 +129,7 @@ async function main() {
         DEFAULT_SERVER_CONFIG.timeout,
         "security_check_file",
       );
-      const text = normalizeContent(result?.content);
+      const text = normalizeMcpContent(result?.content, { pretty: true });
       if (text) console.log(text);
       process.exit(result?.isError ? 1 : 0);
       return;
@@ -167,7 +145,7 @@ async function main() {
         DEFAULT_SERVER_CONFIG.timeout,
         "security_check_program",
       );
-      const text = normalizeContent(result?.content);
+      const text = normalizeMcpContent(result?.content, { pretty: true });
       if (text) console.log(text);
       process.exit(result?.isError ? 1 : 0);
       return;

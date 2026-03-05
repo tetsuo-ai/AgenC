@@ -873,8 +873,16 @@ export function registerInspectorTools(server: McpServer): void {
             } else {
               lines.push("[" + ixIndex + "] AgenC: (could not decode)");
             }
-          } catch {
-            lines.push("[" + ixIndex + "] AgenC: (decode error)");
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            lines.push(
+              "[" +
+                ixIndex +
+                "] AgenC: (decode error: " +
+                message +
+                ")",
+            );
           }
         } else {
           lines.push(

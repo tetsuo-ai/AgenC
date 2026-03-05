@@ -18,13 +18,38 @@ import {
   LAMPORTS_PER_SOL,
   SendTransactionError,
 } from '@solana/web3.js';
-import * as bs58 from 'bs58';
+import * as bs58Module from 'bs58';
 import { fileURLToPath } from 'node:url';
 import type { AgencCoordination } from '../src/types/agenc_coordination.js';
 
 const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
   'BPFLoaderUpgradeab1e11111111111111111111111'
 );
+
+const bs58 = (() => {
+  const candidate = bs58Module as unknown as {
+    encode?: (input: Uint8Array | Buffer) => string;
+    decode?: (input: string) => Uint8Array;
+    default?: {
+      encode?: (input: Uint8Array | Buffer) => string;
+      decode?: (input: string) => Uint8Array;
+    };
+  };
+  if (typeof candidate.encode === 'function' && typeof candidate.decode === 'function') {
+    return candidate as {
+      encode: (input: Uint8Array | Buffer) => string;
+      decode: (input: string) => Uint8Array;
+    };
+  }
+  const fallback = candidate.default;
+  if (fallback && typeof fallback.encode === 'function' && typeof fallback.decode === 'function') {
+    return fallback as {
+      encode: (input: Uint8Array | Buffer) => string;
+      decode: (input: string) => Uint8Array;
+    };
+  }
+  throw new Error('Unsupported bs58 module shape');
+})();
 
 /**
  * Patch LiteSVMProvider.sendAndConfirm to fix anchor-litesvm's sendWithErr

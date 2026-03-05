@@ -10,6 +10,9 @@ export const DEFAULT_GATEWAY_SOCKET_BACKOFF: GatewaySocketBackoffConfig = {
   jitterFactor: 0.2,
 };
 
+export const DEFAULT_GATEWAY_PING_INTERVAL_MS = 30_000;
+export const DEFAULT_GATEWAY_MAX_OFFLINE_QUEUE = 1_000;
+
 export function computeReconnectDelayMs(
   attempt: number,
   config: GatewaySocketBackoffConfig = DEFAULT_GATEWAY_SOCKET_BACKOFF,
@@ -66,4 +69,34 @@ export function serializeAuthMessage(token: string): string {
 export function parseJsonMessage(raw: unknown): unknown {
   if (typeof raw !== "string") return raw;
   return JSON.parse(raw);
+}
+
+export type GatewayControlMessageKind =
+  | "auth_ok"
+  | "auth_error"
+  | "pong"
+  | "other";
+
+export interface GatewayControlMessage {
+  kind: GatewayControlMessageKind;
+  error?: string;
+}
+
+export function classifyGatewayControlMessage(
+  parsed: unknown,
+): GatewayControlMessage {
+  if (!parsed || typeof parsed !== "object") {
+    return { kind: "other" };
+  }
+  const message = parsed as Record<string, unknown>;
+  if (message.type === "auth") {
+    if (message.error) {
+      return { kind: "auth_error", error: String(message.error) };
+    }
+    return { kind: "auth_ok" };
+  }
+  if (message.type === "pong") {
+    return { kind: "pong" };
+  }
+  return { kind: "other" };
 }

@@ -390,21 +390,7 @@ export class DependencyGraph {
         const childColor = color.get(childKey) ?? WHITE;
 
         if (childColor === GRAY) {
-          const cycle: PublicKey[] = [];
-          let currentKey: string | null = nodeKey;
-          while (currentKey !== null && currentKey !== childKey) {
-            const node = this.nodes.get(currentKey);
-            if (node) {
-              cycle.unshift(node.taskPda);
-            }
-            currentKey = parent.get(currentKey) ?? null;
-          }
-
-          const closingNode = this.nodes.get(childKey);
-          if (closingNode) {
-            cycle.unshift(closingNode.taskPda);
-          }
-
+          const cycle = this.buildCyclePath(parent, nodeKey, childKey);
           if (cycle.length > 0) {
             cycles.push(cycle);
           }
@@ -427,6 +413,30 @@ export class DependencyGraph {
     }
 
     return cycles;
+  }
+
+  private buildCyclePath(
+    parent: Map<string, string | null>,
+    nodeKey: string,
+    childKey: string,
+  ): PublicKey[] {
+    const cycle: PublicKey[] = [];
+    let currentKey: string | null = nodeKey;
+
+    while (currentKey !== null && currentKey !== childKey) {
+      const node = this.nodes.get(currentKey);
+      if (node) {
+        cycle.unshift(node.taskPda);
+      }
+      currentKey = parent.get(currentKey) ?? null;
+    }
+
+    const closingNode = this.nodes.get(childKey);
+    if (closingNode) {
+      cycle.unshift(closingNode.taskPda);
+    }
+
+    return cycle;
   }
 
   /**

@@ -107,6 +107,401 @@ function parseDelegationFailureReason(output: string): string {
   return trimmed;
 }
 
+type DelegationContext = NonNullable<
+  ReturnType<NonNullable<DelegationToolCompositionResolver>>
+>;
+type DelegationSubAgentManager = NonNullable<DelegationContext["subAgentManager"]>;
+type DelegationSubAgentInfo = ReturnType<DelegationSubAgentManager["getInfo"]>;
+type DelegationLifecycleEmitter = DelegationContext["lifecycleEmitter"];
+type DelegationVerifier = DelegationContext["verifier"];
+
+function sendDeniedToolResult(params: {
+  send: (msg: ControlResponse) => void;
+  toolName: string;
+  result: string;
+  toolCallId: string;
+  sessionId: string;
+  isSubAgentSession: boolean;
+}): void {
+  const { send, toolName, result, toolCallId, sessionId, isSubAgentSession } =
+    params;
+  send({
+    type: "tools.result",
+    payload: {
+      toolName,
+      result,
+      durationMs: 0,
+      isError: true,
+      toolCallId,
+      ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
+    },
+  });
+}
+
+function buildApprovalMessage(params: {
+  ruleDescription?: string;
+  toolName: string;
+  sessionId: string;
+  isSubAgentSession: boolean;
+  subAgentInfo: DelegationSubAgentInfo | null;
+}): string {
+  const {
+    ruleDescription,
+    toolName,
+    sessionId,
+    isSubAgentSession,
+    subAgentInfo,
+  } = params;
+  const baseMessage = ruleDescription ?? `Approval required for ${toolName}`;
+  if (!isSubAgentSession || !subAgentInfo) return baseMessage;
+  const taskPreview = truncateText(
+    subAgentInfo.task.trim(),
+    APPROVAL_TASK_PREVIEW_MAX_CHARS,
+  );
+  return (
+    `${baseMessage}\n` +
+    `Parent session: ${subAgentInfo.parentSessionId}\n` +
+    `Sub-agent session: ${sessionId}\n` +
+    `Delegated task: ${taskPreview}`
+  );
+}
+
+async function runApprovalGate(params: {
+  approvalEngine: ApprovalEngine | undefined;
+  name: string;
+  args: Record<string, unknown>;
+  sessionId: string;
+  parentSessionId: string | undefined;
+  isSubAgentSession: boolean;
+  subAgentInfo: DelegationSubAgentInfo | null;
+  lifecycleEmitter: DelegationLifecycleEmitter;
+  send: (msg: ControlResponse) => void;
+  onToolEnd: SessionToolHandlerConfig["onToolEnd"];
+  toolCallId: string;
+}): Promise<string | null> {
+  const {
+    approvalEngine,
+    name,
+    args,
+    sessionId,
+    parentSessionId,
+    isSubAgentSession,
+    subAgentInfo,
+    lifecycleEmitter,
+    send,
+    onToolEnd,
+    toolCallId,
+  } = params;
+  if (!approvalEngine) {
+    return null;
+  }
+
+  const rule = approvalEngine.requiresApproval(name, args);
+  if (!rule || approvalEngine.isToolElevated(sessionId, name)) {
+    return null;
+  }
+
+  if (approvalEngine.isToolDenied(sessionId, name, parentSessionId)) {
+    const err = JSON.stringify({
+      error:
+        `Tool "${name}" blocked because this action was denied earlier in the request tree`,
+    });
+    sendDeniedToolResult({
+      send,
+      toolName: name,
+      result: err,
+      toolCallId,
+      sessionId,
+      isSubAgentSession,
+    });
+    if (isSubAgentSession && lifecycleEmitter) {
+      lifecycleEmitter.emit({
+        type: "subagents.failed",
+        timestamp: Date.now(),
+        sessionId,
+        subagentSessionId: sessionId,
+        ...(parentSessionId ? { parentSessionId } : {}),
+        toolName: name,
+        payload: {
+          stage: "approval",
+          reason: "denied_previously",
+          toolCallId,
+        },
+      });
+    }
+    onToolEnd?.(name, err, 0, toolCallId);
+    return err;
+  }
+
+  const approvalMessage = buildApprovalMessage({
+    ruleDescription: rule.description,
+    toolName: name,
+    sessionId,
+    isSubAgentSession,
+    subAgentInfo,
+  });
+  const request = approvalEngine.createRequest(
+    name,
+    args,
+    sessionId,
+    approvalMessage,
+    rule,
+    {
+      ...(parentSessionId ? { parentSessionId } : {}),
+      ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
+    },
+  );
+  send({
+    type: "approval.request",
+    payload: {
+      requestId: request.id,
+      action: name,
+      details: args,
+      message: request.message,
+      ...(request.parentSessionId
+        ? { parentSessionId: request.parentSessionId }
+        : {}),
+      ...(request.subagentSessionId
+        ? { subagentSessionId: request.subagentSessionId }
+        : {}),
+    },
+  });
+
+  const response = await approvalEngine.requestApproval(request);
+  if (response.disposition === "no") {
+    const err = JSON.stringify({ error: `Tool "${name}" denied by user` });
+    sendDeniedToolResult({
+      send,
+      toolName: name,
+      result: err,
+      toolCallId,
+      sessionId,
+      isSubAgentSession,
+    });
+    if (isSubAgentSession && lifecycleEmitter) {
+      lifecycleEmitter.emit({
+        type: "subagents.failed",
+        timestamp: Date.now(),
+        sessionId,
+        subagentSessionId: sessionId,
+        toolName: name,
+        payload: {
+          stage: "approval",
+          reason: "denied",
+          toolCallId,
+        },
+      });
+    }
+    onToolEnd?.(name, err, 0, toolCallId);
+    return err;
+  }
+
+  if (response.disposition === "always") {
+    approvalEngine.elevate(sessionId, name);
+  }
+  return null;
+}
+
+async function executeDelegationTool(params: {
+  toolArgs: Record<string, unknown>;
+  name: string;
+  sessionId: string;
+  toolCallId: string;
+  subAgentManager: DelegationSubAgentManager | null;
+  lifecycleEmitter: DelegationLifecycleEmitter;
+  verifier: DelegationVerifier;
+}): Promise<string> {
+  const {
+    toolArgs,
+    name,
+    sessionId,
+    toolCallId,
+    subAgentManager,
+    lifecycleEmitter,
+    verifier,
+  } = params;
+  if (!subAgentManager) {
+    return JSON.stringify({
+      error:
+        "Delegation runtime unavailable: sub-agent manager is not initialized",
+    });
+  }
+
+  const parsedInput = parseExecuteWithAgentInput(toolArgs);
+  if (!parsedInput.ok) {
+    lifecycleEmitter?.emit({
+      type: "subagents.failed",
+      timestamp: Date.now(),
+      sessionId,
+      parentSessionId: sessionId,
+      toolName: name,
+      payload: {
+        stage: "validation",
+        reason: parsedInput.error,
+        toolCallId,
+      },
+    });
+    return JSON.stringify({ error: parsedInput.error });
+  }
+
+  const input = parsedInput.value;
+  const objective = input.objective ?? input.task;
+  let childSessionId: string;
+  try {
+    childSessionId = await subAgentManager.spawn({
+      parentSessionId: sessionId,
+      task: input.task,
+      ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.tools ? { tools: input.tools } : {}),
+      ...(input.requiredToolCapabilities
+        ? { requiredCapabilities: input.requiredToolCapabilities }
+        : {}),
+    });
+  } catch (error) {
+    const message = toErrorString(error);
+    lifecycleEmitter?.emit({
+      type: "subagents.failed",
+      timestamp: Date.now(),
+      sessionId,
+      parentSessionId: sessionId,
+      toolName: name,
+      payload: {
+        stage: "spawn",
+        objective,
+        reason: message,
+        toolCallId,
+      },
+    });
+    return JSON.stringify({
+      error: `Failed to spawn sub-agent: ${message}`,
+    });
+  }
+
+  const startedAt = Date.now();
+  lifecycleEmitter?.emit({
+    type: "subagents.spawned",
+    timestamp: startedAt,
+    sessionId,
+    parentSessionId: sessionId,
+    subagentSessionId: childSessionId,
+    toolName: name,
+    payload: {
+      objective,
+      ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.tools ? { tools: input.tools } : {}),
+      ...(input.requiredToolCapabilities
+        ? { requiredToolCapabilities: input.requiredToolCapabilities }
+        : {}),
+      toolCallId,
+    },
+  });
+  lifecycleEmitter?.emit({
+    type: "subagents.started",
+    timestamp: Date.now(),
+    sessionId,
+    parentSessionId: sessionId,
+    subagentSessionId: childSessionId,
+    toolName: name,
+    payload: {
+      objective,
+      toolCallId,
+    },
+  });
+
+  let lastProgressAt = startedAt;
+  while (true) {
+    const childResult = subAgentManager.getResult(childSessionId);
+    if (!childResult) {
+      const now = Date.now();
+      if (now - lastProgressAt >= DELEGATION_PROGRESS_INTERVAL_MS) {
+        lifecycleEmitter?.emit({
+          type: "subagents.progress",
+          timestamp: now,
+          sessionId,
+          parentSessionId: sessionId,
+          subagentSessionId: childSessionId,
+          toolName: name,
+          payload: {
+            objective,
+            elapsedMs: now - startedAt,
+            toolCallId,
+          },
+        });
+        lastProgressAt = now;
+      }
+      await sleepMs(DELEGATION_POLL_INTERVAL_MS);
+      continue;
+    }
+
+    const childInfo = subAgentManager.getInfo(childSessionId);
+    const finalStatus =
+      childInfo?.status ?? (childResult.success ? "completed" : "failed");
+
+    if (childResult.success) {
+      lifecycleEmitter?.emit({
+        type: "subagents.completed",
+        timestamp: Date.now(),
+        sessionId,
+        parentSessionId: sessionId,
+        subagentSessionId: childSessionId,
+        toolName: name,
+        payload: {
+          objective,
+          durationMs: childResult.durationMs,
+          toolCalls: childResult.toolCalls.length,
+          providerName: childResult.providerName,
+          output: childResult.output,
+          toolCallId,
+          verifyRequested: verifier?.shouldVerifySubAgentResult() ?? false,
+        },
+      });
+      return JSON.stringify({
+        success: true,
+        status: finalStatus,
+        subagentSessionId: childSessionId,
+        objective,
+        output: childResult.output,
+        durationMs: childResult.durationMs,
+        toolCalls: childResult.toolCalls.length,
+        providerName: childResult.providerName,
+        tokenUsage: childResult.tokenUsage,
+      });
+    }
+
+    const reason = parseDelegationFailureReason(childResult.output);
+    const terminalType =
+      finalStatus === "cancelled" ? "subagents.cancelled" : "subagents.failed";
+    lifecycleEmitter?.emit({
+      type: terminalType,
+      timestamp: Date.now(),
+      sessionId,
+      parentSessionId: sessionId,
+      subagentSessionId: childSessionId,
+      toolName: name,
+      payload: {
+        objective,
+        reason,
+        output: childResult.output,
+        durationMs: childResult.durationMs,
+        toolCalls: childResult.toolCalls.length,
+        toolCallId,
+      },
+    });
+    return JSON.stringify({
+      success: false,
+      status: finalStatus,
+      subagentSessionId: childSessionId,
+      objective,
+      error: reason,
+      output: childResult.output,
+      durationMs: childResult.durationMs,
+      toolCalls: childResult.toolCalls.length,
+      providerName: childResult.providerName,
+      tokenUsage: childResult.tokenUsage,
+    });
+  }
+}
+
 // ============================================================================
 // Config
 // ============================================================================
@@ -184,12 +579,13 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     const delegationContext = delegation?.();
+    const subAgentManager = delegationContext?.subAgentManager ?? null;
     const policyEngine = delegationContext?.policyEngine ?? null;
     const verifier = delegationContext?.verifier ?? null;
     const lifecycleEmitter = delegationContext?.lifecycleEmitter ?? null;
     const isSubAgentSession = isSubAgentSessionId(sessionId);
     const subAgentInfo = isSubAgentSession
-      ? delegationContext?.subAgentManager?.getInfo(sessionId) ?? null
+      ? subAgentManager?.getInfo(sessionId) ?? null
       : null;
     const parentSessionId = subAgentInfo?.parentSessionId;
 
@@ -303,118 +699,21 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     });
 
     // 4. Approval gate
-    if (approvalEngine) {
-      const rule = approvalEngine.requiresApproval(name, args);
-      if (rule && !approvalEngine.isToolElevated(sessionId, name)) {
-        if (approvalEngine.isToolDenied(sessionId, name, parentSessionId)) {
-          const err = JSON.stringify({
-            error:
-              `Tool "${name}" blocked because this action was denied earlier in the request tree`,
-          });
-          send({
-            type: 'tools.result',
-            payload: {
-              toolName: name,
-              result: err,
-              durationMs: 0,
-              isError: true,
-              toolCallId,
-              ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
-            },
-          });
-          if (isSubAgentSession && lifecycleEmitter) {
-            lifecycleEmitter.emit({
-              type: 'subagents.failed',
-              timestamp: Date.now(),
-              sessionId,
-              subagentSessionId: sessionId,
-              ...(parentSessionId ? { parentSessionId } : {}),
-              toolName: name,
-              payload: {
-                stage: 'approval',
-                reason: 'denied_previously',
-                toolCallId,
-              },
-            });
-          }
-          onToolEnd?.(name, err, 0, toolCallId);
-          return err;
-        }
-        const approvalMessage = (() => {
-          const baseMessage = rule.description ?? `Approval required for ${name}`;
-          if (!isSubAgentSession || !subAgentInfo) return baseMessage;
-          const taskPreview = truncateText(
-            subAgentInfo.task.trim(),
-            APPROVAL_TASK_PREVIEW_MAX_CHARS,
-          );
-          return (
-            `${baseMessage}\n` +
-            `Parent session: ${subAgentInfo.parentSessionId}\n` +
-            `Sub-agent session: ${sessionId}\n` +
-            `Delegated task: ${taskPreview}`
-          );
-        })();
-        const request = approvalEngine.createRequest(
-          name,
-          args,
-          sessionId,
-          approvalMessage,
-          rule,
-          {
-            ...(parentSessionId ? { parentSessionId } : {}),
-            ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
-          },
-        );
-        send({
-          type: 'approval.request',
-          payload: {
-            requestId: request.id,
-            action: name,
-            details: args,
-            message: request.message,
-            ...(request.parentSessionId
-              ? { parentSessionId: request.parentSessionId }
-              : {}),
-            ...(request.subagentSessionId
-              ? { subagentSessionId: request.subagentSessionId }
-              : {}),
-          },
-        });
-        const response = await approvalEngine.requestApproval(request);
-        if (response.disposition === 'no') {
-          const err = JSON.stringify({ error: `Tool "${name}" denied by user` });
-          send({
-            type: 'tools.result',
-            payload: {
-              toolName: name,
-              result: err,
-              durationMs: 0,
-              isError: true,
-              toolCallId,
-              ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
-            },
-          });
-          if (isSubAgentSession && lifecycleEmitter) {
-            lifecycleEmitter.emit({
-              type: 'subagents.failed',
-              timestamp: Date.now(),
-              sessionId,
-              subagentSessionId: sessionId,
-              toolName: name,
-              payload: {
-                stage: 'approval',
-                reason: 'denied',
-                toolCallId,
-              },
-            });
-          }
-          onToolEnd?.(name, err, 0, toolCallId);
-          return err;
-        }
-        if (response.disposition === 'always') {
-          approvalEngine.elevate(sessionId, name);
-        }
-      }
+    const approvalError = await runApprovalGate({
+      approvalEngine,
+      name,
+      args,
+      sessionId,
+      parentSessionId,
+      isSubAgentSession,
+      subAgentInfo,
+      lifecycleEmitter,
+      send,
+      onToolEnd,
+      toolCallId,
+    });
+    if (approvalError) {
+      return approvalError;
     }
 
     // 5. Select handler: delegation executor or desktop-aware/base handler
@@ -422,191 +721,16 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       ? desktopRouterFactory(routerId)
       : baseHandler;
     const activeHandler: ToolHandler = name === EXECUTE_WITH_AGENT_TOOL_NAME
-      ? async (_toolName, toolArgs) => {
-        const subAgentManager = delegationContext?.subAgentManager ?? null;
-        if (!subAgentManager) {
-          return JSON.stringify({
-            error:
-              "Delegation runtime unavailable: sub-agent manager is not initialized",
-          });
-        }
-
-        const parsedInput = parseExecuteWithAgentInput(toolArgs);
-        if (!parsedInput.ok) {
-          lifecycleEmitter?.emit({
-            type: "subagents.failed",
-            timestamp: Date.now(),
-            sessionId,
-            parentSessionId: sessionId,
-            toolName: name,
-            payload: {
-              stage: "validation",
-              reason: parsedInput.error,
-              toolCallId,
-            },
-          });
-          return JSON.stringify({ error: parsedInput.error });
-        }
-
-        const input = parsedInput.value;
-        const objective = input.objective ?? input.task;
-        let childSessionId: string;
-        try {
-          childSessionId = await subAgentManager.spawn({
-            parentSessionId: sessionId,
-            task: input.task,
-            ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
-            ...(input.tools ? { tools: input.tools } : {}),
-            ...(input.requiredToolCapabilities
-              ? { requiredCapabilities: input.requiredToolCapabilities }
-              : {}),
-          });
-        } catch (error) {
-          const message = toErrorString(error);
-          lifecycleEmitter?.emit({
-            type: "subagents.failed",
-            timestamp: Date.now(),
-            sessionId,
-            parentSessionId: sessionId,
-            toolName: name,
-            payload: {
-              stage: "spawn",
-              objective,
-              reason: message,
-              toolCallId,
-            },
-          });
-          return JSON.stringify({
-            error: `Failed to spawn sub-agent: ${message}`,
-          });
-        }
-
-        const startedAt = Date.now();
-        lifecycleEmitter?.emit({
-          type: "subagents.spawned",
-          timestamp: startedAt,
+      ? async (_toolName, toolArgs) =>
+        executeDelegationTool({
+          toolArgs,
+          name,
           sessionId,
-          parentSessionId: sessionId,
-          subagentSessionId: childSessionId,
-          toolName: name,
-          payload: {
-            objective,
-            ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
-            ...(input.tools ? { tools: input.tools } : {}),
-            ...(input.requiredToolCapabilities
-              ? { requiredToolCapabilities: input.requiredToolCapabilities }
-              : {}),
-            toolCallId,
-          },
-        });
-        lifecycleEmitter?.emit({
-          type: "subagents.started",
-          timestamp: Date.now(),
-          sessionId,
-          parentSessionId: sessionId,
-          subagentSessionId: childSessionId,
-          toolName: name,
-          payload: {
-            objective,
-            toolCallId,
-          },
-        });
-
-        let lastProgressAt = startedAt;
-        while (true) {
-          const childResult = subAgentManager.getResult(childSessionId);
-          if (!childResult) {
-            const now = Date.now();
-            if (now - lastProgressAt >= DELEGATION_PROGRESS_INTERVAL_MS) {
-              lifecycleEmitter?.emit({
-                type: "subagents.progress",
-                timestamp: now,
-                sessionId,
-                parentSessionId: sessionId,
-                subagentSessionId: childSessionId,
-                toolName: name,
-                payload: {
-                  objective,
-                  elapsedMs: now - startedAt,
-                  toolCallId,
-                },
-              });
-              lastProgressAt = now;
-            }
-            await sleepMs(DELEGATION_POLL_INTERVAL_MS);
-            continue;
-          }
-
-          const childInfo = subAgentManager.getInfo(childSessionId);
-          const finalStatus =
-            childInfo?.status ?? (childResult.success ? "completed" : "failed");
-
-          if (childResult.success) {
-            lifecycleEmitter?.emit({
-              type: "subagents.completed",
-              timestamp: Date.now(),
-              sessionId,
-              parentSessionId: sessionId,
-              subagentSessionId: childSessionId,
-              toolName: name,
-              payload: {
-                objective,
-                durationMs: childResult.durationMs,
-                toolCalls: childResult.toolCalls.length,
-                providerName: childResult.providerName,
-                output: childResult.output,
-                toolCallId,
-                verifyRequested:
-                  verifier?.shouldVerifySubAgentResult() ?? false,
-              },
-            });
-            return JSON.stringify({
-              success: true,
-              status: finalStatus,
-              subagentSessionId: childSessionId,
-              objective,
-              output: childResult.output,
-              durationMs: childResult.durationMs,
-              toolCalls: childResult.toolCalls.length,
-              providerName: childResult.providerName,
-              tokenUsage: childResult.tokenUsage,
-            });
-          }
-
-          const reason = parseDelegationFailureReason(childResult.output);
-          const terminalType = finalStatus === "cancelled"
-            ? "subagents.cancelled"
-            : "subagents.failed";
-          lifecycleEmitter?.emit({
-            type: terminalType,
-            timestamp: Date.now(),
-            sessionId,
-            parentSessionId: sessionId,
-            subagentSessionId: childSessionId,
-            toolName: name,
-            payload: {
-              objective,
-              reason,
-              output: childResult.output,
-              durationMs: childResult.durationMs,
-              toolCalls: childResult.toolCalls.length,
-              toolCallId,
-            },
-          });
-          return JSON.stringify({
-            success: false,
-            status: finalStatus,
-            subagentSessionId: childSessionId,
-            objective,
-            error: reason,
-            output: childResult.output,
-            durationMs: childResult.durationMs,
-            toolCalls: childResult.toolCalls.length,
-            providerName: childResult.providerName,
-            tokenUsage: childResult.tokenUsage,
-          });
-        }
-      }
+          toolCallId,
+          subAgentManager,
+          lifecycleEmitter,
+          verifier,
+        })
       : routedHandler;
 
     // 6. Execute and time

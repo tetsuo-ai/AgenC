@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionState, WSMessage } from '../types';
 import {
+  classifyGatewayControlMessage,
   computeReconnectDelayMs,
+  DEFAULT_GATEWAY_MAX_OFFLINE_QUEUE,
+  DEFAULT_GATEWAY_PING_INTERVAL_MS,
   DEFAULT_GATEWAY_SOCKET_BACKOFF,
   enqueueBounded,
   flushQueueIfOpen,
@@ -22,8 +25,6 @@ function getDefaultWsUrl(): string {
 }
 
 const DEFAULT_URL = getDefaultWsUrl();
-const PING_INTERVAL_MS = 30_000;
-const MAX_OFFLINE_QUEUE = 1_000;
 
 interface UseWebSocketOptions {
   url?: string;
@@ -68,7 +69,7 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(serializePingMessage());
       }
-    }, PING_INTERVAL_MS);
+    }, DEFAULT_GATEWAY_PING_INTERVAL_MS);
   }, [stopPing]);
 
   const clearReconnect = useCallback(() => {
@@ -83,7 +84,11 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
   }, []);
 
   const enqueue = useCallback((payload: string) => {
-    enqueueBounded(offlineQueueRef.current, payload, MAX_OFFLINE_QUEUE);
+    enqueueBounded(
+      offlineQueueRef.current,
+      payload,
+      DEFAULT_GATEWAY_MAX_OFFLINE_QUEUE,
+    );
   }, []);
 
   const connect = useCallback(() => {
@@ -128,24 +133,22 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
         return;
       }
 
-      if (parsed && typeof parsed === 'object') {
-        const message = parsed as Record<string, unknown>;
-        if (message.type === 'auth') {
-          if (message.error) {
-            offlineQueueRef.current.length = 0;
-            setState('disconnected');
-            ws.close();
-            return;
-          }
-          reconnectAttemptRef.current = 0;
-          setState('connected');
-          startPing();
-          flushQueue();
-          return;
-        }
-        if (message.type === 'pong') {
-          return;
-        }
+      const control = classifyGatewayControlMessage(parsed);
+      if (control.kind === 'auth_error') {
+        offlineQueueRef.current.length = 0;
+        setState('disconnected');
+        ws.close();
+        return;
+      }
+      if (control.kind === 'auth_ok') {
+        reconnectAttemptRef.current = 0;
+        setState('connected');
+        startPing();
+        flushQueue();
+        return;
+      }
+      if (control.kind === 'pong') {
+        return;
       }
 
       const typedMessage = parsed as WSMessage;

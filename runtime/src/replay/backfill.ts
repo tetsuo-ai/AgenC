@@ -7,15 +7,12 @@
 import { projectOnChainEvents } from "../eval/projector.js";
 import type {
   OnChainProjectionInput,
-  ProjectedTimelineEvent,
 } from "../eval/projector.js";
 import {
   buildReplayKey,
-  computeProjectionHash,
   stableReplayCursorString,
   type BackfillFetcher,
   type BackfillResult,
-  type ReplayTimelineRecord,
   type ReplayTimelineStore,
   type ProjectedTimelineInput,
 } from "./types.js";
@@ -23,11 +20,10 @@ import {
   buildReplaySpanEvent,
   buildReplaySpanName,
   buildReplayTraceContext,
-  deriveTraceId,
   startReplaySpan,
 } from "./trace.js";
 import type { ReplayAlertDispatcher } from "./alerting.js";
-import { extractDisputePdaFromPayload } from "./pda-utils.js";
+import { toReplayStoreRecord } from "./record.js";
 
 const DEFAULT_BACKFILL_PAGE_SIZE = 100;
 
@@ -356,56 +352,4 @@ export class ReplayBackfillService {
       previousCursor = stableReplayCursorString(cursor);
     }
   }
-}
-
-function toReplayStoreRecord(
-  event: ProjectedTimelineEvent,
-): ReplayTimelineRecord {
-  const trace = (event.payload.onchain as Record<string, unknown> | undefined)
-    ?.trace as
-    | undefined
-    | {
-        traceId?: string;
-        spanId?: string;
-        parentSpanId?: string;
-        sampled?: boolean;
-      };
-
-  // Synthesize traceId from canonical tuple when trace context is absent
-  const resolvedTraceId =
-    trace?.traceId ??
-    deriveTraceId(
-      undefined,
-      event.slot,
-      event.signature,
-      event.sourceEventName,
-      event.sourceEventSequence,
-    );
-
-  const recordEvent = {
-    seq: event.seq,
-    type: event.type,
-    taskPda: event.taskPda,
-    disputePda: extractDisputePdaFromPayload(event.payload),
-    timestampMs: event.timestampMs,
-    payload: event.payload,
-    slot: event.slot,
-    signature: event.signature,
-    sourceEventName: event.sourceEventName,
-    sourceEventSequence: event.sourceEventSequence,
-    sourceEventType: event.type,
-    traceId: resolvedTraceId,
-    traceSpanId: trace?.spanId,
-    traceParentSpanId: trace?.parentSpanId,
-    traceSampled: trace?.sampled === true,
-  } as Omit<ReplayTimelineRecord, "projectionHash">;
-
-  return {
-    ...recordEvent,
-    projectionHash: computeProjectionHash({
-      ...recordEvent,
-      sourceEventName: event.sourceEventName,
-      sourceEventSequence: event.sourceEventSequence,
-    } as ReturnType<typeof projectOnChainEvents>["events"][number]),
-  };
 }
