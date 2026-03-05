@@ -20,10 +20,20 @@ function exec(cmd, args, timeoutMs = EXEC_TIMEOUT_MS) {
             maxBuffer: MAX_EXEC_BUFFER_BYTES,
             env: { ...process.env, DISPLAY },
         }, (err, stdout, stderr) => {
-            if (err)
-                reject(err);
-            else
-                resolve({ stdout, stderr });
+            if (err) {
+                const enriched = err;
+                // Preserve callback streams for non-zero exits. Some Node runtimes
+                // do not reliably populate err.stdout/err.stderr on execFile errors.
+                if (typeof enriched.stdout !== "string") {
+                    enriched.stdout = stdout ?? "";
+                }
+                if (typeof enriched.stderr !== "string") {
+                    enriched.stderr = stderr ?? "";
+                }
+                reject(enriched);
+                return;
+            }
+            resolve({ stdout, stderr });
         });
     });
 }
@@ -32,6 +42,10 @@ function ok(content) {
 }
 function fail(message) {
     return { content: JSON.stringify({ error: message }), isError: true };
+}
+function warnBestEffort(context, error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[desktop-tools] ${context}: ${message}`);
 }
 function truncateOutput(text) {
     if (text.length <= MAX_OUTPUT_BYTES)
@@ -82,7 +96,9 @@ async function screenshot() {
         return fail(`Screenshot failed: ${e instanceof Error ? e.message : e}`);
     }
     finally {
-        unlink(path).catch(() => { });
+        unlink(path).catch((error) => {
+            warnBestEffort("screenshot cleanup failed", error);
+        });
     }
 }
 async function mouseClick(args) {
@@ -277,12 +293,24 @@ async function bash(args) {
                 ...(Number.isFinite(pid) ? { pid } : {}),
             });
         }
-        const { stdout, stderr } = await exec("/bin/bash", ["-c", normalizedCommand], timeoutMs);
-        return ok({
-            stdout: truncateOutput(stdout),
-            stderr: truncateOutput(stderr),
-            exitCode: 0,
-        });
+        // Run foreground commands via a temp script file instead of `bash -c`
+        // to prevent pkill/pgrep self-matching against /proc/self/cmdline.
+        const scriptId = randomUUID().slice(0, 8);
+        const scriptPath = `/tmp/agenc-cmd-${scriptId}.sh`;
+        await writeFile(scriptPath, normalizedCommand, { mode: 0o700 });
+        try {
+            const { stdout, stderr } = await exec("/bin/bash", [scriptPath], timeoutMs);
+            return ok({
+                stdout: truncateOutput(stdout),
+                stderr: truncateOutput(stderr),
+                exitCode: 0,
+            });
+        }
+        finally {
+            unlink(scriptPath).catch((error) => {
+                warnBestEffort("temporary script cleanup failed", error);
+            });
+        }
     }
     catch (e) {
         // Non-zero exit codes are reported, not thrown
@@ -560,7 +588,9 @@ async function cleanupOrphanedRecording() {
                 /* already dead */
             }
         }
-        await unlink(RECORDING_PID_FILE).catch(() => { });
+        await unlink(RECORDING_PID_FILE).catch((error) => {
+            warnBestEffort("orphaned recording PID cleanup failed", error);
+        });
     }
     catch {
         /* no pid file */
@@ -617,7 +647,9 @@ async function videoStart(args) {
         ffmpeg.on("exit", () => {
             if (activeRecording?.pid === ffmpeg.pid) {
                 activeRecording = null;
-                unlink(RECORDING_PID_FILE).catch(() => { });
+                unlink(RECORDING_PID_FILE).catch((error) => {
+                    warnBestEffort("recording PID cleanup after exit failed", error);
+                });
             }
         });
         return ok({ recording: true, path, pid: ffmpeg.pid, framerate });
@@ -652,7 +684,9 @@ async function videoStop() {
         });
         const durationMs = Date.now() - startedAt;
         activeRecording = null;
-        await unlink(RECORDING_PID_FILE).catch(() => { });
+        await unlink(RECORDING_PID_FILE).catch((error) => {
+            warnBestEffort("recording PID cleanup after stop failed", error);
+        });
         // Verify the file exists
         try {
             await access(path);
@@ -664,7 +698,9 @@ async function videoStop() {
     }
     catch (e) {
         activeRecording = null;
-        await unlink(RECORDING_PID_FILE).catch(() => { });
+        await unlink(RECORDING_PID_FILE).catch((error) => {
+            warnBestEffort("recording PID cleanup after failure failed", error);
+        });
         return fail(`video_stop failed: ${e instanceof Error ? e.message : e}`);
     }
 }

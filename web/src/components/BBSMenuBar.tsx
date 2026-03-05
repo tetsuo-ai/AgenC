@@ -11,12 +11,15 @@ const MENU_ITEMS: { key: string; label: string; view: ViewId }[] = [
   { key: '2', label: 'DASH', view: 'status' },
   { key: '3', label: 'TOOLS', view: 'skills' },
   { key: '4', label: 'TASKS', view: 'tasks' },
-  { key: '5', label: 'DESKTOP', view: 'desktop' },
-  { key: '6', label: 'FEED', view: 'activity' },
+  { key: '5', label: 'MEMORY', view: 'memory' },
+  { key: '6', label: 'DESKTOP', view: 'desktop' },
+  { key: '7', label: 'FEED', view: 'activity' },
+  { key: '8', label: 'SETTINGS', view: 'settings' },
+  { key: '9', label: 'WALLET', view: 'payment' },
 ];
 
 export function BBSMenuBar({ currentView, onViewChange }: BBSMenuBarProps) {
-  // Keyboard shortcuts: number keys 1-6
+  // Keyboard shortcuts: number keys 1-9
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Don't capture when typing in inputs

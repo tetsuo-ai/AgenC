@@ -65,7 +65,8 @@ function toOptionalTimeout(value: unknown): number | undefined {
 export function parseExecuteWithAgentInput(
   args: Record<string, unknown>,
 ): ParseExecuteWithAgentResult {
-  const task = toNonEmptyString(args.task) ?? toNonEmptyString(args.objective);
+  const objective = toNonEmptyString(args.objective);
+  const task = objective ?? toNonEmptyString(args.task);
   if (!task) {
     return {
       ok: false,
@@ -84,7 +85,7 @@ export function parseExecuteWithAgentInput(
     ok: true,
     value: {
       task,
-      objective: toNonEmptyString(args.objective),
+      objective,
       timeoutMs: toOptionalTimeout(args.timeoutMs),
       tools,
       requiredToolCapabilities,

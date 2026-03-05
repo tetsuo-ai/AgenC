@@ -34,6 +34,30 @@ const TRANSIENT_DESKTOP_ERROR_PATTERNS = [
 ];
 const DESKTOP_BASH_INTERACTIVE_REPL_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:python(?:\d+(?:\.\d+)?)?|node(?:js)?|bash|sh|zsh|irb|php)\s*$/i;
+const DESKTOP_BASH_INTERACTIVE_TUI_EXECUTABLES = new Set([
+  "alsamixer",
+  "btop",
+  "dialog",
+  "htop",
+  "less",
+  "lazygit",
+  "man",
+  "more",
+  "nano",
+  "ncdu",
+  "ninvaders",
+  "nvim",
+  "screen",
+  "snake",
+  "tig",
+  "tetris",
+  "tmux",
+  "top",
+  "vi",
+  "vim",
+  "watch",
+  "whiptail",
+]);
 const DESKTOP_BASH_SINGLE_COMMAND_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?([a-zA-Z0-9._+-]+)\s*$/;
 const DESKTOP_BASH_BACKGROUND_RE =
@@ -97,6 +121,41 @@ function escapeForRegExp(value: string): string {
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function inferDesktopCommandExecutable(command: string): string | undefined {
+  const unquoted = stripQuotedSegments(command);
+  const segments = unquoted
+    .split(/&&|\|\||;|\n/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  const tail = segments.length > 0 ? segments[segments.length - 1] : unquoted.trim();
+  if (!tail) return undefined;
+
+  const tokens = tail.split(/\s+/).filter((token) => token.length > 0);
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i]!.toLowerCase();
+    if (token === "sudo" || token === "nohup" || token === "setsid") {
+      i += 1;
+      continue;
+    }
+    if (token === "env") {
+      i += 1;
+      while (i < tokens.length && /^[a-z_][a-z0-9_]*=.*/i.test(tokens[i]!)) {
+        i += 1;
+      }
+      continue;
+    }
+    return tokens[i];
+  }
+  return undefined;
+}
+
+function normalizeDesktopExecutableName(token: string): string {
+  const clean = token.replace(/^['"]|['"]$/g, "");
+  const parts = clean.split("/").filter((part) => part.length > 0);
+  return (parts.length > 0 ? parts[parts.length - 1] : clean).toLowerCase();
 }
 
 function enrichDesktopBashResultWithVerification(
@@ -169,6 +228,21 @@ function getDesktopBashGuardError(
     return (
       `Command "${command}" opens an interactive shell/REPL and will hang in desktop.bash. ` +
       "Use a non-interactive one-shot command instead (for example `python3 script.py`, `python3 -c \"...\"`, or `node app.js`)."
+    );
+  }
+
+  const inferredExecutable = inferDesktopCommandExecutable(command);
+  const executableName = inferredExecutable
+    ? normalizeDesktopExecutableName(inferredExecutable)
+    : undefined;
+  if (
+    executableName &&
+    DESKTOP_BASH_INTERACTIVE_TUI_EXECUTABLES.has(executableName) &&
+    !DESKTOP_BASH_BACKGROUND_RE.test(command)
+  ) {
+    return (
+      `Command "${command}" launches an interactive terminal app (${executableName}) and is likely to hang in desktop.bash. ` +
+      "Use `mcp.tmux.execute-command` with `rawMode` for interactive terminal workflows, or run the command in non-interactive/background mode with explicit redirection."
     );
   }
 

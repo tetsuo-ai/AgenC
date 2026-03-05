@@ -48,8 +48,24 @@ function exec(
         env: { ...process.env, DISPLAY },
       },
       (err, stdout, stderr) => {
-        if (err) reject(err);
-        else resolve({ stdout, stderr });
+        if (err) {
+          const enriched = err as Error & {
+            stdout?: string;
+            stderr?: string;
+            code?: number | string;
+          };
+          // Preserve callback streams for non-zero exits. Some Node runtimes
+          // do not reliably populate err.stdout/err.stderr on execFile errors.
+          if (typeof enriched.stdout !== "string") {
+            enriched.stdout = stdout ?? "";
+          }
+          if (typeof enriched.stderr !== "string") {
+            enriched.stderr = stderr ?? "";
+          }
+          reject(enriched);
+          return;
+        }
+        resolve({ stdout, stderr });
       },
     );
   });

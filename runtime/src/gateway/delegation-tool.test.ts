@@ -43,6 +43,18 @@ describe("delegation-tool", () => {
     expect(parsed.value.objective).toBe("compare three modules");
   });
 
+  it("prefers objective over task when both are provided", () => {
+    const parsed = parseExecuteWithAgentInput({
+      task: "agent-1",
+      objective: "Echo exactly: hello+1",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.task).toBe("Echo exactly: hello+1");
+    expect(parsed.value.objective).toBe("Echo exactly: hello+1");
+  });
+
   it("rejects missing task/objective", () => {
     const parsed = parseExecuteWithAgentInput({});
     expect(parsed.ok).toBe(false);

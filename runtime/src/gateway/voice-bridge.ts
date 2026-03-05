@@ -238,7 +238,6 @@ export class VoiceBridge {
 
     // Build tool handler for delegation
     const sessionToolHandler = this.buildSessionToolHandler(
-      clientId,
       effectiveSessionId,
       send,
     );
@@ -393,7 +392,6 @@ export class VoiceBridge {
    * Used by ChatExecutor during delegation for tool execution.
    */
   private buildSessionToolHandler(
-    clientId: string,
     sessionId: string,
     send: (response: ControlResponse) => void,
   ): ToolHandler {
@@ -404,7 +402,9 @@ export class VoiceBridge {
       sessionId,
       baseHandler: toolHandler,
       desktopRouterFactory,
-      routerId: clientId,
+      // Keep desktop routing aligned with chat slash commands/history by using
+      // the shared web session id (not raw client id aliases).
+      routerId: sessionId,
       send,
       hooks,
       approvalEngine,
@@ -528,7 +528,7 @@ export class VoiceBridge {
       // Tool handler sends tools.executing/tools.result to browser (renders
       // as tool cards in the chat panel). We DON'T wrap with extra delegation
       // progress messages — the tool cards ARE the progress UI.
-      const delegationToolHandler = this.buildSessionToolHandler(clientId, sessionId, send);
+      const delegationToolHandler = this.buildSessionToolHandler(sessionId, send);
 
       const result = await this.config.chatExecutor.execute({
         message: gatewayMsg,
