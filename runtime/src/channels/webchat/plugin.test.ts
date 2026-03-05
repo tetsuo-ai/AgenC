@@ -280,6 +280,58 @@ describe("WebChatChannel", () => {
     });
   });
 
+  describe("chat.cancel", () => {
+    it("should report cancelled=true when an in-flight execution is aborted", () => {
+      const send = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "Hello agent!" }),
+        send,
+      );
+      const sessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+      channel.createAbortController(sessionId);
+
+      channel.handleMessage(
+        "client_1",
+        "chat.cancel",
+        msg("chat.cancel", undefined, "cancel-1"),
+        send,
+      );
+
+      expect(send).toHaveBeenCalledWith({
+        type: "chat.cancelled",
+        payload: { cancelled: true },
+        id: "cancel-1",
+      });
+    });
+
+    it("should report cancelled=false when there is nothing active to abort", () => {
+      const send = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "Hello agent!" }),
+        send,
+      );
+
+      channel.handleMessage(
+        "client_1",
+        "chat.cancel",
+        msg("chat.cancel", undefined, "cancel-2"),
+        send,
+      );
+
+      expect(send).toHaveBeenCalledWith({
+        type: "chat.cancelled",
+        payload: { cancelled: false },
+        id: "cancel-2",
+      });
+    });
+  });
+
   // --------------------------------------------------------------------------
   // Outbound (send)
   // --------------------------------------------------------------------------
