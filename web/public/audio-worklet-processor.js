@@ -3,7 +3,7 @@
  * Receives Float32 audio frames and forwards to main thread as Int16 LE.
  */
 class MicProcessor extends AudioWorkletProcessor {
-  process(inputs) {
+  process(inputs) { // NOSONAR — AudioWorklet spec: return true keeps processor alive
     const input = inputs[0];
     if (!input || !input[0] || input[0].length === 0) return true;
 

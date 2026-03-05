@@ -422,7 +422,7 @@ export async function runStopCommand(
     wasRunning: true,
     forced: true,
   });
-  return 0;
+  return 1;
 }
 
 // ============================================================================
@@ -475,10 +475,11 @@ export async function runStatusCommand(
 
   // Try connecting to control plane for detailed status
   let gatewayStatus: unknown = null;
+  let controlPlaneReachable = true;
   try {
     gatewayStatus = await queryControlPlane(port);
   } catch {
-    // Control plane unavailable — report what we can from PID file
+    controlPlaneReachable = false;
   }
 
   context.output({
@@ -490,7 +491,7 @@ export async function runStatusCommand(
     configPath: info.configPath,
     gatewayStatus,
   });
-  return 0;
+  return controlPlaneReachable ? 0 : 2;
 }
 
 async function queryControlPlane(port: number): Promise<unknown> {

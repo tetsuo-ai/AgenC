@@ -987,32 +987,37 @@ function mergeSafeConfig(
   return merged;
 }
 
+/** Redaction placeholder for masked secrets in logs/output. */
+const REDACTED = "*".repeat(8);
+const REDACTED_PARTIAL_PREFIX = "*".repeat(4);
+
+function maskApiKey(key: string): string {
+  return key.length > 8 ? REDACTED_PARTIAL_PREFIX + key.slice(-4) : REDACTED;
+}
+
 /** Returns a copy of config with sensitive fields (API keys, passwords) masked. */
 function maskConfigSecrets(config: GatewayConfig): Record<string, unknown> {
   const clone = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
   const llm = clone.llm as Record<string, unknown> | undefined;
   if (llm?.apiKey && typeof llm.apiKey === "string") {
-    llm.apiKey =
-      llm.apiKey.length > 8 ? "****" + llm.apiKey.slice(-4) : "********";
+    llm.apiKey = maskApiKey(llm.apiKey);
   }
   if (Array.isArray(llm?.fallback)) {
     for (const fb of llm.fallback as Record<string, unknown>[]) {
       if (fb.apiKey && typeof fb.apiKey === "string") {
-        fb.apiKey =
-          fb.apiKey.length > 8 ? "****" + fb.apiKey.slice(-4) : "********";
+        fb.apiKey = maskApiKey(fb.apiKey);
       }
     }
   }
   const mem = clone.memory as Record<string, unknown> | undefined;
-  if (mem?.password) mem.password = "********";
-  if (mem?.encryptionKey) mem.encryptionKey = "********";
+  if (mem?.password) mem.password = REDACTED;
+  if (mem?.encryptionKey) mem.encryptionKey = REDACTED;
   const voice = clone.voice as Record<string, unknown> | undefined;
   if (voice?.apiKey && typeof voice.apiKey === "string") {
-    voice.apiKey =
-      voice.apiKey.length > 8 ? "****" + voice.apiKey.slice(-4) : "********";
+    voice.apiKey = maskApiKey(voice.apiKey);
   }
   const auth = clone.auth as Record<string, unknown> | undefined;
-  if (auth?.secret) auth.secret = "********";
+  if (auth?.secret) auth.secret = REDACTED;
   return clone;
 }
 

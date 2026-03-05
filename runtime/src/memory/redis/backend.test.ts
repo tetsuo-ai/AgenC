@@ -94,10 +94,11 @@ describe("RedisBackend", () => {
     });
 
     it("passes host/port when no URL", async () => {
+      const testPassword = `test-${Date.now()}`;
       const backend = new RedisBackend({
         host: "myhost",
         port: 6380,
-        password: "secret",
+        password: testPassword,
         db: 2,
       });
       await backend.getThread("s1");
@@ -106,7 +107,7 @@ describe("RedisBackend", () => {
         expect.objectContaining({
           host: "myhost",
           port: 6380,
-          password: "secret",
+          password: testPassword,
           db: 2,
           lazyConnect: true,
         }),

@@ -3,9 +3,6 @@ name: CI
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -47,6 +44,8 @@ jobs:
   runtime_checks:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -89,6 +88,8 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     needs: runtime_checks
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -205,6 +206,8 @@ jobs:
   nightly_reliability:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
