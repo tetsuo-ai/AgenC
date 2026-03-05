@@ -1182,6 +1182,137 @@ describe("ChatExecutor", () => {
       expect(String(injectedHint?.content)).toContain("desktop.bash");
     });
 
+    it("injects a recovery hint when shell wrapper command is denied on system.bash", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue(
+          '{"error":"Command \\"bash\\" is denied. Do not use shell wrappers like \\"bash -c\\"."}',
+        );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments: '{"command":"bash","args":["-c","echo hello"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("Do NOT call `bash -c`"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("command` + `args`");
+    });
+
+    it("injects a recovery hint when node invocation of agenc-runtime is denied", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"error":"Command \\"node\\" is denied"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments:
+                    '{"command":"node","args":["runtime/dist/bin/agenc-runtime.js","status","--output","json"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes('command:"agenc-runtime"'),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("status");
+      expect(String(injectedHint?.content)).toContain("--output");
+    });
+
+    it("injects a recovery hint when filesystem path is outside allowlist", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"error":"Access denied: Path is outside allowed directories"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.readFile",
+                  arguments: '{"path":"/home/tetsuo/git/AgenC/mcp-terminal-smoke-test-prompt.txt"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("blocked by path allowlisting"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("system.bash");
+      expect(String(injectedHint?.content)).toContain("/tmp");
+    });
+
     it("does not break loop when tool calls differ", async () => {
       let callCount = 0;
       const toolHandler = vi
@@ -1354,6 +1485,74 @@ describe("ChatExecutor", () => {
       };
 
       expect(parsed.overall).toBe("fail");
+    });
+
+    it("marks structured overall checks result as fail when any tool call fails", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValueOnce('{"error":"command denied"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "desktop.bash", arguments: "{}" }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                '{"overall":"pass","checks":[{"id":"env_versions","status":"pass","summary":"node -v: command denied"}],"failure_reasons":[]}',
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+      const parsed = JSON.parse(result.content) as {
+        overall: string;
+        failure_reasons?: string[];
+      };
+
+      expect(parsed.overall).toBe("fail");
+      expect(parsed.failure_reasons).toContain("tool_call_failed");
+    });
+
+    it("marks structured overall result as fail when delegated output signals unresolved failure", async () => {
+      const toolHandler = vi.fn().mockResolvedValueOnce(
+        '{"success":true,"status":"completed","output":"uname -s: Linux\\nnode -v: Command denied\\nnpm -v: 11.7.0","failedToolCalls":1}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "execute_with_agent", arguments: "{}" }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                '{"overall":"pass","checks":[{"id":"env_versions","status":"pass","summary":"node -v: command denied"}],"failure_reasons":[]}',
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+      const parsed = JSON.parse(result.content) as {
+        overall: string;
+        failure_reasons?: string[];
+      };
+
+      expect(parsed.overall).toBe("fail");
+      expect(parsed.failure_reasons).toContain(
+        "subagent_output_contains_failure_signal",
+      );
     });
   });
 

@@ -36,7 +36,10 @@ import {
   MAX_ERROR_PREVIEW_CHARS,
   ENABLE_TOOL_IMAGE_REPLAY,
 } from "./chat-executor-constants.js";
-import { didToolCallFail } from "./chat-executor-tool-utils.js";
+import {
+  didToolCallFail,
+  parseToolResultObject,
+} from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
 
 // ============================================================================
@@ -134,7 +137,7 @@ export function reconcileStructuredToolOutcome(
   }
 
   const payload = parsed as Record<string, unknown>;
-  if (typeof payload.overall !== "string" || !Array.isArray(payload.steps)) {
+  if (typeof payload.overall !== "string") {
     return content;
   }
 
@@ -153,26 +156,78 @@ export function reconcileStructuredToolOutcome(
       .filter((name): name is string => Boolean(name)),
   );
   const claimedTools = new Set<string>();
-  for (const step of payload.steps) {
-    if (typeof step !== "object" || step === null || Array.isArray(step)) {
-      continue;
-    }
-    const toolName = (step as { tool?: unknown }).tool;
-    if (typeof toolName === "string" && toolName.trim().length > 0) {
-      claimedTools.add(toolName.trim());
+  if (Array.isArray(payload.steps)) {
+    for (const step of payload.steps) {
+      if (typeof step !== "object" || step === null || Array.isArray(step)) {
+        continue;
+      }
+      const toolName = (step as { tool?: unknown }).tool;
+      if (typeof toolName === "string" && toolName.trim().length > 0) {
+        claimedTools.add(toolName.trim());
+      }
     }
   }
 
   const claimsUnexecutedTool = Array.from(claimedTools).some(
     (toolName) => !executedTools.has(toolName),
   );
+  const hasSubagentFailureSignal = toolCalls.some((toolCall) => {
+    if (toolCall.name !== "execute_with_agent") return false;
+    const parsedResult = parseToolResultObject(toolCall.result);
+    if (!parsedResult) return false;
 
-  if (!hasToolFailure && !claimsUnexecutedTool) {
+    if (parsedResult.success === false) return true;
+    if (parsedResult.unresolvedToolFailures === true) return true;
+
+    const output =
+      typeof parsedResult.output === "string" ? parsedResult.output : "";
+    const failedToolCalls =
+      typeof parsedResult.failedToolCalls === "number"
+        ? parsedResult.failedToolCalls
+        : 0;
+    if (failedToolCalls <= 0) return false;
+    return hasExplicitFailureSignal(output);
+  });
+
+  if (!hasToolFailure && !claimsUnexecutedTool && !hasSubagentFailureSignal) {
     return content;
   }
 
   payload.overall = "fail";
+  appendFailureReason(payload, hasToolFailure, claimsUnexecutedTool, hasSubagentFailureSignal);
   return safeStringify(payload);
+}
+
+const EXPLICIT_FAILURE_SIGNAL_RE =
+  /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
+
+function hasExplicitFailureSignal(value: string): boolean {
+  return EXPLICIT_FAILURE_SIGNAL_RE.test(value);
+}
+
+function appendFailureReason(
+  payload: Record<string, unknown>,
+  hasToolFailure: boolean,
+  claimsUnexecutedTool: boolean,
+  hasSubagentFailureSignal: boolean,
+): void {
+  if (!Array.isArray(payload.failure_reasons)) return;
+  const reasons = payload.failure_reasons.filter(
+    (entry): entry is string => typeof entry === "string",
+  );
+  if (hasToolFailure && !reasons.includes("tool_call_failed")) {
+    reasons.push("tool_call_failed");
+  }
+  if (claimsUnexecutedTool && !reasons.includes("claims_unexecuted_tool")) {
+    reasons.push("claims_unexecuted_tool");
+  }
+  if (
+    hasSubagentFailureSignal &&
+    !reasons.includes("subagent_output_contains_failure_signal")
+  ) {
+    reasons.push("subagent_output_contains_failure_signal");
+  }
+  payload.failure_reasons = reasons;
 }
 
 export function collapseRunawayRepetition(content: string): string {

@@ -631,7 +631,7 @@ describe("createSessionToolHandler", () => {
     const result = await handler("execute_with_agent", {
       task: "Inspect file",
       tools: ["system.readFile"],
-      timeoutMs: 12_000,
+      timeoutMs: 120_000,
     });
     const parsed = JSON.parse(result) as {
       success?: boolean;
@@ -644,7 +644,7 @@ describe("createSessionToolHandler", () => {
     expect(subAgentManager.spawn).toHaveBeenCalledWith({
       parentSessionId: "session-parent",
       task: "Inspect file",
-      timeoutMs: 12_000,
+      timeoutMs: 120_000,
       tools: ["system.readFile"],
     });
     expect(parsed.success).toBe(true);
@@ -666,6 +666,115 @@ describe("createSessionToolHandler", () => {
     expect(lifecycleEvents.some((event) => event.type === "subagents.completed")).toBe(
       true,
     );
+  });
+
+  it("returns failure when delegated output includes unresolved denied commands", async () => {
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-unresolved"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-unresolved",
+        output: "uname -s: Linux\nnode -v: Command denied\nnpm -v: 11.7.0",
+        success: true,
+        durationMs: 25,
+        toolCalls: [
+          {
+            name: "system.bash",
+            args: { command: "node", args: ["-v"] },
+            result: '{"error":"Command denied"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-unresolved",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 40,
+        task: "collect node version",
+      })),
+    };
+    const lifecycleEmitter = {
+      emit: vi.fn((event: Record<string, unknown>) => {
+        lifecycleEvents.push(event);
+      }),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: lifecycleEmitter as any,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "collect node version",
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      error?: string;
+      failedToolCalls?: number;
+    };
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain("unresolved tool failures");
+    expect(parsed.failedToolCalls).toBe(1);
+    expect(lifecycleEvents.some((event) => event.type === "subagents.failed")).toBe(
+      true,
+    );
+  });
+
+  it("clamps execute_with_agent timeoutMs to a safe minimum", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-min-timeout"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-min-timeout",
+        output: "ok",
+        success: true,
+        durationMs: 10,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-min-timeout",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 20,
+        task: "Inspect file quickly",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    await handler("execute_with_agent", {
+      task: "Inspect file quickly",
+      timeoutMs: 10_000,
+    });
+
+    expect(subAgentManager.spawn).toHaveBeenCalledWith({
+      parentSessionId: "session-parent",
+      task: "Inspect file quickly",
+      timeoutMs: 60_000,
+    });
   });
 
   it("returns structured error when execute_with_agent spawn fails", async () => {
