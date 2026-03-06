@@ -38,9 +38,11 @@ EOF
 
 RISC0_SOLANA_DIR="/tmp/risc0-solana/solana-verifier"
 AGENC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-AGENC_SO="${AGENC_DIR}/target/deploy/agenc_coordination.so"
+AGENC_SO_ROOT="${AGENC_DIR}/target/deploy/agenc_coordination.so"
+AGENC_SO_PROGRAMS="${AGENC_DIR}/programs/agenc-coordination/target/deploy/agenc_coordination.so"
 MOCK_ROUTER_SO="${AGENC_DIR}/tests/fixtures/mock_verifier_router.so"
 MOCK_ACCOUNT_DIR="${AGENC_DIR}/target/verifier-bootstrap"
+VERIFIER_ANCHOR_VERSION="${VERIFIER_ANCHOR_VERSION:-}"
 
 ROUTER_PROGRAM_ID="6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7"
 VERIFIER_PROGRAM_ID="THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge"
@@ -85,6 +87,59 @@ case "${MODE}" in
     ;;
 esac
 
+get_anchor_cli_version() {
+  anchor --version | awk '{print $2}'
+  return 0
+}
+
+build_real_verifier_stack() {
+  local original_anchor_version=""
+  local current_anchor_version=""
+  local build_status=0
+
+  if [[ -n "${VERIFIER_ANCHOR_VERSION}" ]]; then
+    if ! command -v avm >/dev/null 2>&1; then
+      echo "ERROR: VERIFIER_ANCHOR_VERSION=${VERIFIER_ANCHOR_VERSION} requested but avm is not installed." >&2
+      return 1
+    fi
+
+    original_anchor_version="$(get_anchor_cli_version)"
+    if [[ "${original_anchor_version}" != "${VERIFIER_ANCHOR_VERSION}" ]]; then
+      echo "Switching Anchor CLI from ${original_anchor_version} to ${VERIFIER_ANCHOR_VERSION} for verifier build..."
+      avm use "${VERIFIER_ANCHOR_VERSION}"
+    fi
+  fi
+
+  if (cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build); then
+    build_status=0
+  else
+    build_status=$?
+  fi
+
+  if [[ -n "${original_anchor_version}" ]]; then
+    current_anchor_version="$(get_anchor_cli_version)"
+    if [[ "${current_anchor_version}" != "${original_anchor_version}" ]]; then
+      echo "Restoring Anchor CLI ${original_anchor_version}..."
+      avm use "${original_anchor_version}"
+    fi
+  fi
+
+  return "${build_status}"
+}
+
+resolve_agenc_program_artifact() {
+  local candidate=""
+
+  for candidate in "${AGENC_SO_ROOT}" "${AGENC_SO_PROGRAMS}"; do
+    if [[ -f "${candidate}" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # 1. Get deployer pubkey
 DEPLOYER_PUBKEY=$(solana address)
 echo "Deployer pubkey: ${DEPLOYER_PUBKEY}"
@@ -111,6 +166,7 @@ echo "Router PDA: ${ROUTER_PDA}"
 echo "Verifier Entry PDA: ${VERIFIER_ENTRY_PDA}"
 
 # 3. Load either the real verifier stack or an explicit mock stack.
+AGENC_SO="$(resolve_agenc_program_artifact || true)"
 ROUTER_SO="${RISC0_SOLANA_DIR}/target/deploy/verifier_router.so"
 VERIFIER_SO="${RISC0_SOLANA_DIR}/target/deploy/groth_16_verifier.so"
 
@@ -122,7 +178,7 @@ if [[ "${MODE}" = "real" ]]; then
   fi
 
   echo "Building Verifier Router with INITIAL_OWNER=${DEPLOYER_PUBKEY}..."
-  if ! (cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build); then
+  if ! build_real_verifier_stack; then
     echo "ERROR: Failed to build the real verifier stack." >&2
     echo "Run with '--mode mock' only if you explicitly want the mock verifier stack." >&2
     exit 1
@@ -139,7 +195,14 @@ else
   VERIFIER_SO="${MOCK_ROUTER_SO}"
 fi
 
-for f in "${AGENC_SO}" "${ROUTER_SO}" "${VERIFIER_SO}"; do
+if [[ -z "${AGENC_SO}" ]]; then
+  echo "ERROR: Missing AgenC artifact. Checked:" >&2
+  echo "  - ${AGENC_SO_ROOT}" >&2
+  echo "  - ${AGENC_SO_PROGRAMS}" >&2
+  exit 1
+fi
+
+for f in "${ROUTER_SO}" "${VERIFIER_SO}"; do
   if [[ ! -f "$f" ]]; then
     echo "ERROR: Missing artifact: $f" >&2
     exit 1
