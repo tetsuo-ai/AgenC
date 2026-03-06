@@ -3,6 +3,7 @@ import { readFile, writeFile, unlink, mkdir, stat, access, } from "node:fs/promi
 import { closeSync, openSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { resolveValidatedTextEditorPath } from "./textEditorPath.js";
 const DISPLAY = process.env.DISPLAY ?? ":1";
 const EXEC_TIMEOUT_MS = 30_000;
 const BASH_TIMEOUT_MS = 600_000;
@@ -434,15 +435,10 @@ async function screenSize() {
     }
 }
 // --- text_editor tool (str_replace_based_edit_tool pattern) ---
-const ALLOWED_PREFIXES = ["/home/agenc", "/tmp"];
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB
 const MAX_UNDO_FILES = 20;
 /** LRU undo buffer — stores the single most recent version per file. */
 const undoBuffer = new Map();
-function isPathAllowed(p) {
-    const resolved = p.startsWith("/") ? p : `/home/agenc/${p}`;
-    return ALLOWED_PREFIXES.some((prefix) => resolved.startsWith(prefix));
-}
 function numberLines(text, startLine = 1) {
     return text
         .split("\n")
@@ -451,13 +447,17 @@ function numberLines(text, startLine = 1) {
 }
 async function textEditor(args) {
     const command = String(args.command ?? "");
-    const path = String(args.path ?? "");
+    const inputPath = String(args.path ?? "");
     if (!command)
         return fail("command is required");
-    if (!path)
+    if (!inputPath)
         return fail("path is required");
-    if (!isPathAllowed(path)) {
-        return fail(`Access denied: path must be under ${ALLOWED_PREFIXES.join(" or ")}`);
+    let path;
+    try {
+        path = await resolveValidatedTextEditorPath(inputPath);
+    }
+    catch (error) {
+        return fail(error instanceof Error ? error.message : String(error));
     }
     switch (command) {
         case "view":
