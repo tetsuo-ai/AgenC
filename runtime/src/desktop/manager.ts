@@ -527,18 +527,7 @@ export class DesktopSandboxManager {
       maxMemory,
     ];
 
-    if (this.config.securityProfile === "strict") {
-      args.push(
-        "--cap-drop", "ALL",
-        "--cap-add", "CHOWN",
-        "--cap-add", "SETUID",
-        "--cap-add", "SETGID",
-        "--cap-add", "DAC_OVERRIDE",
-        "--cap-add", "FOWNER",
-        "--cap-add", "KILL",
-        "--cap-add", "NET_BIND_SERVICE",
-      );
-    }
+    this.appendStrictSecurityArgs(args);
 
     args.push(
       "--label", MANAGED_BY_LABEL,
@@ -551,42 +540,91 @@ export class DesktopSandboxManager {
       "--env", `${DESKTOP_AUTH_ENV_KEY}=${authToken}`,
     );
 
-    if (this.workspacePath && this.workspaceAccess !== "none") {
-      const mountMode = this.workspaceAccess === "readonly" ? "ro" : "rw";
-      args.push(
-        "--volume",
-        `${this.workspacePath}:${this.workspaceMountPath}:${mountMode}`,
-        "--workdir",
-        this.workspaceMountPath,
-        "--env",
-        `AGENC_WORKSPACE_ROOT=${this.workspaceMountPath}`,
-      );
-      if (typeof this.hostUid === "number" && Number.isInteger(this.hostUid) && this.hostUid >= 0) {
-        args.push("--env", `AGENC_HOST_UID=${this.hostUid}`);
-      }
-      if (typeof this.hostGid === "number" && Number.isInteger(this.hostGid) && this.hostGid >= 0) {
-        args.push("--env", `AGENC_HOST_GID=${this.hostGid}`);
-      }
-    }
-
-    if (sandboxOptions.env) {
-      for (const [key, value] of Object.entries(sandboxOptions.env)) {
-        if (
-          key !== DESKTOP_AUTH_ENV_KEY &&
-          /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
-        ) {
-          args.push("--env", `${key}=${value}`);
-        }
-      }
-    }
-
-    const extraLabels = { ...this.config.labels, ...sandboxOptions.labels };
-    for (const [key, value] of Object.entries(extraLabels)) {
-      args.push("--label", `${key}=${value}`);
-    }
+    this.appendWorkspaceArgs(args);
+    this.appendSandboxEnvArgs(args, sandboxOptions.env);
+    this.appendLabelArgs(args, {
+      ...this.config.labels,
+      ...sandboxOptions.labels,
+    });
 
     args.push(image);
     return args;
+  }
+
+  private appendStrictSecurityArgs(args: string[]): void {
+    if (this.config.securityProfile !== "strict") {
+      return;
+    }
+
+    args.push(
+      "--cap-drop", "ALL",
+      "--cap-add", "CHOWN",
+      "--cap-add", "SETUID",
+      "--cap-add", "SETGID",
+      "--cap-add", "DAC_OVERRIDE",
+      "--cap-add", "FOWNER",
+      "--cap-add", "KILL",
+      "--cap-add", "NET_BIND_SERVICE",
+    );
+  }
+
+  private appendWorkspaceArgs(args: string[]): void {
+    if (!this.workspacePath || this.workspaceAccess === "none") {
+      return;
+    }
+
+    const mountMode = this.workspaceAccess === "readonly" ? "ro" : "rw";
+    args.push(
+      "--volume",
+      `${this.workspacePath}:${this.workspaceMountPath}:${mountMode}`,
+      "--workdir",
+      this.workspaceMountPath,
+      "--env",
+      `AGENC_WORKSPACE_ROOT=${this.workspaceMountPath}`,
+    );
+
+    this.appendOptionalHostIdArg(args, "AGENC_HOST_UID", this.hostUid);
+    this.appendOptionalHostIdArg(args, "AGENC_HOST_GID", this.hostGid);
+  }
+
+  private appendOptionalHostIdArg(
+    args: string[],
+    envKey: string,
+    value: number | undefined,
+  ): void {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+      args.push("--env", `${envKey}=${value}`);
+    }
+  }
+
+  private appendSandboxEnvArgs(
+    args: string[],
+    env: Record<string, string> | undefined,
+  ): void {
+    if (!env) {
+      return;
+    }
+
+    for (const [key, value] of Object.entries(env)) {
+      if (this.isAllowedSandboxEnvKey(key)) {
+        args.push("--env", `${key}=${value}`);
+      }
+    }
+  }
+
+  private isAllowedSandboxEnvKey(key: string): boolean {
+    return key !== DESKTOP_AUTH_ENV_KEY && /^[A-Za-z_]\w*$/.test(key);
+  }
+
+  private appendLabelArgs(
+    args: string[],
+    labels: Record<string, string | undefined>,
+  ): void {
+    for (const [key, value] of Object.entries(labels)) {
+      if (typeof value === "string") {
+        args.push("--label", `${key}=${value}`);
+      }
+    }
   }
 
   /** Execute `docker run` and return the truncated container ID. */
