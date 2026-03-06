@@ -58,11 +58,16 @@ Thumbs.db
 node_modules/
 
 # Build artifacts (all packages)
+/dist/
 sdk/dist/
 runtime/dist/
 mcp/dist/
 docs-mcp/dist/
 demo-app/dist/
+
+# Local/generated root artifacts
+.codebase-index-cache.pkl
+/ansi_girl.png
 
 
 # Codex (local AI assistant config)
