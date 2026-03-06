@@ -68,9 +68,12 @@ Complete all items before proceeding with mainnet deployment:
 
 ### Security Requirements
 - [ ] External security audit complete (see `docs/SECURITY_AUDIT_MAINNET.md`)
+- [ ] `docs/SECURITY_SCOPE_MATRIX.md` reviewed and updated for the release commit
+- [ ] `docs/RUNTIME_PRE_AUDIT_CHECKLIST.md` complete for runtime / desktop / webchat surfaces
 - [ ] All Critical severity findings fixed and verified
 - [ ] All High severity findings fixed and verified
 - [ ] Medium/Low findings addressed or documented with accepted risk
+- [ ] Security-owner signoff recorded that no externally reachable surface remains outside the declared audit scope
 
 ### Testing Requirements
 - [ ] All unit tests passing (`anchor test`)

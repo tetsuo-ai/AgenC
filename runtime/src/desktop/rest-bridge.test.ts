@@ -51,6 +51,7 @@ describe("DesktopRESTBridge", () => {
     bridge = new DesktopRESTBridge({
       apiHostPort: 32769,
       containerId: "abc123",
+      authToken: "test-token",
     });
   });
 
@@ -60,6 +61,15 @@ describe("DesktopRESTBridge", () => {
       await bridge.connect();
       expect(bridge.isConnected()).toBe(true);
       expect(bridge.getTools().length).toBe(3);
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        "http://localhost:32769/health",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer test-token",
+          }),
+        }),
+      );
     });
 
     it("namespaces tools with desktop. prefix", async () => {
@@ -133,6 +143,14 @@ describe("DesktopRESTBridge", () => {
       // Verify correct URL was called
       const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
       expect(lastCall[0]).toBe("http://localhost:32769/tools/mouse_click");
+      expect(lastCall[1]).toEqual(
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer test-token",
+            "Content-Type": "application/json",
+          }),
+        }),
+      );
     });
 
     it("screenshot returns out-of-band artifact metadata instead of inline dataUrl", async () => {

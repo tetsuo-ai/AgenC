@@ -17,7 +17,7 @@ if pgrep -af "solana-test-validator" >/dev/null 2>&1; then
 fi
 
 echo "Starting verifier-enabled local validator..."
-nohup bash "${ROOT_DIR}/scripts/setup-verifier-localnet.sh" >"${VALIDATOR_LOG}" 2>&1 &
+nohup bash "${ROOT_DIR}/scripts/setup-verifier-localnet.sh" --mode real >"${VALIDATOR_LOG}" 2>&1 &
 VALIDATOR_PID=$!
 disown || true
 echo "Validator PID: ${VALIDATOR_PID}"
@@ -30,11 +30,16 @@ for _ in $(seq 1 "${VALIDATOR_READY_TIMEOUT_SECONDS}"); do
     READY=1
     break
   fi
+  if ! kill -0 "${VALIDATOR_PID}" >/dev/null 2>&1; then
+    echo "ERROR: verifier validator exited before becoming ready." >&2
+    tail -n 120 "${VALIDATOR_LOG}" || true
+    exit 1
+  fi
   sleep 1
 done
 
 if [ "${READY}" -ne 1 ]; then
-  echo "ERROR: validator did not become ready in time."
+  echo "ERROR: validator did not become ready in time." >&2
   tail -n 120 "${VALIDATOR_LOG}" || true
   exit 1
 fi

@@ -4,6 +4,10 @@
  * Uses deterministic keypairs derived from known seeds so the proof fixture
  * is reusable — the E2E test can reconstruct the exact same accounts.
  *
+ * The committed fixture also uses a deterministic test-only witness secret
+ * derived from fixture private key material. This is only to keep the fixture
+ * reproducible; it must not model the production witness pattern.
+ *
  * This script calls the agenc-zkvm-host binary with --features production-prover
  * to generate a real RISC Zero Groth16 proof. This can take 10-30 minutes on
  * first run (downloads ceremony params). The fixture is committed to git so
@@ -29,10 +33,22 @@ import { spawn } from "child_process";
 // SDK constants
 const PROGRAM_ID = new PublicKey("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7");
 const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+const FIXTURE_AGENT_SECRET_DOMAIN_TAG = Buffer.from(
+  "AGENC_E2E_FIXTURE_AGENT_SECRET",
+  "utf8",
+);
 
 // Deterministic seed derivation
 function deterministicSeed(label: string): Uint8Array {
   return new Uint8Array(createHash("sha256").update(label).digest());
+}
+
+function deriveFixtureAgentSecret(secretKey: Uint8Array): bigint {
+  const digest = createHash("sha256")
+    .update(FIXTURE_AGENT_SECRET_DOMAIN_TAG)
+    .update(Buffer.from(secretKey))
+    .digest();
+  return BigInt(`0x${digest.toString("hex")}`) % FIELD_MODULUS;
 }
 
 function bigintToBytes32(value: bigint): Buffer {
@@ -169,7 +185,7 @@ async function main() {
   const taskId = 1;
   const output = [11n, 22n, 33n, 44n];
   const salt = 987654321n;
-  const agentSecret = pubkeyToField(worker.publicKey); // For demo, use pubkey-derived secret
+  const agentSecret = deriveFixtureAgentSecret(worker.secretKey);
 
   // 3. Derive task PDA
   const taskIdBytes = Buffer.alloc(32, 0);
@@ -236,7 +252,8 @@ async function main() {
 
   // 8. Build fixture
   const fixture = {
-    _comment: "Real RISC Zero Groth16 proof fixture for E2E testing. Do not edit manually.",
+    _comment:
+      "Real RISC Zero Groth16 proof fixture for E2E testing. Test-only fixture; do not use its witness pattern in production.",
     sealBytes: result.seal_bytes,
     journal: result.journal,
     imageId: result.image_id,

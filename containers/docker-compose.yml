@@ -3,8 +3,9 @@ services:
     build:
       context: ./desktop
     ports:
-      - "6080:6080"
-      - "9990:9990"
+      - "127.0.0.1:6080:6080"
+      - "127.0.0.1:9990:9990"
     environment:
       - DISPLAY_WIDTH=1024
       - DISPLAY_HEIGHT=768
+      - DESKTOP_AUTH_TOKEN=${DESKTOP_AUTH_TOKEN}
