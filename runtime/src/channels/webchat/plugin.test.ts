@@ -907,6 +907,59 @@ describe("WebChatChannel", () => {
       });
     });
 
+    it("desktop.create accepts an owned explicit sessionId", async () => {
+      const getOrCreate = vi.fn().mockResolvedValue({
+        containerId: "ctr-explicit",
+        sessionId: "session:client1",
+        status: "ready",
+        vncHostPort: 6087,
+        apiHostPort: 9997,
+        createdAt: Date.now(),
+        maxMemory: "4g",
+        maxCpu: "2.0",
+      });
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession: vi.fn(),
+          getOrCreate,
+          destroy: vi.fn(),
+          assignSession: vi.fn(),
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext({
+        onMessage: vi.fn().mockResolvedValueOnce({ sessionId: "session:client1" }),
+      });
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "hello" }),
+        send,
+      );
+      const sessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+
+      channel.handleMessage(
+        "client_1",
+        "desktop.create",
+        msg("desktop.create", { sessionId }, "desktop-create-explicit-1"),
+        send,
+      );
+
+      await vi.waitFor(() => expect(getOrCreate).toHaveBeenCalledTimes(1));
+      expect(getOrCreate).toHaveBeenCalledWith(sessionId, {
+        maxMemory: undefined,
+        maxCpu: undefined,
+      });
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "desktop.created" }),
+      );
+    });
+
     it("desktop.create normalizes bare integer maxMemory to gigabytes", async () => {
       const getOrCreate = vi.fn().mockResolvedValue({
         containerId: "ctr-resource-int",
@@ -950,6 +1003,49 @@ describe("WebChatChannel", () => {
         maxMemory: "16g",
         maxCpu: "4",
       });
+    });
+
+    it("desktop.create rejects foreign sessionId values", async () => {
+      const getOrCreate = vi.fn();
+      deps = createDeps({
+        desktopManager: {
+          listAll: vi.fn().mockReturnValue([]),
+          getHandleBySession: vi.fn(),
+          getOrCreate,
+          destroy: vi.fn(),
+          assignSession: vi.fn(),
+        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
+      });
+      context = createContext({
+        onMessage: vi
+          .fn()
+          .mockResolvedValueOnce({ sessionId: "session:client1" })
+          .mockResolvedValueOnce({ sessionId: "session:client2" }),
+      });
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage("client_1", "chat.message", msg("chat.message", { content: "hello 1" }), send1);
+      channel.handleMessage("client_2", "chat.message", msg("chat.message", { content: "hello 2" }), send2);
+      const foreignSessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+
+      channel.handleMessage(
+        "client_2",
+        "desktop.create",
+        msg("desktop.create", { sessionId: foreignSessionId }, "desktop-create-foreign-1"),
+        send2,
+      );
+
+      expect(send2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "desktop.error",
+          error: "Not authorized for target session",
+        }),
+      );
+      expect(getOrCreate).not.toHaveBeenCalled();
     });
 
     it("desktop.attach binds container to the client's active session", async () => {
