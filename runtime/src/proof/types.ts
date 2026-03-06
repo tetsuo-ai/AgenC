@@ -68,8 +68,6 @@ export interface ProofEngineConfig {
   routerConfig?: RouterConfig;
   /** Optional prover backend config */
   proverBackend?: ProverBackendConfig;
-  /** Whether to verify proofs after generation. Default: false */
-  verifyAfterGeneration?: boolean;
   /** Cache configuration. Omit to disable caching. */
   cache?: ProofCacheConfig;
   /** Logger instance */

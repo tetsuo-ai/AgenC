@@ -154,12 +154,15 @@ import { ProofEngine } from '@agenc/runtime';
 const engine = new ProofEngine({
   methodId: trustedImageIdBytes,
   routerConfig: {
-    routerProgram,
-    router,
-    verifierEntry,
-    verifierProgram,
+    routerProgramId,
+    routerPda,
+    verifierEntryPda,
+    verifierProgramId,
   },
-  verifyAfterGeneration: false,
+  proverBackend: {
+    kind: "local-binary",
+    binaryPath: "/absolute/path/to/agenc-zkvm-host",
+  },
   cache: { ttlMs: 300_000, maxEntries: 100 },
 });
 
@@ -167,8 +170,9 @@ const result = await engine.generate({
   taskPda, agentPubkey,
   output: [1n, 2n, 3n, 4n],
   salt: engine.generateSalt(),
+  agentSecret: secretWitnessBigint,
 });
-// result.fromCache, result.verified, result.proof, result.proofHash
+// result.fromCache, result.verified, result.proofSize
 ```
 
 ### Dispute Operations
@@ -318,12 +322,16 @@ When `GrokProviderConfig.webSearch=true`, the runtime can route provider-native 
 
 | Field | Type | Required | Default |
 |-------|------|----------|---------|
-| `methodId` | `Uint8Array` | Yes | Trusted image ID bytes |
-| `routerConfig.routerProgram` | `PublicKey` | Yes | Trusted router program |
-| `routerConfig.router` | `PublicKey` | Yes | Router PDA |
-| `routerConfig.verifierEntry` | `PublicKey` | Yes | Verifier-entry PDA |
-| `routerConfig.verifierProgram` | `PublicKey` | Yes | Trusted verifier program |
-| `verifyAfterGeneration` | `boolean` | No | `false` |
+| `methodId` | `Uint8Array` | No | Unpinned |
+| `routerConfig.routerProgramId` | `PublicKey` | No | Unpinned |
+| `routerConfig.routerPda` | `PublicKey` | No | Unpinned |
+| `routerConfig.verifierEntryPda` | `PublicKey` | No | Unpinned |
+| `routerConfig.verifierProgramId` | `PublicKey` | No | Unpinned |
+| `proverBackend.kind` | `"local-binary" \| "remote"` | Yes | — |
+| `proverBackend.binaryPath` | `string` | For `local-binary` | — |
+| `proverBackend.endpoint` | `string` | For `remote` | — |
+| `proverBackend.timeoutMs` | `number` | No | SDK default |
+| `proverBackend.headers` | `Record<string, string>` | No | — |
 | `cache.ttlMs` | `number` | No | `300_000` |
 | `cache.maxEntries` | `number` | No | `100` |
 
