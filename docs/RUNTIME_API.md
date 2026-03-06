@@ -152,12 +152,16 @@ await monitor.stop();
 import { ProofEngine } from '@agenc/runtime';
 
 const engine = new ProofEngine({
+  proverBackend: {
+    kind: 'local-binary',
+    binaryPath: '/usr/local/bin/agenc-zkvm-host',
+  },
   methodId: trustedImageIdBytes,
   routerConfig: {
-    routerProgram,
-    router,
-    verifierEntry,
-    verifierProgram,
+    routerProgramId,
+    routerPda,
+    verifierEntryPda,
+    verifierProgramId,
   },
   verifyAfterGeneration: false,
   cache: { ttlMs: 300_000, maxEntries: 100 },
@@ -167,9 +171,15 @@ const result = await engine.generate({
   taskPda, agentPubkey,
   output: [1n, 2n, 3n, 4n],
   salt: engine.generateSalt(),
+  agentSecret,
 });
-// result.fromCache, result.verified, result.proof, result.proofHash
+// result.fromCache, result.verified, result.sealBytes, result.imageId
 ```
+
+Private proof generation fails closed unless `methodId` and the full
+`routerConfig` are pinned. The only bypass is
+`unsafeAllowUnpinnedPrivateProofs: true`, which should be used only for local
+development.
 
 ### Dispute Operations
 
@@ -316,11 +326,15 @@ Provider-specific additions:
 
 | Field | Type | Required | Default |
 |-------|------|----------|---------|
-| `methodId` | `Uint8Array` | Yes | Trusted image ID bytes |
-| `routerConfig.routerProgram` | `PublicKey` | Yes | Trusted router program |
-| `routerConfig.router` | `PublicKey` | Yes | Router PDA |
-| `routerConfig.verifierEntry` | `PublicKey` | Yes | Verifier-entry PDA |
-| `routerConfig.verifierProgram` | `PublicKey` | Yes | Trusted verifier program |
+| `proverBackend.kind` | `"local-binary" \| "remote"` | Yes | — |
+| `proverBackend.binaryPath` | `string` | If `kind="local-binary"` | — |
+| `proverBackend.endpoint` | `string` | If `kind="remote"` | — |
+| `methodId` | `Uint8Array` | Required for private proving | — |
+| `routerConfig.routerProgramId` | `PublicKey` | Required for private proving | — |
+| `routerConfig.routerPda` | `PublicKey` | Required for private proving | — |
+| `routerConfig.verifierEntryPda` | `PublicKey` | Required for private proving | — |
+| `routerConfig.verifierProgramId` | `PublicKey` | Required for private proving | — |
+| `unsafeAllowUnpinnedPrivateProofs` | `boolean` | No | `false` (development only) |
 | `verifyAfterGeneration` | `boolean` | No | `false` |
 | `cache.ttlMs` | `number` | No | `300_000` |
 | `cache.maxEntries` | `number` | No | `100` |
