@@ -16,6 +16,8 @@ import { silentLogger } from "../../utils/logger.js";
 // Test helpers
 // ============================================================================
 
+type DesktopManager = NonNullable<WebChatDeps["desktopManager"]>;
+
 function createDeps(overrides?: Partial<WebChatDeps>): WebChatDeps {
   return {
     gateway: {
@@ -60,6 +62,35 @@ function openChatSession(
   );
   const calls = vi.mocked(context.onMessage).mock.calls;
   return calls[calls.length - 1][0].sessionId;
+}
+
+function createDesktopManager(
+  overrides: Partial<DesktopManager> = {},
+): DesktopManager {
+  return {
+    listAll: vi.fn().mockReturnValue([]),
+    getHandleBySession: vi.fn(),
+    getOrCreate: vi.fn(),
+    destroy: vi.fn(),
+    assignSession: vi.fn(),
+    ...overrides,
+  } as unknown as DesktopManager;
+}
+
+async function startDesktopChannel(
+  desktopManager: DesktopManager,
+  onMessage?: ChannelContext["onMessage"],
+): Promise<{
+  deps: WebChatDeps;
+  context: ChannelContext;
+  channel: WebChatChannel;
+}> {
+  const deps = createDeps({ desktopManager });
+  const context = createContext(onMessage ? { onMessage } : undefined);
+  const channel = new WebChatChannel(deps);
+  await channel.initialize(context);
+  await channel.start();
+  return { deps, context, channel };
 }
 
 // ============================================================================
@@ -832,36 +863,6 @@ describe("WebChatChannel", () => {
   });
 
   describe("desktop handlers", () => {
-    type DesktopManager = NonNullable<WebChatDeps["desktopManager"]>;
-
-    function createDesktopManager(
-      overrides: Partial<DesktopManager> = {},
-    ): DesktopManager {
-      return {
-        listAll: vi.fn().mockReturnValue([]),
-        getHandleBySession: vi.fn(),
-        getOrCreate: vi.fn(),
-        destroy: vi.fn(),
-        assignSession: vi.fn(),
-        ...overrides,
-      } as unknown as DesktopManager;
-    }
-
-    async function startDesktopChannel(options?: {
-      desktopManager?: DesktopManager;
-      onMessage?: ChannelContext["onMessage"];
-    }): Promise<void> {
-      deps = createDeps({
-        desktopManager: options?.desktopManager ?? createDesktopManager(),
-      });
-      context = createContext(
-        options?.onMessage ? { onMessage: options.onMessage } : undefined,
-      );
-      channel = new WebChatChannel(deps);
-      await channel.initialize(context);
-      await channel.start();
-    }
-
     it("desktop.create binds to the client's active session when sessionId is omitted", async () => {
       const getOrCreate = vi.fn().mockResolvedValue({
         containerId: "ctr123",
@@ -965,10 +966,10 @@ describe("WebChatChannel", () => {
         maxMemory: "4g",
         maxCpu: "2.0",
       });
-      await startDesktopChannel({
-        desktopManager: createDesktopManager({ getOrCreate }),
-        onMessage: vi.fn().mockResolvedValueOnce({ sessionId: "session:client1" }),
-      });
+      ({ deps, context, channel } = await startDesktopChannel(
+        createDesktopManager({ getOrCreate }),
+        vi.fn().mockResolvedValueOnce({ sessionId: "session:client1" }),
+      ));
 
       const send = vi.fn<(response: ControlResponse) => void>();
       const sessionId = openChatSession(channel, context, "client_1", send, "hello");
@@ -1037,13 +1038,13 @@ describe("WebChatChannel", () => {
 
     it("desktop.create rejects foreign sessionId values", async () => {
       const getOrCreate = vi.fn();
-      await startDesktopChannel({
-        desktopManager: createDesktopManager({ getOrCreate }),
-        onMessage: vi
+      ({ deps, context, channel } = await startDesktopChannel(
+        createDesktopManager({ getOrCreate }),
+        vi
           .fn()
           .mockResolvedValueOnce({ sessionId: "session:client1" })
           .mockResolvedValueOnce({ sessionId: "session:client2" }),
-      });
+      ));
 
       const send1 = vi.fn<(response: ControlResponse) => void>();
       const send2 = vi.fn<(response: ControlResponse) => void>();
