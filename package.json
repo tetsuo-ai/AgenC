@@ -27,7 +27,7 @@
     "test:local": "npm run test:fast && npm run test:anchor:nonmigrated",
     "test:matrix:phase01": "./scripts/run-phase01-matrix.sh",
     "test:fixtures": "cd runtime && npx vitest run src/eval/replay.test.ts src/eval/replay-comparison.test.ts --reporter=verbose",
-    "test:e2e-zk": "bash ./scripts/run-e2e-zk-local.sh",
+    "test:e2e-zk": "npm run build:sdk && bash ./scripts/run-e2e-zk-local.sh",
     "demo": "npx tsx demo/private_task_demo.ts",
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts",
     "security:mcp:check": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose --allow-fail",

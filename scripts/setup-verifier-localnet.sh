@@ -78,7 +78,7 @@ resolve_agenc_program_artifact() {
   local candidate=""
 
   for candidate in "${AGENC_SO_ROOT}" "${AGENC_SO_PROGRAMS}"; do
-    if [ -f "${candidate}" ]; then
+    if [[ -f "${candidate}" ]]; then
       echo "${candidate}"
       return 0
     fi
@@ -134,10 +134,10 @@ else
   MODE="mock"
 fi
 
-if [ -z "${AGENC_SO}" ]; then
-  echo "ERROR: Missing AgenC artifact. Checked:"
-  echo "  - ${AGENC_SO_ROOT}"
-  echo "  - ${AGENC_SO_PROGRAMS}"
+if [[ -z "${AGENC_SO}" ]]; then
+  echo "ERROR: Missing AgenC artifact. Checked:" >&2
+  echo "  - ${AGENC_SO_ROOT}" >&2
+  echo "  - ${AGENC_SO_PROGRAMS}" >&2
   exit 1
 fi
 
