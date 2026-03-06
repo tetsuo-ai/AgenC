@@ -28,80 +28,126 @@ import {
   isExpectedVerifierEntryData,
 } from "./verifier-localnet";
 
-async function main() {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
+type RouterAccounts = {
+  verifierRouter: { fetch(address: PublicKey): Promise<unknown> };
+  verifierEntry: { fetch(address: PublicKey): Promise<unknown> };
+};
 
-  // Load router IDL
+type RouterProgramContext = {
+  routerAccounts: RouterAccounts;
+  routerProgram: Program<Idl>;
+};
+
+type VerifierState = {
+  routerPdaInfo: anchor.web3.AccountInfo<Buffer> | null;
+  routerPdaReady: boolean;
+  verifierEntryInfo: anchor.web3.AccountInfo<Buffer> | null;
+  verifierEntryPda: PublicKey;
+  verifierEntryReady: boolean;
+  verifierProgramData: PublicKey;
+  verifierProgramDataReady: boolean;
+  routerPda: PublicKey;
+};
+
+function loadRouterProgram(provider: anchor.AnchorProvider): RouterProgramContext {
   const idlPath = path.resolve(__dirname, "idl", "verifier_router.json");
   const idlJson = JSON.parse(fs.readFileSync(idlPath, "utf8")) as Idl;
-
   const routerProgram = new Program(idlJson, provider);
-  const routerAccounts = routerProgram.account as unknown as {
-    verifierRouter: { fetch(address: PublicKey): Promise<unknown> };
-    verifierEntry: { fetch(address: PublicKey): Promise<unknown> };
-  };
+  const routerAccounts = routerProgram.account as unknown as RouterAccounts;
+  return { routerAccounts, routerProgram };
+}
 
-  // Derive router PDA
+function deriveVerifierAddresses() {
   const routerPda = deriveRouterPda();
-  console.log("Router PDA:", routerPda.toBase58());
-
-  // Derive verifier entry PDA
   const verifierEntryPda = deriveVerifierEntryPda();
-  console.log("Verifier Entry PDA:", verifierEntryPda.toBase58());
-
-  // Derive verifier program data account (BPF loader upgradeable)
   const verifierProgramData = deriveVerifierProgramDataPda();
-  console.log("Verifier Program Data:", verifierProgramData.toBase58());
+  return { routerPda, verifierEntryPda, verifierProgramData };
+}
 
+function logVerifierAddresses(state: {
+  routerPda: PublicKey;
+  verifierEntryPda: PublicKey;
+  verifierProgramData: PublicKey;
+}) {
+  console.log("Router PDA:", state.routerPda.toBase58());
+  console.log("Verifier Entry PDA:", state.verifierEntryPda.toBase58());
+  console.log("Verifier Program Data:", state.verifierProgramData.toBase58());
+}
+
+async function fetchVerifierState(
+  provider: anchor.AnchorProvider,
+  addresses: ReturnType<typeof deriveVerifierAddresses>,
+): Promise<VerifierState> {
   const [routerProgramInfo, verifierProgramInfo, verifierProgramDataInfo, routerPdaInfo, verifierEntryInfo] =
     await Promise.all([
       provider.connection.getAccountInfo(ROUTER_PROGRAM_ID),
       provider.connection.getAccountInfo(VERIFIER_PROGRAM_ID),
-      provider.connection.getAccountInfo(verifierProgramData),
-      provider.connection.getAccountInfo(routerPda),
-      provider.connection.getAccountInfo(verifierEntryPda),
+      provider.connection.getAccountInfo(addresses.verifierProgramData),
+      provider.connection.getAccountInfo(addresses.routerPda),
+      provider.connection.getAccountInfo(addresses.verifierEntryPda),
     ]);
 
   const routerProgramReady = Boolean(routerProgramInfo?.executable);
   const verifierProgramReady = Boolean(verifierProgramInfo?.executable);
   const verifierProgramDataReady = hasExpectedProgramDataAuthority(
     verifierProgramDataInfo,
-    routerPda,
+    addresses.routerPda,
   );
-  const routerPdaReady = Boolean(routerPdaInfo && routerPdaInfo.owner.equals(ROUTER_PROGRAM_ID));
+  const routerPdaReady = Boolean(
+    routerPdaInfo?.owner.equals(ROUTER_PROGRAM_ID),
+  );
   const verifierEntryReady = Boolean(
-    verifierEntryInfo &&
-      verifierEntryInfo.owner.equals(ROUTER_PROGRAM_ID) &&
+    verifierEntryInfo?.owner.equals(ROUTER_PROGRAM_ID) &&
       isExpectedVerifierEntryData(verifierEntryInfo.data),
   );
 
-  if (!routerProgramReady) {
+  return {
+    routerPda: addresses.routerPda,
+    routerPdaInfo,
+    routerPdaReady,
+    verifierEntryInfo,
+    verifierEntryPda: addresses.verifierEntryPda,
+    verifierEntryReady,
+    verifierProgramData: addresses.verifierProgramData,
+    verifierProgramDataReady,
+  };
+}
+
+function assertVerifierProgramsReady(
+  programs: { routerProgramReady: boolean; verifierProgramReady: boolean },
+) {
+  if (!programs.routerProgramReady) {
     throw new Error(
       `Verifier Router program ${ROUTER_PROGRAM_ID.toBase58()} is not deployed. ` +
         "Start localnet with: bash scripts/setup-verifier-localnet.sh --mode real",
     );
   }
 
-  if (!verifierProgramReady) {
+  if (!programs.verifierProgramReady) {
     throw new Error(
       `Groth16 verifier program ${VERIFIER_PROGRAM_ID.toBase58()} is not deployed. ` +
         "Start localnet with: bash scripts/setup-verifier-localnet.sh --mode real",
     );
   }
 
-  if (!verifierProgramDataReady) {
+}
+
+async function assertRealVerifierState(
+  routerAccounts: RouterAccounts,
+  state: VerifierState,
+) {
+  if (!state.verifierProgramDataReady) {
     throw new Error(
       "Expected a real Groth16 verifier deployment with ProgramData upgrade authority " +
-        `pinned to router PDA ${routerPda.toBase58()}, but that invariant is missing. ` +
+        `pinned to router PDA ${state.routerPda.toBase58()}, but that invariant is missing. ` +
         "This localnet looks like a mock verifier stack. Start it with: " +
         "bash scripts/setup-verifier-localnet.sh --mode real",
     );
   }
 
-  if (routerPdaInfo) {
+  if (state.routerPdaInfo) {
     try {
-      await routerAccounts.verifierRouter.fetch(routerPda);
+      await routerAccounts.verifierRouter.fetch(state.routerPda);
     } catch (error) {
       throw new Error(
         "Router PDA exists but does not decode as a real initialized verifier router. " +
@@ -110,21 +156,23 @@ async function main() {
     }
   }
 
-  if (verifierEntryInfo) {
-    if (!verifierEntryReady) {
-      throw new Error(
-        "Verifier entry PDA exists but does not match the expected Groth16 verifier entry layout. " +
-          "Reset localnet and rerun setup in real mode.",
-      );
-    }
+  if (state.verifierEntryInfo && !state.verifierEntryReady) {
+    throw new Error(
+      "Verifier entry PDA exists but does not match the expected Groth16 verifier entry layout. " +
+        "Reset localnet and rerun setup in real mode.",
+    );
   }
+}
 
-  if (routerPdaReady && verifierEntryReady) {
-    console.log("Verifier prerequisites already provisioned; skipping router bootstrap.");
-    return;
-  }
+function verifierBootstrapReady(state: VerifierState): boolean {
+  return state.routerPdaReady && state.verifierEntryReady;
+}
 
-  // 1. Initialize the router
+async function initializeRouter(
+  provider: anchor.AnchorProvider,
+  routerProgram: Program<Idl>,
+  routerPda: PublicKey,
+) {
   console.log("\n--- Step 1: Initialize Router ---");
   try {
     const tx = await routerProgram.methods
@@ -140,20 +188,25 @@ async function main() {
     const msg = String(e);
     if (msg.includes("already in use")) {
       console.log("Router already initialized (skipping).");
-    } else {
-      throw e;
+      return;
     }
+    throw e;
   }
+}
 
-  // 2. Add the groth16 verifier
+async function addGroth16Verifier(
+  provider: anchor.AnchorProvider,
+  routerProgram: Program<Idl>,
+  state: VerifierState,
+) {
   console.log("\n--- Step 2: Add Groth16 Verifier ---");
   try {
     const tx = await routerProgram.methods
       .addVerifier(Array.from(GROTH16_SELECTOR))
       .accountsPartial({
-        router: routerPda,
-        verifierEntry: verifierEntryPda,
-        verifierProgramData,
+        router: state.routerPda,
+        verifierEntry: state.verifierEntryPda,
+        verifierProgramData: state.verifierProgramData,
         verifierProgram: VERIFIER_PROGRAM_ID,
         authority: provider.wallet.publicKey,
         systemProgram: SystemProgram.programId,
@@ -164,17 +217,21 @@ async function main() {
     const msg = String(e);
     if (msg.includes("already in use")) {
       console.log("Verifier entry already exists (skipping).");
-    } else {
-      throw e;
+      return;
     }
+    throw e;
   }
+}
 
-  // Verify the setup
+async function verifySetup(routerAccounts: RouterAccounts, state: VerifierState) {
   console.log("\n--- Verification ---");
-  const verifiedRouterAccount = await routerAccounts.verifierRouter.fetch(routerPda);
-  console.log("Router owner:", (verifiedRouterAccount as { ownership: { owner: PublicKey } }).ownership.owner?.toBase58());
+  const verifiedRouterAccount = await routerAccounts.verifierRouter.fetch(state.routerPda);
+  console.log(
+    "Router owner:",
+    (verifiedRouterAccount as { ownership: { owner: PublicKey } }).ownership.owner?.toBase58(),
+  );
 
-  const verifierEntry = await routerAccounts.verifierEntry.fetch(verifierEntryPda);
+  const verifierEntry = await routerAccounts.verifierEntry.fetch(state.verifierEntryPda);
   const entry = verifierEntry as { selector: number[]; verifier: PublicKey; estopped: boolean };
   console.log("Verifier entry:", {
     selector: Buffer.from(entry.selector).toString("hex"),
@@ -183,6 +240,38 @@ async function main() {
   });
 
   console.log("\nVerifier localnet setup complete.");
+}
+
+async function main() {
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+
+  const { routerAccounts, routerProgram } = loadRouterProgram(provider);
+  const addresses = deriveVerifierAddresses();
+  logVerifierAddresses(addresses);
+
+  const [programInfo, verifierState] = await Promise.all([
+    Promise.all([
+      provider.connection.getAccountInfo(ROUTER_PROGRAM_ID),
+      provider.connection.getAccountInfo(VERIFIER_PROGRAM_ID),
+    ]),
+    fetchVerifierState(provider, addresses),
+  ]);
+
+  assertVerifierProgramsReady({
+    routerProgramReady: Boolean(programInfo[0]?.executable),
+    verifierProgramReady: Boolean(programInfo[1]?.executable),
+  });
+  await assertRealVerifierState(routerAccounts, verifierState);
+
+  if (verifierBootstrapReady(verifierState)) {
+    console.log("Verifier prerequisites already provisioned; skipping router bootstrap.");
+    return;
+  }
+
+  await initializeRouter(provider, routerProgram, verifierState.routerPda);
+  await addGroth16Verifier(provider, routerProgram, verifierState);
+  await verifySetup(routerAccounts, verifierState);
 }
 
 main().catch((err) => {

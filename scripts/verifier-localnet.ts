@@ -100,7 +100,7 @@ export function hasExpectedProgramDataAuthority(
   account: AccountLike | null,
   expectedAuthority: PublicKey,
 ): boolean {
-  if (!account || !account.owner.equals(BPF_LOADER_UPGRADEABLE)) {
+  if (!account?.owner.equals(BPF_LOADER_UPGRADEABLE)) {
     return false;
   }
 

@@ -29,7 +29,7 @@ for _ in $(seq 1 90); do
     break
   fi
   if ! kill -0 "${VALIDATOR_PID}" >/dev/null 2>&1; then
-    echo "ERROR: verifier validator exited before becoming ready."
+    echo "ERROR: verifier validator exited before becoming ready." >&2
     tail -n 120 "${VALIDATOR_LOG}" || true
     exit 1
   fi
@@ -37,7 +37,7 @@ for _ in $(seq 1 90); do
 done
 
 if [ "${READY}" -ne 1 ]; then
-  echo "ERROR: validator did not become ready in time."
+  echo "ERROR: validator did not become ready in time." >&2
   tail -n 120 "${VALIDATOR_LOG}" || true
   exit 1
 fi
