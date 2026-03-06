@@ -62,12 +62,19 @@ export interface ProofCacheConfig {
  * Configuration for the ProofEngine.
  */
 export interface ProofEngineConfig {
-  /** Optional pinned RISC0 method id (image id, 32 bytes) */
+  /** Pinned RISC0 method id (image id, 32 bytes) for private proof generation */
   methodId?: Uint8Array;
-  /** Optional trusted router/verifier account config */
+  /** Trusted router/verifier account config for private proof generation */
   routerConfig?: RouterConfig;
   /** Optional prover backend config */
   proverBackend?: ProverBackendConfig;
+  /**
+   * Allow private proof generation without pinned method/router config.
+   *
+   * SECURITY: Development-only escape hatch. Production private proving should
+   * fail closed unless methodId and routerConfig are both pinned.
+   */
+  unsafeAllowUnpinnedPrivateProofs?: boolean;
   /** Cache configuration. Omit to disable caching. */
   cache?: ProofCacheConfig;
   /** Logger instance */

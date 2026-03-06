@@ -8,6 +8,7 @@ import { execFile } from "node:child_process";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
+import { createDesktopAuthHeaders } from "./auth.js";
 import type { DesktopSandboxManager } from "./manager.js";
 
 // ============================================================================
@@ -135,11 +136,16 @@ export class DesktopSandboxWatchdog {
   private async isHealthy(containerId: string): Promise<boolean> {
     const handle = this.manager.getHandle(containerId);
     if (!handle) return false;
+    const authToken = this.manager.getAuthToken(containerId);
+    if (!authToken) return false;
 
     try {
       const res = await fetch(
         `http://localhost:${handle.apiHostPort}/health`,
-        { signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS) },
+        {
+          headers: createDesktopAuthHeaders(authToken),
+          signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
+        },
       );
       return res.ok;
     } catch {

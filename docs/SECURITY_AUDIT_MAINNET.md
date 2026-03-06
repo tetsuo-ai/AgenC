@@ -5,6 +5,17 @@
 **Program ID:** `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 **Framework:** Anchor (Solana)
 
+## Scope Boundary
+
+This RFP covers the on-chain coordination program. It is not, by itself, a
+project-wide security-readiness statement for AgenC runtime, desktop, webchat,
+MCP, or frontend surfaces.
+
+Use this document together with:
+
+- `docs/SECURITY_SCOPE_MATRIX.md`
+- `docs/RUNTIME_PRE_AUDIT_CHECKLIST.md`
+
 ## 1. Audit Scope
 
 ### 1.1 Instructions
@@ -232,13 +243,17 @@ Before engaging auditors, complete the following:
 - [ ] Known issues documented (if any)
 - [ ] Deployment configuration finalized (devnet/mainnet parameters)
 - [ ] Access credentials prepared for auditor communication channel
+- [ ] `docs/SECURITY_SCOPE_MATRIX.md` updated for the release commit
+- [ ] `docs/RUNTIME_PRE_AUDIT_CHECKLIST.md` completed for runtime, desktop, webchat, and tool surfaces
+- [ ] No open Critical or High findings remain on externally reachable runtime / desktop / webchat surfaces
+- [ ] Security-owner signoff recorded that no externally reachable surface remains outside the declared audit scope
 
 ## 7. Contact and Submission
 
 **Project:** AgenC Coordination Protocol
 **Repository:** [Provide repository URL]
 **Primary Contact:** [Provide contact email]
-**Expected Audit Start:** [TBD after pre-audit checklist complete]
+**Expected Audit Start:** [TBD after pre-audit checklist complete and security-owner signoff is recorded]
 
 ---
 

@@ -12,6 +12,11 @@ import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
 import {
+  createDesktopAuthHeaders,
+  createDesktopAuthToken,
+  DESKTOP_AUTH_ENV_KEY,
+} from "./auth.js";
+import {
   DesktopSandboxLifecycleError,
   DesktopSandboxPoolExhaustedError,
 } from "./errors.js";
@@ -85,9 +90,20 @@ interface PortMapping {
   vncHostPort: number;
 }
 
+interface DockerRunOptions {
+  containerName: string;
+  resolution: { width: number; height: number };
+  image: string;
+  sessionId: string;
+  authToken: string;
+  maxMemory: string;
+  maxCpu: string;
+  sandboxOptions: CreateDesktopSandboxOptions;
+}
+
 function parsePortMappings(inspectJson: string): PortMapping {
   // docker inspect --format '{{json .NetworkSettings.Ports}}'
-  // Returns: {"6080/tcp":[{"HostIp":"0.0.0.0","HostPort":"32768"}],"9990/tcp":[...]}
+  // Returns: {"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"32768"}],"9990/tcp":[...]}
   let ports: Record<string, Array<{ HostIp: string; HostPort: string }> | null>;
   try {
     ports = JSON.parse(inspectJson) as typeof ports;
@@ -186,6 +202,8 @@ export class DesktopSandboxManager {
     string,
     ReturnType<typeof setTimeout>
   >();
+  /** containerId → bearer token used by the in-container REST server */
+  private readonly authTokens = new Map<string, string>();
   /** Cached Docker availability check */
   private dockerAvailable: boolean | null = null;
 
@@ -277,6 +295,7 @@ export class DesktopSandboxManager {
     const containerName = `${CONTAINER_PREFIX}-${sanitizeSessionId(sessionId)}`;
     const resolution = options.resolution ?? this.config.resolution;
     const image = options.image ?? this.config.image;
+    const authToken = createDesktopAuthToken();
     const maxMemory = normalizeMemoryLimit(
       options.maxMemory ?? this.config.maxMemory,
     );
@@ -287,15 +306,16 @@ export class DesktopSandboxManager {
     // Remove any stale container with the same name
     await this.forceRemove(containerName);
 
-    const args = this.buildDockerRunArgs(
+    const args = this.buildDockerRunArgs({
       containerName,
       resolution,
       image,
       sessionId,
+      authToken,
       maxMemory,
       maxCpu,
-      options,
-    );
+      sandboxOptions: options,
+    });
 
     this.logger.info(
       `Creating desktop sandbox for session ${sessionId} (${resolution.width}x${resolution.height})`,
@@ -320,10 +340,11 @@ export class DesktopSandboxManager {
 
     this.handles.set(containerId, handle);
     this.sessionMap.set(sessionId, containerId);
+    this.authTokens.set(containerId, authToken);
 
     // Wait for the REST server to become ready
     try {
-      await this.waitForReady(handle);
+      await this.waitForReady(handle, authToken);
       handle.status = "ready";
     } catch (err) {
       handle.status = "failed";
@@ -356,6 +377,7 @@ export class DesktopSandboxManager {
     // Clean up failed/stopped handle if present
     if (existing) {
       this.handles.delete(existing.containerId);
+      this.authTokens.delete(existing.containerId);
       this.removeSessionMappingsForContainer(existing.containerId);
     }
     return this.create({ sessionId, ...options });
@@ -415,6 +437,7 @@ export class DesktopSandboxManager {
     if (handle) {
       handle.status = "stopped";
     }
+    this.authTokens.delete(containerId);
     this.handles.delete(containerId);
   }
 
@@ -435,6 +458,11 @@ export class DesktopSandboxManager {
   /** Get handle by container ID. */
   getHandle(containerId: string): DesktopSandboxHandle | undefined {
     return this.handles.get(containerId);
+  }
+
+  /** Get the bearer token for a tracked container. */
+  getAuthToken(containerId: string): string | undefined {
+    return this.authTokens.get(containerId);
   }
 
   /** Get handle by session ID. */
@@ -473,15 +501,17 @@ export class DesktopSandboxManager {
   // --------------------------------------------------------------------------
 
   /** Build the `docker run` argument array. */
-  private buildDockerRunArgs(
-    containerName: string,
-    resolution: { width: number; height: number },
-    image: string,
-    sessionId: string,
-    maxMemory: string,
-    maxCpu: string,
-    options: CreateDesktopSandboxOptions,
-  ): string[] {
+  private buildDockerRunArgs(options: DockerRunOptions): string[] {
+    const {
+      containerName,
+      resolution,
+      image,
+      sessionId,
+      authToken,
+      maxMemory,
+      maxCpu,
+      sandboxOptions,
+    } = options;
     const args: string[] = [
       "run",
       "--detach",
@@ -497,62 +527,104 @@ export class DesktopSandboxManager {
       maxMemory,
     ];
 
-    if (this.config.securityProfile === "strict") {
-      args.push(
-        "--cap-drop", "ALL",
-        "--cap-add", "CHOWN",
-        "--cap-add", "SETUID",
-        "--cap-add", "SETGID",
-        "--cap-add", "DAC_OVERRIDE",
-        "--cap-add", "FOWNER",
-        "--cap-add", "KILL",
-        "--cap-add", "NET_BIND_SERVICE",
-      );
-    }
+    this.appendStrictSecurityArgs(args);
 
     args.push(
       "--label", MANAGED_BY_LABEL,
       "--label", `session-id=${sessionId}`,
-      "--publish", `0:${CONTAINER_API_PORT}`,
-      "--publish", `0:${CONTAINER_VNC_PORT}`,
+      "--publish", `127.0.0.1::${CONTAINER_API_PORT}`,
+      "--publish", `127.0.0.1::${CONTAINER_VNC_PORT}`,
       "--network", this.config.networkMode === "none" ? "none" : "bridge",
       "--env", `DISPLAY_WIDTH=${resolution.width}`,
       "--env", `DISPLAY_HEIGHT=${resolution.height}`,
+      "--env", `${DESKTOP_AUTH_ENV_KEY}=${authToken}`,
     );
 
-    if (this.workspacePath && this.workspaceAccess !== "none") {
-      const mountMode = this.workspaceAccess === "readonly" ? "ro" : "rw";
-      args.push(
-        "--volume",
-        `${this.workspacePath}:${this.workspaceMountPath}:${mountMode}`,
-        "--workdir",
-        this.workspaceMountPath,
-        "--env",
-        `AGENC_WORKSPACE_ROOT=${this.workspaceMountPath}`,
-      );
-      if (typeof this.hostUid === "number" && Number.isInteger(this.hostUid) && this.hostUid >= 0) {
-        args.push("--env", `AGENC_HOST_UID=${this.hostUid}`);
-      }
-      if (typeof this.hostGid === "number" && Number.isInteger(this.hostGid) && this.hostGid >= 0) {
-        args.push("--env", `AGENC_HOST_GID=${this.hostGid}`);
-      }
-    }
-
-    if (options.env) {
-      for (const [key, value] of Object.entries(options.env)) {
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-          args.push("--env", `${key}=${value}`);
-        }
-      }
-    }
-
-    const extraLabels = { ...this.config.labels, ...options.labels };
-    for (const [key, value] of Object.entries(extraLabels)) {
-      args.push("--label", `${key}=${value}`);
-    }
+    this.appendWorkspaceArgs(args);
+    this.appendSandboxEnvArgs(args, sandboxOptions.env);
+    this.appendLabelArgs(args, {
+      ...this.config.labels,
+      ...sandboxOptions.labels,
+    });
 
     args.push(image);
     return args;
+  }
+
+  private appendStrictSecurityArgs(args: string[]): void {
+    if (this.config.securityProfile !== "strict") {
+      return;
+    }
+
+    args.push(
+      "--cap-drop", "ALL",
+      "--cap-add", "CHOWN",
+      "--cap-add", "SETUID",
+      "--cap-add", "SETGID",
+      "--cap-add", "DAC_OVERRIDE",
+      "--cap-add", "FOWNER",
+      "--cap-add", "KILL",
+      "--cap-add", "NET_BIND_SERVICE",
+    );
+  }
+
+  private appendWorkspaceArgs(args: string[]): void {
+    if (!this.workspacePath || this.workspaceAccess === "none") {
+      return;
+    }
+
+    const mountMode = this.workspaceAccess === "readonly" ? "ro" : "rw";
+    args.push(
+      "--volume",
+      `${this.workspacePath}:${this.workspaceMountPath}:${mountMode}`,
+      "--workdir",
+      this.workspaceMountPath,
+      "--env",
+      `AGENC_WORKSPACE_ROOT=${this.workspaceMountPath}`,
+    );
+
+    this.appendOptionalHostIdArg(args, "AGENC_HOST_UID", this.hostUid);
+    this.appendOptionalHostIdArg(args, "AGENC_HOST_GID", this.hostGid);
+  }
+
+  private appendOptionalHostIdArg(
+    args: string[],
+    envKey: string,
+    value: number | undefined,
+  ): void {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+      args.push("--env", `${envKey}=${value}`);
+    }
+  }
+
+  private appendSandboxEnvArgs(
+    args: string[],
+    env: Record<string, string> | undefined,
+  ): void {
+    if (!env) {
+      return;
+    }
+
+    for (const [key, value] of Object.entries(env)) {
+      if (this.isAllowedSandboxEnvKey(key)) {
+        args.push("--env", `${key}=${value}`);
+      }
+    }
+  }
+
+  private isAllowedSandboxEnvKey(key: string): boolean {
+    return key !== DESKTOP_AUTH_ENV_KEY && /^[A-Za-z_]\w*$/.test(key);
+  }
+
+  private appendLabelArgs(
+    args: string[],
+    labels: Record<string, string | undefined>,
+  ): void {
+    for (const [key, value] of Object.entries(labels)) {
+      if (typeof value === "string") {
+        args.push("--label", `${key}=${value}`);
+      }
+    }
   }
 
   /** Execute `docker run` and return the truncated container ID. */
@@ -591,13 +663,19 @@ export class DesktopSandboxManager {
   // --------------------------------------------------------------------------
 
   /** Poll the container's REST health endpoint until 200 OK. */
-  private async waitForReady(handle: DesktopSandboxHandle): Promise<void> {
+  private async waitForReady(
+    handle: DesktopSandboxHandle,
+    authToken: string,
+  ): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < READY_TIMEOUT_MS) {
       try {
         const res = await fetch(
           `http://localhost:${handle.apiHostPort}/health`,
-          { signal: AbortSignal.timeout(READY_POLL_TIMEOUT_MS) },
+          {
+            headers: createDesktopAuthHeaders(authToken),
+            signal: AbortSignal.timeout(READY_POLL_TIMEOUT_MS),
+          },
         );
         if (res.ok) return;
       } catch {

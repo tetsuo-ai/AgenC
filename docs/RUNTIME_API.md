@@ -152,16 +152,16 @@ await monitor.stop();
 import { ProofEngine } from '@agenc/runtime';
 
 const engine = new ProofEngine({
+  proverBackend: {
+    kind: 'local-binary',
+    binaryPath: '/usr/local/bin/agenc-zkvm-host',
+  },
   methodId: trustedImageIdBytes,
   routerConfig: {
     routerProgramId,
     routerPda,
     verifierEntryPda,
     verifierProgramId,
-  },
-  proverBackend: {
-    kind: "local-binary",
-    binaryPath: "/absolute/path/to/agenc-zkvm-host",
   },
   cache: { ttlMs: 300_000, maxEntries: 100 },
 });
@@ -174,6 +174,11 @@ const result = await engine.generate({
 });
 // result.fromCache, result.verified, result.proofSize
 ```
+
+Private proof generation fails closed unless `methodId` and the full
+`routerConfig` are pinned. The only bypass is
+`unsafeAllowUnpinnedPrivateProofs: true`, which should be used only for local
+development.
 
 ### Dispute Operations
 
@@ -322,16 +327,17 @@ When `GrokProviderConfig.webSearch=true`, the runtime can route provider-native 
 
 | Field | Type | Required | Default |
 |-------|------|----------|---------|
-| `methodId` | `Uint8Array` | No | Unpinned |
-| `routerConfig.routerProgramId` | `PublicKey` | No | Unpinned |
-| `routerConfig.routerPda` | `PublicKey` | No | Unpinned |
-| `routerConfig.verifierEntryPda` | `PublicKey` | No | Unpinned |
-| `routerConfig.verifierProgramId` | `PublicKey` | No | Unpinned |
 | `proverBackend.kind` | `"local-binary" \| "remote"` | Yes | — |
-| `proverBackend.binaryPath` | `string` | For `local-binary` | — |
-| `proverBackend.endpoint` | `string` | For `remote` | — |
+| `proverBackend.binaryPath` | `string` | If `kind="local-binary"` | — |
+| `proverBackend.endpoint` | `string` | If `kind="remote"` | — |
 | `proverBackend.timeoutMs` | `number` | No | SDK default |
 | `proverBackend.headers` | `Record<string, string>` | No | — |
+| `methodId` | `Uint8Array` | Required for private proving | — |
+| `routerConfig.routerProgramId` | `PublicKey` | Required for private proving | — |
+| `routerConfig.routerPda` | `PublicKey` | Required for private proving | — |
+| `routerConfig.verifierEntryPda` | `PublicKey` | Required for private proving | — |
+| `routerConfig.verifierProgramId` | `PublicKey` | Required for private proving | — |
+| `unsafeAllowUnpinnedPrivateProofs` | `boolean` | No | `false` (development only) |
 | `cache.ttlMs` | `number` | No | `300_000` |
 | `cache.maxEntries` | `number` | No | `100` |
 

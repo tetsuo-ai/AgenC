@@ -263,6 +263,26 @@ describe("proofs", () => {
   });
 
   describe("computeNullifierFromAgentSecret", () => {
+    it("produces different nullifier when agentSecret changes", () => {
+      const constraintHash = 123n;
+      const outputCommitment = 10n;
+      const firstSecret = 456n;
+      const secondSecret = 457n;
+
+      const nullifierA = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitment,
+        firstSecret,
+      );
+      const nullifierB = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitment,
+        secondSecret,
+      );
+
+      expect(nullifierA).not.toBe(nullifierB);
+    });
+
     it("produces different nullifier when output_commitment changes", () => {
       const constraintHash = 123n;
       const agentSecret = 456n;

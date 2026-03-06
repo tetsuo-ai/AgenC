@@ -37,6 +37,12 @@ import type {
 import { ProofCache } from "./cache.js";
 import { ProofGenerationError } from "./errors.js";
 const METHOD_ID_LEN = 32;
+const ROUTER_CONFIG_FIELDS = [
+  "routerProgramId",
+  "routerPda",
+  "verifierEntryPda",
+  "verifierProgramId",
+] as const;
 
 /**
  * Map runtime ProverBackendConfig to SDK's ProverConfig for real prover backends.
@@ -97,6 +103,13 @@ export function buildSdkProverConfig(
  *     kind: "local-binary",
  *     binaryPath: "/absolute/path/to/agenc-zkvm-host",
  *   },
+ *   methodId: trustedImageIdBytes,
+ *   routerConfig: {
+ *     routerProgramId,
+ *     routerPda,
+ *     verifierEntryPda,
+ *     verifierProgramId,
+ *   },
  *   cache: { ttlMs: 300_000, maxEntries: 100 },
  * });
  *
@@ -114,6 +127,7 @@ export class ProofEngine implements ProofGenerator {
   private readonly routerConfig: RouterConfig | null;
   private readonly proverBackend: ProverBackend;
   private readonly proverBackendConfig: ProverBackendConfig | undefined;
+  private readonly unsafeAllowUnpinnedPrivateProofs: boolean;
   private readonly cache: ProofCache | null;
   private readonly logger: Logger;
   private readonly metrics?: MetricsProvider;
@@ -135,6 +149,8 @@ export class ProofEngine implements ProofGenerator {
     this.routerConfig = config?.routerConfig ?? null;
     this.proverBackendConfig = config?.proverBackend;
     this.proverBackend = config?.proverBackend?.kind ?? "local-binary";
+    this.unsafeAllowUnpinnedPrivateProofs =
+      config?.unsafeAllowUnpinnedPrivateProofs ?? false;
     this.cache = config?.cache ? new ProofCache(config.cache) : null;
     this.logger = config?.logger ?? silentLogger;
     this.metrics = config?.metrics;
@@ -153,6 +169,11 @@ export class ProofEngine implements ProofGenerator {
         'endpoint is set but prover backend kind is not "remote" — endpoint will be ignored',
       );
     }
+    if (this.unsafeAllowUnpinnedPrivateProofs) {
+      this.logger.warn(
+        "unsafeAllowUnpinnedPrivateProofs=true disables methodId/router pinning and should only be used for local development",
+      );
+    }
   }
 
   /**
@@ -163,6 +184,8 @@ export class ProofEngine implements ProofGenerator {
    */
   async generate(inputs: ProofInputs): Promise<EngineProofResult> {
     this._totalRequests++;
+    const proverBackendConfig = this.requireProverBackendConfig();
+    this.requirePinnedPrivateProofConfig();
 
     // Check cache
     if (this.cache) {
@@ -179,14 +202,9 @@ export class ProofEngine implements ProofGenerator {
 
     // Generate proof via SDK
     const startTime = Date.now();
-    if (!this.proverBackendConfig) {
-      throw new ProofGenerationError(
-        "ProofEngine requires an explicit proverBackend configuration (local-binary or remote)",
-      );
-    }
     let sdkResult;
     try {
-      const sdkProverConfig = buildSdkProverConfig(this.proverBackendConfig);
+      const sdkProverConfig = buildSdkProverConfig(proverBackendConfig);
       sdkResult = await sdkGenerateProof(
         {
           taskPda: inputs.taskPda,
@@ -292,16 +310,49 @@ export class ProofEngine implements ProofGenerator {
     };
   }
 
-  private isRouterPinned(): boolean {
-    if (!this.routerConfig) {
-      return false;
+  private requireProverBackendConfig(): ProverBackendConfig {
+    if (!this.proverBackendConfig) {
+      throw new ProofGenerationError(
+        "ProofEngine requires an explicit proverBackend configuration (local-binary or remote)",
+      );
     }
-    return Boolean(
-      this.routerConfig.routerProgramId &&
-      this.routerConfig.routerPda &&
-      this.routerConfig.verifierEntryPda &&
-      this.routerConfig.verifierProgramId,
+    return this.proverBackendConfig;
+  }
+
+  private requirePinnedPrivateProofConfig(): void {
+    if (this.unsafeAllowUnpinnedPrivateProofs) {
+      return;
+    }
+
+    const missingFields = [
+      ...(this.methodId ? [] : ["methodId"]),
+      ...this.getMissingRouterConfigFields(),
+    ];
+    if (missingFields.length === 0) {
+      return;
+    }
+
+    throw new ProofGenerationError(
+      `Private proof generation requires pinned methodId and complete routerConfig; missing ${missingFields.join(", ")}. Set unsafeAllowUnpinnedPrivateProofs=true only for local development.`,
     );
+  }
+
+  private getMissingRouterConfigFields(): string[] {
+    if (!this.routerConfig) {
+      return ROUTER_CONFIG_FIELDS.map((field) => `routerConfig.${field}`);
+    }
+
+    const missingFields: string[] = [];
+    for (const field of ROUTER_CONFIG_FIELDS) {
+      if (!this.routerConfig[field]) {
+        missingFields.push(`routerConfig.${field}`);
+      }
+    }
+    return missingFields;
+  }
+
+  private isRouterPinned(): boolean {
+    return this.getMissingRouterConfigFields().length === 0;
   }
 
   /**
