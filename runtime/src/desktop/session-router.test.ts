@@ -66,6 +66,7 @@ function mockManager(overrides: Partial<DesktopSandboxManager> = {}): DesktopSan
       apiHostPort: 32769,
       vncHostPort: 32768,
     }),
+    getAuthToken: vi.fn().mockReturnValue("test-token"),
     destroyBySession: vi.fn().mockResolvedValue(undefined),
     getHandleBySession: vi.fn().mockReturnValue({
       containerId: "test-container",
@@ -108,6 +109,11 @@ describe("createDesktopAwareToolHandler", () => {
     const result = await handler("desktop.mouse_click", { x: 100, y: 200 });
     expect(baseHandler).not.toHaveBeenCalled();
     expect(manager.getOrCreate).toHaveBeenCalledWith("sess1");
+    expect(DesktopRESTBridge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authToken: "test-token",
+      }),
+    );
     expect(result).toContain("clicked");
   });
 

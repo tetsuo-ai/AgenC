@@ -12,6 +12,7 @@ import { safeStringify } from "../tools/types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
+import { createDesktopAuthHeaders } from "./auth.js";
 import { DesktopSandboxConnectionError } from "./errors.js";
 
 // ============================================================================
@@ -55,12 +56,14 @@ function resolveToolExecutionTimeoutMs(args: Record<string, unknown>): number {
 export interface DesktopRESTBridgeOptions {
   apiHostPort: number;
   containerId: string;
+  authToken: string;
   logger?: Logger;
 }
 
 export class DesktopRESTBridge {
   private readonly baseUrl: string;
   private readonly containerId: string;
+  private readonly authToken: string;
   private readonly logger: Logger;
   private connected = false;
   private tools: Tool[] = [];
@@ -68,6 +71,7 @@ export class DesktopRESTBridge {
   constructor(options: DesktopRESTBridgeOptions) {
     this.baseUrl = `http://localhost:${options.apiHostPort}`;
     this.containerId = options.containerId;
+    this.authToken = options.authToken;
     this.logger = options.logger ?? silentLogger;
   }
 
@@ -115,6 +119,7 @@ export class DesktopRESTBridge {
   private async fetchJsonOrThrow<T>(url: string, context: string): Promise<T> {
     try {
       const res = await fetch(url, {
+        headers: createDesktopAuthHeaders(this.authToken),
         signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
       });
       if (!res.ok) {
@@ -132,6 +137,7 @@ export class DesktopRESTBridge {
   private createBridgedTool(def: RESTToolDefinition): Tool {
     const name = `desktop.${def.name}`;
     const baseUrl = this.baseUrl;
+    const authToken = this.authToken;
     const containerId = this.containerId;
     const logger = this.logger;
     const bridgeRef = this;
@@ -147,7 +153,9 @@ export class DesktopRESTBridge {
           const timeoutMs = resolveToolExecutionTimeoutMs(args);
           const res = await fetch(`${baseUrl}/tools/${def.name}`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: createDesktopAuthHeaders(authToken, {
+              "Content-Type": "application/json",
+            }),
             body: JSON.stringify(args),
             signal: AbortSignal.timeout(timeoutMs),
           });

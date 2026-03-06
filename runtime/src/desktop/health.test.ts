@@ -52,6 +52,7 @@ function mockManager(
   return {
     listAll: vi.fn().mockReturnValue(infos),
     getHandle: vi.fn((id: string) => handles.get(id)),
+    getAuthToken: vi.fn().mockReturnValue("test-token"),
     destroyBySession: vi.fn(),
   } as unknown as DesktopSandboxManager;
 }
@@ -90,6 +91,14 @@ describe("DesktopSandboxWatchdog", () => {
 
     await watchdog.checkAll();
     expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:32769/health",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+      }),
+    );
     expect(handle.status).toBe("ready");
   });
 

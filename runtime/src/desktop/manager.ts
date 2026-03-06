@@ -12,6 +12,11 @@ import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
 import {
+  createDesktopAuthHeaders,
+  createDesktopAuthToken,
+  DESKTOP_AUTH_ENV_KEY,
+} from "./auth.js";
+import {
   DesktopSandboxLifecycleError,
   DesktopSandboxPoolExhaustedError,
 } from "./errors.js";
@@ -86,7 +91,7 @@ interface PortMapping {
 
 function parsePortMappings(inspectJson: string): PortMapping {
   // docker inspect --format '{{json .NetworkSettings.Ports}}'
-  // Returns: {"6080/tcp":[{"HostIp":"0.0.0.0","HostPort":"32768"}],"9990/tcp":[...]}
+  // Returns: {"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"32768"}],"9990/tcp":[...]}
   let ports: Record<string, Array<{ HostIp: string; HostPort: string }> | null>;
   try {
     ports = JSON.parse(inspectJson) as typeof ports;
@@ -175,6 +180,8 @@ export class DesktopSandboxManager {
     string,
     ReturnType<typeof setTimeout>
   >();
+  /** containerId → bearer token used by the in-container REST server */
+  private readonly authTokens = new Map<string, string>();
   /** Cached Docker availability check */
   private dockerAvailable: boolean | null = null;
 
@@ -258,6 +265,7 @@ export class DesktopSandboxManager {
     const containerName = `${CONTAINER_PREFIX}-${sanitizeSessionId(sessionId)}`;
     const resolution = options.resolution ?? this.config.resolution;
     const image = options.image ?? this.config.image;
+    const authToken = createDesktopAuthToken();
     const maxMemory = normalizeMemoryLimit(
       options.maxMemory ?? this.config.maxMemory,
     );
@@ -273,6 +281,7 @@ export class DesktopSandboxManager {
       resolution,
       image,
       sessionId,
+      authToken,
       maxMemory,
       maxCpu,
       options,
@@ -301,10 +310,11 @@ export class DesktopSandboxManager {
 
     this.handles.set(containerId, handle);
     this.sessionMap.set(sessionId, containerId);
+    this.authTokens.set(containerId, authToken);
 
     // Wait for the REST server to become ready
     try {
-      await this.waitForReady(handle);
+      await this.waitForReady(handle, authToken);
       handle.status = "ready";
     } catch (err) {
       handle.status = "failed";
@@ -337,6 +347,7 @@ export class DesktopSandboxManager {
     // Clean up failed/stopped handle if present
     if (existing) {
       this.handles.delete(existing.containerId);
+      this.authTokens.delete(existing.containerId);
       this.removeSessionMappingsForContainer(existing.containerId);
     }
     return this.create({ sessionId, ...options });
@@ -396,6 +407,7 @@ export class DesktopSandboxManager {
     if (handle) {
       handle.status = "stopped";
     }
+    this.authTokens.delete(containerId);
     this.handles.delete(containerId);
   }
 
@@ -416,6 +428,11 @@ export class DesktopSandboxManager {
   /** Get handle by container ID. */
   getHandle(containerId: string): DesktopSandboxHandle | undefined {
     return this.handles.get(containerId);
+  }
+
+  /** Get the bearer token for a tracked container. */
+  getAuthToken(containerId: string): string | undefined {
+    return this.authTokens.get(containerId);
   }
 
   /** Get handle by session ID. */
@@ -459,6 +476,7 @@ export class DesktopSandboxManager {
     resolution: { width: number; height: number },
     image: string,
     sessionId: string,
+    authToken: string,
     maxMemory: string,
     maxCpu: string,
     options: CreateDesktopSandboxOptions,
@@ -494,16 +512,20 @@ export class DesktopSandboxManager {
     args.push(
       "--label", MANAGED_BY_LABEL,
       "--label", `session-id=${sessionId}`,
-      "--publish", `0:${CONTAINER_API_PORT}`,
-      "--publish", `0:${CONTAINER_VNC_PORT}`,
+      "--publish", `127.0.0.1::${CONTAINER_API_PORT}`,
+      "--publish", `127.0.0.1::${CONTAINER_VNC_PORT}`,
       "--network", this.config.networkMode === "none" ? "none" : "bridge",
       "--env", `DISPLAY_WIDTH=${resolution.width}`,
       "--env", `DISPLAY_HEIGHT=${resolution.height}`,
+      "--env", `${DESKTOP_AUTH_ENV_KEY}=${authToken}`,
     );
 
     if (options.env) {
       for (const [key, value] of Object.entries(options.env)) {
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        if (
+          key !== DESKTOP_AUTH_ENV_KEY &&
+          /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
+        ) {
           args.push("--env", `${key}=${value}`);
         }
       }
@@ -554,13 +576,19 @@ export class DesktopSandboxManager {
   // --------------------------------------------------------------------------
 
   /** Poll the container's REST health endpoint until 200 OK. */
-  private async waitForReady(handle: DesktopSandboxHandle): Promise<void> {
+  private async waitForReady(
+    handle: DesktopSandboxHandle,
+    authToken: string,
+  ): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < READY_TIMEOUT_MS) {
       try {
         const res = await fetch(
           `http://localhost:${handle.apiHostPort}/health`,
-          { signal: AbortSignal.timeout(READY_POLL_TIMEOUT_MS) },
+          {
+            headers: createDesktopAuthHeaders(authToken),
+            signal: AbortSignal.timeout(READY_POLL_TIMEOUT_MS),
+          },
         );
         if (res.ok) return;
       } catch {

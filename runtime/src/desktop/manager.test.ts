@@ -65,7 +65,7 @@ function mockDockerSuccess(
         cb(
           null,
           responses.inspect ??
-            `{"6080/tcp":[{"HostIp":"0.0.0.0","HostPort":"${port1}"}],"9990/tcp":[{"HostIp":"0.0.0.0","HostPort":"${port2}"}]}`,
+            `{"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port1}"}],"9990/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port2}"}]}`,
           "",
         );
         return;
@@ -183,6 +183,17 @@ describe("DesktopSandboxManager", () => {
       expect(args).toContain("--pids-limit");
       expect(args).toContain("1024");
       expect(args).toContain("agenc/desktop:latest");
+      expect(args).toContain("127.0.0.1::9990");
+      expect(args).toContain("127.0.0.1::6080");
+      expect(args.some((arg) => /^DESKTOP_AUTH_TOKEN=[a-f0-9]{64}$/.test(arg))).toBe(true);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/health"),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: expect.stringMatching(/^Bearer [a-f0-9]{64}$/),
+          }),
+        }),
+      );
     });
 
     it("applies custom resolution", async () => {
@@ -258,6 +269,26 @@ describe("DesktopSandboxManager", () => {
       const args = runCall![1] as string[];
       expect(args).toContain("VALID_KEY=value");
       expect(args.join(" ")).not.toContain("invalid key!");
+    });
+
+    it("does not allow DESKTOP_AUTH_TOKEN overrides from sandbox env", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      await manager.create({
+        sessionId: "sess-auth",
+        env: {
+          DESKTOP_AUTH_TOKEN: "user-supplied-token",
+          VALID_KEY: "value",
+        },
+      });
+
+      const runCall = mockExecFile.mock.calls.find(
+        (c: unknown[]) => (c[1] as string[])[0] === "run",
+      );
+      const args = runCall![1] as string[];
+      const authEnvVars = args.filter((arg) => arg.startsWith("DESKTOP_AUTH_TOKEN="));
+      expect(authEnvVars).toHaveLength(1);
+      expect(authEnvVars[0]).not.toBe("DESKTOP_AUTH_TOKEN=user-supplied-token");
     });
 
     it("throws PoolExhaustedError when at max capacity", async () => {
