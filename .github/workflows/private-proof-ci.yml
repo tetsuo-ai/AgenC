@@ -112,7 +112,16 @@ jobs:
           test -d /tmp/risc0-solana/solana-verifier
 
       - name: Build AgenC program
-        run: anchor build
+        run: |
+          anchor build
+          if [ -f target/deploy/agenc_coordination.so ]; then
+            echo "Found AgenC artifact at target/deploy/agenc_coordination.so"
+          elif [ -f programs/agenc-coordination/target/deploy/agenc_coordination.so ]; then
+            echo "Found AgenC artifact at programs/agenc-coordination/target/deploy/agenc_coordination.so"
+          else
+            echo "ERROR: AgenC build did not produce agenc_coordination.so in an expected path." >&2
+            exit 1
+          fi
 
       - name: Run private proof end-to-end gate
         run: npm run test:e2e-zk

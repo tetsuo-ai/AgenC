@@ -24,7 +24,8 @@ set -euo pipefail
 
 RISC0_SOLANA_DIR="/tmp/risc0-solana/solana-verifier"
 AGENC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-AGENC_SO="${AGENC_DIR}/target/deploy/agenc_coordination.so"
+AGENC_SO_ROOT="${AGENC_DIR}/target/deploy/agenc_coordination.so"
+AGENC_SO_PROGRAMS="${AGENC_DIR}/programs/agenc-coordination/target/deploy/agenc_coordination.so"
 MOCK_ROUTER_SO="${AGENC_DIR}/tests/fixtures/mock_verifier_router.so"
 MOCK_ACCOUNT_DIR="${AGENC_DIR}/target/verifier-bootstrap"
 VERIFIER_ANCHOR_VERSION="${VERIFIER_ANCHOR_VERSION:-}"
@@ -73,6 +74,19 @@ build_real_verifier_stack() {
   return "${build_status}"
 }
 
+resolve_agenc_program_artifact() {
+  local candidate=""
+
+  for candidate in "${AGENC_SO_ROOT}" "${AGENC_SO_PROGRAMS}"; do
+    if [ -f "${candidate}" ]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # 1. Get deployer pubkey
 DEPLOYER_PUBKEY=$(solana address)
 echo "Deployer pubkey: ${DEPLOYER_PUBKEY}"
@@ -100,6 +114,7 @@ echo "Verifier Entry PDA: ${VERIFIER_ENTRY_PDA}"
 
 # 3. Prefer real verifier artifacts; fallback to mock verifier/router when unavailable.
 MODE="real"
+AGENC_SO="$(resolve_agenc_program_artifact || true)"
 ROUTER_SO="${RISC0_SOLANA_DIR}/target/deploy/verifier_router.so"
 VERIFIER_SO="${RISC0_SOLANA_DIR}/target/deploy/groth_16_verifier.so"
 
@@ -119,12 +134,19 @@ else
   MODE="mock"
 fi
 
+if [ -z "${AGENC_SO}" ]; then
+  echo "ERROR: Missing AgenC artifact. Checked:"
+  echo "  - ${AGENC_SO_ROOT}"
+  echo "  - ${AGENC_SO_PROGRAMS}"
+  exit 1
+fi
+
 if [ "${MODE}" = "mock" ]; then
   ROUTER_SO="${MOCK_ROUTER_SO}"
   VERIFIER_SO="${MOCK_ROUTER_SO}"
 fi
 
-for f in "${AGENC_SO}" "${ROUTER_SO}" "${VERIFIER_SO}"; do
+for f in "${ROUTER_SO}" "${VERIFIER_SO}"; do
   if [ ! -f "$f" ]; then
     echo "ERROR: Missing artifact: $f"
     exit 1
