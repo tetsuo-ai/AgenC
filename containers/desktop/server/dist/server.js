@@ -37,6 +37,78 @@ function applyCorsHeaders(req, res) {
     }
     return allowedOrigin;
 }
+function handlePreflight(req, res, allowedOrigin) {
+    if (req.method !== "OPTIONS") {
+        return false;
+    }
+    if (req.headers.origin && !allowedOrigin) {
+        json(res, 403, { error: "Origin not allowed" });
+        return true;
+    }
+    res.writeHead(204);
+    res.end();
+    return true;
+}
+function ensureAuthorized(req, res, authToken) {
+    if (isAuthorizedRequest(req.headers.authorization, authToken)) {
+        return true;
+    }
+    res.setHeader("WWW-Authenticate", "Bearer");
+    json(res, 401, { error: "Unauthorized" });
+    return false;
+}
+function handleHealthRequest(req, res, path, startTime) {
+    if (req.method !== "GET" || path !== "/health") {
+        return false;
+    }
+    const health = {
+        status: "ok",
+        display: process.env.DISPLAY ?? ":1",
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+    };
+    json(res, 200, health);
+    return true;
+}
+function handleToolsListRequest(req, res, path) {
+    if (req.method !== "GET" || path !== "/tools") {
+        return false;
+    }
+    json(res, 200, TOOL_DEFINITIONS);
+    return true;
+}
+function extractToolName(path) {
+    const match = /^\/tools\/([a-z_]+)$/.exec(path);
+    return match?.[1];
+}
+async function parseToolArgs(req) {
+    const body = await readBody(req);
+    if (!body.trim()) {
+        return {};
+    }
+    return JSON.parse(body);
+}
+async function handleToolRequest(req, res, path) {
+    if (req.method !== "POST") {
+        return false;
+    }
+    const toolName = extractToolName(path);
+    if (!toolName) {
+        return false;
+    }
+    let args;
+    try {
+        args = await parseToolArgs(req);
+    }
+    catch (e) {
+        json(res, 400, {
+            error: `Invalid JSON body: ${e instanceof Error ? e.message : e}`,
+        });
+        return true;
+    }
+    const result = await executeTool(toolName, args);
+    json(res, result.isError ? 400 : 200, result);
+    return true;
+}
 export function createDesktopServer(options) {
     const startTime = options.startTime ?? Date.now();
     const authToken = options.authToken;
@@ -53,51 +125,19 @@ async function handleRequest(req, res, authToken, startTime) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
     const allowedOrigin = applyCorsHeaders(req, res);
-    if (req.method === "OPTIONS") {
-        if (req.headers.origin && !allowedOrigin) {
-            json(res, 403, { error: "Origin not allowed" });
-            return;
-        }
-        res.writeHead(204);
-        res.end();
+    if (handlePreflight(req, res, allowedOrigin)) {
         return;
     }
-    if (!isAuthorizedRequest(req.headers.authorization, authToken)) {
-        res.setHeader("WWW-Authenticate", "Bearer");
-        json(res, 401, { error: "Unauthorized" });
+    if (!ensureAuthorized(req, res, authToken)) {
         return;
     }
-    if (req.method === "GET" && path === "/health") {
-        const health = {
-            status: "ok",
-            display: process.env.DISPLAY ?? ":1",
-            uptime: Math.floor((Date.now() - startTime) / 1000),
-        };
-        json(res, 200, health);
+    if (handleHealthRequest(req, res, path, startTime)) {
         return;
     }
-    if (req.method === "GET" && path === "/tools") {
-        json(res, 200, TOOL_DEFINITIONS);
+    if (handleToolsListRequest(req, res, path)) {
         return;
     }
-    const toolMatch = path.match(/^\/tools\/([a-z_]+)$/);
-    if (req.method === "POST" && toolMatch) {
-        const toolName = toolMatch[1];
-        let args = {};
-        try {
-            const body = await readBody(req);
-            if (body.trim()) {
-                args = JSON.parse(body);
-            }
-        }
-        catch (e) {
-            json(res, 400, {
-                error: `Invalid JSON body: ${e instanceof Error ? e.message : e}`,
-            });
-            return;
-        }
-        const result = await executeTool(toolName, args);
-        json(res, result.isError ? 400 : 200, result);
+    if (await handleToolRequest(req, res, path)) {
         return;
     }
     json(res, 404, { error: "Not found" });

@@ -89,6 +89,17 @@ interface PortMapping {
   vncHostPort: number;
 }
 
+interface DockerRunOptions {
+  containerName: string;
+  resolution: { width: number; height: number };
+  image: string;
+  sessionId: string;
+  authToken: string;
+  maxMemory: string;
+  maxCpu: string;
+  sandboxOptions: CreateDesktopSandboxOptions;
+}
+
 function parsePortMappings(inspectJson: string): PortMapping {
   // docker inspect --format '{{json .NetworkSettings.Ports}}'
   // Returns: {"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"32768"}],"9990/tcp":[...]}
@@ -276,7 +287,7 @@ export class DesktopSandboxManager {
     // Remove any stale container with the same name
     await this.forceRemove(containerName);
 
-    const args = this.buildDockerRunArgs(
+    const args = this.buildDockerRunArgs({
       containerName,
       resolution,
       image,
@@ -284,8 +295,8 @@ export class DesktopSandboxManager {
       authToken,
       maxMemory,
       maxCpu,
-      options,
-    );
+      sandboxOptions: options,
+    });
 
     this.logger.info(
       `Creating desktop sandbox for session ${sessionId} (${resolution.width}x${resolution.height})`,
@@ -471,16 +482,17 @@ export class DesktopSandboxManager {
   // --------------------------------------------------------------------------
 
   /** Build the `docker run` argument array. */
-  private buildDockerRunArgs(
-    containerName: string,
-    resolution: { width: number; height: number },
-    image: string,
-    sessionId: string,
-    authToken: string,
-    maxMemory: string,
-    maxCpu: string,
-    options: CreateDesktopSandboxOptions,
-  ): string[] {
+  private buildDockerRunArgs(options: DockerRunOptions): string[] {
+    const {
+      containerName,
+      resolution,
+      image,
+      sessionId,
+      authToken,
+      maxMemory,
+      maxCpu,
+      sandboxOptions,
+    } = options;
     const args: string[] = [
       "run",
       "--detach",
@@ -520,18 +532,18 @@ export class DesktopSandboxManager {
       "--env", `${DESKTOP_AUTH_ENV_KEY}=${authToken}`,
     );
 
-    if (options.env) {
-      for (const [key, value] of Object.entries(options.env)) {
+    if (sandboxOptions.env) {
+      for (const [key, value] of Object.entries(sandboxOptions.env)) {
         if (
           key !== DESKTOP_AUTH_ENV_KEY &&
-          /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
+          /^[A-Za-z_]\w*$/.test(key)
         ) {
           args.push("--env", `${key}=${value}`);
         }
       }
     }
 
-    const extraLabels = { ...this.config.labels, ...options.labels };
+    const extraLabels = { ...this.config.labels, ...sandboxOptions.labels };
     for (const [key, value] of Object.entries(extraLabels)) {
       args.push("--label", `${key}=${value}`);
     }
