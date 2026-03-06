@@ -13,7 +13,13 @@ import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
-import { isDomainAllowed, formatDomainBlockReason } from "./http.js";
+import {
+  isDomainAllowed,
+  formatDomainBlockReason,
+  createSafeFetchDispatcher,
+  closeSafeFetchDispatcher,
+} from "./http.js";
+import type { Dispatcher } from "undici";
 import { ensureLazyModule } from "../../utils/lazy-import.js";
 
 // ============================================================================
@@ -143,13 +149,27 @@ async function fetchHtml(
 > {
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const requestHeaders: Record<string, string> = { "User-Agent": USER_AGENT };
+  let dispatcher: Dispatcher | undefined;
+
+  try {
+    dispatcher = await createSafeFetchDispatcher(url);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return errorResult(formatDomainBlockReason(message));
+  }
+
+  if (dispatcher) {
+    requestHeaders.host = new URL(url).host;
+  }
 
   try {
     const response = await fetch(url, {
       method: "GET",
-      headers: { "User-Agent": USER_AGENT },
+      headers: requestHeaders,
       signal: AbortSignal.timeout(timeoutMs),
       redirect: "manual",
+      dispatcher,
     });
 
     // Manual redirect handling with domain re-validation
@@ -170,9 +190,11 @@ async function fetchHtml(
         config.blockedDomains,
       );
       if (!domainCheck.allowed) {
-        return errorResult(domainCheck.reason!);
+        return errorResult(formatDomainBlockReason(domainCheck.reason!));
       }
       logger.debug(`Following redirect ${response.status} → ${redirectUrl}`);
+      await closeSafeFetchDispatcher(dispatcher);
+      dispatcher = undefined;
       return fetchHtml(redirectUrl, config, logger, redirectCount + 1);
     }
 
@@ -220,6 +242,8 @@ async function fetchHtml(
       return errorResult(`Connection failed: ${err.message}`);
     }
     return errorResult(`Connection failed: ${String(err)}`);
+  } finally {
+    await closeSafeFetchDispatcher(dispatcher);
   }
 }
 

@@ -84,7 +84,8 @@
   },
   "dependencies": {
     "@agenc/sdk": "file:../sdk",
-    "@modelcontextprotocol/sdk": "^1.26.0"
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "undici": "^6.23.0"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.32.1",

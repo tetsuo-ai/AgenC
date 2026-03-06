@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  TEST_LOOPBACK_IP,
+  TEST_PUBLIC_IP,
+  ipv4LookupResults,
+} from "./dnsTestFixtures.js";
 import { silentLogger } from "../../utils/logger.js";
+
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(),
+}));
 
 // ============================================================================
 // Mock cheerio — intercept import('cheerio') used by ensureLazyModule
@@ -349,6 +358,8 @@ function makeHtmlResponse(
 }
 
 let mockFetch: ReturnType<typeof vi.fn>;
+const { lookup: dnsLookup } = await import("node:dns/promises");
+const mockDnsLookup = vi.mocked(dnsLookup);
 
 // ============================================================================
 // Import after mocks
@@ -366,6 +377,8 @@ beforeEach(() => {
       ),
     );
   vi.stubGlobal("fetch", mockFetch);
+  mockDnsLookup.mockReset();
+  mockDnsLookup.mockResolvedValue(ipv4LookupResults(TEST_PUBLIC_IP));
 
   _resetForTesting();
 
@@ -385,6 +398,44 @@ beforeEach(() => {
   mockBrowser.close.mockClear();
   mockLaunch.mockClear().mockResolvedValue(mockBrowser);
 });
+
+function makeRedirectResponse(location: string, url: string): Response {
+  return {
+    status: 302,
+    statusText: "Found",
+    headers: new Headers({ location }),
+    url,
+    text: vi.fn().mockResolvedValue(""),
+    body: null,
+  } as unknown as Response;
+}
+
+function queueDnsLookup(...addresses: string[]) {
+  mockDnsLookup.mockResolvedValueOnce(ipv4LookupResults(...addresses));
+}
+
+async function expectDnsRebindingError(params: {
+  url: string;
+  redirectLocation?: string;
+  expectedFetchCalls: number;
+}) {
+  if (params.redirectLocation) {
+    mockFetch.mockResolvedValueOnce(
+      makeRedirectResponse(params.redirectLocation, params.url),
+    );
+    queueDnsLookup(TEST_PUBLIC_IP);
+  }
+
+  queueDnsLookup(TEST_PUBLIC_IP, TEST_LOOPBACK_IP);
+
+  const [browse] = createBrowserTools({ mode: "basic" }, silentLogger);
+  const result = await browse.execute({ url: params.url });
+
+  expect(result.isError).toBe(true);
+  const parsed = JSON.parse(result.content);
+  expect(parsed.error).toContain(`resolved to ${TEST_LOOPBACK_IP}`);
+  expect(mockFetch).toHaveBeenCalledTimes(params.expectedFetchCalls);
+}
 
 // ============================================================================
 // Factory
@@ -1051,6 +1102,14 @@ describe("redirect handling", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.error).toContain("Location header");
   });
+
+  it("redirect to hostname resolving privately is stopped", async () => {
+    await expectDnsRebindingError({
+      url: "https://safe.example/start",
+      redirectLocation: "https://attacker.example/trap",
+      expectedFetchCalls: 1,
+    });
+  });
 });
 
 // ============================================================================
@@ -1080,6 +1139,13 @@ describe("domain validation", () => {
     expect(parsed.error).toContain("blocked");
     expect(parsed.error).toContain("desktop.bash");
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks hostnames when DNS resolves to a private IP", async () => {
+    await expectDnsRebindingError({
+      url: "https://attacker.example/hidden",
+      expectedFetchCalls: 0,
+    });
   });
 
   it("blocks non-HTTP schemes", async () => {
