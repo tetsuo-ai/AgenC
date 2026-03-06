@@ -43,6 +43,18 @@ function parseContent(result: { content: string }): Record<string, unknown> {
   return JSON.parse(result.content) as Record<string, unknown>;
 }
 
+async function expectShellModeExecutionError(
+  command: string,
+  expectedMessage: string,
+): Promise<void> {
+  const tool = createBashTool();
+
+  const result = await tool.execute({ command });
+  expect(result.isError).toBe(true);
+  expect(parseContent(result).error).toContain(expectedMessage);
+  expect(mockSpawn).not.toHaveBeenCalled();
+}
+
 /** Simulate a successful execFile callback (direct mode). */
 function mockSuccess(stdout = "", stderr = "") {
   mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
@@ -1040,17 +1052,24 @@ describe("system.bash tool", () => {
     });
 
     it("blocks variable-expanded executables in shell mode", async () => {
-      const tool = createBashTool();
-
-      const result = await tool.execute({
-        command: "PY=python3 $PY --version",
-      });
-      expect(result.isError).toBe(true);
-      expect(parseContent(result).error).toContain(
+      await expectShellModeExecutionError(
+        "PY=python3 $PY --version",
         "Variable-expanded executables are not allowed",
       );
-      expect(mockSpawn).not.toHaveBeenCalled();
     });
+
+    it.each([
+      "$(printf python3) --version",
+      "`printf python3` --version",
+    ])(
+      "blocks command-substitution executables in shell mode (issue #1334 regression): %s",
+      async (command) => {
+        await expectShellModeExecutionError(
+          command,
+          "Command-substitution executables are not allowed",
+        );
+      },
+    );
 
     it("enforces allow list in shell mode", async () => {
       const tool = createBashTool({ allowList: ["ls", "wc"] });
