@@ -7,7 +7,7 @@
  *
  * Run:
  *   # Terminal 1: Start validator with verifier programs
- *   bash scripts/setup-verifier-localnet.sh
+ *   bash scripts/setup-verifier-localnet.sh --mode real
  *
  *   # Terminal 2: Initialize router + run test
  *   npx tsx scripts/setup-verifier-localnet.ts
@@ -18,7 +18,7 @@
  */
 
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
+import { Program, Idl } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
 import {
@@ -39,6 +39,16 @@ import {
 } from "./test-utils";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  GROTH16_SELECTOR as TRUSTED_SELECTOR,
+  ROUTER_PROGRAM_ID as TRUSTED_ROUTER_PROGRAM_ID,
+  VERIFIER_PROGRAM_ID as TRUSTED_VERIFIER_PROGRAM_ID,
+  deriveRouterPda,
+  deriveVerifierEntryPda,
+  deriveVerifierProgramDataPda,
+  hasExpectedProgramDataAuthority,
+  isExpectedVerifierEntryData,
+} from "../scripts/verifier-localnet";
 
 interface ProofFixture {
   sealBytes: number[];
@@ -61,26 +71,13 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
   const program = anchor.workspace
     .AgencCoordination as Program<AgencCoordination>;
 
-  const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey(
-    "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
-  );
-  const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey(
-    "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
-  );
-  const TRUSTED_SELECTOR = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
-
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
     program.programId,
   );
-  const [routerPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("router")],
-    TRUSTED_ROUTER_PROGRAM_ID,
-  );
-  const [verifierEntryPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("verifier"), TRUSTED_SELECTOR],
-    TRUSTED_ROUTER_PROGRAM_ID,
-  );
+  const routerPda = deriveRouterPda();
+  const verifierEntryPda = deriveVerifierEntryPda();
+  const verifierProgramDataPda = deriveVerifierProgramDataPda();
 
   let fixture: ProofFixture;
   let creator: Keypair;
@@ -113,35 +110,124 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     }
     fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
 
+    const routerIdlPath = path.resolve(
+      __dirname,
+      "..",
+      "scripts",
+      "idl",
+      "verifier_router.json",
+    );
+    const routerIdl = JSON.parse(fs.readFileSync(routerIdlPath, "utf8")) as Idl;
+    const routerProgram = new Program(routerIdl, provider);
+    const routerAccounts = routerProgram.account as unknown as {
+      verifierRouter: { fetch(address: PublicKey): Promise<unknown> };
+      verifierEntry: { fetch(address: PublicKey): Promise<unknown> };
+    };
+
     // Check validator is running with verifier programs
     try {
-      const routerAccountInfo = await provider.connection.getAccountInfo(
-        TRUSTED_ROUTER_PROGRAM_ID,
-      );
+      const [
+        routerAccountInfo,
+        verifierAccountInfo,
+        verifierProgramDataInfo,
+        routerPdaInfo,
+        verifierEntryInfo,
+      ] = await Promise.all([
+        provider.connection.getAccountInfo(TRUSTED_ROUTER_PROGRAM_ID),
+        provider.connection.getAccountInfo(TRUSTED_VERIFIER_PROGRAM_ID),
+        provider.connection.getAccountInfo(verifierProgramDataPda),
+        provider.connection.getAccountInfo(routerPda),
+        provider.connection.getAccountInfo(verifierEntryPda),
+      ]);
+
       if (!routerAccountInfo || !routerAccountInfo.executable) {
         console.log("Skipping: Verifier Router program not deployed.");
-        console.log("Run: bash scripts/setup-verifier-localnet.sh");
+        console.log("Run: bash scripts/setup-verifier-localnet.sh --mode real");
         this.skip();
         return;
       }
-      const verifierAccountInfo = await provider.connection.getAccountInfo(
-        TRUSTED_VERIFIER_PROGRAM_ID,
-      );
       if (!verifierAccountInfo || !verifierAccountInfo.executable) {
         console.log("Skipping: Groth16 Verifier program not deployed.");
         this.skip();
         return;
       }
 
-      // Check router is initialized
-      const routerPdaInfo = await provider.connection.getAccountInfo(routerPda);
+      if (!hasExpectedProgramDataAuthority(verifierProgramDataInfo, routerPda)) {
+        throw new Error(
+          "Expected the real Groth16 verifier deployment with ProgramData upgrade " +
+            `authority pinned to router PDA ${routerPda.toBase58()}, but that invariant ` +
+            "is missing. This localnet is not running the real verifier stack.",
+        );
+      }
+
       if (!routerPdaInfo) {
         console.log("Skipping: Router PDA not initialized.");
         console.log("Run: npx tsx scripts/setup-verifier-localnet.ts");
         this.skip();
         return;
       }
-    } catch (_err) {
+
+      if (!verifierEntryInfo) {
+        console.log("Skipping: Verifier entry PDA not initialized.");
+        console.log("Run: npx tsx scripts/setup-verifier-localnet.ts");
+        this.skip();
+        return;
+      }
+
+      if (!isExpectedVerifierEntryData(verifierEntryInfo.data)) {
+        throw new Error(
+          "Verifier entry PDA exists but does not match the expected Groth16 verifier entry layout. " +
+            "This localnet is not running the real verifier stack.",
+        );
+      }
+
+      let routerAccount;
+      try {
+        routerAccount = await routerAccounts.verifierRouter.fetch(routerPda);
+      } catch (error) {
+        throw new Error(
+          "Verifier router PDA exists but does not decode as a real initialized router account. " +
+            `This localnet is not running the real verifier stack. Underlying error: ${String(error)}`,
+        );
+      }
+      if (!(routerAccount as { ownership?: { owner?: PublicKey } }).ownership?.owner) {
+        throw new Error(
+          "Verifier router account decoded without an owner. " +
+            "This localnet is not running the real verifier stack.",
+        );
+      }
+
+      let verifierEntry;
+      try {
+        verifierEntry = await routerAccounts.verifierEntry.fetch(verifierEntryPda);
+      } catch (error) {
+        throw new Error(
+          "Verifier entry PDA exists but does not decode as a real initialized verifier entry. " +
+            `This localnet is not running the real verifier stack. Underlying error: ${String(error)}`,
+        );
+      }
+      const entry = verifierEntry as {
+        selector: number[];
+        verifier: PublicKey;
+        estopped: boolean;
+      };
+      if (
+        !Buffer.from(entry.selector).equals(TRUSTED_SELECTOR) ||
+        !entry.verifier.equals(TRUSTED_VERIFIER_PROGRAM_ID) ||
+        entry.estopped
+      ) {
+        throw new Error(
+          "Verifier entry account decoded, but it does not point at the expected real Groth16 verifier. " +
+            "This localnet is not running the real verifier stack.",
+        );
+      }
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes("This localnet is not running the real verifier stack")
+      ) {
+        throw err;
+      }
       console.log("Skipping: cannot connect to validator.");
       this.skip();
       return;
