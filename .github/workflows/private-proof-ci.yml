@@ -98,7 +98,8 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Install SDK build dependencies
-        run: npm ci --prefix sdk --no-audit --no-fund
+        working-directory: sdk
+        run: npm ci --no-audit --no-fund
 
       - name: Create local validator wallet
         run: |
