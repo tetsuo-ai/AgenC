@@ -97,6 +97,9 @@ jobs:
       - name: Install root dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Install SDK build dependencies
+        run: npm ci --prefix sdk --no-audit --no-fund
+
       - name: Create local validator wallet
         run: |
           mkdir -p "$HOME/.config/solana"
