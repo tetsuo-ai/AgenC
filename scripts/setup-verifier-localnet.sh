@@ -12,7 +12,8 @@
 # the verifier's upgrade authority to the router PDA directly.
 #
 # Usage:
-#   bash scripts/setup-verifier-localnet.sh
+#   bash scripts/setup-verifier-localnet.sh --mode real
+#   bash scripts/setup-verifier-localnet.sh --mode mock
 #
 # Prerequisites:
 #   - solana CLI (v3.0.13+)
@@ -21,6 +22,18 @@
 #   - Optional for real verifier mode: /tmp/risc0-solana/solana-verifier
 #
 set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bash scripts/setup-verifier-localnet.sh --mode real
+  bash scripts/setup-verifier-localnet.sh --mode mock
+
+Modes:
+  real  Build and load the real Verifier Router + Groth16 verifier stack.
+  mock  Load the explicit mock verifier/router test stack.
+EOF
+}
 
 RISC0_SOLANA_DIR="/tmp/risc0-solana/solana-verifier"
 AGENC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,6 +44,45 @@ MOCK_ACCOUNT_DIR="${AGENC_DIR}/target/verifier-bootstrap"
 ROUTER_PROGRAM_ID="6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7"
 VERIFIER_PROGRAM_ID="THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge"
 AGENC_PROGRAM_ID="5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
+
+MODE="${AGENC_VERIFIER_MODE:-real}"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --mode)
+      if [ "$#" -lt 2 ]; then
+        echo "ERROR: --mode requires a value of 'real' or 'mock'."
+        usage
+        exit 1
+      fi
+      MODE="$2"
+      shift 2
+      ;;
+    --mode=*)
+      MODE="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown argument: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+case "${MODE}" in
+  real|mock)
+    ;;
+  *)
+    echo "ERROR: Invalid mode '${MODE}'. Expected 'real' or 'mock'."
+    usage
+    exit 1
+    ;;
+esac
 
 # 1. Get deployer pubkey
 DEPLOYER_PUBKEY=$(solana address)
@@ -57,28 +109,31 @@ console.log(pda.toBase58());
 echo "Router PDA: ${ROUTER_PDA}"
 echo "Verifier Entry PDA: ${VERIFIER_ENTRY_PDA}"
 
-# 3. Prefer real verifier artifacts; fallback to mock verifier/router when unavailable.
-MODE="real"
+# 3. Load either the real verifier stack or an explicit mock stack.
 ROUTER_SO="${RISC0_SOLANA_DIR}/target/deploy/verifier_router.so"
 VERIFIER_SO="${RISC0_SOLANA_DIR}/target/deploy/groth_16_verifier.so"
 
-if [ -d "${RISC0_SOLANA_DIR}" ]; then
+if [ "${MODE}" = "real" ]; then
+  if [ ! -d "${RISC0_SOLANA_DIR}" ]; then
+    echo "ERROR: Real verifier repository not found at ${RISC0_SOLANA_DIR}."
+    echo "Run with '--mode mock' only if you explicitly want the mock verifier stack."
+    exit 1
+  fi
+
   echo "Building Verifier Router with INITIAL_OWNER=${DEPLOYER_PUBKEY}..."
-  if (cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build); then
-    if [ ! -f "${ROUTER_SO}" ] || [ ! -f "${VERIFIER_SO}" ]; then
-      echo "Real verifier artifacts missing after build; switching to mock verifier mode."
-      MODE="mock"
-    fi
-  else
-    echo "Failed to build real verifier stack; switching to mock verifier mode."
-    MODE="mock"
+  if ! (cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build); then
+    echo "ERROR: Failed to build the real verifier stack."
+    echo "Run with '--mode mock' only if you explicitly want the mock verifier stack."
+    exit 1
+  fi
+
+  if [ ! -f "${ROUTER_SO}" ] || [ ! -f "${VERIFIER_SO}" ]; then
+    echo "ERROR: Real verifier artifacts are missing after build."
+    echo "Run with '--mode mock' only if you explicitly want the mock verifier stack."
+    exit 1
   fi
 else
-  echo "Real verifier repository not found at ${RISC0_SOLANA_DIR}; using mock verifier mode."
-  MODE="mock"
-fi
-
-if [ "${MODE}" = "mock" ]; then
+  echo "Using explicit mock verifier mode."
   ROUTER_SO="${MOCK_ROUTER_SO}"
   VERIFIER_SO="${MOCK_ROUTER_SO}"
 fi

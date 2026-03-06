@@ -16,7 +16,7 @@ if pgrep -af "solana-test-validator" >/dev/null 2>&1; then
 fi
 
 echo "Starting verifier-enabled local validator..."
-nohup bash "${ROOT_DIR}/scripts/setup-verifier-localnet.sh" >"${VALIDATOR_LOG}" 2>&1 &
+nohup bash "${ROOT_DIR}/scripts/setup-verifier-localnet.sh" --mode real >"${VALIDATOR_LOG}" 2>&1 &
 VALIDATOR_PID=$!
 disown || true
 echo "Validator PID: ${VALIDATOR_PID}"
@@ -27,6 +27,11 @@ for _ in $(seq 1 90); do
   if solana -u "${ANCHOR_PROVIDER_URL}" cluster-version >/dev/null 2>&1; then
     READY=1
     break
+  fi
+  if ! kill -0 "${VALIDATOR_PID}" >/dev/null 2>&1; then
+    echo "ERROR: verifier validator exited before becoming ready."
+    tail -n 120 "${VALIDATOR_LOG}" || true
+    exit 1
   fi
   sleep 1
 done
