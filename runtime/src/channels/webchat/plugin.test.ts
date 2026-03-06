@@ -45,6 +45,23 @@ function msg(type: string, payload?: unknown, id?: string): ControlMessage {
   return { type: type as ControlMessage["type"], payload, id };
 }
 
+function openChatSession(
+  channel: WebChatChannel,
+  context: ChannelContext,
+  clientId: string,
+  send: (response: ControlResponse) => void,
+  content: string,
+): string {
+  channel.handleMessage(
+    clientId,
+    "chat.message",
+    msg("chat.message", { content }),
+    send,
+  );
+  const calls = vi.mocked(context.onMessage).mock.calls;
+  return calls[calls.length - 1][0].sessionId;
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -845,21 +862,6 @@ describe("WebChatChannel", () => {
       await channel.start();
     }
 
-    function openChatSession(
-      clientId: string,
-      send: ReturnType<typeof vi.fn<(response: ControlResponse) => void>>,
-      content: string,
-    ): string {
-      channel.handleMessage(
-        clientId,
-        "chat.message",
-        msg("chat.message", { content }),
-        send,
-      );
-      const calls = vi.mocked(context.onMessage).mock.calls;
-      return calls[calls.length - 1][0].sessionId;
-    }
-
     it("desktop.create binds to the client's active session when sessionId is omitted", async () => {
       const getOrCreate = vi.fn().mockResolvedValue({
         containerId: "ctr123",
@@ -969,7 +971,7 @@ describe("WebChatChannel", () => {
       });
 
       const send = vi.fn<(response: ControlResponse) => void>();
-      const sessionId = openChatSession("client_1", send, "hello");
+      const sessionId = openChatSession(channel, context, "client_1", send, "hello");
 
       channel.handleMessage(
         "client_1",
@@ -1045,8 +1047,14 @@ describe("WebChatChannel", () => {
 
       const send1 = vi.fn<(response: ControlResponse) => void>();
       const send2 = vi.fn<(response: ControlResponse) => void>();
-      const foreignSessionId = openChatSession("client_1", send1, "hello 1");
-      openChatSession("client_2", send2, "hello 2");
+      const foreignSessionId = openChatSession(
+        channel,
+        context,
+        "client_1",
+        send1,
+        "hello 1",
+      );
+      openChatSession(channel, context, "client_2", send2, "hello 2");
 
       channel.handleMessage(
         "client_2",
