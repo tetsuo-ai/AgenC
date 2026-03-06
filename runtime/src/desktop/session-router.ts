@@ -809,9 +809,16 @@ async function ensureBridge(
 ): Promise<DesktopRESTBridge | undefined> {
   const connectBridge = async (): Promise<DesktopRESTBridge> => {
     const handle = await desktopManager.getOrCreate(sessionId);
+    const authToken = desktopManager.getAuthToken(handle.containerId);
+    if (!authToken) {
+      throw new Error(
+        `Desktop auth token missing for sandbox ${handle.containerId}`,
+      );
+    }
     const bridge = new DesktopRESTBridge({
       apiHostPort: handle.apiHostPort,
       containerId: handle.containerId,
+      authToken,
       logger: log,
     });
     await bridge.connect();
