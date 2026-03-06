@@ -35,6 +35,7 @@ AGENC_PROGRAM_ID="5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
 
 get_anchor_cli_version() {
   anchor --version | awk '{print $2}'
+  return 0
 }
 
 build_real_verifier_stack() {
@@ -42,14 +43,14 @@ build_real_verifier_stack() {
   local current_anchor_version=""
   local build_status=0
 
-  if [ -n "${VERIFIER_ANCHOR_VERSION}" ]; then
+  if [[ -n "${VERIFIER_ANCHOR_VERSION}" ]]; then
     if ! command -v avm >/dev/null 2>&1; then
-      echo "ERROR: VERIFIER_ANCHOR_VERSION=${VERIFIER_ANCHOR_VERSION} requested but avm is not installed."
+      echo "ERROR: VERIFIER_ANCHOR_VERSION=${VERIFIER_ANCHOR_VERSION} requested but avm is not installed." >&2
       return 1
     fi
 
     original_anchor_version="$(get_anchor_cli_version)"
-    if [ "${original_anchor_version}" != "${VERIFIER_ANCHOR_VERSION}" ]; then
+    if [[ "${original_anchor_version}" != "${VERIFIER_ANCHOR_VERSION}" ]]; then
       echo "Switching Anchor CLI from ${original_anchor_version} to ${VERIFIER_ANCHOR_VERSION} for verifier build..."
       avm use "${VERIFIER_ANCHOR_VERSION}"
     fi
@@ -61,9 +62,9 @@ build_real_verifier_stack() {
     build_status=$?
   fi
 
-  if [ -n "${original_anchor_version}" ]; then
+  if [[ -n "${original_anchor_version}" ]]; then
     current_anchor_version="$(get_anchor_cli_version)"
-    if [ "${current_anchor_version}" != "${original_anchor_version}" ]; then
+    if [[ "${current_anchor_version}" != "${original_anchor_version}" ]]; then
       echo "Restoring Anchor CLI ${original_anchor_version}..."
       avm use "${original_anchor_version}"
     fi
