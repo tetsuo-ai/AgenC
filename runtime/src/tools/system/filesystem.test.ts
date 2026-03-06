@@ -106,6 +106,39 @@ describe("safePath", () => {
     expect(result.resolved).toBe("/workspace/file.txt");
   });
 
+  it("expands ~ in target paths before allowlist validation", async () => {
+    const previousHome = process.env.HOME;
+    const previousUserProfile = process.env.USERPROFILE;
+    process.env.HOME = "/home/tester";
+    process.env.USERPROFILE = undefined;
+    try {
+      const result = await safePath(
+        "~/workspace/file.txt",
+        ["/home/tester/workspace"],
+      );
+      expect(result.safe).toBe(true);
+      expect(result.resolved).toBe("/home/tester/workspace/file.txt");
+    } finally {
+      process.env.HOME = previousHome;
+      process.env.USERPROFILE = previousUserProfile;
+    }
+  });
+
+  it("expands ~ in allowed path prefixes", async () => {
+    const previousHome = process.env.HOME;
+    const previousUserProfile = process.env.USERPROFILE;
+    process.env.HOME = "/home/tester";
+    process.env.USERPROFILE = undefined;
+    try {
+      const result = await safePath("/home/tester/workspace/file.txt", ["~/workspace"]);
+      expect(result.safe).toBe(true);
+      expect(result.resolved).toBe("/home/tester/workspace/file.txt");
+    } finally {
+      process.env.HOME = previousHome;
+      process.env.USERPROFILE = previousUserProfile;
+    }
+  });
+
   it("rejects paths outside allowed directories", async () => {
     const result = await safePath("/etc/passwd", ALLOWED_PATHS);
     expect(result.safe).toBe(false);

@@ -3,6 +3,8 @@ import type { WSMessage } from '../types';
 
 export type VoiceName = 'Ara' | 'Rex' | 'Sal' | 'Eve' | 'Leo';
 
+export type EnvironmentMode = 'both' | 'desktop' | 'host';
+
 export interface GatewaySettings {
   llm: {
     provider: 'grok' | 'ollama';
@@ -15,6 +17,9 @@ export interface GatewaySettings {
     mode: 'vad' | 'push-to-talk';
     voice: VoiceName;
     apiKey: string;
+  };
+  desktop: {
+    environment: EnvironmentMode;
   };
   memory: {
     backend: 'memory' | 'sqlite' | 'redis';
@@ -30,6 +35,7 @@ export interface GatewaySettings {
 const DEFAULT_SETTINGS: GatewaySettings = {
   llm: { provider: 'grok', apiKey: '', model: 'grok-4-1-fast-reasoning', baseUrl: 'https://api.x.ai/v1' },
   voice: { enabled: true, mode: 'vad', voice: 'Ara', apiKey: '' },
+  desktop: { environment: 'both' },
   memory: { backend: 'memory' },
   connection: { rpcUrl: 'https://api.devnet.solana.com' },
   logging: { level: 'info' },
@@ -153,6 +159,7 @@ export function useSettings({ send, connected }: UseSettingsOptions): UseSetting
 function parseConfig(raw: Record<string, unknown>): GatewaySettings {
   const llm = (raw.llm ?? {}) as Record<string, unknown>;
   const voice = (raw.voice ?? {}) as Record<string, unknown>;
+  const desktop = (raw.desktop ?? {}) as Record<string, unknown>;
   const memory = (raw.memory ?? {}) as Record<string, unknown>;
   const connection = (raw.connection ?? {}) as Record<string, unknown>;
   const logging = (raw.logging ?? {}) as Record<string, unknown>;
@@ -169,6 +176,9 @@ function parseConfig(raw: Record<string, unknown>): GatewaySettings {
       mode: (voice.mode as 'vad' | 'push-to-talk') ?? 'vad',
       voice: (voice.voice as VoiceName) ?? 'Ara',
       apiKey: (voice.apiKey as string) ?? '',
+    },
+    desktop: {
+      environment: (desktop.environment as EnvironmentMode) ?? 'both',
     },
     memory: {
       backend: (memory.backend as GatewaySettings['memory']['backend']) ?? 'memory',

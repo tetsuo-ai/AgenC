@@ -163,6 +163,40 @@ describe("createDesktopAwareToolHandler", () => {
     expect(parsed.error).toContain("Desktop sandbox unavailable");
   });
 
+  it("waits and retries when desktop pool is temporarily exhausted", async () => {
+    vi.useFakeTimers();
+    try {
+      const poolError = new Error(
+        "Desktop sandbox pool exhausted: 2 containers at max capacity",
+      );
+      const getOrCreate = vi
+        .fn()
+        .mockRejectedValueOnce(poolError)
+        .mockRejectedValueOnce(poolError)
+        .mockResolvedValue({
+          containerId: "test-container",
+          apiHostPort: 32769,
+          vncHostPort: 32768,
+        });
+      const manager = mockManager({ getOrCreate } as unknown as Partial<DesktopSandboxManager>);
+
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+      });
+
+      const resultPromise = handler("desktop.mouse_click", { x: 4, y: 8 });
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(JSON.parse(result)).toMatchObject({ clicked: true });
+      expect(getOrCreate).toHaveBeenCalledTimes(3);
+      expect((manager.destroyBySession as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns error for desktop.screenshot (disabled)", async () => {
     const manager = mockManager();
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {

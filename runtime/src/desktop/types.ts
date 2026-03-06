@@ -74,6 +74,13 @@ export interface DesktopSandboxConfig {
     /** Enable Playwright MCP bridge for structured browser automation. Default: true */
     readonly enabled?: boolean;
   };
+  /**
+   * Which tool environment the agent operates in.
+   * - `"both"` (default): agent sees host and desktop tools
+   * - `"desktop"`: agent only sees desktop/playwright/container MCP tools
+   * - `"host"`: agent only sees host system tools (no desktop)
+   */
+  readonly environment?: 'both' | 'desktop' | 'host';
 }
 
 export function defaultDesktopSandboxConfig(): DesktopSandboxConfig {

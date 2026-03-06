@@ -1607,6 +1607,38 @@ export interface DaemonStatus {
   memoryUsage: { heapUsedMB: number; rssMB: number };
 }
 
+// ============================================================================
+// Environment-based tool filtering
+// ============================================================================
+
+/** Host system.* tool names excluded in "desktop" mode. */
+const HOST_TOOL_NAMES = new Set([
+  'system.bash', 'system.httpGet', 'system.httpPost', 'system.httpFetch',
+  'system.browse', 'system.extractLinks', 'system.htmlToMarkdown',
+  'system.readFile', 'system.writeFile', 'system.appendFile',
+  'system.listDir', 'system.stat', 'system.mkdir', 'system.delete', 'system.move',
+]);
+
+/** Desktop/container tool prefixes excluded in "host" mode. */
+const DESKTOP_TOOL_PREFIXES = [
+  'desktop.', 'playwright.',
+  'mcp.tmux.', 'mcp.neovim.', 'mcp.kitty.', 'mcp.browser.',
+];
+
+function filterToolsByEnvironment(
+  allTools: LLMTool[],
+  environment: 'both' | 'desktop' | 'host',
+): LLMTool[] {
+  if (environment === 'both') return allTools;
+  if (environment === 'desktop') {
+    return allTools.filter((t) => !HOST_TOOL_NAMES.has(t.function.name));
+  }
+  // host: exclude desktop/container tools
+  return allTools.filter(
+    (t) => !DESKTOP_TOOL_PREFIXES.some((p) => t.function.name.startsWith(p)),
+  );
+}
+
 export class DaemonManager {
   private gateway: Gateway | null = null;
   private _webChatChannel: WebChatChannel | null = null;
@@ -1652,6 +1684,7 @@ export class DaemonManager {
     }
   >();
   private _resolvedContextWindowTokens: number | undefined;
+  private _allLlmTools: LLMTool[] = [];
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
   private _toolRouter: ToolRouter | null = null;
@@ -2151,14 +2184,15 @@ export class DaemonManager {
       baseToolHandler,
     );
 
-    this._llmTools = llmTools;
+    this._allLlmTools = [...llmTools];
+    this._llmTools = filterToolsByEnvironment(llmTools, config.desktop?.environment ?? 'both');
     this._toolRouter = new ToolRouter(
-      llmTools,
+      this._llmTools,
       config.llm?.toolRouting,
       this.logger,
     );
     this._baseToolHandler = baseToolHandler;
-    const providers = await this.createLLMProviders(config, llmTools);
+    const providers = await this.createLLMProviders(config, this._llmTools);
     this._llmProviders = providers;
     const skillInjector = this.createSkillInjector(availableSkills);
     const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
@@ -2281,7 +2315,7 @@ export class DaemonManager {
       pipelineExecutor,
     );
     const voiceDeps = {
-      chatExecutor: this._chatExecutor ?? undefined,
+      getChatExecutor: () => this._chatExecutor,
       sessionManager: sessionMgr,
       hooks,
       approvalEngine,
@@ -2645,7 +2679,7 @@ export class DaemonManager {
     llmTools: LLMTool[];
     baseToolHandler: ToolHandler;
     voiceDeps: {
-      chatExecutor: ChatExecutor | undefined;
+      getChatExecutor: () => ChatExecutor | null | undefined;
       sessionManager: SessionManager;
       hooks: HookDispatcher;
       approvalEngine: ApprovalEngine;
@@ -2672,22 +2706,6 @@ export class DaemonManager {
         this.logger.info(`Logger level updated to ${gateway.config.logging.level}`);
       }
       const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
-      if (llmChanged) {
-        void (async () => {
-          await this.hotSwapLLMProvider(
-            gateway.config,
-            skillInjector,
-            memoryRetriever,
-            learningProvider,
-            progressTracker,
-            pipelineExecutor,
-          );
-          // Rebuild system prompts so model transparency section reflects the new model
-          this._systemPrompt = await this.buildSystemPrompt(gateway.config);
-          this._voiceSystemPrompt = await this.buildSystemPrompt(gateway.config, { forVoice: true });
-          this.logger.info('System prompt rebuilt after LLM config change');
-        })();
-      }
       const subAgentChanged = diff.safe.some((key) =>
         key.startsWith('llm.subagents.'),
       );
@@ -2721,24 +2739,58 @@ export class DaemonManager {
           this.logger.info('Policy engine config reloaded');
         }
       }
-      const voiceChanged = diff.safe.some((key) =>
-        key.startsWith('voice.') || key.startsWith('llm.apiKey'),
-      );
-      if (voiceChanged) {
-        void this._voiceBridge?.stopAll();
-        const newBridge = this.createOptionalVoiceBridge(
-          gateway.config,
-          llmTools,
-          baseToolHandler,
-          this._systemPrompt,
-          voiceDeps,
-          this._voiceSystemPrompt,
-        );
-        this._voiceBridge = newBridge ?? null;
-        if (this._webChatChannel) {
-          this._webChatChannel.updateVoiceBridge(newBridge ?? null);
-        }
-        this.logger.info(`Voice bridge ${newBridge ? 'recreated' : 'disabled'}`);
+      const envChanged = diff.safe.some((key) => key === 'desktop.environment');
+      const voiceChanged = diff.safe.some((key) => key.startsWith('voice.'));
+      const shouldRefreshVoiceBridge = llmChanged || envChanged || voiceChanged;
+      if (llmChanged || envChanged || shouldRefreshVoiceBridge) {
+        void (async () => {
+          if (llmChanged) {
+            await this.hotSwapLLMProvider(
+              gateway.config,
+              skillInjector,
+              memoryRetriever,
+              learningProvider,
+              progressTracker,
+              pipelineExecutor,
+            );
+          }
+          if (envChanged) {
+            const env = gateway.config.desktop?.environment ?? 'both';
+            this._llmTools = filterToolsByEnvironment(this._allLlmTools, env);
+            this._toolRouter = new ToolRouter(
+              this._llmTools,
+              gateway.config.llm?.toolRouting,
+              this.logger,
+            );
+          }
+          if (llmChanged || envChanged) {
+            this._systemPrompt = await this.buildSystemPrompt(gateway.config);
+            this._voiceSystemPrompt = await this.buildSystemPrompt(gateway.config, { forVoice: true });
+            if (llmChanged) {
+              this.logger.info('System prompt rebuilt after LLM config change');
+            }
+            if (envChanged) {
+              const env = gateway.config.desktop?.environment ?? 'both';
+              this.logger.info(`Environment mode changed to "${env}" — ${this._llmTools.length} tools visible`);
+            }
+          }
+          if (shouldRefreshVoiceBridge) {
+            await this._voiceBridge?.stopAll();
+            const newBridge = this.createOptionalVoiceBridge(
+              gateway.config,
+              llmTools,
+              baseToolHandler,
+              this._systemPrompt,
+              voiceDeps,
+              this._voiceSystemPrompt,
+            );
+            this._voiceBridge = newBridge ?? null;
+            if (this._webChatChannel) {
+              this._webChatChannel.updateVoiceBridge(newBridge ?? null);
+            }
+            this.logger.info(`Voice bridge ${newBridge ? 'recreated' : 'disabled'}`);
+          }
+        })();
       }
     });
   }
@@ -3950,6 +4002,7 @@ export class DaemonManager {
         )
         : undefined;
       const providers = await this.createLLMProviders(newConfig, this._llmTools);
+      this._llmProviders = providers;
       this._chatExecutor = providers.length > 0 ? new ChatExecutor({
         providers,
         toolHandler: this._baseToolHandler!,
@@ -5345,7 +5398,7 @@ export class DaemonManager {
     toolHandler: ToolHandler,
     systemPrompt: string,
     deps?: {
-      chatExecutor?: ChatExecutor;
+      getChatExecutor: () => ChatExecutor | null | undefined;
       sessionManager?: SessionManager;
       hooks?: HookDispatcher;
       approvalEngine?: ApprovalEngine;
@@ -5355,7 +5408,9 @@ export class DaemonManager {
     voiceSystemPrompt?: string,
   ): VoiceBridge | undefined {
     const voiceApiKey = config.voice?.apiKey || config.llm?.apiKey;
-    if (!voiceApiKey || config.voice?.enabled === false || !deps?.chatExecutor) {
+    const resolvedDeps = deps;
+    const chatExecutor = resolvedDeps?.getChatExecutor?.();
+    if (!voiceApiKey || config.voice?.enabled === false || !chatExecutor || !resolvedDeps) {
       return undefined;
     }
 
@@ -5381,14 +5436,14 @@ export class DaemonManager {
       vadSilenceDurationMs: config.voice?.vadSilenceDurationMs,
       vadPrefixPaddingMs: config.voice?.vadPrefixPaddingMs,
       logger: this.logger,
-      chatExecutor: deps.chatExecutor,
-      sessionManager: deps.sessionManager,
-      hooks: deps.hooks,
-      approvalEngine: deps.approvalEngine,
-      memoryBackend: deps.memoryBackend,
+      getChatExecutor: resolvedDeps.getChatExecutor,
+      sessionManager: resolvedDeps.sessionManager,
+      hooks: resolvedDeps.hooks,
+      approvalEngine: resolvedDeps.approvalEngine,
+      memoryBackend: resolvedDeps.memoryBackend,
       sessionTokenBudget: resolveSessionTokenBudget(config.llm, contextWindowTokens),
       contextWindowTokens,
-      delegation: deps.delegation,
+      delegation: resolvedDeps.delegation,
     });
   }
 
@@ -6223,6 +6278,41 @@ export class DaemonManager {
   private buildDesktopContext(config: GatewayConfig): string {
     const isMac = process.platform === 'darwin';
     const desktopEnabled = config.desktop?.enabled === true;
+    const environment = config.desktop?.environment ?? 'both';
+
+    // Desktop-only mode: skip host tool descriptions entirely
+    if (desktopEnabled && !isMac && environment === 'desktop') {
+      return 'You are running inside a sandboxed desktop environment (Ubuntu/XFCE in Docker). ' +
+        'Use desktop.* tools for ALL operations — shell commands, file editing, GUI interaction.\n\n' +
+        'Desktop tools:\n' +
+        '- desktop.bash — Run shell commands. THIS IS YOUR PRIMARY TOOL for scripting, package installation, and command execution.\n' +
+        '- desktop.text_editor — View, create, and precisely edit files. Commands: view, create, str_replace, insert, undo_edit.\n' +
+        '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
+        '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
+        '- desktop.keyboard_type — Type text into the FOCUSED GUI app (e.g. browser URL bar, search field). NEVER use this to type into a terminal — use desktop.bash instead.\n' +
+        '- desktop.keyboard_key — Press key combos (ctrl+c, alt+Tab, Return, ctrl+l)\n' +
+        '- desktop.window_list, desktop.window_focus — Window management\n' +
+        '- desktop.clipboard_get, desktop.clipboard_set — Clipboard access\n' +
+        '- desktop.screen_size — Get resolution\n' +
+        '- desktop.video_start, desktop.video_stop — Record the desktop screen to MP4\n\n' +
+        'WEB BROWSING — ALWAYS use Playwright tools (prefixed with `playwright.`):\n' +
+        '- playwright.browser_navigate — Open URLs. THIS IS HOW YOU OPEN A BROWSER.\n' +
+        '- playwright.browser_click — Click elements by text or CSS selector\n' +
+        '- playwright.browser_type — Fill form inputs\n' +
+        '- playwright.browser_snapshot — Get the page accessibility tree (read page content)\n' +
+        '- playwright.browser_tabs — List open tabs\n\n' +
+        'CRITICAL RULES:\n' +
+        '- To create/edit files: use desktop.text_editor (preferred) or desktop.bash with cat heredoc\n' +
+        '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
+        '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails.\n' +
+        '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
+        '- For web browsing, ALWAYS use playwright.* tools.\n' +
+        '- Launch GUI apps: desktop.bash with "app >/dev/null 2>&1 &" (MUST redirect output and background)\n' +
+        '- neovim, ripgrep, fd-find, bat, fzf are pre-installed for development workflows.\n' +
+        '- The user is "agenc" with passwordless sudo.\n\n' +
+        'Be helpful, direct, and action-oriented. Execute tasks immediately without hesitation.';
+    }
 
     let ctx = 'You have broad access to this machine via the system.bash tool. ' +
       'It supports two modes:\n' +
@@ -6232,7 +6322,7 @@ export class DaemonManager {
       'Dangerous patterns (sudo, rm -rf /, reverse shells, bash -c nesting) are blocked. ' +
       'You should use your tools proactively to fulfill requests.\n\n';
 
-    if (desktopEnabled && !isMac) {
+    if (desktopEnabled && !isMac && environment === 'both') {
       ctx +=
         'AVAILABLE ENVIRONMENTS:\n\n' +
         '1. Host machine — use system.* tools (system.bash, system.httpGet, etc.) for API calls, file operations, ' +

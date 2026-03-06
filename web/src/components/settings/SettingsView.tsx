@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { UseSettingsReturn, GatewaySettings, VoiceName } from '../../hooks/useSettings';
+import type { UseSettingsReturn, GatewaySettings, VoiceName, EnvironmentMode } from '../../hooks/useSettings';
 
 interface LLMProviderDef {
   value: string;
@@ -43,6 +43,7 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
   const [voiceName, setVoiceName] = useState<VoiceName>(config.voice.voice);
   const [voiceApiKey] = useState('');
   const [useCustomVoiceKey, setUseCustomVoiceKey] = useState(!!config.voice.apiKey);
+  const [environment, setEnvironment] = useState<EnvironmentMode>(config.desktop.environment);
   const [memoryBackend, setMemoryBackend] = useState(config.memory.backend);
   const [rpcCluster, setRpcCluster] = useState<'devnet' | 'mainnet' | 'custom'>(
     config.connection.rpcUrl.includes('mainnet') ? 'mainnet' : 'devnet',
@@ -71,6 +72,7 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
     setVoiceMode(config.voice.mode);
     setVoiceName(config.voice.voice);
     setUseCustomVoiceKey(!!config.voice.apiKey);
+    setEnvironment(config.desktop.environment);
     setMemoryBackend(config.memory.backend);
     setRpcCluster(config.connection.rpcUrl.includes('mainnet') ? 'mainnet' : 'devnet');
   }, [loaded, config]);
@@ -110,6 +112,7 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
           ? voiceApiKey
           : useCustomVoiceKey ? config.voice.apiKey : '',
       },
+      desktop: { environment },
       memory: { backend: memoryBackend },
       connection: { rpcUrl },
     };
@@ -261,6 +264,22 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
               </div>
               <ToggleSwitch on={autoApprove} onChange={(v) => onAutoApproveChange?.(v)} />
             </div>
+          </section>
+
+          {/* Environment */}
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-tetsuo-800">Environment</h2>
+            <p className="text-xs text-tetsuo-400">Choose which tools the agent can access.</p>
+            <Picker
+              value={environment}
+              options={[
+                { value: 'both', label: 'Host + Desktop' },
+                { value: 'desktop', label: 'Desktop Only (sandbox)' },
+                { value: 'host', label: 'Host Only' },
+              ]}
+              onChange={(v) => { setEnvironment(v as EnvironmentMode); markDirty(); }}
+              title="Environment Mode"
+            />
           </section>
 
           {/* Memory + Network — side by side */}

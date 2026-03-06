@@ -813,6 +813,38 @@ describe("DaemonManager", () => {
     expect(directResult).toContain("session-scoped tool handler");
   });
 
+  it("hotSwapLLMProvider refreshes the cached provider list", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const providers = [
+      {
+        name: "fresh-grok",
+        chat: vi.fn(async () => ({
+          content: "ok",
+          finishReason: "stop",
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        })),
+      },
+    ] as any;
+
+    (dm as any)._llmTools = [];
+    (dm as any)._baseToolHandler = vi.fn(async () => "");
+    vi.spyOn(dm as any, "createLLMProviders").mockResolvedValue(providers);
+    vi.spyOn(dm as any, "resolveLlmContextWindowTokens").mockResolvedValue(120_000);
+
+    await (dm as any).hotSwapLLMProvider(
+      { llm: { provider: "grok" } },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    expect((dm as any)._llmProviders).toBe(providers);
+    expect((dm as any)._chatExecutor).not.toBeNull();
+  });
+
   it("registers marketplace and social tools when enabled", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     const registry = await (dm as any).createToolRegistry({

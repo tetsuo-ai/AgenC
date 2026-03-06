@@ -13,6 +13,7 @@ import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
 import type { DesktopSandboxManager } from "./manager.js";
+import { DesktopSandboxPoolExhaustedError } from "./errors.js";
 import { DesktopRESTBridge } from "./rest-bridge.js";
 import type { MCPServerConfig, MCPToolBridge } from "../mcp-client/types.js";
 import { ResilientMCPBridge } from "../mcp-client/resilient-bridge.js";
@@ -79,6 +80,9 @@ const DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE =
 const LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE =
   /\b(?:python(?:\d+(?:\.\d+)?)?\s+-m\s+http\.server|npm\s+run\s+(?:dev|start|serve)|pnpm\s+(?:dev|start|serve)|yarn\s+(?:dev|start|serve)|npx\s+vite|vite|flask\s+run|uvicorn|gunicorn)\b/i;
 const BROWSER_WINDOW_TITLE_RE = /(chromium|chrome|firefox|epiphany|browser|localhost|https?:\/\/|file:\/\/)/i;
+const DESKTOP_POOL_RETRY_INITIAL_DELAY_MS = 500;
+const DESKTOP_POOL_RETRY_MAX_DELAY_MS = 4_000;
+const DESKTOP_POOL_RETRY_TOTAL_WAIT_MS = 30_000;
 
 const INCOMPLETE_DESKTOP_COMMAND_HINTS: Record<string, string> = {
   which: 'Use a full command like `which python3`.',
@@ -121,6 +125,16 @@ function escapeForRegExp(value: string): string {
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isDesktopPoolExhaustedError(err: unknown): boolean {
+  if (err instanceof DesktopSandboxPoolExhaustedError) return true;
+  const message = toErrorMessage(err).toLowerCase();
+  return message.includes("desktop sandbox pool exhausted");
 }
 
 function inferDesktopCommandExecutable(command: string): string | undefined {
@@ -752,6 +766,42 @@ async function ensureBridge(
   try {
     return await connectBridge();
   } catch (firstErr) {
+    if (isDesktopPoolExhaustedError(firstErr)) {
+      const startedAt = Date.now();
+      let lastPoolError: unknown = firstErr;
+      let nextDelayMs = DESKTOP_POOL_RETRY_INITIAL_DELAY_MS;
+
+      while (Date.now() - startedAt < DESKTOP_POOL_RETRY_TOTAL_WAIT_MS) {
+        const remainingMs = DESKTOP_POOL_RETRY_TOTAL_WAIT_MS - (Date.now() - startedAt);
+        const waitMs = Math.min(nextDelayMs, Math.max(0, remainingMs));
+        if (waitMs <= 0) break;
+
+        log.warn?.(
+          `Desktop pool exhausted for session ${sessionId}; waiting ${waitMs}ms before retrying bridge bootstrap.`,
+        );
+        await sleep(waitMs);
+
+        try {
+          return await connectBridge();
+        } catch (retryErr) {
+          if (!isDesktopPoolExhaustedError(retryErr)) {
+            lastPoolError = retryErr;
+            break;
+          }
+          lastPoolError = retryErr;
+          nextDelayMs = Math.min(
+            DESKTOP_POOL_RETRY_MAX_DELAY_MS,
+            nextDelayMs * 2,
+          );
+        }
+      }
+
+      log.error(
+        `Failed to create desktop sandbox for session ${sessionId}: ${toErrorMessage(lastPoolError)}`,
+      );
+      return undefined;
+    }
+
     log.warn?.(
       `Desktop bridge bootstrap failed for session ${sessionId}: ${toErrorMessage(firstErr)}. Recycling sandbox and retrying once.`,
     );

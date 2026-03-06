@@ -124,7 +124,37 @@ export function reconcileStructuredToolOutcome(
 ): string {
   if (!content || toolCalls.length === 0) return content;
   const trimmed = content.trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return content;
+
+  const hasToolFailure = toolCalls.some((toolCall) =>
+    didToolCallFail(toolCall.isError, toolCall.result),
+  );
+  const hasSubagentFailureSignal = toolCalls.some((toolCall) => {
+    if (toolCall.name !== "execute_with_agent") return false;
+    const parsedResult = parseToolResultObject(toolCall.result);
+    if (!parsedResult) return false;
+
+    if (parsedResult.success === false) return true;
+    if (parsedResult.unresolvedToolFailures === true) return true;
+
+    const output =
+      typeof parsedResult.output === "string" ? parsedResult.output : "";
+    const failedToolCalls =
+      typeof parsedResult.failedToolCalls === "number"
+        ? parsedResult.failedToolCalls
+        : 0;
+    if (failedToolCalls <= 0) return false;
+    return hasExplicitFailureSignal(output);
+  });
+
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    if (
+      (hasToolFailure || hasSubagentFailureSignal) &&
+      isLowInformationCompletion(trimmed)
+    ) {
+      return buildToolFailureFallback(toolCalls);
+    }
+    return content;
+  }
 
   let parsed: unknown;
   try {
@@ -145,10 +175,6 @@ export function reconcileStructuredToolOutcome(
   if (normalizedOverall !== "pass") {
     return content;
   }
-
-  const hasToolFailure = toolCalls.some((toolCall) =>
-    didToolCallFail(toolCall.isError, toolCall.result),
-  );
 
   const executedTools = new Set(
     toolCalls
@@ -171,30 +197,25 @@ export function reconcileStructuredToolOutcome(
   const claimsUnexecutedTool = Array.from(claimedTools).some(
     (toolName) => !executedTools.has(toolName),
   );
-  const hasSubagentFailureSignal = toolCalls.some((toolCall) => {
-    if (toolCall.name !== "execute_with_agent") return false;
-    const parsedResult = parseToolResultObject(toolCall.result);
-    if (!parsedResult) return false;
+  const hasCheckSummaryContradiction = hasContradictoryPassCheckSummary(payload);
 
-    if (parsedResult.success === false) return true;
-    if (parsedResult.unresolvedToolFailures === true) return true;
-
-    const output =
-      typeof parsedResult.output === "string" ? parsedResult.output : "";
-    const failedToolCalls =
-      typeof parsedResult.failedToolCalls === "number"
-        ? parsedResult.failedToolCalls
-        : 0;
-    if (failedToolCalls <= 0) return false;
-    return hasExplicitFailureSignal(output);
-  });
-
-  if (!hasToolFailure && !claimsUnexecutedTool && !hasSubagentFailureSignal) {
+  if (
+    !hasToolFailure &&
+    !claimsUnexecutedTool &&
+    !hasSubagentFailureSignal &&
+    !hasCheckSummaryContradiction
+  ) {
     return content;
   }
 
   payload.overall = "fail";
-  appendFailureReason(payload, hasToolFailure, claimsUnexecutedTool, hasSubagentFailureSignal);
+  appendFailureReason(
+    payload,
+    hasToolFailure,
+    claimsUnexecutedTool,
+    hasSubagentFailureSignal,
+    hasCheckSummaryContradiction,
+  );
   return safeStringify(payload);
 }
 
@@ -210,6 +231,7 @@ function appendFailureReason(
   hasToolFailure: boolean,
   claimsUnexecutedTool: boolean,
   hasSubagentFailureSignal: boolean,
+  hasCheckSummaryContradiction: boolean,
 ): void {
   if (!Array.isArray(payload.failure_reasons)) return;
   const reasons = payload.failure_reasons.filter(
@@ -227,7 +249,100 @@ function appendFailureReason(
   ) {
     reasons.push("subagent_output_contains_failure_signal");
   }
+  if (
+    hasCheckSummaryContradiction &&
+    !reasons.includes("check_summary_conflicts_with_pass_status")
+  ) {
+    reasons.push("check_summary_conflicts_with_pass_status");
+  }
   payload.failure_reasons = reasons;
+}
+
+const LOW_INFORMATION_LINE_RE = /^(done|ok|complete(?:d)?|success|pass)[.!]?$/i;
+const PASS_STATUS_RE = /^pass$/i;
+const UNAVAILABLE_VALUE_RE = /\b(?:n\/a|none|null|undefined)\b/i;
+
+function isLowInformationCompletion(content: string): boolean {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return true;
+  if (lines.length > 8) return false;
+  return lines.every((line) => LOW_INFORMATION_LINE_RE.test(line));
+}
+
+function normalizeFailurePreview(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function buildToolFailureFallback(toolCalls: readonly ToolCallRecord[]): string {
+  const failedCalls = toolCalls.filter((toolCall) =>
+    didToolCallFail(toolCall.isError, toolCall.result),
+  );
+  if (failedCalls.length === 0) {
+    return "Execution could not be completed due to unresolved tool errors.";
+  }
+
+  const lines = [
+    "Execution could not be completed due to unresolved tool errors.",
+  ];
+  for (const toolCall of failedCalls.slice(0, 3)) {
+    const failure = normalizeFailurePreview(extractToolFailureMessage(toolCall));
+    lines.push(`- ${toolCall.name}: ${failure || "tool call failed"}`);
+  }
+  if (failedCalls.length > 3) {
+    lines.push(`- plus ${failedCalls.length - 3} additional tool failures`);
+  }
+  return lines.join("\n");
+}
+
+function extractToolFailureMessage(toolCall: ToolCallRecord): string {
+  const parsed = parseToolResultObject(toolCall.result);
+  if (parsed && typeof parsed.error === "string" && parsed.error.trim().length > 0) {
+    return parsed.error;
+  }
+  if (parsed && typeof parsed.stderr === "string" && parsed.stderr.trim().length > 0) {
+    return parsed.stderr;
+  }
+  if (parsed && typeof parsed.output === "string" && parsed.output.trim().length > 0) {
+    return parsed.output;
+  }
+  if (typeof toolCall.result === "string" && toolCall.result.trim().length > 0) {
+    return toolCall.result;
+  }
+  return "tool call failed";
+}
+
+function hasContradictoryPassCheckSummary(
+  payload: Record<string, unknown>,
+): boolean {
+  if (!Array.isArray(payload.checks)) return false;
+
+  for (const check of payload.checks) {
+    if (typeof check !== "object" || check === null || Array.isArray(check)) {
+      continue;
+    }
+    const status = (check as { status?: unknown }).status;
+    if (typeof status !== "string" || !PASS_STATUS_RE.test(status.trim())) {
+      continue;
+    }
+    const summary = (check as { summary?: unknown }).summary;
+    if (typeof summary !== "string" || summary.trim().length === 0) {
+      continue;
+    }
+    const lower = summary.toLowerCase();
+    const daemonDown =
+      lower.includes("running: false") ||
+      lower.includes("running=false") ||
+      lower.includes("running false");
+    const missingPid = /\bpid\s*:\s*/i.test(summary) && UNAVAILABLE_VALUE_RE.test(summary);
+    const missingPort = /\bport\s*:\s*/i.test(summary) && UNAVAILABLE_VALUE_RE.test(summary);
+    if (daemonDown || (missingPid && missingPort)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function collapseRunawayRepetition(content: string): string {
@@ -724,7 +839,7 @@ export function summarizeToolCalls(
     } else if (tc.name === "system.notification") {
       summaries.push("Notification sent");
     } else {
-      summaries.push("Done");
+      summaries.push(`Completed ${tc.name}`);
     }
   }
   return summaries.length > 0 ? summaries.join("\n") : "Done!";
