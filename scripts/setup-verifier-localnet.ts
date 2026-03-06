@@ -78,17 +78,13 @@ async function fetchVerifierState(
   provider: anchor.AnchorProvider,
   addresses: ReturnType<typeof deriveVerifierAddresses>,
 ): Promise<VerifierState> {
-  const [routerProgramInfo, verifierProgramInfo, verifierProgramDataInfo, routerPdaInfo, verifierEntryInfo] =
+  const [verifierProgramDataInfo, routerPdaInfo, verifierEntryInfo] =
     await Promise.all([
-      provider.connection.getAccountInfo(ROUTER_PROGRAM_ID),
-      provider.connection.getAccountInfo(VERIFIER_PROGRAM_ID),
       provider.connection.getAccountInfo(addresses.verifierProgramData),
       provider.connection.getAccountInfo(addresses.routerPda),
       provider.connection.getAccountInfo(addresses.verifierEntryPda),
     ]);
 
-  const routerProgramReady = Boolean(routerProgramInfo?.executable);
-  const verifierProgramReady = Boolean(verifierProgramInfo?.executable);
   const verifierProgramDataReady = hasExpectedProgramDataAuthority(
     verifierProgramDataInfo,
     addresses.routerPda,
