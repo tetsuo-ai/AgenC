@@ -10,6 +10,7 @@ import {
 import { closeSync, openSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { resolveValidatedTextEditorPath } from "./textEditorPath.js";
 import type {
   ToolDefinition,
   ToolResult,
@@ -514,17 +515,11 @@ async function screenSize(): Promise<ToolResult> {
 
 // --- text_editor tool (str_replace_based_edit_tool pattern) ---
 
-const ALLOWED_PREFIXES = ["/home/agenc", "/tmp"];
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB
 const MAX_UNDO_FILES = 20;
 
 /** LRU undo buffer — stores the single most recent version per file. */
 const undoBuffer = new Map<string, string>();
-
-function isPathAllowed(p: string): boolean {
-  const resolved = p.startsWith("/") ? p : `/home/agenc/${p}`;
-  return ALLOWED_PREFIXES.some((prefix) => resolved.startsWith(prefix));
-}
 
 function numberLines(text: string, startLine = 1): string {
   return text
@@ -536,13 +531,21 @@ function numberLines(text: string, startLine = 1): string {
 async function textEditor(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  const command = String(args.command ?? "");
-  const path = String(args.path ?? "");
+  const command = args.command;
+  const inputPath = args.path;
 
-  if (!command) return fail("command is required");
-  if (!path) return fail("path is required");
-  if (!isPathAllowed(path)) {
-    return fail(`Access denied: path must be under ${ALLOWED_PREFIXES.join(" or ")}`);
+  if (typeof command !== "string" || !command) {
+    return fail("command is required");
+  }
+  if (typeof inputPath !== "string" || !inputPath) {
+    return fail("path is required");
+  }
+
+  let path: string;
+  try {
+    path = await resolveValidatedTextEditorPath(inputPath);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
   }
 
   switch (command) {
