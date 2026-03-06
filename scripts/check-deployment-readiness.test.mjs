@@ -82,7 +82,7 @@ test("cli succeeds against the current checkout for localnet", () => {
   assert.equal(result.exitCode, 0);
 
   const stdout = execFileSync(
-    "node",
+    process.execPath,
     [resolve(scriptDir, "check-deployment-readiness.mjs"), "localnet"],
     { cwd: repoRoot, encoding: "utf8" },
   );
