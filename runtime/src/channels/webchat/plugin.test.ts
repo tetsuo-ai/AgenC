@@ -815,6 +815,51 @@ describe("WebChatChannel", () => {
   });
 
   describe("desktop handlers", () => {
+    type DesktopManager = NonNullable<WebChatDeps["desktopManager"]>;
+
+    function createDesktopManager(
+      overrides: Partial<DesktopManager> = {},
+    ): DesktopManager {
+      return {
+        listAll: vi.fn().mockReturnValue([]),
+        getHandleBySession: vi.fn(),
+        getOrCreate: vi.fn(),
+        destroy: vi.fn(),
+        assignSession: vi.fn(),
+        ...overrides,
+      } as unknown as DesktopManager;
+    }
+
+    async function startDesktopChannel(options?: {
+      desktopManager?: DesktopManager;
+      onMessage?: ChannelContext["onMessage"];
+    }): Promise<void> {
+      deps = createDeps({
+        desktopManager: options?.desktopManager ?? createDesktopManager(),
+      });
+      context = createContext(
+        options?.onMessage ? { onMessage: options.onMessage } : undefined,
+      );
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+    }
+
+    function openChatSession(
+      clientId: string,
+      send: ReturnType<typeof vi.fn<(response: ControlResponse) => void>>,
+      content: string,
+    ): string {
+      channel.handleMessage(
+        clientId,
+        "chat.message",
+        msg("chat.message", { content }),
+        send,
+      );
+      const calls = vi.mocked(context.onMessage).mock.calls;
+      return calls[calls.length - 1][0].sessionId;
+    }
+
     it("desktop.create binds to the client's active session when sessionId is omitted", async () => {
       const getOrCreate = vi.fn().mockResolvedValue({
         containerId: "ctr123",
@@ -918,30 +963,13 @@ describe("WebChatChannel", () => {
         maxMemory: "4g",
         maxCpu: "2.0",
       });
-      deps = createDeps({
-        desktopManager: {
-          listAll: vi.fn().mockReturnValue([]),
-          getHandleBySession: vi.fn(),
-          getOrCreate,
-          destroy: vi.fn(),
-          assignSession: vi.fn(),
-        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
-      });
-      context = createContext({
+      await startDesktopChannel({
+        desktopManager: createDesktopManager({ getOrCreate }),
         onMessage: vi.fn().mockResolvedValueOnce({ sessionId: "session:client1" }),
       });
-      channel = new WebChatChannel(deps);
-      await channel.initialize(context);
-      await channel.start();
 
       const send = vi.fn<(response: ControlResponse) => void>();
-      channel.handleMessage(
-        "client_1",
-        "chat.message",
-        msg("chat.message", { content: "hello" }),
-        send,
-      );
-      const sessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+      const sessionId = openChatSession("client_1", send, "hello");
 
       channel.handleMessage(
         "client_1",
@@ -1007,30 +1035,18 @@ describe("WebChatChannel", () => {
 
     it("desktop.create rejects foreign sessionId values", async () => {
       const getOrCreate = vi.fn();
-      deps = createDeps({
-        desktopManager: {
-          listAll: vi.fn().mockReturnValue([]),
-          getHandleBySession: vi.fn(),
-          getOrCreate,
-          destroy: vi.fn(),
-          assignSession: vi.fn(),
-        } as unknown as NonNullable<WebChatDeps["desktopManager"]>,
-      });
-      context = createContext({
+      await startDesktopChannel({
+        desktopManager: createDesktopManager({ getOrCreate }),
         onMessage: vi
           .fn()
           .mockResolvedValueOnce({ sessionId: "session:client1" })
           .mockResolvedValueOnce({ sessionId: "session:client2" }),
       });
-      channel = new WebChatChannel(deps);
-      await channel.initialize(context);
-      await channel.start();
 
       const send1 = vi.fn<(response: ControlResponse) => void>();
       const send2 = vi.fn<(response: ControlResponse) => void>();
-      channel.handleMessage("client_1", "chat.message", msg("chat.message", { content: "hello 1" }), send1);
-      channel.handleMessage("client_2", "chat.message", msg("chat.message", { content: "hello 2" }), send2);
-      const foreignSessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+      const foreignSessionId = openChatSession("client_1", send1, "hello 1");
+      openChatSession("client_2", send2, "hello 2");
 
       channel.handleMessage(
         "client_2",
