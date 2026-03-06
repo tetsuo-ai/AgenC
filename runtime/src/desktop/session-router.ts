@@ -19,6 +19,7 @@ import type { MCPServerConfig, MCPToolBridge } from "../mcp-client/types.js";
 import { ResilientMCPBridge } from "../mcp-client/resilient-bridge.js";
 
 const PLAYWRIGHT_BROWSERS_PATH = "/home/agenc/.cache/ms-playwright";
+const CONTAINER_MCP_WORKDIR = "/home/agenc";
 const PLAYWRIGHT_MCP_BIN = "playwright-mcp";
 const DEFAULT_PLAYWRIGHT_MCP_PKG = "@playwright/mcp@0.0.68";
 const PLAYWRIGHT_MCP_PACKAGE_PREFIX = "@playwright/mcp@";
@@ -75,10 +76,11 @@ const DESKTOP_BROWSER_USER_DATA_DIR_RE = /\b--user-data-dir(?:=|\s+)/i;
 const DESKTOP_CHROMIUM_DISALLOWED_FLAG_RE =
   /(?:^|\s)(--no-sandbox|--disable-setuid-sandbox)(?=\s|$)/gi;
 const DESKTOP_BASH_QUOTED_SEGMENT_RE = /'[^']*'|"[^"]*"/g;
+const DESKTOP_BASH_SEGMENT_SPLIT_RE = /\s*(?:&&|\|\||;|\n)\s*/;
 const DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:pgrep|pkill|ps|grep|ss|lsof|netstat|kill|killall)\b/i;
-const LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE =
-  /\b(?:python(?:\d+(?:\.\d+)?)?\s+-m\s+http\.server|npm\s+run\s+(?:dev|start|serve)|pnpm\s+(?:dev|start|serve)|yarn\s+(?:dev|start|serve)|npx\s+vite|vite|flask\s+run|uvicorn|gunicorn)\b/i;
+const LONG_RUNNING_SERVER_SEGMENT_RE =
+  /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:python(?:\d+(?:\.\d+)?)?\s+-m\s+http\.server|npm\s+run\s+(?:dev|start|serve)\b|pnpm\s+(?:dev|start|serve)\b|yarn\s+(?:dev|start|serve)\b|npx\s+vite\b|vite\b|flask\s+run\b|uvicorn\b|gunicorn\b)/i;
 const BROWSER_WINDOW_TITLE_RE = /(chromium|chrome|firefox|epiphany|browser|localhost|https?:\/\/|file:\/\/)/i;
 const DESKTOP_POOL_RETRY_INITIAL_DELAY_MS = 500;
 const DESKTOP_POOL_RETRY_MAX_DELAY_MS = 4_000;
@@ -109,6 +111,19 @@ const INCOMPLETE_DESKTOP_COMMAND_HINTS: Record<string, string> = {
 
 function stripQuotedSegments(command: string): string {
   return command.replace(DESKTOP_BASH_QUOTED_SEGMENT_RE, " ");
+}
+
+function splitShellSegments(command: string): string[] {
+  return stripQuotedSegments(command)
+    .split(DESKTOP_BASH_SEGMENT_SPLIT_RE)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+function hasLongRunningServerCommand(command: string): boolean {
+  return splitShellSegments(command).some((segment) =>
+    LONG_RUNNING_SERVER_SEGMENT_RE.test(segment)
+  );
 }
 
 function hasExplicitBackgroundRedirection(command: string): boolean {
@@ -204,7 +219,7 @@ function enrichDesktopBashResultWithVerification(
       );
     }
     if (
-      LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE.test(stripQuotedSegments(command)) &&
+      hasLongRunningServerCommand(command) &&
       DESKTOP_BASH_BACKGROUND_RE.test(command)
     ) {
       checks.push(
@@ -236,7 +251,6 @@ function getDesktopBashGuardError(
   if (name !== "desktop.bash") return undefined;
   const command = typeof args.command === "string" ? args.command.trim() : "";
   if (!command) return undefined;
-  const unquotedCommand = stripQuotedSegments(command);
 
   if (DESKTOP_BASH_INTERACTIVE_REPL_RE.test(command)) {
     return (
@@ -305,7 +319,7 @@ function getDesktopBashGuardError(
       : undefined;
   if (
     !DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE.test(command) &&
-    LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE.test(unquotedCommand) &&
+    hasLongRunningServerCommand(command) &&
     !DESKTOP_BASH_BACKGROUND_RE.test(command) &&
     (timeoutMs === undefined || timeoutMs <= 60_000)
   ) {
@@ -316,7 +330,7 @@ function getDesktopBashGuardError(
   }
   if (
     !DESKTOP_PROCESS_INSPECTION_OR_CONTROL_RE.test(command) &&
-    LONG_RUNNING_SERVER_COMMAND_FRAGMENT_RE.test(unquotedCommand) &&
+    hasLongRunningServerCommand(command) &&
     DESKTOP_BASH_BACKGROUND_RE.test(command) &&
     !hasExplicitBackgroundRedirection(command)
   ) {
@@ -442,9 +456,38 @@ export interface DesktopRouterOptions {
   containerMCPConfigs?: MCPServerConfig[];
   /** Per-session container MCP bridges (sessionId → bridge array). */
   containerMCPBridges?: Map<string, MCPToolBridge[]>;
+  /** Optional per-session tool allowlist for least-privilege desktop routing. */
+  allowedToolNames?: readonly string[];
   logger?: Logger;
   /** Deprecated no-op. Auto-screenshot capture is disabled. */
   autoScreenshot?: boolean;
+}
+
+function normalizeAllowedToolNames(
+  allowedToolNames: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (!allowedToolNames) return undefined;
+  const normalized = [
+    ...new Set(
+      allowedToolNames
+        .map((toolName) => toolName.trim())
+        .filter((toolName) => toolName.length > 0),
+    ),
+  ];
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function selectContainerMCPConfigsForToolScope(
+  configs: readonly MCPServerConfig[] | undefined,
+  allowedToolNames: readonly string[] | undefined,
+): readonly MCPServerConfig[] {
+  if (!configs || configs.length === 0) return [];
+  if (!allowedToolNames) return configs;
+
+  return configs.filter((config) => {
+    const prefix = `mcp.${config.name}.`;
+    return allowedToolNames.some((toolName) => toolName.startsWith(prefix));
+  });
 }
 
 /**
@@ -467,16 +510,34 @@ export function createDesktopAwareToolHandler(
     playwrightBridges,
     containerMCPConfigs,
     containerMCPBridges,
+    allowedToolNames,
     logger: log = silentLogger,
     autoScreenshot: _autoScreenshot = false,
   } = options;
+  const normalizedAllowedToolNames = normalizeAllowedToolNames(allowedToolNames);
+  const allowedToolSet = normalizedAllowedToolNames
+    ? new Set(normalizedAllowedToolNames)
+    : null;
+  const scopedContainerMCPConfigs = selectContainerMCPConfigsForToolScope(
+    containerMCPConfigs,
+    normalizedAllowedToolNames,
+  );
+  const playwrightAllowed = allowedToolSet === null ||
+    normalizedAllowedToolNames!.some((toolName) => toolName.startsWith("playwright."));
 
   // Build a set of container MCP server names for fast routing checks
-  const containerMCPNames = new Set(containerMCPConfigs?.map((c) => c.name) ?? []);
+  const containerMCPNames = new Set(scopedContainerMCPConfigs.map((c) => c.name));
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
+    if (allowedToolSet && !allowedToolSet.has(name)) {
+      return safeStringify({ error: `Tool "${name}" not permitted in this session` });
+    }
+
     // --- Playwright tool routing ---
     if (name.startsWith("playwright.") && playwrightBridges) {
+      if (!playwrightAllowed) {
+        return safeStringify({ error: `Tool "${name}" not permitted in this session` });
+      }
       return handlePlaywrightCall(
         name,
         args,
@@ -491,7 +552,7 @@ export function createDesktopAwareToolHandler(
     // --- Container MCP routing: mcp.{serverName}.{toolName} ---
     if (
       name.startsWith("mcp.") &&
-      containerMCPConfigs &&
+      scopedContainerMCPConfigs.length > 0 &&
       containerMCPBridges
     ) {
       const parts = name.split(".");
@@ -503,7 +564,7 @@ export function createDesktopAwareToolHandler(
           sessionId,
           desktopManager,
           bridges,
-          containerMCPConfigs,
+          scopedContainerMCPConfigs,
           containerMCPBridges,
           log,
         );
@@ -881,6 +942,8 @@ async function ensurePlaywrightBridge(
         args: [
           "exec",
           "-i",
+          "--workdir",
+          CONTAINER_MCP_WORKDIR,
           "-e",
           "DISPLAY=:1",
           "-e",
@@ -920,7 +983,7 @@ async function handleContainerMCPCall(
   sessionId: string,
   desktopManager: DesktopSandboxManager,
   bridges: Map<string, DesktopRESTBridge>,
-  containerMCPConfigs: MCPServerConfig[],
+  containerMCPConfigs: readonly MCPServerConfig[],
   containerMCPBridges: Map<string, MCPToolBridge[]>,
   log: Logger,
 ): Promise<string> {
@@ -934,16 +997,13 @@ async function handleContainerMCPCall(
   }
 
   // Ensure container MCP bridges exist for this session
-  let mcpBridges = containerMCPBridges.get(sessionId);
-  if (!mcpBridges) {
-    mcpBridges = await ensureContainerMCPBridges(
-      sessionId,
-      desktopManager,
-      containerMCPConfigs,
-      containerMCPBridges,
-      log,
-    );
-  }
+  const mcpBridges = await ensureContainerMCPBridges(
+    sessionId,
+    desktopManager,
+    containerMCPConfigs,
+    containerMCPBridges,
+    log,
+  );
 
   // Find the matching tool across all container MCP bridges
   for (const mcpBridge of mcpBridges) {
@@ -970,10 +1030,22 @@ async function handleContainerMCPCall(
 async function ensureContainerMCPBridges(
   sessionId: string,
   desktopManager: DesktopSandboxManager,
-  configs: MCPServerConfig[],
+  configs: readonly MCPServerConfig[],
   containerMCPBridges: Map<string, MCPToolBridge[]>,
   log: Logger,
 ): Promise<MCPToolBridge[]> {
+  const requestedServerNames = new Set(configs.map((config) => config.name));
+  const existing = containerMCPBridges.get(sessionId) ?? [];
+  const existingByServer = new Map(
+    existing.map((bridge) => [bridge.serverName, bridge] as const),
+  );
+  const missingConfigs = configs.filter((config) => !existingByServer.has(config.name));
+
+  if (configs.length === 0) {
+    containerMCPBridges.set(sessionId, existing);
+    return [];
+  }
+
   const handle = desktopManager.getHandleBySession(sessionId);
   if (!handle) {
     log.warn?.(`No desktop container for session ${sessionId} — container MCP unavailable`);
@@ -981,15 +1053,21 @@ async function ensureContainerMCPBridges(
     return [];
   }
 
+  if (missingConfigs.length === 0) {
+    return existing.filter((bridge) => requestedServerNames.has(bridge.serverName));
+  }
+
   const { createMCPConnection } = await import("../mcp-client/connection.js");
   const { createToolBridge } = await import("../mcp-client/tool-bridge.js");
 
   const results = await Promise.allSettled(
-    configs.map(async (config) => {
+    missingConfigs.map(async (config) => {
       // Rewrite config to docker exec
       const dockerArgs = [
         "exec",
         "-i",
+        "--workdir",
+        CONTAINER_MCP_WORKDIR,
         "-e",
         "DISPLAY=:1",
       ];
@@ -1057,13 +1135,21 @@ async function ensureContainerMCPBridges(
       successfulBridges.push(result.value);
     } else {
       log.warn?.(
-        `Container MCP "${configs[i].name}" failed for session ${sessionId}: ${toErrorMessage(result.reason)}`,
+        `Container MCP "${missingConfigs[i].name}" failed for session ${sessionId}: ${toErrorMessage(result.reason)}`,
       );
     }
   }
 
-  containerMCPBridges.set(sessionId, successfulBridges);
-  return successfulBridges;
+  const mergedByServer = new Map<string, MCPToolBridge>();
+  for (const bridge of existing) {
+    mergedByServer.set(bridge.serverName, bridge);
+  }
+  for (const bridge of successfulBridges) {
+    mergedByServer.set(bridge.serverName, bridge);
+  }
+  const merged = [...mergedByServer.values()];
+  containerMCPBridges.set(sessionId, merged);
+  return merged.filter((bridge) => requestedServerNames.has(bridge.serverName));
 }
 
 function normalizePlaywrightArgs(args: string[]): string[] {

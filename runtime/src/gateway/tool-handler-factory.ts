@@ -20,6 +20,12 @@ import {
   isSubAgentSessionId,
   type DelegationToolCompositionResolver,
 } from './delegation-runtime.js';
+import { assessDelegationScope } from './delegation-scope.js';
+import {
+  resolveDelegatedChildToolScope,
+  specRequiresSuccessfulToolEvidence,
+  validateDelegatedOutputContract,
+} from '../utils/delegation-validation.js';
 
 const DESKTOP_GUI_LAUNCH_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:xfce4-terminal|gnome-terminal|xterm|kitty|firefox|chromium|chromium-browser|google-chrome|thunar|nautilus|mousepad|gedit)\b/i;
@@ -353,6 +359,7 @@ async function executeDelegationTool(params: {
   subAgentManager: DelegationSubAgentManager | null;
   lifecycleEmitter: DelegationLifecycleEmitter;
   verifier: DelegationVerifier;
+  availableToolNames?: readonly string[];
 }): Promise<string> {
   const {
     toolArgs,
@@ -362,6 +369,7 @@ async function executeDelegationTool(params: {
     subAgentManager,
     lifecycleEmitter,
     verifier,
+    availableToolNames,
   } = params;
   if (!subAgentManager) {
     return JSON.stringify({
@@ -388,18 +396,85 @@ async function executeDelegationTool(params: {
   }
 
   const input = parsedInput.value;
+  const scopeAssessment = assessDelegationScope(input);
+  if (!scopeAssessment.ok) {
+    lifecycleEmitter?.emit({
+      type: "subagents.failed",
+      timestamp: Date.now(),
+      sessionId,
+      parentSessionId: sessionId,
+      toolName: name,
+      payload: {
+        stage: "validation",
+        objective: input.objective ?? input.task,
+        reason: scopeAssessment.error,
+        phases: scopeAssessment.phases,
+        decomposition: scopeAssessment.decomposition,
+        toolCallId,
+      },
+    });
+    return JSON.stringify({
+      success: false,
+      status: "needs_decomposition",
+      objective: input.objective ?? input.task,
+      error: scopeAssessment.error,
+      decomposition: scopeAssessment.decomposition,
+    });
+  }
   const objective = input.objective ?? input.task;
   const effectiveTimeoutMs = normalizeDelegationTimeoutMs(input.timeoutMs);
+  const resolvedChildScope = resolveDelegatedChildToolScope({
+    spec: input,
+    requestedTools: input.tools,
+    parentAllowedTools: availableToolNames,
+    availableTools: availableToolNames,
+    enforceParentIntersection: true,
+  });
+  if (resolvedChildScope.blockedReason) {
+    lifecycleEmitter?.emit({
+      type: "subagents.failed",
+      timestamp: Date.now(),
+      sessionId,
+      parentSessionId: sessionId,
+      toolName: name,
+      payload: {
+        stage: "validation",
+        objective,
+        reason: resolvedChildScope.blockedReason,
+        removedLowSignalBrowserTools:
+          resolvedChildScope.removedLowSignalBrowserTools,
+        removedByPolicy: resolvedChildScope.removedByPolicy,
+        removedAsDelegationTools: resolvedChildScope.removedAsDelegationTools,
+        removedAsUnknownTools: resolvedChildScope.removedAsUnknownTools,
+        semanticFallback: resolvedChildScope.semanticFallback,
+        toolCallId,
+      },
+    });
+    return JSON.stringify({
+      success: false,
+      status: "failed",
+      objective,
+      error: resolvedChildScope.blockedReason,
+      removedLowSignalBrowserTools:
+        resolvedChildScope.removedLowSignalBrowserTools,
+      removedByPolicy: resolvedChildScope.removedByPolicy,
+      removedAsDelegationTools: resolvedChildScope.removedAsDelegationTools,
+      removedAsUnknownTools: resolvedChildScope.removedAsUnknownTools,
+      semanticFallback: resolvedChildScope.semanticFallback,
+    });
+  }
   let childSessionId: string;
   try {
     childSessionId = await subAgentManager.spawn({
       parentSessionId: sessionId,
       task: input.task,
       ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
-      ...(input.tools ? { tools: input.tools } : {}),
+      tools: resolvedChildScope.allowedTools,
       ...(input.requiredToolCapabilities
         ? { requiredCapabilities: input.requiredToolCapabilities }
         : {}),
+      requireToolCall: specRequiresSuccessfulToolEvidence(input),
+      delegationSpec: input,
     });
   } catch (error) {
     const message = toErrorString(error);
@@ -432,9 +507,30 @@ async function executeDelegationTool(params: {
     payload: {
       objective,
       ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
-      ...(input.tools ? { tools: input.tools } : {}),
+      tools: resolvedChildScope.allowedTools,
       ...(input.requiredToolCapabilities
         ? { requiredToolCapabilities: input.requiredToolCapabilities }
+        : {}),
+      ...(resolvedChildScope.removedLowSignalBrowserTools.length
+        ? {
+          removedLowSignalBrowserTools:
+            resolvedChildScope.removedLowSignalBrowserTools,
+        }
+        : {}),
+      ...(resolvedChildScope.removedByPolicy.length
+        ? { removedByPolicy: resolvedChildScope.removedByPolicy }
+        : {}),
+      ...(resolvedChildScope.removedAsDelegationTools.length
+        ? {
+          removedAsDelegationTools:
+            resolvedChildScope.removedAsDelegationTools,
+        }
+        : {}),
+      ...(resolvedChildScope.removedAsUnknownTools.length
+        ? { removedAsUnknownTools: resolvedChildScope.removedAsUnknownTools }
+        : {}),
+      ...(resolvedChildScope.semanticFallback.length
+        ? { semanticFallback: resolvedChildScope.semanticFallback }
         : {}),
       toolCallId,
     },
@@ -482,11 +578,19 @@ async function executeDelegationTool(params: {
       childInfo?.status ?? (childResult.success ? "completed" : "failed");
 
     const failedChildToolCalls = countFailedChildToolCalls(childResult.toolCalls);
+    const childOutputValidationError = childResult.success
+      ? validateDelegatedOutputContract({
+        spec: input,
+        output: childResult.output,
+        toolCalls: childResult.toolCalls,
+        providerEvidence: childResult.providerEvidence,
+      }).error
+      : undefined;
     const unresolvedChildFailure =
       failedChildToolCalls > 0 &&
       hasDelegationFailureSignal(childResult.output);
 
-    if (childResult.success && !unresolvedChildFailure) {
+    if (childResult.success && !unresolvedChildFailure && !childOutputValidationError) {
       lifecycleEmitter?.emit({
         type: "subagents.completed",
         timestamp: Date.now(),
@@ -513,14 +617,19 @@ async function executeDelegationTool(params: {
         durationMs: childResult.durationMs,
         toolCalls: childResult.toolCalls.length,
         failedToolCalls: failedChildToolCalls,
+        providerEvidence: childResult.providerEvidence,
         providerName: childResult.providerName,
         tokenUsage: childResult.tokenUsage,
+        stopReason: childResult.stopReason,
+        stopReasonDetail: childResult.stopReasonDetail,
+        validationCode: childResult.validationCode,
       });
     }
 
-    const reason = unresolvedChildFailure
-      ? `Sub-agent completed with unresolved tool failures (${failedChildToolCalls})`
-      : parseDelegationFailureReason(childResult.output);
+    const reason = childOutputValidationError ??
+      (unresolvedChildFailure
+        ? `Sub-agent completed with unresolved tool failures (${failedChildToolCalls})`
+        : parseDelegationFailureReason(childResult.output));
     const terminalType =
       finalStatus === "cancelled" ? "subagents.cancelled" : "subagents.failed";
     lifecycleEmitter?.emit({
@@ -552,6 +661,9 @@ async function executeDelegationTool(params: {
       failedToolCalls: failedChildToolCalls,
       providerName: childResult.providerName,
       tokenUsage: childResult.tokenUsage,
+      stopReason: childResult.stopReason,
+      stopReasonDetail: childResult.stopReasonDetail,
+      validationCode: childResult.validationCode,
     });
   }
 }
@@ -566,7 +678,10 @@ export interface SessionToolHandlerConfig {
   /** Base tool handler (from ToolRegistry). */
   baseHandler: ToolHandler;
   /** Optional factory that returns a desktop-aware handler per router ID. */
-  desktopRouterFactory?: (routerId: string) => ToolHandler;
+  desktopRouterFactory?: (
+    routerId: string,
+    allowedToolNames?: readonly string[],
+  ) => ToolHandler;
   /** ID used for desktop routing (clientId for voice, sessionId for daemon). */
   routerId: string;
   /** Send a message to the connected client. */
@@ -590,6 +705,8 @@ export interface SessionToolHandlerConfig {
   ) => void;
   /** Optional resolver for live delegation runtime dependencies. */
   delegation?: DelegationToolCompositionResolver;
+  /** Tool names visible to this session for child delegation scoping. */
+  availableToolNames?: readonly string[];
 }
 
 // ============================================================================
@@ -623,6 +740,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     onToolStart,
     onToolEnd,
     delegation,
+    availableToolNames,
   } = config;
   let toolCallSeq = 0;
   // Per-message duplicate guard to avoid opening the same GUI app twice when
@@ -773,7 +891,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
 
     // 5. Select handler: delegation executor or desktop-aware/base handler
     const routedHandler = desktopRouterFactory
-      ? desktopRouterFactory(routerId)
+      ? desktopRouterFactory(routerId, availableToolNames)
       : baseHandler;
     const activeHandler: ToolHandler = toolName === EXECUTE_WITH_AGENT_TOOL_NAME
       ? async (_toolName, toolArgs) =>
@@ -785,6 +903,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           subAgentManager,
           lifecycleEmitter,
           verifier,
+          availableToolNames,
         })
       : routedHandler;
 

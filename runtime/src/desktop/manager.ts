@@ -39,6 +39,7 @@ const DOCKER_TIMEOUT_MS = 30_000;
 const READY_POLL_INTERVAL_MS = 1_000;
 const READY_TIMEOUT_MS = 60_000;
 const READY_POLL_TIMEOUT_MS = 3_000;
+const DEFAULT_WORKSPACE_MOUNT_PATH = "/workspace";
 
 /** Container-internal port for the REST API. */
 const CONTAINER_API_PORT = 9990;
@@ -169,6 +170,11 @@ function validateCpuLimit(value: string): void {
 
 export interface DesktopSandboxManagerOptions {
   logger?: Logger;
+  workspacePath?: string;
+  workspaceAccess?: "none" | "readonly" | "readwrite";
+  workspaceMountPath?: string;
+  hostUid?: number;
+  hostGid?: number;
 }
 
 export class DesktopSandboxManager {
@@ -176,6 +182,11 @@ export class DesktopSandboxManager {
     Omit<DesktopSandboxConfig, "labels">
   > & { labels?: Record<string, string> };
   private readonly logger: Logger;
+  private readonly workspacePath?: string;
+  private readonly workspaceAccess: "none" | "readonly" | "readwrite";
+  private readonly workspaceMountPath: string;
+  private readonly hostUid?: number;
+  private readonly hostGid?: number;
 
   /** containerId → handle */
   private readonly handles = new Map<string, DesktopSandboxHandle>();
@@ -220,6 +231,14 @@ export class DesktopSandboxManager {
       environment: config.environment ?? 'both',
     };
     this.logger = options?.logger ?? silentLogger;
+    this.workspacePath = options?.workspacePath;
+    this.workspaceAccess =
+      options?.workspaceAccess ??
+      (options?.workspacePath ? "readwrite" : "none");
+    this.workspaceMountPath =
+      options?.workspaceMountPath ?? DEFAULT_WORKSPACE_MOUNT_PATH;
+    this.hostUid = options?.hostUid;
+    this.hostGid = options?.hostGid;
   }
 
   // --------------------------------------------------------------------------
@@ -532,11 +551,29 @@ export class DesktopSandboxManager {
       "--env", `${DESKTOP_AUTH_ENV_KEY}=${authToken}`,
     );
 
+    if (this.workspacePath && this.workspaceAccess !== "none") {
+      const mountMode = this.workspaceAccess === "readonly" ? "ro" : "rw";
+      args.push(
+        "--volume",
+        `${this.workspacePath}:${this.workspaceMountPath}:${mountMode}`,
+        "--workdir",
+        this.workspaceMountPath,
+        "--env",
+        `AGENC_WORKSPACE_ROOT=${this.workspaceMountPath}`,
+      );
+      if (typeof this.hostUid === "number" && Number.isInteger(this.hostUid) && this.hostUid >= 0) {
+        args.push("--env", `AGENC_HOST_UID=${this.hostUid}`);
+      }
+      if (typeof this.hostGid === "number" && Number.isInteger(this.hostGid) && this.hostGid >= 0) {
+        args.push("--env", `AGENC_HOST_GID=${this.hostGid}`);
+      }
+    }
+
     if (sandboxOptions.env) {
       for (const [key, value] of Object.entries(sandboxOptions.env)) {
         if (
           key !== DESKTOP_AUTH_ENV_KEY &&
-          /^[A-Za-z_]\w*$/.test(key)
+          /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
         ) {
           args.push("--env", `${key}=${value}`);
         }

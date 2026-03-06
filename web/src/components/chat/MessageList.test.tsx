@@ -1,9 +1,14 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MessageList } from './MessageList';
 import type { ChatMessage } from '../../types';
 
 describe('MessageList', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
   it('shows empty state when there are no messages', () => {
     render(<MessageList messages={[]} isTyping={false} />);
 
@@ -31,5 +36,53 @@ describe('MessageList', () => {
 
     expect(screen.getByText('beta')).toBeDefined();
     expect(screen.queryByText('alpha')).toBeNull();
+  });
+
+  it('keeps following the latest messages when the user is already near the bottom', () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const initialMessages: ChatMessage[] = [
+      { id: '1', sender: 'user', content: 'alpha', timestamp: 1 },
+    ];
+    const nextMessages: ChatMessage[] = [
+      ...initialMessages,
+      { id: '2', sender: 'agent', content: 'beta', timestamp: 2 },
+    ];
+
+    const view = render(<MessageList messages={initialMessages} isTyping={false} />);
+    const container = view.getByTestId('message-list-scroll-container');
+
+    Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 300 });
+    Object.defineProperty(container, 'scrollTop', { configurable: true, value: 640 });
+
+    scrollSpy.mockClear();
+    fireEvent.scroll(container);
+    view.rerender(<MessageList messages={nextMessages} isTyping={false} />);
+
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not yank the user back to the bottom when they scrolled up', () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const initialMessages: ChatMessage[] = [
+      { id: '1', sender: 'user', content: 'alpha', timestamp: 1 },
+    ];
+    const nextMessages: ChatMessage[] = [
+      ...initialMessages,
+      { id: '2', sender: 'agent', content: 'beta', timestamp: 2 },
+    ];
+
+    const view = render(<MessageList messages={initialMessages} isTyping={false} />);
+    const container = view.getByTestId('message-list-scroll-container');
+
+    Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 300 });
+    Object.defineProperty(container, 'scrollTop', { configurable: true, value: 120 });
+
+    scrollSpy.mockClear();
+    fireEvent.scroll(container);
+    view.rerender(<MessageList messages={nextMessages} isTyping={false} />);
+
+    expect(scrollSpy).not.toHaveBeenCalled();
   });
 });

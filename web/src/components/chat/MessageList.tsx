@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ChatMessage as ChatMessageType } from '../../types';
 import { ChatMessage } from './ChatMessage';
+
+const AUTO_SCROLL_THRESHOLD_PX = 96;
 
 interface MessageListProps {
   messages: ChatMessageType[];
@@ -10,7 +12,9 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, isTyping, theme = 'dark', searchQuery = '' }: MessageListProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const query = searchQuery.trim().toLowerCase();
 
   const filtered = useMemo(
@@ -18,12 +22,30 @@ export function MessageList({ messages, isTyping, theme = 'dark', searchQuery = 
     [messages, query],
   );
 
+  const updateStickToBottom = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    stickToBottomRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
+  }, []);
+
   useEffect(() => {
-    if (!query) endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    updateStickToBottom();
+  }, [updateStickToBottom]);
+
+  useEffect(() => {
+    if (query || !stickToBottomRef.current) return;
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping, query]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
+    <div
+      ref={scrollContainerRef}
+      data-testid="message-list-scroll-container"
+      className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6"
+      onScroll={updateStickToBottom}
+    >
       <div className="space-y-3">
         {filtered.length === 0 && !query && (
           <div className="flex items-center justify-center h-full text-bbs-gray text-xs">

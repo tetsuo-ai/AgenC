@@ -1,0 +1,65 @@
+/**
+ * Shared tool-environment filtering helpers.
+ *
+ * Desktop-only mode must exclude host `system.*` tools everywhere, not just
+ * from the top-level chat schema. Host-only mode excludes desktop/container
+ * surfaces instead.
+ *
+ * @module
+ */
+
+import type { LLMTool } from "../llm/types.js";
+
+export type ToolEnvironmentMode = "both" | "desktop" | "host";
+
+const HOST_TOOL_PREFIX = "system.";
+const DESKTOP_TOOL_PREFIXES = [
+  "desktop.",
+  "playwright.",
+  "mcp.tmux.",
+  "mcp.neovim.",
+  "mcp.kitty.",
+  "mcp.browser.",
+] as const;
+
+function isDesktopScopedToolName(name: string): boolean {
+  return DESKTOP_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
+export function isToolAllowedForEnvironment(
+  toolName: string,
+  environment: ToolEnvironmentMode,
+): boolean {
+  if (environment === "both") return true;
+  if (environment === "desktop") {
+    return !toolName.startsWith(HOST_TOOL_PREFIX);
+  }
+  return !isDesktopScopedToolName(toolName);
+}
+
+export function filterToolNamesByEnvironment(
+  toolNames: readonly string[],
+  environment: ToolEnvironmentMode,
+): string[] {
+  return toolNames.filter((toolName) =>
+    isToolAllowedForEnvironment(toolName, environment)
+  );
+}
+
+export function filterNamedToolsByEnvironment<T extends { readonly name: string }>(
+  tools: readonly T[],
+  environment: ToolEnvironmentMode,
+): T[] {
+  return tools.filter((tool) =>
+    isToolAllowedForEnvironment(tool.name, environment)
+  );
+}
+
+export function filterLlmToolsByEnvironment(
+  tools: readonly LLMTool[],
+  environment: ToolEnvironmentMode,
+): LLMTool[] {
+  return tools.filter((tool) =>
+    isToolAllowedForEnvironment(tool.function.name, environment)
+  );
+}

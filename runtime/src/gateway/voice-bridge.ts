@@ -118,8 +118,13 @@ export interface VoiceBridgeConfig {
   apiKey: string;
   /** Tool execution handler (fallback when no desktop router). */
   toolHandler: ToolHandler;
+  /** Tool names visible to the voice session for delegation scoping. */
+  availableToolNames?: readonly string[];
   /** Factory that returns a desktop-aware tool handler scoped to a session. */
-  desktopRouterFactory?: (sessionId: string) => ToolHandler;
+  desktopRouterFactory?: (
+    sessionId: string,
+    allowedToolNames?: readonly string[],
+  ) => ToolHandler;
   /** System prompt injected into voice sessions. */
   systemPrompt: string;
   /** Default voice persona. */
@@ -396,6 +401,7 @@ export class VoiceBridge {
     return createSessionToolHandler({
       sessionId,
       baseHandler: toolHandler,
+      availableToolNames: this.config.availableToolNames,
       desktopRouterFactory,
       // Keep desktop routing aligned with chat slash commands/history by using
       // the shared web session id (not raw client id aliases).

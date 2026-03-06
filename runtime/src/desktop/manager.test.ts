@@ -286,9 +286,50 @@ describe("DesktopSandboxManager", () => {
         (c: unknown[]) => (c[1] as string[])[0] === "run",
       );
       const args = runCall![1] as string[];
-      const authEnvVars = args.filter((arg) => arg.startsWith("DESKTOP_AUTH_TOKEN="));
+      const authEnvVars = args.filter((arg) =>
+        arg.startsWith("DESKTOP_AUTH_TOKEN=")
+      );
       expect(authEnvVars).toHaveLength(1);
       expect(authEnvVars[0]).not.toBe("DESKTOP_AUTH_TOKEN=user-supplied-token");
+    });
+
+    it("mounts the host workspace and sets /workspace as cwd when configured", async () => {
+      manager = new DesktopSandboxManager(makeConfig(), {
+        workspacePath: "/home/user/project",
+        hostUid: 1000,
+        hostGid: 1000,
+      });
+      await manager.start();
+      await manager.create({ sessionId: "sess-workspace" });
+
+      const runCall = mockExecFile.mock.calls.find(
+        (c: unknown[]) => (c[1] as string[])[0] === "run",
+      );
+      const args = runCall![1] as string[];
+      expect(args).toContain("--volume");
+      expect(args).toContain("/home/user/project:/workspace:rw");
+      expect(args).toContain("--workdir");
+      expect(args).toContain("/workspace");
+      expect(args).toContain("AGENC_WORKSPACE_ROOT=/workspace");
+      expect(args).toContain("AGENC_HOST_UID=1000");
+      expect(args).toContain("AGENC_HOST_GID=1000");
+    });
+
+    it("skips workspace mounts when workspaceAccess is none", async () => {
+      manager = new DesktopSandboxManager(makeConfig(), {
+        workspacePath: "/home/user/project",
+        workspaceAccess: "none",
+      });
+      await manager.start();
+      await manager.create({ sessionId: "sess-no-workspace" });
+
+      const runCall = mockExecFile.mock.calls.find(
+        (c: unknown[]) => (c[1] as string[])[0] === "run",
+      );
+      const args = runCall![1] as string[];
+      expect(args).not.toContain("--workdir");
+      expect(args.join(" ")).not.toContain("/workspace");
+      expect(args.join(" ")).not.toContain("AGENC_WORKSPACE_ROOT");
     });
 
     it("throws PoolExhaustedError when at max capacity", async () => {

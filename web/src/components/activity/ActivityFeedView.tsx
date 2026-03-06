@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { ActivityEvent } from '../../types';
 import { EventCard } from './EventCard';
+
+const AUTO_SCROLL_THRESHOLD_PX = 96;
 
 interface ActivityFeedViewProps {
   events: ActivityEvent[];
@@ -8,9 +10,24 @@ interface ActivityFeedViewProps {
 }
 
 export function ActivityFeedView({ events, onClear }: ActivityFeedViewProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+
+  const updateStickToBottom = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    stickToBottomRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
+  }, []);
 
   useEffect(() => {
+    updateStickToBottom();
+  }, [updateStickToBottom]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [events]);
 
@@ -48,24 +65,31 @@ export function ActivityFeedView({ events, onClear }: ActivityFeedViewProps) {
       </div>
 
       {/* Events */}
-      <div className="flex-1 overflow-y-auto p-6"><div className="max-w-2xl mx-auto space-y-2">
-        {events.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-12">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-200" strokeWidth="1.5" strokeLinecap="round">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-            </svg>
-            <span className="text-sm text-tetsuo-400">No events yet</span>
-            <span className="text-xs text-tetsuo-300">Activity will appear here in real-time</span>
-          </div>
-        ) : (
-          events.map((event, i) => (
-            <div key={i} className="animate-list-item" style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}>
-              <EventCard event={event} />
+      <div
+        ref={scrollContainerRef}
+        data-testid="activity-feed-scroll-container"
+        className="flex-1 overflow-y-auto p-6"
+        onScroll={updateStickToBottom}
+      >
+        <div className="max-w-2xl mx-auto space-y-2">
+          {events.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-12">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-200" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+              <span className="text-sm text-tetsuo-400">No events yet</span>
+              <span className="text-xs text-tetsuo-300">Activity will appear here in real-time</span>
             </div>
-          ))
-        )}
-        <div ref={endRef} />
-      </div></div>
+          ) : (
+            events.map((event, i) => (
+              <div key={i} className="animate-list-item" style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}>
+                <EventCard event={event} />
+              </div>
+            ))
+          )}
+          <div ref={endRef} />
+        </div>
+      </div>
     </div>
   );
 }

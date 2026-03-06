@@ -57,8 +57,10 @@ import {
   checkStalePid,
   isCommandUnavailableError,
   sanitizeToolResultTextForTrace,
+  summarizeToolArgsForLog,
   resolveTraceLoggingConfig,
   summarizeToolFailureForLog,
+  summarizeToolResultForTrace,
   summarizeLLMFailureForSurface,
   formatEvalScriptReply,
   didEvalScriptPass,
@@ -74,6 +76,7 @@ import type { PidFileInfo } from "./daemon.js";
 import { LLMTimeoutError, LLMAuthenticationError } from "../llm/errors.js";
 import { loadGatewayConfig } from "./config-watcher.js";
 import { WorkspaceValidationError } from "./workspace.js";
+import { ToolRouter } from "./tool-routing.js";
 
 // ============================================================================
 // Command availability classifier
@@ -163,6 +166,118 @@ describe("summarizeToolFailureForLog", () => {
     });
 
     expect(summary).toBeNull();
+  });
+
+  it("includes execute_with_agent objective context in failure summaries", () => {
+    const summary = summarizeToolFailureForLog({
+      name: "execute_with_agent",
+      args: {
+        objective:
+          "Build core game loop, rendering, movement, collision, scoring, and map mutation system.",
+        inputContract: '{"files_created":[{"path":"..."}]}',
+        acceptanceCriteria: [
+          "Create the required files",
+          "Return JSON only",
+        ],
+      },
+      result: JSON.stringify({
+        success: false,
+        status: "failed",
+        error:
+          "Delegated task required file creation/edit evidence but child used no file mutation tools",
+      }),
+      isError: true,
+      durationMs: 42,
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary?.args).toMatchObject({
+      objective: expect.stringContaining("Build core game loop"),
+      inputContract: expect.stringContaining('"files_created"'),
+      acceptanceCriteria: [
+        "Create the required files",
+        "Return JSON only",
+      ],
+    });
+  });
+});
+
+describe("summarizeToolArgsForLog", () => {
+  it("summarizes execute_with_agent inputs with the debuggable fields", () => {
+    const summary = summarizeToolArgsForLog("execute_with_agent", {
+      objective:
+        "Research official docs, then implement src/main.ts and validate localhost in Chromium.",
+      inputContract: '{"framework":"..."}',
+      tools: ["desktop.text_editor", "mcp.browser.browser_navigate"],
+      requiredToolCapabilities: ["desktop.text_editor", "mcp.browser.browser_navigate"],
+      acceptanceCriteria: [
+        "Use browser tools for official docs",
+        "Create files via desktop.text_editor",
+      ],
+      timeoutMs: 90000,
+    });
+
+    expect(summary).toEqual({
+      objective:
+        "Research official docs, then implement src/main.ts and validate localhost in Chromium.",
+      inputContract: '{"framework":"..."}',
+      tools: ["desktop.text_editor", "mcp.browser.browser_navigate"],
+      requiredToolCapabilities: [
+        "desktop.text_editor",
+        "mcp.browser.browser_navigate",
+      ],
+      acceptanceCriteria: [
+        "Use browser tools for official docs",
+        "Create files via desktop.text_editor",
+      ],
+      timeoutMs: 90000,
+    });
+  });
+});
+
+describe("summarizeToolResultForTrace", () => {
+  it("flattens execute_with_agent results into debuggable trace fields", () => {
+    const summary = summarizeToolResultForTrace(
+      JSON.stringify({
+        success: false,
+        status: "failed",
+        objective: "Build core implementation",
+        validationCode: "missing_file_mutation_evidence",
+        error:
+          "Delegated task required file creation/edit evidence but child used no file mutation tools",
+        failedToolCalls: 1,
+        output: "Completed execute_with_agent",
+        toolCalls: [
+          {
+            name: "desktop.bash",
+            args: { command: "ls" },
+            result: "src\n",
+            isError: false,
+            durationMs: 10,
+          },
+        ],
+      }),
+      200,
+    ) as Record<string, unknown>;
+
+    expect(summary).toMatchObject({
+      success: false,
+      status: "failed",
+      objective: "Build core implementation",
+      validationCode: "missing_file_mutation_evidence",
+      failedToolCalls: 1,
+      error: expect.stringContaining("file creation/edit evidence"),
+      output: "Completed execute_with_agent",
+      toolCalls: [
+        {
+          name: "desktop.bash",
+          isError: false,
+          durationMs: 10,
+          args: { command: "ls" },
+          result: "src\n",
+        },
+      ],
+    });
   });
 });
 
@@ -845,6 +960,149 @@ describe("DaemonManager", () => {
     expect((dm as any)._chatExecutor).not.toBeNull();
   });
 
+  it("advertises provider-native web_search when Grok web search is enabled", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._primaryLlmConfig = {
+      provider: "grok",
+      model: "grok-4-1-fast-reasoning",
+      webSearch: true,
+      searchMode: "auto",
+    };
+    (dm as any)._llmTools = [{
+      type: "function",
+      function: {
+        name: "desktop.bash",
+        description: "run commands",
+        parameters: { type: "object", properties: {} },
+      },
+    }];
+
+    expect((dm as any).getAdvertisedToolNames()).toEqual([
+      "desktop.bash",
+      "web_search",
+    ]);
+  });
+
+  it("does not advertise provider-native web_search for unsupported Grok models", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._primaryLlmConfig = {
+      provider: "grok",
+      model: "grok-code-fast-1",
+      webSearch: true,
+      searchMode: "auto",
+    };
+    (dm as any)._llmTools = [{
+      type: "function",
+      function: {
+        name: "desktop.bash",
+        description: "run commands",
+        parameters: { type: "object", properties: {} },
+      },
+    }];
+
+    expect((dm as any).getAdvertisedToolNames()).toEqual([
+      "desktop.bash",
+    ]);
+  });
+
+  it("adds provider-native web_search to research routing but not interactive browser routing", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._primaryLlmConfig = {
+      provider: "grok",
+      model: "grok-4-1-fast-reasoning",
+      webSearch: true,
+      searchMode: "auto",
+    };
+    (dm as any)._toolRouter = new ToolRouter([
+      {
+        type: "function",
+        function: {
+          name: "desktop.bash",
+          description: "run commands",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "mcp.browser.browser_navigate",
+          description: "navigate browser to a URL",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "mcp.browser.browser_snapshot",
+          description: "inspect browser page content",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+    ]);
+
+    const researchDecision = (dm as any).buildToolRoutingDecision(
+      "s-research",
+      "Compare Phaser and PixiJS from official docs and cite sources",
+      [],
+    );
+    const browserDecision = (dm as any).buildToolRoutingDecision(
+      "s-browser",
+      "Open localhost:4173, click the start button, and inspect the console",
+      [],
+    );
+
+    expect(researchDecision?.routedToolNames).toContain("web_search");
+    expect(browserDecision?.routedToolNames).not.toContain("web_search");
+  });
+
+  it("does not route provider-native web_search for unsupported Grok models or generic current-state turns", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._toolRouter = new ToolRouter([
+      {
+        type: "function",
+        function: {
+          name: "desktop.bash",
+          description: "run commands",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "mcp.browser.browser_navigate",
+          description: "navigate browser to a URL",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+    ]);
+
+    (dm as any)._primaryLlmConfig = {
+      provider: "grok",
+      model: "grok-code-fast-1",
+      webSearch: true,
+      searchMode: "auto",
+    };
+    const unsupportedDecision = (dm as any).buildToolRoutingDecision(
+      "s-unsupported-search",
+      "Compare Phaser and PixiJS from official docs",
+      [],
+    );
+    expect(unsupportedDecision?.routedToolNames).not.toContain("web_search");
+
+    (dm as any)._primaryLlmConfig = {
+      provider: "grok",
+      model: "grok-4-1-fast-reasoning",
+      webSearch: true,
+      searchMode: "auto",
+    };
+    const genericDecision = (dm as any).buildToolRoutingDecision(
+      "s-generic-current",
+      "What is the current working directory?",
+      [],
+    );
+    expect(genericDecision?.routedToolNames).not.toContain("web_search");
+  });
+
   it("registers marketplace and social tools when enabled", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     const registry = await (dm as any).createToolRegistry({
@@ -887,6 +1145,37 @@ describe("DaemonManager", () => {
     expect(workspaceManager.getDefault).toHaveBeenCalledTimes(1);
     expect(workspaceManager.load).toHaveBeenCalledWith("default");
     expect(workspaceManager.createWorkspace).toHaveBeenCalledWith("default");
+  });
+
+  it("cleans up desktop resources for subagent sessions during teardown", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const destroyBySession = vi.fn().mockResolvedValue(undefined);
+    const bridgeDisconnect = vi.fn();
+    const playwrightDispose = vi.fn().mockResolvedValue(undefined);
+    const mcpDispose = vi.fn().mockResolvedValue(undefined);
+
+    (dm as any)._desktopManager = { destroyBySession };
+    (dm as any)._desktopBridges = new Map([
+      ["subagent:child-1", { disconnect: bridgeDisconnect }],
+    ]);
+    (dm as any)._playwrightBridges = new Map([
+      ["subagent:child-1", { dispose: playwrightDispose }],
+    ]);
+    (dm as any)._containerMCPBridges = new Map([
+      ["subagent:child-1", [{ dispose: mcpDispose }]],
+    ]);
+
+    await (dm as any).cleanupDesktopSessionResources("subagent:child-1");
+
+    expect(destroyBySession).toHaveBeenCalledWith("subagent:child-1");
+    expect(bridgeDisconnect).toHaveBeenCalledTimes(1);
+    expect(playwrightDispose).toHaveBeenCalledTimes(1);
+    expect(mcpDispose).toHaveBeenCalledTimes(1);
+    expect((dm as any)._desktopBridges.has("subagent:child-1")).toBe(false);
+    expect((dm as any)._playwrightBridges.has("subagent:child-1")).toBe(false);
+    expect((dm as any)._containerMCPBridges.has("subagent:child-1")).toBe(
+      false,
+    );
   });
 
   it("start cleans up gateway if writePidFile fails", async () => {

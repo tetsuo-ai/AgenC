@@ -15,10 +15,27 @@ import type {
 } from "./session-isolation.js";
 import { createGatewayMessage } from "./message.js";
 import { ChatExecutor } from "../llm/chat-executor.js";
-import type { ToolCallRecord } from "../llm/chat-executor.js";
-import type { LLMProvider, LLMUsage, ToolHandler } from "../llm/types.js";
+import type {
+  ChatExecutorResult,
+  ToolCallRecord,
+} from "../llm/chat-executor-types.js";
+import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
+import type {
+  LLMProvider,
+  LLMProviderEvidence,
+  LLMUsage,
+  ToolHandler,
+} from "../llm/types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
+import type {
+  DelegationContractSpec,
+  DelegationOutputValidationCode,
+} from "../utils/delegation-validation.js";
+import {
+  getMissingSuccessfulToolEvidenceMessage,
+  validateDelegatedOutputContract,
+} from "../utils/delegation-validation.js";
 import { SubAgentSpawnError } from "./errors.js";
 
 // ============================================================================
@@ -26,6 +43,7 @@ import { SubAgentSpawnError } from "./errors.js";
 // ============================================================================
 
 export const DEFAULT_SUB_AGENT_TIMEOUT_MS = 3_600_000; // 60 min
+export const DEFAULT_SUB_AGENT_CONTEXT_STARTUP_TIMEOUT_MS = 15_000;
 export const MAX_CONCURRENT_SUB_AGENTS = 16;
 export const DEFAULT_MAX_SUB_AGENT_DEPTH = 4;
 export const DEFAULT_MAX_RETAINED_TERMINAL_SUB_AGENTS = 256;
@@ -33,9 +51,13 @@ export const DEFAULT_TERMINAL_SUB_AGENT_RETENTION_MS = 6 * 60 * 60 * 1000; // 6h
 export const SUB_AGENT_SESSION_PREFIX = "subagent:";
 
 const DEFAULT_SUB_AGENT_SYSTEM_PROMPT =
-  "You are a sub-agent. Complete the assigned task and report your results concisely.";
+  "You are a sub-agent. Execute only the assigned phase, stay within the provided scope, " +
+  "and report the result concisely. Do not reinterpret the broader parent request into a " +
+  "new multi-step plan, do not attempt sibling phases, and do not delegate unless the " +
+  "task explicitly grants that authority.";
 
 const ABORT_SENTINEL = Symbol("abort");
+const TIMEOUT_SENTINEL = Symbol("timeout");
 
 /**
  * Race a promise against an AbortSignal.
@@ -57,6 +79,37 @@ function raceAbort<T>(
   ]);
 }
 
+function raceAbortOrTimeout<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<T | typeof ABORT_SENTINEL | typeof TIMEOUT_SENTINEL> {
+  if (signal.aborted) return Promise.resolve(ABORT_SENTINEL);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(TIMEOUT_SENTINEL);
+    }, timeoutMs);
+    const onAbort = (): void => {
+      clearTimeout(timeout);
+      resolve(ABORT_SENTINEL);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -75,6 +128,8 @@ export interface SubAgentConfig {
   readonly workspace?: string;
   readonly tools?: readonly string[];
   readonly requiredCapabilities?: readonly string[];
+  readonly requireToolCall?: boolean;
+  readonly delegationSpec?: DelegationContractSpec;
 }
 
 export interface SubAgentResult {
@@ -83,8 +138,12 @@ export interface SubAgentResult {
   readonly success: boolean;
   readonly durationMs: number;
   readonly toolCalls: readonly ToolCallRecord[];
+  readonly providerEvidence?: LLMProviderEvidence;
   readonly tokenUsage?: LLMUsage;
   readonly providerName?: string;
+  readonly stopReason?: ChatExecutorResult["stopReason"];
+  readonly stopReasonDetail?: string;
+  readonly validationCode?: DelegationOutputValidationCode;
 }
 
 export interface SubAgentManagerConfig {
@@ -95,6 +154,7 @@ export interface SubAgentManagerConfig {
     sessionIdentity: SubAgentSessionIdentity,
   ) => Promise<void>;
   readonly defaultWorkspaceId?: string;
+  readonly contextStartupTimeoutMs?: number;
   readonly maxConcurrent?: number;
   readonly maxDepth?: number;
   readonly maxRetainedTerminalHandles?: number;
@@ -105,6 +165,8 @@ export interface SubAgentManagerConfig {
     context: IsolatedSessionContext;
     baseToolHandler: ToolHandler;
     task: string;
+    allowedToolNames?: readonly string[];
+    desktopRoutingSessionId: string;
   }) => ToolHandler;
   readonly selectLLMProvider?: (params: {
     sessionIdentity: SubAgentSessionIdentity;
@@ -142,6 +204,15 @@ interface SubAgentHandle {
   timeoutTimer: ReturnType<typeof setTimeout> | null;
   execution: Promise<void>;
   finishedAt: number | null;
+}
+
+function mapChatStopReasonToSubAgentStatus(
+  stopReason: ChatExecutorResult["stopReason"],
+): Exclude<SubAgentStatus, "running"> {
+  if (stopReason === "completed") return "completed";
+  if (stopReason === "timeout") return "timed_out";
+  if (stopReason === "cancelled") return "cancelled";
+  return "failed";
 }
 
 // ============================================================================
@@ -218,7 +289,6 @@ export class SubAgentManager {
     }
 
     const sessionId = `${SUB_AGENT_SESSION_PREFIX}${randomUUID()}`;
-    const timeoutMs = config.timeoutMs ?? DEFAULT_SUB_AGENT_TIMEOUT_MS;
     const abortController = new AbortController();
 
     const handle: SubAgentHandle = {
@@ -235,28 +305,6 @@ export class SubAgentManager {
       execution: Promise.resolve(),
       finishedAt: null,
     };
-
-    // Set timeout timer
-    handle.timeoutTimer = setTimeout(() => {
-      if (handle.status === "running") {
-        this.markTerminalState(handle, "timed_out", {
-          sessionId,
-          output: `Sub-agent timed out after ${timeoutMs}ms`,
-          success: false,
-          durationMs: Date.now() - handle.startedAt,
-          toolCalls: [],
-          tokenUsage: {
-            promptTokens: 0,
-            completionTokens: 0,
-            totalTokens: 0,
-          },
-        });
-        abortController.abort();
-        this.logger.warn(
-          `Sub-agent ${sessionId} timed out after ${timeoutMs}ms`,
-        );
-      }
-    }, timeoutMs);
 
     this.handles.set(sessionId, handle);
 
@@ -382,6 +430,35 @@ export class SubAgentManager {
   // Private
   // --------------------------------------------------------------------------
 
+  private startExecutionTimeout(
+    handle: SubAgentHandle,
+    timeoutMs: number,
+  ): void {
+    if (handle.timeoutTimer !== null) {
+      clearTimeout(handle.timeoutTimer);
+    }
+    handle.timeoutTimer = setTimeout(() => {
+      if (handle.status === "running") {
+        this.markTerminalState(handle, "timed_out", {
+          sessionId: handle.sessionId,
+          output: `Sub-agent timed out after ${timeoutMs}ms`,
+          success: false,
+          durationMs: Date.now() - handle.startedAt,
+          toolCalls: [],
+          tokenUsage: {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          },
+        });
+        handle.abortController.abort();
+        this.logger.warn(
+          `Sub-agent ${handle.sessionId} timed out after ${timeoutMs}ms`,
+        );
+      }
+    }, timeoutMs);
+  }
+
   private async executeSubAgent(handle: SubAgentHandle): Promise<void> {
     const workspaceId =
       handle.config.workspace ?? this.config.defaultWorkspaceId ?? "default";
@@ -396,15 +473,49 @@ export class SubAgentManager {
       // Check abort before context creation
       if (handle.abortController.signal.aborted) return;
 
-      const contextOrAbort = await raceAbort(
+      const startupTimeoutMs = Math.max(
+        1_000,
+        Math.floor(
+          this.config.contextStartupTimeoutMs ??
+            DEFAULT_SUB_AGENT_CONTEXT_STARTUP_TIMEOUT_MS,
+        ),
+      );
+      const contextOrAbort = await raceAbortOrTimeout(
         this.config.createContext(sessionIdentity),
         handle.abortController.signal,
+        startupTimeoutMs,
       );
       if (contextOrAbort === ABORT_SENTINEL) return;
+      if (contextOrAbort === TIMEOUT_SENTINEL) {
+        if (handle.status === "running") {
+          this.markTerminalState(handle, "timed_out", {
+            sessionId: handle.sessionId,
+            output:
+              `Sub-agent context startup timed out after ${startupTimeoutMs}ms`,
+            success: false,
+            durationMs: Date.now() - handle.startedAt,
+            toolCalls: [],
+            tokenUsage: {
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+            },
+          });
+          handle.abortController.abort();
+          this.logger.warn(
+            `Sub-agent ${handle.sessionId} context startup timed out after ${startupTimeoutMs}ms`,
+          );
+        }
+        return;
+      }
       context = contextOrAbort;
 
       // Check abort after context creation
       if (handle.abortController.signal.aborted) return;
+      this.startExecutionTimeout(
+        handle,
+        handle.config.timeoutMs ?? DEFAULT_SUB_AGENT_TIMEOUT_MS,
+      );
 
       const toolHandler = this.composeToolHandler(sessionIdentity, context, handle);
       const selectedProvider =
@@ -441,6 +552,12 @@ export class SubAgentManager {
           history: [],
           systemPrompt,
           sessionId: handle.sessionId,
+          requiredToolEvidence: handle.config.requireToolCall
+            ? {
+              maxCorrectionAttempts: 1,
+              delegationSpec: handle.config.delegationSpec,
+            }
+            : undefined,
         }),
         handle.abortController.signal,
       );
@@ -449,17 +566,74 @@ export class SubAgentManager {
       if (resultOrAbort === ABORT_SENTINEL || handle.status !== "running")
         return;
 
-      this.markTerminalState(handle, "completed", {
+      const successfulToolCalls = resultOrAbort.toolCalls.filter((toolCall) =>
+        !didToolCallFail(toolCall.isError, toolCall.result)
+      );
+      const delegatedOutputValidation =
+        handle.config.delegationSpec &&
+          resultOrAbort.stopReason === "completed"
+        ? validateDelegatedOutputContract({
+            spec: handle.config.delegationSpec,
+            output: resultOrAbort.content,
+            toolCalls: resultOrAbort.toolCalls,
+            providerEvidence: resultOrAbort.providerEvidence,
+          })
+          : undefined;
+      const requireToolCallFailure = handle.config.requireToolCall === true &&
+        resultOrAbort.stopReason === "completed" &&
+        successfulToolCalls.length === 0 &&
+        !delegatedOutputValidation?.error;
+      const requireToolCallFailureDetail = requireToolCallFailure
+        ? getMissingSuccessfulToolEvidenceMessage(
+          resultOrAbort.toolCalls,
+          handle.config.delegationSpec,
+          resultOrAbort.providerEvidence,
+        )
+        : undefined;
+      const enforcedStopReason = requireToolCallFailure ||
+          delegatedOutputValidation?.error
+        ? "validation_error"
+        : resultOrAbort.stopReason;
+      const enforcedStopReasonDetail = requireToolCallFailure
+        ? requireToolCallFailureDetail
+        : (delegatedOutputValidation?.error ?? resultOrAbort.stopReasonDetail);
+      const validationCode = delegatedOutputValidation?.error
+        ? delegatedOutputValidation.code
+        : (requireToolCallFailure ? "missing_successful_tool_evidence" : undefined);
+      const terminalStatus = mapChatStopReasonToSubAgentStatus(
+        enforcedStopReason,
+      );
+      const success = enforcedStopReason === "completed";
+      const output =
+        success || !enforcedStopReasonDetail
+          ? resultOrAbort.content
+          : enforcedStopReasonDetail;
+
+      this.markTerminalState(handle, terminalStatus, {
         sessionId: handle.sessionId,
-        output: resultOrAbort.content,
-        success: true,
+        output,
+        success,
         durationMs: Date.now() - handle.startedAt,
         toolCalls: resultOrAbort.toolCalls,
+        providerEvidence: resultOrAbort.providerEvidence,
         tokenUsage: resultOrAbort.tokenUsage,
         providerName: selectedProvider.name,
+        stopReason: enforcedStopReason,
+        stopReasonDetail: enforcedStopReasonDetail,
+        validationCode,
       });
 
-      this.logger.info(`Sub-agent ${handle.sessionId} completed successfully`);
+      if (success) {
+        this.logger.info(`Sub-agent ${handle.sessionId} completed successfully`);
+      } else {
+        this.logger.warn(
+          `Sub-agent ${handle.sessionId} stopped before completion (${enforcedStopReason})`,
+          {
+            stopReason: enforcedStopReason,
+            stopReasonDetail: enforcedStopReasonDetail,
+          },
+        );
+      }
     } catch (err) {
       // Guard: don't overwrite if cancelled/timed_out during execution
       if (handle.status !== "running") return;
@@ -476,6 +650,8 @@ export class SubAgentManager {
           completionTokens: 0,
           totalTokens: 0,
         },
+        stopReason: "tool_error",
+        stopReasonDetail: failedOutput,
       });
 
       this.logger.error(
@@ -559,6 +735,29 @@ export class SubAgentManager {
       context,
       baseToolHandler,
       task: handle.task,
+      allowedToolNames: handle.config.tools
+        ? [...handle.config.tools]
+        : undefined,
+      desktopRoutingSessionId: this.resolveDesktopRoutingSessionId(
+        handle.parentSessionId,
+      ),
     });
+  }
+
+  private resolveDesktopRoutingSessionId(parentSessionId: string): string {
+    const visited = new Set<string>();
+    let current = parentSessionId;
+
+    while (
+      current.startsWith(SUB_AGENT_SESSION_PREFIX) &&
+      !visited.has(current)
+    ) {
+      visited.add(current);
+      const parentHandle = this.handles.get(current);
+      if (!parentHandle) break;
+      current = parentHandle.parentSessionId;
+    }
+
+    return current;
   }
 }

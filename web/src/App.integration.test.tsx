@@ -1,11 +1,14 @@
-import { act, render } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WSMessage } from './types';
+import { WS_DESKTOP_LIST } from './constants';
 import App from './App';
 
 let capturedOnMessage: ((msg: WSMessage) => void) | null = null;
 let chatMessages: MockChatViewMessage[] = [];
 let chatIsTyping = false;
+let chatDesktopOpen = false;
+let mockVoiceActive = false;
 
 interface MockChatViewMessage {
   id: string;
@@ -27,7 +30,7 @@ vi.mock('./hooks/useWebSocket', () => ({
 
 vi.mock('./hooks/useVoice', () => ({
   useVoice: () => ({
-    isVoiceActive: false,
+    isVoiceActive: mockVoiceActive,
     isRecording: false,
     isSpeaking: false,
     voiceState: 'inactive',
@@ -44,11 +47,22 @@ vi.mock('./hooks/useVoice', () => ({
 }));
 
 vi.mock('./components/chat/ChatView', () => ({
-  ChatView: ({ messages, isTyping }: { messages: MockChatViewMessage[]; isTyping: boolean }) => {
+  ChatView: ({
+    messages,
+    isTyping,
+    desktopOpen,
+  }: {
+    messages: MockChatViewMessage[];
+    isTyping: boolean;
+    desktopOpen?: boolean;
+  }) => {
     chatMessages = messages;
     chatIsTyping = isTyping;
+    chatDesktopOpen = Boolean(desktopOpen);
     return (
       <div>
+        <textarea data-chat-composer="true" defaultValue="" />
+        <div data-testid="desktop-open">{desktopOpen ? 'open' : 'closed'}</div>
         <div data-testid="chat-messages">{JSON.stringify(messages)}</div>
       </div>
     );
@@ -59,6 +73,12 @@ beforeEach(() => {
   capturedOnMessage = null;
   chatMessages = [];
   chatIsTyping = false;
+  chatDesktopOpen = false;
+  mockVoiceActive = false;
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe('App websocket integration', () => {
@@ -184,5 +204,48 @@ describe('App websocket integration', () => {
     expect(
       chatMessages.some((m) => m.content === 'delegated response should suppress'),
     ).toBe(false);
+  });
+
+  it('restores composer focus when a desktop auto-opens while the user is typing', async () => {
+    mockVoiceActive = true;
+    const view = render(<App />);
+
+    const composer = view.container.querySelector('textarea[data-chat-composer="true"]') as HTMLTextAreaElement | null;
+    expect(composer).toBeTruthy();
+    if (!composer) {
+      throw new Error('Expected chat composer textarea');
+    }
+    fireEvent.change(composer, { target: { value: 'typing now' } });
+    composer.focus();
+    composer.setSelectionRange(6, 6);
+
+    expect(document.activeElement).toBe(composer);
+    expect(screen.getByTestId('desktop-open').textContent).toBe('closed');
+
+    act(() => {
+      capturedOnMessage?.({
+        type: WS_DESKTOP_LIST,
+        payload: [
+          {
+            containerId: 'desktop-1',
+            sessionId: 'other-session',
+            status: 'ready',
+            createdAt: 0,
+            lastActivityAt: 0,
+            vncUrl: 'http://desktop.local',
+            uptimeMs: 0,
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(chatDesktopOpen).toBe(true);
+      expect(screen.getByTestId('desktop-open').textContent).toBe('open');
+      expect(document.activeElement).toBe(composer);
+    });
+
+    expect(composer.selectionStart).toBe(6);
+    expect(composer.selectionEnd).toBe(6);
   });
 });

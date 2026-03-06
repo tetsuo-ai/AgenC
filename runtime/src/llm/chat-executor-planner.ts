@@ -58,6 +58,10 @@ import {
 } from "./chat-executor-text.js";
 import { didToolCallFail } from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
+import {
+  assessDelegationScope,
+  type DelegationDecompositionSignal,
+} from "../gateway/delegation-scope.js";
 
 // ============================================================================
 // Planner decision
@@ -156,7 +160,10 @@ export function buildPlannerMessages(
   messageText: string,
   history: readonly LLMMessage[],
   plannerMaxTokens: number,
+  refinementHint?: string,
 ): readonly LLMMessage[] {
+  const explicitOrchestration =
+    extractExplicitSubagentOrchestrationRequirements(messageText);
   const historyPreview = history
     .slice(-6)
     .map((entry) => {
@@ -175,7 +182,7 @@ export function buildPlannerMessages(
     Math.max(1, Math.floor(plannerMaxTokens / 8)),
   );
 
-  return [
+  const messages: LLMMessage[] = [
     {
       role: "system",
       content:
@@ -206,21 +213,119 @@ export function buildPlannerMessages(
         "Rules:\n" +
         "- deterministic_tool steps are executable by the deterministic pipeline.\n" +
         "- subagent_task steps MUST include all subagent fields.\n" +
-        "- Prefer subagent_task steps for broad coding/build requests that split into independent tracks (implementation, tests, verification).\n" +
+        "- Each subagent_task must stay narrowly scoped to one phase of work. Do not combine research, setup, implementation, and validation into one delegated step.\n" +
+        "- Prefer multiple smaller subagent_task steps with explicit dependencies over one large delegated objective.\n" +
         "- synthesis steps describe final merge/synthesis intent and do not call tools.\n" +
         `Keep output concise and below approximately ${plannerMaxTokens} tokens. ` +
         `Never emit more than ${maxSteps} steps.`,
     },
-    {
-      role: "user",
-      content:
-        `User request:\n${messageText}\n\n` +
-        (historyPreview.length > 0
-          ? `Recent conversation context:\n${historyPreview}\n\n`
-          : "") +
-        "Return JSON only.",
-    },
   ];
+
+  if (explicitOrchestration) {
+    messages.push({
+      role: "system",
+      content:
+        "The user supplied a required sub-agent orchestration plan. " +
+        "You MUST emit one `subagent_task` step for each required step using " +
+        `these exact step names and order: ${explicitOrchestration.stepNames.join(" -> ")}. ` +
+        "Do not rename, omit, merge, or collapse any required step. " +
+        "Preserve dependency order so later steps depend on the earlier required steps they build on. " +
+        "Set `requiresSynthesis` to true so the parent can merge child outputs into the final response.",
+    });
+  }
+
+  if (typeof refinementHint === "string" && refinementHint.trim().length > 0) {
+    messages.push({
+      role: "system",
+      content:
+        "Planner refinement required: " +
+        `${refinementHint.trim()} Re-emit a smaller executable plan and do not repeat the overloaded delegated step shape.`,
+    });
+  }
+
+  messages.push({
+    role: "user",
+    content:
+      `User request:\n${messageText}\n\n` +
+      (historyPreview.length > 0
+        ? `Recent conversation context:\n${historyPreview}\n\n`
+        : "") +
+      "Return JSON only.",
+  });
+
+  return messages;
+}
+
+export interface ExplicitSubagentOrchestrationRequirementStep {
+  readonly name: string;
+  readonly description: string;
+}
+
+export interface ExplicitSubagentOrchestrationRequirements {
+  readonly steps: readonly ExplicitSubagentOrchestrationRequirementStep[];
+  readonly stepNames: readonly string[];
+  readonly requiresSynthesis: boolean;
+}
+
+const REQUIRED_SUBAGENT_PLAN_MARKER_RE =
+  /sub-agent orchestration plan\s*\((?:required|mandatory)\)\s*:/i;
+const REQUIRED_SUBAGENT_STEP_NAME_RE =
+  /(?:^|\s)(\d+)[\).:]\s*`([^`]+)`/g;
+const REQUIRED_DELIVERABLE_CUE_RE =
+  /\b(final deliverables|how to play|known limitations|architecture summary)\b/i;
+
+export function extractExplicitSubagentOrchestrationRequirements(
+  messageText: string,
+): ExplicitSubagentOrchestrationRequirements | undefined {
+  const markerMatch = REQUIRED_SUBAGENT_PLAN_MARKER_RE.exec(messageText);
+  if (!markerMatch) return undefined;
+
+  const section = messageText.slice(markerMatch.index + markerMatch[0].length);
+  const steps: ExplicitSubagentOrchestrationRequirementStep[] = [];
+  const seen = new Set<string>();
+  const itemMatches = section.matchAll(
+    /(\d+)[\).:]\s*`([^`]+)`\s*:\s*([\s\S]*?)(?=(?:\s+\d+[\).:]\s*`)|$)/g,
+  );
+  for (const match of itemMatches) {
+    const normalizedName = sanitizePlannerStepName(match[2] ?? "");
+    if (normalizedName.length === 0 || seen.has(normalizedName)) continue;
+    seen.add(normalizedName);
+    steps.push({
+      name: normalizedName,
+      description: normalizeExplicitRequirementDescription(match[3] ?? ""),
+    });
+  }
+
+  if (steps.length < 2) {
+    const stepNames: string[] = [];
+    REQUIRED_SUBAGENT_STEP_NAME_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = REQUIRED_SUBAGENT_STEP_NAME_RE.exec(section)) !== null) {
+      const normalizedName = sanitizePlannerStepName(match[2] ?? "");
+      if (normalizedName.length === 0 || seen.has(normalizedName)) continue;
+      seen.add(normalizedName);
+      stepNames.push(normalizedName);
+    }
+    if (stepNames.length < 2) return undefined;
+    return {
+      steps: stepNames.map((name) => ({ name, description: "" })),
+      stepNames,
+      requiresSynthesis: REQUIRED_DELIVERABLE_CUE_RE.test(messageText),
+    };
+  }
+
+  return {
+    steps,
+    stepNames: steps.map((step) => step.name),
+    requiresSynthesis: REQUIRED_DELIVERABLE_CUE_RE.test(messageText),
+  };
+}
+
+function normalizeExplicitRequirementDescription(description: string): string {
+  return description
+    .replace(/\s+/g, " ")
+    .replace(/\s*-\s*/g, " - ")
+    .trim();
 }
 
 // ============================================================================
@@ -303,7 +408,207 @@ export function buildPlannerExecutionContext(
 // Planner plan parsing
 // ============================================================================
 
-export function parsePlannerPlan(content: string): PlannerParseResult {
+interface ExplicitSubagentStepDefaults {
+  readonly objective: string;
+  readonly inputContract: string;
+  readonly acceptanceCriteria: readonly string[];
+  readonly requiredToolCapabilities: readonly string[];
+  readonly contextRequirements: readonly string[];
+  readonly maxBudgetHint: string;
+  readonly canRunParallel: boolean;
+}
+
+const TOOL_CAPABILITY_NAME_RE = /^(?:desktop|system|playwright|mcp)\.[A-Za-z0-9_.-]+$/;
+
+function deriveExplicitSubagentStepDefaults(input: {
+  stepName: string;
+  description: string;
+  dependsOn: readonly string[];
+}): ExplicitSubagentStepDefaults {
+  const normalizedDescription = normalizeExplicitRequirementDescription(
+    input.description,
+  );
+  const bulletCriteria = normalizedDescription
+    .split(/\s+-\s+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .slice(0, 4);
+  const lowerName = input.stepName.toLowerCase();
+  const lowerDescription = normalizedDescription.toLowerCase();
+
+  const objective =
+    normalizedDescription.length > 0
+      ? normalizedDescription
+      : `Complete the ${input.stepName} phase.`;
+
+  const inputContract = lowerName.includes("design")
+    ? "Return markdown with 3 cited references, extracted mechanics, tuning targets, and key decisions"
+    : lowerName.includes("tech")
+      ? "Return markdown with implementation comparison, selected stack, project structure, and performance constraints"
+      : lowerName.includes("qa") || lowerDescription.includes("validate")
+        ? "Return JSON with build/test/browser validation evidence and any remaining issues"
+        : lowerName.includes("docs") || lowerDescription.includes("docs")
+          ? "Return markdown with architecture summary, how to play, commands used, limitations, and next improvements"
+          : "Return JSON with implemented scope, touched files, and verification evidence";
+
+  const defaultAcceptanceCriteria: string[] = [];
+  if (lowerName.includes("design")) {
+    defaultAcceptanceCriteria.push(
+      "Exactly 3 references with valid URLs",
+      "Extract concrete mechanic ideas",
+      "Propose concise tuning targets",
+    );
+  } else if (lowerName.includes("tech")) {
+    defaultAcceptanceCriteria.push(
+      "Compare Canvas API, Phaser, and PixiJS with official docs URLs",
+      "Pick one implementation approach with rationale",
+      "Define project structure and performance constraints",
+    );
+  } else if (
+    lowerName.includes("core") ||
+    lowerName.includes("ai") ||
+    lowerDescription.includes("implement")
+  ) {
+    defaultAcceptanceCriteria.push(
+      "Name the files created or modified",
+      "Describe implemented gameplay behavior",
+      "Include verification evidence from commands or browser checks",
+    );
+  } else if (lowerName.includes("qa") || lowerDescription.includes("validate")) {
+    defaultAcceptanceCriteria.push(
+      "Include build or test command evidence",
+      "Include browser validation evidence with a concrete URL or tab target",
+      "List any remaining issues or confirm none remain",
+    );
+  } else if (lowerName.includes("docs") || lowerDescription.includes("docs")) {
+    defaultAcceptanceCriteria.push(
+      "Summarize architecture",
+      "Explain how to play or operate the result",
+      "List known limitations and next improvements",
+    );
+  }
+
+  const acceptanceCriteria = [
+    ...new Set([
+      ...bulletCriteria,
+      ...defaultAcceptanceCriteria,
+      ...(bulletCriteria.length === 0 && defaultAcceptanceCriteria.length === 0
+        ? [`Complete the ${input.stepName} phase and return evidence`]
+        : []),
+    ]),
+  ];
+
+  const requiredToolCapabilities = new Set<string>(["desktop.bash"]);
+  if (
+    lowerName.includes("design") ||
+    lowerName.includes("tech") ||
+    lowerDescription.includes("primary sources") ||
+    lowerDescription.includes("browser") ||
+    lowerDescription.includes("chromium") ||
+    lowerDescription.includes("framework")
+  ) {
+    requiredToolCapabilities.add("mcp.browser.browser_navigate");
+    requiredToolCapabilities.add("mcp.browser.browser_snapshot");
+  }
+  if (
+    lowerName.includes("core") ||
+    lowerName.includes("ai") ||
+    lowerDescription.includes("implement") ||
+    lowerDescription.includes("scaffold") ||
+    lowerDescription.includes("file")
+  ) {
+    requiredToolCapabilities.add("desktop.text_editor");
+  }
+  if (
+    lowerName.includes("qa") ||
+    lowerDescription.includes("validate") ||
+    lowerDescription.includes("chromium")
+  ) {
+    requiredToolCapabilities.add("mcp.browser.browser_navigate");
+    requiredToolCapabilities.add("mcp.browser.browser_snapshot");
+    requiredToolCapabilities.add("mcp.browser.browser_run_code");
+  }
+
+  const contextRequirements = [
+    "repo_context",
+    ...input.dependsOn.map((dependency) => sanitizePlannerStepName(dependency)),
+  ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+
+  let maxBudgetHint = "4m";
+  if (lowerName.includes("design") || lowerName.includes("tech")) {
+    maxBudgetHint = "3m";
+  } else if (
+    lowerName.includes("core") ||
+    lowerName.includes("ai") ||
+    lowerDescription.includes("implement")
+  ) {
+    maxBudgetHint = "8m";
+  } else if (lowerName.includes("qa") || lowerDescription.includes("validate")) {
+    maxBudgetHint = "6m";
+  } else if (lowerName.includes("docs") || lowerDescription.includes("docs")) {
+    maxBudgetHint = "4m";
+  }
+
+  return {
+    objective,
+    inputContract,
+    acceptanceCriteria,
+    requiredToolCapabilities: [...requiredToolCapabilities],
+    contextRequirements,
+    maxBudgetHint,
+    canRunParallel: false,
+  };
+}
+
+function getExplicitSubagentStepDefaults(
+  requirements: ExplicitSubagentOrchestrationRequirements | undefined,
+  stepName: string,
+  dependsOn: readonly string[],
+): ExplicitSubagentStepDefaults | undefined {
+  const requirement = requirements?.steps.find(
+    (candidate) => candidate.name === stepName,
+  );
+  if (!requirement) return undefined;
+  return deriveExplicitSubagentStepDefaults({
+    stepName,
+    description: requirement.description,
+    dependsOn,
+  });
+}
+
+function normalizeExplicitRequiredToolCapabilities(
+  parsed: readonly string[] | undefined,
+  defaults: readonly string[] | undefined,
+): readonly string[] | undefined {
+  const validParsed = (parsed ?? []).filter((capability) =>
+    TOOL_CAPABILITY_NAME_RE.test(capability),
+  );
+  const merged = [
+    ...new Set([
+      ...validParsed,
+      ...(defaults ?? []),
+    ]),
+  ];
+  return merged.length > 0 ? merged : undefined;
+}
+
+function mergeExplicitContextRequirements(
+  parsed: readonly string[] | undefined,
+  defaults: readonly string[] | undefined,
+): readonly string[] | undefined {
+  const merged = [
+    ...new Set([
+      ...(parsed ?? []),
+      ...(defaults ?? []),
+    ]),
+  ];
+  return merged.length > 0 ? merged : undefined;
+}
+
+export function parsePlannerPlan(
+  content: string,
+  repairRequirements?: ExplicitSubagentOrchestrationRequirements,
+): PlannerParseResult {
   const diagnostics: PlannerDiagnostic[] = [];
   const parsed = parseJsonObjectFromText(content);
   if (!parsed) {
@@ -462,26 +767,39 @@ export function parsePlannerPlan(content: string): PlannerParseResult {
     }
 
     if (stepType === "subagent_task") {
-      const objective = parsePlannerRequiredString(step.objective);
-      const inputContract = parsePlannerRequiredString(
-        step.input_contract,
+      const explicitDefaults = getExplicitSubagentStepDefaults(
+        repairRequirements,
+        safeName,
+        dependsOn,
       );
-      const acceptanceCriteria = parsePlannerStringArray(
-        step.acceptance_criteria,
-      );
-      const requiredToolCapabilities = parsePlannerStringArray(
-        step.required_tool_capabilities,
-      );
-      const contextRequirements = parsePlannerStringArray(
-        step.context_requirements,
-      );
-      const maxBudgetHint = parsePlannerRequiredString(
-        step.max_budget_hint,
-      );
+      const objective =
+        parsePlannerRequiredString(step.objective) ??
+        explicitDefaults?.objective;
+      const inputContract =
+        parsePlannerRequiredString(step.input_contract) ??
+        explicitDefaults?.inputContract;
+      const acceptanceCriteria =
+        parsePlannerStringArray(step.acceptance_criteria) ??
+        explicitDefaults?.acceptanceCriteria;
+      const requiredToolCapabilities =
+        normalizeExplicitRequiredToolCapabilities(
+          parsePlannerStringArray(step.required_tool_capabilities),
+          explicitDefaults?.requiredToolCapabilities,
+        ) ??
+        parsePlannerStringArray(step.required_tool_capabilities);
+      const contextRequirements =
+        mergeExplicitContextRequirements(
+          parsePlannerStringArray(step.context_requirements),
+          explicitDefaults?.contextRequirements,
+        ) ??
+        parsePlannerStringArray(step.context_requirements);
+      const maxBudgetHint =
+        parsePlannerRequiredString(step.max_budget_hint) ??
+        explicitDefaults?.maxBudgetHint;
       const canRunParallel =
         typeof step.can_run_parallel === "boolean"
           ? step.can_run_parallel
-          : undefined;
+          : explicitDefaults?.canRunParallel;
       if (!objective) {
         diagnostics.push(
           createPlannerDiagnostic(
@@ -725,21 +1043,224 @@ export function validatePlannerGraph(
     );
     return diagnostics;
   }
-  if (graphDepth.maxDepth > config.maxSubagentDepth) {
+
+  for (const step of subagentSteps) {
+    const scopeAssessment = assessDelegationScope({
+      objective: step.objective,
+      inputContract: step.inputContract,
+      acceptanceCriteria: step.acceptanceCriteria,
+    });
+    if (scopeAssessment.ok) continue;
     diagnostics.push(
       createPlannerDiagnostic(
         "validation",
-        "subagent_depth_exceeded",
-        `Planner subagent dependency depth ${graphDepth.maxDepth} exceeds maxDepth ${config.maxSubagentDepth}`,
+        "subagent_step_needs_decomposition",
+        `Planner subagent step "${step.name}" is overloaded: ${scopeAssessment.error}`,
         {
-          depth: graphDepth.maxDepth,
-          maxDepth: config.maxSubagentDepth,
+          stepName: step.name,
+          phases: scopeAssessment.phases.join(","),
+          suggestedSteps:
+            scopeAssessment.decomposition?.suggestedSteps
+              .map((suggestion) => suggestion.name)
+              .join(",") ?? "",
         },
       ),
     );
   }
 
   return diagnostics;
+}
+
+export function validateExplicitSubagentOrchestrationRequirements(
+  plannerPlan: PlannerPlan,
+  requirements: ExplicitSubagentOrchestrationRequirements,
+): readonly PlannerDiagnostic[] {
+  const diagnostics: PlannerDiagnostic[] = [];
+  const stepIndexByName = new Map<string, number>();
+  const stepByName = new Map<string, PlannerStepIntent>();
+
+  plannerPlan.steps.forEach((step, index) => {
+    const normalizedName = sanitizePlannerStepName(step.name);
+    stepIndexByName.set(normalizedName, index);
+    stepByName.set(normalizedName, step);
+  });
+
+  const missingSteps: string[] = [];
+  const wrongTypeSteps: string[] = [];
+  const requiredIndexes: number[] = [];
+
+  for (const requiredStepName of requirements.stepNames) {
+    const step = stepByName.get(requiredStepName);
+    const stepIndex = stepIndexByName.get(requiredStepName);
+    if (!step || stepIndex === undefined) {
+      missingSteps.push(requiredStepName);
+      continue;
+    }
+    requiredIndexes.push(stepIndex);
+    if (step.stepType !== "subagent_task") {
+      wrongTypeSteps.push(requiredStepName);
+    }
+  }
+
+  if (missingSteps.length > 0) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "required_subagent_steps_missing",
+        "Planner omitted one or more user-required sub-agent steps",
+        {
+          missingSteps: missingSteps.join(","),
+          requiredSteps: requirements.stepNames.join(","),
+        },
+      ),
+    );
+  }
+
+  if (wrongTypeSteps.length > 0) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "required_subagent_step_wrong_type",
+        "Planner emitted a required step with a non-subagent type",
+        {
+          wrongTypeSteps: wrongTypeSteps.join(","),
+        },
+      ),
+    );
+  }
+
+  const orderMismatch = requiredIndexes.some(
+    (index, position) => position > 0 && index <= requiredIndexes[position - 1]!,
+  );
+  if (orderMismatch) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "required_subagent_step_order_mismatch",
+        "Planner did not preserve the user-required sub-agent step order",
+        {
+          requiredSteps: requirements.stepNames.join("->"),
+        },
+      ),
+    );
+  }
+
+  return diagnostics;
+}
+
+export function buildExplicitSubagentOrchestrationRefinementHint(
+  requirements: ExplicitSubagentOrchestrationRequirements,
+  diagnostics: readonly PlannerDiagnostic[] = [],
+): string {
+  const fragments = diagnostics
+    .map((diagnostic) => {
+      if (diagnostic.code === "required_subagent_steps_missing") {
+        return `missing required steps: ${readDiagnosticDetail(diagnostic, "missingSteps") ?? "unknown"}`;
+      }
+      if (diagnostic.code === "required_subagent_step_wrong_type") {
+        return `wrong step type: ${readDiagnosticDetail(diagnostic, "wrongTypeSteps") ?? "unknown"}`;
+      }
+      if (diagnostic.code === "required_subagent_step_order_mismatch") {
+        return "required step order was not preserved";
+      }
+      return diagnostic.message;
+    })
+    .filter((fragment) => fragment.length > 0);
+
+  const requiredOrder = requirements.stepNames.join(" -> ");
+  const suffix =
+    fragments.length > 0 ? ` Fix these issues: ${fragments.join(" | ")}.` : "";
+  return (
+    "The user requires an explicit sub-agent orchestration plan. " +
+    `Emit one subagent_task for each required step using these exact names and order: ${requiredOrder}.` +
+    suffix +
+    " Do not omit, rename, merge, or collapse required steps."
+  );
+}
+
+export function buildExplicitSubagentOrchestrationFailureMessage(
+  requirements: ExplicitSubagentOrchestrationRequirements,
+  diagnostics: readonly PlannerDiagnostic[] = [],
+): string {
+  const lines = [
+    "Planner could not produce the required sub-agent orchestration plan.",
+    `Required step order: ${requirements.stepNames.join(" -> ")}`,
+  ];
+  for (const diagnostic of diagnostics.slice(0, 3)) {
+    lines.push(`- ${diagnostic.message}`);
+  }
+  return lines.join("\n");
+}
+
+function readDiagnosticDetail(
+  diagnostic: PlannerDiagnostic,
+  key: string,
+): string | undefined {
+  const value = diagnostic.details?.[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+export function extractPlannerDecompositionDiagnostics(
+  diagnostics: readonly PlannerDiagnostic[],
+): readonly PlannerDiagnostic[] {
+  return diagnostics.filter(
+    (diagnostic) => diagnostic.code === "subagent_step_needs_decomposition",
+  );
+}
+
+export function buildPlannerDecompositionRefinementHint(
+  diagnostics: readonly PlannerDiagnostic[],
+): string {
+  const fragments = diagnostics
+    .map((diagnostic) => {
+      const stepName = readDiagnosticDetail(diagnostic, "stepName") ?? "subagent_step";
+      const phases = readDiagnosticDetail(diagnostic, "phases");
+      const suggestedSteps = readDiagnosticDetail(
+        diagnostic,
+        "suggestedSteps",
+      );
+      const parts = [`step "${stepName}"`];
+      if (phases) {
+        parts.push(`phases: ${phases}`);
+      }
+      if (suggestedSteps) {
+        parts.push(`suggested split: ${suggestedSteps}`);
+      }
+      return parts.join("; ");
+    })
+    .filter((fragment) => fragment.length > 0);
+  if (fragments.length === 0) {
+    return (
+      "One or more delegated steps were overloaded. Split the work into smaller " +
+      "phase-scoped subagent_task steps with explicit dependencies."
+    );
+  }
+  return (
+    "The previous plan contained overloaded delegated steps: " +
+    `${fragments.join(" | ")}. ` +
+    "Split them into smaller phase-scoped subagent_task steps."
+  );
+}
+
+export function buildPipelineDecompositionRefinementHint(
+  decomposition: DelegationDecompositionSignal,
+): string {
+  const phases = decomposition.phases.join(",");
+  const suggestedSteps = decomposition.suggestedSteps
+    .map((suggestion) => suggestion.name)
+    .join(",");
+  const fragments = [
+    decomposition.reason,
+    phases.length > 0 ? `phases: ${phases}` : "",
+    suggestedSteps.length > 0 ? `suggested split: ${suggestedSteps}` : "",
+  ].filter((value) => value.length > 0);
+  return (
+    "Delegation execution requested parent-side decomposition. " +
+    fragments.join(". ") +
+    ". Replace the oversized delegated step with smaller dependent subagent_task steps."
+  );
 }
 
 // ============================================================================

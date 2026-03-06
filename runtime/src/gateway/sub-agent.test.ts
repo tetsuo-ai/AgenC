@@ -7,6 +7,7 @@ import {
   type SubAgentManagerConfig,
 } from "./sub-agent.js";
 import { SubAgentSpawnError } from "./errors.js";
+import { ChatExecutor } from "../llm/chat-executor.js";
 import type {
   IsolatedSessionContext,
   SubAgentSessionIdentity,
@@ -349,6 +350,158 @@ describe("SubAgentManager", () => {
       expect(result!.output).toContain("LLM boom");
     });
 
+    it("treats non-completed chat executor stop reasons as failed sub-agent results", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content: "Execution stopped before completion.",
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "validation_error",
+          stopReasonDetail:
+            "Delegated task required successful tool-grounded evidence but child reported no tool calls",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        const sessionId = await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+        });
+        await settle();
+
+        const result = manager.getResult(sessionId);
+        expect(result).not.toBeNull();
+        expect(result!.success).toBe(false);
+        expect(result!.stopReason).toBe("validation_error");
+        expect(result!.stopReasonDetail).toContain(
+          "child reported no tool calls",
+        );
+        expect(result!.output).toContain("child reported no tool calls");
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("enforces successful tool-call evidence when the sub-agent phase requires tools", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content: "Completed from memory",
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "completed",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        const delegationSpec = {
+          objective: "Research official docs with browser tools",
+          requiredToolCapabilities: ["mcp.browser.browser_navigate"],
+        } as const;
+        const sessionId = await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+          tools: ["tool.a"],
+          requireToolCall: true,
+          delegationSpec,
+        });
+        await settle();
+
+        const result = manager.getResult(sessionId);
+        expect(result).not.toBeNull();
+        expect(result!.success).toBe(false);
+        expect(result!.stopReason).toBe("validation_error");
+        expect(result!.stopReasonDetail).toContain(
+          "child reported no tool calls",
+        );
+        expect(executeSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            requiredToolEvidence: expect.objectContaining({
+              maxCorrectionAttempts: 1,
+              delegationSpec,
+            }),
+          }),
+        );
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("preserves delegated validation codes for low-signal browser evidence", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content: "Heat Signature, Gunpoint, Monaco.",
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [{
+            name: "mcp.browser.browser_tabs",
+            args: { action: "list" },
+            result: "### Result\n- 0: (current) [](about:blank)",
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "completed",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        const sessionId = await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+          requireToolCall: true,
+          delegationSpec: {
+            task: "design_research",
+            objective:
+              "Research 3 reference games with browser tools and cite sources",
+            inputContract:
+              "Return markdown with 3 cited references and tuning targets",
+            requiredToolCapabilities: [
+              "mcp.browser.browser_navigate",
+              "mcp.browser.browser_snapshot",
+            ],
+          },
+        });
+        await settle();
+
+        const result = manager.getResult(sessionId);
+        expect(result).not.toBeNull();
+        expect(result!.success).toBe(false);
+        expect(result!.stopReason).toBe("validation_error");
+        expect(result!.validationCode).toBe("low_signal_browser_evidence");
+        expect(result!.stopReasonDetail).toContain("browser-grounded evidence");
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
     it("includes durationMs in result", async () => {
       const manager = new SubAgentManager(makeManagerConfig());
 
@@ -569,7 +722,10 @@ describe("SubAgentManager", () => {
       const createContext = vi.fn(
         () => new Promise<IsolatedSessionContext>(() => {}),
       );
-      const manager = new SubAgentManager(makeManagerConfig({ createContext }));
+      const manager = new SubAgentManager(makeManagerConfig({
+        createContext,
+        contextStartupTimeoutMs: 5_000,
+      }));
 
       const sessionId = await manager.spawn({
         parentSessionId: "p",
@@ -593,7 +749,10 @@ describe("SubAgentManager", () => {
       const createContext = vi.fn(
         () => new Promise<IsolatedSessionContext>(() => {}),
       );
-      const manager = new SubAgentManager(makeManagerConfig({ createContext }));
+      const manager = new SubAgentManager(makeManagerConfig({
+        createContext,
+        contextStartupTimeoutMs: 3_000,
+      }));
 
       const sessionId = await manager.spawn({
         parentSessionId: "p",
@@ -612,7 +771,10 @@ describe("SubAgentManager", () => {
       const createContext = vi.fn(
         () => new Promise<IsolatedSessionContext>(() => {}),
       );
-      const manager = new SubAgentManager(makeManagerConfig({ createContext }));
+      const manager = new SubAgentManager(makeManagerConfig({
+        createContext,
+        contextStartupTimeoutMs: 10_000,
+      }));
 
       await manager.spawn({
         parentSessionId: "p",
@@ -631,7 +793,10 @@ describe("SubAgentManager", () => {
       const createContext = vi.fn(
         () => new Promise<IsolatedSessionContext>(() => {}),
       );
-      const manager = new SubAgentManager(makeManagerConfig({ createContext }));
+      const manager = new SubAgentManager(makeManagerConfig({
+        createContext,
+        contextStartupTimeoutMs: DEFAULT_SUB_AGENT_TIMEOUT_MS,
+      }));
 
       await manager.spawn({ parentSessionId: "p", task: "a" });
 
@@ -641,6 +806,39 @@ describe("SubAgentManager", () => {
 
       // Timed out after default
       await vi.advanceTimersByTimeAsync(2000);
+      expect(manager.activeCount).toBe(0);
+    });
+
+    it("starts the execution timeout after context startup completes", async () => {
+      const slowContext = makeMockContext();
+      slowContext.llmProvider = {
+        ...makeMockLLMProvider("slow-llm"),
+        chat: vi.fn(async () => await new Promise<LLMResponse>(() => {})),
+        chatStream: vi.fn(
+          async () => await new Promise<LLMResponse>(() => {}),
+        ),
+      };
+      const createContext = vi.fn(
+        () =>
+          new Promise<IsolatedSessionContext>((resolve) => {
+            setTimeout(() => resolve(slowContext), 2_000);
+          }),
+      );
+      const manager = new SubAgentManager(makeManagerConfig({
+        createContext,
+        contextStartupTimeoutMs: 60_000,
+      }));
+
+      await manager.spawn({
+        parentSessionId: "p",
+        task: "slow after startup",
+        timeoutMs: 5_000,
+      });
+
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(manager.activeCount).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1_001);
       expect(manager.activeCount).toBe(0);
     });
   });
@@ -788,6 +986,7 @@ describe("SubAgentManager", () => {
           parentSessionId: "p",
         },
         task: "a",
+        desktopRoutingSessionId: "p",
       });
       expect(typeof composeToolHandler.mock.calls[0][0].sessionIdentity.subagentSessionId).toBe(
         "string",
@@ -795,6 +994,28 @@ describe("SubAgentManager", () => {
       expect(typeof composeToolHandler.mock.calls[0][0].baseToolHandler).toBe(
         "function",
       );
+    });
+
+    it("routes nested delegated desktop sessions through the root parent session", async () => {
+      const composeToolHandler = vi.fn(
+        ({ baseToolHandler }: { baseToolHandler: (...args: any[]) => Promise<string> }) =>
+          baseToolHandler,
+      );
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          composeToolHandler: composeToolHandler as any,
+        }),
+      );
+
+      const parentId = await manager.spawn({ parentSessionId: "root-session", task: "parent" });
+      await settle();
+      await manager.spawn({ parentSessionId: parentId, task: "child" });
+      await settle();
+
+      expect(composeToolHandler).toHaveBeenCalledTimes(2);
+      expect(composeToolHandler.mock.calls[1][0]).toMatchObject({
+        desktopRoutingSessionId: "root-session",
+      });
     });
 
     it("stores child token usage from ChatExecutor results", async () => {

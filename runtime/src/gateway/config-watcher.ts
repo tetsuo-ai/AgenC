@@ -69,6 +69,11 @@ const VALID_LLM_PROVIDERS: ReadonlySet<string> = new Set([
   "grok",
   "ollama",
 ]);
+const VALID_LLM_SEARCH_MODES: ReadonlySet<string> = new Set([
+  "auto",
+  "on",
+  "off",
+]);
 const VALID_SUBAGENT_MODES: ReadonlySet<string> = new Set([
   "manager_tools",
   "handoff",
@@ -1066,6 +1071,17 @@ function validateLlmSection(llm: unknown, errors: string[]): void {
   }
 
   requireOneOf(llm.provider, "llm.provider", VALID_LLM_PROVIDERS, errors);
+  if (llm.webSearch !== undefined && typeof llm.webSearch !== "boolean") {
+    errors.push("llm.webSearch must be a boolean");
+  }
+  if (llm.searchMode !== undefined) {
+    requireOneOf(
+      llm.searchMode,
+      "llm.searchMode",
+      VALID_LLM_SEARCH_MODES,
+      errors,
+    );
+  }
 
   if (llm.timeoutMs !== undefined) {
     requireIntRange(llm.timeoutMs, "llm.timeoutMs", 1_000, 3_600_000, errors);

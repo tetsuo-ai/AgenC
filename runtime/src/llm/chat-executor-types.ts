@@ -7,6 +7,7 @@
 import type { GatewayMessage } from "../gateway/message.js";
 import type {
   LLMMessage,
+  LLMProviderEvidence,
   LLMResponse,
   LLMUsage,
   LLMRequestMetrics,
@@ -35,6 +36,7 @@ import type {
 } from "../workflow/pipeline.js";
 import type { WorkflowGraphEdge } from "../workflow/types.js";
 import type { DelegationDecision, DelegationDecisionConfig } from "./delegation-decision.js";
+import type { DelegationContractSpec } from "../utils/delegation-validation.js";
 import type {
   DelegationBanditPolicyTuner,
   DelegationBanditSelection,
@@ -116,6 +118,13 @@ export interface ChatExecuteParams {
     readonly expandedToolNames?: readonly string[];
     /** Enable one-turn expansion retry on routed-tool misses. */
     readonly expandOnMiss?: boolean;
+  };
+  /** Require at least one successful tool call before accepting a final answer. */
+  readonly requiredToolEvidence?: {
+    /** Bounded number of correction recalls before failing the turn. Default: 1. */
+    readonly maxCorrectionAttempts?: number;
+    /** Optional delegated output contract used for phase-specific validation. */
+    readonly delegationSpec?: DelegationContractSpec;
   };
 }
 
@@ -228,6 +237,7 @@ export interface ChatExecutorResult {
   readonly model?: string;
   readonly usedFallback: boolean;
   readonly toolCalls: readonly ToolCallRecord[];
+  readonly providerEvidence?: LLMProviderEvidence;
   readonly tokenUsage: LLMUsage;
   /** Per-call token and prompt-shape attribution for this execution. */
   readonly callUsage: readonly ChatCallUsageRecord[];
@@ -590,6 +600,10 @@ export interface ExecutionContext {
   readonly plannerDecision: PlannerDecision;
   readonly baseDelegationThreshold: number;
   readonly toolRouting?: ChatExecuteParams["toolRouting"];
+  readonly requiredToolEvidence?: {
+    readonly maxCorrectionAttempts: number;
+    readonly delegationSpec?: DelegationContractSpec;
+  };
 
   // --- Mutable accumulator state ---
   history: readonly LLMMessage[];
@@ -601,6 +615,7 @@ export interface ExecutionContext {
   modelCalls: number;
   allToolCalls: ToolCallRecord[];
   failedToolCalls: number;
+  providerEvidence: LLMProviderEvidence | undefined;
   usedFallback: boolean;
   providerName: string;
   responseModel?: string;
@@ -623,6 +638,7 @@ export interface ExecutionContext {
   plannedSynthesisSteps: number;
   plannedDependencyDepth: number;
   plannedFanout: number;
+  requiredToolEvidenceCorrectionAttempts: number;
 }
 
 // ============================================================================
@@ -642,6 +658,7 @@ export interface BuildExecutionContextParams {
   readonly toolHandler?: ToolHandler;
   readonly streamCallback?: StreamProgressCallback;
   readonly toolRouting?: ChatExecuteParams["toolRouting"];
+  readonly requiredToolEvidence?: ChatExecuteParams["requiredToolEvidence"];
   readonly initialRoutedToolNames: readonly string[];
   readonly expandedRoutedToolNames: readonly string[];
   readonly baseDelegationThreshold: number;
@@ -695,6 +712,15 @@ export function buildDefaultExecutionContext(
     plannerDecision: params.plannerDecision,
     baseDelegationThreshold: params.baseDelegationThreshold,
     toolRouting: params.toolRouting,
+    requiredToolEvidence: params.requiredToolEvidence
+      ? {
+        maxCorrectionAttempts: Math.max(
+          0,
+          Math.floor(params.requiredToolEvidence.maxCorrectionAttempts ?? 1),
+        ),
+        delegationSpec: params.requiredToolEvidence.delegationSpec,
+      }
+      : undefined,
 
     // --- Mutable accumulator state ---
     history: params.history,
@@ -710,6 +736,7 @@ export function buildDefaultExecutionContext(
     modelCalls: 0,
     allToolCalls: [],
     failedToolCalls: 0,
+    providerEvidence: undefined,
     usedFallback: false,
     providerName: config.providerName,
     responseModel: undefined,
@@ -768,5 +795,6 @@ export function buildDefaultExecutionContext(
     plannedSynthesisSteps: 0,
     plannedDependencyDepth: 0,
     plannedFanout: 0,
+    requiredToolEvidenceCorrectionAttempts: 0,
   };
 }

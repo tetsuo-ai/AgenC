@@ -24,6 +24,7 @@ import { SHELL_BUILTIN_COMMANDS } from "./chat-executor-constants.js";
 import {
   didToolCallFail,
   extractToolFailureText,
+  parseToolResultObject,
 } from "./chat-executor-tool-utils.js";
 
 const DESKTOP_BIASED_SYSTEM_COMMANDS = new Set([
@@ -198,6 +199,87 @@ export function inferRecoveryHint(
 
   const failureText = extractToolFailureText(call);
   const failureTextLower = failureText.toLowerCase();
+  const parsedResult = parseToolResultObject(call.result);
+  if (call.name === "execute_with_agent" && parsedResult) {
+    const status =
+      typeof parsedResult.status === "string"
+        ? parsedResult.status.trim().toLowerCase()
+        : "";
+    const validationCode =
+      typeof parsedResult.validationCode === "string"
+        ? parsedResult.validationCode.trim().toLowerCase()
+        : "";
+    const decomposition =
+      typeof parsedResult.decomposition === "object" &&
+        parsedResult.decomposition !== null &&
+        !Array.isArray(parsedResult.decomposition)
+        ? parsedResult.decomposition as {
+          phases?: unknown;
+          suggestedSteps?: unknown;
+        }
+        : null;
+    if (status === "needs_decomposition" || decomposition) {
+      const phases = Array.isArray(decomposition?.phases)
+        ? decomposition.phases.filter(
+          (phase): phase is string =>
+            typeof phase === "string" && phase.trim().length > 0,
+        )
+        : [];
+      const suggestedSteps = Array.isArray(decomposition?.suggestedSteps)
+        ? decomposition.suggestedSteps
+            .filter(
+              (entry): entry is { name: string } =>
+                typeof entry === "object" &&
+                entry !== null &&
+                typeof (entry as { name?: unknown }).name === "string" &&
+                (entry as { name: string }).name.trim().length > 0,
+            )
+            .map((entry) => entry.name.trim())
+        : [];
+      const phasesText =
+        phases.length > 0 ? ` (${phases.join(" -> ")})` : "";
+      const splitText =
+        suggestedSteps.length > 0
+          ? ` Suggested split: ${suggestedSteps.join(", ")}.`
+          : "";
+      return {
+        key:
+          `execute-with-agent-needs-decomposition:` +
+          `${phases.join(",")}:${suggestedSteps.join(",")}`,
+        message:
+          `The previous \`execute_with_agent\` objective was too large${phasesText}. ` +
+          "Do not retry the same combined task. Split it into smaller " +
+          "`execute_with_agent` calls that each own one phase with explicit dependencies " +
+          "and distinct acceptance criteria." +
+          splitText,
+      };
+    }
+    if (validationCode === "low_signal_browser_evidence") {
+      return {
+        key: "execute-with-agent-low-signal-browser",
+        message:
+          "The previous `execute_with_agent` attempt used low-signal browser state checks. " +
+          "Retry with concrete browser navigation/snapshot or run_code steps against real URLs or localhost targets. " +
+          "Do not rely on `browser_tabs` or about:blank tab listings as evidence.",
+      };
+    }
+    if (validationCode === "missing_file_mutation_evidence") {
+      return {
+        key: "execute-with-agent-missing-file-mutation",
+        message:
+          "The previous `execute_with_agent` attempt did not create or edit files with real mutation tools. " +
+          "Retry only after explicitly using file-writing tools and naming the changed files in the result.",
+      };
+    }
+    if (validationCode === "expected_json_object") {
+      return {
+        key: "execute-with-agent-expected-json-object",
+        message:
+          "The previous `execute_with_agent` attempt returned the wrong shape. " +
+          "Retry with a single JSON object only, with no markdown or surrounding prose.",
+      };
+    }
+  }
   if (
     isDesktopSessionUnavailable(failureTextLower) &&
     (call.name === "desktop.bash" ||
