@@ -40,6 +40,7 @@ env:
   NODE_VERSION: '20'
   SOLANA_VERSION: '3.0.13'
   ANCHOR_VERSION: '0.32.1'
+  VERIFIER_ANCHOR_VERSION: '0.31.1'
   RISC0_SOLANA_REF: 'v3.0.0'
   VALIDATOR_READY_TIMEOUT_SECONDS: '600'
 
@@ -79,6 +80,7 @@ jobs:
       - name: Install Anchor CLI
         run: |
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          avm install "${VERIFIER_ANCHOR_VERSION}"
           avm install "${ANCHOR_VERSION}"
           avm use "${ANCHOR_VERSION}"
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"

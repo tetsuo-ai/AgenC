@@ -27,10 +27,50 @@ AGENC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 AGENC_SO="${AGENC_DIR}/target/deploy/agenc_coordination.so"
 MOCK_ROUTER_SO="${AGENC_DIR}/tests/fixtures/mock_verifier_router.so"
 MOCK_ACCOUNT_DIR="${AGENC_DIR}/target/verifier-bootstrap"
+VERIFIER_ANCHOR_VERSION="${VERIFIER_ANCHOR_VERSION:-}"
 
 ROUTER_PROGRAM_ID="6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7"
 VERIFIER_PROGRAM_ID="THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge"
 AGENC_PROGRAM_ID="5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
+
+get_anchor_cli_version() {
+  anchor --version | awk '{print $2}'
+}
+
+build_real_verifier_stack() {
+  local original_anchor_version=""
+  local current_anchor_version=""
+  local build_status=0
+
+  if [ -n "${VERIFIER_ANCHOR_VERSION}" ]; then
+    if ! command -v avm >/dev/null 2>&1; then
+      echo "ERROR: VERIFIER_ANCHOR_VERSION=${VERIFIER_ANCHOR_VERSION} requested but avm is not installed."
+      return 1
+    fi
+
+    original_anchor_version="$(get_anchor_cli_version)"
+    if [ "${original_anchor_version}" != "${VERIFIER_ANCHOR_VERSION}" ]; then
+      echo "Switching Anchor CLI from ${original_anchor_version} to ${VERIFIER_ANCHOR_VERSION} for verifier build..."
+      avm use "${VERIFIER_ANCHOR_VERSION}"
+    fi
+  fi
+
+  if (cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build); then
+    build_status=0
+  else
+    build_status=$?
+  fi
+
+  if [ -n "${original_anchor_version}" ]; then
+    current_anchor_version="$(get_anchor_cli_version)"
+    if [ "${current_anchor_version}" != "${original_anchor_version}" ]; then
+      echo "Restoring Anchor CLI ${original_anchor_version}..."
+      avm use "${original_anchor_version}"
+    fi
+  fi
+
+  return "${build_status}"
+}
 
 # 1. Get deployer pubkey
 DEPLOYER_PUBKEY=$(solana address)
@@ -64,7 +104,7 @@ VERIFIER_SO="${RISC0_SOLANA_DIR}/target/deploy/groth_16_verifier.so"
 
 if [ -d "${RISC0_SOLANA_DIR}" ]; then
   echo "Building Verifier Router with INITIAL_OWNER=${DEPLOYER_PUBKEY}..."
-  if (cd "${RISC0_SOLANA_DIR}" && INITIAL_OWNER="${DEPLOYER_PUBKEY}" anchor build); then
+  if build_real_verifier_stack; then
     if [ ! -f "${ROUTER_SO}" ] || [ ! -f "${VERIFIER_SO}" ]; then
       echo "Real verifier artifacts missing after build; switching to mock verifier mode."
       MODE="mock"
