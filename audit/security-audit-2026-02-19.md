@@ -284,6 +284,11 @@ RISC Zero integration must be completed before mainnet.
 
 ## Unaudited Modules (Next Pass)
 
+Project-wide security-readiness remains blocked while any externally reachable
+or privilege-bearing surface below is still unaudited. This report should be
+read as a scoped artifact, not as full-product signoff. Use together with
+`docs/SECURITY_SCOPE_MATRIX.md` and `docs/RUNTIME_PRE_AUDIT_CHECKLIST.md`.
+
 - `runtime/src/autonomous/` — risk scoring, arbitration logic
 - `runtime/src/gateway/` — WebSocket control plane, session security
 - `runtime/src/tools/` — bash tool execution security
