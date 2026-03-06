@@ -133,6 +133,22 @@ async function nextStreamChunkWithTimeout<T>(
   }
 }
 
+function closeAsyncIterator(iterator: AsyncIterator<unknown>): void {
+  if (typeof iterator.return !== "function") return;
+  try {
+    const closeResult = iterator.return();
+    if (
+      closeResult !== null &&
+      closeResult !== undefined &&
+      typeof closeResult.then === "function"
+    ) {
+      void closeResult.catch(() => undefined);
+    }
+  } catch {
+    // best-effort stream cleanup
+  }
+}
+
 function sanitizeLargeText(value: string): string {
   return value
     .replace(
@@ -798,13 +814,7 @@ export class GrokProvider implements LLMProvider {
       }
       throw mappedError;
     } finally {
-      if (streamIterator && typeof streamIterator.return === "function") {
-        try {
-          void streamIterator.return();
-        } catch {
-          // best-effort stream cleanup
-        }
-      }
+      if (streamIterator) closeAsyncIterator(streamIterator);
     }
   }
 

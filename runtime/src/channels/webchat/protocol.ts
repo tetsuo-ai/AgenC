@@ -103,7 +103,7 @@ export interface ChatSessionSummary {
 export type ChatSessionsPayload = ChatSessionSummary[];
 
 export interface ChatCancelledPayload {
-  cancelled: true;
+  cancelled: boolean;
 }
 
 export interface EventsSubscriptionPayload {

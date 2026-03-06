@@ -586,6 +586,43 @@ describe("GrokProvider", () => {
     });
   });
 
+  it("suppresses async cleanup rejections from streamIterator.return", async () => {
+    const returnSpy = vi.fn().mockImplementation(() =>
+      Promise.reject(new Error("cleanup failed")),
+    );
+
+    mockCreate.mockResolvedValueOnce({
+      [Symbol.asyncIterator]() {
+        let yielded = false;
+        return {
+          async next() {
+            if (yielded) return { done: true, value: undefined };
+            yielded = true;
+            return {
+              done: false,
+              value: {
+                type: "response.completed",
+                response: makeCompletion({
+                  output_text: "done",
+                }),
+              },
+            };
+          },
+          return: returnSpy,
+        };
+      },
+    });
+
+    const provider = new GrokProvider({ apiKey: "test-key" });
+    const response = await provider.chatStream(
+      [{ role: "user", content: "test" }],
+      () => undefined,
+    );
+
+    expect(response.content).toBe("done");
+    expect(returnSpy).toHaveBeenCalledOnce();
+  });
+
   it("enforces an absolute stream timeout even when chunks keep arriving", async () => {
     mockCreate.mockResolvedValueOnce(
       (async function* () {
