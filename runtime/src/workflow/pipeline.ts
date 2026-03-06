@@ -10,6 +10,7 @@
 import type { ToolHandler } from "../llm/types.js";
 import type { MemoryBackend } from "../memory/types.js";
 import type { ApprovalEngine } from "../gateway/approvals.js";
+import type { DelegationDecompositionSignal } from "../gateway/delegation-scope.js";
 import type { ProgressTracker } from "../gateway/progress.js";
 import type { Logger } from "../utils/logger.js";
 import { WorkflowStateError } from "./errors.js";
@@ -146,6 +147,8 @@ export interface PipelineResult {
   readonly totalSteps: number;
   readonly resumeFrom?: number;
   readonly error?: string;
+  /** Structured parent-side replan signal for overloaded delegated work. */
+  readonly decomposition?: DelegationDecompositionSignal;
   /**
    * Optional stop reason hint for upstream ChatExecutor mapping.
    * Must stay within canonical LLMPipelineStopReason values (excluding completed/tool_calls).

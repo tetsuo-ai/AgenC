@@ -51,6 +51,7 @@ const STOP_TERMS = new Set([
 const DEFAULT_MANDATORY_TOOLS = [
   "system.bash",
   "desktop.bash",
+  "desktop.text_editor",
   "system.readFile",
   "system.writeFile",
   "system.listDir",
@@ -86,6 +87,29 @@ const SHELL_TERMS = new Set([
   "execute",
 ]);
 
+const TERMINAL_TERMS = new Set([
+  "terminal",
+  "kitty",
+]);
+
+const OPEN_ACTION_TERMS = new Set([
+  "open",
+  "launch",
+  "start",
+  "spawn",
+  "create",
+  "new",
+]);
+
+const CLOSE_ACTION_TERMS = new Set([
+  "close",
+  "quit",
+  "exit",
+  "dismiss",
+  "kill",
+  "terminate",
+]);
+
 const BROWSER_TERMS = new Set([
   "browser",
   "page",
@@ -96,6 +120,51 @@ const BROWSER_TERMS = new Set([
   "scroll",
   "tab",
   "vnc",
+]);
+
+const LOW_SIGNAL_BROWSER_TOOL_NAMES = new Set([
+  "mcp.browser.browser_tabs",
+  "playwright.browser_tabs",
+]);
+
+const HIGH_SIGNAL_BROWSER_TOOL_NAMES = new Set([
+  "mcp.browser.browser_navigate",
+  "mcp.browser.browser_snapshot",
+  "mcp.browser.browser_click",
+  "mcp.browser.browser_type",
+  "mcp.browser.browser_wait_for",
+  "mcp.browser.browser_run_code",
+  "mcp.browser.browser_evaluate",
+  "playwright.browser_navigate",
+  "playwright.browser_snapshot",
+  "playwright.browser_click",
+  "playwright.browser_type",
+  "playwright.browser_wait_for",
+  "playwright.browser_run_code",
+  "playwright.browser_evaluate",
+]);
+
+const PRIMARY_BROWSER_START_TOOL_NAMES = new Set([
+  "mcp.browser.browser_navigate",
+  "playwright.browser_navigate",
+]);
+
+const PRIMARY_BROWSER_READ_TOOL_NAMES = new Set([
+  "mcp.browser.browser_snapshot",
+  "mcp.browser.browser_run_code",
+  "mcp.browser.browser_evaluate",
+  "playwright.browser_snapshot",
+  "playwright.browser_run_code",
+  "playwright.browser_evaluate",
+]);
+
+const TAB_MANAGEMENT_TERMS = new Set([
+  "tab",
+  "tabs",
+  "window",
+  "windows",
+  "session",
+  "sessions",
 ]);
 
 const FILE_TERMS = new Set([
@@ -172,6 +241,8 @@ interface CachedIntentRoute {
   expiresAt: number;
   updatedAt: number;
 }
+
+type TerminalIntent = "none" | "generic" | "open" | "close";
 
 export interface ToolRoutingConfig {
   enabled?: boolean;
@@ -262,6 +333,15 @@ function requiredFamiliesForTerms(terms: readonly string[]): Set<string> {
     if (family) required.add(family);
   }
   return required;
+}
+
+function resolveTerminalIntent(terms: readonly string[]): TerminalIntent {
+  const hasTerminalIntent = terms.some((term) => TERMINAL_TERMS.has(term));
+  if (!hasTerminalIntent) return "none";
+
+  if (terms.some((term) => CLOSE_ACTION_TERMS.has(term))) return "close";
+  if (terms.some((term) => OPEN_ACTION_TERMS.has(term))) return "open";
+  return "generic";
 }
 
 function hasAnyToolInFamily(toolNames: readonly string[], family: string): boolean {
@@ -399,15 +479,23 @@ export class ToolRouter {
     const now = Date.now();
     const cached = this.cache.get(params.sessionId);
     const requiredFamilies = requiredFamiliesForTerms(intentTerms);
+    const terminalIntent = resolveTerminalIntent(intentTerms);
 
     let invalidatedReason: string | undefined;
     if (cached) {
+      const cachedTerminalIntent = resolveTerminalIntent(cached.terms);
       if (cached.missCount >= this.config.pivotMissThreshold) {
         invalidatedReason = "tool_miss_threshold";
       } else if (cached.expiresAt <= now) {
         invalidatedReason = "ttl_expired";
       } else if (EXPLICIT_PIVOT_RE.test(params.messageText)) {
         invalidatedReason = "explicit_redirect";
+      } else if (
+        terminalIntent !== "none" &&
+        cachedTerminalIntent !== "none" &&
+        terminalIntent !== cachedTerminalIntent
+      ) {
+        invalidatedReason = "terminal_action_shift";
       } else if (
         Array.from(requiredFamilies).some(
           (family) => !hasAnyToolInFamily(cached.routedToolNames, family),
@@ -529,7 +617,9 @@ export class ToolRouter {
     const hasFileIntent = intentTerms.some((term) => FILE_TERMS.has(term));
     const hasNetworkIntent = intentTerms.some((term) => NETWORK_TERMS.has(term));
     const hasMCPIntent = intentTerms.some((term) => MCP_TERMS.has(term));
+    const explicitTabIntent = intentTerms.some((term) => TAB_MANAGEMENT_TERMS.has(term));
     const requiredFamilies = requiredFamiliesForTerms(intentTerms);
+    const terminalIntent = resolveTerminalIntent(intentTerms);
 
     const scored = this.indexedTools.map((tool) => {
       let score = 0;
@@ -542,14 +632,50 @@ export class ToolRouter {
       if (hasShellIntent && (tool.name === "system.bash" || tool.name === "desktop.bash")) {
         score += 4;
       }
+      if (terminalIntent !== "none" && tool.family === "mcp.kitty") {
+        score += 4;
+      }
+      if (terminalIntent === "open") {
+        if (tool.name === "mcp.kitty.launch") {
+          score += 18;
+        } else if (tool.name === "mcp.kitty.close") {
+          score -= 6;
+        } else if (tool.name === "desktop.window_list") {
+          score -= 2;
+        }
+      }
+      if (terminalIntent === "close") {
+        if (tool.name === "mcp.kitty.close") {
+          score += 20;
+        } else if (
+          tool.name === "desktop.window_focus" ||
+          tool.name === "desktop.keyboard_key"
+        ) {
+          score += 8;
+        } else if (tool.name === "desktop.window_list") {
+          score -= 3;
+        } else if (tool.name === "mcp.kitty.launch" || tool.name === "mcp.kitty.send_text") {
+          score -= 6;
+        }
+      }
       if (hasBrowserIntent) {
         if (
-          tool.family === "desktop" ||
           tool.family === "playwright" ||
           tool.name.startsWith("system.browse") ||
           tool.family === "mcp.browser"
         ) {
           score += 2;
+        }
+        if (HIGH_SIGNAL_BROWSER_TOOL_NAMES.has(tool.name)) {
+          score += 5;
+        }
+        if (PRIMARY_BROWSER_START_TOOL_NAMES.has(tool.name)) {
+          score += 4;
+        } else if (PRIMARY_BROWSER_READ_TOOL_NAMES.has(tool.name)) {
+          score += 2;
+        }
+        if (LOW_SIGNAL_BROWSER_TOOL_NAMES.has(tool.name)) {
+          score += explicitTabIntent ? 8 : -4;
         }
       }
       if (hasMCPIntent && tool.family.startsWith("mcp.")) {

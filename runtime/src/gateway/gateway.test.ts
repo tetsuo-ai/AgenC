@@ -996,6 +996,22 @@ describe("config loading", () => {
     expect(result.errors).toEqual([]);
   });
 
+  it("validateGatewayConfig accepts llm native web search fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          webSearch: true,
+          searchMode: "auto",
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
   it("validateGatewayConfig rejects invalid llm.toolRouting fields", () => {
     const result = validateGatewayConfig(
       makeConfig({
@@ -1048,6 +1064,25 @@ describe("config loading", () => {
     );
     expect(result.errors).toContain(
       "llm.toolRouting.familyCaps.system must be an integer between 1 and 256",
+    );
+  });
+
+  it("validateGatewayConfig rejects invalid llm native web search fields", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          webSearch: "yes" as unknown as boolean,
+          searchMode: "later" as unknown as "auto",
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("llm.webSearch must be a boolean");
+    expect(result.errors).toContain(
+      "llm.searchMode must be one of: auto, on, off",
     );
   });
 

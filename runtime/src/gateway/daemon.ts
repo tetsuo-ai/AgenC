@@ -63,6 +63,11 @@ import type { LLMPipelineStopReason } from '../llm/policy.js';
 import type { GatewayMessage } from './message.js';
 import { createGatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
+import {
+  getProviderNativeAdvertisedToolNames,
+  getProviderNativeWebSearchRoutingDecision,
+  supportsProviderNativeWebSearch,
+} from '../llm/provider-native-search.js';
 import type {
   DeterministicPipelineExecutor,
   SkillInjector,
@@ -118,6 +123,11 @@ import { formatForChannel } from './format.js';
 import type { ChannelPlugin } from './channel.js';
 import type { ProactiveCommunicator } from './proactive.js';
 import { ToolRouter, type ToolRoutingDecision } from './tool-routing.js';
+import {
+  filterLlmToolsByEnvironment,
+  filterNamedToolsByEnvironment,
+  type ToolEnvironmentMode,
+} from './tool-environment-policy.js';
 import { SubAgentOrchestrator } from './subagent-orchestrator.js';
 
 // ============================================================================
@@ -467,6 +477,7 @@ interface ResolvedSubAgentRuntimeConfig {
   readonly maxTotalSubagentsPerRequest: number;
   readonly maxCumulativeToolCallsPerRequestTree: number;
   readonly maxCumulativeTokensPerRequestTree: number;
+  readonly maxCumulativeTokensPerRequestTreeExplicitlyConfigured: boolean;
   readonly defaultTimeoutMs: number;
   readonly baseSpawnDecisionThreshold: number;
   readonly spawnDecisionThreshold: number;
@@ -501,6 +512,8 @@ function resolveSubAgentRuntimeConfig(
   llmConfig: GatewayLLMConfig | undefined,
 ): ResolvedSubAgentRuntimeConfig {
   const subagents = llmConfig?.subagents;
+  const maxCumulativeTokensPerRequestTreeExplicitlyConfigured =
+    typeof subagents?.maxCumulativeTokensPerRequestTree === "number";
   const delegationAggressiveness =
     subagents?.delegationAggressiveness === "conservative" ||
       subagents?.delegationAggressiveness === "aggressive" ||
@@ -564,6 +577,7 @@ function resolveSubAgentRuntimeConfig(
         subagents?.maxCumulativeTokensPerRequestTree ?? 250_000,
       ),
     ),
+    maxCumulativeTokensPerRequestTreeExplicitlyConfigured,
     defaultTimeoutMs: Math.min(
       SUBAGENT_CONFIG_HARD_CAPS.defaultTimeoutMs,
       Math.max(1_000, subagents?.defaultTimeoutMs ?? DEFAULT_SUB_AGENT_TIMEOUT_MS),
@@ -1332,9 +1346,159 @@ function summarizeGatewayMessageForTrace(
   };
 }
 
-function summarizeToolResultForTrace(rawResult: string, maxChars: number): unknown {
+function summarizeExecuteWithAgentArgs(
+  args: Record<string, unknown>,
+  maxChars: number,
+): Record<string, unknown> | undefined {
+  const summary: Record<string, unknown> = {};
+  if (typeof args.objective === "string" && args.objective.trim().length > 0) {
+    summary.objective = truncateToolLogText(args.objective, maxChars);
+  } else if (typeof args.task === "string" && args.task.trim().length > 0) {
+    summary.task = truncateToolLogText(args.task, maxChars);
+  }
+  if (
+    typeof args.inputContract === "string" &&
+    args.inputContract.trim().length > 0
+  ) {
+    summary.inputContract = truncateToolLogText(args.inputContract, maxChars);
+  }
+  if (Array.isArray(args.tools) && args.tools.length > 0) {
+    summary.tools = args.tools
+      .filter((tool): tool is string => typeof tool === "string" && tool.trim().length > 0)
+      .slice(0, 8);
+  }
+  if (
+    Array.isArray(args.requiredToolCapabilities) &&
+    args.requiredToolCapabilities.length > 0
+  ) {
+    summary.requiredToolCapabilities = args.requiredToolCapabilities
+      .filter((tool): tool is string => typeof tool === "string" && tool.trim().length > 0)
+      .slice(0, 8);
+  }
+  if (Array.isArray(args.acceptanceCriteria) && args.acceptanceCriteria.length > 0) {
+    summary.acceptanceCriteria = args.acceptanceCriteria
+      .filter(
+        (criterion): criterion is string =>
+          typeof criterion === "string" && criterion.trim().length > 0,
+      )
+      .slice(0, 4)
+      .map((criterion) => truncateToolLogText(criterion, maxChars));
+  }
+  if (typeof args.timeoutMs === "number" && Number.isFinite(args.timeoutMs)) {
+    summary.timeoutMs = args.timeoutMs;
+  }
+  return Object.keys(summary).length > 0 ? summary : undefined;
+}
+
+function summarizeExecuteWithAgentToolCallsForTrace(
+  value: unknown,
+  maxChars: number,
+): unknown {
+  if (!Array.isArray(value)) return undefined;
+  const limit = Math.min(value.length, 6);
+  const summarized = value.slice(0, limit).map((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      return summarizeTraceValue(entry, maxChars);
+    }
+    const toolCall = entry as Record<string, unknown>;
+    const record: Record<string, unknown> = {};
+    if (typeof toolCall.name === "string") record.name = toolCall.name;
+    if (typeof toolCall.isError === "boolean") record.isError = toolCall.isError;
+    if (
+      typeof toolCall.durationMs === "number" &&
+      Number.isFinite(toolCall.durationMs)
+    ) {
+      record.durationMs = toolCall.durationMs;
+    }
+    if (toolCall.args && typeof toolCall.args === "object" && !Array.isArray(toolCall.args)) {
+      record.args =
+        summarizeToolArgsForLog(
+          typeof toolCall.name === "string" ? toolCall.name : "",
+          toolCall.args as Record<string, unknown>,
+        ) ?? summarizeTraceValue(toolCall.args, maxChars);
+    }
+    if (typeof toolCall.result === "string" && toolCall.result.trim().length > 0) {
+      record.result = summarizeToolResultForTrace(toolCall.result, maxChars);
+    }
+    return record;
+  });
+  if (value.length > limit) {
+    summarized.push(`[${value.length - limit} more tool call(s)]`);
+  }
+  return summarized;
+}
+
+export function summarizeToolResultForTrace(rawResult: string, maxChars: number): unknown {
   try {
     const parsed = JSON.parse(rawResult) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      const status = typeof record.status === "string" ? record.status : undefined;
+      const objective =
+        typeof record.objective === "string" && record.objective.trim().length > 0
+          ? truncateToolLogText(record.objective, maxChars)
+          : undefined;
+      const output =
+        typeof record.output === "string" && record.output.trim().length > 0
+          ? truncateToolLogText(
+            sanitizeToolResultTextForTrace(record.output),
+            maxChars,
+          )
+          : undefined;
+      const error =
+        typeof record.error === "string" && record.error.trim().length > 0
+          ? truncateToolLogText(record.error, maxChars)
+          : undefined;
+      const validationCode =
+        typeof record.validationCode === "string"
+          ? record.validationCode
+          : undefined;
+      const stopReason =
+        typeof record.stopReason === "string" ? record.stopReason : undefined;
+      const stopReasonDetail =
+        typeof record.stopReasonDetail === "string" &&
+          record.stopReasonDetail.trim().length > 0
+          ? truncateToolLogText(record.stopReasonDetail, maxChars)
+          : undefined;
+      const failedToolCalls =
+        typeof record.failedToolCalls === "number" &&
+          Number.isFinite(record.failedToolCalls)
+          ? record.failedToolCalls
+          : undefined;
+      const toolCalls = summarizeExecuteWithAgentToolCallsForTrace(
+        record.toolCalls,
+        maxChars,
+      );
+      const decomposition = summarizeTraceValue(record.decomposition, maxChars);
+
+      if (
+        status !== undefined ||
+        objective !== undefined ||
+        output !== undefined ||
+        error !== undefined ||
+        validationCode !== undefined ||
+        stopReason !== undefined ||
+        stopReasonDetail !== undefined ||
+        failedToolCalls !== undefined ||
+        toolCalls !== undefined
+      ) {
+        return {
+          ...(typeof record.success === "boolean"
+            ? { success: record.success }
+            : {}),
+          ...(status !== undefined ? { status } : {}),
+          ...(objective !== undefined ? { objective } : {}),
+          ...(validationCode !== undefined ? { validationCode } : {}),
+          ...(stopReason !== undefined ? { stopReason } : {}),
+          ...(stopReasonDetail !== undefined ? { stopReasonDetail } : {}),
+          ...(failedToolCalls !== undefined ? { failedToolCalls } : {}),
+          ...(decomposition !== undefined ? { decomposition } : {}),
+          ...(error !== undefined ? { error } : {}),
+          ...(output !== undefined ? { output } : {}),
+          ...(toolCalls !== undefined ? { toolCalls } : {}),
+        };
+      }
+    }
     return summarizeTraceValue(parsed, maxChars);
   } catch {
     return truncateToolLogText(
@@ -1344,10 +1508,14 @@ function summarizeToolResultForTrace(rawResult: string, maxChars: number): unkno
   }
 }
 
-function summarizeToolArgsForLog(
+export function summarizeToolArgsForLog(
   name: string,
   args: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
+  if (name === "execute_with_agent") {
+    return summarizeExecuteWithAgentArgs(args, 300);
+  }
+
   if ((name === "desktop.bash" || name === "system.bash") && typeof args.command === "string") {
     return {
       command: truncateToolLogText(args.command, 400),
@@ -1607,38 +1775,6 @@ export interface DaemonStatus {
   memoryUsage: { heapUsedMB: number; rssMB: number };
 }
 
-// ============================================================================
-// Environment-based tool filtering
-// ============================================================================
-
-/** Host system.* tool names excluded in "desktop" mode. */
-const HOST_TOOL_NAMES = new Set([
-  'system.bash', 'system.httpGet', 'system.httpPost', 'system.httpFetch',
-  'system.browse', 'system.extractLinks', 'system.htmlToMarkdown',
-  'system.readFile', 'system.writeFile', 'system.appendFile',
-  'system.listDir', 'system.stat', 'system.mkdir', 'system.delete', 'system.move',
-]);
-
-/** Desktop/container tool prefixes excluded in "host" mode. */
-const DESKTOP_TOOL_PREFIXES = [
-  'desktop.', 'playwright.',
-  'mcp.tmux.', 'mcp.neovim.', 'mcp.kitty.', 'mcp.browser.',
-];
-
-function filterToolsByEnvironment(
-  allTools: LLMTool[],
-  environment: 'both' | 'desktop' | 'host',
-): LLMTool[] {
-  if (environment === 'both') return allTools;
-  if (environment === 'desktop') {
-    return allTools.filter((t) => !HOST_TOOL_NAMES.has(t.function.name));
-  }
-  // host: exclude desktop/container tools
-  return allTools.filter(
-    (t) => !DESKTOP_TOOL_PREFIXES.some((p) => t.function.name.startsWith(p)),
-  );
-}
-
 export class DaemonManager {
   private gateway: Gateway | null = null;
   private _webChatChannel: WebChatChannel | null = null;
@@ -1687,6 +1823,7 @@ export class DaemonManager {
   private _allLlmTools: LLMTool[] = [];
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
+  private _primaryLlmConfig: GatewayLLMConfig | undefined = undefined;
   private _toolRouter: ToolRouter | null = null;
   private _baseToolHandler: ToolHandler | null = null;
   private _desktopManager: import('../desktop/manager.js').DesktopSandboxManager | null = null;
@@ -1694,7 +1831,7 @@ export class DaemonManager {
   private _playwrightBridges: Map<string, import('../mcp-client/types.js').MCPToolBridge> = new Map();
   private _containerMCPConfigs: GatewayMCPServerConfig[] = [];
   private _containerMCPBridges: Map<string, import('../mcp-client/types.js').MCPToolBridge[]> = new Map();
-  private _desktopRouterFactory: ((sessionId: string) => ToolHandler) | null = null;
+  private _desktopRouterFactory: ((sessionId: string, allowedToolNames?: readonly string[]) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private _sessionModelInfo = new Map<string, {
     provider: string;
@@ -1816,8 +1953,11 @@ export class DaemonManager {
     return providers[providers.length - 1] ?? fallbackProvider;
   }
 
-  private refreshSubAgentToolCatalog(registry: ToolRegistry): void {
-    const tools = registry.listAll();
+  private refreshSubAgentToolCatalog(
+    registry: ToolRegistry,
+    environment: ToolEnvironmentMode,
+  ): void {
+    const tools = filterNamedToolsByEnvironment(registry.listAll(), environment);
     this._subAgentToolCatalog.splice(
       0,
       this._subAgentToolCatalog.length,
@@ -2004,10 +2144,15 @@ export class DaemonManager {
       },
       destroyContext: async (sessionIdentity: SubAgentSessionIdentity) => {
         const manager = this._sessionIsolationManager;
-        if (!manager) return;
-        await manager.destroyContext(sessionIdentity);
+        if (manager) {
+          await manager.destroyContext(sessionIdentity);
+        }
+        await this.cleanupDesktopSessionResources(
+          sessionIdentity.subagentSessionId,
+        );
       },
       defaultWorkspaceId: workspaceManager.getDefault(),
+      contextStartupTimeoutMs: config.desktop?.enabled ? 60_000 : undefined,
       maxConcurrent: resolved.maxConcurrent,
       maxDepth: resolved.maxDepth,
       selectLLMProvider: ({ requiredCapabilities, contextProvider }) =>
@@ -2018,11 +2163,14 @@ export class DaemonManager {
       composeToolHandler: ({
         sessionIdentity,
         baseToolHandler,
+        allowedToolNames,
+        desktopRoutingSessionId,
       }) => createSessionToolHandler({
         sessionId: sessionIdentity.subagentSessionId,
         baseHandler: baseToolHandler,
+        availableToolNames: allowedToolNames,
         desktopRouterFactory: this._desktopRouterFactory ?? undefined,
-        routerId: sessionIdentity.subagentSessionId,
+        routerId: desktopRoutingSessionId,
         send: (response) => {
           this.routeSubagentControlResponseToParent({
             response,
@@ -2105,6 +2253,11 @@ export class DaemonManager {
         const { DesktopSandboxManager } = await import('../desktop/manager.js');
         this._desktopManager = new DesktopSandboxManager(gatewayConfig.desktop, {
           logger: this.logger,
+          workspacePath: resolvePath(process.cwd()),
+          workspaceAccess: 'readwrite',
+          workspaceMountPath: '/workspace',
+          hostUid: typeof process.getuid === 'function' ? process.getuid() : undefined,
+          hostGid: typeof process.getgid === 'function' ? process.getgid() : undefined,
         });
         await this._desktopManager.start();
         this.logger.info('Desktop sandbox manager started');
@@ -2173,7 +2326,8 @@ export class DaemonManager {
     const telemetry = this.createWebChatTelemetry(config);
 
     const registry = await this.createToolRegistry(config, telemetry ?? undefined);
-    this.refreshSubAgentToolCatalog(registry);
+    const environment = config.desktop?.environment ?? 'both';
+    this.refreshSubAgentToolCatalog(registry, environment);
 
     const llmTools = registry.toLLMTools();
     let baseToolHandler = registry.createToolHandler();
@@ -2185,7 +2339,7 @@ export class DaemonManager {
     );
 
     this._allLlmTools = [...llmTools];
-    this._llmTools = filterToolsByEnvironment(llmTools, config.desktop?.environment ?? 'both');
+    this._llmTools = filterLlmToolsByEnvironment(llmTools, environment);
     this._toolRouter = new ToolRouter(
       this._llmTools,
       config.llm?.toolRouting,
@@ -2258,6 +2412,7 @@ export class DaemonManager {
     this._chatExecutor = providers.length > 0 ? new ChatExecutor({
       providers,
       toolHandler: baseToolHandler,
+      allowedTools: this.getAdvertisedToolNames(),
       skillInjector,
       memoryRetriever,
       learningProvider,
@@ -2322,7 +2477,7 @@ export class DaemonManager {
       memoryBackend,
       delegation: this.resolveDelegationToolContext,
     };
-    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, this._systemPrompt, voiceDeps, this._voiceSystemPrompt);
+    const voiceBridge = this.createOptionalVoiceBridge(config, this._llmTools, baseToolHandler, this._systemPrompt, voiceDeps, this._voiceSystemPrompt);
     this._voiceBridge = voiceBridge ?? null;
 
     const webChat = new WebChatChannel({
@@ -2387,7 +2542,7 @@ export class DaemonManager {
       learningProvider,
       progressTracker,
       pipelineExecutor,
-      llmTools,
+      registry,
       baseToolHandler,
       voiceDeps,
     });
@@ -2477,7 +2632,10 @@ export class DaemonManager {
 
     const containerMCPConfigs = this._containerMCPConfigs;
     const containerMCPBridges = this._containerMCPBridges;
-    this._desktopRouterFactory = (sessionId: string) =>
+    this._desktopRouterFactory = (
+      sessionId: string,
+      allowedToolNames?: readonly string[],
+    ) =>
       createDesktopAwareToolHandler(baseToolHandler, sessionId, {
         desktopManager,
         bridges: desktopBridges,
@@ -2486,6 +2644,7 @@ export class DaemonManager {
           containerMCPConfigs.length > 0 ? containerMCPConfigs : undefined,
         containerMCPBridges:
           containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
+        allowedToolNames,
         logger: desktopLogger,
         // Force-disable automatic screenshot capture for action tools.
         autoScreenshot: false,
@@ -2676,7 +2835,7 @@ export class DaemonManager {
     learningProvider: MemoryRetriever;
     progressTracker: ProgressTracker;
     pipelineExecutor: PipelineExecutor;
-    llmTools: LLMTool[];
+    registry: ToolRegistry;
     baseToolHandler: ToolHandler;
     voiceDeps: {
       getChatExecutor: () => ChatExecutor | null | undefined;
@@ -2694,7 +2853,7 @@ export class DaemonManager {
       learningProvider,
       progressTracker,
       pipelineExecutor,
-      llmTools,
+      registry,
       baseToolHandler,
       voiceDeps,
     } = params;
@@ -2744,7 +2903,12 @@ export class DaemonManager {
       const shouldRefreshVoiceBridge = llmChanged || envChanged || voiceChanged;
       if (llmChanged || envChanged || shouldRefreshVoiceBridge) {
         void (async () => {
-          if (llmChanged) {
+          if (envChanged) {
+            const env = gateway.config.desktop?.environment ?? 'both';
+            this._llmTools = filterLlmToolsByEnvironment(this._allLlmTools, env);
+            this.refreshSubAgentToolCatalog(registry, env);
+          }
+          if (llmChanged || envChanged) {
             await this.hotSwapLLMProvider(
               gateway.config,
               skillInjector,
@@ -2752,15 +2916,6 @@ export class DaemonManager {
               learningProvider,
               progressTracker,
               pipelineExecutor,
-            );
-          }
-          if (envChanged) {
-            const env = gateway.config.desktop?.environment ?? 'both';
-            this._llmTools = filterToolsByEnvironment(this._allLlmTools, env);
-            this._toolRouter = new ToolRouter(
-              this._llmTools,
-              gateway.config.llm?.toolRouting,
-              this.logger,
             );
           }
           if (llmChanged || envChanged) {
@@ -2778,7 +2933,7 @@ export class DaemonManager {
             await this._voiceBridge?.stopAll();
             const newBridge = this.createOptionalVoiceBridge(
               gateway.config,
-              llmTools,
+              this._llmTools,
               baseToolHandler,
               this._systemPrompt,
               voiceDeps,
@@ -2947,6 +3102,7 @@ export class DaemonManager {
         const baseSessionHandler = createSessionToolHandler({
           sessionId: msg.sessionId,
           baseHandler: this._baseToolHandler!,
+          availableToolNames: this.getAdvertisedToolNames(),
           desktopRouterFactory: this._desktopRouterFactory ?? undefined,
           routerId: msg.sessionId,
           send: (response) => {
@@ -3049,7 +3205,11 @@ export class DaemonManager {
               durationMs: toolCall.durationMs,
               isError: toolCall.isError,
               ...(traceConfig.includeToolArgs
-                ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
+                ? {
+                  args:
+                    summarizeToolArgsForLog(toolCall.name, toolCall.args) ??
+                    summarizeTraceValue(toolCall.args, traceConfig.maxChars),
+                }
                 : {}),
               ...(traceConfig.includeToolResults
                 ? {
@@ -3244,6 +3404,7 @@ export class DaemonManager {
         const baseSessionHandler = createSessionToolHandler({
           sessionId: msg.sessionId,
           baseHandler: this._baseToolHandler!,
+          availableToolNames: this.getAdvertisedToolNames(),
           desktopRouterFactory: this._desktopRouterFactory ?? undefined,
           routerId: msg.sessionId,
           send: (response) => {
@@ -3345,7 +3506,11 @@ export class DaemonManager {
               durationMs: toolCall.durationMs,
               isError: toolCall.isError,
               ...(traceConfig.includeToolArgs
-                ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
+                ? {
+                  args:
+                    summarizeToolArgsForLog(toolCall.name, toolCall.args) ??
+                    summarizeTraceValue(toolCall.args, traceConfig.maxChars),
+                }
                 : {}),
               ...(traceConfig.includeToolResults
                 ? {
@@ -3964,13 +4129,17 @@ export class DaemonManager {
         resolvedSubAgentConfig.maxCumulativeToolCallsPerRequestTree,
       maxCumulativeTokensPerRequestTree:
         resolvedSubAgentConfig.maxCumulativeTokensPerRequestTree,
+      maxCumulativeTokensPerRequestTreeExplicitlyConfigured:
+        resolvedSubAgentConfig.maxCumulativeTokensPerRequestTreeExplicitlyConfigured,
       childToolAllowlistStrategy:
         resolvedSubAgentConfig.childToolAllowlistStrategy,
       allowedParentTools: resolvedSubAgentConfig.allowedParentTools,
       forbiddenParentTools: resolvedSubAgentConfig.forbiddenParentTools,
       fallbackBehavior: resolvedSubAgentConfig.fallbackBehavior,
       resolveAvailableToolNames: () =>
-        this._subAgentToolCatalog.map((tool) => tool.name),
+        this.getAdvertisedToolNames(
+          this._subAgentToolCatalog.map((tool) => tool.name),
+        ),
     });
   }
 
@@ -4006,6 +4175,7 @@ export class DaemonManager {
       this._chatExecutor = providers.length > 0 ? new ChatExecutor({
         providers,
         toolHandler: this._baseToolHandler!,
+        allowedTools: this.getAdvertisedToolNames(),
         skillInjector,
         memoryRetriever,
         learningProvider,
@@ -4493,22 +4663,27 @@ export class DaemonManager {
       });
     });
 
-    if (this._desktopManager) {
-      await this._desktopManager.destroyBySession(webSessionId).catch((error) => {
-        this.logger.debug("Failed to destroy desktop session during reset", {
-          sessionId: webSessionId,
-          error: toErrorMessage(error),
-        });
+    await this.cleanupDesktopSessionResources(webSessionId);
+  }
+
+  private async cleanupDesktopSessionResources(sessionId: string): Promise<void> {
+    if (!this._desktopManager) return;
+
+    await this._desktopManager.destroyBySession(sessionId).catch((error) => {
+      this.logger.debug("Failed to destroy desktop session during cleanup", {
+        sessionId,
+        error: toErrorMessage(error),
       });
-      const { destroySessionBridge } = await import('../desktop/session-router.js');
-      destroySessionBridge(
-        webSessionId,
-        this._desktopBridges,
-        this._playwrightBridges,
-        this._containerMCPBridges,
-        this.logger,
-      );
-    }
+    });
+
+    const { destroySessionBridge } = await import('../desktop/session-router.js');
+    destroySessionBridge(
+      sessionId,
+      this._desktopBridges,
+      this._playwrightBridges,
+      this._containerMCPBridges,
+      this.logger,
+    );
   }
 
   private createCommandRegistry(
@@ -5394,7 +5569,7 @@ export class DaemonManager {
 
   private createOptionalVoiceBridge(
     config: GatewayConfig,
-    _llmTools: LLMTool[],
+    llmTools: LLMTool[],
     toolHandler: ToolHandler,
     systemPrompt: string,
     deps?: {
@@ -5427,6 +5602,9 @@ export class DaemonManager {
     return new VoiceBridge({
       apiKey: voiceApiKey,
       toolHandler,
+      availableToolNames: this.getAdvertisedToolNames(
+        llmTools.map((tool) => tool.function.name),
+      ),
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       systemPrompt: voicePrompt,
       voice: config.voice?.voice ?? 'Ara',
@@ -5679,11 +5857,16 @@ export class DaemonManager {
   ): ToolRoutingDecision | undefined {
     if (!this._toolRouter) return undefined;
     try {
-      return this._toolRouter.route({
+      const decision = this._toolRouter.route({
         sessionId,
         messageText,
         history,
       });
+      return this.maybeAugmentToolRoutingDecisionWithNativeSearch(
+        decision,
+        messageText,
+        history,
+      );
     } catch (error) {
       this.logger.warn?.("Tool routing decision failed; falling back to full toolset", {
         sessionId,
@@ -5712,6 +5895,72 @@ export class DaemonManager {
       }
     }
     return event.sessionId;
+  }
+
+  private getAdvertisedToolNames(
+    toolNames: readonly string[] = this._llmTools.map((tool) => tool.function.name),
+  ): readonly string[] {
+    return Array.from(new Set([
+      ...toolNames,
+      ...getProviderNativeAdvertisedToolNames(this._primaryLlmConfig),
+    ]));
+  }
+
+  private maybeAugmentToolRoutingDecisionWithNativeSearch(
+    decision: ToolRoutingDecision,
+    messageText: string,
+    history: readonly LLMMessage[],
+  ): ToolRoutingDecision {
+    const nativeSearch = getProviderNativeWebSearchRoutingDecision({
+      llmConfig: this._primaryLlmConfig,
+      messageText,
+      history,
+    });
+    if (!nativeSearch) return decision;
+
+    const routedToolNames = Array.from(new Set([
+      ...decision.routedToolNames,
+      nativeSearch.toolName,
+    ]));
+    const expandedToolNames = Array.from(new Set([
+      ...decision.expandedToolNames,
+      nativeSearch.toolName,
+    ]));
+    if (
+      routedToolNames.length === decision.routedToolNames.length &&
+      expandedToolNames.length === decision.expandedToolNames.length
+    ) {
+      return decision;
+    }
+
+    const routedAdded =
+      routedToolNames.length > decision.routedToolNames.length
+        ? nativeSearch.schemaChars
+        : 0;
+    const expandedAdded =
+      expandedToolNames.length > decision.expandedToolNames.length
+        ? nativeSearch.schemaChars
+        : 0;
+    const schemaCharsFull =
+      decision.diagnostics.schemaCharsFull + nativeSearch.schemaChars;
+    const schemaCharsRouted = decision.diagnostics.schemaCharsRouted + routedAdded;
+    const schemaCharsExpanded =
+      decision.diagnostics.schemaCharsExpanded + expandedAdded;
+
+    return {
+      routedToolNames,
+      expandedToolNames,
+      diagnostics: {
+        ...decision.diagnostics,
+        totalToolCount: decision.diagnostics.totalToolCount + 1,
+        routedToolCount: routedToolNames.length,
+        expandedToolCount: expandedToolNames.length,
+        schemaCharsFull,
+        schemaCharsRouted,
+        schemaCharsExpanded,
+        schemaCharsSaved: Math.max(0, schemaCharsFull - schemaCharsRouted),
+      },
+    };
   }
 
   private relaySubAgentLifecycleEvent(
@@ -5906,6 +6155,7 @@ export class DaemonManager {
     const baseSessionHandler = createSessionToolHandler({
       sessionId: msg.sessionId,
       baseHandler: baseToolHandler,
+      availableToolNames: this.getAdvertisedToolNames(),
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       routerId: msg.sessionId,
       send: (m) => webChat.pushToSession(msg.sessionId, m),
@@ -6132,7 +6382,11 @@ export class DaemonManager {
             durationMs: toolCall.durationMs,
             isError: toolCall.isError,
             ...(traceConfig.includeToolArgs
-              ? { args: summarizeTraceValue(toolCall.args, traceConfig.maxChars) }
+              ? {
+                args:
+                  summarizeToolArgsForLog(toolCall.name, toolCall.args) ??
+                  summarizeTraceValue(toolCall.args, traceConfig.maxChars),
+              }
               : {}),
             ...(traceConfig.includeToolResults
               ? {
@@ -6284,6 +6538,9 @@ export class DaemonManager {
     if (desktopEnabled && !isMac && environment === 'desktop') {
       return 'You are running inside a sandboxed desktop environment (Ubuntu/XFCE in Docker). ' +
         'Use desktop.* tools for ALL operations — shell commands, file editing, GUI interaction.\n\n' +
+        'PERSISTENT WORKSPACE:\n' +
+        '- The host working directory is mounted read-write at `/workspace` inside the container.\n' +
+        '- Create, edit, and run project files from `/workspace` so changes persist outside the sandbox.\n\n' +
         'Desktop tools:\n' +
         '- desktop.bash — Run shell commands. THIS IS YOUR PRIMARY TOOL for scripting, package installation, and command execution.\n' +
         '- desktop.text_editor — View, create, and precisely edit files. Commands: view, create, str_replace, insert, undo_edit.\n' +
@@ -6295,19 +6552,22 @@ export class DaemonManager {
         '- desktop.clipboard_get, desktop.clipboard_set — Clipboard access\n' +
         '- desktop.screen_size — Get resolution\n' +
         '- desktop.video_start, desktop.video_stop — Record the desktop screen to MP4\n\n' +
-        'WEB BROWSING — ALWAYS use Playwright tools (prefixed with `playwright.`):\n' +
-        '- playwright.browser_navigate — Open URLs. THIS IS HOW YOU OPEN A BROWSER.\n' +
-        '- playwright.browser_click — Click elements by text or CSS selector\n' +
-        '- playwright.browser_type — Fill form inputs\n' +
-        '- playwright.browser_snapshot — Get the page accessibility tree (read page content)\n' +
-        '- playwright.browser_tabs — List open tabs\n\n' +
+        'TERMINALS:\n' +
+        '- If `mcp.kitty.launch` is available, use it to open a kitty terminal instead of GUI guessing.\n' +
+        '- If `mcp.kitty.close` is available, use it directly to close a kitty terminal.\n' +
+        '- Only fall back to `desktop.window_focus` + `desktop.keyboard_key` with `alt+F4` when no direct close tool is available.\n\n' +
+        'WEB BROWSING — ALWAYS use the browser tools (`mcp.browser.*` or `playwright.*`, depending on the session):\n' +
+        '- `browser_navigate` — Open a real URL. THIS IS HOW YOU START BROWSING.\n' +
+        '- `browser_snapshot` — Read page content after navigation.\n' +
+        '- `browser_click`, `browser_type`, `browser_run_code`, `browser_wait_for` — Interact with and inspect the page.\n' +
+        '- `browser_tabs` is only for tab management/debugging after navigation. It is NOT evidence of browsing and must not be your first step.\n\n' +
         'CRITICAL RULES:\n' +
-        '- To create/edit files: use desktop.text_editor (preferred) or desktop.bash with cat heredoc\n' +
+        '- To create/edit files: use desktop.text_editor as the default. Only fall back to shell-based file writes when an editor action cannot express the change.\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails.\n' +
         '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
-        '- For web browsing, ALWAYS use playwright.* tools.\n' +
+        '- For web browsing, ALWAYS use the browser navigation/snapshot tools first; do not start with tab-state inspection.\n' +
         '- Launch GUI apps: desktop.bash with "app >/dev/null 2>&1 &" (MUST redirect output and background)\n' +
         '- neovim, ripgrep, fd-find, bat, fzf are pre-installed for development workflows.\n' +
         '- The user is "agenc" with passwordless sudo.\n\n' +
@@ -6332,6 +6592,9 @@ export class DaemonManager {
         'Choose the right tools for the job. Use system.* tools for API calls, file I/O, and non-visual work. ' +
         'Use desktop.* tools when the task involves browsing websites (especially JS-heavy or Cloudflare-protected sites), ' +
         'creating documents in GUI apps, or any visual interaction.\n\n' +
+        'Desktop sandbox persistence:\n' +
+        '- The host working directory is mounted read-write at `/workspace` inside the container.\n' +
+        '- Do all persistent file creation and editing for desktop tasks under `/workspace`.\n\n' +
         'Desktop tools:\n' +
         '- desktop.bash — Run a shell command INSIDE the container. THIS IS YOUR PRIMARY TOOL for all scripting, package installation, and command execution inside the sandbox.\n' +
         '- desktop.text_editor — View, create, and precisely edit files without opening a visual editor. Commands: view, create, str_replace, insert, undo_edit. USE THIS instead of cat heredoc for file creation and editing — it is more reliable and supports undo.\n' +
@@ -6343,21 +6606,24 @@ export class DaemonManager {
         '- desktop.clipboard_get, desktop.clipboard_set — Clipboard access\n' +
         '- desktop.screen_size — Get resolution\n' +
         '- desktop.video_start, desktop.video_stop — Record the desktop screen to MP4\n\n' +
-        'WEB BROWSING — ALWAYS use Playwright tools (prefixed with `playwright.`):\n' +
-        '- playwright.browser_navigate — Open URLs. THIS IS HOW YOU OPEN A BROWSER.\n' +
-        '- playwright.browser_click — Click elements by text or CSS selector\n' +
-        '- playwright.browser_type — Fill form inputs\n' +
-        '- playwright.browser_snapshot — Get the page accessibility tree (read page content)\n' +
-        '- playwright.browser_tabs — List open tabs\n' +
+        'TERMINALS:\n' +
+        '- If `mcp.kitty.launch` is available, use it to open a kitty terminal instead of GUI guessing.\n' +
+        '- If `mcp.kitty.close` is available, use it directly to close a kitty terminal.\n' +
+        '- Only fall back to `desktop.window_focus` + `desktop.keyboard_key` with `alt+F4` when no direct close tool is available.\n\n' +
+        'WEB BROWSING — ALWAYS use the browser tools (`mcp.browser.*` or `playwright.*`, depending on the session):\n' +
+        '- `browser_navigate` — Open a real URL. THIS IS HOW YOU START BROWSING.\n' +
+        '- `browser_snapshot` — Read page content after navigation.\n' +
+        '- `browser_click`, `browser_type`, `browser_run_code`, `browser_wait_for` — Interact with and inspect the page.\n' +
+        '- `browser_tabs` is only for tab management/debugging after navigation. It is NOT evidence of browsing and must not be your first step.\n' +
         'Playwright uses bundled Chromium. The desktop container also has Chromium aliases (`chromium`, `chromium-browser`) and the Epiphany GUI browser.\n\n' +
         'CRITICAL RULES:\n' +
-        '- To create/edit files: use desktop.text_editor (preferred) or desktop.bash with cat heredoc\n' +
+        '- To create/edit files: use desktop.text_editor as the default. Only fall back to shell-based file writes when an editor action cannot express the change.\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
         '- system.http*/system.browse block localhost/private/internal targets by design. For local service checks on the HOST, use system.bash with curl (e.g. `curl -sSf http://127.0.0.1:8080`). Desktop tools run inside a Docker container and CANNOT reach the host\'s localhost.\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash or desktop.text_editor.\n' +
         '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
-        '- For web browsing, ALWAYS use playwright.* tools.\n\n' +
+        '- For web browsing, ALWAYS use the browser navigation/snapshot tools first; do not start with tab-state inspection.\n\n' +
         'Desktop tips:\n' +
         '- Launch GUI apps: desktop.bash with "app >/dev/null 2>&1 &" (MUST redirect output and background to avoid hanging)\n' +
         '- Code search: desktop.bash with "rg pattern /path" (ripgrep), "fdfind filename" (fd-find)\n' +
@@ -6485,8 +6751,12 @@ export class DaemonManager {
    * ChatExecutor handles cooldown-based failover across the chain.
    */
   private async createLLMProviders(config: GatewayConfig, tools: LLMTool[]): Promise<LLMProvider[]> {
-    if (!config.llm) return [];
+    if (!config.llm) {
+      this._primaryLlmConfig = undefined;
+      return [];
+    }
 
+    this._primaryLlmConfig = config.llm;
     const providers: LLMProvider[] = [];
     const primary = await this.createSingleLLMProvider(config.llm, tools);
     if (primary) providers.push(primary);
@@ -6505,6 +6775,8 @@ export class DaemonManager {
           apiKey: config.llm.apiKey,
           baseUrl: config.llm.baseUrl,
           model: DEFAULT_GROK_FALLBACK_MODEL,
+          webSearch: config.llm.webSearch,
+          searchMode: config.llm.searchMode,
           maxTokens: config.llm.maxTokens,
           contextWindowTokens: config.llm.contextWindowTokens,
           promptHardMaxChars: config.llm.promptHardMaxChars,
@@ -6533,6 +6805,8 @@ export class DaemonManager {
       apiKey,
       model,
       baseUrl,
+      webSearch,
+      searchMode,
       timeoutMs,
       parallelToolCalls,
       maxTokens,
@@ -6542,10 +6816,19 @@ export class DaemonManager {
     switch (provider) {
       case 'grok': {
         const { GrokProvider } = await import('../llm/grok/adapter.js');
+        const normalizedModel = normalizeGrokModel(model) ?? DEFAULT_GROK_MODEL;
+        const nativeWebSearchEnabled = supportsProviderNativeWebSearch({
+          provider,
+          model: normalizedModel,
+          webSearch,
+          searchMode,
+        });
         return new GrokProvider({
           apiKey: apiKey ?? '',
-          model: normalizeGrokModel(model) ?? DEFAULT_GROK_MODEL,
+          model: normalizedModel,
           baseURL: baseUrl,
+          webSearch: nativeWebSearchEnabled,
+          searchMode,
           timeoutMs,
           maxTokens,
           parallelToolCalls,

@@ -159,11 +159,28 @@ export interface LLMChatToolRoutingOptions {
 }
 
 /**
+ * Provider-agnostic tool-choice directive for one model call.
+ */
+export type LLMToolChoice =
+  | "auto"
+  | "required"
+  | "none"
+  | {
+    readonly type: "function";
+    readonly name: string;
+  };
+
+/**
  * Optional provider call options.
  */
 export interface LLMChatOptions {
   readonly stateful?: LLMChatStatefulOptions;
   readonly toolRouting?: LLMChatToolRoutingOptions;
+  readonly toolChoice?: LLMToolChoice;
+}
+
+export interface LLMProviderEvidence {
+  readonly citations?: readonly string[];
 }
 
 /**
@@ -178,6 +195,8 @@ export interface LLMResponse {
   requestMetrics?: LLMRequestMetrics;
   /** Stateful continuation diagnostics, when supported by the provider. */
   stateful?: LLMStatefulDiagnostics;
+  /** Provider-side evidence from built-in/server-side tools. */
+  providerEvidence?: LLMProviderEvidence;
   finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "error";
   /** Underlying error when finishReason is "error". */
   error?: Error;

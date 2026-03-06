@@ -619,7 +619,15 @@ describe("createSessionToolHandler", () => {
         output: '{"summary":"child completed"}',
         success: true,
         durationMs: 42,
-        toolCalls: [],
+        toolCalls: [
+          {
+            name: "system.readFile",
+            args: { path: "/tmp/input.txt" },
+            result: '{"content":"ok"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
         tokenUsage: {
           promptTokens: 10,
           completionTokens: 20,
@@ -648,6 +656,7 @@ describe("createSessionToolHandler", () => {
     const handler = createSessionToolHandler({
       sessionId: "session-parent",
       baseHandler,
+      availableToolNames: ["system.readFile"],
       routerId: "router-a",
       send,
       delegation: () => ({
@@ -671,12 +680,15 @@ describe("createSessionToolHandler", () => {
     };
 
     expect(baseHandler).not.toHaveBeenCalled();
-    expect(subAgentManager.spawn).toHaveBeenCalledWith({
-      parentSessionId: "session-parent",
-      task: "Inspect file",
-      timeoutMs: 120_000,
-      tools: ["system.readFile"],
-    });
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionId: "session-parent",
+        task: "Inspect file",
+        timeoutMs: 120_000,
+        tools: ["system.readFile"],
+        requireToolCall: true,
+      }),
+    );
     expect(parsed.success).toBe(true);
     expect(parsed.status).toBe("completed");
     expect(parsed.subagentSessionId).toBe("subagent:child-1");
@@ -735,6 +747,7 @@ describe("createSessionToolHandler", () => {
     const handler = createSessionToolHandler({
       sessionId: "session-parent",
       baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
       routerId: "router-a",
       send: vi.fn(),
       delegation: () => ({
@@ -762,6 +775,306 @@ describe("createSessionToolHandler", () => {
     );
   });
 
+  it("returns failure when delegated child violates a JSON output contract", async () => {
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-json-contract"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-json-contract",
+        output: "Completed desktop.bash",
+        success: true,
+        durationMs: 18,
+        toolCalls: [
+          {
+            name: "desktop.bash",
+            args: { command: "echo", args: ["ok"] },
+            result: '{"stdout":"ok","stderr":"","exitCode":0}',
+            isError: false,
+            durationMs: 4,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-json-contract",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 25,
+        task: "Build core game",
+      })),
+    };
+    const lifecycleEmitter = {
+      emit: vi.fn((event: Record<string, unknown>) => {
+        lifecycleEvents.push(event);
+      }),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: lifecycleEmitter as any,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Build core game",
+      inputContract: "JSON output with files and verification",
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      error?: string;
+    };
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain("expected JSON object output");
+    expect(lifecycleEvents.some((event) => event.type === "subagents.failed")).toBe(
+      true,
+    );
+  });
+
+  it("returns failure when delegated child violates exact-count acceptance criteria", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-reference-count"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-reference-count",
+        output:
+          '{"references":[{"name":"a"},{"name":"b"},{"name":"c"},{"name":"d"}],"tuning":{"player_speed":4.5}}',
+        success: true,
+        durationMs: 19,
+        toolCalls: [
+          {
+            name: "playwright.browser_snapshot",
+            args: { locator: "body" },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-reference-count",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 30,
+        task: "Research three reference games",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: [
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_snapshot",
+      ],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Research three reference games",
+      inputContract: "JSON output only",
+      acceptanceCriteria: ["Exactly 3 references with valid URLs"],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      error?: string;
+    };
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain("expected exactly 3 references, got 4");
+  });
+
+  it("returns failure when delegated child claims created files without file mutation evidence", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-file-evidence"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-file-evidence",
+        output:
+          '{"files_created":[{"path":"index.html"},{"path":"src/game.js"}],"verification":[{"command":"python -m http.server 8000","result":"ok"}]}',
+        success: true,
+        durationMs: 21,
+        toolCalls: [
+          {
+            name: "desktop.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/home/agenc/neon-heist"],
+            },
+            result: '{"stdout":"","stderr":"","exitCode":0}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-file-evidence",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 35,
+        task: "Create all files for the game",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Create ALL files for the game",
+      inputContract: "JSON output with files and verification",
+      acceptanceCriteria: ["Create all files"],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      error?: string;
+    };
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain("file mutation tools");
+  });
+
+  it("returns failure when delegated research child has no successful tool-grounded evidence", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-grounding"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-grounding",
+        output:
+          '{"selected":"pixi","why":["small","fast","simple"],"sources":["https://pixijs.com"]}',
+        success: true,
+        durationMs: 22,
+        toolCalls: [
+          {
+            name: "mcp.browser.browser_snapshot",
+            args: { page: "docs" },
+            result: '{"error":"navigation failed"}',
+            isError: true,
+            durationMs: 6,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-grounding",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 35,
+        task: "Research official docs",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: [
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_snapshot",
+      ],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Research official docs only via browser tools",
+      inputContract: "JSON output only",
+      tools: ["mcp.browser.browser_navigate", "mcp.browser.browser_snapshot"],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      error?: string;
+    };
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain("successful tool-grounded evidence");
+  });
+
+  it("accepts delegated research when child returns provider-native search citations", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-native-search"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-native-search",
+        output:
+          '{"selected":"pixi","why":["small","fast"],"citations":["https://pixijs.com","https://docs.phaser.io"]}',
+        success: true,
+        durationMs: 18,
+        toolCalls: [],
+        providerEvidence: {
+          citations: ["https://pixijs.com", "https://docs.phaser.io"],
+        },
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-native-search",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 25,
+        task: "Compare official framework docs",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["web_search"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Compare Canvas API, Phaser, and PixiJS from official docs",
+      inputContract:
+        "Return JSON with selected framework, rationale, and citations",
+      tools: ["web_search"],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      providerEvidence?: { citations?: string[] };
+    };
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.providerEvidence?.citations).toEqual([
+      "https://pixijs.com",
+      "https://docs.phaser.io",
+    ]);
+  });
+
   it("clamps execute_with_agent timeoutMs to a safe minimum", async () => {
     const subAgentManager = {
       spawn: vi.fn(async () => "subagent:child-min-timeout"),
@@ -785,6 +1098,7 @@ describe("createSessionToolHandler", () => {
     const handler = createSessionToolHandler({
       sessionId: "session-parent",
       baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
       routerId: "router-a",
       send: vi.fn(),
       delegation: () => ({
@@ -800,11 +1114,190 @@ describe("createSessionToolHandler", () => {
       timeoutMs: 10_000,
     });
 
-    expect(subAgentManager.spawn).toHaveBeenCalledWith({
-      parentSessionId: "session-parent",
-      task: "Inspect file quickly",
-      timeoutMs: 60_000,
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionId: "session-parent",
+        task: "Inspect file quickly",
+        timeoutMs: 60_000,
+        requireToolCall: false,
+      }),
+    );
+  });
+
+  it("rejects overloaded execute_with_agent objectives before spawn", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:should-not-spawn"),
+      getResult: vi.fn(() => null),
+      getInfo: vi.fn(() => null),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: [
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_snapshot",
+      ],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
     });
+
+    const result = await handler("execute_with_agent", {
+      task:
+        "Scaffold project, npm install dependencies, create index.html, package.json, tsconfig.json, " +
+        "src/main.ts, src/Game.ts, verify localhost, validate console errors, and write how to play and known limitations.",
+      inputContract: "JSON output with files, run_cmd, how to play, and known limitations",
+      acceptanceCriteria: [
+        "Create index.html",
+        "Create package.json",
+        "Create src/main.ts",
+        "Create src/Game.ts",
+        "Validate localhost runs cleanly",
+      ],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      status?: string;
+      error?: string;
+      decomposition?: {
+        code?: string;
+        suggestedSteps?: Array<{ name?: string }>;
+      };
+    };
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.status).toBe("needs_decomposition");
+    expect(parsed.error).toContain("Delegated objective is overloaded");
+    expect(parsed.decomposition?.code).toBe("needs_decomposition");
+    expect(
+      parsed.decomposition?.suggestedSteps?.map((step) => step.name),
+    ).toEqual([
+      "scaffold_environment",
+      "implement_core_scope",
+      "verify_acceptance",
+    ]);
+    expect(subAgentManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects execute_with_agent browser research when only low-signal tab tools are scoped", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:should-not-spawn"),
+      getResult: vi.fn(() => null),
+      getInfo: vi.fn(() => null),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["mcp.browser.browser_tabs"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Research 3 reference games with browser tools and cite sources",
+      objective:
+        "Research 3 reference games with browser tools and cite sources",
+      inputContract: "Return markdown with citations and tuning targets",
+      requiredToolCapabilities: [
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_snapshot",
+      ],
+      tools: ["mcp.browser.browser_tabs"],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      error?: string;
+      removedLowSignalBrowserTools?: string[];
+    };
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain("low-signal browser state checks");
+    expect(parsed.removedLowSignalBrowserTools).toEqual([
+      "mcp.browser.browser_tabs",
+    ]);
+    expect(subAgentManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("recovers execute_with_agent child tools to desktop-safe semantic fallback tools", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:spawned"),
+      getResult: vi
+        .fn()
+        .mockReturnValueOnce(null)
+        .mockReturnValue({
+          sessionId: "subagent:spawned",
+          output:
+            '{"files_created":[{"path":"/workspace/neon-heist/index.html"}]}',
+          success: true,
+          durationMs: 25,
+          toolCalls: [{
+            name: "desktop.text_editor",
+            args: {
+              command: "create",
+              path: "/workspace/neon-heist/index.html",
+              file_text: "<!doctype html>",
+            },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 5,
+          }],
+          tokenUsage: undefined,
+          providerName: "mock",
+          stopReason: "completed",
+        }),
+      getInfo: vi.fn(() => ({ status: "completed" })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: [
+        "desktop.bash",
+        "desktop.text_editor",
+        "mcp.neovim.vim_edit",
+        "mcp.neovim.vim_buffer_save",
+      ],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Scaffold project and implement the game files in the desktop workspace",
+      objective:
+        "Scaffold project and implement the game files in the desktop workspace",
+      inputContract: "JSON output with created files",
+      tools: ["system.bash", "system.writeFile"],
+    });
+    const parsed = JSON.parse(result) as { success?: boolean };
+
+    expect(parsed.success).toBe(true);
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [
+          "desktop.bash",
+          "desktop.text_editor",
+        ],
+      }),
+    );
   });
 
   it("returns structured error when execute_with_agent spawn fails", async () => {

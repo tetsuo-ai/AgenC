@@ -565,6 +565,50 @@ describe("ChatExecutor", () => {
       ]);
     });
 
+    it("injects an authoritative runtime tool ledger before tool follow-up synthesis", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        JSON.stringify({ stdout: "pong ready", stderr: "", exitCode: 0 }),
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "desktop.bash",
+                  arguments: '{"command":"mkdir -p /workspace/pong"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "final answer" })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      await executor.execute(createParams());
+
+      const followupMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as LLMMessage[];
+      const groundingMessage = followupMessages.find((message) =>
+        message.role === "system" &&
+        typeof message.content === "string" &&
+        message.content.includes("Runtime execution ledger")
+      );
+
+      expect(groundingMessage).toBeDefined();
+      expect(String(groundingMessage?.content)).toContain('"tool":"desktop.bash"');
+      expect(String(groundingMessage?.content)).toContain(
+        '"successfulToolCalls":1',
+      );
+      expect(String(groundingMessage?.content)).toContain(
+        'mkdir -p /workspace/pong',
+      );
+    });
+
     it("sanitizes screenshot tool payloads and keeps image artifacts out-of-band", async () => {
       const hugeBase64 = "A".repeat(90_000);
       const toolHandler = vi.fn().mockResolvedValue(
@@ -721,6 +765,415 @@ describe("ChatExecutor", () => {
       expect(provider.chat).toHaveBeenCalledTimes(3);
     });
 
+    it("retries once with a correction hint when delegated tool evidence is required", async () => {
+      const toolHandler = vi.fn().mockResolvedValue("official-doc-result");
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Here is the answer from memory.",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "search",
+                  arguments: '{"query":"official docs"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Grounded answer with tool evidence.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["search"],
+      });
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: { maxCorrectionAttempts: 1 },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toBe("Grounded answer with tool evidence.");
+      expect(result.toolCalls).toHaveLength(1);
+      expect(toolHandler).toHaveBeenCalledWith("search", {
+        query: "official docs",
+      });
+      expect(provider.chat).toHaveBeenCalledTimes(3);
+      expect(
+        (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.toolChoice,
+      ).toBe("required");
+
+      const correctionMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as LLMMessage[];
+      expect(
+        correctionMessages.some((message) =>
+          message.role === "system" &&
+          typeof message.content === "string" &&
+          message.content.includes("Tool-grounded evidence is required for this delegated task")
+        ),
+      ).toBe(true);
+    });
+
+    it("fails with validation_error when delegated tool evidence is still missing after correction", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "I already know the answer.",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Still answering without tools.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider] });
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: { maxCorrectionAttempts: 1 },
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.stopReasonDetail).toContain(
+        "child reported no tool calls",
+      );
+      expect(result.content).toContain("child reported no tool calls");
+      expect(result.toolCalls).toEqual([]);
+    });
+
+    it("fails when delegated browser research only uses low-signal about:blank tab checks", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        "### Result\n- 0: (current) [](about:blank)",
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-tabs",
+                  name: "mcp.browser.browser_tabs",
+                  arguments: '{"action":"list"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "Heat Signature, Gunpoint, and Monaco are good references. Tuning: 220px/s, 3 enemies, 30s mutation.",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Still done with the research.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["mcp.browser.browser_tabs"],
+      });
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: {
+            maxCorrectionAttempts: 1,
+            delegationSpec: {
+              task: "design_research",
+              objective:
+                "Research 3 reference games with browser tools and cite sources",
+              inputContract:
+                "Return markdown with 3 cited references and tuning targets",
+              requiredToolCapabilities: [
+                "mcp.browser.browser_navigate",
+                "mcp.browser.browser_snapshot",
+              ],
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.stopReasonDetail).toContain("browser-grounded evidence");
+      expect(result.toolCalls).toHaveLength(1);
+      expect(
+        (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.toolChoice,
+      ).toBe("required");
+      const correctionMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2][0] as LLMMessage[];
+      expect(
+        correctionMessages.some((message) =>
+          message.role === "system" &&
+          typeof message.content === "string" &&
+          message.content.includes("`browser_tabs` and about:blank state checks do not count")
+        ),
+      ).toBe(true);
+      expect(toolHandler).toHaveBeenCalledWith("mcp.browser.browser_tabs", {
+        action: "list",
+      });
+    });
+
+    it("forces a navigation-first tool choice for browser-grounded delegated work", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-nav",
+                  name: "mcp.browser.browser_navigate",
+                  arguments: '{"url":"https://example.com"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Grounded research output with citations.",
+            }),
+          ),
+      });
+      const toolHandler = vi.fn().mockResolvedValue(
+        '{"ok":true,"url":"https://example.com"}',
+      );
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: [
+          "mcp.browser.browser_navigate",
+          "mcp.browser.browser_snapshot",
+          "mcp.browser.browser_tabs",
+        ],
+      });
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: {
+            maxCorrectionAttempts: 1,
+            delegationSpec: {
+              task: "design_research",
+              objective:
+                "Research 3 reference games with browser tools and cite sources",
+              inputContract:
+                "Return markdown with 3 cited references and tuning targets",
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      const firstOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[1] as LLMChatOptions | undefined;
+      expect(firstOptions?.toolChoice).toBe("required");
+      expect(firstOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.browser.browser_navigate",
+      ]);
+    });
+
+    it("accepts provider-native web search evidence for delegated research", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content:
+              '{"selected":"pixi","why":["small","fast"],"citations":["https://pixijs.com","https://docs.phaser.io"]}',
+            providerEvidence: {
+              citations: ["https://pixijs.com", "https://docs.phaser.io"],
+            },
+          }),
+        ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        allowedTools: ["web_search"],
+      });
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: {
+            maxCorrectionAttempts: 1,
+            delegationSpec: {
+              task: "tech_research",
+              objective:
+                "Compare Canvas API, Phaser, and PixiJS from official docs and cite sources",
+              inputContract:
+                "Return JSON with selected framework, rationale, and citations",
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(result.providerEvidence?.citations).toEqual([
+        "https://pixijs.com",
+        "https://docs.phaser.io",
+      ]);
+      const firstOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[1] as LLMChatOptions | undefined;
+      expect(firstOptions?.toolChoice).toBe("required");
+      expect(firstOptions?.toolRouting?.allowedToolNames).toEqual(["web_search"]);
+    });
+
+    it("forces an editor-first tool choice for implementation delegation", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-edit",
+                  name: "desktop.text_editor",
+                  arguments:
+                    '{"command":"create","path":"/workspace/neon-heist/index.html","file_text":"<!doctype html>"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                '{"files_created":[{"path":"/workspace/neon-heist/index.html"}]}',
+            }),
+          ),
+      });
+      const toolHandler = vi.fn().mockResolvedValue('{"ok":true}');
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: [
+          "desktop.bash",
+          "desktop.text_editor",
+          "mcp.neovim.vim_edit",
+          "mcp.neovim.vim_buffer_save",
+        ],
+      });
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: {
+            maxCorrectionAttempts: 1,
+            delegationSpec: {
+              task: "core_implementation",
+              objective: "Implement the game files in the desktop workspace",
+              inputContract: "JSON output with created files",
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      const firstOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[1] as LLMChatOptions | undefined;
+      expect(firstOptions?.toolChoice).toBe("required");
+      expect(firstOptions?.toolRouting?.allowedToolNames).toEqual([
+        "desktop.text_editor",
+      ]);
+    });
+
+    it("narrows correction retries to file-mutation tools after missing file evidence", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-shell",
+                  name: "desktop.bash",
+                  arguments: '{"command":"npm test"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: '{"status":"done"}',
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-edit",
+                  name: "desktop.text_editor",
+                  arguments:
+                    '{"command":"create","path":"/workspace/neon-heist/index.html","file_text":"<!doctype html>"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                '{"files_created":[{"path":"/workspace/neon-heist/index.html"}]}',
+            }),
+          ),
+      });
+      const toolHandler = vi.fn().mockResolvedValue(
+        '{"stdout":"tests passed\\n","exitCode":0}',
+      );
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["desktop.bash", "desktop.text_editor"],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: {
+            maxCorrectionAttempts: 1,
+            delegationSpec: {
+              task: "core_implementation",
+              objective: "Scaffold and implement the game files in the desktop workspace",
+              inputContract: "JSON output with created files",
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      const thirdOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[1] as LLMChatOptions | undefined;
+      expect(thirdOptions?.toolChoice).toBe("required");
+      expect(thirdOptions?.toolRouting?.allowedToolNames).toEqual([
+        "desktop.text_editor",
+      ]);
+    });
+
     it("maxToolRounds enforced — stops after limit", async () => {
       const toolHandler = vi.fn().mockResolvedValue("ok");
       const provider = createMockProvider("primary", {
@@ -818,6 +1271,23 @@ describe("ChatExecutor", () => {
       expect(options?.toolRouting?.allowedToolNames).toEqual([
         "system.bash",
         "system.readFile",
+      ]);
+    });
+
+    it("passes allowedTools to provider chat options when no routing subset is active", async () => {
+      const provider = createMockProvider("primary");
+      const executor = new ChatExecutor({
+        providers: [provider],
+        allowedTools: ["desktop.bash", "desktop.text_editor"],
+      });
+
+      await executor.execute(createParams());
+
+      const options = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][1] as LLMChatOptions | undefined;
+      expect(options?.toolRouting?.allowedToolNames).toEqual([
+        "desktop.bash",
+        "desktop.text_editor",
       ]);
     });
 
@@ -930,6 +1400,42 @@ describe("ChatExecutor", () => {
         isError: false,
         durationMs: expect.any(Number),
       });
+    });
+
+    it("surfaces direct output for simple successful desktop shell observations", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        '{"stdout":"/workspace\\n","stderr":"","exitCode":0}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "desktop.bash",
+                  arguments: '{"command":"pwd"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "Note: `desktop.bash` spawns fresh shells from `/workspace` each time (non-persistent).\n\n" +
+                "To work in `~` (/home/agenc): Prefix like `cd ~ && your_command`.\n\n" +
+                "Demo:\n```sh\ncd ~ && pwd\n```",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toBe("/workspace");
     });
 
     it("breaks loop when same tool call fails consecutively", async () => {
@@ -1137,6 +1643,112 @@ describe("ChatExecutor", () => {
       expect(injectedHint).toBeDefined();
       expect(String(injectedHint?.content)).toContain("/desktop attach");
       expect(String(injectedHint?.content)).toContain("mcp.*");
+    });
+
+    it("injects a recovery hint when execute_with_agent requires decomposition", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        safeJson({
+          success: false,
+          status: "needs_decomposition",
+          error:
+            "Delegated objective is overloaded (research, implementation, validation). Split it into smaller execute_with_agent steps.",
+          decomposition: {
+            code: "needs_decomposition",
+            phases: ["research", "implementation", "validation"],
+            suggestedSteps: [
+              { name: "research_requirements" },
+              { name: "implement_core_scope" },
+              { name: "verify_acceptance" },
+            ],
+          },
+        }),
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "execute_with_agent",
+                  arguments: '{"task":"build and verify the whole game in one child"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("objective was too large"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("research_requirements");
+      expect(String(injectedHint?.content)).toContain("verify_acceptance");
+    });
+
+    it("injects a recovery hint when execute_with_agent reports low-signal browser evidence", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        safeJson({
+          success: false,
+          status: "failed",
+          validationCode: "low_signal_browser_evidence",
+          error:
+            "Delegated task required browser-grounded evidence but child only used low-signal browser state checks",
+        }),
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "execute_with_agent",
+                  arguments: '{"task":"research reference games"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("low-signal browser state checks"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("browser_tabs");
+      expect(String(injectedHint?.content)).toContain("about:blank");
     });
 
     it("injects a recovery hint when desktop-targeted command fails on system.bash", async () => {
@@ -1595,6 +2207,80 @@ describe("ChatExecutor", () => {
       expect(parsed.overall).toBe("fail");
       expect(parsed.failure_reasons).toContain(
         "subagent_output_contains_failure_signal",
+      );
+    });
+
+    it("suppresses narrative file-creation claims when tools never wrote files", async () => {
+      const toolHandler = vi.fn().mockResolvedValueOnce(
+        '{"exitCode":0,"stdout":"","stderr":""}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{
+                id: "tc-1",
+                name: "system.bash",
+                arguments:
+                  '{"command":"mkdir","args":["-p","/home/tetsuo/git/AgenC/neon-heist"]}',
+              }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "I've created the folder `/home/tetsuo/git/AgenC/neon-heist`.\n\n" +
+                "### Project Structure\n" +
+                "- `/home/tetsuo/git/AgenC/neon-heist/index.html`\n" +
+                "- `/home/tetsuo/git/AgenC/neon-heist/game.js`\n\n" +
+                "Now creating the files...",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toContain(
+        "tool evidence did not confirm any file writes",
+      );
+      expect(result.content).not.toContain("Now creating the files");
+    });
+
+    it("preserves successful folder-creation replies when the only mutation is mkdir", async () => {
+      const toolHandler = vi.fn().mockResolvedValueOnce(
+        '{"exitCode":0,"stdout":"","stderr":""}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{
+                id: "tc-1",
+                name: "desktop.bash",
+                arguments: '{"command":"mkdir -p /workspace/pong"}',
+              }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Created the folder `/workspace/pong`.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toContain("Created the folder `/workspace/pong`.");
+      expect(result.content).not.toContain(
+        "tool evidence did not confirm any file writes",
       );
     });
 
@@ -2523,6 +3209,370 @@ describe("ChatExecutor", () => {
       expect(result.content.toLowerCase()).toContain("hi");
     });
 
+    it("refines the planner when a delegated step is rejected as overloaded before execution", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "implementation_scope",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "delegate_everything",
+                    step_type: "subagent_task",
+                    objective:
+                      "Research frameworks, scaffold the project, implement the game loop, and validate it in the browser.",
+                    input_contract:
+                      "Return JSON with framework choice, files created, and browser validation findings",
+                    acceptance_criteria: [
+                      "Compare frameworks",
+                      "Create package.json",
+                      "Create src/main.ts",
+                      "Validate browser behavior",
+                      "Document how to play",
+                    ],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "refined_decomposition",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "research_framework",
+                    step_type: "subagent_task",
+                    objective: "Research the best framework choice only.",
+                    input_contract: "Return JSON with the chosen framework and rationale",
+                    acceptance_criteria: ["Choose one framework with rationale"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "implement_gameplay",
+                    step_type: "subagent_task",
+                    objective: "Implement the gameplay code only.",
+                    input_contract: "Return JSON with implementation summary and changed files",
+                    acceptance_criteria: ["Implement the core gameplay loop"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "research_framework"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                    depends_on: ["research_framework"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValue(
+            mockResponse({
+              content: safeJson({
+                reason: "refined_decomposition",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "research_framework",
+                    step_type: "subagent_task",
+                    objective: "Research the best framework choice only.",
+                    input_contract: "Return JSON with the chosen framework and rationale",
+                    acceptance_criteria: ["Choose one framework with rationale"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "implement_gameplay",
+                    step_type: "subagent_task",
+                    objective: "Implement the gameplay code only.",
+                    input_contract: "Return JSON with implementation summary and changed files",
+                    acceptance_criteria: ["Implement the core gameplay loop"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "research_framework"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                    depends_on: ["research_framework"],
+                  },
+                ],
+              }),
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              research_framework:
+                '{"status":"completed","success":true,"output":"Vite chosen","toolCalls":[]}',
+              implement_gameplay:
+                '{"status":"completed","success":true,"output":"Gameplay implemented","toolCalls":[]}',
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+          maxFanoutPerTurn: 8,
+          maxDepth: 4,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Build the game, choose the framework, implement it, and validate it end to end.",
+          ),
+        }),
+      );
+
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      const secondPlannerMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      expect(
+        secondPlannerMessages.some(
+          (msg) =>
+            msg.role === "system" &&
+            typeof msg.content === "string" &&
+            msg.content.includes("Planner refinement required"),
+        ),
+      ).toBe(true);
+      expect(result.stopReason).toBe("completed");
+      expect(result.plannerSummary?.plannerCalls).toBe(2);
+      expect(result.plannerSummary?.routeReason).toBe("refined_decomposition");
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "subagent_step_needs_decomposition",
+          }),
+          expect.objectContaining({
+            code: "planner_refinement_retry",
+          }),
+        ]),
+      );
+    });
+
+    it("replans when delegated execution requests parent-side decomposition", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "initial_plan",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "delegate_setup",
+                    step_type: "subagent_task",
+                    objective: "Prepare the project setup.",
+                    input_contract: "Return JSON with setup evidence",
+                    acceptance_criteria: ["Prepare the project setup"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "delegate_impl",
+                    step_type: "subagent_task",
+                    objective: "Implement the gameplay core.",
+                    input_contract: "Return JSON with implementation evidence",
+                    acceptance_criteria: ["Implement gameplay core"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "delegate_setup"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                    depends_on: ["delegate_setup"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "refined_after_runtime_signal",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "delegate_setup",
+                    step_type: "subagent_task",
+                    objective: "Prepare the project setup only.",
+                    input_contract: "Return JSON with setup summary",
+                    acceptance_criteria: ["Prepare the project setup"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "delegate_impl",
+                    step_type: "subagent_task",
+                    objective: "Implement the gameplay core only.",
+                    input_contract: "Return JSON with implementation summary",
+                    acceptance_criteria: ["Implement gameplay core"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "delegate_setup"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                    depends_on: ["delegate_setup"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValue(
+            mockResponse({
+              content: safeJson({
+                reason: "decomposed_plan",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "delegate_setup",
+                    step_type: "subagent_task",
+                    objective: "Prepare the project setup only.",
+                    input_contract: "Return JSON with setup summary",
+                    acceptance_criteria: ["Prepare the project setup"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "delegate_impl",
+                    step_type: "subagent_task",
+                    objective: "Implement the gameplay core only.",
+                    input_contract: "Return JSON with implementation summary",
+                    acceptance_criteria: ["Implement gameplay core"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "delegate_setup"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                    depends_on: ["delegate_setup"],
+                  },
+                ],
+              }),
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: "failed",
+            context: {
+              results: {
+                delegate_setup:
+                  '{"status":"completed","success":true,"output":"Setup complete","toolCalls":[]}',
+                delegate_impl:
+                  '{"status":"needs_decomposition","success":false,"error":"Implement + validate must be split","decomposition":{"code":"needs_decomposition","phases":["implementation","validation"],"suggestedSteps":[{"name":"implement_core_scope"},{"name":"verify_acceptance"}]}}',
+              },
+            },
+            completedSteps: 1,
+            totalSteps: 2,
+            error: "Sub-agent step \"delegate_impl\" requires decomposition",
+            stopReasonHint: "validation_error",
+            decomposition: {
+              code: "needs_decomposition",
+              reason: "Implement + validate must be split",
+              phases: ["implementation", "validation"],
+              suggestedSteps: [
+                {
+                  phase: "implementation",
+                  name: "implement_core_scope",
+                  objective: "Implement the core code changes only.",
+                },
+                {
+                  phase: "validation",
+                  name: "verify_acceptance",
+                  objective: "Run focused verification only.",
+                },
+              ],
+              guidance: "Re-plan at the parent level.",
+            },
+          })
+          .mockResolvedValueOnce({
+            status: "completed",
+            context: {
+              results: {
+                delegate_setup:
+                  '{"status":"completed","success":true,"output":"Setup complete","toolCalls":[]}',
+                delegate_impl:
+                  '{"status":"completed","success":true,"output":"Gameplay implemented","toolCalls":[]}',
+              },
+            },
+            completedSteps: 2,
+            totalSteps: 2,
+          }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+          maxFanoutPerTurn: 8,
+          maxDepth: 4,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Implement the gameplay flow and make sure it is validated correctly.",
+          ),
+        }),
+      );
+
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(2);
+      const secondPlannerMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      expect(
+        secondPlannerMessages.some(
+          (msg) =>
+            msg.role === "system" &&
+            typeof msg.content === "string" &&
+            msg.content.includes("Delegation execution requested parent-side decomposition"),
+        ),
+      ).toBe(true);
+      expect(result.stopReason).toBe("completed");
+      expect(result.plannerSummary?.plannerCalls).toBe(2);
+      expect(result.plannerSummary?.routeReason).toBe(
+        "refined_after_runtime_signal",
+      );
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "planner_runtime_refinement_retry",
+          }),
+        ]),
+      );
+    });
+
     it("passes the active session tool handler into deterministic pipeline execution", async () => {
       const provider = createMockProvider("primary", {
         chat: vi.fn().mockResolvedValue(
@@ -2777,6 +3827,11 @@ describe("ChatExecutor", () => {
             mockResponse({
               content: "final synthesized answer",
             }),
+          )
+          .mockResolvedValue(
+            mockResponse({
+              content: "final synthesized answer",
+            }),
           ),
       });
       const pipelineExecutor = {
@@ -2802,7 +3857,7 @@ describe("ChatExecutor", () => {
         }),
       );
 
-      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
       expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
       expect(pipelineExecutor.execute).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2829,6 +3884,17 @@ describe("ChatExecutor", () => {
         plannedSteps: 3,
         deterministicStepsExecuted: 1,
       });
+
+      const synthesisMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as LLMMessage[];
+      const groundingMessage = synthesisMessages.find((message) =>
+        message.role === "system" &&
+        typeof message.content === "string" &&
+        message.content.includes("Runtime execution ledger")
+      );
+      expect(groundingMessage).toBeDefined();
+      expect(String(groundingMessage?.content)).toContain('"tool":"system.bash"');
+      expect(String(groundingMessage?.content)).toContain('"toolCallCount":1');
     });
 
     it("maps failed subagent pipeline stopReasonHint into parent stopReason semantics", async () => {
@@ -3545,6 +4611,550 @@ describe("ChatExecutor", () => {
       ]);
     });
 
+    it("refines explicit required subagent orchestration plans instead of falling back to the direct tool loop", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "underplanned",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "design_research",
+                    step_type: "subagent_task",
+                    objective: "Research references only.",
+                    input_contract: "Return reference notes",
+                    acceptance_criteria: ["Provide 3 references"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "required_orchestration",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "design_research",
+                    step_type: "subagent_task",
+                    objective: "Research references only.",
+                    input_contract: "Return reference notes",
+                    acceptance_criteria: ["Provide 3 references"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "tech_research",
+                    step_type: "subagent_task",
+                    objective: "Choose the implementation stack only.",
+                    input_contract: "Return the selected stack and rationale",
+                    acceptance_criteria: ["Choose one implementation stack"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "design_research"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                    depends_on: ["design_research"],
+                  },
+                  {
+                    name: "core_implementation",
+                    step_type: "subagent_task",
+                    objective: "Implement core gameplay only.",
+                    input_contract: "Return implementation evidence",
+                    acceptance_criteria: ["Core gameplay implemented"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "tech_research"],
+                    max_budget_hint: "4m",
+                    can_run_parallel: false,
+                    depends_on: ["tech_research"],
+                  },
+                  {
+                    name: "ai_and_systems",
+                    step_type: "subagent_task",
+                    objective: "Implement AI and support systems only.",
+                    input_contract: "Return AI and systems evidence",
+                    acceptance_criteria: ["AI and systems implemented"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "core_implementation"],
+                    max_budget_hint: "4m",
+                    can_run_parallel: false,
+                    depends_on: ["core_implementation"],
+                  },
+                  {
+                    name: "qa_and_validation",
+                    step_type: "subagent_task",
+                    objective: "Run QA and validation only.",
+                    input_contract: "Return validation evidence",
+                    acceptance_criteria: ["Critical flows validated"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "ai_and_systems"],
+                    max_budget_hint: "3m",
+                    can_run_parallel: false,
+                    depends_on: ["ai_and_systems"],
+                  },
+                  {
+                    name: "polish_and_docs",
+                    step_type: "subagent_task",
+                    objective: "Polish UX and write docs only.",
+                    input_contract: "Return docs and polish notes",
+                    acceptance_criteria: ["Docs produced"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context", "qa_and_validation"],
+                    max_budget_hint: "3m",
+                    can_run_parallel: false,
+                    depends_on: ["qa_and_validation"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Neon Heist synthesized final answer",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              design_research: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-design",
+                output: "research output",
+                success: true,
+              }),
+              tech_research: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-tech",
+                output: "tech output",
+                success: true,
+              }),
+              core_implementation: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-core",
+                output: "core output",
+                success: true,
+              }),
+              ai_and_systems: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-ai",
+                output: "ai output",
+                success: true,
+              }),
+              qa_and_validation: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-qa",
+                output: "qa output",
+                success: true,
+              }),
+              polish_and_docs: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-polish",
+                output: "docs output",
+                success: true,
+              }),
+            },
+          },
+          completedSteps: 6,
+          totalSteps: 6,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.99,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Build Neon Heist. Sub-agent orchestration plan (required): 1) `design_research`: research references. 2) `tech_research`: choose the stack. 3) `core_implementation`: implement gameplay. 4) `ai_and_systems`: implement AI and systems. 5) `qa_and_validation`: validate critical flows. 6) `polish_and_docs`: finalize docs. Final deliverables: runnable game, commands used, architecture summary, how to play, known limitations.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(3);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner",
+        "planner_synthesis",
+      ]);
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toContain("Neon Heist synthesized final answer");
+      expect(result.content).toContain("[source:design_research]");
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "required_subagent_steps_missing",
+          }),
+          expect.objectContaining({
+            code: "planner_required_orchestration_retry",
+          }),
+          expect.objectContaining({
+            code: "delegation_required_by_user",
+          }),
+        ]),
+      );
+    });
+
+    it("fails closed when the planner cannot satisfy an explicit required subagent orchestration plan", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "still_underplanned",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "design_research",
+                    step_type: "subagent_task",
+                    objective: "Research references only.",
+                    input_contract: "Return reference notes",
+                    acceptance_criteria: ["Provide 3 references"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "still_underplanned",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "design_research",
+                    step_type: "subagent_task",
+                    objective: "Research references only.",
+                    input_contract: "Return reference notes",
+                    acceptance_criteria: ["Provide 3 references"],
+                    required_tool_capabilities: ["desktop.bash"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                ],
+              }),
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Build Neon Heist. Sub-agent orchestration plan (required): 1) `design_research`: research references. 2) `tech_research`: choose the stack. 3) `core_implementation`: implement gameplay. 4) `ai_and_systems`: implement AI and systems. 5) `qa_and_validation`: validate critical flows. 6) `polish_and_docs`: finalize docs. Final deliverables: runnable game and concise docs.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner",
+      ]);
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.content).toContain(
+        "Planner could not produce the required sub-agent orchestration plan.",
+      );
+      expect(result.content).toContain(
+        "design_research -> tech_research -> core_implementation -> ai_and_systems -> qa_and_validation -> polish_and_docs",
+      );
+    });
+
+    it("repairs missing subagent contract fields from an explicit required orchestration prompt", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "explicit_required_plan",
+                steps: [
+                  {
+                    name: "design_research",
+                    step_type: "subagent_task",
+                    objective: "Research 3 relevant reference games and tuning targets.",
+                  },
+                  {
+                    name: "tech_research",
+                    step_type: "subagent_task",
+                    objective: "Compare Canvas API vs Phaser vs Pixi and pick one.",
+                    depends_on: ["design_research"],
+                  },
+                  {
+                    name: "core_implementation",
+                    step_type: "subagent_task",
+                    objective: "Build the game loop, rendering, movement, collision, scoring, and map mutation.",
+                    depends_on: ["tech_research"],
+                  },
+                  {
+                    name: "ai_and_systems",
+                    step_type: "subagent_task",
+                    objective: "Implement enemy behavior, pathfinding, powerups, save/load, pause/settings, and input support.",
+                    depends_on: ["core_implementation"],
+                  },
+                  {
+                    name: "qa_and_validation",
+                    step_type: "subagent_task",
+                    objective: "Run tests/build checks, then validate critical gameplay flows in Chromium.",
+                    depends_on: ["ai_and_systems"],
+                  },
+                  {
+                    name: "polish_and_docs",
+                    step_type: "subagent_task",
+                    objective: "Improve UX clarity and produce concise architecture and how-to-play docs.",
+                    depends_on: ["qa_and_validation"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "explicit_required_plan_refined",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "design_research",
+                    step_type: "subagent_task",
+                    objective: "Research 3 relevant reference games and tuning targets.",
+                    input_contract:
+                      "Return JSON with reference games, mechanics, and tuning targets.",
+                    acceptance_criteria: [
+                      "Research 3 relevant reference games",
+                      "Propose concise tuning targets",
+                    ],
+                    required_tool_capabilities: ["mcp.browser.browser_navigate"],
+                    context_requirements: ["repo_context"],
+                    max_budget_hint: "3m",
+                    can_run_parallel: false,
+                  },
+                  {
+                    name: "tech_research",
+                    step_type: "subagent_task",
+                    objective: "Compare Canvas API vs Phaser vs Pixi and pick one.",
+                    input_contract:
+                      "Return JSON with the selected implementation option and rationale.",
+                    acceptance_criteria: [
+                      "Compare implementation options",
+                      "Define project structure and performance constraints",
+                    ],
+                    required_tool_capabilities: ["mcp.browser.browser_navigate"],
+                    context_requirements: ["repo_context", "design_research"],
+                    max_budget_hint: "3m",
+                    can_run_parallel: false,
+                    depends_on: ["design_research"],
+                  },
+                  {
+                    name: "core_implementation",
+                    step_type: "subagent_task",
+                    objective: "Build the game loop, rendering, movement, collision, scoring, and map mutation.",
+                    input_contract:
+                      "Return JSON with changed files and implementation summary.",
+                    acceptance_criteria: [
+                      "Build the game loop, rendering, movement, collision, scoring, and map mutation system",
+                    ],
+                    required_tool_capabilities: ["desktop.text_editor"],
+                    context_requirements: ["repo_context", "tech_research"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: false,
+                    depends_on: ["tech_research"],
+                  },
+                  {
+                    name: "ai_and_systems",
+                    step_type: "subagent_task",
+                    objective: "Implement enemy behavior, pathfinding, powerups, save/load, pause/settings, and input support.",
+                    input_contract:
+                      "Return JSON with changed files and systems summary.",
+                    acceptance_criteria: [
+                      "Implement enemy behavior, pathfinding, powerups, save/load, pause/settings, and input support",
+                    ],
+                    required_tool_capabilities: ["desktop.text_editor"],
+                    context_requirements: ["repo_context", "core_implementation"],
+                    max_budget_hint: "5m",
+                    can_run_parallel: false,
+                    depends_on: ["core_implementation"],
+                  },
+                  {
+                    name: "qa_and_validation",
+                    step_type: "subagent_task",
+                    objective: "Run tests/build checks, then validate critical gameplay flows in Chromium.",
+                    input_contract:
+                      "Return JSON with validation checks and results.",
+                    acceptance_criteria: [
+                      "Run tests/build checks",
+                      "Validate critical gameplay flows in Chromium",
+                    ],
+                    required_tool_capabilities: [
+                      "desktop.bash",
+                      "mcp.browser.browser_navigate",
+                    ],
+                    context_requirements: ["repo_context", "ai_and_systems"],
+                    max_budget_hint: "3m",
+                    can_run_parallel: false,
+                    depends_on: ["ai_and_systems"],
+                  },
+                  {
+                    name: "polish_and_docs",
+                    step_type: "subagent_task",
+                    objective: "Improve UX clarity and produce concise architecture and how-to-play docs.",
+                    input_contract:
+                      "Return JSON with changed files, architecture summary, and how-to-play notes.",
+                    acceptance_criteria: [
+                      "Improve UX clarity",
+                      "Produce concise architecture and how-to-play docs",
+                    ],
+                    required_tool_capabilities: ["desktop.text_editor"],
+                    context_requirements: ["repo_context", "qa_and_validation"],
+                    max_budget_hint: "3m",
+                    can_run_parallel: false,
+                    depends_on: ["qa_and_validation"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValue(
+            mockResponse({
+              content: "Repaired Neon Heist synthesis",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              design_research: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-design",
+                output: "design output",
+                success: true,
+              }),
+              tech_research: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-tech",
+                output: "tech output",
+                success: true,
+              }),
+              core_implementation: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-core",
+                output: "core output",
+                success: true,
+              }),
+              ai_and_systems: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-ai",
+                output: "ai output",
+                success: true,
+              }),
+              qa_and_validation: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-qa",
+                output: "qa output",
+                success: true,
+              }),
+              polish_and_docs: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-polish",
+                output: "docs output",
+                success: true,
+              }),
+            },
+          },
+          completedSteps: 6,
+          totalSteps: 6,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Build Neon Heist. Sub-agent orchestration plan (required): 1) `design_research`: - Research 3 relevant reference games and extract concrete mechanic ideas. - Propose concise tuning targets. 2) `tech_research`: - Compare implementation options (Canvas API vs Phaser vs Pixi) and pick one with rationale. - Define project structure and performance constraints. 3) `core_implementation`: - Build game loop, rendering, movement, collision, scoring, and map mutation system. 4) `ai_and_systems`: - Implement enemy behavior/pathfinding, powerups, save/load, pause/settings, and input support. 5) `qa_and_validation`: - Run tests/build checks, then validate critical gameplay flows in Chromium. 6) `polish_and_docs`: - Improve UX clarity and produce concise architecture and how-to-play docs. Final deliverables: runnable game, commands used, architecture summary, how to play, known limitations.",
+          ),
+        }),
+      );
+
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner",
+        "planner_synthesis",
+      ]);
+      const pipelineArg = (pipelineExecutor.execute as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as { plannerSteps?: Array<Record<string, unknown>> };
+      const repairedDesignStep = pipelineArg.plannerSteps?.find(
+        (step) => step.name === "design_research",
+      ) as Record<string, unknown> | undefined;
+      expect(repairedDesignStep).toBeDefined();
+      expect(repairedDesignStep?.inputContract).toBeDefined();
+      expect(repairedDesignStep?.acceptanceCriteria).toBeDefined();
+      expect(repairedDesignStep?.requiredToolCapabilities).toEqual(
+        expect.arrayContaining(["mcp.browser.browser_navigate"]),
+      );
+      expect(repairedDesignStep?.maxBudgetHint).toBe("3m");
+      const repairedCoreStep = pipelineArg.plannerSteps?.find(
+        (step) => step.name === "core_implementation",
+      ) as Record<string, unknown> | undefined;
+      expect(repairedCoreStep?.requiredToolCapabilities).toEqual(
+        expect.arrayContaining(["desktop.text_editor"]),
+      );
+      expect(repairedCoreStep?.maxBudgetHint).toBe("5m");
+      const repairedQaStep = pipelineArg.plannerSteps?.find(
+        (step) => step.name === "qa_and_validation",
+      ) as Record<string, unknown> | undefined;
+      expect(repairedQaStep?.requiredToolCapabilities).toEqual(
+        expect.arrayContaining([
+          "desktop.bash",
+          "mcp.browser.browser_navigate",
+        ]),
+      );
+      expect(repairedQaStep?.maxBudgetHint).toBe("3m");
+      expect(result.content).toContain("Repaired Neon Heist synthesis");
+    });
+
     it("falls back when planner emits unresolved step dependencies", async () => {
       const provider = createMockProvider("primary", {
         chat: vi
@@ -4107,7 +5717,7 @@ describe("ChatExecutor", () => {
       );
     });
 
-    it("enforces subagent depth limit before execution", async () => {
+    it("does not treat long top-level subagent chains as recursive delegation depth", async () => {
       const provider = createMockProvider("primary", {
         chat: vi
           .fn()
@@ -4115,6 +5725,7 @@ describe("ChatExecutor", () => {
             mockResponse({
               content: safeJson({
                 reason: "deep_plan",
+                requiresSynthesis: true,
                 steps: [
                   {
                     name: "task_a",
@@ -4157,11 +5768,39 @@ describe("ChatExecutor", () => {
           )
           .mockResolvedValueOnce(
             mockResponse({
-              content: "depth constrained fallback",
+              content: "depth chain synthesis",
             }),
           ),
       });
-      const pipelineExecutor = { execute: vi.fn() };
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              task_a: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-a",
+                output: "layer A",
+                success: true,
+              }),
+              task_b: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-b",
+                output: "layer B",
+                success: true,
+              }),
+              task_c: safeJson({
+                status: "completed",
+                subagentSessionId: "sub-c",
+                output: "layer C",
+                success: true,
+              }),
+            },
+          },
+          completedSteps: 3,
+          totalSteps: 3,
+        }),
+      };
       const executor = new ChatExecutor({
         providers: [provider],
         toolHandler: vi.fn().mockResolvedValue("unused"),
@@ -4183,17 +5822,12 @@ describe("ChatExecutor", () => {
       );
 
       expect(provider.chat).toHaveBeenCalledTimes(2);
-      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
-      expect(result.content).toBe("depth constrained fallback");
-      expect(result.plannerSummary?.diagnostics).toEqual(
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.content).toContain("depth chain synthesis");
+      expect(result.plannerSummary?.diagnostics).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            category: "validation",
             code: "subagent_depth_exceeded",
-          }),
-          expect.objectContaining({
-            category: "policy",
-            code: "delegation_veto",
           }),
         ]),
       );
@@ -4864,6 +6498,42 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls).toHaveLength(3);
       expect(result.stopReason).toBe("no_progress");
       expect(result.stopReasonDetail).toContain("semantically-equivalent failing tool calls");
+    });
+
+    it("replaces stale execution plans with an explicit failure summary on no_progress", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content:
+              "1. Scaffold project directory and install dependencies.\n" +
+              "2. Create base files.\n" +
+              "3. Implement the game loop.\n",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "tc-1",
+                name: "execute_with_agent",
+                arguments: '{"task":"build neon heist"}',
+              },
+            ],
+          }),
+        ),
+      });
+      const toolHandler = vi.fn().mockResolvedValue(
+        '{"success":false,"status":"timed_out","error":"Sub-agent timed out after 60000ms","output":"Sub-agent timed out after 60000ms"}',
+      );
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 10,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.stopReason).toBe("no_progress");
+      expect(result.content).toContain("Execution stopped before completion");
+      expect(result.content).toContain("Sub-agent timed out after 60000ms");
+      expect(result.content).not.toContain("1. Scaffold project directory");
     });
   });
 

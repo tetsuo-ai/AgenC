@@ -9,6 +9,7 @@ import type {
   LLMMessage,
   LLMContentPart,
   LLMToolCall,
+  LLMProviderEvidence,
 } from "./types.js";
 import type {
   PromptBudgetSection,
@@ -35,50 +36,24 @@ import {
   MAX_RESULT_PREVIEW_CHARS,
   MAX_ERROR_PREVIEW_CHARS,
   ENABLE_TOOL_IMAGE_REPLAY,
+  MAX_CONTEXT_INJECTION_CHARS,
 } from "./chat-executor-constants.js";
 import {
   didToolCallFail,
   parseToolResultObject,
 } from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
+import {
+  parseJsonObjectFromText,
+  tryParseJsonObject as tryParseObject,
+  hasUnsupportedNarrativeFileClaims,
+} from "../utils/delegation-validation.js";
 
 // ============================================================================
 // JSON parsing helpers (used by planner + verifier)
 // ============================================================================
 
-export function parseJsonObjectFromText(
-  content: string,
-): Record<string, unknown> | undefined {
-  const trimmed = content.trim();
-  const direct = tryParseObject(trimmed);
-  if (direct) return direct;
-
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    const candidate = trimmed.slice(start, end + 1);
-    return tryParseObject(candidate);
-  }
-  return undefined;
-}
-
-export function tryParseObject(
-  candidate: string,
-): Record<string, unknown> | undefined {
-  try {
-    const parsed = JSON.parse(candidate) as unknown;
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-    ) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    // fall through
-  }
-  return undefined;
-}
+export { parseJsonObjectFromText, tryParseObject };
 
 // ============================================================================
 // Message text extraction
@@ -118,6 +93,98 @@ export function sanitizeFinalContent(content: string): string {
   );
 }
 
+const SIMPLE_READ_ONLY_SHELL_COMMANDS = new Set([
+  "pwd",
+  "whoami",
+  "date",
+  "hostname",
+  "uname",
+  "id",
+  "ls",
+  "cat",
+  "echo",
+  "head",
+  "tail",
+  "stat",
+  "realpath",
+  "readlink",
+]);
+const SHELL_ADVICE_RE =
+  /\b(?:spawns fresh shells|non-persistent|future commands there start|to work in\s+[`~]|prefix like|demo:)\b/i;
+
+function normalizeInlineText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function isSimpleReadOnlyShellCommand(command: string): boolean {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
+  if (/[;&|><\n\r]/.test(trimmed)) return false;
+  const tokens = trimmed.split(/\s+/).filter((token) => token.length > 0);
+  if (tokens.length === 0) return false;
+  const executable = tokens[0]?.toLowerCase() ?? "";
+  return SIMPLE_READ_ONLY_SHELL_COMMANDS.has(executable);
+}
+
+function extractShellOutputText(toolCall: ToolCallRecord): string | undefined {
+  if (toolCall.name !== "desktop.bash" && toolCall.name !== "system.bash") {
+    return undefined;
+  }
+  if (didToolCallFail(toolCall.isError, toolCall.result)) return undefined;
+  const parsed = parseToolResultObject(toolCall.result);
+  if (!parsed) return undefined;
+  if (typeof parsed.exitCode === "number" && parsed.exitCode !== 0) {
+    return undefined;
+  }
+
+  const stdout = typeof parsed.stdout === "string" ? parsed.stdout.trim() : "";
+  const stderr = typeof parsed.stderr === "string" ? parsed.stderr.trim() : "";
+  const command =
+    toolCall.args &&
+      typeof toolCall.args === "object" &&
+      !Array.isArray(toolCall.args) &&
+      typeof (toolCall.args as { command?: unknown }).command === "string"
+      ? ((toolCall.args as { command: string }).command)
+      : "";
+
+  if (!isSimpleReadOnlyShellCommand(command)) return undefined;
+  if (stdout.length > 0 && stderr.length === 0) return stdout;
+  if (stderr.length > 0 && stdout.length === 0) return stderr;
+  if (stdout.length > 0 && stderr.length > 0) return `${stdout}\n${stderr}`;
+  return undefined;
+}
+
+export function reconcileDirectShellObservationContent(
+  content: string,
+  toolCalls: readonly ToolCallRecord[],
+): string {
+  if (!content || toolCalls.length !== 1) return content;
+  const shellOutput = extractShellOutputText(toolCalls[0]!);
+  if (!shellOutput) return content;
+
+  const trimmed = content.trim();
+  const normalizedContent = normalizeInlineText(trimmed);
+  const normalizedOutput = normalizeInlineText(shellOutput);
+  if (SHELL_ADVICE_RE.test(trimmed)) {
+    return shellOutput;
+  }
+  if (
+    normalizedOutput.length > 0 &&
+    normalizedContent.includes(normalizedOutput)
+  ) {
+    return content;
+  }
+
+  if (
+    trimmed.length === 0 ||
+    isLowInformationCompletion(trimmed)
+  ) {
+    return shellOutput;
+  }
+
+  return content;
+}
+
 export function reconcileStructuredToolOutcome(
   content: string,
   toolCalls: readonly ToolCallRecord[],
@@ -147,6 +214,9 @@ export function reconcileStructuredToolOutcome(
   });
 
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    if (hasUnsupportedNarrativeFileClaims(trimmed, toolCalls)) {
+      return buildUnsupportedFileClaimFallback(toolCalls);
+    }
     if (
       (hasToolFailure || hasSubagentFailureSignal) &&
       isLowInformationCompletion(trimmed)
@@ -219,6 +289,36 @@ export function reconcileStructuredToolOutcome(
   return safeStringify(payload);
 }
 
+const EXECUTION_PLAN_LINE_RE =
+  /^(?:\d+\.\s+|[-*]\s+)(?:scaffold|create|implement|build|validate|verify|run|research|compare|open|test)\b/i;
+
+export function reconcileTerminalFailureContent(params: {
+  content: string;
+  stopReason: string;
+  stopReasonDetail?: string;
+  toolCalls: readonly ToolCallRecord[];
+}): string {
+  const { content, stopReason, stopReasonDetail, toolCalls } = params;
+  if (stopReason === "completed") return content;
+
+  const fallback = buildTerminalFailureFallback(
+    stopReason,
+    stopReasonDetail,
+    toolCalls,
+  );
+  const trimmed = content.trim();
+  if (trimmed.length === 0) return fallback;
+  if (
+    isLowInformationCompletion(trimmed) ||
+    looksLikeExecutionPlan(trimmed) ||
+    (typeof stopReasonDetail === "string" && trimmed === stopReasonDetail.trim())
+  ) {
+    return fallback;
+  }
+
+  return `${fallback}\n\nPartial response before failure:\n${truncateText(trimmed, 600)}`;
+}
+
 const EXPLICIT_FAILURE_SIGNAL_RE =
   /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
 
@@ -259,6 +359,8 @@ function appendFailureReason(
 }
 
 const LOW_INFORMATION_LINE_RE = /^(done|ok|complete(?:d)?|success|pass)[.!]?$/i;
+const LOW_INFORMATION_TOOL_COMPLETION_RE =
+  /^(?:complete(?:d)?|ran|executed)\s+(?:[a-z0-9_.-]+\s*){1,4}[.!]?$/i;
 const PASS_STATUS_RE = /^pass$/i;
 const UNAVAILABLE_VALUE_RE = /\b(?:n\/a|none|null|undefined)\b/i;
 
@@ -269,11 +371,50 @@ function isLowInformationCompletion(content: string): boolean {
     .filter((line) => line.length > 0);
   if (lines.length === 0) return true;
   if (lines.length > 8) return false;
-  return lines.every((line) => LOW_INFORMATION_LINE_RE.test(line));
+  return lines.every((line) =>
+    LOW_INFORMATION_LINE_RE.test(line) ||
+    LOW_INFORMATION_TOOL_COMPLETION_RE.test(line)
+  );
+}
+
+function looksLikeExecutionPlan(content: string): boolean {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0 || lines.length > 12) return false;
+  const planLines = lines.filter((line) => EXECUTION_PLAN_LINE_RE.test(line));
+  return planLines.length >= Math.min(3, lines.length);
 }
 
 function normalizeFailurePreview(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function buildTerminalFailureFallback(
+  stopReason: string,
+  stopReasonDetail: string | undefined,
+  toolCalls: readonly ToolCallRecord[],
+): string {
+  const lines = [
+    `Execution stopped before completion (${stopReason}).`,
+  ];
+  if (typeof stopReasonDetail === "string" && stopReasonDetail.trim().length > 0) {
+    lines.push(stopReasonDetail.trim());
+  }
+
+  const failedCalls = toolCalls.filter((toolCall) =>
+    didToolCallFail(toolCall.isError, toolCall.result),
+  );
+  for (const toolCall of failedCalls.slice(0, 3)) {
+    const failure = normalizeFailurePreview(extractToolFailureMessage(toolCall));
+    lines.push(`- ${toolCall.name}: ${failure || "tool call failed"}`);
+  }
+  if (failedCalls.length > 3) {
+    lines.push(`- plus ${failedCalls.length - 3} additional tool failures`);
+  }
+
+  return lines.join("\n");
 }
 
 function buildToolFailureFallback(toolCalls: readonly ToolCallRecord[]): string {
@@ -293,6 +434,22 @@ function buildToolFailureFallback(toolCalls: readonly ToolCallRecord[]): string 
   }
   if (failedCalls.length > 3) {
     lines.push(`- plus ${failedCalls.length - 3} additional tool failures`);
+  }
+  return lines.join("\n");
+}
+
+function buildUnsupportedFileClaimFallback(
+  toolCalls: readonly ToolCallRecord[],
+): string {
+  const executedTools = toolCalls
+    .map((toolCall) => toolCall.name)
+    .filter((name, index, values) => values.indexOf(name) === index)
+    .slice(0, 4);
+  const lines = [
+    "Execution did not complete as described: tool evidence did not confirm any file writes.",
+  ];
+  if (executedTools.length > 0) {
+    lines.push(`Executed tools: ${executedTools.join(", ")}`);
   }
   return lines.join("\n");
 }
@@ -701,6 +858,154 @@ export function buildPromptToolContent(
       { type: "text" as const, text: prepared.text },
     ],
     remainingImageBudget: remainingImageBudget - prepared.dataUrl.length,
+  };
+}
+
+// ============================================================================
+// Runtime grounding ledger
+// ============================================================================
+
+const MAX_TOOL_LEDGER_ENTRY_RESULT_CHARS = 320;
+const MAX_TOOL_LEDGER_ENTRY_ARGUMENT_CHARS = 240;
+const MAX_TOOL_LEDGER_CITATION_CHARS = 240;
+const MAX_TOOL_LEDGER_FAILURE_COUNT = 8;
+
+function sanitizeLedgerValue(
+  value: unknown,
+  maxChars: number,
+): unknown {
+  let capturedDataUrl = false;
+  const sanitized = sanitizeJsonForPrompt(
+    value,
+    () => {
+      capturedDataUrl = true;
+    },
+  );
+  const rendered = safeStringify(sanitized);
+  if (rendered.length <= maxChars) {
+    if (capturedDataUrl && typeof sanitized === "object" && sanitized !== null) {
+      return {
+        ...(sanitized as Record<string, unknown>),
+        __omittedImageData: true,
+      };
+    }
+    return sanitized;
+  }
+  return {
+    __truncated: true,
+    originalChars: rendered.length,
+    preview: truncateText(rendered, maxChars),
+    ...(capturedDataUrl ? { omittedImageData: true } : {}),
+  };
+}
+
+function buildToolExecutionLedgerEntries(
+  toolCalls: readonly ToolCallRecord[],
+): Array<Record<string, unknown>> {
+  return toolCalls.map((toolCall, index) => {
+    const preparedResult = prepareToolResultForPrompt(toolCall.result);
+    return {
+      index: index + 1,
+      tool: toolCall.name,
+      status: didToolCallFail(toolCall.isError, toolCall.result)
+        ? "error"
+        : "success",
+      durationMs: toolCall.durationMs,
+      args: sanitizeLedgerValue(
+        toolCall.args,
+        MAX_TOOL_LEDGER_ENTRY_ARGUMENT_CHARS,
+      ),
+      resultPreview: truncateText(
+        preparedResult.text,
+        MAX_TOOL_LEDGER_ENTRY_RESULT_CHARS,
+      ),
+    };
+  });
+}
+
+function buildToolExecutionLedgerPayload(params: {
+  toolCalls: readonly ToolCallRecord[];
+  providerEvidence?: LLMProviderEvidence;
+}): Record<string, unknown> {
+  const { toolCalls, providerEvidence } = params;
+  const failedCalls = toolCalls.filter((toolCall) =>
+    didToolCallFail(toolCall.isError, toolCall.result),
+  );
+  const citations = (providerEvidence?.citations ?? [])
+    .map((citation) => truncateText(citation, MAX_TOOL_LEDGER_CITATION_CHARS));
+
+  return {
+    authoritative: true,
+    toolCallCount: toolCalls.length,
+    successfulToolCalls: toolCalls.length - failedCalls.length,
+    failedToolCalls: failedCalls.length,
+    toolCalls: buildToolExecutionLedgerEntries(toolCalls),
+    ...(failedCalls.length > 0
+      ? {
+        failedToolNames: failedCalls
+          .slice(0, MAX_TOOL_LEDGER_FAILURE_COUNT)
+          .map((toolCall) => toolCall.name),
+      }
+      : {}),
+    ...(citations.length > 0 ? { providerCitations: citations } : {}),
+  };
+}
+
+function compactToolExecutionLedgerPayload(
+  params: {
+    toolCalls: readonly ToolCallRecord[];
+    providerEvidence?: LLMProviderEvidence;
+  },
+): Record<string, unknown> {
+  const { toolCalls, providerEvidence } = params;
+  const failed = toolCalls
+    .map((toolCall, index) => ({ toolCall, index }))
+    .filter(({ toolCall }) => didToolCallFail(toolCall.isError, toolCall.result));
+  const successful = toolCalls
+    .map((toolCall, index) => ({ toolCall, index }))
+    .filter(({ toolCall }) => !didToolCallFail(toolCall.isError, toolCall.result));
+  const selected = new Set<number>();
+  for (const { index } of failed) selected.add(index);
+  for (let i = successful.length - 1; i >= 0 && selected.size < 12; i--) {
+    selected.add(successful[i]!.index);
+  }
+
+  const retainedToolCalls = toolCalls.filter((_, index) => selected.has(index));
+  const omittedCount = toolCalls.length - retainedToolCalls.length;
+  return {
+    ...buildToolExecutionLedgerPayload({
+      toolCalls: retainedToolCalls,
+      providerEvidence,
+    }),
+    truncatedLedger: true,
+    omittedToolCalls: omittedCount > 0 ? omittedCount : 0,
+  };
+}
+
+export function buildToolExecutionGroundingMessage(params: {
+  toolCalls: readonly ToolCallRecord[];
+  providerEvidence?: LLMProviderEvidence;
+}): LLMMessage | undefined {
+  const { toolCalls, providerEvidence } = params;
+  if (toolCalls.length === 0 && (providerEvidence?.citations?.length ?? 0) === 0) {
+    return undefined;
+  }
+
+  const prefix =
+    "Runtime execution ledger. These records are authoritative. " +
+    "Ground any final answer only in the tool calls and provider evidence below. " +
+    "Do not claim unexecuted tools, files, steps, or outcomes.\n";
+
+  let payload = buildToolExecutionLedgerPayload({ toolCalls, providerEvidence });
+  let content = prefix + safeStringify(payload);
+  if (content.length > MAX_CONTEXT_INJECTION_CHARS) {
+    payload = compactToolExecutionLedgerPayload({ toolCalls, providerEvidence });
+    content = prefix + safeStringify(payload);
+  }
+
+  return {
+    role: "system",
+    content: truncateText(content, MAX_CONTEXT_INJECTION_CHARS),
   };
 }
 

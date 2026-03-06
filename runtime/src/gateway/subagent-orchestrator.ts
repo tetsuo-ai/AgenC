@@ -32,8 +32,17 @@ import type { LLMUsage } from "../llm/types.js";
 import type {
   SubAgentLifecycleEmitter,
 } from "./delegation-runtime.js";
-import { isDelegationToolName } from "./delegation-runtime.js";
+import {
+  assessDelegationScope,
+  type DelegationDecompositionSignal,
+} from "./delegation-scope.js";
 import { sleep } from "../utils/async.js";
+import {
+  type DelegationOutputValidationCode,
+  resolveDelegatedChildToolScope,
+  specRequiresSuccessfulToolEvidence,
+  validateDelegatedOutputContract,
+} from "../utils/delegation-validation.js";
 import { safeStringify } from "../tools/types.js";
 import {
   computeDelegationFinalReward,
@@ -61,6 +70,7 @@ export interface SubAgentOrchestratorConfig {
   readonly maxTotalSubagentsPerRequest?: number;
   readonly maxCumulativeToolCallsPerRequestTree?: number;
   readonly maxCumulativeTokensPerRequestTree?: number;
+  readonly maxCumulativeTokensPerRequestTreeExplicitlyConfigured?: boolean;
   readonly childToolAllowlistStrategy?: "inherit_intersection" | "explicit_only";
   readonly allowedParentTools?: readonly string[];
   readonly forbiddenParentTools?: readonly string[];
@@ -71,6 +81,8 @@ type SubagentFailureClass =
   | "timeout"
   | "tool_misuse"
   | "malformed_result_contract"
+  | "needs_decomposition"
+  | "invalid_input"
   | "transient_provider_error"
   | "cancelled"
   | "spawn_error"
@@ -86,6 +98,8 @@ type SubagentFailureOutcome = {
   readonly failureClass: SubagentFailureClass;
   readonly message: string;
   readonly stopReasonHint: PipelineStopReasonHint;
+  readonly validationCode?: DelegationOutputValidationCode;
+  readonly decomposition?: DelegationDecompositionSignal;
   readonly childSessionId?: string;
   readonly durationMs?: number;
   readonly toolCallCount?: number;
@@ -96,6 +110,7 @@ interface ExecuteSubagentAttemptParams {
   readonly subAgentManager: SubAgentExecutionManager;
   readonly step: PipelinePlannerSubagentStep;
   readonly parentSessionId: string;
+  readonly parentRequest?: string;
   readonly timeoutMs: number;
   readonly taskPrompt: string;
   readonly diagnostics: SubagentContextDiagnostics;
@@ -124,6 +139,8 @@ type NodeExecutionOutcome =
     readonly status: "failed";
     readonly error: string;
     readonly stopReasonHint?: PipelineStopReasonHint;
+    readonly decomposition?: DelegationDecompositionSignal;
+    readonly result?: string;
   }
   | { readonly status: "halted"; readonly error?: string };
 
@@ -172,6 +189,8 @@ interface SubagentContextDiagnostics {
     readonly parentPolicyAllowed: readonly string[];
     readonly parentPolicyForbidden: readonly string[];
     readonly resolved: readonly string[];
+    readonly semanticFallback: readonly string[];
+    readonly removedLowSignalBrowserTools: readonly string[];
     readonly removedByPolicy: readonly string[];
     readonly removedAsDelegationTools: readonly string[];
     readonly removedAsUnknownTools: readonly string[];
@@ -186,6 +205,7 @@ const DEFAULT_MAX_SUBAGENT_FANOUT_PER_TURN = 8;
 const DEFAULT_MAX_TOTAL_SUBAGENTS_PER_REQUEST = 32;
 const DEFAULT_MAX_CUMULATIVE_TOOL_CALLS_PER_REQUEST_TREE = 256;
 const DEFAULT_MAX_CUMULATIVE_TOKENS_PER_REQUEST_TREE = 250_000;
+const DEFAULT_MIN_TOKENS_PER_PLANNED_SUBAGENT_STEP = 150_000;
 const CONTEXT_TERM_MIN_LENGTH = 3;
 const CONTEXT_HISTORY_TAIL_PIN = 2;
 const MAX_CONTEXT_HISTORY_ENTRIES = 6;
@@ -215,6 +235,8 @@ const INTERNAL_URL_RE =
 const FILE_URL_RE = /\bfile:\/\/[^\s"'`)]+/gi;
 const ABSOLUTE_PATH_RE =
   /(^|[\s"'`])((?:\/home|\/Users|\/root|\/etc|\/var|\/opt|\/srv|\/tmp)\/[^\s"'`]+)/g;
+const SUBAGENT_ORCHESTRATION_SECTION_RE =
+  /\bsub-agent orchestration plan\s*\((?:required|mandatory)\)\s*:[\s\S]*$/i;
 
 const SUBAGENT_RETRY_POLICY: Readonly<
   Record<SubagentFailureClass, SubagentRetryRule>
@@ -222,6 +244,8 @@ const SUBAGENT_RETRY_POLICY: Readonly<
   timeout: { maxRetries: 1, baseDelayMs: 75, maxDelayMs: 250 },
   tool_misuse: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
   malformed_result_contract: { maxRetries: 1, baseDelayMs: 50, maxDelayMs: 150 },
+  needs_decomposition: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+  invalid_input: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
   transient_provider_error: { maxRetries: 2, baseDelayMs: 100, maxDelayMs: 300 },
   cancelled: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
   spawn_error: { maxRetries: 1, baseDelayMs: 75, maxDelayMs: 250 },
@@ -234,11 +258,53 @@ const SUBAGENT_FAILURE_STOP_REASON: Readonly<
   timeout: "timeout",
   tool_misuse: "tool_error",
   malformed_result_contract: "validation_error",
+  needs_decomposition: "validation_error",
+  invalid_input: "validation_error",
   transient_provider_error: "provider_error",
   cancelled: "cancelled",
   spawn_error: "tool_error",
   unknown: "tool_error",
 };
+
+function summarizeSubagentFailureHistory(
+  stepName: string,
+  failures: readonly SubagentFailureOutcome[],
+): string {
+  if (failures.length === 0) {
+    return `Sub-agent step "${stepName}" failed`;
+  }
+
+  const uniqueReasons = [
+    ...new Set(
+      failures
+        .map((failure) => failure.message.trim())
+        .filter((message) => message.length > 0),
+    ),
+  ];
+  const summarizedReasons = uniqueReasons.slice(0, 4).join("; ");
+  const moreCount = uniqueReasons.length - Math.min(uniqueReasons.length, 4);
+  const suffix = moreCount > 0 ? `; +${moreCount} more` : "";
+  return `Sub-agent step "${stepName}" failed after ${failures.length} attempt${failures.length === 1 ? "" : "s"}: ${summarizedReasons}${suffix}`;
+}
+
+function toPipelineStopReasonHint(
+  value: unknown,
+): PipelineStopReasonHint | undefined {
+  switch (value) {
+    case "validation_error":
+    case "provider_error":
+    case "authentication_error":
+    case "rate_limited":
+    case "timeout":
+    case "tool_error":
+    case "budget_exceeded":
+    case "no_progress":
+    case "cancelled":
+      return value;
+    default:
+      return undefined;
+  }
+}
 
 class RequestTreeBudgetTracker {
   private spawnedChildren = 0;
@@ -307,6 +373,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   private readonly maxTotalSubagentsPerRequest: number;
   private readonly maxCumulativeToolCallsPerRequestTree: number;
   private readonly maxCumulativeTokensPerRequestTree: number;
+  private readonly maxCumulativeTokensPerRequestTreeExplicitlyConfigured: boolean;
   private readonly childToolAllowlistStrategy:
     | "inherit_intersection"
     | "explicit_only";
@@ -365,6 +432,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           DEFAULT_MAX_CUMULATIVE_TOKENS_PER_REQUEST_TREE,
       ),
     );
+    this.maxCumulativeTokensPerRequestTreeExplicitlyConfigured =
+      config.maxCumulativeTokensPerRequestTreeExplicitlyConfigured === true;
     this.childToolAllowlistStrategy =
       config.childToolAllowlistStrategy ?? "inherit_intersection";
     this.allowedParentTools = new Set(
@@ -434,10 +503,12 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     const mutableResults: Record<string, string> = { ...pipeline.context.results };
     const totalSteps = plannerSteps.length;
     let completedSteps = 0;
+    const effectiveMaxCumulativeTokensPerRequestTree =
+      this.resolveEffectiveMaxCumulativeTokensPerRequestTree(plannerSteps);
     const budgetTracker = new RequestTreeBudgetTracker(
       this.maxTotalSubagentsPerRequest,
       this.maxCumulativeToolCallsPerRequestTree,
-      this.maxCumulativeTokensPerRequestTree,
+      effectiveMaxCumulativeTokensPerRequestTree,
     );
 
     const maxParallel = this.resolveMaxParallelism(pipeline.maxParallelism);
@@ -523,12 +594,16 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         };
       }
 
+      if (typeof completion.outcome.result === "string") {
+        mutableResults[node.step.name] = completion.outcome.result;
+      }
       return {
         status: "failed",
         context: { results: { ...mutableResults } },
         completedSteps,
         totalSteps,
         error: completion.outcome.error,
+        decomposition: completion.outcome.decomposition,
         stopReasonHint: completion.outcome.stopReasonHint,
       };
     }
@@ -606,12 +681,6 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       if (!Number.isFinite(observedDepth)) {
         return "Planner subagent dependency graph contains a cycle";
       }
-    }
-    if (observedDepth > this.maxDepth) {
-      return (
-        `Planner subagent dependency depth ${observedDepth} exceeds maxDepth ` +
-        `${this.maxDepth}`
-      );
     }
     return null;
   }
@@ -830,6 +899,13 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
     const timeoutMs = this.parseBudgetHintMs(step.maxBudgetHint);
     const toolScope = this.deriveChildToolAllowlist(step, pipeline);
+    if (toolScope.blockedReason) {
+      return {
+        status: "failed",
+        error: toolScope.blockedReason,
+        stopReasonHint: "validation_error",
+      };
+    }
     if (toolScope.allowedTools.length === 0) {
       return {
         status: "failed",
@@ -875,6 +951,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     const retryAttempts = this.createRetryAttemptTracker();
     let attempt = 0;
     let lastFailure: SubagentFailureOutcome | null = null;
+    const failureHistory: SubagentFailureOutcome[] = [];
+    let taskPrompt = subagentTask.taskPrompt;
 
     while (true) {
       attempt += 1;
@@ -904,8 +982,9 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         subAgentManager,
         step,
         parentSessionId,
+        parentRequest: pipeline.plannerContext?.parentRequest,
         timeoutMs,
-        taskPrompt: subagentTask.taskPrompt,
+        taskPrompt,
         diagnostics: subagentTask.diagnostics,
         tools: toolScope.allowedTools,
         lifecycleEmitter,
@@ -1026,6 +1105,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       }
 
       lastFailure = attemptOutcome.failure;
+      failureHistory.push(lastFailure);
       if (spawnedChild) {
         const usageBreach = budgetTracker.recordUsage(
           lastFailure.toolCallCount ?? 0,
@@ -1110,6 +1190,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           output: lastFailure.message,
           durationMs: lastFailure.durationMs,
           failureClass: lastFailure.failureClass,
+          validationCode: lastFailure.validationCode,
+          decomposition: lastFailure.decomposition,
           attempt,
           retrying: shouldRetry,
           retryAttempt,
@@ -1153,6 +1235,13 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
       if (shouldRetry) {
         retryAttempts[lastFailure.failureClass] = retryAttempt;
+        taskPrompt = this.buildRetryTaskPrompt(
+          taskPrompt,
+          step,
+          toolScope.allowedTools,
+          lastFailure,
+          retryAttempt,
+        );
         lifecycleEmitter?.emit({
           type: "subagents.progress",
           timestamp: Date.now(),
@@ -1175,6 +1264,36 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         continue;
       }
 
+      if (
+        lastFailure.failureClass === "needs_decomposition" &&
+        lastFailure.decomposition
+      ) {
+        return {
+          status: "failed",
+          error:
+            `Sub-agent step "${step.name}" requires decomposition: ${lastFailure.message}`,
+          stopReasonHint: lastFailure.stopReasonHint,
+          decomposition: lastFailure.decomposition,
+          result: safeStringify({
+            status: "needs_decomposition",
+            success: false,
+            delegated: false,
+            recoveredViaParentFallback: false,
+            failureClass: lastFailure.failureClass,
+            error: lastFailure.message,
+            failureHistory: failureHistory.map((failure) => ({
+              failureClass: failure.failureClass,
+              validationCode: failure.validationCode ?? null,
+              message: failure.message,
+            })),
+            decomposition: lastFailure.decomposition,
+            attempts: attempt,
+            retryPolicy: retryAttempts,
+            subagentSessionId: lastFailure.childSessionId ?? null,
+          }),
+        };
+      }
+
       if (this.fallbackBehavior === "continue_without_delegation") {
         return {
           status: "completed",
@@ -1185,6 +1304,11 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
             recoveredViaParentFallback: true,
             failureClass: lastFailure.failureClass,
             error: lastFailure.message,
+            failureHistory: failureHistory.map((failure) => ({
+              failureClass: failure.failureClass,
+              validationCode: failure.validationCode ?? null,
+              message: failure.message,
+            })),
             attempts: attempt,
             retryPolicy: retryAttempts,
             subagentSessionId: lastFailure.childSessionId ?? null,
@@ -1194,8 +1318,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
       return {
         status: "failed",
-        error:
-          `Sub-agent step "${step.name}" failed: ${lastFailure.message}`,
+        error: summarizeSubagentFailureHistory(step.name, failureHistory),
         stopReasonHint: lastFailure.stopReasonHint,
       };
     }
@@ -1323,6 +1446,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       timeout: 0,
       tool_misuse: 0,
       malformed_result_contract: 0,
+      needs_decomposition: 0,
+      invalid_input: 0,
       transient_provider_error: 0,
       cancelled: 0,
       spawn_error: 0,
@@ -1404,46 +1529,47 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     return "unknown";
   }
 
-  private validateSubagentResultContract(
-    step: PipelinePlannerSubagentStep,
-    output: string,
-  ): string | null {
-    const trimmed = output.trim();
-    if (trimmed.length === 0) {
-      return "Malformed result contract: empty output";
-    }
-
-    const normalized = trimmed.toLowerCase();
+  private classifySubagentFailureResult(
+    result: Pick<SubAgentResult, "output" | "stopReason" | "stopReasonDetail">,
+  ): SubagentFailureClass {
+    if (result.stopReason === "timeout") return "timeout";
+    if (result.stopReason === "cancelled") return "cancelled";
     if (
-      normalized === "null" ||
-      normalized === "undefined" ||
-      normalized === "{}" ||
-      normalized === "[]"
+      result.stopReason === "provider_error" ||
+      result.stopReason === "authentication_error" ||
+      result.stopReason === "rate_limited"
     ) {
-      return "Malformed result contract: empty structured payload";
+      return "transient_provider_error";
     }
-
-    if (step.inputContract.toLowerCase().includes("json")) {
-      try {
-        const parsed = JSON.parse(trimmed) as unknown;
-        if (
-          typeof parsed !== "object" ||
-          parsed === null ||
-          Array.isArray(parsed)
-        ) {
-          return "Malformed result contract: expected JSON object output";
-        }
-      } catch {
-        return "Malformed result contract: expected JSON object output";
-      }
-    }
-
-    return null;
+    const message =
+      typeof result.stopReasonDetail === "string" &&
+        result.stopReasonDetail.trim().length > 0
+        ? result.stopReasonDetail
+        : (typeof result.output === "string" ? result.output : "");
+    return this.classifySubagentFailureMessage(message);
   }
 
   private async executeSubagentAttempt(
     input: ExecuteSubagentAttemptParams,
   ): Promise<ExecuteSubagentAttemptOutcome> {
+    const scopeAssessment = assessDelegationScope({
+      objective: input.step.objective,
+      inputContract: input.step.inputContract,
+      acceptanceCriteria: input.step.acceptanceCriteria,
+    });
+    if (!scopeAssessment.ok) {
+      return {
+        status: "failed",
+        failure: {
+          failureClass: "needs_decomposition",
+          message:
+            `Refusing overloaded subagent step "${input.step.name}": ${scopeAssessment.error}`,
+          decomposition: scopeAssessment.decomposition,
+          stopReasonHint: "validation_error",
+        },
+      };
+    }
+
     let childSessionId: string;
     try {
       childSessionId = await input.subAgentManager.spawn({
@@ -1452,6 +1578,22 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         timeoutMs: input.timeoutMs,
         tools: input.tools,
         requiredCapabilities: input.step.requiredToolCapabilities,
+        requireToolCall: specRequiresSuccessfulToolEvidence({
+          objective: input.step.objective,
+          inputContract: input.step.inputContract,
+          acceptanceCriteria: input.step.acceptanceCriteria,
+          requiredToolCapabilities: input.step.requiredToolCapabilities,
+          tools: input.tools,
+        }),
+        delegationSpec: {
+          task: input.step.name,
+          objective: input.step.objective,
+          parentRequest: input.parentRequest,
+          inputContract: input.step.inputContract,
+          acceptanceCriteria: input.step.acceptanceCriteria,
+          requiredToolCapabilities: input.step.requiredToolCapabilities,
+          tools: input.tools,
+        },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1500,16 +1642,24 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       }
 
       if (result.success) {
-        const contractError = this.validateSubagentResultContract(
-          input.step,
-          result.output,
-        );
-        if (contractError) {
+        const contractValidation = validateDelegatedOutputContract({
+          spec: {
+            objective: input.step.objective,
+            inputContract: input.step.inputContract,
+            acceptanceCriteria: input.step.acceptanceCriteria,
+            requiredToolCapabilities: input.step.requiredToolCapabilities,
+          },
+          output: result.output,
+          toolCalls: result.toolCalls,
+          providerEvidence: result.providerEvidence,
+        });
+        if (contractValidation.error) {
           return {
             status: "failed",
             failure: {
               failureClass: "malformed_result_contract",
-              message: contractError,
+              message: contractValidation.error,
+              validationCode: contractValidation.code,
               stopReasonHint:
                 SUBAGENT_FAILURE_STOP_REASON.malformed_result_contract,
               childSessionId,
@@ -1547,16 +1697,44 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       }
 
       const message =
-        typeof result.output === "string" && result.output.length > 0
-          ? result.output
-          : "unknown sub-agent failure";
-      const failureClass = this.classifySubagentFailureMessage(message);
+        typeof result.stopReasonDetail === "string" &&
+          result.stopReasonDetail.trim().length > 0
+          ? result.stopReasonDetail
+          : (
+              typeof result.output === "string" && result.output.length > 0
+                ? result.output
+                : "unknown sub-agent failure"
+            );
+      const initialFailureClass = this.classifySubagentFailureResult(result);
+      const contractValidation =
+        result.stopReason === "validation_error" && !result.validationCode
+          ? validateDelegatedOutputContract({
+            spec: {
+              objective: input.step.objective,
+              inputContract: input.step.inputContract,
+              acceptanceCriteria: input.step.acceptanceCriteria,
+              requiredToolCapabilities: input.step.requiredToolCapabilities,
+            },
+            output: result.output,
+            toolCalls: result.toolCalls,
+            providerEvidence: result.providerEvidence,
+          })
+          : undefined;
+      const validationCode = result.validationCode ?? contractValidation?.code;
+      const failureClass =
+        validationCode !== undefined ||
+          initialFailureClass === "malformed_result_contract"
+          ? "malformed_result_contract"
+          : initialFailureClass;
+      const inheritedStopReasonHint = toPipelineStopReasonHint(result.stopReason);
       return {
         status: "failed",
         failure: {
           failureClass,
-          message,
-          stopReasonHint: SUBAGENT_FAILURE_STOP_REASON[failureClass],
+          message: contractValidation?.error ?? message,
+          validationCode,
+          stopReasonHint:
+            inheritedStopReasonHint ?? SUBAGENT_FAILURE_STOP_REASON[failureClass],
           childSessionId,
           durationMs: result.durationMs,
           toolCallCount: result.toolCalls.length,
@@ -1572,6 +1750,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     results: Readonly<Record<string, string>>,
     toolScope: {
       allowedTools: readonly string[];
+      semanticFallback: readonly string[];
+      removedLowSignalBrowserTools: readonly string[];
       removedByPolicy: readonly string[];
       removedAsDelegationTools: readonly string[];
       removedAsUnknownTools: readonly string[];
@@ -1583,6 +1763,9 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   } {
     const plannerContext = pipeline.plannerContext;
     const parentRequest = plannerContext?.parentRequest?.trim();
+    const summarizedParentRequest = parentRequest
+      ? this.summarizeParentRequestForSubagent(parentRequest, step)
+      : undefined;
     const relevanceTerms = this.buildRelevanceTerms(step);
     const requirementTerms = this.extractTerms(step.contextRequirements.join(" "));
     const dependencies = step.dependsOn?.map((dependencyName) => ({
@@ -1608,12 +1791,22 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
     const buildPrompt = (diagnostics: SubagentContextDiagnostics): string => {
       const sections: string[] = [];
+      sections.push(
+        `Execution rules:
+- Execute only the assigned phase \`${step.name}\`.
+- Do not create a new multi-step plan for the broader parent request.
+- Do not attempt sibling phases or synthesize the final deliverable.
+- If the task requires tool-grounded evidence, you must use one or more allowed tools before answering.
+- If you cannot complete the phase with the allowed tools, state that you are blocked and explain exactly why.`,
+      );
       sections.push(`Objective: ${this.redactSensitiveData(step.objective)}`);
       sections.push(
         `Input contract: ${this.redactSensitiveData(step.inputContract)}`,
       );
-      if (parentRequest && parentRequest.length > 0) {
-        sections.push(`Parent request: ${this.redactSensitiveData(parentRequest)}`);
+      if (summarizedParentRequest && summarizedParentRequest.length > 0) {
+        sections.push(
+          `Parent request summary: ${this.redactSensitiveData(summarizedParentRequest)}`,
+        );
       }
       if (step.acceptanceCriteria.length > 0) {
         sections.push(
@@ -1686,6 +1879,10 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         parentPolicyAllowed: [...toolScope.parentPolicyAllowed],
         parentPolicyForbidden: [...this.forbiddenParentTools],
         resolved: [...toolScope.allowedTools],
+        semanticFallback: [...toolScope.semanticFallback],
+        removedLowSignalBrowserTools: [
+          ...toolScope.removedLowSignalBrowserTools,
+        ],
         removedByPolicy: [...toolScope.removedByPolicy],
         removedAsDelegationTools: [...toolScope.removedAsDelegationTools],
         removedAsUnknownTools: [...toolScope.removedAsUnknownTools],
@@ -1712,62 +1909,145 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     pipeline: Pipeline,
   ): {
     allowedTools: readonly string[];
+    semanticFallback: readonly string[];
+    removedLowSignalBrowserTools: readonly string[];
+    blockedReason?: string;
     removedByPolicy: readonly string[];
     removedAsDelegationTools: readonly string[];
     removedAsUnknownTools: readonly string[];
     parentPolicyAllowed: readonly string[];
   } {
-    const required = [...new Set(
-      step.requiredToolCapabilities
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0),
-    )];
-
     const parentPolicyAllowed = this.resolveParentPolicyAllowlist(pipeline);
-    const parentAllowedSet = new Set(parentPolicyAllowed);
     const availableTools = this.resolveAvailableToolNames();
-    const availableSet = new Set(
-      (availableTools ?? [])
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0),
-    );
-
-    const removedByPolicy: string[] = [];
-    const removedAsDelegationTools: string[] = [];
-    const removedAsUnknownTools: string[] = [];
-    const allowedTools: string[] = [];
-
-    for (const toolName of required) {
-      if (
-        this.childToolAllowlistStrategy === "inherit_intersection" &&
-        parentAllowedSet.size > 0 &&
-        !parentAllowedSet.has(toolName)
-      ) {
-        removedByPolicy.push(toolName);
-        continue;
-      }
-      if (this.forbiddenParentTools.has(toolName)) {
-        removedByPolicy.push(toolName);
-        continue;
-      }
-      if (isDelegationToolName(toolName)) {
-        removedAsDelegationTools.push(toolName);
-        continue;
-      }
-      if (availableSet.size > 0 && !availableSet.has(toolName)) {
-        removedAsUnknownTools.push(toolName);
-        continue;
-      }
-      allowedTools.push(toolName);
-    }
+    const resolvedScope = resolveDelegatedChildToolScope({
+      spec: {
+        task: step.name,
+        objective: step.objective,
+        parentRequest: pipeline.plannerContext?.parentRequest,
+        inputContract: step.inputContract,
+        acceptanceCriteria: step.acceptanceCriteria,
+        requiredToolCapabilities: step.requiredToolCapabilities,
+        tools: step.requiredToolCapabilities,
+      },
+      requestedTools: step.requiredToolCapabilities,
+      parentAllowedTools: parentPolicyAllowed,
+      availableTools: availableTools ?? undefined,
+      forbiddenTools: [...this.forbiddenParentTools],
+      enforceParentIntersection:
+        this.childToolAllowlistStrategy === "inherit_intersection",
+    });
 
     return {
-      allowedTools,
-      removedByPolicy,
-      removedAsDelegationTools,
-      removedAsUnknownTools,
+      allowedTools: resolvedScope.allowedTools,
+      semanticFallback: resolvedScope.semanticFallback,
+      removedLowSignalBrowserTools: resolvedScope.removedLowSignalBrowserTools,
+      blockedReason: resolvedScope.blockedReason,
+      removedByPolicy: resolvedScope.removedByPolicy,
+      removedAsDelegationTools: resolvedScope.removedAsDelegationTools,
+      removedAsUnknownTools: resolvedScope.removedAsUnknownTools,
       parentPolicyAllowed,
     };
+  }
+
+  private buildRetryTaskPrompt(
+    currentTaskPrompt: string,
+    step: PipelinePlannerSubagentStep,
+    allowedTools: readonly string[],
+    failure: SubagentFailureOutcome,
+    retryAttempt: number,
+  ): string {
+    if (failure.failureClass !== "malformed_result_contract") {
+      return currentTaskPrompt;
+    }
+
+    const corrections: string[] = [];
+    if (failure.validationCode === "expected_json_object") {
+      corrections.push(
+        "Return a single JSON object only. Do not wrap it in markdown, code fences, prose, or bullet lists.",
+      );
+    }
+    if (failure.validationCode === "empty_output") {
+      corrections.push(
+        "Do not return an empty reply. Produce the required deliverable with concrete evidence.",
+      );
+    }
+    if (failure.validationCode === "low_signal_browser_evidence") {
+      corrections.push(
+        "Use real browser interactions against concrete non-blank URLs or localhost pages. `browser_tabs` or about:blank state checks do not count as evidence.",
+      );
+      corrections.push(
+        "Use allowed browser tools like navigate, snapshot, or run_code on the target page and cite the visited URL in the output.",
+      );
+    }
+    if (
+      step.requiredToolCapabilities.length > 0 ||
+      /tool-grounded evidence|no tool calls|all child tool calls failed/i.test(
+        failure.message,
+      )
+    ) {
+      corrections.push(
+        `You must invoke one or more of the allowed tools before answering. Allowed tools: ${allowedTools.join(", ") || "none"}. Do not answer from memory.`,
+      );
+    }
+    if (/file creation\/edit evidence|file mutation tools/i.test(failure.message)) {
+      corrections.push(
+        "You must create or edit the required files using allowed tools and identify those files in the output.",
+      );
+    }
+    if (/identify any files/i.test(failure.message)) {
+      corrections.push(
+        "Your output must explicitly name the files you created or modified.",
+      );
+    }
+
+    if (corrections.length === 0) {
+      corrections.push(
+        `The previous attempt for step "${step.name}" violated the delegated output contract. Re-run the phase and satisfy the stated input contract and acceptance criteria exactly.`,
+      );
+    }
+
+    return `${currentTaskPrompt}\n\nRetry corrections (attempt ${retryAttempt}):\n${corrections.map((entry) => `- ${entry}`).join("\n")}`;
+  }
+
+  private summarizeParentRequestForSubagent(
+    parentRequest: string,
+    step: PipelinePlannerSubagentStep,
+  ): string {
+    const stripped = parentRequest
+      .replace(SUBAGENT_ORCHESTRATION_SECTION_RE, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const highLevelScope = stripped
+      .split(/\bExecution rules:\b/i)[0]
+      ?.trim();
+    const base =
+      highLevelScope && highLevelScope.length > 0
+        ? highLevelScope
+        : stripped.length > 0
+          ? stripped
+        : `Complete only the assigned ${step.name} phase of the parent request.`;
+    return this.truncateText(
+      `${base} Assigned phase only: ${step.name}. Ignore broader orchestration instructions and other phases.`,
+      600,
+    );
+  }
+
+  private resolveEffectiveMaxCumulativeTokensPerRequestTree(
+    plannerSteps: readonly PipelinePlannerStep[],
+  ): number {
+    if (this.maxCumulativeTokensPerRequestTreeExplicitlyConfigured) {
+      return this.maxCumulativeTokensPerRequestTree;
+    }
+    const plannedSubagentSteps = plannerSteps.filter(
+      (step) => step.stepType === "subagent_task",
+    ).length;
+    if (plannedSubagentSteps <= 0) {
+      return this.maxCumulativeTokensPerRequestTree;
+    }
+    return Math.max(
+      this.maxCumulativeTokensPerRequestTree,
+      plannedSubagentSteps * DEFAULT_MIN_TOKENS_PER_PLANNED_SUBAGENT_STEP,
+    );
   }
 
   private resolveParentPolicyAllowlist(
