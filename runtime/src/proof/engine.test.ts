@@ -141,7 +141,6 @@ describe("ProofEngine", () => {
       const engine = new ProofEngine({
         methodId: new Uint8Array(32),
         proverBackend: { kind: "local-binary", binaryPath: "/test" },
-        verifyAfterGeneration: true,
         cache: { ttlMs: 60_000, maxEntries: 50 },
       });
       expect(engine).toBeInstanceOf(ProofEngine);
@@ -382,31 +381,6 @@ describe("ProofEngine", () => {
       vi.mocked(mockGenerateProof).mockClear();
       await engine.generate(inputs);
       expect(mockGenerateProof).toHaveBeenCalledOnce();
-    });
-  });
-
-  // ==========================================================================
-  // generate() with verification
-  // ==========================================================================
-
-  describe("generate with verification flag", () => {
-    it("logs a warning when verifyAfterGeneration is set", async () => {
-      const warnFn = vi.fn();
-      const engine = new ProofEngine({
-        ...makePinnedProofConfig(),
-        verifyAfterGeneration: true,
-        logger: {
-          debug: vi.fn(),
-          info: vi.fn(),
-          warn: warnFn,
-          error: vi.fn(),
-          setLevel: vi.fn(),
-        },
-      });
-      await engine.generate(makeInputs());
-      expect(warnFn).toHaveBeenCalledWith(
-        expect.stringContaining("verifyAfterGeneration is not supported"),
-      );
     });
   });
 

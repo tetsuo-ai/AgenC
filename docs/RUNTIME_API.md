@@ -163,7 +163,6 @@ const engine = new ProofEngine({
     verifierEntryPda,
     verifierProgramId,
   },
-  verifyAfterGeneration: false,
   cache: { ttlMs: 300_000, maxEntries: 100 },
 });
 
@@ -171,9 +170,9 @@ const result = await engine.generate({
   taskPda, agentPubkey,
   output: [1n, 2n, 3n, 4n],
   salt: engine.generateSalt(),
-  agentSecret,
+  agentSecret: secretWitnessBigint,
 });
-// result.fromCache, result.verified, result.sealBytes, result.imageId
+// result.fromCache, result.verified, result.proofSize
 ```
 
 Private proof generation fails closed unless `methodId` and the full
@@ -331,13 +330,14 @@ When `GrokProviderConfig.webSearch=true`, the runtime can route provider-native 
 | `proverBackend.kind` | `"local-binary" \| "remote"` | Yes | — |
 | `proverBackend.binaryPath` | `string` | If `kind="local-binary"` | — |
 | `proverBackend.endpoint` | `string` | If `kind="remote"` | — |
+| `proverBackend.timeoutMs` | `number` | No | SDK default |
+| `proverBackend.headers` | `Record<string, string>` | No | — |
 | `methodId` | `Uint8Array` | Required for private proving | — |
 | `routerConfig.routerProgramId` | `PublicKey` | Required for private proving | — |
 | `routerConfig.routerPda` | `PublicKey` | Required for private proving | — |
 | `routerConfig.verifierEntryPda` | `PublicKey` | Required for private proving | — |
 | `routerConfig.verifierProgramId` | `PublicKey` | Required for private proving | — |
 | `unsafeAllowUnpinnedPrivateProofs` | `boolean` | No | `false` (development only) |
-| `verifyAfterGeneration` | `boolean` | No | `false` |
 | `cache.ttlMs` | `number` | No | `300_000` |
 | `cache.maxEntries` | `number` | No | `100` |
 

@@ -1,9 +1,9 @@
 /**
  * ProofEngine - ZK proof generation engine with caching and stats tracking.
  *
- * Wraps the SDK's ZK proof functions with caching, verification,
- * statistics tracking, and error wrapping. Implements ProofGenerator
- * from the proof pipeline for plug-and-play integration.
+ * Wraps the SDK's ZK proof functions with caching, statistics tracking,
+ * and error wrapping. Implements ProofGenerator from the proof pipeline
+ * for plug-and-play integration.
  *
  * @module
  */
@@ -101,7 +101,7 @@ export function buildSdkProverConfig(
  * const engine = new ProofEngine({
  *   proverBackend: {
  *     kind: "local-binary",
- *     binaryPath: "/usr/local/bin/agenc-zkvm-host",
+ *     binaryPath: "/absolute/path/to/agenc-zkvm-host",
  *   },
  *   methodId: trustedImageIdBytes,
  *   routerConfig: {
@@ -111,7 +111,6 @@ export function buildSdkProverConfig(
  *     verifierProgramId,
  *   },
  *   cache: { ttlMs: 300_000, maxEntries: 100 },
- *   verifyAfterGeneration: false,
  * });
  *
  * const result = await engine.generate({
@@ -119,7 +118,7 @@ export function buildSdkProverConfig(
  *   agentPubkey,
  *   output: [1n, 2n, 3n, 4n],
  *   salt: engine.generateSalt(),
- *   agentSecret,
+ *   agentSecret: secretWitnessBigint,
  * });
  * ```
  */
@@ -129,7 +128,6 @@ export class ProofEngine implements ProofGenerator {
   private readonly proverBackend: ProverBackend;
   private readonly proverBackendConfig: ProverBackendConfig | undefined;
   private readonly unsafeAllowUnpinnedPrivateProofs: boolean;
-  private readonly verifyAfterGeneration: boolean;
   private readonly cache: ProofCache | null;
   private readonly logger: Logger;
   private readonly metrics?: MetricsProvider;
@@ -153,7 +151,6 @@ export class ProofEngine implements ProofGenerator {
     this.proverBackend = config?.proverBackend?.kind ?? "local-binary";
     this.unsafeAllowUnpinnedPrivateProofs =
       config?.unsafeAllowUnpinnedPrivateProofs ?? false;
-    this.verifyAfterGeneration = config?.verifyAfterGeneration ?? false;
     this.cache = config?.cache ? new ProofCache(config.cache) : null;
     this.logger = config?.logger ?? silentLogger;
     this.metrics = config?.metrics;
@@ -183,7 +180,7 @@ export class ProofEngine implements ProofGenerator {
    * Generate a ZK proof for the given inputs.
    *
    * Checks cache first (if enabled). On cache miss, calls the SDK's
-   * generateProof function, optionally verifies, caches, and returns.
+   * generateProof function, caches, and returns.
    */
   async generate(inputs: ProofInputs): Promise<EngineProofResult> {
     this._totalRequests++;
@@ -257,14 +254,6 @@ export class ProofEngine implements ProofGenerator {
       TELEMETRY_METRIC_NAMES.PROOF_GENERATION_DURATION,
       generationTimeMs,
     );
-
-    // Note: verifyAfterGeneration is a no-op — local verification was removed.
-    // On-chain Verifier Router CPI is the authoritative verification.
-    if (this.verifyAfterGeneration) {
-      this.logger.warn(
-        "verifyAfterGeneration is not supported — on-chain Verifier Router CPI is the authoritative verification",
-      );
-    }
 
     // Cache result
     if (this.cache) {
