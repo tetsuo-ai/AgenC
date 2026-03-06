@@ -703,12 +703,25 @@ export async function handleDesktopCreate(
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ): Promise<void> {
   if (!deps.desktopManager) {
     send({ type: 'desktop.error', error: 'Desktop sandbox manager not available — enable desktop in config', id });
     return;
   }
-  const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : `desktop-${Date.now()}`;
+  const requestedSessionId =
+    typeof payload?.sessionId === 'string' && payload.sessionId.length > 0
+      ? payload.sessionId
+      : undefined;
+  if (requestedSessionId && !request.isSessionOwned(requestedSessionId)) {
+    send({ type: 'desktop.error', error: 'Not authorized for target session', id });
+    return;
+  }
+  const sessionId = requestedSessionId ?? request.activeSessionId;
+  if (!sessionId) {
+    send({ type: 'desktop.error', error: 'Missing sessionId in payload', id });
+    return;
+  }
   const parsedMemory = parseDesktopResourceOverride(payload?.maxMemory, 'maxMemory');
   if (parsedMemory.error) {
     send({ type: 'desktop.error', error: parsedMemory.error, id });

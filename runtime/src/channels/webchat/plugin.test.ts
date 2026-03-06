@@ -16,6 +16,8 @@ import { silentLogger } from "../../utils/logger.js";
 // Test helpers
 // ============================================================================
 
+type DesktopManager = NonNullable<WebChatDeps["desktopManager"]>;
+
 function createDeps(overrides?: Partial<WebChatDeps>): WebChatDeps {
   return {
     gateway: {
@@ -43,6 +45,52 @@ function createContext(overrides?: Partial<ChannelContext>): ChannelContext {
 
 function msg(type: string, payload?: unknown, id?: string): ControlMessage {
   return { type: type as ControlMessage["type"], payload, id };
+}
+
+function openChatSession(
+  channel: WebChatChannel,
+  context: ChannelContext,
+  clientId: string,
+  send: (response: ControlResponse) => void,
+  content: string,
+): string {
+  channel.handleMessage(
+    clientId,
+    "chat.message",
+    msg("chat.message", { content }),
+    send,
+  );
+  const calls = vi.mocked(context.onMessage).mock.calls;
+  return calls[calls.length - 1][0].sessionId;
+}
+
+function createDesktopManager(
+  overrides: Partial<DesktopManager> = {},
+): DesktopManager {
+  return {
+    listAll: vi.fn().mockReturnValue([]),
+    getHandleBySession: vi.fn(),
+    getOrCreate: vi.fn(),
+    destroy: vi.fn(),
+    assignSession: vi.fn(),
+    ...overrides,
+  } as unknown as DesktopManager;
+}
+
+async function startDesktopChannel(
+  desktopManager: DesktopManager,
+  onMessage?: ChannelContext["onMessage"],
+): Promise<{
+  deps: WebChatDeps;
+  context: ChannelContext;
+  channel: WebChatChannel;
+}> {
+  const deps = createDeps({ desktopManager });
+  const context = createContext(onMessage ? { onMessage } : undefined);
+  const channel = new WebChatChannel(deps);
+  await channel.initialize(context);
+  await channel.start();
+  return { deps, context, channel };
 }
 
 // ============================================================================
@@ -907,6 +955,42 @@ describe("WebChatChannel", () => {
       });
     });
 
+    it("desktop.create accepts an owned explicit sessionId", async () => {
+      const getOrCreate = vi.fn().mockResolvedValue({
+        containerId: "ctr-explicit",
+        sessionId: "session:client1",
+        status: "ready",
+        vncHostPort: 6087,
+        apiHostPort: 9997,
+        createdAt: Date.now(),
+        maxMemory: "4g",
+        maxCpu: "2.0",
+      });
+      ({ deps, context, channel } = await startDesktopChannel(
+        createDesktopManager({ getOrCreate }),
+        vi.fn().mockResolvedValueOnce({ sessionId: "session:client1" }),
+      ));
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      const sessionId = openChatSession(channel, context, "client_1", send, "hello");
+
+      channel.handleMessage(
+        "client_1",
+        "desktop.create",
+        msg("desktop.create", { sessionId }, "desktop-create-explicit-1"),
+        send,
+      );
+
+      await vi.waitFor(() => expect(getOrCreate).toHaveBeenCalledTimes(1));
+      expect(getOrCreate).toHaveBeenCalledWith(sessionId, {
+        maxMemory: undefined,
+        maxCpu: undefined,
+      });
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "desktop.created" }),
+      );
+    });
+
     it("desktop.create normalizes bare integer maxMemory to gigabytes", async () => {
       const getOrCreate = vi.fn().mockResolvedValue({
         containerId: "ctr-resource-int",
@@ -950,6 +1034,43 @@ describe("WebChatChannel", () => {
         maxMemory: "16g",
         maxCpu: "4",
       });
+    });
+
+    it("desktop.create rejects foreign sessionId values", async () => {
+      const getOrCreate = vi.fn();
+      ({ deps, context, channel } = await startDesktopChannel(
+        createDesktopManager({ getOrCreate }),
+        vi
+          .fn()
+          .mockResolvedValueOnce({ sessionId: "session:client1" })
+          .mockResolvedValueOnce({ sessionId: "session:client2" }),
+      ));
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      const foreignSessionId = openChatSession(
+        channel,
+        context,
+        "client_1",
+        send1,
+        "hello 1",
+      );
+      openChatSession(channel, context, "client_2", send2, "hello 2");
+
+      channel.handleMessage(
+        "client_2",
+        "desktop.create",
+        msg("desktop.create", { sessionId: foreignSessionId }, "desktop-create-foreign-1"),
+        send2,
+      );
+
+      expect(send2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "desktop.error",
+          error: "Not authorized for target session",
+        }),
+      );
+      expect(getOrCreate).not.toHaveBeenCalled();
     });
 
     it("desktop.attach binds container to the client's active session", async () => {
