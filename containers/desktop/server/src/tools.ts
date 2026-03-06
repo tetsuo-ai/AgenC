@@ -531,11 +531,15 @@ function numberLines(text: string, startLine = 1): string {
 async function textEditor(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  const command = String(args.command ?? "");
-  const inputPath = String(args.path ?? "");
+  const command = args.command;
+  const inputPath = args.path;
 
-  if (!command) return fail("command is required");
-  if (!inputPath) return fail("path is required");
+  if (typeof command !== "string" || !command) {
+    return fail("command is required");
+  }
+  if (typeof inputPath !== "string" || !inputPath) {
+    return fail("path is required");
+  }
 
   let path: string;
   try {

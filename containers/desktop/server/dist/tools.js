@@ -446,12 +446,14 @@ function numberLines(text, startLine = 1) {
         .join("\n");
 }
 async function textEditor(args) {
-    const command = String(args.command ?? "");
-    const inputPath = String(args.path ?? "");
-    if (!command)
+    const command = args.command;
+    const inputPath = args.path;
+    if (typeof command !== "string" || !command) {
         return fail("command is required");
-    if (!inputPath)
+    }
+    if (typeof inputPath !== "string" || !inputPath) {
         return fail("path is required");
+    }
     let path;
     try {
         path = await resolveValidatedTextEditorPath(inputPath);
