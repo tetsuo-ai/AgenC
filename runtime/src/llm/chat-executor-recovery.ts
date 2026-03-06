@@ -68,6 +68,11 @@ function isNodeInterpreterCommand(command: string): boolean {
   return base === "node" || base.startsWith("node");
 }
 
+function isPythonInterpreterCommand(command: string): boolean {
+  const base = commandBasename(command);
+  return base === "python" || /^python\d+(?:\.\d+)?$/.test(base);
+}
+
 function isAgencRuntimeNodeInvocation(args: Record<string, unknown>): boolean {
   const raw = args.args;
   if (!Array.isArray(raw)) return false;
@@ -274,6 +279,14 @@ export function inferRecoveryHint(
           message:
             "Node interpreter commands are blocked on system.bash. Use an allowed host binary directly " +
             "(for example `agenc-runtime`) or run interpreter-based workflows in `desktop.bash`.",
+        };
+      }
+      if (isPythonInterpreterCommand(deniedCommand)) {
+        return {
+          key: "system-bash-command-denied-python",
+          message:
+            "Python interpreter commands are blocked on system.bash. " +
+            "Use an allowed host binary directly, or run Python workflows in `desktop.bash` after `/desktop attach`.",
         };
       }
     }

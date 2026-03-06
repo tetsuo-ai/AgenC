@@ -35,6 +35,15 @@ const MIN_DELEGATION_TIMEOUT_MS = 60_000;
 const MAX_DELEGATION_TIMEOUT_MS = 3_600_000;
 const DELEGATION_FAILURE_SIGNAL_RE =
   /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
+const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
+  "system.makeDir": "system.mkdir",
+  "system.listFiles": "system.listDir",
+};
+
+function normalizeToolName(name: string): string {
+  const alias = TOOL_NAME_ALIASES[name];
+  return typeof alias === "string" ? alias : name;
+}
 
 function normalizeDesktopBashCommand(
   name: string,
@@ -623,6 +632,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     `tool-${Date.now().toString(36)}-${++toolCallSeq}`;
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
+    const toolName = normalizeToolName(name);
     const delegationContext = delegation?.();
     const subAgentManager = delegationContext?.subAgentManager ?? null;
     const policyEngine = delegationContext?.policyEngine ?? null;
@@ -634,7 +644,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       : null;
     const parentSessionId = subAgentInfo?.parentSessionId;
 
-    const launchKey = normalizeDesktopBashCommand(name, args);
+    const launchKey = normalizeDesktopBashCommand(toolName, args);
     if (launchKey) {
       if (seenGuiLaunches.has(launchKey)) {
         return JSON.stringify({
@@ -653,7 +663,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       lifecycleEmitter &&
       policyEngine &&
       !isSubAgentSession &&
-      policyEngine.isDelegationTool(name)
+      policyEngine.isDelegationTool(toolName)
     ) {
       lifecycleEmitter.emit({
         type: 'subagents.planned',
@@ -669,13 +679,13 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     if (policyEngine) {
       const decision = policyEngine.evaluate({
         sessionId,
-        toolName: name,
+        toolName,
         args,
         isSubAgentSession,
       });
       if (!decision.allowed) {
         const err = JSON.stringify({
-          error: decision.reason ?? `Tool "${name}" blocked by delegation policy`,
+          error: decision.reason ?? `Tool "${toolName}" blocked by delegation policy`,
         });
         if (isSubAgentSession && lifecycleEmitter) {
           lifecycleEmitter.emit({
@@ -683,7 +693,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
             timestamp: Date.now(),
             sessionId,
             subagentSessionId: sessionId,
-            toolName: name,
+            toolName,
             payload: {
               stage: 'policy',
               reason: decision.reason,
@@ -698,7 +708,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     if (hooks) {
       const beforeResult = await hooks.dispatch('tool:before', {
         sessionId,
-        toolName: name,
+        toolName,
         args,
       });
       if (!beforeResult.completed) {
@@ -710,16 +720,16 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
             timestamp: Date.now(),
             sessionId,
             subagentSessionId: sessionId,
-            toolName: name,
+            toolName,
             payload: { stage: 'hook_before' },
           });
         }
-        return JSON.stringify({ error: `Tool "${name}" blocked by hook` });
+        return JSON.stringify({ error: `Tool "${toolName}" blocked by hook` });
       }
     }
 
     // 2. Notify caller: tool execution starting
-    onToolStart?.(name, args, toolCallId);
+    onToolStart?.(toolName, args, toolCallId);
 
     if (isSubAgentSession && lifecycleEmitter) {
       lifecycleEmitter.emit({
@@ -727,7 +737,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         timestamp: Date.now(),
         sessionId,
         subagentSessionId: sessionId,
-        toolName: name,
+        toolName,
         payload: { args, toolCallId },
       });
     }
@@ -736,7 +746,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     send({
       type: 'tools.executing',
       payload: {
-        toolName: name,
+        toolName,
         args,
         toolCallId,
         ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
@@ -746,7 +756,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     // 4. Approval gate
     const approvalError = await runApprovalGate({
       approvalEngine,
-      name,
+      name: toolName,
       args,
       sessionId,
       parentSessionId,
@@ -765,11 +775,11 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     const routedHandler = desktopRouterFactory
       ? desktopRouterFactory(routerId)
       : baseHandler;
-    const activeHandler: ToolHandler = name === EXECUTE_WITH_AGENT_TOOL_NAME
+    const activeHandler: ToolHandler = toolName === EXECUTE_WITH_AGENT_TOOL_NAME
       ? async (_toolName, toolArgs) =>
         executeDelegationTool({
           toolArgs,
-          name,
+          name: toolName,
           sessionId,
           toolCallId,
           subAgentManager,
@@ -782,7 +792,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     const start = Date.now();
     let result: string;
     try {
-      result = await activeHandler(name, args);
+      result = await activeHandler(toolName, args);
     } catch (error) {
       if (isSubAgentSession && lifecycleEmitter) {
         lifecycleEmitter.emit({
@@ -790,7 +800,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           timestamp: Date.now(),
           sessionId,
           subagentSessionId: sessionId,
-          toolName: name,
+          toolName,
           payload: {
             stage: 'execution',
             error: toErrorString(error),
@@ -810,7 +820,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     send({
       type: 'tools.result',
       payload: {
-        toolName: name,
+        toolName,
         result,
         durationMs,
         toolCallId,
@@ -824,7 +834,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         timestamp: Date.now(),
         sessionId,
         subagentSessionId: sessionId,
-        toolName: name,
+        toolName,
         payload: {
           result,
           durationMs,
@@ -838,7 +848,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     if (hooks) {
       await hooks.dispatch('tool:after', {
         sessionId,
-        toolName: name,
+        toolName,
         args,
         result,
         durationMs,
@@ -846,7 +856,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     }
 
     // 9. Notify caller: tool execution finished
-    onToolEnd?.(name, result, durationMs, toolCallId);
+    onToolEnd?.(toolName, result, durationMs, toolCallId);
 
     return result;
   };

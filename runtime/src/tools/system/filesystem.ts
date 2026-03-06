@@ -82,6 +82,16 @@ function hasTraversalSegment(rawPath: string): boolean {
   return rawPath.split(/[/\\]+/).some((seg) => seg === "..");
 }
 
+function expandHomeDirectory(rawPath: string): string {
+  if (rawPath === "~" || rawPath.startsWith("~/") || rawPath.startsWith("~\\")) {
+    const home = process.env.HOME ?? process.env.USERPROFILE;
+    if (!home || home.trim().length === 0) return rawPath;
+    if (rawPath === "~") return home;
+    return resolve(home, rawPath.slice(2));
+  }
+  return rawPath;
+}
+
 /**
  * Resolve a path to its canonical form, following symlinks.
  * For non-existent targets (write/mkdir destinations), walks up ancestors
@@ -152,13 +162,15 @@ export async function safePath(
       return { safe: false, resolved: "", reason: "Path contains null byte" };
     }
 
+    const normalizedTarget = expandHomeDirectory(targetPath);
+
     // Defence-in-depth: reject explicit traversal segments before resolution
-    if (hasTraversalSegment(targetPath)) {
+    if (hasTraversalSegment(normalizedTarget)) {
       return { safe: false, resolved: "", reason: "Path traversal detected" };
     }
 
     // Reject excessively long paths (OS-level PATH_MAX)
-    if (resolve(targetPath).length > MAX_PATH_LENGTH) {
+    if (resolve(normalizedTarget).length > MAX_PATH_LENGTH) {
       return {
         safe: false,
         resolved: "",
@@ -175,15 +187,16 @@ export async function safePath(
     }
 
     // Canonicalize target (follows symlinks, normalize Unicode for macOS HFS+/APFS)
-    const canonical = (await canonicalize(targetPath)).normalize("NFC");
+    const canonical = (await canonicalize(normalizedTarget)).normalize("NFC");
 
     for (const allowed of allowedPaths) {
+      const normalizedAllowed = expandHomeDirectory(allowed);
       // Canonicalize each allowed path too (follows symlinks in allowlist)
       let canonicalAllowed: string;
       try {
-        canonicalAllowed = (await realpath(resolve(allowed))).normalize("NFC");
+        canonicalAllowed = (await realpath(resolve(normalizedAllowed))).normalize("NFC");
       } catch {
-        canonicalAllowed = resolve(allowed).normalize("NFC");
+        canonicalAllowed = resolve(normalizedAllowed).normalize("NFC");
       }
 
       if (isWithin(canonicalAllowed, canonical)) {

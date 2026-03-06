@@ -1270,6 +1270,49 @@ describe("ChatExecutor", () => {
       expect(String(injectedHint?.content)).toContain("--output");
     });
 
+    it("injects a recovery hint when python is denied on system.bash", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValue('{"error":"Command \\"python3\\" is denied"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments: '{"command":"python3","args":["-c","print(1)"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("Python interpreter commands are blocked"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("/desktop attach");
+      expect(String(injectedHint?.content)).toContain("desktop.bash");
+    });
+
     it("injects a recovery hint when filesystem path is outside allowlist", async () => {
       const toolHandler = vi
         .fn()
@@ -1553,6 +1596,72 @@ describe("ChatExecutor", () => {
       expect(parsed.failure_reasons).toContain(
         "subagent_output_contains_failure_signal",
       );
+    });
+
+    it("marks structured overall result as fail when pass checks report daemon down", async () => {
+      const toolHandler = vi.fn().mockResolvedValueOnce(
+        '{"success":true,"status":"completed","output":"running: false\\npid: n/a\\nport: n/a"}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "execute_with_agent", arguments: "{}" }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                '{"overall":"pass","checks":[{"id":"daemon_status","status":"pass","summary":"running: false\\npid: n/a\\nport: n/a"}],"failure_reasons":[]}',
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+      const parsed = JSON.parse(result.content) as {
+        overall: string;
+        failure_reasons?: string[];
+      };
+
+      expect(parsed.overall).toBe("fail");
+      expect(parsed.failure_reasons).toContain(
+        "check_summary_conflicts_with_pass_status",
+      );
+    });
+
+    it("replaces low-information completion text when tool failures occurred", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValueOnce('{"error":"Command \\"python3\\" is denied"}');
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "system.bash", arguments: "{}" }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Done\nDone\nDone",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toContain(
+        "Execution could not be completed due to unresolved tool errors.",
+      );
+      expect(result.content).toContain("system.bash");
+      expect(result.content).not.toBe("Done\nDone\nDone");
     });
   });
 

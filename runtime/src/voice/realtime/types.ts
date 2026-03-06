@@ -59,11 +59,9 @@ export interface VadConfig {
 /** Tool definition for voice session (same as chat tools). */
 export interface VoiceTool {
   readonly type: "function";
-  readonly function: {
-    readonly name: string;
-    readonly description: string;
-    readonly parameters: Record<string, unknown>;
-  };
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Record<string, unknown>;
 }
 
 // ============================================================================

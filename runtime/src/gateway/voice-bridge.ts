@@ -28,6 +28,10 @@ import { createGatewayMessage } from "./message.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import { buildChatUsagePayload } from "./chat-usage.js";
 import type { DelegationToolCompositionResolver } from "./delegation-runtime.js";
+import {
+  createExecuteWithAgentTool,
+  parseExecuteWithAgentInput,
+} from "./delegation-tool.js";
 
 const DEFAULT_MAX_SESSIONS = 10;
 
@@ -91,28 +95,19 @@ function sanitizeXaiArgs(argsJson: string): string {
   return argsJson;
 }
 
+/** xAI Voice Agent custom tool definition for the shared delegation contract. */
+export function createVoiceDelegationTool(): VoiceTool {
+  const tool = createExecuteWithAgentTool();
+  return {
+    type: "function",
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.inputSchema,
+  };
+}
+
 /** Single delegation tool sent to xAI Realtime when ChatExecutor is available. */
-const AGENT_DELEGATION_TOOL: VoiceTool = {
-  type: "function",
-  function: {
-    name: "execute_with_agent",
-    description:
-      "Delegate a task to the agent for execution. Use for code, commands, " +
-      "file operations, browsing, or any multi-step operation. Pass a clear " +
-      "text description of what the user wants done. Do NOT use for greetings " +
-      "or simple factual questions you can answer directly.",
-    parameters: {
-      type: "object",
-      properties: {
-        task: {
-          type: "string",
-          description: "Clear text description of what the user wants done",
-        },
-      },
-      required: ["task"],
-    },
-  },
-};
+const AGENT_DELEGATION_TOOL: VoiceTool = createVoiceDelegationTool();
 
 // ============================================================================
 // Config & types
@@ -146,8 +141,8 @@ export interface VoiceBridgeConfig {
 
   // --- Chat-Supervisor delegation ---
 
-  /** ChatExecutor for delegated task execution. */
-  chatExecutor: ChatExecutor;
+  /** Resolve the current ChatExecutor for delegated task execution. */
+  getChatExecutor: () => ChatExecutor | null | undefined;
   /** SessionManager for shared voice/text session history. */
   sessionManager?: SessionManager;
   /** HookDispatcher for tool:before/after and message lifecycle hooks. */
@@ -530,7 +525,8 @@ export class VoiceBridge {
       // progress messages — the tool cards ARE the progress UI.
       const delegationToolHandler = this.buildSessionToolHandler(sessionId, send);
 
-      const result = await this.config.chatExecutor.execute({
+      const chatExecutor = this.requireChatExecutor();
+      const result = await chatExecutor.execute({
         message: gatewayMsg,
         history,
         systemPrompt: this.config.systemPrompt,
@@ -579,7 +575,7 @@ export class VoiceBridge {
       send({
         type: "chat.usage",
         payload: buildChatUsagePayload({
-          totalTokens: this.config.chatExecutor.getSessionTokenUsage(sessionId),
+          totalTokens: chatExecutor.getSessionTokenUsage(sessionId),
           sessionTokenBudget: this.config.sessionTokenBudget ?? 0,
           compacted: result.compacted ?? false,
           contextWindowTokens: this.config.contextWindowTokens,
@@ -616,17 +612,28 @@ export class VoiceBridge {
 
   /** Parse and validate the task description from xAI's function call JSON. */
   private parseDelegationTask(argsJson: string): string | { error: string } {
-    let task: string;
+    let parsedArgs: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(sanitizeXaiArgs(argsJson)) as Record<string, unknown>;
-      task = typeof parsed.task === "string" ? parsed.task : String(parsed.task ?? "");
+      parsedArgs = JSON.parse(
+        sanitizeXaiArgs(argsJson),
+      ) as Record<string, unknown>;
     } catch {
       return { error: JSON.stringify({ error: "Invalid delegation arguments" }) };
     }
-    if (!task.trim()) {
-      return { error: JSON.stringify({ error: "Empty task description" }) };
+
+    const parsed = parseExecuteWithAgentInput(parsedArgs);
+    if (!parsed.ok) {
+      return { error: JSON.stringify({ error: parsed.error }) };
     }
-    return task;
+    return parsed.value.task;
+  }
+
+  private requireChatExecutor(): ChatExecutor {
+    const chatExecutor = this.config.getChatExecutor();
+    if (!chatExecutor) {
+      throw new Error("Voice delegation unavailable — no LLM provider configured");
+    }
+    return chatExecutor;
   }
 
   /** Run policy check via message:inbound hook. Returns spoken error if blocked, null if OK. */

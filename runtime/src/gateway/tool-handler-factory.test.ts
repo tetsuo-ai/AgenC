@@ -147,6 +147,36 @@ describe("createSessionToolHandler", () => {
     expect(sentMessages.some((msg) => msg.type === "approval.request")).toBe(false);
   });
 
+  it("normalizes known legacy tool aliases before execution", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () => "ok");
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const result = await handler("system.makeDir", { path: "/tmp/demo" });
+    expect(result).toBe("ok");
+    expect(baseHandler).toHaveBeenCalledWith("system.mkdir", {
+      path: "/tmp/demo",
+    });
+
+    const executing = sentMessages.find((msg) => msg.type === "tools.executing");
+    const completed = sentMessages.find((msg) => msg.type === "tools.result");
+    expect((executing?.payload as { toolName?: string } | undefined)?.toolName).toBe(
+      "system.mkdir",
+    );
+    expect((completed?.payload as { toolName?: string } | undefined)?.toolName).toBe(
+      "system.mkdir",
+    );
+  });
+
   it("includes parent subagent context in approval prompts for delegated sessions", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {

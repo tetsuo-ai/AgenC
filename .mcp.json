@@ -33,7 +33,7 @@
     },
     "knip": {
       "command": "npx",
-      "args": ["@genar/knip-mcp-server"],
+      "args": ["-y", "@knip/mcp"],
       "env": {
         "KNIP_PROJECT_ROOT": ".",
         "KNIP_SAFE_MODE": "true"

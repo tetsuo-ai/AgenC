@@ -199,6 +199,7 @@ export class DesktopSandboxManager {
       autoScreenshot: config.autoScreenshot ?? false,
       labels: config.labels,
       playwright: config.playwright ?? {},
+      environment: config.environment ?? 'both',
     };
     this.logger = options?.logger ?? silentLogger;
   }
