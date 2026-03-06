@@ -41,6 +41,7 @@ env:
   SOLANA_VERSION: '3.0.13'
   ANCHOR_VERSION: '0.32.1'
   RISC0_SOLANA_REF: 'v3.0.0'
+  VALIDATOR_READY_TIMEOUT_SECONDS: '600'
 
 jobs:
   private_proof_gate:

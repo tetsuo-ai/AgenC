@@ -8,6 +8,7 @@ export ANCHOR_PROVIDER_URL="${ANCHOR_PROVIDER_URL:-http://127.0.0.1:8899}"
 export ANCHOR_WALLET="${ANCHOR_WALLET:-${HOME}/.config/solana/id.json}"
 
 VALIDATOR_LOG="${ROOT_DIR}/target/verifier-validator.log"
+VALIDATOR_READY_TIMEOUT_SECONDS="${VALIDATOR_READY_TIMEOUT_SECONDS:-90}"
 
 if pgrep -af "solana-test-validator" >/dev/null 2>&1; then
   echo "Stopping existing solana-test-validator processes..."
@@ -21,9 +22,10 @@ VALIDATOR_PID=$!
 disown || true
 echo "Validator PID: ${VALIDATOR_PID}"
 echo "Validator log: ${VALIDATOR_LOG}"
+echo "Waiting up to ${VALIDATOR_READY_TIMEOUT_SECONDS}s for validator readiness..."
 
 READY=0
-for _ in $(seq 1 90); do
+for _ in $(seq 1 "${VALIDATOR_READY_TIMEOUT_SECONDS}"); do
   if solana -u "${ANCHOR_PROVIDER_URL}" cluster-version >/dev/null 2>&1; then
     READY=1
     break
