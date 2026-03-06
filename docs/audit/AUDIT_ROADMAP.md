@@ -1,10 +1,18 @@
 # SOLANA AUDIT ROADMAP
 
-This document defines the pre audit and pre hardening roadmap for the AgenC Solana on chain coordination program. This is the phase where development pauses and the protocol is treated as critical infrastructure.
+This document defines the pre audit and pre hardening roadmap for the AgenC
+Solana on chain coordination program. This is the phase where development
+pauses and the protocol is treated as critical infrastructure.
+
+This roadmap applies only to the on-chain coordination program. It does not
+establish project-wide security readiness for runtime, desktop, webchat, MCP,
+or frontend surfaces. Track those separately in `docs/SECURITY_SCOPE_MATRIX.md`
+and `docs/RUNTIME_PRE_AUDIT_CHECKLIST.md`.
 
 This program is the trust layer for AgenC. It holds funds in escrow, distributes rewards, resolves disputes, and tracks agent reputation and stake. A single vulnerability at this layer would compromise funds and permanently damage trust in the system.
 
-The goal of this roadmap is to make the program correct, predictable, and audit ready before mainnet deployment or SDK integration.
+The goal of this roadmap is to make the program correct, predictable, and
+ready for an on-chain audit before mainnet deployment or SDK integration.
 
 
 ## Guiding principle
@@ -88,4 +96,3 @@ These events form the basis for monitoring, analytics, and future SDK integratio
 ## Exit criteria
 
 This roadmap phase is complete when all tests pass, all invariants are enforced, static analysis is clean, and any external audit feedback is resolved. Only after this point should SDK integration or new feature development resume.
-

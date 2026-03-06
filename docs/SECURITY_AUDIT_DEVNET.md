@@ -1,16 +1,39 @@
-# Devnet Security Audit Package
+# Devnet On-Chain Security Package
 
 ## Executive Summary
 
-This document provides an audit-ready security package for the AgenC Solana coordination program deployed to Solana Devnet. The scope includes the on-chain program, its Devnet deployment, and the smoke test validation run. No Critical, High, Medium, or Low findings were identified in this package; informational notes are listed where applicable.
+This document provides a scoped security package for the AgenC Solana
+coordination program deployed to Solana Devnet. The scope includes only the
+on-chain program, its Devnet deployment, and the smoke test validation run.
+
+This document does not cover runtime gateway security, desktop sandbox control
+plane security, webchat/session security, MCP tool authorization, or frontend
+surfaces. See `docs/SECURITY_SCOPE_MATRIX.md` and
+`docs/RUNTIME_PRE_AUDIT_CHECKLIST.md` for the cross-surface scope boundary.
+
+No Critical, High, Medium, or Low findings were identified within this
+declared on-chain scope; informational notes are listed where applicable.
 
 ## Scope
+
+### In Scope
 
 - Program: `programs/agenc-coordination`
 - Cluster: Solana Devnet
 - Commit: `c53771ddbb4097f45c08fe339a924bb348c33aab`
 - Program ID: `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 - Anchor Version: `0.32.1`
+
+### Explicitly Out of Scope
+
+- `runtime/src/gateway/`
+- `runtime/src/tools/`
+- `runtime/src/channels/webchat/`
+- `runtime/src/desktop/`
+- `containers/desktop/`
+- `mcp/src/tools/`
+- `web/`
+- `demo-app/`
 
 ## Threat Model
 
@@ -84,4 +107,9 @@ The protocol invariants below are enforced by program constraints and are used f
 
 ## Conclusion
 
-The Devnet deployment is stable under the current scope and threat model. The smoke test suite exercises core lifecycle paths without identifying logic errors; remaining failures are limited to Devnet funding rate limits. This package is suitable as an audit-ready Devnet security artifact.
+The Devnet deployment is stable under the current on-chain scope and threat
+model. The smoke test suite exercises core lifecycle paths without identifying
+logic errors; remaining failures are limited to Devnet funding rate limits.
+
+This package is suitable as a scoped Devnet / on-chain security artifact. It
+is not a project-wide security-readiness statement for AgenC.
