@@ -84,12 +84,25 @@ Planner graphs support three step types:
 Delegation is gated by:
 
 - planner parse/graph validation (no cycles, fanout/depth caps)
+- delegated-step scope validation (`subagent_step_needs_decomposition`) so oversized child objectives are rejected before execution
 - delegation utility scorer (`assessDelegationDecision`)
 - hard-blocked task-class veto (`wallet_signing`, `wallet_transfer`, `stake_or_rewards`, `destructive_host_mutation`, `credential_exfiltration`)
 - handoff confidence gate (`mode=handoff` requires planner confidence >= `handoffMinPlannerConfidence`)
 - runtime hard caps (max depth/fanout/children/tokens/tool calls)
 - optional online bandit arm tuning that offsets threshold by context cluster
 - verifier rounds when enabled/forced
+
+When planner validation or delegated execution returns `needs_decomposition`, the parent planner performs one bounded refinement pass and re-emits a smaller DAG instead of treating the signal as generic tool failure. Child sessions remain least-privilege scoped and do not automatically recurse.
+
+For incident triage, trace logs now summarize delegated `execute_with_agent` calls with the child objective, contract, acceptance criteria, validation outcome, stop reason, and nested child tool-call summaries. Use those traced args/results rather than UI card summaries when diagnosing low-signal child behavior.
+
+For Grok-backed research turns, provider-native `web_search` is now the preferred research path when `llm.webSearch=true`. Routed tool subsets append `web_search` for research/docs-comparison intents, delegated research scopes prefer `web_search` over browser MCP tools, and research validation accepts provider citations (`providerEvidence.citations`) as tool-grounded evidence. Keep browser MCP/Playwright tools for interactive page work such as localhost QA, DOM inspection, screenshots, clicks, and console/network validation. Provider-native search must stay model-gated: unsupported Grok models such as `grok-code-fast-1` must not advertise or inject `web_search` even when the config flag is enabled.
+
+Terminal window open/close actions should also be routed as distinct intents. When `mcp.kitty.launch` or `mcp.kitty.close` is available, the router should prefer those direct tools and invalidate cached terminal routes on action shifts instead of reusing a stale "open terminal" cluster for "close the terminal".
+
+Before any post-tool synthesis call (`tool_followup` on the direct path or `planner_synthesis` on the planner path), `ChatExecutor` now appends a bounded `system_runtime` execution ledger built from actual `ToolCallRecord[]` plus provider-native evidence. That ledger is authoritative: it lists executed tools, arguments, status, duration, result previews, and provider citations, and it exists specifically to ground the final answer in runtime facts rather than model self-report.
+
+That execution ledger is intentionally phase-local. It answers "what happened in this phase," not "why did the previous phase choose this branch." If later workflows need authoritative cross-phase rationale continuity, add a separate bounded phase-transition rationale artifact rather than expanding the execution ledger into long-form narrative memory.
 
 Planner summary fields of interest:
 
@@ -175,6 +188,7 @@ Subagent retry classes (`SubAgentOrchestrator`):
 - `timeout`
 - `tool_misuse`
 - `malformed_result_contract`
+- `needs_decomposition`
 - `transient_provider_error`
 - `cancelled`
 - `spawn_error`

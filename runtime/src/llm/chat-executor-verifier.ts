@@ -21,15 +21,17 @@ import {
   MAX_SUBAGENT_VERIFIER_OUTPUT_CHARS,
   MAX_SUBAGENT_VERIFIER_ARTIFACT_CHARS,
 } from "./chat-executor-constants.js";
-import {
-  truncateText,
-  parseJsonObjectFromText,
-} from "./chat-executor-text.js";
+import { truncateText } from "./chat-executor-text.js";
 import {
   parsePlannerRequiredString,
   parsePlannerOptionalString,
 } from "./chat-executor-planner.js";
 import { safeStringify } from "../tools/types.js";
+import {
+  extractDelegationTokens,
+  parseJsonObjectFromText,
+  validateDelegatedOutputContract,
+} from "../utils/delegation-validation.js";
 
 export function evaluateSubagentDeterministicChecks(
   subagentSteps: readonly PlannerSubAgentTaskStepIntent[],
@@ -52,6 +54,20 @@ export function evaluateSubagentDeterministicChecks(
     let output = "";
     let status = "unknown";
     let toolCallsCount = 0;
+    let failedToolCallsCount = 0;
+    let childToolCalls:
+      | readonly {
+        readonly name?: string;
+        readonly args?: unknown;
+        readonly result?: string;
+        readonly isError?: boolean;
+      }[]
+      | undefined;
+    let providerEvidence:
+      | {
+        readonly citations?: readonly string[];
+      }
+      | undefined;
 
     if (typeof raw !== "string") {
       issues.push("missing_subagent_result");
@@ -69,9 +85,42 @@ export function evaluateSubagentDeterministicChecks(
         output = typeof parsed.output === "string"
           ? parsed.output
           : safeStringify(parsed.output ?? "");
+        childToolCalls = Array.isArray(parsed.toolCalls)
+          ? parsed.toolCalls
+              .filter(
+                (entry): entry is {
+                  readonly name?: string;
+                  readonly args?: unknown;
+                  readonly result?: string;
+                  readonly isError?: boolean;
+                } =>
+                  typeof entry === "object" &&
+                  entry !== null &&
+                  !Array.isArray(entry),
+              )
+          : undefined;
         toolCallsCount = Array.isArray(parsed.toolCalls)
           ? parsed.toolCalls.length
+          : typeof parsed.toolCalls === "number"
+          ? parsed.toolCalls
           : 0;
+        failedToolCallsCount = typeof parsed.failedToolCalls === "number"
+          ? parsed.failedToolCalls
+          : 0;
+        const parsedProviderEvidence = parsed.providerEvidence;
+        if (
+          parsedProviderEvidence &&
+          typeof parsedProviderEvidence === "object" &&
+          !Array.isArray(parsedProviderEvidence)
+        ) {
+          const citations = Array.isArray(
+            (parsedProviderEvidence as { citations?: unknown }).citations,
+          )
+            ? (parsedProviderEvidence as { citations: unknown[] }).citations
+              .filter((entry): entry is string => typeof entry === "string")
+            : [];
+          providerEvidence = citations.length > 0 ? { citations } : undefined;
+        }
         if (parsed.success === false || status === "failed") {
           issues.push("child_reported_failure");
           verdict = "retry";
@@ -90,18 +139,37 @@ export function evaluateSubagentDeterministicChecks(
     }
 
     const trimmedOutput = output.trim();
-    if (trimmedOutput.length === 0) {
-      issues.push("empty_child_output");
-      verdict = moreSevereVerifierVerdict(verdict, "retry");
-    }
-
-    const expectsJson = step.inputContract.toLowerCase().includes("json");
-    if (expectsJson && trimmedOutput.length > 0) {
-      const parsedOutput = parseJsonObjectFromText(trimmedOutput);
-      if (!parsedOutput) {
+    const contractValidation = validateDelegatedOutputContract({
+      spec: {
+        objective: step.objective,
+        inputContract: step.inputContract,
+        acceptanceCriteria: step.acceptanceCriteria,
+        requiredToolCapabilities: step.requiredToolCapabilities,
+      },
+      output: trimmedOutput,
+      toolCalls: childToolCalls,
+      providerEvidence,
+    });
+    if (!contractValidation.ok) {
+      if (contractValidation.code === "empty_output") {
+        issues.push("empty_child_output");
+      } else if (
+        contractValidation.code === "expected_json_object" ||
+        contractValidation.code === "empty_structured_payload"
+      ) {
         issues.push("contract_violation_expected_json_output");
-        verdict = moreSevereVerifierVerdict(verdict, "retry");
+      } else if (contractValidation.code === "acceptance_count_mismatch") {
+        issues.push("contract_violation_acceptance_criteria_count");
+      } else if (contractValidation.code === "acceptance_evidence_missing") {
+        issues.push("acceptance_criteria_not_evidenced");
+      } else if (contractValidation.code === "low_signal_browser_evidence") {
+        issues.push("low_signal_browser_evidence");
+      } else if (contractValidation.code === "missing_successful_tool_evidence") {
+        issues.push("missing_successful_tool_evidence");
+      } else {
+        issues.push(`contract_violation_${contractValidation.code}`);
       }
+      verdict = moreSevereVerifierVerdict(verdict, "retry");
     }
 
     const outputLower = trimmedOutput.toLowerCase();
@@ -109,20 +177,6 @@ export function evaluateSubagentDeterministicChecks(
       /(line|file|log|trace|stderr|stdout|stack|error|\d)/.test(outputLower);
     if (trimmedOutput.length > 0 && !likelyEvidence) {
       issues.push("weak_evidence_density");
-    }
-
-    const expectationTokens = step.acceptanceCriteria
-      .flatMap((criterion) =>
-        extractVerifierTokens(criterion)
-      )
-      .slice(0, 24);
-    if (expectationTokens.length > 0 && trimmedOutput.length > 0) {
-      const matched = expectationTokens.some((token) =>
-        outputLower.includes(token)
-      );
-      if (!matched) {
-        issues.push("acceptance_criteria_not_evidenced");
-      }
     }
 
     if (
@@ -137,6 +191,14 @@ export function evaluateSubagentDeterministicChecks(
 
     if (step.requiredToolCapabilities.length > 0 && toolCallsCount === 0) {
       issues.push("missing_tool_result_consistency_signal");
+    }
+    if (
+      step.requiredToolCapabilities.length > 0 &&
+      toolCallsCount > 0 &&
+      failedToolCallsCount >= toolCallsCount
+    ) {
+      issues.push("missing_successful_tool_evidence");
+      verdict = moreSevereVerifierVerdict(verdict, "retry");
     }
 
     const confidence = Math.max(0, 1 - Math.min(0.9, issues.length * 0.18));
@@ -380,13 +442,7 @@ export function moreSevereVerifierVerdict(
 }
 
 export function extractVerifierTokens(value: string): string[] {
-  const matches = value.toLowerCase().match(/[a-z0-9_.-]+/g) ?? [];
-  const deduped = new Set<string>();
-  for (const match of matches) {
-    if (match.length < 4) continue;
-    deduped.add(match);
-  }
-  return [...deduped];
+  return extractDelegationTokens(value);
 }
 
 export function collectVerifierArtifacts(

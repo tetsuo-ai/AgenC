@@ -223,11 +223,13 @@ WORKDIR /opt/server
 RUN npm install --production
 
 COPY server/dist/ /opt/server/dist/
+COPY entrypoint.sh /usr/local/bin/agenc-desktop-entrypoint
 
 # =============================================================================
 # Fix ownership
 # =============================================================================
 RUN chown -R agenc:agenc /home/agenc /opt/server /tmp
+RUN chmod 755 /usr/local/bin/agenc-desktop-entrypoint
 
 # =============================================================================
 # uv (Python package manager) + kitty-mcp
@@ -247,8 +249,9 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 
 ENV PATH="/home/agenc/.local/bin:${PATH}"
 
-USER agenc
+USER root
 WORKDIR /home/agenc
+ENTRYPOINT ["/usr/local/bin/agenc-desktop-entrypoint"]
 
 # Ports: VNC (5900), noVNC (6080), REST API (9990)
 EXPOSE 5900 6080 9990

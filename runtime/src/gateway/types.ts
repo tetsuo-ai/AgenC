@@ -19,6 +19,10 @@ export interface GatewayLLMConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  /** Enable provider-native web search when the primary LLM supports it. */
+  webSearch?: boolean;
+  /** Routing preference for provider-native web search. */
+  searchMode?: "auto" | "on" | "off";
   /** Maximum output tokens per completion (provider request parameter). */
   maxTokens?: number;
   /** Model context window in tokens for adaptive prompt budgeting. */

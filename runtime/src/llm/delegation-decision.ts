@@ -229,16 +229,6 @@ export function assessDelegationDecision(
     });
   }
 
-  if (metrics.dependencyDepth > resolvedConfig.maxDepth) {
-    return buildDecision({
-      shouldDelegate: false,
-      reason: "depth_exceeded",
-      threshold: resolvedConfig.scoreThreshold,
-      metrics,
-      diagnostics,
-    });
-  }
-
   if (
     resolvedConfig.mode === "handoff" &&
     plannerConfidence < resolvedConfig.handoffMinPlannerConfidence

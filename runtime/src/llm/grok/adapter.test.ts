@@ -165,6 +165,67 @@ describe("GrokProvider", () => {
     expect(params.tools[0].name).toBe("system.bash");
   });
 
+  it("passes tool_choice through to the Responses API when provided", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "inspect the repo" }],
+      { toolChoice: "required" },
+    );
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.tool_choice).toBe("required");
+  });
+
+  it("normalizes forced function tool_choice for the Responses API", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "mcp.browser.browser_navigate",
+            description: "open a url",
+            parameters: {
+              type: "object",
+              properties: { url: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "open the docs" }],
+      { toolChoice: { type: "function", name: "mcp.browser.browser_navigate" } },
+    );
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.tool_choice).toEqual({
+      type: "function",
+      name: "mcp.browser.browser_navigate",
+    });
+  });
+
   it("parses tool calls from response", async () => {
     const completion = makeCompletion({
       output_text: "",
@@ -189,15 +250,54 @@ describe("GrokProvider", () => {
     expect(response.finishReason).toBe("tool_calls");
   });
 
+  it("surfaces provider citations as provider evidence", async () => {
+    mockCreate.mockResolvedValueOnce(
+      makeCompletion({
+        citations: [
+          "https://docs.phaser.io",
+          "https://pixijs.com",
+        ],
+      }),
+    );
+
+    const provider = new GrokProvider({ apiKey: "test-key", webSearch: true });
+    const response = await provider.chat([
+      { role: "user", content: "Compare Phaser and Pixi from official docs" },
+    ]);
+
+    expect(response.providerEvidence?.citations).toEqual([
+      "https://docs.phaser.io",
+      "https://pixijs.com",
+    ]);
+  });
+
   it("injects web_search tool when webSearch is true", async () => {
     mockCreate.mockResolvedValueOnce(makeCompletion());
 
-    const provider = new GrokProvider({ apiKey: "test-key", webSearch: true });
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      model: "grok-4-1-fast-reasoning",
+      webSearch: true,
+    });
     await provider.chat([{ role: "user", content: "test" }]);
 
     const params = mockCreate.mock.calls[0][0];
     expect(params.tools).toBeDefined();
     expect(params.tools.some((t: any) => t.type === "web_search")).toBe(true);
+  });
+
+  it("does not inject web_search tool for unsupported Grok models", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      model: "grok-code-fast-1",
+      webSearch: true,
+    });
+    await provider.chat([{ role: "user", content: "test" }]);
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.tools).toBeUndefined();
   });
 
   it("disables parallel tool calls by default when tools are present", async () => {

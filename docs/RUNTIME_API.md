@@ -291,6 +291,8 @@ Provider-specific additions:
 - **AnthropicProviderConfig**: `apiKey` (required)
 - **OllamaProviderConfig**: `baseURL` (default: `http://localhost:11434`)
 
+When `GrokProviderConfig.webSearch=true`, the runtime can route provider-native `web_search` into Grok Responses calls without exposing a client-executed tool in the gateway registry. `searchMode="auto"` prefers `web_search` for research/docs/reference comparisons while preserving browser MCP tools for interactive validation; delegated research evidence can be satisfied by provider citations surfaced as `providerEvidence.citations`. This path is model-gated: unsupported Grok models such as `grok-code-fast-1` must suppress `web_search` even when the config flag is set.
+
 ### LLMTaskExecutorConfig
 
 | Field | Type | Required | Default |
@@ -546,6 +548,8 @@ Runtime exposes a live slash-command override for operators:
 - `/delegation conservative|balanced|aggressive|adaptive`
 - `/delegation default`
 
+Oversized delegated steps now surface a structured `needs_decomposition` signal. The parent planner consumes that signal and performs one bounded refinement pass to split the work into smaller `subagent_task` nodes instead of looping on the same overloaded child objective.
+
 ### Runtime response diagnostics for delegation
 
 `ChatExecutorResult.plannerSummary` includes delegation fields:
@@ -553,6 +557,7 @@ Runtime exposes a live slash-command override for operators:
 - `delegationDecision`
 - `subagentVerification`
 - `delegationPolicyTuning`
+- `diagnostics` entries such as `subagent_step_needs_decomposition`, `planner_refinement_retry`, and `planner_runtime_refinement_retry`
 
 `delegationPolicyTuning` now includes useful-delegation reward proxy diagnostics:
 
@@ -561,6 +566,18 @@ Runtime exposes a live slash-command override for operators:
 - `rewardProxyVersion`
 
 These diagnostics are emitted in trace logs and available to channel adapters for user-visible lifecycle timelines.
+
+For delegated turns, the trace payload also includes summarized `execute_with_agent` arguments and results so operators can inspect the child objective, contract, acceptance criteria, validation code, stop reason, and nested tool-call outcomes without reconstructing them from UI summaries.
+
+For any turn that reaches post-tool synthesis, the runtime also injects an authoritative execution-ledger system message into the final model call. The ledger is derived from actual `ToolCallRecord[]` plus provider-native evidence, and includes tool names, sanitized arguments, success/error status, durations, result previews, and provider citations. This is an external grounding aid for the final answer; it is not taken from model prose.
+
+For Grok research incidents, also inspect:
+
+- `toolRouting.allowedToolNames` for `web_search`
+- `ChatExecutorResult.providerEvidence.citations`
+- delegated child `providerEvidence.citations` inside `execute_with_agent` result payloads
+
+If citations are present, research evidence came from provider-native search rather than browser MCP calls.
 
 ### Delegation benchmarking scripts
 

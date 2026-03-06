@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import type {
   LLMChatOptions,
+  LLMToolChoice,
   LLMProvider,
   LLMMessage,
   LLMResponse,
@@ -26,6 +27,7 @@ import { validateToolCall } from "../types.js";
 import type { GrokProviderConfig, GrokStatefulResponsesConfig } from "./types.js";
 import { LLMProviderError, mapLLMError } from "../errors.js";
 import { ensureLazyImport } from "../lazy-import.js";
+import { supportsGrokServerSideTools } from "../provider-native-search.js";
 import { withTimeout } from "../timeout.js";
 import { validateToolTurnSequence } from "../tool-turn-validator.js";
 
@@ -156,6 +158,31 @@ function sanitizeLargeText(value: string): string {
       "(image omitted)",
     )
     .replace(/[A-Za-z0-9+/=\r\n]{400,}/g, "(base64 omitted)");
+}
+
+function normalizeResponsesToolChoice(
+  toolChoice: LLMToolChoice | undefined,
+): LLMToolChoice | undefined {
+  if (toolChoice === undefined || typeof toolChoice === "string") {
+    return toolChoice;
+  }
+
+  const directName = typeof toolChoice.name === "string"
+    ? toolChoice.name.trim()
+    : "";
+  if (toolChoice.type === "function" && directName.length > 0) {
+    return { type: "function", name: directName };
+  }
+
+  const legacyName = typeof (toolChoice as { function?: { name?: unknown } }).function
+      ?.name === "string"
+    ? (toolChoice as { function?: { name?: string } }).function!.name!.trim()
+    : "";
+  if (toolChoice.type === "function" && legacyName.length > 0) {
+    return { type: "function", name: legacyName };
+  }
+
+  return toolChoice;
 }
 
 function estimateOpenAIContentChars(content: unknown): number {
@@ -594,6 +621,8 @@ export class GrokProvider implements LLMProvider {
     // Build tools list — optionally inject web_search
     const rawTools = [...(config.tools ?? [])];
     const slimmed = slimTools(rawTools);
+    const webSearchEnabled =
+      config.webSearch === true && supportsGrokServerSideTools(this.config.model);
     this.tools = slimmed.tools;
     this.responseTools = this.toResponseTools(this.tools);
     for (let i = 0; i < this.tools.length; i++) {
@@ -603,12 +632,13 @@ export class GrokProvider implements LLMProvider {
       this.responseToolsByName.set(name, responseTool);
       this.responseToolCharsByName.set(name, JSON.stringify(responseTool).length);
     }
-    if (config.webSearch) {
+    if (webSearchEnabled) {
       this.webSearchTool = { type: "web_search" };
       this.responseTools.push(this.webSearchTool);
     }
     this.toolChars =
-      slimmed.chars + (config.webSearch ? JSON.stringify({ type: "web_search" }).length : 0);
+      slimmed.chars +
+      (webSearchEnabled ? JSON.stringify({ type: "web_search" }).length : 0);
   }
 
   async chat(
@@ -672,6 +702,7 @@ export class GrokProvider implements LLMProvider {
     let finishReason: LLMResponse["finishReason"] = "stop";
     let responseError: Error | undefined;
     let usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    let providerEvidence: LLMResponse["providerEvidence"];
     const toolCallAccum = new Map<string, LLMToolCall>();
     let streamIterator: AsyncIterator<any> | null = null;
     const streamTimeoutMs = normalizeTimeoutMs(this.config.timeoutMs);
@@ -743,6 +774,9 @@ export class GrokProvider implements LLMProvider {
           const response = event.response ?? {};
           model = String(response.model ?? model);
           usage = this.parseUsage(response);
+          providerEvidence = this.extractProviderEvidence(
+            response as Record<string, unknown>,
+          );
           const completedToolCalls = this.extractToolCallsFromOutput(response.output);
           for (const toolCall of completedToolCalls) {
             toolCallAccum.set(toolCall.id, toolCall);
@@ -788,6 +822,7 @@ export class GrokProvider implements LLMProvider {
         model,
         requestMetrics,
         stateful: statefulDiagnostics,
+        providerEvidence,
         finishReason,
         ...(responseError ? { error: responseError } : {}),
       };
@@ -807,6 +842,7 @@ export class GrokProvider implements LLMProvider {
           model,
           requestMetrics,
           stateful: statefulDiagnostics,
+          providerEvidence,
           finishReason: "error",
           error: mappedError,
           partial: true,
@@ -856,6 +892,7 @@ export class GrokProvider implements LLMProvider {
       const params = this.buildParams(messages, {
         store: false,
         allowedToolNames: options?.toolRouting?.allowedToolNames,
+        toolChoice: options?.toolChoice,
       });
       return {
         params,
@@ -932,6 +969,7 @@ export class GrokProvider implements LLMProvider {
       store: this.statefulConfig.store,
       previousResponseId: continued ? previousResponseId : undefined,
       allowedToolNames: options?.toolRouting?.allowedToolNames,
+      toolChoice: options?.toolChoice,
     });
 
     return {
@@ -1008,6 +1046,7 @@ export class GrokProvider implements LLMProvider {
       store?: boolean;
       previousResponseId?: string;
       allowedToolNames?: readonly string[];
+      toolChoice?: LLMToolChoice;
     },
   ): Record<string, unknown> {
     const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
@@ -1096,6 +1135,9 @@ export class GrokProvider implements LLMProvider {
       ) {
         params.tools = selectedTools.tools;
         params.parallel_tool_calls = this.config.parallelToolCalls;
+        if (options?.toolChoice !== undefined) {
+          params.tool_choice = normalizeResponsesToolChoice(options.toolChoice);
+        }
       }
     }
     return params;
@@ -1307,6 +1349,7 @@ export class GrokProvider implements LLMProvider {
       model: String(response.model ?? this.config.model),
       requestMetrics,
       stateful,
+      providerEvidence: this.extractProviderEvidence(response),
       finishReason,
       ...(parsedError ? { error: parsedError } : {}),
     };
@@ -1344,6 +1387,61 @@ export class GrokProvider implements LLMProvider {
       completionTokens: Number(usage?.output_tokens ?? 0),
       totalTokens: Number(usage?.total_tokens ?? 0),
     };
+  }
+
+  private extractProviderEvidence(
+    response: Record<string, unknown>,
+  ): LLMResponse["providerEvidence"] {
+    const citations = this.extractCitations(response);
+    if (citations.length === 0) return undefined;
+    return { citations };
+  }
+
+  private extractCitations(response: Record<string, unknown>): string[] {
+    const citations = new Set<string>();
+    const topLevel = Array.isArray(response.citations)
+      ? response.citations
+      : [];
+    for (const entry of topLevel) {
+      if (typeof entry === "string" && entry.trim().length > 0) {
+        citations.add(entry.trim());
+        continue;
+      }
+      if (
+        entry &&
+        typeof entry === "object" &&
+        !Array.isArray(entry) &&
+        typeof (entry as { url?: unknown }).url === "string"
+      ) {
+        citations.add(String((entry as { url: string }).url).trim());
+      }
+    }
+    if (citations.size > 0) {
+      return [...citations];
+    }
+
+    const output = Array.isArray(response.output)
+      ? (response.output as Array<Record<string, unknown>>)
+      : [];
+    for (const item of output) {
+      if (item.type !== "message") continue;
+      const content = Array.isArray(item.content)
+        ? (item.content as Array<Record<string, unknown>>)
+        : [];
+      for (const part of content) {
+        const annotations = Array.isArray(part.annotations)
+          ? (part.annotations as Array<Record<string, unknown>>)
+          : [];
+        for (const annotation of annotations) {
+          const url = annotation.url;
+          if (typeof url === "string" && url.trim().length > 0) {
+            citations.add(url.trim());
+          }
+        }
+      }
+    }
+
+    return [...citations];
   }
 
   private toToolCall(item: unknown): LLMToolCall | null {

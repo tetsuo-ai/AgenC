@@ -26,17 +26,65 @@ class FakeSubAgentManager {
     this.spawnCalls.push(config);
     this.activeCount++;
     this.maxActiveCount = Math.max(this.maxActiveCount, this.activeCount);
+    const primaryTool = config.tools?.[0];
+    const successToolCall = this.shouldSucceed && primaryTool
+      ? (() => {
+        if (primaryTool === "mcp.browser.browser_navigate") {
+          return {
+            name: primaryTool,
+            args: { url: "https://example.com/reference" },
+            result: '{"ok":true,"url":"https://example.com/reference"}',
+            isError: false,
+            durationMs: 1,
+          } as any;
+        }
+        if (primaryTool === "mcp.browser.browser_snapshot") {
+          return {
+            name: primaryTool,
+            args: {},
+            result: "Official documentation snapshot from https://example.com/reference",
+            isError: false,
+            durationMs: 1,
+          } as any;
+        }
+        if (primaryTool === "desktop.text_editor") {
+          return {
+            name: primaryTool,
+            args: {
+              command: "create",
+              path: "/workspace/src/game.js",
+            },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 1,
+          } as any;
+        }
+        return {
+          name: primaryTool,
+          args: {
+            command: "printf",
+            args: ["implemented /workspace/src/game.js"],
+          },
+          result: '{"stdout":"implemented /workspace/src/game.js","exitCode":0}',
+          isError: false,
+          durationMs: 1,
+        } as any;
+      })()
+      : undefined;
+    const evidenceLines = config.delegationSpec?.acceptanceCriteria?.length
+      ? config.delegationSpec.acceptanceCriteria
+      : [`Evidence collected for task ${id}.`];
     this.entries.set(id, {
       readyAt: Date.now() + this.delayMs,
       delivered: false,
       result: {
         sessionId: id,
         output: this.shouldSucceed
-          ? `done:${id}`
+          ? `${evidenceLines.join("\n")}\n${config.task}`
           : `failed:${id}`,
         success: this.shouldSucceed,
         durationMs: this.delayMs,
-        toolCalls: [],
+        toolCalls: successToolCall ? [successToolCall] : [],
       },
     });
     return id;
@@ -192,7 +240,7 @@ describe("SubAgentOrchestrator", () => {
     expect(result.status).toBe("completed");
     expect(result.completedSteps).toBe(2);
     expect(result.totalSteps).toBe(2);
-    expect(result.context.results.delegate_a).toContain("done:sub-1");
+    expect(result.context.results.delegate_a).toContain("Inspect module A");
     expect(result.context.results.run_tool).toContain('"step":"run_tool"');
     expect(fallback.execute).toHaveBeenCalledTimes(1);
     expect(manager.spawnCalls).toHaveLength(1);
@@ -423,7 +471,7 @@ describe("SubAgentOrchestrator", () => {
     expect(manager.spawnCalls).toHaveLength(0);
   });
 
-  it("fails fast when planner subagent depth exceeds hard cap", async () => {
+  it("allows long top-level planner dependency chains because recursive depth is enforced when children spawn", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
       context: pipeline.context,
@@ -471,10 +519,9 @@ describe("SubAgentOrchestrator", () => {
       edges: [{ from: "delegate_root", to: "delegate_leaf" }],
     });
 
-    expect(result.status).toBe("failed");
-    expect(result.stopReasonHint).toBe("validation_error");
-    expect(result.error).toContain("exceeds maxDepth 1");
-    expect(manager.spawnCalls).toHaveLength(0);
+    expect(result.status).toBe("completed");
+    expect(result.stopReasonHint).toBeUndefined();
+    expect(manager.spawnCalls).toHaveLength(2);
   });
 
   it("opens circuit breaker when max spawned children per request is exceeded", async () => {
@@ -548,7 +595,7 @@ describe("SubAgentOrchestrator", () => {
       {
         delayMs: 5,
         result: {
-          output: "done",
+          output: "Included findings from log analysis",
           success: true,
           durationMs: 10,
           toolCalls: [
@@ -620,7 +667,7 @@ describe("SubAgentOrchestrator", () => {
       {
         delayMs: 5,
         result: {
-          output: "done",
+          output: "Included findings from log analysis",
           success: true,
           durationMs: 10,
           toolCalls: [],
@@ -636,6 +683,7 @@ describe("SubAgentOrchestrator", () => {
       fallbackExecutor: fallback,
       resolveSubAgentManager: () => manager,
       maxCumulativeTokensPerRequestTree: 100,
+      maxCumulativeTokensPerRequestTreeExplicitlyConfigured: true,
       pollIntervalMs: 5,
     });
 
@@ -655,6 +703,192 @@ describe("SubAgentOrchestrator", () => {
           contextRequirements: ["ci_logs"],
           maxBudgetHint: "2m",
           canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.stopReasonHint).toBe("budget_exceeded");
+    expect(result.error).toContain("max cumulative child tokens");
+  });
+
+  it("scales the effective child-token budget with planned subagent count when using the default ceiling", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from log analysis",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/a.log" },
+            result: '{"stdout":"finding a","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from runtime source analysis",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/b.log" },
+            result: '{"stdout":"finding b","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      maxCumulativeTokensPerRequestTree: 250_000,
+      pollIntervalMs: 5,
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-token-floor:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_scope",
+          stepType: "subagent_task",
+          objective: "Analyze logs",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+        {
+          name: "delegate_map",
+          stepType: "subagent_task",
+          objective: "Map findings to source hotspots",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["runtime_sources"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+          dependsOn: ["delegate_scope"],
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.completedSteps).toBe(2);
+  });
+
+  it("honors an explicitly configured child-token ceiling as a hard limit", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from log analysis",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/a.log" },
+            result: '{"stdout":"finding a","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from runtime source analysis",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/b.log" },
+            result: '{"stdout":"finding b","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      maxCumulativeTokensPerRequestTree: 250_000,
+      maxCumulativeTokensPerRequestTreeExplicitlyConfigured: true,
+      pollIntervalMs: 5,
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-token-hard-cap:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_scope",
+          stepType: "subagent_task",
+          objective: "Analyze logs",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+        {
+          name: "delegate_map",
+          stepType: "subagent_task",
+          objective: "Map findings to source hotspots",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["runtime_sources"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+          dependsOn: ["delegate_scope"],
         },
       ],
     });
@@ -1047,6 +1281,67 @@ describe("SubAgentOrchestrator", () => {
     expect(prompt).toContain('"removedByPolicy":["system.bash","system.httpGet"]');
   });
 
+  it("rejects overloaded subagent steps before spawning a child", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(20, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 10,
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-overloaded:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_overloaded",
+          stepType: "subagent_task",
+          objective:
+            "Scaffold project, install dependencies, create index.html, package.json, tsconfig.json, src/main.ts, src/Game.ts, " +
+            "verify localhost, validate console errors, and document how to play.",
+          inputContract:
+            "Return JSON with files, run_cmd, validation steps, how to play, and known limitations",
+          acceptanceCriteria: [
+            "Create index.html",
+            "Create package.json",
+            "Create src/main.ts",
+            "Create src/Game.ts",
+            "Validate localhost runs cleanly",
+          ],
+          requiredToolCapabilities: ["desktop.bash"],
+          contextRequirements: ["repo_context"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Build the game end to end",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const result = await orchestrator.execute(pipeline);
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("overloaded subagent step");
+    expect(result.stopReasonHint).toBe("validation_error");
+    expect(result.decomposition?.code).toBe("needs_decomposition");
+    expect(result.context.results.delegate_overloaded).toContain(
+      '"status":"needs_decomposition"',
+    );
+    expect(manager.spawnCalls).toHaveLength(0);
+  });
+
   it("blocks delegation-tool capability expansion from child sessions", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
@@ -1100,6 +1395,204 @@ describe("SubAgentOrchestrator", () => {
     expect(prompt).toContain('"removedAsDelegationTools":["execute_with_agent","agenc.subagent.spawn"]');
   });
 
+  it("sanitizes parent orchestration plans out of child prompts", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output:
+            "Heat Signature https://example.com/heat-signature\nGunpoint https://example.com/gunpoint\nMonaco https://example.com/monaco\nTuning targets: speed 220, mutation 30s.",
+          success: true,
+          durationMs: 5,
+          toolCalls: [{
+            name: "mcp.browser.browser_navigate",
+            args: { url: "https://example.com/heat-signature" },
+            result: '{"ok":true,"url":"https://example.com/heat-signature"}',
+            isError: false,
+            durationMs: 1,
+          }],
+          stopReason: "completed",
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "desktop.bash",
+        "mcp.browser.browser_snapshot",
+        "mcp.browser.browser_navigate",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-parent-sanitize:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "design_research",
+          stepType: "subagent_task",
+          objective: "Research 3 reference games and extract tuning targets.",
+          inputContract: "Return markdown with citations",
+          acceptanceCriteria: ["List 3 references", "Include tuning targets"],
+          requiredToolCapabilities: ["mcp.browser.browser_snapshot"],
+          contextRequirements: ["repo_context"],
+          maxBudgetHint: "3m",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest:
+          "Build Neon Heist. Sub-agent orchestration plan (required): 1) `design_research`: - Research references. 2) `tech_research`: - Compare frameworks. Final deliverables: runnable game.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const result = await orchestrator.execute(pipeline);
+
+    expect(result.status).toBe("completed");
+    const taskPrompt = manager.spawnCalls[0]?.task ?? "";
+    expect(taskPrompt).toContain("Execute only the assigned phase `design_research`.");
+    expect(taskPrompt).not.toContain("Sub-agent orchestration plan (required)");
+    expect(taskPrompt).not.toContain("tech_research");
+    expect(taskPrompt).toContain("Assigned phase only: design_research");
+  });
+
+  it("adds semantic fallback tools for implementation steps when planner capabilities are unusable", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(5, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      childToolAllowlistStrategy: "inherit_intersection",
+      resolveAvailableToolNames: () => [
+        "desktop.bash",
+        "mcp.browser.browser_snapshot",
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_tabs",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-semantic-fallback:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "core_implementation",
+          stepType: "subagent_task",
+          objective:
+            "Implement rendering and scoring for the core gameplay loop.",
+          inputContract: "Return summary",
+          acceptanceCriteria: ["Provide an implementation summary with evidence"],
+          requiredToolCapabilities: ["COMPUTE" as unknown as string],
+          contextRequirements: ["repo_context"],
+          maxBudgetHint: "8m",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Build the Neon Heist core gameplay.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+        parentAllowedTools: ["desktop.bash", "mcp.browser.browser_snapshot"],
+      },
+    };
+
+    await orchestrator.execute(pipeline);
+
+    expect(manager.spawnCalls.length).toBeGreaterThanOrEqual(1);
+    expect(manager.spawnCalls[0]?.tools).toEqual(["desktop.bash"]);
+    expect(manager.spawnCalls[0]?.task).toContain(
+      '"semanticFallback":["desktop.bash"]',
+    );
+  });
+
+  it("prunes low-signal browser tab tools from research child scope", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(5, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      childToolAllowlistStrategy: "inherit_intersection",
+      resolveAvailableToolNames: () => [
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_snapshot",
+        "mcp.browser.browser_tabs",
+      ],
+    });
+
+    await orchestrator.execute({
+      id: "planner:session-browser-scope:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "design_research",
+          stepType: "subagent_task",
+          objective:
+            "Research 3 reference games with browser tools and cite sources.",
+          inputContract: "Return markdown with citations and tuning targets",
+          acceptanceCriteria: ["Include citations and tuning targets"],
+          requiredToolCapabilities: [
+            "mcp.browser.browser_navigate",
+            "mcp.browser.browser_snapshot",
+            "mcp.browser.browser_tabs",
+          ],
+          contextRequirements: ["repo_context"],
+          maxBudgetHint: "3m",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Research reference games.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+        parentAllowedTools: [
+          "mcp.browser.browser_navigate",
+          "mcp.browser.browser_snapshot",
+          "mcp.browser.browser_tabs",
+        ],
+      },
+    });
+
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls[0]?.tools).toEqual([
+      "mcp.browser.browser_navigate",
+      "mcp.browser.browser_snapshot",
+    ]);
+    expect(manager.spawnCalls[0]?.task).toContain(
+      '"removedLowSignalBrowserTools":["mcp.browser.browser_tabs"]',
+    );
+  });
+
   it("fails fast when parent policy leaves no permitted child tools", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
@@ -1144,6 +1637,51 @@ describe("SubAgentOrchestrator", () => {
     expect(manager.spawnCalls).toHaveLength(0);
   });
 
+  it("fails fast when browser-grounded work is left with only low-signal tab inspection tools", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(20, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 10,
+      childToolAllowlistStrategy: "inherit_intersection",
+      resolveAvailableToolNames: () => ["mcp.browser.browser_tabs"],
+      allowedParentTools: ["mcp.browser.browser_tabs"],
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-low-signal-browser-only:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "design_research",
+          stepType: "subagent_task",
+          objective:
+            "Research 3 reference games with browser tools and cite sources.",
+          inputContract: "Return markdown with citations and tuning targets",
+          acceptanceCriteria: ["Include citations and tuning targets"],
+          requiredToolCapabilities: [
+            "mcp.browser.browser_tabs",
+          ],
+          contextRequirements: ["repo_context"],
+          maxBudgetHint: "3m",
+          canRunParallel: false,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("low-signal browser state checks");
+    expect(manager.spawnCalls).toHaveLength(0);
+  });
+
   it("retries timeout failures with deterministic backoff and then succeeds", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
@@ -1164,10 +1702,16 @@ describe("SubAgentOrchestrator", () => {
       {
         delayMs: 5,
         result: {
-          output: "recovered after retry",
+          output: "Recovered after retry with evidence and findings",
           success: true,
           durationMs: 10,
-          toolCalls: [],
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/ci.log" },
+            result: '{"content":"evidence"}',
+            isError: false,
+            durationMs: 1,
+          } as any],
         },
       },
     ]);
@@ -1263,8 +1807,8 @@ describe("SubAgentOrchestrator", () => {
           name: "delegate_contract",
           stepType: "subagent_task",
           objective: "Analyze logs",
-          inputContract: "Return JSON object with findings",
-          acceptanceCriteria: ["Include findings array"],
+          inputContract: "Return JSON object",
+          acceptanceCriteria: ["Return JSON object"],
           requiredToolCapabilities: ["system.readFile"],
           contextRequirements: ["ci_logs"],
           maxBudgetHint: "2m",
@@ -1275,6 +1819,271 @@ describe("SubAgentOrchestrator", () => {
 
     expect(result.status).toBe("failed");
     expect(result.error?.toLowerCase()).toContain("malformed result contract");
+    expect(result.stopReasonHint).toBe("validation_error");
+    expect(manager.spawnCalls).toHaveLength(2);
+    expect(manager.spawnCalls[1]?.task).toContain("Retry corrections (attempt 1)");
+    expect(manager.spawnCalls[1]?.task).toContain(
+      "You must invoke one or more of the allowed tools before answering.",
+    );
+  });
+
+  it("retries child validation failures that return non-completed stop reasons without tool evidence", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Execution stopped before completion (validation_error).",
+          success: false,
+          durationMs: 12,
+          toolCalls: [],
+          stopReason: "validation_error",
+          stopReasonDetail:
+            "Delegated task required successful tool-grounded evidence but child reported no tool calls",
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output:
+            '{"summary":"Return JSON object with evidence collected"}',
+          success: true,
+          durationMs: 11,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/ci.log" },
+            result: '{"content":"evidence"}',
+            isError: false,
+            durationMs: 2,
+          }],
+          stopReason: "completed",
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-c4-stop-reason:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_contract",
+          stepType: "subagent_task",
+          objective: "Analyze logs",
+          inputContract: "Return JSON object",
+          acceptanceCriteria: ["Return JSON object"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(2);
+    expect(manager.spawnCalls[1]?.task).toContain("Retry corrections (attempt 1)");
+    expect(result.context.results.delegate_contract).toContain("evidence collected");
+  });
+
+  it("accepts provider-native search citations for research subagent steps", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output:
+            '{"selected":"pixi","citations":["https://pixijs.com","https://docs.phaser.io"]}',
+          success: true,
+          durationMs: 9,
+          toolCalls: [],
+          providerEvidence: {
+            citations: ["https://pixijs.com", "https://docs.phaser.io"],
+          },
+          stopReason: "completed",
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      resolveAvailableToolNames: () => ["web_search"],
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-native-search:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "tech_research",
+          stepType: "subagent_task",
+          objective:
+            "Compare Canvas API, Phaser, and PixiJS from official docs",
+          inputContract:
+            "Return JSON with selected framework and citations",
+          acceptanceCriteria: ["Include citations"],
+          requiredToolCapabilities: ["web_search"],
+          contextRequirements: ["official_docs"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(1);
+  });
+
+  it("preserves non-completed child stop reasons instead of reclassifying them as malformed JSON", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Execution stopped before completion (tool_calls).",
+          success: false,
+          durationMs: 12,
+          toolCalls: [{
+            name: "mcp.browser.browser_tabs",
+            args: { action: "list" },
+            result: "### Result\n- 0: (current) [](about:blank)",
+            isError: false,
+            durationMs: 1,
+          }],
+          stopReason: "no_progress",
+          stopReasonDetail:
+            "Execution stopped before completion (tool_calls). Reached max tool rounds (10).",
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-c4-no-progress:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_contract",
+          stepType: "subagent_task",
+          objective: "Analyze logs",
+          inputContract: "Return JSON object",
+          acceptanceCriteria: ["Return JSON object"],
+          requiredToolCapabilities: ["mcp.browser.browser_navigate"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("Execution stopped before completion");
+    expect(result.error?.toLowerCase()).not.toContain("malformed result contract");
+  });
+
+  it("retries and fails when acceptance-count contract checks are violated", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output:
+            '{"references":[{"url":"a"},{"url":"b"},{"url":"c"},{"url":"d"}]}',
+          success: true,
+          durationMs: 12,
+          toolCalls: [{
+            name: "playwright.browser_snapshot",
+            args: { locator: "body" },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 3,
+          }],
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output:
+            '{"references":[{"url":"a"},{"url":"b"},{"url":"c"},{"url":"d"}]}',
+          success: true,
+          durationMs: 11,
+          toolCalls: [{
+            name: "playwright.browser_snapshot",
+            args: { locator: "body" },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 3,
+          }],
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-c4-count:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_contract",
+          stepType: "subagent_task",
+          objective: "Analyze logs",
+          inputContract: "Return JSON object with references",
+          acceptanceCriteria: ["Exactly 3 references with valid URLs"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error?.toLowerCase()).toContain("expected exactly 3 references");
     expect(result.stopReasonHint).toBe("validation_error");
     expect(manager.spawnCalls).toHaveLength(2);
   });

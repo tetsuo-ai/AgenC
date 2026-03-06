@@ -97,6 +97,8 @@ export const REPETITIVE_LINE_MAX_UNIQUE_RATIO = 0.35;
 export const DEFAULT_MAX_RUNTIME_SYSTEM_HINTS = 4;
 /** Default max planner output budget in tokens (soft, prompt-enforced). */
 export const DEFAULT_PLANNER_MAX_TOKENS = 256;
+/** Bounded planner retries when a delegated step is rejected for decomposition. */
+export const DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS = 2;
 /** Maximum deterministic steps accepted from a planner pass. */
 export const MAX_PLANNER_STEPS = 24;
 /** Parent history slice candidates retained for per-subagent curation. */

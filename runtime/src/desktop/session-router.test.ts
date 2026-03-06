@@ -480,6 +480,21 @@ describe("createDesktopAwareToolHandler", () => {
     expect(parsed.error).toContain(">/tmp/server.log 2>&1 &");
   });
 
+  it("does not treat npm install package names like vite as server launches", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command:
+        "mkdir -p ~/neon-heist && cd ~/neon-heist && npm init -y && npm install pixi.js vite",
+      timeoutMs: 5_000,
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
   it("adds low-token verification guidance to successful browser launch results", async () => {
     const manager = mockManager();
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
@@ -812,6 +827,8 @@ describe("createDesktopAwareToolHandler", () => {
       const args = config?.args as string[] | undefined;
       expect(config?.command).toBe("docker");
       expect(args).toContain("PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright");
+      expect(args).toContain("--workdir");
+      expect(args).toContain("/home/agenc");
       expect(args).not.toContain("--headless=false");
       expect(args).toEqual(
         expect.arrayContaining([
@@ -840,6 +857,7 @@ describe("createDesktopAwareToolHandler", () => {
         close: vi.fn(),
       } as any);
       mockCreateToolBridge.mockResolvedValue({
+        serverName: "browser",
         tools: [
           {
             name: "mcp.browser.browser_navigate",
@@ -875,11 +893,150 @@ describe("createDesktopAwareToolHandler", () => {
       expect(args?.[envIndex("FOO=bar") - 1]).toBe("-e");
       expect(args?.includes("DISPLAY=:1")).toBe(true);
       expect(args?.[envIndex("DISPLAY=:1") - 1]).toBe("-e");
+      expect(args?.includes("--workdir")).toBe(true);
+      expect(args?.includes("/home/agenc")).toBe(true);
       expect(args).toEqual(
         expect.arrayContaining([
           "playwright-mcp",
         ]),
       );
+    });
+
+    it("only provisions container MCP servers allowed for the current session scope", async () => {
+      const manager = mockManager();
+      const containerMCPConfigs = [
+        {
+          name: "browser",
+          command: "npx",
+          args: ["-y", "@playwright/mcp@0.0.68"],
+        },
+        {
+          name: "neovim",
+          command: "npx",
+          args: ["-y", "mcp-neovim-server"],
+        },
+      ];
+      const containerMCPBridges = new Map<string, never[]>();
+      const execute = vi.fn().mockResolvedValue({
+        content: '{"ok":true}',
+      });
+      mockCreateMCPConnection.mockResolvedValue({
+        close: vi.fn(),
+      } as any);
+      mockCreateToolBridge.mockResolvedValue({
+        serverName: "browser",
+        tools: [
+          {
+            name: "mcp.browser.browser_navigate",
+            description: "Navigate in container MCP browser",
+            inputSchema: {},
+            execute,
+          },
+        ],
+        dispose: vi.fn(),
+      } as any);
+
+      const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        containerMCPConfigs,
+        containerMCPBridges,
+        allowedToolNames: ["mcp.browser.browser_navigate"],
+      });
+
+      const result = await handler("mcp.browser.browser_navigate", {
+        url: "https://example.com",
+      });
+
+      expect(result).toBe('{"ok":true}');
+      expect(mockCreateMCPConnection).toHaveBeenCalledTimes(1);
+      const config = mockCreateMCPConnection.mock.calls[0]?.[0];
+      expect(config?.args).toContain("playwright-mcp");
+      expect(config?.args).not.toContain("mcp-neovim-server");
+    });
+
+    it("reuses existing parent-scoped container MCP bridges and only connects newly required servers", async () => {
+      const manager = mockManager();
+      const containerMCPConfigs = [
+        {
+          name: "browser",
+          command: "npx",
+          args: ["-y", "@playwright/mcp@0.0.68"],
+        },
+        {
+          name: "neovim",
+          command: "npx",
+          args: ["-y", "mcp-neovim-server"],
+        },
+      ];
+      const containerMCPBridges = new Map<string, never[]>();
+      mockCreateMCPConnection.mockResolvedValue({
+        close: vi.fn(),
+      } as any);
+      mockCreateToolBridge
+        .mockResolvedValueOnce({
+          serverName: "browser",
+          tools: [
+            {
+              name: "mcp.browser.browser_navigate",
+              description: "Navigate in container MCP browser",
+              inputSchema: {},
+              execute: vi.fn().mockResolvedValue({ content: '{"browser":true}' }),
+            },
+          ],
+          dispose: vi.fn(),
+        } as any)
+        .mockResolvedValueOnce({
+          serverName: "neovim",
+          tools: [
+            {
+              name: "mcp.neovim.vim_edit",
+              description: "Edit file",
+              inputSchema: {},
+              execute: vi.fn().mockResolvedValue({ content: '{"edited":true}' }),
+            },
+          ],
+          dispose: vi.fn(),
+        } as any);
+
+      const browserHandler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        containerMCPConfigs,
+        containerMCPBridges,
+        allowedToolNames: ["mcp.browser.browser_navigate"],
+      });
+      const editHandler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+        desktopManager: manager,
+        bridges,
+        containerMCPConfigs,
+        containerMCPBridges,
+        allowedToolNames: ["mcp.neovim.vim_edit"],
+      });
+
+      expect(
+        await browserHandler("mcp.browser.browser_navigate", {
+          url: "https://example.com",
+        }),
+      ).toBe('{"browser":true}');
+      expect(
+        await editHandler("mcp.neovim.vim_edit", {
+          filePath: "/workspace/app.ts",
+          content: "hello",
+        }),
+      ).toBe('{"edited":true}');
+
+      expect(mockCreateMCPConnection).toHaveBeenCalledTimes(2);
+      const firstArgs = mockCreateMCPConnection.mock.calls[0]?.[0]?.args as
+        | string[]
+        | undefined;
+      const secondArgs = mockCreateMCPConnection.mock.calls[1]?.[0]?.args as
+        | string[]
+        | undefined;
+      expect(firstArgs).toContain("playwright-mcp");
+      expect(firstArgs).not.toContain("mcp-neovim-server");
+      expect(secondArgs).toContain("mcp-neovim-server");
+      expect(secondArgs).not.toContain("playwright-mcp");
     });
   });
 });

@@ -154,6 +154,7 @@ When investigating routing drift or unstable delegation behavior, capture one tr
 - `plannerSummary.delegationDecision`
 - `plannerSummary.delegationPolicyTuning`
 - `plannerSummary.subagentVerification`
+- `plannerSummary.diagnostics`
 - `stopReason` + `stopReasonDetail`
 
 Expected:
@@ -163,6 +164,12 @@ Expected:
 - final reward signal is present after turn completion
 - useful-delegation proxy fields are present for delegated turns (`usefulDelegation`, `usefulDelegationScore`, `rewardProxyVersion`)
 - hard-block and handoff-confidence vetoes are explicit in `plannerSummary.delegationDecision.reason`
+- overloaded child scopes surface `subagent_step_needs_decomposition` or `planner_runtime_refinement_retry` instead of repeating generic `validation_error` failures
+- delegated `execute_with_agent` trace entries include raw objective/contract/acceptance summaries plus child validation and nested tool-call outcomes; inspect those fields before trusting collapsed UI status cards
+- post-tool summary calls (`tool_followup`, `planner_synthesis`) now receive a runtime-injected authoritative execution ledger system message; inspect that ledger when verifying whether the final answer had enough external grounding
+- for Grok-backed research turns, confirm whether routed tools included `web_search` and whether `providerEvidence.citations` was populated before assuming browser MCP was the intended evidence path
+- if `llm.webSearch=true`, also confirm the selected Grok model actually supports xAI server-side tools; unsupported models such as `grok-code-fast-1` must not have `web_search` advertised or injected
+- for terminal-window incidents, inspect routed tools for `mcp.kitty.launch` / `mcp.kitty.close` and check whether a cached route was invalidated on an open-vs-close action shift before blaming the desktop tools
 - if runtime aggressiveness override is active, `/delegation status` shows profile and effective threshold
 
 ---

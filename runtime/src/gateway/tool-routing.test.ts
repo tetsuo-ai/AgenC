@@ -30,13 +30,19 @@ const TOOLS: LLMTool[] = [
   makeTool("desktop.type", "Type into focused element"),
   makeTool("playwright.browser_navigate", "Navigate browser to a URL"),
   makeTool("playwright.browser_click", "Click browser element"),
+  makeTool("playwright.browser_snapshot", "Read browser page content"),
+  makeTool("playwright.browser_tabs", "List open browser tabs"),
   makeTool("agenc.createTask", "Create on-chain task"),
   makeTool("agenc.getTask", "Read task details"),
 ];
 
 const MCP_TERMINAL_TOOLS: LLMTool[] = [
   ...TOOLS,
+  makeTool("desktop.window_list", "List desktop windows"),
+  makeTool("desktop.window_focus", "Focus a desktop window"),
+  makeTool("desktop.keyboard_key", "Press desktop keyboard shortcut"),
   makeTool("mcp.kitty.launch", "Launch kitty terminal window"),
+  makeTool("mcp.kitty.close", "Close kitty terminal window"),
   makeTool("mcp.kitty.send_text", "Send text to a kitty instance"),
   makeTool("mcp.tmux.execute-command", "Execute command in tmux session"),
   makeTool("mcp.tmux.list-sessions", "List tmux sessions"),
@@ -77,6 +83,43 @@ describe("ToolRouter", () => {
       decision.routedToolNames.length,
     );
     expect(decision.diagnostics.schemaCharsSaved).toBeGreaterThan(0);
+  });
+
+  it("prefers navigation-oriented browser tools over tab state checks", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-browser",
+      messageText: "research the website in the browser and inspect the page",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("playwright.browser_navigate");
+    expect(decision.routedToolNames).toContain("playwright.browser_snapshot");
+    const tabIndex = decision.routedToolNames.indexOf("playwright.browser_tabs");
+    if (tabIndex >= 0) {
+      expect(
+        decision.routedToolNames.indexOf("playwright.browser_navigate"),
+      ).toBeLessThan(tabIndex);
+    }
+  });
+
+  it("keeps browser tab tools when the intent explicitly mentions tabs", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-tabs",
+      messageText: "list the browser tabs and switch windows",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("playwright.browser_tabs");
   });
 
   it("reuses cached routing decision for similar turns", () => {
@@ -147,6 +190,56 @@ describe("ToolRouter", () => {
     expect(second.diagnostics.cacheHit).toBe(false);
     expect(second.diagnostics.invalidatedReason).toBe("missing_required_family");
     expect(second.routedToolNames.some((name) => name.startsWith("mcp.tmux."))).toBe(true);
+  });
+
+  it("prefers direct kitty open and close tools for terminal window actions", () => {
+    const router = new ToolRouter(MCP_TERMINAL_TOOLS, {
+      maxToolsPerTurn: 8,
+      minCacheConfidence: 0,
+    });
+
+    const openDecision = router.route({
+      sessionId: "s-kitty-open",
+      messageText: "open a terminal",
+      history: [],
+    });
+    const closeDecision = router.route({
+      sessionId: "s-kitty-close",
+      messageText: "close the terminal",
+      history: [],
+    });
+
+    expect(openDecision.routedToolNames).toContain("mcp.kitty.launch");
+    expect(closeDecision.routedToolNames).toContain("mcp.kitty.close");
+    const windowListIndex = closeDecision.routedToolNames.indexOf("desktop.window_list");
+    if (windowListIndex >= 0) {
+      expect(
+        closeDecision.routedToolNames.indexOf("mcp.kitty.close"),
+      ).toBeLessThan(windowListIndex);
+    }
+  });
+
+  it("invalidates cached open-terminal route when the user switches to closing the terminal", () => {
+    const router = new ToolRouter(MCP_TERMINAL_TOOLS, {
+      maxToolsPerTurn: 8,
+      minCacheConfidence: 0,
+    });
+
+    router.route({
+      sessionId: "s-kitty-pivot",
+      messageText: "open a terminal",
+      history: [],
+    });
+
+    const next = router.route({
+      sessionId: "s-kitty-pivot",
+      messageText: "close the terminal",
+      history: [{ role: "user", content: "open a terminal", toolCalls: undefined }],
+    });
+
+    expect(next.diagnostics.cacheHit).toBe(false);
+    expect(next.diagnostics.invalidatedReason).toBe("terminal_action_shift");
+    expect(next.routedToolNames).toContain("mcp.kitty.close");
   });
 
   it("invalidates cache after repeated routing misses", () => {

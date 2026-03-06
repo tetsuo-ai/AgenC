@@ -12,7 +12,9 @@
 import type {
   LLMChatOptions,
   LLMProvider,
+  LLMProviderEvidence,
   LLMMessage,
+  LLMToolChoice,
   LLMToolCall,
   LLMResponse,
   LLMUsage,
@@ -96,6 +98,7 @@ import {
   MAX_TOOL_IMAGE_CHARS_BUDGET,
   DEFAULT_MAX_RUNTIME_SYSTEM_HINTS,
   DEFAULT_PLANNER_MAX_TOKENS,
+  DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
   DEFAULT_TOOL_BUDGET_PER_REQUEST,
   DEFAULT_MODEL_RECALLS_PER_REQUEST,
   DEFAULT_FAILURE_BUDGET_PER_REQUEST,
@@ -122,12 +125,29 @@ import {
   buildToolLoopRecoveryMessages,
   buildRoutingExpansionMessage,
 } from "./chat-executor-tool-utils.js";
+
+function mergeProviderEvidence(
+  current: LLMProviderEvidence | undefined,
+  incoming: LLMProviderEvidence | undefined,
+): LLMProviderEvidence | undefined {
+  if (!current) return incoming;
+  if (!incoming) return current;
+
+  const citations = Array.from(new Set([
+    ...(current.citations ?? []),
+    ...(incoming.citations ?? []),
+  ]));
+  if (citations.length === 0) return undefined;
+  return { citations };
+}
 import type { RoundStuckState } from "./chat-executor-tool-utils.js";
 import {
   extractMessageText,
   truncateText,
   sanitizeFinalContent,
+  reconcileDirectShellObservationContent,
   reconcileStructuredToolOutcome,
+  reconcileTerminalFailureContent,
   estimatePromptShape,
   normalizeHistory,
   sanitizeToolCallsForReplay,
@@ -135,6 +155,7 @@ import {
   appendUserMessage,
   generateFallbackContent,
   summarizeToolCalls,
+  buildToolExecutionGroundingMessage,
 } from "./chat-executor-text.js";
 import {
   buildSemanticToolCallKey,
@@ -150,6 +171,13 @@ import {
   buildPlannerExecutionContext,
   parsePlannerPlan,
   validatePlannerGraph,
+  extractExplicitSubagentOrchestrationRequirements,
+  validateExplicitSubagentOrchestrationRequirements,
+  extractPlannerDecompositionDiagnostics,
+  buildPlannerDecompositionRefinementHint,
+  buildPipelineDecompositionRefinementHint,
+  buildExplicitSubagentOrchestrationRefinementHint,
+  buildExplicitSubagentOrchestrationFailureMessage,
   isHighRiskSubagentPlan,
   computePlannerGraphDepth,
   isPipelineStopReasonHint,
@@ -166,6 +194,12 @@ import {
   parseSubagentVerifierDecision,
   mergeSubagentVerifierDecisions,
 } from "./chat-executor-verifier.js";
+import {
+  getMissingSuccessfulToolEvidenceMessage,
+  resolveDelegatedCorrectionToolChoiceToolNames,
+  resolveDelegatedInitialToolChoiceToolName,
+  validateDelegatedOutputContract,
+} from "../utils/delegation-validation.js";
 // ---------------------------------------------------------------------------
 // Re-exports — preserve backward-compatible import paths for consumers
 // ---------------------------------------------------------------------------
@@ -402,10 +436,21 @@ export class ChatExecutor {
 
     // Sanitize + assemble result
     ctx.finalContent = sanitizeFinalContent(ctx.finalContent);
+    ctx.finalContent = reconcileDirectShellObservationContent(
+      ctx.finalContent,
+      ctx.allToolCalls,
+    );
     ctx.finalContent = reconcileStructuredToolOutcome(
       ctx.finalContent,
       ctx.allToolCalls,
     );
+    ctx.finalContent = reconcileTerminalFailureContent({
+      content: ctx.finalContent,
+      stopReason: ctx.stopReason,
+      stopReasonDetail: ctx.stopReasonDetail,
+      toolCalls: ctx.allToolCalls,
+    });
+    ctx.finalContent = sanitizeFinalContent(ctx.finalContent);
 
     return {
       content: ctx.finalContent,
@@ -413,6 +458,7 @@ export class ChatExecutor {
       model: ctx.responseModel,
       usedFallback: ctx.usedFallback,
       toolCalls: ctx.allToolCalls,
+      providerEvidence: ctx.providerEvidence,
       tokenUsage: ctx.cumulativeUsage,
       callUsage: ctx.callUsage,
       durationMs,
@@ -484,6 +530,157 @@ export class ChatExecutor {
     return ctx.requestDeadlineAt - Date.now();
   }
 
+  private getAllowedToolNamesForEvidence(ctx: ExecutionContext): readonly string[] {
+    if (ctx.activeRoutedToolNames.length > 0) {
+      return ctx.activeRoutedToolNames;
+    }
+    return this.allowedTools ? [...this.allowedTools] : [];
+  }
+
+  private getRequiredToolEvidencePreferredToolName(
+    ctx: ExecutionContext,
+  ): string | undefined {
+    const delegationSpec = ctx.requiredToolEvidence?.delegationSpec;
+    if (!delegationSpec) return undefined;
+    return resolveDelegatedInitialToolChoiceToolName(
+      delegationSpec,
+      this.getAllowedToolNamesForEvidence(ctx),
+    );
+  }
+
+  private async enforceRequiredToolEvidenceBeforeCompletion(
+    ctx: ExecutionContext,
+    phase: "initial" | "tool_followup",
+  ): Promise<"continue" | "failed" | "not_required"> {
+    if (!ctx.requiredToolEvidence) return "not_required";
+
+    let retried = false;
+    while (ctx.response?.finishReason !== "tool_calls") {
+      const responseContent =
+        typeof ctx.response?.content === "string" ? ctx.response.content : "";
+      const contractValidation = ctx.requiredToolEvidence.delegationSpec
+        ? validateDelegatedOutputContract({
+          spec: ctx.requiredToolEvidence.delegationSpec,
+          output: responseContent,
+          toolCalls: ctx.allToolCalls,
+          providerEvidence: ctx.providerEvidence,
+        })
+        : undefined;
+      const missingEvidenceMessage = contractValidation?.error ??
+        getMissingSuccessfulToolEvidenceMessage(
+          ctx.allToolCalls,
+          ctx.requiredToolEvidence.delegationSpec,
+          ctx.providerEvidence,
+        );
+      if (!missingEvidenceMessage) {
+        return retried ? "continue" : "not_required";
+      }
+
+      if (
+        ctx.requiredToolEvidenceCorrectionAttempts >=
+        ctx.requiredToolEvidence.maxCorrectionAttempts
+      ) {
+        this.setStopReason(ctx, "validation_error", missingEvidenceMessage);
+        ctx.finalContent = missingEvidenceMessage;
+        return "failed";
+      }
+
+      const correctionAllowedTools = this.allowedTools
+        ? [...this.allowedTools]
+        : this.getAllowedToolNamesForEvidence(ctx);
+      const allowedToolSummary = correctionAllowedTools.length > 0
+        ? ` Allowed tools: ${correctionAllowedTools.join(", ")}.`
+        : "";
+      const correctionLines = [
+        "Tool-grounded evidence is required for this delegated task.",
+        "Before answering, call one or more allowed tools and base the answer on those results.",
+        "Do not answer from memory or restate the plan.",
+      ];
+      if (
+        contractValidation?.code === "low_signal_browser_evidence" ||
+        /browser-grounded evidence/i.test(missingEvidenceMessage)
+      ) {
+        correctionLines.push(
+          "Use concrete non-blank URLs or localhost targets with browser navigation plus snapshot/run_code. `browser_tabs` and about:blank state checks do not count.",
+        );
+      }
+      if (
+        contractValidation?.code === "expected_json_object" ||
+        contractValidation?.code === "empty_structured_payload"
+      ) {
+        correctionLines.push(
+          "Your final answer must be a single JSON object only, with no markdown fences or prose around it.",
+        );
+      }
+      if (
+        contractValidation?.code === "missing_file_mutation_evidence" ||
+        /file creation\/edit evidence|file mutation tools/i.test(
+          missingEvidenceMessage,
+        )
+      ) {
+        correctionLines.push(
+          "Create or edit the required files with the allowed file-mutation tools before answering, and name those files in the final output.",
+        );
+      }
+      const retryInstruction =
+        "Delegated output validation failed. " +
+        `${missingEvidenceMessage}. ` +
+        correctionLines.join(" ") +
+        allowedToolSummary;
+
+      if (
+        typeof ctx.response?.content === "string" &&
+        ctx.response.content.trim().length > 0
+      ) {
+        this.pushMessage(
+          ctx,
+          { role: "assistant", content: ctx.response.content },
+          "assistant_runtime",
+        );
+      }
+      this.pushMessage(
+        ctx,
+        { role: "system", content: retryInstruction },
+        "system_runtime",
+      );
+      ctx.requiredToolEvidenceCorrectionAttempts += 1;
+      retried = true;
+
+      const preferredToolNames =
+        contractValidation?.code && ctx.requiredToolEvidence?.delegationSpec
+          ? resolveDelegatedCorrectionToolChoiceToolNames(
+            ctx.requiredToolEvidence.delegationSpec,
+            correctionAllowedTools,
+            contractValidation.code,
+          )
+          : [];
+      const preferredToolName =
+        preferredToolNames[0] ??
+        this.getRequiredToolEvidencePreferredToolName(ctx);
+      const nextResponse = await this.callModelForPhase(ctx, {
+        phase,
+        callMessages: ctx.messages,
+        callSections: ctx.messageSections,
+        onStreamChunk: ctx.activeStreamCallback,
+        statefulSessionId: ctx.sessionId,
+        toolChoice: "required",
+        ...((preferredToolNames.length > 0 || preferredToolName)
+          ? {
+            routedToolNames: preferredToolNames.length > 0
+              ? preferredToolNames
+              : [preferredToolName!] as const,
+          }
+          : {}),
+        budgetReason:
+          "Max model recalls exceeded while enforcing delegated tool-grounded evidence",
+      });
+      if (!nextResponse) return "failed";
+      ctx.response = nextResponse;
+    }
+
+    return retried ? "continue" : "not_required";
+  }
+
   private async callModelForPhase(
     ctx: ExecutionContext,
     input: {
@@ -493,6 +690,7 @@ export class ChatExecutor {
       onStreamChunk?: StreamProgressCallback;
       statefulSessionId?: string;
       routedToolNames?: readonly string[];
+      toolChoice?: LLMToolChoice;
       budgetReason: string;
     },
   ): Promise<LLMResponse | undefined> {
@@ -505,19 +703,37 @@ export class ChatExecutor {
     }
     const effectiveRoutedToolNames = input.routedToolNames !== undefined
       ? input.routedToolNames
-      : (ctx.toolRouting ? ctx.activeRoutedToolNames : undefined);
+      : ctx.toolRouting
+      ? ctx.activeRoutedToolNames
+      : (this.allowedTools ? [...this.allowedTools] : undefined);
+    const groundingMessage =
+      input.phase === "tool_followup" || input.phase === "planner_synthesis"
+        ? buildToolExecutionGroundingMessage({
+          toolCalls: ctx.allToolCalls,
+          providerEvidence: ctx.providerEvidence,
+        })
+        : undefined;
+    const effectiveCallMessages = groundingMessage
+      ? [...input.callMessages, groundingMessage]
+      : [...input.callMessages];
+    const effectiveCallSections = groundingMessage && input.callSections
+      ? [...input.callSections, "system_runtime" as const]
+      : input.callSections;
     let next: FallbackResult;
     try {
       next = await this.callWithFallback(
-        input.callMessages,
+        effectiveCallMessages,
         input.onStreamChunk,
-        input.callSections,
+        effectiveCallSections,
         {
           ...(input.statefulSessionId
             ? { statefulSessionId: input.statefulSessionId }
             : {}),
           ...(effectiveRoutedToolNames !== undefined
             ? { routedToolNames: effectiveRoutedToolNames }
+            : {}),
+          ...(input.toolChoice !== undefined
+            ? { toolChoice: input.toolChoice }
             : {}),
         },
       );
@@ -532,6 +748,10 @@ export class ChatExecutor {
     ctx.modelCalls++;
     ctx.providerName = next.providerName;
     ctx.responseModel = next.response.model;
+    ctx.providerEvidence = mergeProviderEvidence(
+      ctx.providerEvidence,
+      next.response.providerEvidence,
+    );
     if (next.usedFallback) ctx.usedFallback = true;
     this.accumulateUsage(ctx.cumulativeUsage, next.response.usage);
     ctx.callUsage.push(
@@ -706,6 +926,7 @@ export class ChatExecutor {
         toolHandler: params.toolHandler ?? this.toolHandler,
         streamCallback: params.onStreamChunk ?? this.onStreamChunk,
         toolRouting: params.toolRouting,
+        requiredToolEvidence: params.requiredToolEvidence,
         initialRoutedToolNames,
         expandedRoutedToolNames,
         baseDelegationThreshold,
@@ -989,15 +1210,30 @@ export class ChatExecutor {
   }
 
   private async executeToolCallLoop(ctx: ExecutionContext): Promise<void> {
+    const preferredInitialToolName =
+      this.getRequiredToolEvidencePreferredToolName(ctx);
     ctx.response = await this.callModelForPhase(ctx, {
       phase: "initial",
       callMessages: ctx.messages,
       callSections: ctx.messageSections,
       onStreamChunk: ctx.activeStreamCallback,
       statefulSessionId: ctx.sessionId,
+      ...(ctx.requiredToolEvidence
+        ? {
+          toolChoice: "required" as const,
+          ...(preferredInitialToolName
+            ? { routedToolNames: [preferredInitialToolName] as const }
+            : {}),
+        }
+        : {}),
       budgetReason:
         "Initial completion blocked by max model recalls per request budget",
     });
+    const initialEvidenceAction =
+      await this.enforceRequiredToolEvidenceBeforeCompletion(ctx, "initial");
+    if (initialEvidenceAction === "failed" && !ctx.finalContent) {
+      ctx.finalContent = ctx.response?.content ?? ctx.finalContent;
+    }
 
     let rounds = 0;
     const emittedRecoveryHints = new Set<string>();
@@ -1116,6 +1352,12 @@ export class ChatExecutor {
       });
       if (!nextResponse) break;
       ctx.response = nextResponse;
+      const evidenceAction =
+        await this.enforceRequiredToolEvidenceBeforeCompletion(
+          ctx,
+          "tool_followup",
+        );
+      if (evidenceAction === "failed") break;
     }
 
     if (ctx.signal?.aborted) {
@@ -1303,284 +1545,470 @@ export class ChatExecutor {
 
   private async executePlannerPath(ctx: ExecutionContext): Promise<void> {
     ctx.plannerSummaryState.used = true;
-    const plannerMessages = buildPlannerMessages(
-      ctx.messageText,
-      ctx.history,
-      this.plannerMaxTokens,
-    );
     const plannerSections: PromptBudgetSection[] = [
       "system_anchor",
       "history",
       "user",
     ];
-    const plannerResponse = await this.callModelForPhase(ctx, {
-      phase: "planner",
-      callMessages: plannerMessages,
-      callSections: plannerSections,
-      budgetReason:
-        "Planner pass blocked by max model recalls per request budget",
-    });
+    const explicitOrchestrationRequirements =
+      extractExplicitSubagentOrchestrationRequirements(ctx.messageText);
+    let refinementHint: string | undefined;
 
-    if (plannerResponse) {
-      ctx.plannerSummaryState.plannerCalls = 1;
-      const plannerParse = parsePlannerPlan(plannerResponse.content);
+    for (
+      let plannerAttempt = 1;
+      plannerAttempt <= DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS;
+      plannerAttempt++
+    ) {
+      const plannerMessages = buildPlannerMessages(
+        ctx.messageText,
+        ctx.history,
+        this.plannerMaxTokens,
+        refinementHint,
+      );
+      const plannerResponse = await this.callModelForPhase(ctx, {
+        phase: "planner",
+        callMessages: plannerMessages,
+        callSections: plannerSections,
+        budgetReason:
+          "Planner pass blocked by max model recalls per request budget",
+      });
+      if (!plannerResponse) return;
+
+      ctx.plannerSummaryState.plannerCalls = plannerAttempt;
+      ctx.plannerSummaryState.delegationDecision = undefined;
+      ctx.plannedSubagentSteps = 0;
+      ctx.plannedDeterministicSteps = 0;
+      ctx.plannedSynthesisSteps = 0;
+      ctx.plannedFanout = 0;
+      ctx.plannedDependencyDepth = 0;
+
+      const plannerParse = parsePlannerPlan(
+        plannerResponse.content,
+        explicitOrchestrationRequirements,
+      );
       ctx.plannerSummaryState.diagnostics.push(...plannerParse.diagnostics);
       const plannerPlan = plannerParse.plan;
-      if (plannerPlan) {
-        const graphDiagnostics = validatePlannerGraph(
-          plannerPlan,
-          {
-            maxSubagentFanout: this.delegationDecisionConfig.maxFanoutPerTurn,
-            maxSubagentDepth: this.delegationDecisionConfig.maxDepth,
-          },
-        );
-        if (graphDiagnostics.length > 0) {
-          ctx.plannerSummaryState.diagnostics.push(...graphDiagnostics);
-          ctx.plannerSummaryState.routeReason = "planner_validation_failed";
-        } else if (plannerPlan.reason) {
-          ctx.plannerSummaryState.routeReason = plannerPlan.reason;
-        }
-        ctx.plannerSummaryState.plannedSteps = plannerPlan.steps.length;
-        ctx.plannedSubagentSteps = plannerPlan.steps.filter(
-          (step) => step.stepType === "subagent_task",
-        ).length;
-        ctx.plannedDeterministicSteps = plannerPlan.steps.filter(
-          (step) => step.stepType === "deterministic_tool",
-        ).length;
-        ctx.plannedSynthesisSteps = plannerPlan.steps.filter(
-          (step) => step.stepType === "synthesis",
-        ).length;
-        ctx.plannedFanout = ctx.plannedSubagentSteps;
-        ctx.plannedDependencyDepth = computePlannerGraphDepth(
-          plannerPlan.steps.map((step) => step.name),
-          plannerPlan.edges,
-        ).maxDepth;
-        const subagentSteps = plannerPlan.steps.filter(
-          (step): step is PlannerSubAgentTaskStepIntent =>
-            step.stepType === "subagent_task",
-        );
-        if (subagentSteps.length > 0) {
-          const highRiskPlan = isHighRiskSubagentPlan(subagentSteps);
-          ctx.trajectoryContextClusterId = deriveDelegationContextClusterId({
-            complexityScore: ctx.plannerDecision.score,
-            subagentStepCount: subagentSteps.length,
-            hasHistory: ctx.hasHistory,
-            highRiskPlan,
-          });
-
-          const banditResult = resolveDelegationBanditArm(
-            this.delegationBanditTuner,
-            ctx.trajectoryContextClusterId,
-            this.delegationDefaultStrategyArmId,
-            ctx.baseDelegationThreshold,
+      if (!plannerPlan) {
+        if (explicitOrchestrationRequirements) {
+          if (plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS) {
+            refinementHint = buildExplicitSubagentOrchestrationRefinementHint(
+              explicitOrchestrationRequirements,
+              plannerParse.diagnostics,
+            );
+            ctx.plannerSummaryState.diagnostics.push({
+              category: "policy",
+              code: "planner_required_orchestration_retry",
+              message:
+                "Planner failed to emit the user-required sub-agent orchestration plan; requesting a refined plan",
+              details: {
+                attempt: plannerAttempt,
+                nextAttempt: plannerAttempt + 1,
+                maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+              },
+            });
+            continue;
+          }
+          ctx.plannerSummaryState.routeReason =
+            "planner_required_orchestration_unmet";
+          this.setStopReason(
+            ctx,
+            "validation_error",
+            "Planner could not produce the required sub-agent orchestration plan",
           );
-          ctx.selectedBanditArm = banditResult.selectedArm;
-          ctx.tunedDelegationThreshold = banditResult.tunedThreshold;
-          ctx.plannerSummaryState.delegationPolicyTuning = banditResult.policyTuning;
+          ctx.finalContent = buildExplicitSubagentOrchestrationFailureMessage(
+            explicitOrchestrationRequirements,
+            plannerParse.diagnostics,
+          );
+          ctx.plannerHandled = true;
+          return;
+        }
+        ctx.plannerSummaryState.routeReason = "planner_parse_failed";
+        return;
+      }
 
-          assessAndRecordDelegationDecision(
-            {
-              messageText: ctx.messageText,
+      const graphDiagnostics = validatePlannerGraph(
+        plannerPlan,
+        {
+          maxSubagentFanout: this.delegationDecisionConfig.maxFanoutPerTurn,
+          maxSubagentDepth: this.delegationDecisionConfig.maxDepth,
+        },
+      );
+      const decompositionDiagnostics = extractPlannerDecompositionDiagnostics(
+        graphDiagnostics,
+      );
+      const requiredOrchestrationDiagnostics =
+        explicitOrchestrationRequirements
+          ? validateExplicitSubagentOrchestrationRequirements(
               plannerPlan,
-              subagentSteps,
-              complexityScore: ctx.plannerDecision.score,
-              tunedThreshold: ctx.tunedDelegationThreshold,
-              delegationConfig: this.delegationDecisionConfig,
+              explicitOrchestrationRequirements,
+            )
+          : [];
+      const shouldRefinePlan =
+        (
+          decompositionDiagnostics.length > 0 ||
+          requiredOrchestrationDiagnostics.length > 0
+        ) &&
+        plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS;
+      if (
+        graphDiagnostics.length > 0 ||
+        requiredOrchestrationDiagnostics.length > 0
+      ) {
+        ctx.plannerSummaryState.diagnostics.push(...graphDiagnostics);
+        ctx.plannerSummaryState.diagnostics.push(
+          ...requiredOrchestrationDiagnostics,
+        );
+        if (shouldRefinePlan) {
+          const refinementHints: string[] = [];
+          if (decompositionDiagnostics.length > 0) {
+            refinementHints.push(
+              buildPlannerDecompositionRefinementHint(
+                decompositionDiagnostics,
+              ),
+            );
+          }
+          if (requiredOrchestrationDiagnostics.length > 0) {
+            refinementHints.push(
+              buildExplicitSubagentOrchestrationRefinementHint(
+                explicitOrchestrationRequirements!,
+                requiredOrchestrationDiagnostics,
+              ),
+            );
+          }
+          refinementHint = refinementHints.join(" ");
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code:
+              requiredOrchestrationDiagnostics.length > 0
+                ? "planner_required_orchestration_retry"
+                : "planner_refinement_retry",
+            message:
+              requiredOrchestrationDiagnostics.length > 0
+                ? "Planner did not satisfy the user-required sub-agent orchestration plan; requesting a refined plan"
+                : "Planner emitted overloaded delegated steps; requesting a smaller refined plan",
+            details: {
+              attempt: plannerAttempt,
+              nextAttempt: plannerAttempt + 1,
+              maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
             },
-            ctx.plannerSummaryState,
-          );
+          });
+          continue;
         }
-        const deterministicSteps = plannerPlan.steps.filter(
-          (step): step is PlannerDeterministicToolStepIntent =>
-            step.stepType === "deterministic_tool",
-        );
-        const plannerPipelineSteps = mapPlannerStepsToPipelineSteps(
-          plannerPlan.steps,
-        );
-        const plannerExecutionContext = buildPlannerExecutionContext(
-          ctx.messageText,
-          ctx.history,
-          ctx.messages,
-          ctx.messageSections,
-          ctx.activeRoutedToolNames.length > 0
-            ? ctx.activeRoutedToolNames
-            : (this.allowedTools ? [...this.allowedTools] : undefined),
-        );
-        const hasExecutablePlannerSteps =
-          deterministicSteps.length > 0 ||
-          (
-            subagentSteps.length > 0 &&
-            ctx.plannerSummaryState.delegationDecision?.shouldDelegate === true
+        if (requiredOrchestrationDiagnostics.length > 0) {
+          ctx.plannerSummaryState.routeReason =
+            "planner_required_orchestration_unmet";
+          this.setStopReason(
+            ctx,
+            "validation_error",
+            "Planner did not satisfy the user-required sub-agent orchestration plan",
           );
+          ctx.finalContent = buildExplicitSubagentOrchestrationFailureMessage(
+            explicitOrchestrationRequirements!,
+            requiredOrchestrationDiagnostics,
+          );
+          ctx.plannerHandled = true;
+          return;
+        }
+        ctx.plannerSummaryState.routeReason = "planner_validation_failed";
+      } else if (plannerPlan.reason) {
+        ctx.plannerSummaryState.routeReason = plannerPlan.reason;
+      }
+
+      ctx.plannerSummaryState.plannedSteps = plannerPlan.steps.length;
+      ctx.plannedSubagentSteps = plannerPlan.steps.filter(
+        (step) => step.stepType === "subagent_task",
+      ).length;
+      ctx.plannedDeterministicSteps = plannerPlan.steps.filter(
+        (step) => step.stepType === "deterministic_tool",
+      ).length;
+      ctx.plannedSynthesisSteps = plannerPlan.steps.filter(
+        (step) => step.stepType === "synthesis",
+      ).length;
+      ctx.plannedFanout = ctx.plannedSubagentSteps;
+      ctx.plannedDependencyDepth = computePlannerGraphDepth(
+        plannerPlan.steps.map((step) => step.name),
+        plannerPlan.edges,
+      ).maxDepth;
+
+      const subagentSteps = plannerPlan.steps.filter(
+        (step): step is PlannerSubAgentTaskStepIntent =>
+          step.stepType === "subagent_task",
+      );
+      let delegationDecision: ReturnType<
+        typeof assessAndRecordDelegationDecision
+      > | undefined;
+      if (subagentSteps.length > 0) {
+        const highRiskPlan = isHighRiskSubagentPlan(subagentSteps);
+        ctx.trajectoryContextClusterId = deriveDelegationContextClusterId({
+          complexityScore: ctx.plannerDecision.score,
+          subagentStepCount: subagentSteps.length,
+          hasHistory: ctx.hasHistory,
+          highRiskPlan,
+        });
+
+        const banditResult = resolveDelegationBanditArm(
+          this.delegationBanditTuner,
+          ctx.trajectoryContextClusterId,
+          this.delegationDefaultStrategyArmId,
+          ctx.baseDelegationThreshold,
+        );
+        ctx.selectedBanditArm = banditResult.selectedArm;
+        ctx.tunedDelegationThreshold = banditResult.tunedThreshold;
+        ctx.plannerSummaryState.delegationPolicyTuning = banditResult.policyTuning;
+
+        delegationDecision = assessAndRecordDelegationDecision(
+          {
+            messageText: ctx.messageText,
+            plannerPlan,
+            subagentSteps,
+            complexityScore: ctx.plannerDecision.score,
+            tunedThreshold: ctx.tunedDelegationThreshold,
+            delegationConfig: this.delegationDecisionConfig,
+          },
+          ctx.plannerSummaryState,
+        );
+        if (
+          explicitOrchestrationRequirements &&
+          delegationDecision &&
+          !delegationDecision.shouldDelegate
+        ) {
+          delegationDecision = {
+            ...delegationDecision,
+            shouldDelegate: true,
+            reason: "approved",
+          };
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code: "delegation_required_by_user",
+            message:
+              "User explicitly required sub-agent orchestration; bypassing delegation utility veto",
+            details: {
+              requiredSteps:
+                explicitOrchestrationRequirements.stepNames.join(","),
+            },
+          });
+        }
+      }
+      const deterministicSteps = plannerPlan.steps.filter(
+        (step): step is PlannerDeterministicToolStepIntent =>
+          step.stepType === "deterministic_tool",
+      );
+      const plannerPipelineSteps = mapPlannerStepsToPipelineSteps(
+        plannerPlan.steps,
+      );
+      const plannerExecutionContext = buildPlannerExecutionContext(
+        ctx.messageText,
+        ctx.history,
+        ctx.messages,
+        ctx.messageSections,
+        ctx.activeRoutedToolNames.length > 0
+          ? ctx.activeRoutedToolNames
+          : (this.allowedTools ? [...this.allowedTools] : undefined),
+      );
+      const hasExecutablePlannerSteps =
+        deterministicSteps.length > 0 ||
+        (
+          subagentSteps.length > 0 &&
+          delegationDecision?.shouldDelegate === true
+        );
+
+      if (
+        hasExecutablePlannerSteps &&
+        ctx.plannerSummaryState.routeReason !== "planner_validation_failed"
+      ) {
+        if (deterministicSteps.length > ctx.effectiveToolBudget) {
+          this.setStopReason(
+            ctx,
+            "budget_exceeded",
+            `Planner produced ${deterministicSteps.length} deterministic steps but tool budget is ${ctx.effectiveToolBudget}`,
+          );
+          ctx.finalContent =
+            `Planned ${deterministicSteps.length} deterministic steps, ` +
+            `but request tool budget is ${ctx.effectiveToolBudget}.`;
+          ctx.plannerHandled = true;
+          return;
+        }
+
+        const pipeline: Pipeline = {
+          id: `planner:${ctx.sessionId}:${Date.now()}`,
+          createdAt: Date.now(),
+          context: { results: {} },
+          steps: deterministicSteps.map((step) => ({
+            name: step.name,
+            tool: step.tool,
+            args: step.args,
+            onError: step.onError,
+            maxRetries: step.maxRetries,
+          })),
+          plannerSteps: plannerPipelineSteps,
+          edges: plannerPlan.edges,
+          maxParallelism: this.delegationDecisionConfig.maxFanoutPerTurn,
+          plannerContext: plannerExecutionContext,
+        };
+
+        const shouldRunSubagentVerifier =
+          subagentSteps.length > 0 &&
+          delegationDecision?.shouldDelegate === true &&
+          (
+            this.subagentVerifierConfig.enabled ||
+            this.subagentVerifierConfig.force
+          );
+        const {
+          verifierRounds,
+          verificationDecision,
+          pipelineResult,
+        } = await this.executePlannerPipelineWithVerifier({
+          pipeline,
+          plannerPlan,
+          subagentSteps,
+          deterministicSteps,
+          plannerExecutionContext,
+          shouldRunSubagentVerifier,
+          plannerSummaryState: ctx.plannerSummaryState,
+          checkRequestTimeout: (stage: string) => this.checkRequestTimeout(ctx, stage),
+          runPipelineWithGlobalTimeout: (p: Pipeline) => this.runPipelineWithTimeout(ctx, p),
+          runSubagentVerifierRound: (input) => this.runSubagentVerifier(ctx, input),
+          appendToolRecord: (record: ToolCallRecord) => this.appendToolRecord(ctx, record),
+          setStopReason: (reason: LLMPipelineStopReason, detail?: string) => this.setStopReason(ctx, reason, detail),
+        });
 
         if (
-          hasExecutablePlannerSteps &&
-          ctx.plannerSummaryState.routeReason !== "planner_validation_failed"
+          shouldRunSubagentVerifier &&
+          verifierRounds === 0 &&
+          !ctx.plannerSummaryState.subagentVerification.performed
         ) {
-          if (deterministicSteps.length > ctx.effectiveToolBudget) {
+          ctx.plannerSummaryState.subagentVerification = {
+            enabled: true,
+            performed: false,
+            rounds: 0,
+            overall: "skipped",
+            confidence: 1,
+            unresolvedItems: [],
+          };
+        }
+
+        if (
+          pipelineResult?.decomposition &&
+          plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS
+        ) {
+          refinementHint = buildPipelineDecompositionRefinementHint(
+            pipelineResult.decomposition,
+          );
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code: "planner_runtime_refinement_retry",
+            message:
+              "Delegated execution requested parent-side decomposition; replanning with smaller steps",
+            details: {
+              attempt: plannerAttempt,
+              nextAttempt: plannerAttempt + 1,
+              maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+            },
+          });
+          continue;
+        }
+
+        if (pipelineResult) {
+          if (pipelineResult.status === "failed") {
+            const hintedStopReason = isPipelineStopReasonHint(
+              pipelineResult.stopReasonHint,
+            )
+              ? pipelineResult.stopReasonHint
+              : "tool_error";
             this.setStopReason(
               ctx,
-              "budget_exceeded",
-              `Planner produced ${deterministicSteps.length} deterministic steps but tool budget is ${ctx.effectiveToolBudget}`,
+              hintedStopReason,
+              pipelineResult.error ??
+                "Deterministic pipeline execution failed",
             );
-            ctx.finalContent =
-              `Planned ${deterministicSteps.length} deterministic steps, ` +
-              `but request tool budget is ${ctx.effectiveToolBudget}.`;
-            ctx.plannerHandled = true;
-          } else {
-            const pipeline: Pipeline = {
-              id: `planner:${ctx.sessionId}:${Date.now()}`,
-              createdAt: Date.now(),
-              context: { results: {} },
-              steps: deterministicSteps.map((step) => ({
-                name: step.name,
-                tool: step.tool,
-                args: step.args,
-                onError: step.onError,
-                maxRetries: step.maxRetries,
-              })),
-              plannerSteps: plannerPipelineSteps,
-              edges: plannerPlan.edges,
-              maxParallelism: this.delegationDecisionConfig.maxFanoutPerTurn,
-              plannerContext: plannerExecutionContext,
-            };
-
-            const shouldRunSubagentVerifier =
-              subagentSteps.length > 0 &&
-              ctx.plannerSummaryState.delegationDecision?.shouldDelegate === true &&
-              (
-                this.subagentVerifierConfig.enabled ||
-                this.subagentVerifierConfig.force
-              );
-            const {
-              verifierRounds,
-              verificationDecision,
-              pipelineResult,
-            } = await this.executePlannerPipelineWithVerifier({
-              pipeline,
-              plannerPlan,
-              subagentSteps,
-              deterministicSteps,
-              plannerExecutionContext,
-              shouldRunSubagentVerifier,
-              plannerSummaryState: ctx.plannerSummaryState,
-              checkRequestTimeout: (stage: string) => this.checkRequestTimeout(ctx, stage),
-              runPipelineWithGlobalTimeout: (p: Pipeline) => this.runPipelineWithTimeout(ctx, p),
-              runSubagentVerifierRound: (input) => this.runSubagentVerifier(ctx, input),
-              appendToolRecord: (record: ToolCallRecord) => this.appendToolRecord(ctx, record),
-              setStopReason: (reason: LLMPipelineStopReason, detail?: string) => this.setStopReason(ctx, reason, detail),
-            });
-
-            if (
-              shouldRunSubagentVerifier &&
-              verifierRounds === 0 &&
-              !ctx.plannerSummaryState.subagentVerification.performed
-            ) {
-              ctx.plannerSummaryState.subagentVerification = {
-                enabled: true,
-                performed: false,
-                rounds: 0,
-                overall: "skipped",
-                confidence: 1,
-                unresolvedItems: [],
-              };
-            }
-
-            if (pipelineResult) {
-              if (pipelineResult.status === "failed") {
-                const hintedStopReason = isPipelineStopReasonHint(
-                  pipelineResult.stopReasonHint,
-                )
-                  ? pipelineResult.stopReasonHint
-                  : "tool_error";
-                this.setStopReason(
-                  ctx,
-                  hintedStopReason,
-                  pipelineResult.error ??
-                    "Deterministic pipeline execution failed",
-                );
-              } else if (pipelineResult.status === "halted") {
-                this.setStopReason(
-                  ctx,
-                  "tool_calls",
-                  `Deterministic pipeline halted at step ${
-                    (pipelineResult.resumeFrom ?? 0) + 1
-                  } awaiting approval`,
-                );
-              }
-            } else if (ctx.stopReason === "completed") {
-              this.setStopReason(
-                ctx,
-                "timeout",
-                this.timeoutDetail("planner pipeline execution"),
-              );
-            }
-
-            if (ctx.failedToolCalls > ctx.effectiveFailureBudget) {
-              this.setStopReason(
-                ctx,
-                "tool_error",
-                `Failure budget exceeded (${ctx.failedToolCalls}/${ctx.effectiveFailureBudget}) during deterministic pipeline execution`,
-              );
-            }
-
-            if (
-              pipelineResult &&
-              (plannerPlan.requiresSynthesis || ctx.stopReason !== "completed")
-            ) {
-              const synthesisMessages = buildPlannerSynthesisMessages(
-                ctx.systemPrompt,
-                ctx.messageText,
-                plannerPlan,
-                pipelineResult,
-                verificationDecision,
-              );
-              const synthesisSections: PromptBudgetSection[] = [
-                "system_anchor",
-                "system_runtime",
-                "user",
-              ];
-              const synthesisResponse = await this.callModelForPhase(ctx, {
-                phase: "planner_synthesis",
-                callMessages: synthesisMessages,
-                callSections: synthesisSections,
-                onStreamChunk: ctx.activeStreamCallback,
-                statefulSessionId: ctx.sessionId,
-                budgetReason:
-                  "Planner synthesis blocked by max model recalls per request budget",
-              });
-              if (synthesisResponse) {
-                ctx.response = synthesisResponse;
-                ctx.finalContent = ensureSubagentProvenanceCitations(
-                  synthesisResponse.content,
-                  plannerPlan,
-                  pipelineResult,
-                );
-              }
-            }
-
-            if (!ctx.finalContent) {
-              ctx.finalContent =
-                generateFallbackContent(ctx.allToolCalls) ??
-                summarizeToolCalls(
-                  ctx.allToolCalls.filter((call) => !call.isError),
-                );
-            }
-            ctx.plannerHandled = true;
+          } else if (pipelineResult.status === "halted") {
+            this.setStopReason(
+              ctx,
+              "tool_calls",
+              `Deterministic pipeline halted at step ${
+                (pipelineResult.resumeFrom ?? 0) + 1
+              } awaiting approval`,
+            );
           }
-        } else {
-          if (
-            !ctx.plannerSummaryState.delegationDecision ||
-            ctx.plannerSummaryState.delegationDecision.shouldDelegate
-          ) {
-            if (ctx.plannerSummaryState.routeReason !== "planner_validation_failed") {
-              ctx.plannerSummaryState.routeReason = "planner_no_deterministic_steps";
-            }
-          }
+        } else if (ctx.stopReason === "completed") {
+          this.setStopReason(
+            ctx,
+            "timeout",
+            this.timeoutDetail("planner pipeline execution"),
+          );
         }
-      } else {
-        ctx.plannerSummaryState.routeReason = "planner_parse_failed";
+
+        if (ctx.failedToolCalls > ctx.effectiveFailureBudget) {
+          this.setStopReason(
+            ctx,
+            "tool_error",
+            `Failure budget exceeded (${ctx.failedToolCalls}/${ctx.effectiveFailureBudget}) during deterministic pipeline execution`,
+          );
+        }
+
+        if (
+          pipelineResult &&
+          !pipelineResult.decomposition &&
+          (
+            plannerPlan.requiresSynthesis ||
+            explicitOrchestrationRequirements?.requiresSynthesis === true ||
+            ctx.stopReason !== "completed"
+          )
+        ) {
+          const synthesisMessages = buildPlannerSynthesisMessages(
+            ctx.systemPrompt,
+            ctx.messageText,
+            plannerPlan,
+            pipelineResult,
+            verificationDecision,
+          );
+          const synthesisSections: PromptBudgetSection[] = [
+            "system_anchor",
+            "system_runtime",
+            "user",
+          ];
+          const synthesisResponse = await this.callModelForPhase(ctx, {
+            phase: "planner_synthesis",
+            callMessages: synthesisMessages,
+            callSections: synthesisSections,
+            onStreamChunk: ctx.activeStreamCallback,
+            statefulSessionId: ctx.sessionId,
+            budgetReason:
+              "Planner synthesis blocked by max model recalls per request budget",
+          });
+          if (synthesisResponse) {
+            ctx.response = synthesisResponse;
+            ctx.finalContent = ensureSubagentProvenanceCitations(
+              synthesisResponse.content,
+              plannerPlan,
+              pipelineResult,
+            );
+          }
+        } else if (pipelineResult?.decomposition && !ctx.finalContent) {
+          ctx.finalContent =
+            pipelineResult.error ??
+            pipelineResult.decomposition.reason;
+        }
+
+        if (!ctx.finalContent) {
+          ctx.finalContent =
+            generateFallbackContent(ctx.allToolCalls) ??
+            summarizeToolCalls(
+              ctx.allToolCalls.filter((call) => !call.isError),
+            );
+        }
+        ctx.plannerHandled = true;
+        return;
       }
+
+      if (
+        !delegationDecision ||
+        delegationDecision.shouldDelegate
+      ) {
+        if (ctx.plannerSummaryState.routeReason !== "planner_validation_failed") {
+          ctx.plannerSummaryState.routeReason = "planner_no_deterministic_steps";
+        }
+      }
+      return;
     }
   }
 
@@ -1731,6 +2159,7 @@ export class ChatExecutor {
     options?: {
       statefulSessionId?: string;
       routedToolNames?: readonly string[];
+      toolChoice?: LLMToolChoice;
     },
   ): Promise<FallbackResult> {
     const beforeBudget = estimatePromptShape(messages);
@@ -1748,8 +2177,9 @@ export class ChatExecutor {
     const hasRoutedToolNames = Boolean(
       options?.routedToolNames && options.routedToolNames.length > 0,
     );
+    const hasToolChoice = options?.toolChoice !== undefined;
     const chatOptions: LLMChatOptions | undefined =
-      hasStatefulSessionId || hasRoutedToolNames
+      hasStatefulSessionId || hasRoutedToolNames || hasToolChoice
         ? {
           ...(hasStatefulSessionId
             ? { stateful: { sessionId: String(options?.statefulSessionId) } }
@@ -1757,6 +2187,7 @@ export class ChatExecutor {
           ...(hasRoutedToolNames
             ? { toolRouting: { allowedToolNames: options?.routedToolNames } }
             : {}),
+          ...(hasToolChoice ? { toolChoice: options?.toolChoice } : {}),
         }
         : undefined;
     let lastError: Error | undefined;
