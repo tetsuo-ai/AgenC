@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 const DESKTOP_IFRAME_LOAD_TIMEOUT_MS = 8_000;
 
@@ -9,17 +9,12 @@ interface DesktopPanelProps {
 
 export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
   const [loading, setLoading] = useState(true);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const iframeSrc = `${vncUrl}?autoconnect=true&resize=scale&view_only=false&show_dot=true`;
 
   const openFullscreen = useCallback(() => {
     window.open(vncUrl, '_blank', 'noopener');
   }, [vncUrl]);
-
-  const handleContainerClick = useCallback(() => {
-    iframeRef.current?.focus();
-  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), DESKTOP_IFRAME_LOAD_TIMEOUT_MS);
@@ -53,18 +48,18 @@ export function DesktopPanel({ vncUrl, onClose }: DesktopPanelProps) {
       </div>
 
       {/* iframe container */}
-      <div className="relative flex-1 min-h-0" onClick={handleContainerClick}>
+      <div className="relative flex-1 min-h-0">
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-bbs-black pointer-events-none">
             <span className="text-xs text-bbs-gray animate-pulse">Connecting to desktop...</span>
           </div>
         )}
         <iframe
-          ref={iframeRef}
           src={iframeSrc}
           className="w-full h-full border-0"
           onLoad={() => setLoading(false)}
           allow="clipboard-read; clipboard-write"
+          tabIndex={-1}
           title="Desktop Viewer"
         />
       </div>

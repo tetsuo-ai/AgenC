@@ -53,3 +53,10 @@
 - **What worked:** The runtime now suppresses xAI `web_search` on unsupported Grok models instead of trusting a config flag, narrows research routing so generic `current` turns stop triggering provider search, and routes terminal close intent toward `mcp.kitty.close` with cache invalidation when users switch from opening to closing a terminal.
 - **What didn't:** Terminal close still depends on the direct kitty tool being present in the session. When it is absent, the fallback remains GUI window focus plus `alt+F4`, so that path still deserves incident coverage.
 - **Rule added to CLAUDE.md:** yes, `Grok Server-Side Tools: Gate provider-native search on actual model support` and `Terminal Routing: Treat open/close as separate intents`
+
+## PR [pending]: web preserve composer focus and respect manual scroll state
+- **Date:** 2026-03-06
+- **Files changed:** `web/src/App.tsx`, `web/src/App.integration.test.tsx`, `web/src/components/chat/ChatInput.tsx`, `web/src/components/chat/MessageList.tsx`, `web/src/components/chat/MessageList.test.tsx`, `web/src/components/activity/ActivityFeedView.tsx`, `web/src/components/activity/ActivityFeedView.test.tsx`, `web/src/components/chat/DesktopPanel.tsx`, `web/src/components/chat/ChatMessage.tsx`, `web/vite.config.ts`
+- **What worked:** The chat composer now keeps focus when the desktop panel auto-opens during voice use, both message and activity feeds stop yanking the user back to the bottom after manual scroll-up, and the markdown/syntax-highlighter vendor code is split out of the main web bundle. The web package tests and build passed from the package directory.
+- **What didn't:** Running Vitest from the repo root produced false DOM-environment failures because it skipped `web/vitest.config.ts`. That is a command-shape gotcha, not a product bug, and it is now documented.
+- **Rule added to CLAUDE.md:** no

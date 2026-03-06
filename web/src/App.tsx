@@ -37,6 +37,58 @@ import { SettingsView } from './components/settings/SettingsView';
 import { PaymentView } from './components/payment/PaymentView';
 import { DesktopView } from './components/desktop/DesktopView';
 
+const CHAT_COMPOSER_SELECTOR = 'textarea[data-chat-composer="true"]';
+
+interface ComposerFocusSnapshot {
+  element: HTMLTextAreaElement;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+function captureFocusedComposer(): ComposerFocusSnapshot | null {
+  if (typeof document === 'undefined') return null;
+  const active = document.activeElement;
+  if (!(active instanceof HTMLTextAreaElement)) return null;
+  if (active.dataset.chatComposer !== 'true') return null;
+
+  return {
+    element: active,
+    selectionStart: active.selectionStart ?? active.value.length,
+    selectionEnd: active.selectionEnd ?? active.value.length,
+  };
+}
+
+function restoreComposerFocus(snapshot: ComposerFocusSnapshot) {
+  const restore = () => {
+    if (typeof document === 'undefined') return;
+    const active = document.activeElement;
+    const target = document.body.contains(snapshot.element)
+      ? snapshot.element
+      : document.querySelector(CHAT_COMPOSER_SELECTOR);
+    if (!(target instanceof HTMLTextAreaElement)) return;
+
+    const activeIsNeutral =
+      active === null
+      || active === document.body
+      || active === target
+      || active instanceof HTMLIFrameElement;
+
+    if (!activeIsNeutral) return;
+
+    target.focus();
+    const start = Math.min(snapshot.selectionStart, target.value.length);
+    const end = Math.min(snapshot.selectionEnd, target.value.length);
+    target.setSelectionRange(start, end);
+  };
+
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(restore));
+    return;
+  }
+
+  setTimeout(restore, 0);
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewId>('chat');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
@@ -86,7 +138,11 @@ export default function App() {
   // Auto-open desktop panel when a sandbox becomes ready
   useEffect(() => {
     if (sessionDesktopUrl && !prevVncUrl.current) {
+      const focusedComposer = captureFocusedComposer();
       setDesktopPanelOpen(true);
+      if (focusedComposer) {
+        restoreComposerFocus(focusedComposer);
+      }
     }
     prevVncUrl.current = sessionDesktopUrl;
   }, [sessionDesktopUrl]);

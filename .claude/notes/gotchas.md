@@ -124,3 +124,7 @@
 - Keep provider-native search heuristics narrow. Broad words like `current` or `recent` will route `web_search` into normal shell/status turns and trigger provider 400s or unnecessary search costs.
 - Treat terminal open and terminal close as separate routed intents. Reusing a cached "open terminal" cluster for "close the terminal" causes the model to loop on `desktop.window_list` instead of using direct tools like `mcp.kitty.close`.
 - If `mcp.kitty.launch` / `mcp.kitty.close` is available, prompt and routing should prefer those direct tools over GUI-guessing fallbacks. Use `desktop.window_focus` + `desktop.keyboard_key` only when the direct close path is unavailable.
+
+## Web Vitest Invocation Gotcha (2026-03-06)
+
+- Run web package tests from `web/` or explicitly pass `--config web/vitest.config.ts`. Invoking `vitest` from the repo root skips the package `jsdom` config and produces false `document is not defined` / `Element is not defined` failures in React component tests.

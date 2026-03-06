@@ -213,6 +213,7 @@ export function ChatInput({
           <span className="text-bbs-purple font-bold shrink-0 mt-0.5">{'>'}</span>
           <textarea
             ref={textareaRef}
+            data-chat-composer="true"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
