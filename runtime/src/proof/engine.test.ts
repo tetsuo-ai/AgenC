@@ -80,7 +80,17 @@ import {
   ProofCacheError,
 } from "./errors.js";
 import { RuntimeErrorCodes, RuntimeError } from "../types/errors.js";
-import type { ProofInputs, EngineProofResult } from "./types.js";
+import type {
+  EngineProofResult,
+  ProofEngineConfig,
+  ProofInputs,
+} from "./types.js";
+
+const DEFAULT_LOCAL_BINARY_BACKEND = {
+  kind: "local-binary" as const,
+  binaryPath: "/usr/bin/agenc-zkvm-host",
+};
+const MOCK_PINNED_METHOD_ID = new Uint8Array(32).fill(0xef);
 
 function makeInputs(): ProofInputs {
   return {
@@ -88,6 +98,27 @@ function makeInputs(): ProofInputs {
     agentPubkey: Keypair.generate().publicKey,
     output: [1n, 2n, 3n, 4n],
     salt: 12345n,
+    agentSecret: 67890n,
+  };
+}
+
+function makeRouterConfig() {
+  return {
+    routerProgramId: Keypair.generate().publicKey,
+    routerPda: Keypair.generate().publicKey,
+    verifierEntryPda: Keypair.generate().publicKey,
+    verifierProgramId: Keypair.generate().publicKey,
+  };
+}
+
+function makePinnedProofConfig(
+  overrides: Partial<ProofEngineConfig> = {},
+): ProofEngineConfig {
+  return {
+    methodId: new Uint8Array(MOCK_PINNED_METHOD_ID),
+    routerConfig: makeRouterConfig(),
+    proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+    ...overrides,
   };
 }
 
@@ -145,12 +176,7 @@ describe("ProofEngine", () => {
     });
 
     it("calls SDK generateProof and returns EngineProofResult", async () => {
-      const engine = new ProofEngine({
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(makePinnedProofConfig());
       const inputs = makeInputs();
       const result = await engine.generate(inputs);
 
@@ -173,16 +199,64 @@ describe("ProofEngine", () => {
 
     it("enforces configured methodId against generated imageId", async () => {
       const pinnedMethodId = new Uint8Array(32).fill(0x7f);
-      const engine = new ProofEngine({
-        methodId: pinnedMethodId,
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(
+        makePinnedProofConfig({ methodId: pinnedMethodId }),
+      );
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         "Generated imageId does not match configured methodId",
+      );
+    });
+
+    it("rejects private proving when methodId and routerConfig are not pinned", async () => {
+      const engine = new ProofEngine({
+        proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+      });
+
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        "Private proof generation requires pinned methodId and complete routerConfig",
+      );
+      await expect(engine.generate(makeInputs())).rejects.toThrow("methodId");
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        "routerConfig.routerProgramId",
+      );
+    });
+
+    it("rejects private proving when routerConfig is only partially pinned", async () => {
+      const engine = new ProofEngine({
+        methodId: new Uint8Array(MOCK_PINNED_METHOD_ID),
+        routerConfig: {
+          routerProgramId: Keypair.generate().publicKey,
+          routerPda: Keypair.generate().publicKey,
+        },
+        proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+      });
+
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        "routerConfig.verifierEntryPda, routerConfig.verifierProgramId",
+      );
+    });
+
+    it("allows unpinned private proving only with the explicit unsafe override", async () => {
+      const warnFn = vi.fn();
+      const engine = new ProofEngine({
+        proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+        unsafeAllowUnpinnedPrivateProofs: true,
+        logger: {
+          debug: vi.fn(),
+          info: vi.fn(),
+          warn: warnFn,
+          error: vi.fn(),
+          setLevel: vi.fn(),
+        },
+      });
+
+      await expect(engine.generate(makeInputs())).resolves.toMatchObject({
+        fromCache: false,
+        verified: false,
+      });
+      expect(warnFn).toHaveBeenCalledWith(
+        expect.stringContaining("unsafeAllowUnpinnedPrivateProofs=true"),
       );
     });
 
@@ -190,12 +264,7 @@ describe("ProofEngine", () => {
       vi.mocked(mockGenerateProof).mockRejectedValueOnce(
         new Error("proof backend boom"),
       );
-      const engine = new ProofEngine({
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(makePinnedProofConfig());
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         ProofGenerationError,
@@ -206,12 +275,7 @@ describe("ProofEngine", () => {
       vi.mocked(mockGenerateProof).mockRejectedValueOnce(
         new Error("proof backend boom"),
       );
-      const engine = new ProofEngine({
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(makePinnedProofConfig());
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         "proof backend boom",
@@ -220,12 +284,7 @@ describe("ProofEngine", () => {
 
     it("wraps non-Error SDK throws in ProofGenerationError", async () => {
       vi.mocked(mockGenerateProof).mockRejectedValueOnce("string error");
-      const engine = new ProofEngine({
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(makePinnedProofConfig());
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
         ProofGenerationError,
@@ -238,13 +297,9 @@ describe("ProofEngine", () => {
   // ==========================================================================
 
   describe("generate with cache", () => {
-    const cacheEngineConfig = {
+    const cacheEngineConfig = makePinnedProofConfig({
       cache: { ttlMs: 60_000 },
-      proverBackend: {
-        kind: "local-binary" as const,
-        binaryPath: "/usr/bin/agenc-zkvm-host",
-      },
-    };
+    });
 
     it("stores result in cache on miss", async () => {
       const engine = new ProofEngine(cacheEngineConfig);
@@ -273,13 +328,11 @@ describe("ProofEngine", () => {
 
     it("respects cache TTL expiry", async () => {
       vi.useFakeTimers();
-      const engine = new ProofEngine({
-        cache: { ttlMs: 1000 },
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(
+        makePinnedProofConfig({
+          cache: { ttlMs: 1000 },
+        }),
+      );
       const inputs = makeInputs();
 
       await engine.generate(inputs);
@@ -294,13 +347,11 @@ describe("ProofEngine", () => {
     });
 
     it("evicts oldest entry when cache is full", async () => {
-      const engine = new ProofEngine({
-        cache: { ttlMs: 60_000, maxEntries: 2 },
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(
+        makePinnedProofConfig({
+          cache: { ttlMs: 60_000, maxEntries: 2 },
+        }),
+      );
 
       const inputs1 = makeInputs();
       const inputs2 = makeInputs();
@@ -342,11 +393,8 @@ describe("ProofEngine", () => {
     it("logs a warning when verifyAfterGeneration is set", async () => {
       const warnFn = vi.fn();
       const engine = new ProofEngine({
+        ...makePinnedProofConfig(),
         verifyAfterGeneration: true,
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
         logger: {
           debug: vi.fn(),
           info: vi.fn(),
@@ -377,7 +425,7 @@ describe("ProofEngine", () => {
         inputs.agentPubkey,
         inputs.output,
         inputs.salt,
-        undefined,
+        inputs.agentSecret,
       );
       expect(result.constraintHash).toBe(123n);
       expect(result.outputCommitment).toBe(456n);
@@ -415,13 +463,8 @@ describe("ProofEngine", () => {
 
     it("marks methodId and router as pinned when configured", () => {
       const engine = new ProofEngine({
+        ...makePinnedProofConfig(),
         methodId: new Uint8Array(32).fill(7),
-        routerConfig: {
-          routerProgramId: Keypair.generate().publicKey,
-          routerPda: Keypair.generate().publicKey,
-          verifierEntryPda: Keypair.generate().publicKey,
-          verifierProgramId: Keypair.generate().publicKey,
-        },
       });
       const status = engine.checkTools();
       expect(status.methodIdPinned).toBe(true);
@@ -449,12 +492,7 @@ describe("ProofEngine", () => {
     });
 
     it("tracks generation stats", async () => {
-      const engine = new ProofEngine({
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(makePinnedProofConfig());
 
       await engine.generate(makeInputs());
       await engine.generate(makeInputs());
@@ -466,13 +504,11 @@ describe("ProofEngine", () => {
     });
 
     it("tracks cache hit/miss stats", async () => {
-      const engine = new ProofEngine({
-        cache: { ttlMs: 60_000 },
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-        },
-      });
+      const engine = new ProofEngine(
+        makePinnedProofConfig({
+          cache: { ttlMs: 60_000 },
+        }),
+      );
       const inputs = makeInputs();
 
       await engine.generate(inputs); // miss
@@ -591,25 +627,22 @@ describe("ProofEngine with local-binary backend", () => {
   });
 
   it("calls SDK generateProof with prover config", async () => {
-    const engine = new ProofEngine({
-      proverBackend: {
-        kind: "local-binary",
-        binaryPath: "/usr/bin/agenc-zkvm-host",
-      },
-    });
+    const engine = new ProofEngine(makePinnedProofConfig());
     await engine.generate(makeInputs());
 
     expect(mockGenerateProof).toHaveBeenCalledOnce();
   });
 
   it("passes correct prover config to SDK", async () => {
-    const engine = new ProofEngine({
-      proverBackend: {
-        kind: "local-binary",
-        binaryPath: "/usr/bin/agenc-zkvm-host",
-        timeoutMs: 60_000,
-      },
-    });
+    const engine = new ProofEngine(
+      makePinnedProofConfig({
+        proverBackend: {
+          kind: "local-binary",
+          binaryPath: "/usr/bin/agenc-zkvm-host",
+          timeoutMs: 60_000,
+        },
+      }),
+    );
     await engine.generate(makeInputs());
 
     const args = vi.mocked(mockGenerateProof).mock.calls[0];
@@ -621,9 +654,11 @@ describe("ProofEngine with local-binary backend", () => {
   });
 
   it("throws ProofGenerationError when binaryPath is missing", async () => {
-    const engine = new ProofEngine({
-      proverBackend: { kind: "local-binary" },
-    });
+    const engine = new ProofEngine(
+      makePinnedProofConfig({
+        proverBackend: { kind: "local-binary" },
+      }),
+    );
 
     await expect(engine.generate(makeInputs())).rejects.toThrow(
       ProofGenerationError,
@@ -640,13 +675,15 @@ describe("ProofEngine with remote backend", () => {
   });
 
   it("calls SDK generateProof with remote config", async () => {
-    const engine = new ProofEngine({
-      proverBackend: {
-        kind: "remote",
-        endpoint: "https://prover.example.com",
-        headers: { Authorization: "Bearer abc" },
-      },
-    });
+    const engine = new ProofEngine(
+      makePinnedProofConfig({
+        proverBackend: {
+          kind: "remote",
+          endpoint: "https://prover.example.com",
+          headers: { Authorization: "Bearer abc" },
+        },
+      }),
+    );
     await engine.generate(makeInputs());
 
     expect(mockGenerateProof).toHaveBeenCalledOnce();
@@ -661,9 +698,11 @@ describe("ProofEngine with remote backend", () => {
   });
 
   it("throws ProofGenerationError when endpoint is missing", async () => {
-    const engine = new ProofEngine({
-      proverBackend: { kind: "remote" },
-    });
+    const engine = new ProofEngine(
+      makePinnedProofConfig({
+        proverBackend: { kind: "remote" },
+      }),
+    );
 
     await expect(engine.generate(makeInputs())).rejects.toThrow(
       ProofGenerationError,
@@ -753,6 +792,7 @@ describe("deriveCacheKey", () => {
       agentPubkey,
       output: [1n, 2n, 3n, 4n],
       salt: 12345n,
+      agentSecret: 67890n,
     };
 
     const key1 = deriveCacheKey(inputs);
