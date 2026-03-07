@@ -69,6 +69,8 @@ export interface WebChatDeps {
   onDesktopSessionRebound?: (sessionId: string) => void;
   /** Optional callback to fully reset backend context for a web session. */
   resetSessionContext?: (sessionId: string) => Promise<void> | void;
+  /** Optional callback to rehydrate backend context for a resumed web session. */
+  hydrateSessionContext?: (sessionId: string) => Promise<void> | void;
   /** Optional callback to cancel a daemon-owned background run for a session. */
   cancelBackgroundRun?: (sessionId: string) => Promise<boolean> | boolean;
 }
@@ -90,6 +92,7 @@ export interface ChatMessageRequest {
   type: "chat.message";
   payload: {
     content: string;
+    clientKey?: string;
     attachments?: Array<{ type: string; url?: string; mimeType: string }>;
   };
   id?: string;
@@ -103,28 +106,31 @@ export interface ChatTypingRequest {
 
 export interface ChatHistoryRequest {
   type: "chat.history";
-  payload?: { limit?: number };
+  payload?: { limit?: number; clientKey?: string };
   id?: string;
 }
 
 export interface ChatResumeRequest {
   type: "chat.resume";
-  payload: { sessionId: string };
+  payload: { sessionId: string; clientKey?: string };
   id?: string;
 }
 
 export interface ChatNewRequest {
   type: "chat.new";
+  payload?: { clientKey?: string };
   id?: string;
 }
 
 export interface ChatSessionsRequest {
   type: "chat.sessions";
+  payload?: { clientKey?: string };
   id?: string;
 }
 
 export interface ChatCancelRequest {
   type: "chat.cancel";
+  payload?: { clientKey?: string };
   id?: string;
 }
 

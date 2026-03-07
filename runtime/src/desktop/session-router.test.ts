@@ -117,6 +117,24 @@ describe("createDesktopAwareToolHandler", () => {
     expect(result).toContain("clicked");
   });
 
+  it("passes desktop event callbacks through to the bridge", async () => {
+    const manager = mockManager();
+    const onDesktopEvent = vi.fn();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+      onDesktopEvent,
+    });
+
+    await handler("desktop.mouse_click", { x: 100, y: 200 });
+
+    expect(DesktopRESTBridge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onEvent: onDesktopEvent,
+      }),
+    );
+  });
+
   it("creates sandbox lazily on first desktop tool call", async () => {
     const manager = mockManager();
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {

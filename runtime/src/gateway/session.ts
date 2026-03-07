@@ -323,6 +323,15 @@ export class SessionManager {
     return true;
   }
 
+  /** Replace a session's history wholesale, preserving identity and metadata. */
+  replaceHistory(sessionId: string, history: readonly LLMMessage[]): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    session.history = [...history];
+    session.lastActiveAt = Date.now();
+    return true;
+  }
+
   /**
    * Compact a session's history using the configured strategy.
    * Returns null if session not found.

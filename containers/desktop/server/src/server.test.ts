@@ -78,3 +78,57 @@ test("rejects non-loopback CORS preflight requests", async () => {
     assert.equal(res.status, 403);
   });
 });
+
+test("streams managed process exit events over /events", async () => {
+  await withServer(async (baseUrl) => {
+    const eventsResponse = await fetch(`${baseUrl}/events`, {
+      headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
+    });
+    assert.equal(eventsResponse.status, 200);
+    assert.equal(eventsResponse.headers.get("content-type"), "text/event-stream");
+    assert.ok(eventsResponse.body, "expected event stream body");
+
+    const reader = eventsResponse.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const eventPromise = (async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          throw new Error("event stream ended before managed process exit");
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const dataMatch = buffer.match(
+          /event:\s+managed_process\.exited[\s\S]*?data:\s+(\{.*\})\n\n/,
+        );
+        if (dataMatch?.[1]) {
+          return JSON.parse(dataMatch[1]) as {
+            type: string;
+            payload: { processId?: string; state?: string };
+          };
+        }
+      }
+    })();
+
+    const startResponse = await fetch(`${baseUrl}/tools/process_start`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${AUTH_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        command: "/bin/sleep",
+        args: ["1"],
+        label: "event-stream-test",
+      }),
+    });
+    assert.equal(startResponse.status, 200);
+
+    const event = await eventPromise;
+    assert.equal(event.type, "managed_process.exited");
+    assert.equal(event.payload.state, "exited");
+    assert.match(String(event.payload.processId ?? ""), /^proc_/);
+
+    await reader.cancel();
+  });
+});

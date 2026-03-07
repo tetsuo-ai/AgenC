@@ -29,6 +29,7 @@ import { HANDLER_MAP } from "./handlers.js";
 import type { SendFn } from "./handlers.js";
 import type { HandlerRequestContext } from "./handlers.js";
 import { matchesEventFilters } from "./protocol.js";
+import { WebChatSessionStore } from "./session-store.js";
 
 const MESSAGE_ID_TTL_MS = 5 * 60_000;
 const MAX_TRACKED_MESSAGE_IDS = 5_000;
@@ -60,9 +61,11 @@ export class WebChatChannel
   private readonly clientSessions = new Map<string, string>();
   // sessionId → clientId reverse mapping (for send())
   private readonly sessionClients = new Map<string, string>();
+  // clientId → durable browser owner key, when provided by the web client
+  private readonly clientOwnerKeys = new Map<string, string>();
   // clientId → send function (for pushing messages to specific clients)
   private readonly clientSenders = new Map<string, SendFn>();
-  // Security: sessionId → creator clientId (prevents session hijacking)
+  // Security: sessionId → durable owner key (or volatile client fallback)
   private readonly sessionOwners = new Map<string, string>();
   // sessionId → chat history for resume support
   private readonly sessionHistory = new Map<
@@ -75,12 +78,16 @@ export class WebChatChannel
   private readonly sessionAbortControllers = new Map<string, AbortController>();
   // Dedup replayed chat.message envelopes (e.g. reconnect flush/retry)
   private readonly seenMessageIds = new Map<string, number>();
+  private readonly sessionStore?: WebChatSessionStore;
 
   private healthy = true;
 
   constructor(deps: WebChatDeps, _config?: WebChatChannelConfig) {
     super();
     this.deps = deps;
+    this.sessionStore = deps.memoryBackend
+      ? new WebChatSessionStore({ memoryBackend: deps.memoryBackend })
+      : undefined;
   }
 
   /** Create and track an AbortController for a session's in-flight execution. */
@@ -131,6 +138,7 @@ export class WebChatChannel
   override async stop(): Promise<void> {
     this.clientSessions.clear();
     this.sessionClients.clear();
+    this.clientOwnerKeys.clear();
     this.clientSenders.clear();
     this.sessionOwners.clear();
     this.sessionHistory.clear();
@@ -165,22 +173,6 @@ export class WebChatChannel
   // --------------------------------------------------------------------------
 
   override async send(message: OutboundMessage): Promise<void> {
-    const clientId = this.sessionClients.get(message.sessionId);
-    if (!clientId) {
-      this.context.logger.warn?.(
-        `WebChat: no client mapping for session "${message.sessionId}"`,
-      );
-      return;
-    }
-
-    const sendFn = this.clientSenders.get(clientId);
-    if (!sendFn) {
-      this.context.logger.warn?.(
-        `WebChat: no send function for client "${clientId}"`,
-      );
-      return;
-    }
-
     const timestamp = Date.now();
 
     // Store in history for resume
@@ -189,6 +181,27 @@ export class WebChatChannel
       sender: "agent",
       timestamp,
     });
+    await this.persistSessionActivity(message.sessionId, {
+      content: message.content,
+      sender: "agent",
+      timestamp,
+    });
+
+    const clientId = this.sessionClients.get(message.sessionId);
+    if (!clientId) {
+      this.context.logger.debug?.(
+        `WebChat: no client mapping for session "${message.sessionId}"`,
+      );
+      return;
+    }
+
+    const sendFn = this.clientSenders.get(clientId);
+    if (!sendFn) {
+      this.context.logger.debug?.(
+        `WebChat: no send function for client "${clientId}"`,
+      );
+      return;
+    }
 
     sendFn({
       type: "chat.message",
@@ -215,6 +228,7 @@ export class WebChatChannel
 
     const id = typeof msg.id === "string" ? msg.id : undefined;
     let payload = msg.payload as Record<string, unknown> | undefined;
+    this.captureClientOwnerKey(clientId, payload);
 
     // Voice messages are routed to the voice bridge
     if (type.startsWith("voice.")) {
@@ -256,7 +270,7 @@ export class WebChatChannel
     }
 
     if (type === "chat.new") {
-      this.handleChatNew(clientId, id, send);
+      this.handleChatNew(clientId, payload, id, send);
       return;
     }
 
@@ -271,7 +285,7 @@ export class WebChatChannel
     }
 
     if (type === "chat.sessions") {
-      this.handleChatSessions(clientId, id, send);
+      this.handleChatSessions(clientId, payload, id, send);
       return;
     }
 
@@ -284,7 +298,10 @@ export class WebChatChannel
         typeof normalizedPayload.sessionId !== "string" ||
         normalizedPayload.sessionId.length === 0
       ) {
-        const sessionId = this.ensureSession(clientId);
+        const sessionId = this.ensureSession(
+          clientId,
+          this.currentOwnerKey(clientId),
+        );
         normalizedPayload.sessionId = sessionId;
         send({ type: "chat.session", payload: { sessionId } });
       }
@@ -299,7 +316,7 @@ export class WebChatChannel
         activeSessionId: this.clientSessions.get(clientId),
         listOwnedSessionIds: () => this.listOwnedSessionIds(clientId),
         isSessionOwned: (sessionId: string) =>
-          this.sessionOwners.get(sessionId) === clientId,
+          this.sessionOwners.get(sessionId) === this.currentOwnerKey(clientId),
       };
       const result = handler(this.deps, payload, id, send, requestContext);
       if (result instanceof Promise) {
@@ -345,7 +362,10 @@ export class WebChatChannel
     switch (type) {
       case "voice.start": {
         // Pass the client's current sessionId so voice and text share history
-        const voiceSessionId = this.ensureSession(clientId);
+        const voiceSessionId = this.ensureSession(
+          clientId,
+          this.currentOwnerKey(clientId),
+        );
         void bridge.startSession(clientId, send, voiceSessionId).catch((error) => {
           this.context.logger?.warn?.("Failed to start voice session:", error);
           send({
@@ -425,8 +445,9 @@ export class WebChatChannel
       return;
     }
 
-    // Ensure session mapping
-    const sessionId = this.ensureSession(clientId);
+    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    const timestamp = Date.now();
+    const sessionId = this.ensureSession(clientId, ownerKey);
 
     // Notify the client of its session ID (needed for desktop viewer matching)
     send({ type: 'chat.session', payload: { sessionId } });
@@ -435,7 +456,12 @@ export class WebChatChannel
     this.appendHistory(sessionId, {
       content: content as string,
       sender: "user",
-      timestamp: Date.now(),
+      timestamp,
+    });
+    void this.persistSessionActivity(sessionId, {
+      content: content as string,
+      sender: "user",
+      timestamp,
     });
 
     // Convert base64 attachments from the WebSocket payload to MessageAttachment[]
@@ -500,6 +526,7 @@ export class WebChatChannel
 
   private handleChatNew(
     clientId: string,
+    payload: Record<string, unknown> | undefined,
     id: string | undefined,
     send: SendFn,
   ): void {
@@ -515,7 +542,8 @@ export class WebChatChannel
       );
     }
 
-    const sessionId = this.ensureSession(clientId, { forceNew: true });
+    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    const sessionId = this.ensureSession(clientId, ownerKey, { forceNew: true });
     send({ type: "chat.session", payload: { sessionId }, id });
     send({ type: "chat.history", payload: [], id });
   }
@@ -526,17 +554,13 @@ export class WebChatChannel
     id: string | undefined,
     send: SendFn,
   ): void {
-    const sessionId = this.clientSessions.get(clientId);
-    if (!sessionId) {
-      send({ type: "chat.history", payload: [], id });
-      return;
-    }
-
-    const limit = typeof payload?.limit === "number" ? payload.limit : 50;
-    const history = this.sessionHistory.get(sessionId) ?? [];
-    const messages = history.slice(-limit);
-
-    send({ type: "chat.history", payload: messages, id });
+    void this.handleChatHistoryAsync(clientId, payload, id, send).catch((error) => {
+      send({
+        type: "error",
+        error: `Failed to load chat history: ${(error as Error).message}`,
+        id,
+      });
+    });
   }
 
   private handleChatResume(
@@ -545,15 +569,77 @@ export class WebChatChannel
     id: string | undefined,
     send: SendFn,
   ): void {
-    const targetSessionId = (payload as Record<string, unknown> | undefined)
-      ?.sessionId;
+    void this.handleChatResumeAsync(clientId, payload, id, send).catch((error) => {
+      send({
+        type: "error",
+        error: `Failed to resume chat session: ${(error as Error).message}`,
+        id,
+      });
+    });
+  }
+
+  private handleChatSessions(
+    clientId: string,
+    payload: Record<string, unknown> | undefined,
+    id: string | undefined,
+    send: SendFn,
+  ): void {
+    void this.handleChatSessionsAsync(clientId, payload, id, send).catch((error) => {
+      send({
+        type: "error",
+        error: `Failed to list chat sessions: ${(error as Error).message}`,
+        id,
+      });
+    });
+  }
+
+  private async handleChatHistoryAsync(
+    clientId: string,
+    payload: Record<string, unknown> | undefined,
+    id: string | undefined,
+    send: SendFn,
+  ): Promise<void> {
+    const sessionId = this.clientSessions.get(clientId);
+    if (!sessionId) {
+      send({ type: "chat.history", payload: [], id });
+      return;
+    }
+
+    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    const authorized = await this.isAuthorizedSession(
+      sessionId,
+      ownerKey,
+      clientId,
+    );
+    if (!authorized) {
+      send({ type: "error", error: "Not authorized to access this session", id });
+      return;
+    }
+
+    const limit = typeof payload?.limit === "number" ? payload.limit : 50;
+    const history = await this.loadSessionHistory(sessionId, limit);
+    send({ type: "chat.history", payload: history, id });
+  }
+
+  private async handleChatResumeAsync(
+    clientId: string,
+    payload: Record<string, unknown> | undefined,
+    id: string | undefined,
+    send: SendFn,
+  ): Promise<void> {
+    const targetSessionId = payload?.sessionId;
     if (!targetSessionId || typeof targetSessionId !== "string") {
       send({ type: "error", error: "Missing sessionId in chat.resume", id });
       return;
     }
 
-    const history = this.sessionHistory.get(targetSessionId);
-    if (!history) {
+    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    const authorized = await this.isAuthorizedSession(
+      targetSessionId,
+      ownerKey,
+      clientId,
+    );
+    if (!authorized) {
       send({
         type: "error",
         error: `Session "${targetSessionId}" not found`,
@@ -562,27 +648,17 @@ export class WebChatChannel
       return;
     }
 
-    // Security: Verify session ownership to prevent session hijacking.
-    // Only the client that created a session can resume it.
-    const owner = this.sessionOwners.get(targetSessionId);
-    if (owner && owner !== clientId) {
-      send({
-        type: "error",
-        error: "Not authorized to resume this session",
-        id,
-      });
-      return;
-    }
-
-    // Remove old mapping if exists
     const oldSession = this.clientSessions.get(clientId);
     if (oldSession) {
       this.sessionClients.delete(oldSession);
     }
 
-    // Map client to the resumed session
     this.clientSessions.set(clientId, targetSessionId);
     this.sessionClients.set(targetSessionId, clientId);
+    this.sessionOwners.set(targetSessionId, ownerKey);
+
+    await Promise.resolve(this.deps.hydrateSessionContext?.(targetSessionId));
+    const history = await this.loadSessionHistory(targetSessionId);
 
     send({
       type: "chat.resumed",
@@ -594,11 +670,31 @@ export class WebChatChannel
     });
   }
 
-  private handleChatSessions(
+  private async handleChatSessionsAsync(
     clientId: string,
+    payload: Record<string, unknown> | undefined,
     id: string | undefined,
     send: SendFn,
-  ): void {
+  ): Promise<void> {
+    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    if (this.sessionStore && this.isDurableOwnerKey(ownerKey)) {
+      const persistedSessions = await this.sessionStore.listSessionsForOwner(ownerKey);
+      const sessions = persistedSessions
+        .filter((session) => session.messageCount > 0)
+        .map((session) => {
+          this.sessionOwners.set(session.sessionId, session.ownerKey);
+          return {
+            sessionId: session.sessionId,
+            label: session.label,
+            messageCount: session.messageCount,
+            lastActiveAt: session.lastActiveAt,
+          };
+        })
+        .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+      send({ type: "chat.sessions", payload: sessions, id });
+      return;
+    }
+
     const sessions: Array<{
       sessionId: string;
       label: string;
@@ -610,7 +706,7 @@ export class WebChatChannel
       if (history.length === 0) continue;
       // Security: Only show sessions owned by this client
       const owner = this.sessionOwners.get(sessionId);
-      if (owner && owner !== clientId) continue;
+      if (owner && owner !== ownerKey) continue;
       const firstUserMsg = history.find((m) => m.sender === "user");
       const label = firstUserMsg
         ? firstUserMsg.content.slice(0, 80)
@@ -719,6 +815,7 @@ export class WebChatChannel
 
   private ensureSession(
     clientId: string,
+    ownerKey: string,
     options?: { forceNew?: boolean },
   ): string {
     const existing = this.clientSessions.get(clientId);
@@ -743,9 +840,9 @@ export class WebChatChannel
 
     this.clientSessions.set(clientId, sessionId);
     this.sessionClients.set(sessionId, clientId);
-    // Track session creator for ownership verification on resume
-    if (!this.sessionOwners.has(sessionId)) {
-      this.sessionOwners.set(sessionId, clientId);
+    this.sessionOwners.set(sessionId, ownerKey);
+    if (this.isDurableOwnerKey(ownerKey)) {
+      void this.sessionStore?.ensureSession({ sessionId, ownerKey });
     }
 
     return sessionId;
@@ -788,12 +885,108 @@ export class WebChatChannel
 
   private listOwnedSessionIds(clientId: string): string[] {
     const owned: string[] = [];
+    const ownerKey = this.currentOwnerKey(clientId);
     for (const [sessionId, ownerId] of this.sessionOwners) {
-      if (ownerId === clientId) {
+      if (ownerId === ownerKey) {
         owned.push(sessionId);
       }
     }
     return owned;
+  }
+
+  private captureClientOwnerKey(
+    clientId: string,
+    payload: Record<string, unknown> | undefined,
+  ): void {
+    const clientKey =
+      typeof payload?.clientKey === "string" ? payload.clientKey.trim() : "";
+    if (clientKey.length === 0) return;
+    this.clientOwnerKeys.set(clientId, `web:${clientKey}`);
+  }
+
+  private currentOwnerKey(clientId: string): string {
+    return this.clientOwnerKeys.get(clientId) ?? `volatile:${clientId}`;
+  }
+
+  private resolveOwnerKey(
+    clientId: string,
+    payload: Record<string, unknown> | undefined,
+  ): string {
+    this.captureClientOwnerKey(clientId, payload);
+    return this.currentOwnerKey(clientId);
+  }
+
+  private isDurableOwnerKey(ownerKey: string): boolean {
+    return !ownerKey.startsWith("volatile:");
+  }
+
+  private async persistSessionActivity(
+    sessionId: string,
+    entry: { content: string; sender: "user" | "agent"; timestamp: number },
+  ): Promise<void> {
+    if (!this.sessionStore) {
+      return;
+    }
+    const ownerKey =
+      this.sessionOwners.get(sessionId) ??
+      (await this.sessionStore.loadSession(sessionId))?.ownerKey;
+    if (!ownerKey || !this.isDurableOwnerKey(ownerKey)) {
+      return;
+    }
+    this.sessionOwners.set(sessionId, ownerKey);
+    try {
+      await this.sessionStore.recordActivity({
+        sessionId,
+        ownerKey,
+        sender: entry.sender,
+        content: entry.content,
+        timestamp: entry.timestamp,
+      });
+    } catch (error) {
+      this.context.logger.debug("Failed to persist webchat session activity", {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async isAuthorizedSession(
+    sessionId: string,
+    ownerKey: string,
+    clientId: string,
+  ): Promise<boolean> {
+    const cachedOwner = this.sessionOwners.get(sessionId);
+    if (cachedOwner) {
+      return cachedOwner === ownerKey || cachedOwner === `volatile:${clientId}`;
+    }
+    const persisted = await this.sessionStore?.loadSession(sessionId);
+    if (!persisted) {
+      return this.sessionHistory.has(sessionId);
+    }
+    this.sessionOwners.set(sessionId, persisted.ownerKey);
+    return persisted.ownerKey === ownerKey;
+  }
+
+  private async loadSessionHistory(
+    sessionId: string,
+    limit?: number,
+  ): Promise<Array<{ content: string; sender: "user" | "agent"; timestamp: number }>> {
+    if (this.deps.memoryBackend) {
+      const entries = await this.deps.memoryBackend.getThread(sessionId, limit);
+      const history = entries
+        .filter((entry) => entry.role === "user" || entry.role === "assistant")
+        .map((entry): { content: string; sender: "user" | "agent"; timestamp: number } => ({
+          content: entry.content,
+          sender: entry.role === "assistant" ? "agent" : "user",
+          timestamp: entry.timestamp,
+        }));
+      if (history.length > 0) {
+        this.sessionHistory.set(sessionId, history);
+        return history;
+      }
+    }
+    const history = this.sessionHistory.get(sessionId) ?? [];
+    return typeof limit === "number" && limit > 0 ? history.slice(-limit) : history;
   }
 
   // --------------------------------------------------------------------------
@@ -819,6 +1012,7 @@ export class WebChatChannel
       // Note: we keep sessionHistory for resume support
     }
     this.clientSessions.delete(clientId);
+    this.clientOwnerKeys.delete(clientId);
     this.clientSenders.delete(clientId);
   }
 }

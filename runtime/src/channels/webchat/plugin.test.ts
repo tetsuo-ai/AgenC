@@ -11,6 +11,7 @@ import type { WebChatDeps } from "./types.js";
 import type { ChannelContext } from "../../gateway/channel.js";
 import type { ControlMessage, ControlResponse } from "../../gateway/types.js";
 import { silentLogger } from "../../utils/logger.js";
+import { InMemoryBackend } from "../../memory/in-memory/backend.js";
 
 // ============================================================================
 // Test helpers
@@ -498,6 +499,7 @@ describe("WebChatChannel", () => {
         msg("chat.history", { limit: 10 }, "req-2"),
         send,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Find the history response
       const historyCall = send.mock.calls.find(
@@ -529,7 +531,7 @@ describe("WebChatChannel", () => {
       );
     });
 
-    it("should reject unknown session", () => {
+    it("should reject unknown session", async () => {
       const send = vi.fn<(response: ControlResponse) => void>();
 
       channel.handleMessage(
@@ -538,13 +540,14 @@ describe("WebChatChannel", () => {
         msg("chat.resume", { sessionId: "nonexistent" }),
         send,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(send).toHaveBeenCalledWith(
         expect.objectContaining({ type: "error" }),
       );
     });
 
-    it("should resume an existing session by same client", () => {
+    it("should resume an existing session by same client", async () => {
       const send1 = vi.fn<(response: ControlResponse) => void>();
 
       // Client 1 creates a session with a message
@@ -566,6 +569,7 @@ describe("WebChatChannel", () => {
         msg("chat.resume", { sessionId }, "req-3"),
         send2,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const resumeCall = send2.mock.calls.find(
         (call) =>
@@ -578,7 +582,7 @@ describe("WebChatChannel", () => {
       );
     });
 
-    it("should reject resume from different client (session hijacking prevention)", () => {
+    it("should reject resume from different client (session hijacking prevention)", async () => {
       const send1 = vi.fn<(response: ControlResponse) => void>();
 
       // Client 1 creates a session
@@ -600,14 +604,113 @@ describe("WebChatChannel", () => {
         msg("chat.resume", { sessionId }, "req-3"),
         send2,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const errorCall = send2.mock.calls.find(
         (call) => (call[0] as ControlResponse).error !== undefined,
       );
       expect(errorCall).toBeDefined();
-      expect((errorCall![0] as ControlResponse).error).toContain(
-        "Not authorized",
+      expect((errorCall![0] as ControlResponse).error).toContain("Session");
+    });
+
+    it("lists and resumes durable sessions across plugin restart with a stable client key", async () => {
+      const memoryBackend = new InMemoryBackend();
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      deps = createDeps({ memoryBackend });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "Hello", clientKey: "browser-1" }),
+        send1,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const gatewayMsg = vi.mocked(context.onMessage).mock.calls[0][0];
+      const sessionId = gatewayMsg.sessionId;
+      await memoryBackend.addEntry({
+        sessionId,
+        role: "user",
+        content: "Hello",
+      });
+      await memoryBackend.addEntry({
+        sessionId,
+        role: "assistant",
+        content: "I am still working.",
+      });
+
+      await channel.stop();
+
+      const hydrateSessionContext = vi.fn().mockResolvedValue(undefined);
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      const channel2 = new WebChatChannel(
+        createDeps({ memoryBackend, hydrateSessionContext }),
+      );
+      const context2 = createContext();
+      await channel2.initialize(context2);
+      await channel2.start();
+
+      channel2.handleMessage(
+        "client_2",
+        "chat.sessions",
+        msg("chat.sessions", { clientKey: "browser-1" }, "req-sessions"),
+        send2,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const sessionsCall = send2.mock.calls.find(
+        (call) => (call[0] as ControlResponse).type === "chat.sessions",
+      );
+      expect(sessionsCall).toBeDefined();
+      expect((sessionsCall![0] as ControlResponse).payload).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ sessionId, messageCount: 1 }),
+        ]),
+      );
+
+      channel2.handleMessage(
+        "client_2",
+        "chat.resume",
+        msg(
+          "chat.resume",
+          { sessionId, clientKey: "browser-1" },
+          "req-resume",
+        ),
+        send2,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(hydrateSessionContext).toHaveBeenCalledWith(sessionId);
+      const resumedCall = send2.mock.calls.find(
+        (call) => (call[0] as ControlResponse).type === "chat.resumed",
+      );
+      expect(resumedCall).toBeDefined();
+
+      channel2.handleMessage(
+        "client_2",
+        "chat.history",
+        msg("chat.history", { clientKey: "browser-1" }, "req-history"),
+        send2,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const historyCall = send2.mock.calls.find(
+        (call) =>
+          (call[0] as ControlResponse).type === "chat.history" &&
+          (call[0] as ControlResponse).id === "req-history",
+      );
+      expect(historyCall).toBeDefined();
+      expect((historyCall![0] as ControlResponse).payload).toEqual([
+        expect.objectContaining({ content: "Hello", sender: "user" }),
+        expect.objectContaining({
+          content: "I am still working.",
+          sender: "agent",
+        }),
+      ]);
     });
   });
 

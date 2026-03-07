@@ -61,6 +61,23 @@ const CHROMIUM_DETERMINISTIC_FLAGS = [
 let managedProcessesLoaded = false;
 const managedProcesses = new Map();
 let managedProcessRegistryPersistChain = Promise.resolve();
+const desktopToolEventListeners = new Set();
+export function subscribeDesktopToolEvents(listener) {
+    desktopToolEventListeners.add(listener);
+    return () => {
+        desktopToolEventListeners.delete(listener);
+    };
+}
+function emitDesktopToolEvent(event) {
+    for (const listener of [...desktopToolEventListeners]) {
+        try {
+            listener(event);
+        }
+        catch (error) {
+            warnBestEffort("desktop tool event listener failed", error);
+        }
+    }
+}
 function exec(cmd, args, timeoutMs = EXEC_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         execFile(cmd, args, {
@@ -489,14 +506,40 @@ async function finalizeManagedProcessExit(processId, exitCode, signal) {
     const record = managedProcesses.get(processId);
     if (!record)
         return;
-    managedProcesses.set(processId, {
+    if (record.state === "exited" && typeof record.endedAt === "number") {
+        return;
+    }
+    const exitedRecord = {
         ...record,
         state: "exited",
         endedAt: record.endedAt ?? Date.now(),
         exitCode,
         signal,
-    });
+    };
+    managedProcesses.set(processId, exitedRecord);
     await persistManagedProcessRegistry();
+    emitDesktopToolEvent({
+        type: "managed_process.exited",
+        timestamp: exitedRecord.endedAt ?? Date.now(),
+        payload: {
+            processId: exitedRecord.processId,
+            ...(exitedRecord.label ? { label: exitedRecord.label } : {}),
+            pid: exitedRecord.pid,
+            pgid: exitedRecord.pgid,
+            state: exitedRecord.state,
+            startedAt: exitedRecord.startedAt,
+            ...(typeof exitedRecord.endedAt === "number"
+                ? { endedAt: exitedRecord.endedAt }
+                : {}),
+            ...(exitedRecord.exitCode !== undefined
+                ? { exitCode: exitedRecord.exitCode }
+                : {}),
+            ...(exitedRecord.signal !== undefined
+                ? { signal: exitedRecord.signal }
+                : {}),
+            logPath: exitedRecord.logPath,
+        },
+    });
 }
 function buildManagedProcessResponse(record, recentOutput, extra) {
     return {

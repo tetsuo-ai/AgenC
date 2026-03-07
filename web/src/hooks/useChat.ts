@@ -77,6 +77,28 @@ interface UseChatOptions {
   connected?: boolean;
 }
 
+const WEBCHAT_CLIENT_KEY_STORAGE_KEY = 'agenc-webchat-client-key';
+
+function createClientKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getOrCreateWebChatClientKey(): string {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return createClientKey();
+  }
+  const existing = window.localStorage.getItem(WEBCHAT_CLIENT_KEY_STORAGE_KEY);
+  if (existing && existing.trim().length > 0) {
+    return existing;
+  }
+  const next = createClientKey();
+  window.localStorage.setItem(WEBCHAT_CLIENT_KEY_STORAGE_KEY, next);
+  return next;
+}
+
 function asNumber(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
   return value;
@@ -232,6 +254,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   const pendingMsgIdRef = useRef<string | null>(null);
   const msgCounterRef = useRef(0);
   const requestCounterRef = useRef(0);
+  const clientKeyRef = useRef<string>(getOrCreateWebChatClientKey());
 
   const nextRequestId = useCallback((prefix: string): string => {
     requestCounterRef.current += 1;
@@ -239,7 +262,10 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, []);
 
   const refreshSessions = useCallback(() => {
-    send({ type: WS_CHAT_SESSIONS });
+    send({
+      type: WS_CHAT_SESSIONS,
+      payload: { clientKey: clientKeyRef.current },
+    });
   }, [send]);
 
   // Fetch sessions when connected
@@ -248,7 +274,10 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, [connected, refreshSessions]);
 
   const resumeSession = useCallback((targetSessionId: string) => {
-    send({ type: WS_CHAT_RESUME, payload: { sessionId: targetSessionId } });
+    send({
+      type: WS_CHAT_RESUME,
+      payload: { sessionId: targetSessionId, clientKey: clientKeyRef.current },
+    });
   }, [send]);
 
   const startNewChat = useCallback(() => {
@@ -257,11 +286,18 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     setIsTyping(false);
     setTokenUsage(null);
     pendingMsgIdRef.current = null;
-    send({ type: WS_CHAT_NEW, id: nextRequestId('chat_new') });
+    send({
+      type: WS_CHAT_NEW,
+      id: nextRequestId('chat_new'),
+      payload: { clientKey: clientKeyRef.current },
+    });
   }, [nextRequestId, send]);
 
   const stopGeneration = useCallback(() => {
-    send({ type: WS_CHAT_CANCEL });
+    send({
+      type: WS_CHAT_CANCEL,
+      payload: { clientKey: clientKeyRef.current },
+    });
     setIsTyping(false);
   }, [send]);
 
@@ -291,7 +327,10 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
       send({
         type: WS_CHAT_MESSAGE,
         id: nextRequestId('chat_msg'),
-        payload: { content },
+        payload: {
+          content,
+          clientKey: clientKeyRef.current,
+        },
       });
       return;
     }
@@ -343,6 +382,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         id: nextRequestId('chat_msg'),
         payload: {
           content,
+          clientKey: clientKeyRef.current,
           attachments: results.map((r) => r.wire),
         },
       });
@@ -631,7 +671,10 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         setSessionId(resumedId);
         // Fetch history for the resumed session
         if (resumedId) {
-          send({ type: WS_CHAT_HISTORY });
+          send({
+            type: WS_CHAT_HISTORY,
+            payload: { clientKey: clientKeyRef.current },
+          });
         }
         break;
       }

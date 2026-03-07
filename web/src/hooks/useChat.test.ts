@@ -258,6 +258,7 @@ describe("useChat session lifecycle", () => {
       expect.objectContaining({
         type: "chat.new",
         id: expect.any(String),
+        payload: { clientKey: expect.any(String) },
       }),
     );
     expect(result.current.messages).toEqual([]);
@@ -276,7 +277,10 @@ describe("useChat session lifecycle", () => {
       expect.objectContaining({
         type: "chat.message",
         id: expect.any(String),
-        payload: { content: "hello" },
+        payload: {
+          content: "hello",
+          clientKey: expect.any(String),
+        },
       }),
     );
   });

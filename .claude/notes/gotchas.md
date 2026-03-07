@@ -172,3 +172,35 @@
 
 - Doom MCP `start_game` defaults are not safe for user-facing launch prompts: omitted args fall back to headless, HUD-off, `RES_320X240`. Normalize `mcp.doom.start_game` in the runtime so visible launches force a real window, HUD, and a sane resolution before the call leaves the executor.
 - Explicit "stop Doom" webchat requests should be runtime-owned, not model-owned. The model will often reach for `desktop.process_stop`, `kill`, or `sudo pkill`, but the game is owned by the Doom MCP. For webchat, short-circuit those requests to `mcp.doom.stop_game` directly.
+
+## Durable Webchat Session Recovery Gotchas (2026-03-06)
+
+- WebSocket `clientId` is not a durable session identity. If webchat resume/list behavior needs to survive reconnects or daemon restarts, the browser must supply a stable client-owned key and the runtime must persist session ownership/index metadata against that key.
+- Rebinding a resumed webchat session to the socket is not sufficient on its own. After daemon restart, the foreground `SessionManager` history must be rehydrated from persisted memory before the next user turn, or the model will answer from a blank local session despite the runtime having durable thread history.
+- Runtime-owned background updates should still advance durable session metadata even while no browser socket is attached. Otherwise recovered background work continues in memory, but `chat.sessions` / `chat.resume` metadata lags behind the real task progress after restart.
+
+## Durable Background Run Context Gotchas (2026-03-06)
+
+- Restart durability alone is not enough for a real supervisor loop. If active runs only keep a rolling `slice(-N)` transcript, long-lived work will still lose the operator’s intent and verified state even though the run itself survives.
+- Treat follow-up user messages during an active background run as runtime signals, not as an automatic cancel-and-replace. Cancelling on every operator intervention collapses the task runtime back into a bounded chat model.
+- Carry-forward state must stay compact and explicit: summary, verified facts, open loops, and next focus. Dumping raw prior history back into the actor prompt defeats the point of durable supervision and recreates long-context drift.
+
+## Background Run Signal-Tail Gotchas (2026-03-06)
+
+- Do not flip a background run from `running` to `working` until the cycle tail is actually done. If the state changes early, a late signal can schedule overlapping cycles or skip the current cycle's deterministic completion path.
+- Carry-forward compaction must only consume the signal snapshot it actually summarized. Clearing the whole `pendingSignals` array drops late-arriving process/operator events and forces a timer fallback even when the runtime already has decisive evidence.
+- If a fresh external signal is still pending at the end of a working cycle, do not publish the stale working update first. Re-wake immediately on the pending signal or finish deterministically from the verified runtime event.
+
+## Background Run Control Plane Gotchas (2026-03-06)
+
+- Bare session-control messages like `status`, `stop`, `pause`, and `resume` must be runtime-owned. Do not let them fall through to the model when the session is in or near a background-run workflow, or the model will reinterpret them as general tool-use prompts and do something unrelated.
+- Keep a persisted recent-run snapshot per session even after terminal completion. Without that, runtime-owned `status` after completion regresses to `No active run` with no operator context, and bare control messages lose the last known task state after the active in-memory run is deleted.
+- `pause` is not `stop`. Treating `pause` as a stop-regex alias silently destroys durable work instead of preserving it for later resume.
+- Queued operator instructions while paused should stay queued but must not wake the run until an explicit resume. Otherwise paused state is only cosmetic and the runtime keeps acting behind the operator’s back.
+
+## Desktop Restart Recovery Gotchas (2026-03-07)
+
+- A durable background supervisor is not actually durable if daemon restart destroys the tool environment it depends on. For desktop-managed processes, `DesktopSandboxManager.stop()` must preserve live containers and `start()` must recover them from Docker inspect data instead of blindly deleting every labeled container as an “orphan.”
+- Recovered desktop sandboxes need more than a container ID. The runtime must rebuild session mapping, auth token, port bindings, resolution, and resource metadata before follow-up `desktop.process_status` calls can reattach to the same workload.
+- Live websocket resume tests must use a stable `clientKey`. `chat.resume` is owner-scoped by design, so reconnect tests with a throwaway websocket client and no durable client key will fail even if the runtime recovery path is correct.
+- Once outbound messages are persisted to history/session metadata before socket delivery, “no client mapping” during daemon restart is expected. Keep that path at debug level; warn-level logs turn normal reconnect windows into incident noise.

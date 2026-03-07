@@ -95,9 +95,11 @@ import { SkillDiscovery } from '../skills/markdown/discovery.js';
 import type { DiscoveredSkill } from '../skills/markdown/discovery.js';
 import { VoiceBridge } from './voice-bridge.js';
 import { createSessionToolHandler } from './tool-handler-factory.js';
+import type { DesktopBridgeEvent } from '../desktop/rest-bridge.js';
 import { InMemoryBackend } from '../memory/in-memory/backend.js';
 import { ApprovalEngine } from './approvals.js';
 import type { MemoryBackend } from '../memory/types.js';
+import { entryToMessage } from '../memory/types.js';
 import { createEmbeddingProvider } from '../memory/embeddings.js';
 import { InMemoryVectorStore } from '../memory/vector-store.js';
 import { SemanticMemoryRetriever } from '../memory/retriever.js';
@@ -136,9 +138,17 @@ import { SubAgentOrchestrator } from './subagent-orchestrator.js';
 import {
   BackgroundRunSupervisor,
   inferBackgroundRunIntent,
+  isBackgroundRunPauseRequest,
+  isBackgroundRunResumeRequest,
   isBackgroundRunStatusRequest,
   isBackgroundRunStopRequest,
 } from './background-run-supervisor.js';
+import { BackgroundRunStore } from './background-run-store.js';
+import {
+  formatBackgroundRunStatus,
+  formatInactiveBackgroundRunStatus,
+  formatInactiveBackgroundRunStop,
+} from './background-run-control.js';
 import { inferDoomTurnContract } from '../llm/chat-executor-doom.js';
 import {
   blockUntilDoomStopTool,
@@ -161,6 +171,67 @@ function chooseDoomResolutionForDisplay(
   if (width >= 1024 && height >= 768) return 'RES_1024X768';
   if (width >= 800 && height >= 600) return 'RES_800X600';
   return 'RES_640X480';
+}
+
+function mapDesktopBridgeEventTypeToWebChatEvent(type: string): string {
+  if (type === 'managed_process.exited') {
+    return 'desktop.process.exited';
+  }
+  return `desktop.${type.replace(/_/g, '.')}`;
+}
+
+function buildBackgroundRunSignalFromDesktopEvent(
+  event: DesktopBridgeEvent,
+): {
+  type: 'process_exit' | 'external_event';
+  content: string;
+  data?: Record<string, unknown>;
+} | undefined {
+  if (event.type === 'managed_process.exited') {
+    const processId =
+      typeof event.payload.processId === 'string'
+        ? event.payload.processId
+        : 'unknown-process';
+    const label =
+      typeof event.payload.label === 'string' && event.payload.label.trim().length > 0
+        ? event.payload.label.trim()
+        : undefined;
+    const exitCode =
+      typeof event.payload.exitCode === 'number'
+        ? `exitCode=${event.payload.exitCode}`
+        : undefined;
+    const signal =
+      typeof event.payload.signal === 'string' && event.payload.signal.trim().length > 0
+        ? `signal=${event.payload.signal}`
+        : undefined;
+    const status = [exitCode, signal].filter(Boolean).join(', ');
+    return {
+      type: 'process_exit',
+      content:
+        `Managed process ${label ? `"${label}" ` : ''}(${processId}) exited` +
+        (status ? ` (${status}).` : '.'),
+      data: {
+        processId,
+        ...(label ? { label } : {}),
+        ...(typeof event.payload.pid === 'number' ? { pid: event.payload.pid } : {}),
+        ...(typeof event.payload.pgid === 'number' ? { pgid: event.payload.pgid } : {}),
+        ...(typeof event.payload.startedAt === 'number' ? { startedAt: event.payload.startedAt } : {}),
+        ...(typeof event.payload.endedAt === 'number' ? { endedAt: event.payload.endedAt } : {}),
+        ...(typeof event.payload.exitCode === 'number' || event.payload.exitCode === null
+          ? { exitCode: event.payload.exitCode }
+          : {}),
+        ...(typeof event.payload.signal === 'string' || event.payload.signal === null
+          ? { signal: event.payload.signal }
+          : {}),
+        ...(typeof event.payload.logPath === 'string' ? { logPath: event.payload.logPath } : {}),
+      },
+    };
+  }
+
+  return {
+    type: 'external_event',
+    content: `Desktop event observed: ${event.type}`,
+  };
 }
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
@@ -2536,6 +2607,13 @@ export class DaemonManager {
           memoryBackend,
           progressTracker,
         }),
+      hydrateSessionContext: (webSessionId: string) =>
+        this.hydrateWebSessionContext({
+          webSessionId,
+          sessionMgr,
+          resolveSessionId,
+          memoryBackend,
+        }),
       cancelBackgroundRun: (sessionId: string) =>
         this._backgroundRunSupervisor?.cancelRun(
           sessionId,
@@ -2566,10 +2644,15 @@ export class DaemonManager {
     gateway.setWebChatHandler(webChat);
     this._webChatChannel = webChat;
     if (this._chatExecutor && providers[0]) {
+      const runStore = new BackgroundRunStore({
+        memoryBackend,
+        logger: this.logger,
+      });
       this._backgroundRunSupervisor = new BackgroundRunSupervisor({
         chatExecutor: this._chatExecutor,
         supervisorLlm: providers[0],
         getSystemPrompt: () => this._systemPrompt,
+        runStore,
         createToolHandler: ({ sessionId, runId, cycleIndex }) =>
           this.createWebChatSessionToolHandler({
             sessionId,
@@ -2604,6 +2687,10 @@ export class DaemonManager {
         progressTracker,
         logger: this.logger,
       });
+      const recoveredRuns = await this._backgroundRunSupervisor.recoverRuns();
+      if (recoveredRuns > 0) {
+        this.logger.info(`Recovered ${recoveredRuns} background run(s) on boot`);
+      }
     } else {
       this._backgroundRunSupervisor = null;
     }
@@ -2687,6 +2774,43 @@ export class DaemonManager {
     const playwrightBridges = this._playwrightBridges;
     const desktopLogger = this.logger;
     const playwrightEnabled = config.desktop?.playwright?.enabled !== false;
+    const handleDesktopEvent = (sessionId: string, event: DesktopBridgeEvent): void => {
+      const eventType = mapDesktopBridgeEventTypeToWebChatEvent(event.type);
+      this._webChatChannel?.broadcastEvent(eventType, {
+        sessionId,
+        timestamp: event.timestamp,
+        ...event.payload,
+      });
+
+      const wakeSignal = buildBackgroundRunSignalFromDesktopEvent(event);
+      if (!wakeSignal) {
+        return;
+      }
+
+      void this._backgroundRunSupervisor?.signalRun({
+        sessionId,
+        type: wakeSignal.type,
+        content: wakeSignal.content,
+        data: wakeSignal.data,
+      }).then((signalled) => {
+        if (!signalled) {
+          return;
+        }
+        this._webChatChannel?.pushToSession(sessionId, {
+          type: 'agent.status',
+          payload: {
+            phase: 'background_run',
+            detail: wakeSignal.content,
+          },
+        });
+      }).catch((error) => {
+        this.logger.debug('Failed to signal background run from desktop event', {
+          sessionId,
+          eventType: event.type,
+          error: toErrorMessage(error),
+        });
+      });
+    };
 
     // Desktop tools are lazily initialized per session via the router.
     // Add static desktop tool definitions to LLM tools so the model knows
@@ -2719,6 +2843,7 @@ export class DaemonManager {
         containerMCPBridges:
           containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
         allowedToolNames,
+        onDesktopEvent: (event) => handleDesktopEvent(sessionId, event),
         logger: desktopLogger,
         // Force-disable automatic screenshot capture for action tools.
         autoScreenshot: false,
@@ -4680,6 +4805,43 @@ export class DaemonManager {
     await this.cleanupDesktopSessionResources(webSessionId);
   }
 
+  private async hydrateWebSessionContext(params: {
+    webSessionId: string;
+    sessionMgr: SessionManager;
+    resolveSessionId: (sessionKey: string) => string;
+    memoryBackend: MemoryBackend;
+  }): Promise<void> {
+    const { webSessionId, sessionMgr, resolveSessionId, memoryBackend } = params;
+
+    const historySessionId = resolveSessionId(webSessionId);
+    const session = sessionMgr.getOrCreate({
+      channel: 'webchat',
+      senderId: webSessionId,
+      scope: 'dm',
+      workspaceId: 'default',
+    });
+    if (session.history.length > 0) {
+      return;
+    }
+
+    const maxHistory = 100;
+    const thread = await memoryBackend.getThread(webSessionId, maxHistory).catch((error) => {
+      this.logger.debug("Failed to hydrate web session from memory", {
+        sessionId: webSessionId,
+        error: toErrorMessage(error),
+      });
+      return [];
+    });
+    if (thread.length === 0) {
+      return;
+    }
+
+    const history = thread
+      .filter((entry) => entry.role !== "tool")
+      .map((entry) => entryToMessage(entry));
+    sessionMgr.replaceHistory(historySessionId, history);
+  }
+
   private async cleanupDesktopSessionResources(sessionId: string): Promise<void> {
     if (!this._desktopManager) return;
 
@@ -6311,44 +6473,81 @@ export class DaemonManager {
         );
         if (!isDoomStopTurn) return;
       }
+      if (isBackgroundRunPauseRequest(msg.content)) {
+        const paused = await this._backgroundRunSupervisor?.pauseRun(msg.sessionId);
+        if (paused) return;
+      }
+      if (isBackgroundRunResumeRequest(msg.content)) {
+        const resumed = await this._backgroundRunSupervisor?.resumeRun(msg.sessionId);
+        if (resumed) return;
+      }
       if (isBackgroundRunStatusRequest(msg.content)) {
-        const nextCheck =
-          activeBackgroundRun.nextCheckAt !== undefined
-            ? Math.max(0, activeBackgroundRun.nextCheckAt - Date.now())
-            : undefined;
-        const nextHeartbeat =
-          activeBackgroundRun.nextHeartbeatAt !== undefined
-            ? Math.max(0, activeBackgroundRun.nextHeartbeatAt - Date.now())
-            : undefined;
-        const lastVerified =
-          activeBackgroundRun.lastVerifiedAt !== undefined
-            ? Math.max(0, Date.now() - activeBackgroundRun.lastVerifiedAt)
-            : undefined;
         await webChat.send({
           sessionId: msg.sessionId,
-          content:
-            `Background run: ${activeBackgroundRun.state}\n` +
-            `Objective: ${activeBackgroundRun.objective}\n` +
-            `Cycles: ${activeBackgroundRun.cycleCount}\n` +
-            (lastVerified !== undefined
-              ? `Last verified: ~${Math.max(1, Math.ceil(lastVerified / 1000))}s ago\n`
-              : "") +
-            (activeBackgroundRun.lastUserUpdate
-              ? `Latest update: ${activeBackgroundRun.lastUserUpdate}\n`
-              : "") +
-            (nextHeartbeat !== undefined
-              ? `Next heartbeat: ~${Math.ceil(nextHeartbeat / 1000)}s\n`
-              : "") +
-            (nextCheck !== undefined
-              ? `Next check: ~${Math.ceil(nextCheck / 1000)}s`
-              : "Next check: pending"),
+          content: formatBackgroundRunStatus(activeBackgroundRun),
         });
         return;
       }
-      await this._backgroundRunSupervisor?.cancelRun(
-        msg.sessionId,
-        "Background run stopped because a new user request took priority.",
-      );
+      const signalled = await this._backgroundRunSupervisor?.signalRun({
+        sessionId: msg.sessionId,
+        content: msg.content,
+        type: "user_input",
+      });
+      if (signalled) {
+        await memoryBackend.addEntry({
+          sessionId: msg.sessionId,
+          role: "user",
+          content: msg.content,
+        }).catch((error) => {
+          this.logger.debug("Background run signal memory write failed", {
+            sessionId: msg.sessionId,
+            error: toErrorMessage(error),
+          });
+        });
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content:
+            activeBackgroundRun.state === "paused"
+              ? "Queued your latest instruction for the paused background run. Resume it when you want execution to continue."
+              : "Queued your latest instruction for the active background run and woke it for an immediate follow-up cycle.",
+        });
+        return;
+      }
+    }
+
+    if (!isDoomStopTurn && this._backgroundRunSupervisor) {
+      if (isBackgroundRunStatusRequest(msg.content)) {
+        const recentSnapshot =
+          await this._backgroundRunSupervisor.getRecentSnapshot(msg.sessionId);
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content: formatInactiveBackgroundRunStatus(recentSnapshot),
+        });
+        return;
+      }
+      if (isBackgroundRunStopRequest(msg.content)) {
+        const recentSnapshot =
+          await this._backgroundRunSupervisor.getRecentSnapshot(msg.sessionId);
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content: formatInactiveBackgroundRunStop(recentSnapshot),
+        });
+        return;
+      }
+      if (isBackgroundRunPauseRequest(msg.content)) {
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content: "No active background run to pause.",
+        });
+        return;
+      }
+      if (isBackgroundRunResumeRequest(msg.content)) {
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content: "No paused background run to resume.",
+        });
+        return;
+      }
     }
 
     if (inferBackgroundRunIntent(msg.content) && this._backgroundRunSupervisor) {
@@ -7337,6 +7536,10 @@ export class DaemonManager {
       }
       this._containerMCPBridges.clear();
       this._containerMCPConfigs = [];
+      if (this._backgroundRunSupervisor !== null) {
+        await this._backgroundRunSupervisor.shutdown();
+        this._backgroundRunSupervisor = null;
+      }
       if (this._desktopManager !== null) {
         await this._desktopManager.stop();
         this._desktopManager = null;
@@ -7362,10 +7565,6 @@ export class DaemonManager {
       if (this._cronScheduler !== null) {
         this._cronScheduler.stop();
         this._cronScheduler = null;
-      }
-      if (this._backgroundRunSupervisor !== null) {
-        await this._backgroundRunSupervisor.shutdown();
-        this._backgroundRunSupervisor = null;
       }
       // Stop legacy heartbeat timer (if still in use)
       if (this._heartbeatTimer !== null) {
