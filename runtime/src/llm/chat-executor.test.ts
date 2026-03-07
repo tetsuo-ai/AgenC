@@ -1225,6 +1225,63 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls).toHaveLength(2);
     });
 
+    it("per-call maxModelRecalls overrides constructor default", async () => {
+      const toolHandler = vi.fn().mockResolvedValue("ok");
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "looping",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+          }),
+        ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxModelRecallsPerRequest: 3,
+      });
+      const result = await executor.execute(
+        createParams({ maxModelRecallsPerRequest: 0 }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.stopReason).toBe("budget_exceeded");
+    });
+
+    it("per-call toolBudgetPerRequest overrides constructor default", async () => {
+      const toolHandler = vi.fn().mockResolvedValue("ok");
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "two tools",
+              finishReason: "tool_calls",
+              toolCalls: [
+                { id: "tc-1", name: "tool", arguments: "{}" },
+                { id: "tc-2", name: "tool", arguments: "{}" },
+              ],
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        toolBudgetPerRequest: 5,
+      });
+      const result = await executor.execute(
+        createParams({ toolBudgetPerRequest: 1 }),
+      );
+
+      expect(toolHandler).toHaveBeenCalledTimes(1);
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.stopReason).toBe("budget_exceeded");
+    });
+
     it("allowedTools rejects disallowed tool name", async () => {
       const toolHandler = vi.fn().mockResolvedValue("should not be called");
       const provider = createMockProvider("primary", {
@@ -1252,6 +1309,164 @@ describe("ChatExecutor", () => {
       expect(toolHandler).not.toHaveBeenCalled();
       expect(result.toolCalls[0].isError).toBe(true);
       expect(result.toolCalls[0].result).toContain("not permitted");
+    });
+
+    it("normalizes Doom launch resolution args before calling the tool handler", async () => {
+      const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
+        if (name === "mcp.doom.start_game") {
+          return safeJson({
+            status: "running",
+            normalized_resolution: args.screen_resolution,
+          });
+        }
+        return safeJson({ name, args });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({
+                    scenario: "defend_the_center",
+                    async_player: true,
+                    screen_resolution: "1280x720",
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "Doom started." })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["mcp.doom.start_game"],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage("Start Doom defend_the_center at 1280x720."),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(toolHandler).toHaveBeenCalledWith("mcp.doom.start_game", {
+        scenario: "defend_the_center",
+        async_player: true,
+        screen_resolution: "RES_1280X720",
+      });
+      expect(result.toolCalls[0]?.args).toEqual({
+        scenario: "defend_the_center",
+        async_player: true,
+        screen_resolution: "RES_1280X720",
+      });
+    });
+
+    it("ends a Doom tool round after failed start_game so dependent calls do not run", async () => {
+      const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
+        if (name === "mcp.doom.start_game") {
+          if (args.screen_resolution === "banana") {
+            return "Unknown resolution 'banana'. Valid: ['RES_1280X720']";
+          }
+          return safeJson({ status: "running" });
+        }
+        if (name === "mcp.doom.set_objective") {
+          return safeJson({ status: "objective_set" });
+        }
+        if (name === "mcp.doom.get_situation_report") {
+          return safeJson({ executor_state: "fighting" });
+        }
+        return safeJson({ name, args });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start-bad",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({
+                    scenario: "defend_the_center",
+                    screen_resolution: "banana",
+                  }),
+                },
+                {
+                  id: "tc-objective",
+                  name: "mcp.doom.set_objective",
+                  arguments: safeJson({ objective_type: "hold_position" }),
+                },
+                {
+                  id: "tc-report",
+                  name: "mcp.doom.get_situation_report",
+                  arguments: safeJson({}),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start-good",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({
+                    scenario: "defend_the_center",
+                    screen_resolution: "RES_1280X720",
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Doom started after correcting the resolution.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: [
+          "mcp.doom.start_game",
+          "mcp.doom.set_objective",
+          "mcp.doom.get_situation_report",
+        ],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage("Start Doom defend_the_center."),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toBe("Doom started after correcting the resolution.");
+      expect(toolHandler).toHaveBeenNthCalledWith(1, "mcp.doom.start_game", {
+        scenario: "defend_the_center",
+        screen_resolution: "banana",
+      });
+      expect(toolHandler).toHaveBeenNthCalledWith(2, "mcp.doom.start_game", {
+        scenario: "defend_the_center",
+        screen_resolution: "RES_1280X720",
+      });
+      expect(
+        toolHandler.mock.calls.some(([name]) =>
+          name === "mcp.doom.set_objective" ||
+          name === "mcp.doom.get_situation_report"
+        ),
+      ).toBe(false);
     });
 
     it("passes routed tool subset to provider chat options", async () => {

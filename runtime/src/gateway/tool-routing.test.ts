@@ -21,6 +21,18 @@ function makeTool(name: string, description: string): LLMTool {
 const TOOLS: LLMTool[] = [
   makeTool("system.bash", "Run terminal commands"),
   makeTool("desktop.bash", "Run shell commands in desktop sandbox"),
+  makeTool(
+    "desktop.process_start",
+    "Start a long-running background process with executable plus args and return a stable processId",
+  ),
+  makeTool(
+    "desktop.process_status",
+    "Check managed background process status and recent log output",
+  ),
+  makeTool(
+    "desktop.process_stop",
+    "Stop a managed background process by processId, label, or pid",
+  ),
   makeTool("execute_with_agent", "Delegate a child objective to a subagent"),
   makeTool("system.readFile", "Read a file"),
   makeTool("system.writeFile", "Write a file"),
@@ -34,6 +46,9 @@ const TOOLS: LLMTool[] = [
   makeTool("playwright.browser_tabs", "List open browser tabs"),
   makeTool("agenc.createTask", "Create on-chain task"),
   makeTool("agenc.getTask", "Read task details"),
+  makeTool("mcp.doom.start_game", "Start a Doom scenario"),
+  makeTool("mcp.doom.stop_game", "Stop the current Doom game"),
+  makeTool("mcp.doom.get_state", "Read current Doom state"),
 ];
 
 const MCP_TERMINAL_TOOLS: LLMTool[] = [
@@ -277,5 +292,43 @@ describe("ToolRouter", () => {
 
     expect(next.diagnostics.cacheHit).toBe(false);
     expect(next.diagnostics.invalidatedReason).toBe("tool_miss_threshold");
+  });
+
+  it("prefers structured desktop process tools for background process workflows", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-process",
+      messageText:
+        "start a background server, check its status and logs, then stop it when I ask",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("desktop.process_start");
+    expect(decision.routedToolNames).toContain("desktop.process_status");
+    expect(decision.expandedToolNames).toContain("desktop.process_stop");
+  });
+
+  it("prefers the Doom MCP stop tool over generic process stop tools", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-doom-stop",
+      messageText: "stop Doom now",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("mcp.doom.stop_game");
+    const doomStopIndex = decision.routedToolNames.indexOf("mcp.doom.stop_game");
+    const processStopIndex = decision.routedToolNames.indexOf("desktop.process_stop");
+    if (processStopIndex >= 0) {
+      expect(doomStopIndex).toBeLessThan(processStopIndex);
+    }
   });
 });

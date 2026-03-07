@@ -63,7 +63,7 @@ const DESKTOP_BASH_INTERACTIVE_TUI_EXECUTABLES = new Set([
 const DESKTOP_BASH_SINGLE_COMMAND_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?([a-zA-Z0-9._+-]+)\s*$/;
 const DESKTOP_BASH_BACKGROUND_RE =
-  /&\s*(?:disown\s*)?(?:(?:;|&&)?\s*echo\s+\$!\s*)?$/;
+  /&\s*(?:disown\s*)?(?:(?:;|&&)?\s*echo\s+\$!(?:\s*(?:1?>|1>>|>>)\s*(?:[^\s&]+|'[^']+'|"[^"]+"))?\s*)?$/;
 const DESKTOP_BASH_STDOUT_REDIRECT_RE =
   /(?:^|\s)(?:1?>|1>>|>>)\s*(?:[^\s&]+|'[^']+'|"[^"]+")/i;
 const DESKTOP_BASH_STDERR_REDIRECT_RE =

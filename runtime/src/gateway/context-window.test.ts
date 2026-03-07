@@ -27,6 +27,9 @@ describe("inferGrokContextWindowTokens", () => {
     expect(inferGrokContextWindowTokens("grok-4-fast")).toBe(2_000_000);
     expect(inferGrokContextWindowTokens("grok-4-fast-reasoning")).toBe(2_000_000);
     expect(inferGrokContextWindowTokens("grok-4-fast-non-reasoning")).toBe(2_000_000);
+    expect(inferGrokContextWindowTokens("grok-4.20-experimental-beta-0304-reasoning")).toBe(2_000_000);
+    expect(inferGrokContextWindowTokens("grok-4.20-experimental-beta-0304-non-reasoning")).toBe(2_000_000);
+    expect(inferGrokContextWindowTokens("grok-4.20-multi-agent-experimental-beta-0304")).toBe(2_000_000);
   });
 
   it("resolves model-specific windows for non-fast variants", () => {

@@ -110,6 +110,10 @@ export interface ChatExecuteParams {
   readonly signal?: AbortSignal;
   /** Per-call tool round limit — overrides the constructor default. */
   readonly maxToolRounds?: number;
+  /** Per-call total tool-call budget — overrides the constructor default. */
+  readonly toolBudgetPerRequest?: number;
+  /** Per-call model recall budget (calls after the first) — overrides the constructor default. */
+  readonly maxModelRecallsPerRequest?: number;
   /** Optional per-turn tool-routing subset and expansion policy. */
   readonly toolRouting?: {
     /** Initial routed subset for this turn. */
@@ -573,7 +577,12 @@ export interface ToolLoopState {
 }
 
 /** Control flow action returned by executeSingleToolCall(). */
-export type ToolCallAction = "processed" | "skip" | "abort_round" | "abort_loop";
+export type ToolCallAction =
+  | "processed"
+  | "skip"
+  | "end_round"
+  | "abort_round"
+  | "abort_loop";
 
 /** Mutable context threaded through all phases of executeRequest(). */
 export interface ExecutionContext {

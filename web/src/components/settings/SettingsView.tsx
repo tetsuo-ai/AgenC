@@ -1,30 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { UseSettingsReturn, GatewaySettings, VoiceName, EnvironmentMode } from '../../hooks/useSettings';
-
-interface LLMProviderDef {
-  value: string;
-  label: string;
-  defaultModel: string;
-  defaultBaseUrl: string;
-  models: string[];
-}
-
-const LLM_PROVIDERS: LLMProviderDef[] = [
-  {
-    value: 'grok',
-    label: 'Grok (x.ai)',
-    defaultModel: 'grok-4-1-fast-reasoning',
-    defaultBaseUrl: 'https://api.x.ai/v1',
-    models: ['grok-4-1-fast-reasoning', 'grok-4-1-fast-non-reasoning', 'grok-code-fast-1'],
-  },
-  {
-    value: 'ollama',
-    label: 'Ollama (local)',
-    defaultModel: 'llama3',
-    defaultBaseUrl: 'http://localhost:11434',
-    models: [],
-  },
-];
+import { LLM_PROVIDERS } from '../../constants/llm';
 
 interface SettingsViewProps {
   settings: UseSettingsReturn;

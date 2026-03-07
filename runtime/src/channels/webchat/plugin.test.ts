@@ -329,7 +329,7 @@ describe("WebChatChannel", () => {
   });
 
   describe("chat.cancel", () => {
-    it("should report cancelled=true when an in-flight execution is aborted", () => {
+    it("should report cancelled=true when an in-flight execution is aborted", async () => {
       const send = vi.fn<(response: ControlResponse) => void>();
 
       channel.handleMessage(
@@ -347,6 +347,7 @@ describe("WebChatChannel", () => {
         msg("chat.cancel", undefined, "cancel-1"),
         send,
       );
+      await Promise.resolve();
 
       expect(send).toHaveBeenCalledWith({
         type: "chat.cancelled",
@@ -355,7 +356,7 @@ describe("WebChatChannel", () => {
       });
     });
 
-    it("should report cancelled=false when there is nothing active to abort", () => {
+    it("should report cancelled=false when there is nothing active to abort", async () => {
       const send = vi.fn<(response: ControlResponse) => void>();
 
       channel.handleMessage(
@@ -371,11 +372,45 @@ describe("WebChatChannel", () => {
         msg("chat.cancel", undefined, "cancel-2"),
         send,
       );
+      await Promise.resolve();
 
       expect(send).toHaveBeenCalledWith({
         type: "chat.cancelled",
         payload: { cancelled: false },
         id: "cancel-2",
+      });
+    });
+
+    it("reports cancelled=true when a background run is cancelled", async () => {
+      deps = createDeps({
+        cancelBackgroundRun: vi.fn().mockResolvedValue(true),
+      });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "keep monitoring this until I say stop" }),
+        send,
+      );
+
+      channel.handleMessage(
+        "client_1",
+        "chat.cancel",
+        msg("chat.cancel", undefined, "cancel-bg"),
+        send,
+      );
+      await Promise.resolve();
+
+      expect(send).toHaveBeenCalledWith({
+        type: "chat.cancelled",
+        payload: { cancelled: true },
+        id: "cancel-bg",
       });
     });
   });

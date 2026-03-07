@@ -115,10 +115,17 @@ Run the Dockerfile hardening guard before rebuilding desktop images:
 npm run -s security:desktop:hardening:check
 ```
 
+After rebuilding `agenc/desktop:latest`, run the Doom MCP smoke check to verify the image still exports the expected launchers on the secure path and that the Doom MCP server actually starts:
+
+```bash
+npm run -s desktop:image:doom:smoke
+```
+
 This check enforces:
 - `ubuntu:24.04` base image with `apt-get upgrade -y`
 - no apt install reintroduction of `imagemagick`, `epiphany-browser`, or system `ffmpeg`
 - Playwright ffmpeg symlink wiring
+- manifest-based secure-path launcher exports instead of ad hoc `/usr/games` symlinks
 - no forced `risc0-zkvm` guest `std` feature in `zkvm/methods/guest/Cargo.toml`
 
 ## Optional Snyk MCP

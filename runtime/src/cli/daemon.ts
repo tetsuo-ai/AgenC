@@ -33,7 +33,7 @@ import type {
 } from "./types.js";
 
 const STARTUP_POLL_INTERVAL_MS = 200;
-const STARTUP_POLL_TIMEOUT_MS = 3_000;
+const STARTUP_READY_TIMEOUT_MS = 60_000;
 const STOP_POLL_INTERVAL_MS = 200;
 const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 const CONTROL_PLANE_TIMEOUT_MS = 3_000;
@@ -54,6 +54,33 @@ function getDaemonLogPath(): string {
 interface DaemonProcessEntry {
   readonly pid: number;
   readonly args: string;
+}
+
+interface DaemonReadyMessage {
+  readonly type: "daemon.ready";
+  readonly pid: number;
+  readonly configPath?: string;
+}
+
+interface DaemonStartupErrorMessage {
+  readonly type: "daemon.startup_error";
+  readonly pid: number;
+  readonly message: string;
+  readonly configPath?: string;
+}
+
+type DaemonChildMessage = DaemonReadyMessage | DaemonStartupErrorMessage;
+
+function isDaemonChildMessage(value: unknown): value is DaemonChildMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === "daemon.ready") {
+    return typeof record.pid === "number";
+  }
+  if (record.type === "daemon.startup_error") {
+    return typeof record.pid === "number" && typeof record.message === "string";
+  }
+  return false;
 }
 
 async function listProcesses(): Promise<readonly DaemonProcessEntry[]> {
@@ -267,8 +294,8 @@ async function runDaemonized(
 
   const child = fork(daemonEntry, args, {
     detached: true,
-    // Keep IPC for exit tracking and attach stdout/stderr to a persistent log file.
-    stdio: logFd === undefined ? "ignore" : ["ignore", logFd, logFd, "ipc"],
+    // Keep IPC for readiness/exit tracking and attach stdout/stderr to a persistent log file when available.
+    stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore", "ipc"],
   });
   if (logFd !== undefined) {
     closeSync(logFd);
@@ -278,6 +305,7 @@ async function runDaemonized(
   const closeIpc = (): void => {
     try {
       child.removeAllListeners("exit");
+      child.removeAllListeners("message");
       if (child.connected) {
         child.disconnect();
       }
@@ -299,16 +327,37 @@ async function runDaemonized(
   // Track early child exit so we can report crashes instead of waiting for timeout
   let childExited = false;
   let childExitCode: number | null = null;
+  let childReady = false;
+  let startupErrorMessage: string | undefined;
   child.on("exit", (code) => {
     childExited = true;
     childExitCode = code;
   });
+  child.on("message", (message: unknown) => {
+    if (!isDaemonChildMessage(message)) return;
+    if (message.pid !== childPid) return;
+    if (message.type === "daemon.ready") {
+      childReady = true;
+      return;
+    }
+    startupErrorMessage = message.message;
+  });
 
-  // Poll for PID file to confirm startup
-  const deadline = Date.now() + STARTUP_POLL_TIMEOUT_MS;
+  // Poll for PID file ownership and wait for an explicit child readiness signal.
+  const deadline = Date.now() + STARTUP_READY_TIMEOUT_MS;
   let observedForeignPid: number | undefined;
   while (Date.now() < deadline) {
     await sleep(STARTUP_POLL_INTERVAL_MS);
+
+    if (startupErrorMessage) {
+      closeIpc();
+      context.error({
+        status: "error",
+        command: "start",
+        message: `Daemon failed during startup: ${startupErrorMessage}`,
+      });
+      return 1;
+    }
 
     if (childExited) {
       closeIpc();
@@ -329,16 +378,18 @@ async function runDaemonized(
           }
           continue;
         }
-        closeIpc();
-        context.output({
-          status: "ok",
-          command: "start",
-          mode: "daemon",
-          pid: info.pid,
-          port: info.port,
-          ...(logFd !== undefined ? { logPath } : {}),
-        });
-        return 0;
+        if (childReady) {
+          closeIpc();
+          context.output({
+            status: "ok",
+            command: "start",
+            mode: "daemon",
+            pid: info.pid,
+            port: info.port,
+            ...(logFd !== undefined ? { logPath } : {}),
+          });
+          return 0;
+        }
       }
     }
   }
@@ -349,7 +400,9 @@ async function runDaemonized(
     command: "start",
     message: observedForeignPid
       ? `Daemon forked (pid ${childPid}) but PID file stayed bound to a different live process (pid ${observedForeignPid}).`
-      : `Daemon forked (pid ${childPid}) but PID file not found within ${STARTUP_POLL_TIMEOUT_MS}ms`,
+      : childReady
+        ? `Daemon forked (pid ${childPid}) and reported ready, but PID file was not confirmed within ${STARTUP_READY_TIMEOUT_MS}ms.`
+        : `Daemon forked (pid ${childPid}) but did not report ready within ${STARTUP_READY_TIMEOUT_MS}ms.`,
   });
   return 1;
 }

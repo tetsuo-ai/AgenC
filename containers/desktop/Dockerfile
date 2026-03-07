@@ -10,6 +10,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright
 
+ARG DOOM_MCP_REPO=https://github.com/tetsuo-ai/tetsuo-doom.git
+ARG DOOM_MCP_REF=9f8c1cc3a370084797d3d5034cf548af913b7da7
+
 # =============================================================================
 # System packages
 # =============================================================================
@@ -49,6 +52,9 @@ RUN apt-get update \
     ripgrep fd-find bat fzf \
     # Python
     python3 python3-pip python3-venv \
+    # ViZDoom / Doom runtime
+    libgl1-mesa-dev libglu1-mesa-dev libopenal-dev libsdl2-dev \
+    chocolate-doom freedoom \
     # Misc utilities
     bash-completion locales software-properties-common sqlite3 \
     && locale-gen en_US.UTF-8 \
@@ -224,12 +230,18 @@ RUN npm install --production
 
 COPY server/dist/ /opt/server/dist/
 COPY entrypoint.sh /usr/local/bin/agenc-desktop-entrypoint
+COPY install-secure-path-launchers.sh /tmp/install-secure-path-launchers.sh
+COPY secure-path-launchers.txt /tmp/secure-path-launchers.txt
+COPY patches/doom-mcp-god-mode.patch /tmp/doom-mcp-god-mode.patch
 
 # =============================================================================
 # Fix ownership
 # =============================================================================
 RUN chown -R agenc:agenc /home/agenc /opt/server /tmp
 RUN chmod 755 /usr/local/bin/agenc-desktop-entrypoint
+RUN chmod 755 /tmp/install-secure-path-launchers.sh \
+    && /tmp/install-secure-path-launchers.sh /tmp/secure-path-launchers.txt \
+    && rm -f /tmp/install-secure-path-launchers.sh /tmp/secure-path-launchers.txt
 
 # =============================================================================
 # uv (Python package manager) + kitty-mcp
@@ -246,6 +258,24 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
        fi \
     && rm -rf /tmp/kitty-mcp \
     && chown -R agenc:agenc /home/agenc/.local
+
+# =============================================================================
+# Doom MCP + ViZDoom wrapper
+# =============================================================================
+RUN git clone --filter=blob:none --no-checkout "${DOOM_MCP_REPO}" /opt/doom-mcp \
+    && git -C /opt/doom-mcp checkout "${DOOM_MCP_REF}" \
+    && git -C /opt/doom-mcp apply /tmp/doom-mcp-god-mode.patch \
+    && python3 -m venv /opt/doom-mcp/.venv \
+    && /opt/doom-mcp/.venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/doom-mcp/.venv/bin/pip install --no-cache-dir /opt/doom-mcp \
+    && printf '%s\n' \
+         '#!/usr/bin/env bash' \
+         'set -euo pipefail' \
+         'exec /opt/doom-mcp/.venv/bin/python -c "from doom_mcp.server import mcp; mcp.run()"' \
+       > /usr/local/bin/doom-mcp-server \
+    && chmod 755 /usr/local/bin/doom-mcp-server \
+    && rm -f /tmp/doom-mcp-god-mode.patch \
+    && chown -R agenc:agenc /opt/doom-mcp
 
 ENV PATH="/home/agenc/.local/bin:${PATH}"
 

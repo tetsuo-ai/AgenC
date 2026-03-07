@@ -241,8 +241,17 @@ export class WebChatChannel
 
     if (type === "chat.cancel") {
       const sessionId = this.clientSessions.get(clientId);
-      const cancelled = sessionId ? this.cancelSession(sessionId) : false;
-      send({ type: "chat.cancelled", payload: { cancelled }, id });
+      const foregroundCancelled = sessionId ? this.cancelSession(sessionId) : false;
+      const backgroundCancelled = sessionId
+        ? this.deps.cancelBackgroundRun?.(sessionId)
+        : false;
+      void Promise.resolve(backgroundCancelled).then((result) => {
+        send({
+          type: "chat.cancelled",
+          payload: { cancelled: foregroundCancelled || Boolean(result) },
+          id,
+        });
+      });
       return;
     }
 

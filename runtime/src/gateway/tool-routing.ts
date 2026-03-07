@@ -87,6 +87,60 @@ const SHELL_TERMS = new Set([
   "execute",
 ]);
 
+const PROCESS_TERMS = new Set([
+  "background",
+  "daemon",
+  "log",
+  "logs",
+  "monitor",
+  "pid",
+  "process",
+  "server",
+  "service",
+  "status",
+  "stop",
+  "worker",
+]);
+
+const PROCESS_START_TERMS = new Set([
+  "background",
+  "launch",
+  "run",
+  "server",
+  "service",
+  "spawn",
+  "start",
+  "worker",
+]);
+
+const PROCESS_STATUS_TERMS = new Set([
+  "health",
+  "log",
+  "logs",
+  "monitor",
+  "output",
+  "pid",
+  "running",
+  "state",
+  "status",
+]);
+
+const PROCESS_STOP_TERMS = new Set([
+  "close",
+  "exit",
+  "kill",
+  "quit",
+  "stop",
+  "terminate",
+]);
+
+const DOOM_TERMS = new Set([
+  "doom",
+  "vizdoom",
+  "defend_the_center",
+  "freedoom",
+]);
+
 const TERMINAL_TERMS = new Set([
   "terminal",
   "kitty",
@@ -613,6 +667,12 @@ export class ToolRouter {
 
   private scoreTools(intentTerms: readonly string[]): Array<{ tool: IndexedTool; score: number }> {
     const hasShellIntent = intentTerms.some((term) => SHELL_TERMS.has(term));
+    const hasProcessIntent = intentTerms.some((term) => PROCESS_TERMS.has(term));
+    const wantsProcessStart = intentTerms.some((term) => PROCESS_START_TERMS.has(term));
+    const wantsProcessStatus = intentTerms.some((term) => PROCESS_STATUS_TERMS.has(term));
+    const wantsProcessStop = intentTerms.some((term) => PROCESS_STOP_TERMS.has(term));
+    const hasDoomIntent = intentTerms.some((term) => DOOM_TERMS.has(term));
+    const wantsDoomStop = hasDoomIntent && wantsProcessStop;
     const hasBrowserIntent = intentTerms.some((term) => BROWSER_TERMS.has(term));
     const hasFileIntent = intentTerms.some((term) => FILE_TERMS.has(term));
     const hasNetworkIntent = intentTerms.some((term) => NETWORK_TERMS.has(term));
@@ -631,6 +691,30 @@ export class ToolRouter {
 
       if (hasShellIntent && (tool.name === "system.bash" || tool.name === "desktop.bash")) {
         score += 4;
+      }
+      if (hasProcessIntent && tool.name.startsWith("desktop.process_")) {
+        score += 10;
+      }
+      if (wantsProcessStart && tool.name === "desktop.process_start") {
+        score += 12;
+      }
+      if (wantsProcessStatus && tool.name === "desktop.process_status") {
+        score += 12;
+      }
+      if (wantsProcessStop && tool.name === "desktop.process_stop") {
+        score += 12;
+      }
+      if (hasDoomIntent && tool.name.startsWith("mcp.doom.")) {
+        score += 10;
+      }
+      if (wantsDoomStop) {
+        if (tool.name === "mcp.doom.stop_game") {
+          score += 24;
+        } else if (tool.name === "desktop.process_stop") {
+          score -= 10;
+        } else if (tool.name === "desktop.bash") {
+          score -= 6;
+        }
       }
       if (terminalIntent !== "none" && tool.family === "mcp.kitty") {
         score += 4;

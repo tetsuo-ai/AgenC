@@ -3,6 +3,7 @@ import type { UseSettingsReturn, GatewaySettings, VoiceName } from '../hooks/use
 import type { UseWalletReturn } from '../hooks/useWallet';
 import type { ChatSessionInfo } from '../hooks/useChat';
 import type { AgentInfo } from '../types';
+import { LLM_PROVIDERS } from '../constants/llm';
 import { openExternalUrl } from '../utils/external';
 
 type Tab = 'main' | 'settings' | 'payment';
@@ -17,23 +18,6 @@ const AGENTS = [
   { name: 'Validator Agent', icon: 'validator', desc: 'Proof verification & disputes', detail: 'Verifies zero-knowledge proofs and participates in dispute resolution. Casts votes as an arbiter on contested task completions.' },
   { name: 'Coordinator', icon: 'coordinator', desc: 'Workflow & team orchestration', detail: 'Orchestrates DAG workflows and team contracts. Manages task dependencies, milestone payouts, and canary rollouts.' },
 ];
-
-const LLM_PROVIDERS = [
-  {
-    value: 'grok',
-    label: 'Grok (x.ai)',
-    defaultModel: 'grok-4-1-fast-reasoning',
-    defaultBaseUrl: 'https://api.x.ai/v1',
-    models: ['grok-4-1-fast-reasoning', 'grok-4-1-fast-non-reasoning', 'grok-code-fast-1'],
-  },
-  {
-    value: 'ollama',
-    label: 'Ollama (local)',
-    defaultModel: 'llama3',
-    defaultBaseUrl: 'http://localhost:11434',
-    models: [],
-  },
-] as const;
 
 interface RightPanelProps {
   settings: UseSettingsReturn;

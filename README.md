@@ -357,6 +357,9 @@ Desktop sandboxes are Docker containers running a full Linux desktop that agents
 # Build the desktop container image
 docker build -t agenc/desktop:latest containers/desktop/
 
+# Smoke-test Doom MCP wiring in the built image
+npm run desktop:image:doom:smoke
+
 # Or use docker compose
 cd containers && docker compose up --build
 ```

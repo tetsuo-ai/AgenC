@@ -470,6 +470,20 @@ describe("createDesktopAwareToolHandler", () => {
     expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
   });
 
+  it("allows backgrounded long-running servers when command writes the spawned pid to a file", async () => {
+    const manager = mockManager();
+    const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
+      desktopManager: manager,
+      bridges,
+    });
+
+    const result = await handler("desktop.bash", {
+      command: "python3 -m http.server 8000 >/tmp/server.log 2>&1 & echo $! > /tmp/server.pid",
+      timeoutMs: 5_000,
+    });
+    expect(JSON.parse(result)).toMatchObject({ stdout: "hello", exitCode: 0 });
+  });
+
   it("guards backgrounded long-running servers without output redirection", async () => {
     const manager = mockManager();
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {

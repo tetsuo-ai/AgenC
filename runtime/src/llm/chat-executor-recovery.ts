@@ -24,6 +24,7 @@ import { SHELL_BUILTIN_COMMANDS } from "./chat-executor-constants.js";
 import {
   didToolCallFail,
   extractToolFailureText,
+  normalizeDoomScreenResolution,
   parseToolResultObject,
 } from "./chat-executor-tool-utils.js";
 
@@ -182,6 +183,11 @@ export function buildRecoveryHints(
   emittedHints: Set<string>,
 ): RecoveryHint[] {
   const hints: RecoveryHint[] = [];
+  const roundHint = inferRoundRecoveryHint(roundCalls);
+  if (roundHint && !emittedHints.has(roundHint.key)) {
+    emittedHints.add(roundHint.key);
+    hints.push(roundHint);
+  }
   for (const call of roundCalls) {
     const hint = inferRecoveryHint(call);
     if (!hint) continue;
@@ -192,14 +198,80 @@ export function buildRecoveryHints(
   return hints;
 }
 
+function inferRoundRecoveryHint(
+  roundCalls: readonly ToolCallRecord[],
+): RecoveryHint | undefined {
+  const failedManagedStop = roundCalls.some((call) => {
+    if (call.name !== "desktop.process_stop") return false;
+    if (!didToolCallFail(call.isError, call.result)) return false;
+    return extractToolFailureText(call)
+      .toLowerCase()
+      .includes("managed process not found");
+  });
+  if (!failedManagedStop) return undefined;
+
+  const usedDoomShellStopFallback = roundCalls.some((call) => {
+    if (call.name !== "desktop.bash") return false;
+    const command = String(call.args?.command ?? "");
+    if (!/\b(?:doom|vizdoom)\b/i.test(command)) return false;
+    return /\b(?:ps|pgrep|pkill|kill)\b/i.test(command);
+  });
+  if (!usedDoomShellStopFallback) return undefined;
+
+  return {
+    key: "doom-stop-via-mcp",
+    message:
+      "To stop Doom, call `mcp.doom.stop_game` directly. Do not inspect or kill ViZDoom with " +
+      "`desktop.process_stop`, `kill`, or `pkill`; the running game is owned by the Doom MCP, " +
+      "not the managed desktop-process registry.",
+  };
+}
+
 export function inferRecoveryHint(
   call: ToolCallRecord,
 ): RecoveryHint | undefined {
+  const parsedResult = parseToolResultObject(call.result);
+  if (
+    call.name === "mcp.doom.start_game" &&
+    didToolCallFail(call.isError, call.result) &&
+    typeof call.args?.screen_resolution === "string"
+  ) {
+    const normalizedResolution = normalizeDoomScreenResolution(
+      call.args.screen_resolution,
+    );
+    if (
+      typeof normalizedResolution === "string" &&
+      normalizedResolution !== call.args.screen_resolution
+    ) {
+      return {
+        key: "doom-start-game-invalid-resolution",
+        message:
+          "Doom screen resolutions must use the exact ViZDoom enum string. " +
+          `Retry with \`${normalizedResolution}\` instead of \`${call.args.screen_resolution}\`.`,
+      };
+    }
+  }
+
+  if (
+    call.name === "mcp.doom.start_game" &&
+    !didToolCallFail(call.isError, call.result) &&
+    parsedResult &&
+    parsedResult.status === "running" &&
+    call.args?.async_player === true
+  ) {
+    return {
+      key: "doom-async-start-verify",
+      message:
+        "The async Doom executor started, but you still need evidence before claiming success. " +
+        "Call `mcp.doom.set_objective` with `objective_type: \"hold_position\"` when the task is stationary defense, " +
+        "then verify with `mcp.doom.get_situation_report` or `mcp.doom.get_state`.",
+    };
+  }
+
   if (!didToolCallFail(call.isError, call.result)) return undefined;
 
   const failureText = extractToolFailureText(call);
   const failureTextLower = failureText.toLowerCase();
-  const parsedResult = parseToolResultObject(call.result);
   if (call.name === "execute_with_agent" && parsedResult) {
     const status =
       typeof parsedResult.status === "string"
@@ -292,6 +364,21 @@ export function inferRecoveryHint(
         "Desktop/container tools are unavailable in this chat session. Attach a desktop session first (`/desktop attach`), " +
         "then retry with `desktop.bash` or the required `playwright.*`/`mcp.*` tool.",
     };
+  }
+
+  if (call.name === "desktop.bash") {
+    if (
+      failureTextLower.includes("long-running server process") ||
+      failureTextLower.includes("background process but does not redirect") ||
+      failureTextLower.includes("should run in background to avoid hanging")
+    ) {
+      return {
+        key: "desktop-bash-background-process-shape",
+        message:
+          "For long-running/background tasks that you need to inspect or stop later, use `desktop.process_start`, " +
+          "then `desktop.process_status` and `desktop.process_stop`. Keep `desktop.bash` for one-shot shell commands or shell scripts.",
+      };
+    }
   }
 
   if (call.name === "system.bash") {

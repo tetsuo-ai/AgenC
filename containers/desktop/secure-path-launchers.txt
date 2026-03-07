@@ -1,0 +1,3 @@
+# target_name absolute_source_path
+chocolate-doom /usr/games/chocolate-doom
+doom /usr/games/doom

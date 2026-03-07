@@ -1,3 +1,38 @@
+## PR [pending]: desktop doom image contract hardening
+- **Date:** 2026-03-06
+- **Files changed:** `containers/desktop/Dockerfile`, `containers/desktop/install-secure-path-launchers.sh`, `containers/desktop/secure-path-launchers.txt`, `scripts/check-desktop-image-hardening.mjs`, `scripts/check-desktop-image-hardening.test.mjs`, `scripts/smoke-desktop-doom-image.mjs`, `package.json`, `.github/workflows/ci.yml`, `README.md`, `docs/security/mcp-security-stack.md`, `.claude/notes/gotchas.md`, `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-06-doom-desktop-image-regression.md`
+- **What worked:** The desktop image now exports non-secure-path binaries through a manifest-driven installer instead of inline symlinks, and Doom MCP startup is guarded by a dedicated smoke script plus CI job. The fresh daemon boot confirmed the rebuilt image still registers the full `mcp.doom.*` tool surface.
+- **What didn't:** The Dockerfile still has some repeated third-party MCP install structure between kitty and Doom. It is not a correctness issue now, but it is the next cleanup target if more desktop MCP integrations land.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: restore desktop doom mcp image wiring
+- **Date:** 2026-03-06
+- **Files changed:** `containers/desktop/Dockerfile`, `runtime/src/gateway/daemon.ts`, `.claude/notes/gotchas.md`, `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-06-doom-desktop-image-regression.md`
+- **What worked:** Restoring the Doom MCP install block in the desktop image, switching the launcher to a module-based Python wrapper, and exporting Doom binaries through `/usr/local/bin` brought `mcp.doom.*` registration back on fresh daemon boot. Removing the extra daemon-side startup log also fixed the duplicated `Desktop sandbox manager started` line.
+- **What didn't:** The image still depends on a pinned external Doom MCP commit plus a local patch, and the launcher discovery contract is still implicitly tied to `sudo` secure-path behavior.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: daemon startup readiness handshake
+- **Date:** 2026-03-06
+- **Files changed:** `runtime/src/bin/daemon.ts`, `runtime/src/cli/daemon.ts`, `runtime/src/cli/daemon.test.ts`, `.claude/notes/gotchas.md`, `.claude/notes/techdebt-2026-03-06-daemon-startup-readiness.md`
+- **What worked:** The daemon child now emits an explicit `daemon.ready` IPC signal after `DaemonManager.start()` completes, and the CLI waits for that readiness signal instead of racing a 3-second PID-file poll. The rebuilt runtime now restarts cleanly through the normal CLI path, and the new tests cover both successful readiness and surfaced startup errors.
+- **What didn't:** Startup still uses a fixed ready-timeout budget on the parent side. That is acceptable now, but if cold-start telemetry grows or more subsystems are added, making the timeout configurable is the next refinement.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: managed-process registry atomic persistence
+- **Date:** 2026-03-06
+- **Files changed:** `containers/desktop/server/src/tools.ts`, `containers/desktop/server/src/tools.test.ts`, `.claude/notes/gotchas.md`, `.claude/notes/techdebt-2026-03-06-structured-process-tools.md`, `.claude/notes/techdebt-2026-03-06-managed-process-registry-persistence.md`
+- **What worked:** Managed-process registry writes are now serialized inside the desktop server and published with an atomic temp-file replace, so overlapping lifecycle updates from API calls and child exit hooks no longer race the on-disk registry. The live container smoke confirmed a real `process_start` / `process_stop` cycle persisted valid JSON with the exited state on disk.
+- **What didn't:** Lookup by `label` and `pid` is still linear over the in-memory registry. That is acceptable at current scale, but it is the next cleanup target if managed-process volume increases.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: desktop tool catalog generation and drift enforcement
+- **Date:** 2026-03-06
+- **Files changed:** `runtime/scripts/generate-desktop-tool-definitions.ts`, `runtime/package.json`, `runtime/src/desktop/tool-definitions.ts`, `.claude/notes/gotchas.md`, `.claude/notes/techdebt-2026-03-06-structured-process-tools.md`
+- **What worked:** The desktop server `TOOL_DEFINITIONS` export is now the single schema source of truth, while the daemon keeps using the same runtime-side catalog path. Drift is caught before runtime `build`, `test`, or `typecheck`, so the session allowlist and prompt-facing schemas cannot silently diverge again.
+- **What didn't:** The remaining managed-process debt is persistence safety, not schema drift. Registry writes are still best-effort JSON rewrites and need a separate lock or journal if we want stronger crash/concurrency guarantees.
+- **Rule added to CLAUDE.md:** no
+
 ## PR [pending]: runtime desktop delegation hardening
 - **Date:** 2026-03-06
 - **Files changed:** `runtime/src/gateway/daemon.ts`, `runtime/src/gateway/tool-environment-policy.ts`, `runtime/src/gateway/tool-environment-policy.test.ts`, `runtime/src/gateway/sub-agent.ts`, `runtime/src/gateway/sub-agent.test.ts`, `runtime/src/gateway/subagent-orchestrator.ts`, `runtime/src/gateway/subagent-orchestrator.test.ts`, `runtime/src/gateway/tool-handler-factory.ts`, `runtime/src/gateway/tool-handler-factory.test.ts`, `runtime/src/gateway/delegation-scope.ts`, `runtime/src/desktop/session-router.ts`, `runtime/src/desktop/session-router.test.ts`, `runtime/src/llm/chat-executor.ts`, `runtime/src/llm/chat-executor.test.ts`, `runtime/src/llm/chat-executor-text.ts`, `runtime/src/llm/chat-executor-verifier.ts`, `runtime/src/llm/chat-executor-verifier.test.ts`, `runtime/src/utils/delegation-validation.ts`, `runtime/src/utils/delegation-validation.test.ts`
@@ -59,4 +94,11 @@
 - **Files changed:** `web/src/App.tsx`, `web/src/App.integration.test.tsx`, `web/src/components/chat/ChatInput.tsx`, `web/src/components/chat/MessageList.tsx`, `web/src/components/chat/MessageList.test.tsx`, `web/src/components/activity/ActivityFeedView.tsx`, `web/src/components/activity/ActivityFeedView.test.tsx`, `web/src/components/chat/DesktopPanel.tsx`, `web/src/components/chat/ChatMessage.tsx`, `web/vite.config.ts`
 - **What worked:** The chat composer now keeps focus when the desktop panel auto-opens during voice use, both message and activity feeds stop yanking the user back to the bottom after manual scroll-up, and the markdown/syntax-highlighter vendor code is split out of the main web bundle. The web package tests and build passed from the package directory.
 - **What didn't:** Running Vitest from the repo root produced false DOM-environment failures because it skipped `web/vitest.config.ts`. That is a command-shape gotcha, not a product bug, and it is now documented.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: runtime Doom visible-launch defaults and deterministic stop
+- **Date:** 2026-03-06
+- **Files changed:** `runtime/src/llm/chat-executor-tool-utils.ts`, `runtime/src/llm/chat-executor-tool-utils.test.ts`, `runtime/src/gateway/tool-handler-factory.ts`, `runtime/src/gateway/tool-handler-factory.test.ts`, `runtime/src/llm/chat-executor-recovery.ts`, `runtime/src/llm/chat-executor-recovery.test.ts`, `runtime/src/gateway/tool-routing.ts`, `runtime/src/gateway/tool-routing.test.ts`, `runtime/src/gateway/doom-stop-guard.ts`, `runtime/src/gateway/doom-stop-guard.test.ts`, `runtime/src/gateway/daemon.ts`
+- **What worked:** Minimal Doom launch prompts now normalize to a visible HUD-on `1280x720` window, duplicate same-turn `mcp.doom.start_game` calls are blocked, and explicit webchat stop requests bypass model improvisation and call `mcp.doom.stop_game` directly. Live websocket smoke confirmed both the rewritten launch args and the deterministic stop path.
+- **What didn't:** The deterministic Doom stop flow currently duplicates some of the normal webchat final-response/session-memory bookkeeping in `daemon.ts`. If more runtime-owned fast paths are added, extract that shared response path instead of cloning it again.
 - **Rule added to CLAUDE.md:** no

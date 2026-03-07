@@ -85,6 +85,26 @@ jobs:
       - name: MCP tests
         run: npm run test --prefix mcp
 
+  desktop_image_checks:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Desktop hardening guard
+        run: npm run security:desktop:hardening:check
+
+      - name: Build desktop image
+        run: docker build -t agenc/desktop:latest containers/desktop
+
+      - name: Smoke Doom MCP desktop image
+        run: npm run desktop:image:doom:smoke
+
   reliability_regression:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest

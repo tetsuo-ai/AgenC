@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   aptBlockContainsPackage,
   extractAptInstallBlock,
+  hasAdHocGamesSymlink,
+  hasSecurePathLauncherInstaller,
   tokenizeAptBlock,
 } from "./check-desktop-image-hardening.mjs";
 
@@ -50,4 +52,24 @@ RUN echo post`;
   const aptBlock = extractAptInstallBlock(dockerfile);
   assert.match(aptBlock, /apt-get install -y --no-install-recommends/);
   assert.match(aptBlock, /locale-gen en_US\.UTF-8/);
+});
+
+test("hasSecurePathLauncherInstaller detects manifest-based launcher wiring", () => {
+  const dockerfile = String.raw`
+COPY install-secure-path-launchers.sh /tmp/install-secure-path-launchers.sh
+COPY secure-path-launchers.txt /tmp/secure-path-launchers.txt
+RUN chmod 755 /tmp/install-secure-path-launchers.sh \
+  && /tmp/install-secure-path-launchers.sh /tmp/secure-path-launchers.txt
+`;
+
+  assert.equal(hasSecurePathLauncherInstaller(dockerfile), true);
+});
+
+test("hasAdHocGamesSymlink detects legacy /usr/games symlink wiring", () => {
+  const dockerfile = String.raw`
+RUN ln -sf /usr/games/chocolate-doom /usr/local/bin/chocolate-doom \
+  && ln -sf /usr/games/doom /usr/local/bin/doom
+`;
+
+  assert.equal(hasAdHocGamesSymlink(dockerfile), true);
 });
