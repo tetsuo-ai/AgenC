@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
-import { readFile, writeFile, unlink, mkdir, stat, access, } from "node:fs/promises";
+import { readFile, writeFile, unlink, mkdir, stat, access, open as openFile, rename, } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { resolveValidatedTextEditorPath } from "./textEditorPath.js";
 const DISPLAY = process.env.DISPLAY ?? ":1";
@@ -9,11 +9,58 @@ const EXEC_TIMEOUT_MS = 30_000;
 const BASH_TIMEOUT_MS = 600_000;
 const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB
 const MAX_EXEC_BUFFER_BYTES = 1024 * 1024; // 1MB capture headroom
+const DETACHED_PID_CAPTURE_TIMEOUT_MS = 500;
+const DETACHED_PID_CAPTURE_POLL_MS = 25;
+const MANAGED_PROCESS_DIR = "/tmp/agenc-processes";
+const MANAGED_PROCESS_REGISTRY_PATH = `${MANAGED_PROCESS_DIR}/registry.json`;
+const MANAGED_PROCESS_STARTUP_CHECK_MS = 300;
+const MANAGED_PROCESS_POLL_MS = 100;
+const MANAGED_PROCESS_DEFAULT_STOP_GRACE_MS = 2_000;
+const MANAGED_PROCESS_MAX_STOP_GRACE_MS = 30_000;
+const MANAGED_PROCESS_TAIL_BYTES = 8 * 1024;
+const DEFAULT_MANAGED_PROCESS_CWD = "/workspace";
 const TYPE_CHUNK_SIZE = 50;
 const TYPE_DELAY_MS = 12;
 const GUI_LAUNCH_CMD_RE = /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:xfce4-terminal|gnome-terminal|xterm|kitty|firefox|chromium|chromium-browser|google-chrome|thunar|nautilus|mousepad|gedit)\b/i;
-const BACKGROUND_COMMAND_RE = /(.*?)(?:&\s*(?:disown\s*)?(?:(?:;|&&)?\s*echo\s+\$!\s*)?)$/;
+const BACKGROUND_COMMAND_RE = /&\s*(?:disown\s*)?(?:(?:;|&&)?\s*echo\s+\$!(?:\s*(?:1?>|1>>|>>)\s*(?:[^\s&]+|'[^']+'|"[^"]+"))?\s*)?$/;
 const APT_PREFIX_RE = /^\s*(?:sudo\s+)?(?:(?:DEBIAN_FRONTEND|APT_LISTCHANGES_FRONTEND)=[^\s]+\s+)*(?:apt-get|apt)\b/i;
+const PROCESS_SHELL_WRAPPER_COMMANDS = new Set([
+    "bash",
+    "sh",
+    "zsh",
+    "dash",
+    "fish",
+    "csh",
+    "ksh",
+    "tcsh",
+]);
+const PROCESS_SIGNAL_NAMES = new Set([
+    "SIGTERM",
+    "SIGINT",
+    "SIGKILL",
+    "SIGHUP",
+]);
+const CHROMIUM_PROCESS_COMMANDS = new Set([
+    "chromium",
+    "chromium-browser",
+    "google-chrome",
+    "google-chrome-stable",
+]);
+const CHROMIUM_DISALLOWED_FLAGS = new Set([
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+]);
+const CHROMIUM_DETERMINISTIC_FLAGS = [
+    "--new-window",
+    "--incognito",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-default-apps",
+    "--disable-sync",
+];
+let managedProcessesLoaded = false;
+const managedProcesses = new Map();
+let managedProcessRegistryPersistChain = Promise.resolve();
 function exec(cmd, args, timeoutMs = EXEC_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         execFile(cmd, args, {
@@ -53,6 +100,12 @@ function truncateOutput(text) {
         return text;
     return text.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
 }
+function shellQuote(value) {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 function normalizeAptCommand(command) {
     const trimmed = command.trim();
     if (!APT_PREFIX_RE.test(trimmed)) {
@@ -77,6 +130,393 @@ function normalizeAptCommand(command) {
         return normalized;
     }
     return `sudo apt-get update && ${normalized}`;
+}
+async function ensureManagedProcessRegistryLoaded() {
+    if (managedProcessesLoaded)
+        return;
+    managedProcessesLoaded = true;
+    try {
+        const raw = await readFile(MANAGED_PROCESS_REGISTRY_PATH, "utf8");
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            warnBestEffort("managed process registry load failed", "registry was not an array");
+            return;
+        }
+        for (const entry of parsed) {
+            if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+                continue;
+            }
+            const record = entry;
+            if (typeof record.processId !== "string" ||
+                typeof record.command !== "string" ||
+                !Array.isArray(record.args) ||
+                typeof record.cwd !== "string" ||
+                typeof record.logPath !== "string" ||
+                typeof record.pid !== "number" ||
+                typeof record.pgid !== "number" ||
+                typeof record.state !== "string" ||
+                typeof record.startedAt !== "number") {
+                continue;
+            }
+            managedProcesses.set(record.processId, {
+                processId: record.processId,
+                label: typeof record.label === "string" ? record.label : undefined,
+                command: record.command,
+                args: record.args.filter((arg) => typeof arg === "string"),
+                cwd: record.cwd,
+                logPath: record.logPath,
+                pid: record.pid,
+                pgid: record.pgid,
+                state: record.state === "running" ? "running" : "exited",
+                startedAt: record.startedAt,
+                endedAt: typeof record.endedAt === "number" ? record.endedAt : undefined,
+                exitCode: typeof record.exitCode === "number" || record.exitCode === null
+                    ? record.exitCode
+                    : undefined,
+                signal: typeof record.signal === "string" || record.signal === null
+                    ? record.signal
+                    : undefined,
+                envKeys: Array.isArray(record.envKeys)
+                    ? record.envKeys.filter((key) => typeof key === "string")
+                    : undefined,
+            });
+        }
+    }
+    catch (error) {
+        if (typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "ENOENT") {
+            return;
+        }
+        warnBestEffort("managed process registry load failed", error);
+    }
+}
+function cloneManagedProcessRecord(record) {
+    return {
+        ...record,
+        args: [...record.args],
+        ...(record.envKeys ? { envKeys: [...record.envKeys] } : {}),
+    };
+}
+function snapshotManagedProcessRegistry() {
+    return Array.from(managedProcesses.values())
+        .map((record) => cloneManagedProcessRecord(record))
+        .sort((a, b) => a.startedAt - b.startedAt);
+}
+async function syncManagedProcessDirectory() {
+    try {
+        const handle = await openFile(MANAGED_PROCESS_DIR, "r");
+        try {
+            await handle.sync();
+        }
+        finally {
+            await handle.close();
+        }
+    }
+    catch (error) {
+        warnBestEffort("managed process registry directory sync failed", error);
+    }
+}
+async function writeManagedProcessRegistryAtomically(records) {
+    const tempPath = `${MANAGED_PROCESS_REGISTRY_PATH}.${process.pid}.${randomUUID()}.tmp`;
+    let handle = null;
+    try {
+        handle = await openFile(tempPath, "w");
+        await handle.writeFile(JSON.stringify(records, null, 2), "utf8");
+        await handle.sync();
+        await handle.close();
+        handle = null;
+        await rename(tempPath, MANAGED_PROCESS_REGISTRY_PATH);
+        await syncManagedProcessDirectory();
+    }
+    catch (error) {
+        if (handle) {
+            await handle.close().catch(() => undefined);
+            handle = null;
+        }
+        await unlink(tempPath).catch(() => undefined);
+        throw error;
+    }
+}
+async function persistManagedProcessRegistry() {
+    const persist = async () => {
+        await mkdir(MANAGED_PROCESS_DIR, { recursive: true });
+        const records = snapshotManagedProcessRegistry();
+        await writeManagedProcessRegistryAtomically(records);
+    };
+    const nextPersist = managedProcessRegistryPersistChain.then(persist, persist);
+    managedProcessRegistryPersistChain = nextPersist.catch(() => undefined);
+    return nextPersist;
+}
+function commandBasename(command) {
+    return basename(command.trim()).toLowerCase();
+}
+function normalizeManagedProcessSignal(value) {
+    if (typeof value !== "string" || value.trim().length === 0) {
+        return "SIGTERM";
+    }
+    const upper = value.trim().toUpperCase();
+    const normalized = upper.startsWith("SIG") ? upper : `SIG${upper}`;
+    if (!PROCESS_SIGNAL_NAMES.has(normalized)) {
+        throw new Error(`signal must be one of: ${Array.from(PROCESS_SIGNAL_NAMES).join(", ")}`);
+    }
+    return normalized;
+}
+function normalizeManagedProcessGraceMs(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return MANAGED_PROCESS_DEFAULT_STOP_GRACE_MS;
+    }
+    return Math.min(MANAGED_PROCESS_MAX_STOP_GRACE_MS, Math.max(0, Math.floor(value)));
+}
+async function resolveManagedProcessCwd(input) {
+    if (typeof input === "string" && input.trim().length > 0) {
+        const cwd = input.trim();
+        if (!isAbsolute(cwd)) {
+            throw new Error("cwd must be an absolute path");
+        }
+        return cwd;
+    }
+    try {
+        await access(DEFAULT_MANAGED_PROCESS_CWD);
+        return DEFAULT_MANAGED_PROCESS_CWD;
+    }
+    catch {
+        try {
+            await access("/home/agenc");
+            return "/home/agenc";
+        }
+        catch {
+            return process.cwd();
+        }
+    }
+}
+function normalizeManagedProcessArgs(input) {
+    if (input === undefined)
+        return [];
+    if (!Array.isArray(input)) {
+        throw new Error("args must be an array of strings");
+    }
+    return input.map((value) => {
+        if (value === null || value === undefined) {
+            throw new Error("args entries must be strings");
+        }
+        return String(value);
+    });
+}
+function normalizeManagedProcessEnv(input) {
+    if (input === undefined)
+        return undefined;
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+        throw new Error("env must be an object of string values");
+    }
+    const envEntries = Object.entries(input);
+    const normalized = {};
+    for (const [key, value] of envEntries) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+            throw new Error(`env key "${key}" is invalid`);
+        }
+        if (value === null || value === undefined) {
+            throw new Error(`env value for "${key}" must be a string`);
+        }
+        normalized[key] = String(value);
+    }
+    return normalized;
+}
+function normalizeManagedProcessCommand(command) {
+    if (typeof command !== "string" || command.trim().length === 0) {
+        throw new Error("command is required");
+    }
+    const trimmed = command.trim();
+    if (/\s/.test(trimmed)) {
+        throw new Error("command must be one executable token/path. Put flags and operands in args, or use desktop.bash for shell scripts.");
+    }
+    const base = commandBasename(trimmed);
+    if (PROCESS_SHELL_WRAPPER_COMMANDS.has(base)) {
+        throw new Error("Shell wrapper commands like bash/sh/zsh are not allowed in process_start. Use a real executable + args, or desktop.bash for shell logic.");
+    }
+    return trimmed;
+}
+function normalizeManagedProcessLabel(input) {
+    if (typeof input !== "string")
+        return undefined;
+    const trimmed = input.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
+function normalizeManagedProcessLogPath(input, processId) {
+    if (typeof input === "string" && input.trim().length > 0) {
+        const logPath = input.trim();
+        if (!isAbsolute(logPath)) {
+            throw new Error("logPath must be an absolute path");
+        }
+        return logPath;
+    }
+    return `${MANAGED_PROCESS_DIR}/${processId}.log`;
+}
+function normalizeChromiumProcessArgs(command, args) {
+    if (!CHROMIUM_PROCESS_COMMANDS.has(commandBasename(command))) {
+        return [...args];
+    }
+    const nextArgs = [];
+    let hasUserDataDir = false;
+    for (const arg of args) {
+        const normalized = arg.trim();
+        if (CHROMIUM_DISALLOWED_FLAGS.has(normalized))
+            continue;
+        if (normalized.startsWith("--user-data-dir=") || normalized === "--user-data-dir") {
+            hasUserDataDir = true;
+        }
+        nextArgs.push(arg);
+    }
+    for (const flag of CHROMIUM_DETERMINISTIC_FLAGS) {
+        if (!nextArgs.includes(flag)) {
+            nextArgs.push(flag);
+        }
+    }
+    if (!hasUserDataDir) {
+        nextArgs.push(`--user-data-dir=/tmp/agenc-chrome-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`);
+    }
+    return nextArgs;
+}
+async function readFileTail(path, maxBytes = MANAGED_PROCESS_TAIL_BYTES) {
+    try {
+        const handle = await openFile(path, "r");
+        try {
+            const fileStat = await handle.stat();
+            if (fileStat.size <= 0)
+                return "";
+            const bytes = Math.min(fileStat.size, maxBytes);
+            const buffer = Buffer.alloc(bytes);
+            await handle.read(buffer, 0, bytes, fileStat.size - bytes);
+            return buffer.toString("utf8");
+        }
+        finally {
+            await handle.close();
+        }
+    }
+    catch {
+        return "";
+    }
+}
+async function inspectManagedProcessState(pid) {
+    try {
+        const raw = await readFile(`/proc/${pid}/stat`, "utf8");
+        const parts = raw.trim().split(/\s+/);
+        const state = parts[2];
+        if (state === "Z")
+            return "exited";
+        return "running";
+    }
+    catch {
+        try {
+            process.kill(pid, 0);
+            return "running";
+        }
+        catch {
+            return "exited";
+        }
+    }
+}
+async function refreshManagedProcessRecord(record) {
+    const runtimeState = await inspectManagedProcessState(record.pid);
+    if (runtimeState === record.state) {
+        return record;
+    }
+    const nextRecord = {
+        ...record,
+        state: runtimeState,
+        endedAt: runtimeState === "exited"
+            ? record.endedAt ?? Date.now()
+            : record.endedAt,
+    };
+    managedProcesses.set(record.processId, nextRecord);
+    await persistManagedProcessRegistry();
+    return nextRecord;
+}
+function findManagedProcessRecordByLabel(label) {
+    return Array.from(managedProcesses.values())
+        .filter((record) => record.label === label)
+        .sort((a, b) => b.startedAt - a.startedAt)[0];
+}
+function findManagedProcessRecordByPid(pid) {
+    return Array.from(managedProcesses.values())
+        .filter((record) => record.pid === pid)
+        .sort((a, b) => b.startedAt - a.startedAt)[0];
+}
+async function resolveManagedProcessRecord(args) {
+    await ensureManagedProcessRegistryLoaded();
+    const processId = typeof args.processId === "string" && args.processId.trim().length > 0
+        ? args.processId.trim()
+        : undefined;
+    const label = typeof args.label === "string" && args.label.trim().length > 0
+        ? args.label.trim()
+        : undefined;
+    const pid = typeof args.pid === "number" && Number.isFinite(args.pid)
+        ? Math.floor(args.pid)
+        : undefined;
+    let record;
+    if (processId) {
+        record = managedProcesses.get(processId);
+    }
+    else if (label) {
+        record = findManagedProcessRecordByLabel(label);
+    }
+    else if (pid && pid > 0) {
+        record = findManagedProcessRecordByPid(pid);
+    }
+    else {
+        throw new Error("processId, label, or pid is required");
+    }
+    if (!record) {
+        throw new Error("Managed process not found");
+    }
+    return refreshManagedProcessRecord(record);
+}
+async function waitForManagedProcessExit(record, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    let current = record;
+    while (Date.now() < deadline) {
+        current = await refreshManagedProcessRecord(current);
+        if (current.state !== "running") {
+            return current;
+        }
+        await sleep(MANAGED_PROCESS_POLL_MS);
+    }
+    return refreshManagedProcessRecord(current);
+}
+async function finalizeManagedProcessExit(processId, exitCode, signal) {
+    await ensureManagedProcessRegistryLoaded();
+    const record = managedProcesses.get(processId);
+    if (!record)
+        return;
+    managedProcesses.set(processId, {
+        ...record,
+        state: "exited",
+        endedAt: record.endedAt ?? Date.now(),
+        exitCode,
+        signal,
+    });
+    await persistManagedProcessRegistry();
+}
+function buildManagedProcessResponse(record, recentOutput, extra) {
+    return {
+        processId: record.processId,
+        ...(record.label ? { label: record.label } : {}),
+        command: record.command,
+        args: record.args,
+        cwd: record.cwd,
+        pid: record.pid,
+        pgid: record.pgid,
+        state: record.state,
+        startedAt: record.startedAt,
+        ...(typeof record.endedAt === "number" ? { endedAt: record.endedAt } : {}),
+        ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
+        ...(record.signal !== undefined ? { signal: record.signal } : {}),
+        ...(record.envKeys && record.envKeys.length > 0 ? { envKeys: record.envKeys } : {}),
+        logPath: record.logPath,
+        recentOutput: truncateOutput(recentOutput),
+        ...extra,
+    };
 }
 // --- Tool implementations ---
 async function screenshot() {
@@ -237,21 +677,70 @@ async function keyboardKey(args) {
         return fail(`keyboard_key failed: ${e instanceof Error ? e.message : e}`);
     }
 }
-function spawnDetachedCommand(command, logPath) {
+async function readCapturedPid(capturePath, timeoutMs = DETACHED_PID_CAPTURE_TIMEOUT_MS) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        try {
+            const raw = (await readFile(capturePath, "utf8")).trim();
+            if (raw.length > 0) {
+                const pid = Number.parseInt(raw.split(/\s+/, 1)[0] ?? "", 10);
+                if (Number.isFinite(pid) && pid > 0) {
+                    return pid;
+                }
+                return undefined;
+            }
+        }
+        catch {
+            // file may not exist yet
+        }
+        await sleep(DETACHED_PID_CAPTURE_POLL_MS);
+    }
+    return undefined;
+}
+async function spawnDetachedCommand(command, logPath, options) {
+    const captureId = randomUUID().slice(0, 8);
+    const scriptPath = `/tmp/agenc-detached-${captureId}.sh`;
+    const capturePath = `/tmp/agenc-detached-${captureId}.pid`;
+    const wrappedCommand = options?.wrapAsBackground ? `${command} &` : command;
+    const scriptBody = `${wrappedCommand}\n` +
+        `printf '%s\\n' \"$!\" > ${shellQuote(capturePath)}\n`;
     const stdoutFd = openSync(logPath, "a");
     const stderrFd = openSync(logPath, "a");
     try {
-        const child = spawn("/bin/bash", ["-lc", command], {
+        await writeFile(scriptPath, scriptBody, { mode: 0o700 });
+        const child = spawn("/bin/bash", [scriptPath], {
             env: { ...process.env, DISPLAY },
             detached: true,
             stdio: ["ignore", stdoutFd, stderrFd],
         });
         child.unref();
-        return { pid: child.pid };
+        const launcherPid = typeof child.pid === "number" && Number.isFinite(child.pid)
+            ? child.pid
+            : undefined;
+        const backgroundPid = await readCapturedPid(capturePath);
+        const pid = backgroundPid ?? launcherPid;
+        return {
+            ...(Number.isFinite(pid) ? { pid } : {}),
+            ...(Number.isFinite(launcherPid) ? { launcherPid } : {}),
+            ...(Number.isFinite(backgroundPid) ? { backgroundPid } : {}),
+            ...(pid !== undefined
+                ? {
+                    pidSemantics: backgroundPid !== undefined
+                        ? "background_process"
+                        : "launcher_shell",
+                }
+                : {}),
+        };
     }
     finally {
         closeSync(stdoutFd);
         closeSync(stderrFd);
+        unlink(scriptPath).catch((error) => {
+            warnBestEffort("detached script cleanup failed", error);
+        });
+        unlink(capturePath).catch(() => {
+            // capture file is best-effort and may legitimately never exist
+        });
     }
 }
 async function bash(args) {
@@ -262,36 +751,38 @@ async function bash(args) {
     const timeoutMs = Number(args.timeoutMs ?? BASH_TIMEOUT_MS);
     // GUI launch commands should be detached automatically so the tool call
     // doesn't block on an interactive app (e.g. `xfce4-terminal`).
-    const trimmed = command.trim();
-    const backgroundMatch = trimmed.match(BACKGROUND_COMMAND_RE);
-    const alreadyBackgrounded = Boolean(backgroundMatch);
+    const trimmed = normalizedCommand.trim();
+    const alreadyBackgrounded = BACKGROUND_COMMAND_RE.test(trimmed);
     const autoDetachGui = GUI_LAUNCH_CMD_RE.test(trimmed) && !alreadyBackgrounded;
     try {
         // For explicit background commands, run via a detached wrapper so the tool
         // returns immediately instead of waiting on inherited pipes/job control.
         if (alreadyBackgrounded) {
-            const commandBody = (backgroundMatch?.[1] ?? "").trim();
-            if (!commandBody)
-                return fail("background command is empty");
             await mkdir("/tmp/agenc-bg", { recursive: true });
-            const { pid } = spawnDetachedCommand(commandBody, "/tmp/agenc-bg/last-background.log");
+            const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(trimmed, "/tmp/agenc-bg/last-background.log");
             return ok({
                 stdout: "",
                 stderr: "",
                 exitCode: 0,
                 backgrounded: true,
                 ...(Number.isFinite(pid) ? { pid } : {}),
+                ...(Number.isFinite(launcherPid) ? { launcherPid } : {}),
+                ...(Number.isFinite(backgroundPid) ? { backgroundPid } : {}),
+                ...(pidSemantics ? { pidSemantics } : {}),
             });
         }
         if (autoDetachGui) {
             await mkdir("/tmp/agenc-gui", { recursive: true });
-            const { pid } = spawnDetachedCommand(trimmed, "/tmp/agenc-gui/last-launch.log");
+            const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(trimmed, "/tmp/agenc-gui/last-launch.log", { wrapAsBackground: true });
             return ok({
                 stdout: "",
                 stderr: "",
                 exitCode: 0,
                 backgrounded: true,
                 ...(Number.isFinite(pid) ? { pid } : {}),
+                ...(Number.isFinite(launcherPid) ? { launcherPid } : {}),
+                ...(Number.isFinite(backgroundPid) ? { backgroundPid } : {}),
+                ...(pidSemantics ? { pidSemantics } : {}),
             });
         }
         // Run foreground commands via a temp script file instead of `bash -c`
@@ -334,6 +825,148 @@ async function bash(args) {
             });
         }
         return fail(`bash failed: ${e instanceof Error ? e.message : e}`);
+    }
+}
+async function processStart(args) {
+    try {
+        await ensureManagedProcessRegistryLoaded();
+        const command = normalizeManagedProcessCommand(args.command);
+        const normalizedArgs = normalizeChromiumProcessArgs(command, normalizeManagedProcessArgs(args.args));
+        const cwd = await resolveManagedProcessCwd(args.cwd);
+        const env = normalizeManagedProcessEnv(args.env);
+        const label = normalizeManagedProcessLabel(args.label);
+        if (label) {
+            const existing = findManagedProcessRecordByLabel(label);
+            if (existing) {
+                const refreshed = await refreshManagedProcessRecord(existing);
+                if (refreshed.state === "running") {
+                    const recentOutput = await readFileTail(refreshed.logPath);
+                    return ok(buildManagedProcessResponse(refreshed, recentOutput, {
+                        reused: true,
+                    }));
+                }
+            }
+        }
+        const processId = `proc_${randomUUID().slice(0, 8)}`;
+        const logPath = normalizeManagedProcessLogPath(args.logPath, processId);
+        await mkdir(dirname(logPath), { recursive: true });
+        await mkdir(MANAGED_PROCESS_DIR, { recursive: true });
+        const stdoutFd = openSync(logPath, "a");
+        const stderrFd = openSync(logPath, "a");
+        try {
+            const child = spawn(command, normalizedArgs, {
+                cwd,
+                env: { ...process.env, DISPLAY, ...(env ?? {}) },
+                detached: true,
+                stdio: ["ignore", stdoutFd, stderrFd],
+            });
+            child.unref();
+            if (!child.pid || !Number.isFinite(child.pid)) {
+                return fail("Failed to start managed process");
+            }
+            const record = {
+                processId,
+                ...(label ? { label } : {}),
+                command,
+                args: normalizedArgs,
+                cwd,
+                logPath,
+                pid: child.pid,
+                pgid: child.pid,
+                state: "running",
+                startedAt: Date.now(),
+                ...(env ? { envKeys: Object.keys(env).sort() } : {}),
+            };
+            managedProcesses.set(processId, record);
+            await persistManagedProcessRegistry();
+            child.on("exit", (exitCode, signal) => {
+                void finalizeManagedProcessExit(processId, exitCode, signal);
+            });
+            child.on("error", (error) => {
+                warnBestEffort(`managed process ${processId} error`, error);
+                void finalizeManagedProcessExit(processId, null, null);
+            });
+            await sleep(MANAGED_PROCESS_STARTUP_CHECK_MS);
+            const refreshed = await refreshManagedProcessRecord(record);
+            const recentOutput = await readFileTail(refreshed.logPath);
+            if (refreshed.state !== "running") {
+                return {
+                    content: JSON.stringify(buildManagedProcessResponse(refreshed, recentOutput, {
+                        error: "Managed process exited during startup. Use desktop.process_status to inspect logs or desktop.bash for short-lived shell commands.",
+                    })),
+                    isError: true,
+                };
+            }
+            return ok(buildManagedProcessResponse(refreshed, recentOutput, {
+                started: true,
+            }));
+        }
+        finally {
+            closeSync(stdoutFd);
+            closeSync(stderrFd);
+        }
+    }
+    catch (error) {
+        return fail(`process_start failed: ${error instanceof Error ? error.message : error}`);
+    }
+}
+async function processStatus(args) {
+    try {
+        const record = await resolveManagedProcessRecord(args);
+        const recentOutput = await readFileTail(record.logPath);
+        return ok(buildManagedProcessResponse(record, recentOutput, {
+            running: record.state === "running",
+        }));
+    }
+    catch (error) {
+        return fail(`process_status failed: ${error instanceof Error ? error.message : error}`);
+    }
+}
+async function processStop(args) {
+    try {
+        const signal = normalizeManagedProcessSignal(args.signal);
+        const gracePeriodMs = normalizeManagedProcessGraceMs(args.gracePeriodMs);
+        const record = await resolveManagedProcessRecord(args);
+        const recentOutputBeforeStop = await readFileTail(record.logPath);
+        if (record.state !== "running") {
+            return ok(buildManagedProcessResponse(record, recentOutputBeforeStop, {
+                stopped: false,
+                alreadyExited: true,
+            }));
+        }
+        let forced = false;
+        try {
+            process.kill(-Math.abs(record.pgid), signal);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!message.toLowerCase().includes("esrch")) {
+                throw error;
+            }
+        }
+        let refreshed = await waitForManagedProcessExit(record, gracePeriodMs);
+        if (refreshed.state === "running" && signal !== "SIGKILL") {
+            forced = true;
+            try {
+                process.kill(-Math.abs(refreshed.pgid), "SIGKILL");
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                if (!message.toLowerCase().includes("esrch")) {
+                    throw error;
+                }
+            }
+            refreshed = await waitForManagedProcessExit(refreshed, 2_000);
+        }
+        const recentOutput = await readFileTail(refreshed.logPath);
+        return ok(buildManagedProcessResponse(refreshed, recentOutput, {
+            stopped: refreshed.state !== "running",
+            signalSent: signal,
+            forced,
+        }));
+    }
+    catch (error) {
+        return fail(`process_stop failed: ${error instanceof Error ? error.message : error}`);
     }
 }
 async function windowList() {
@@ -715,6 +1348,9 @@ const handlers = {
     keyboard_type: keyboardType,
     keyboard_key: keyboardKey,
     bash,
+    process_start: processStart,
+    process_status: processStatus,
+    process_stop: processStop,
     window_list: () => windowList(),
     window_focus: windowFocus,
     clipboard_get: () => clipboardGet(),
@@ -836,6 +1472,94 @@ export const TOOL_DEFINITIONS = [
         },
     },
     {
+        name: "process_start",
+        description: "Start a long-running background process with a real executable plus args. Use this instead of bash for servers, background workers, and GUI apps that you need to inspect or stop later. Returns a stable processId, pid/pgid, logPath, and current state. Shell wrappers like bash -lc are rejected.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                command: {
+                    type: "string",
+                    description: "Executable token or absolute path only. Put flags/operands in args.",
+                },
+                args: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Executable arguments as a flat string array.",
+                },
+                cwd: {
+                    type: "string",
+                    description: "Absolute working directory. Defaults to /workspace when available.",
+                },
+                env: {
+                    type: "object",
+                    description: "Optional environment variable overrides.",
+                    additionalProperties: { type: "string" },
+                },
+                label: {
+                    type: "string",
+                    description: "Optional idempotency label. If a running process with the same label exists, it is returned instead of spawning a duplicate.",
+                },
+                logPath: {
+                    type: "string",
+                    description: "Optional absolute combined stdout/stderr log path. Defaults under /tmp/agenc-processes.",
+                },
+            },
+            required: ["command"],
+        },
+    },
+    {
+        name: "process_status",
+        description: "Get the status of a managed background process started with process_start. Prefer processId from the start result; label or pid are fallbacks. Returns running/exited state, pid/pgid, logPath, and recent output tail.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                processId: {
+                    type: "string",
+                    description: "Stable managed process ID returned by process_start.",
+                },
+                label: {
+                    type: "string",
+                    description: "Fallback lookup label when processId is unavailable.",
+                },
+                pid: {
+                    type: "number",
+                    description: "Fallback OS pid when processId is unavailable.",
+                },
+            },
+            required: [],
+        },
+    },
+    {
+        name: "process_stop",
+        description: "Stop a managed background process started with process_start. Sends a signal to the process group, waits for exit, and escalates to SIGKILL if needed. Prefer processId from the start result; label or pid are fallbacks.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                processId: {
+                    type: "string",
+                    description: "Stable managed process ID returned by process_start.",
+                },
+                label: {
+                    type: "string",
+                    description: "Fallback lookup label when processId is unavailable.",
+                },
+                pid: {
+                    type: "number",
+                    description: "Fallback OS pid when processId is unavailable.",
+                },
+                signal: {
+                    type: "string",
+                    description: "Optional signal: SIGTERM, SIGINT, SIGKILL, or SIGHUP. Defaults to SIGTERM.",
+                },
+                gracePeriodMs: {
+                    type: "number",
+                    description: "Milliseconds to wait before escalating to SIGKILL. Defaults to 2000.",
+                },
+            },
+            required: [],
+        },
+    },
+    {
         name: "window_list",
         description: "List all open windows with their IDs and titles (up to 50).",
         inputSchema: { type: "object", properties: {}, required: [] },
@@ -942,3 +1666,31 @@ export async function executeTool(name, args) {
     }
     return handler(args);
 }
+/** @internal Exposed for testing only. */
+export const __managedProcessTestHooks = {
+    async reset() {
+        managedProcesses.clear();
+        managedProcessesLoaded = true;
+        managedProcessRegistryPersistChain = Promise.resolve();
+        await unlink(MANAGED_PROCESS_REGISTRY_PATH).catch(() => undefined);
+    },
+    seed(records) {
+        managedProcesses.clear();
+        managedProcessesLoaded = true;
+        for (const record of records) {
+            managedProcesses.set(record.processId, cloneManagedProcessRecord(record));
+        }
+    },
+    persist() {
+        return persistManagedProcessRegistry();
+    },
+    finalizeExit(processId, exitCode, signal) {
+        return finalizeManagedProcessExit(processId, exitCode, signal);
+    },
+    getRegistryPath() {
+        return MANAGED_PROCESS_REGISTRY_PATH;
+    },
+    snapshot() {
+        return snapshotManagedProcessRegistry();
+    },
+};

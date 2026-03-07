@@ -64,6 +64,10 @@ import type { GatewayMessage } from './message.js';
 import { createGatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
 import {
+  normalizeToolCallArguments,
+  parseToolResultObject,
+} from '../llm/chat-executor-tool-utils.js';
+import {
   getProviderNativeAdvertisedToolNames,
   getProviderNativeWebSearchRoutingDecision,
   supportsProviderNativeWebSearch,
@@ -129,6 +133,17 @@ import {
   type ToolEnvironmentMode,
 } from './tool-environment-policy.js';
 import { SubAgentOrchestrator } from './subagent-orchestrator.js';
+import {
+  BackgroundRunSupervisor,
+  inferBackgroundRunIntent,
+  isBackgroundRunStatusRequest,
+  isBackgroundRunStopRequest,
+} from './background-run-supervisor.js';
+import { inferDoomTurnContract } from '../llm/chat-executor-doom.js';
+import {
+  blockUntilDoomStopTool,
+  isDoomStopRequest,
+} from './doom-stop-guard.js';
 
 // ============================================================================
 // Constants
@@ -136,6 +151,17 @@ import { SubAgentOrchestrator } from './subagent-orchestrator.js';
 
 const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
 const DEFAULT_GROK_FALLBACK_MODEL = 'grok-4-1-fast-non-reasoning';
+const DEFAULT_DOOM_FIT_RESOLUTION = 'RES_1024X768';
+
+function chooseDoomResolutionForDisplay(
+  width: number,
+  height: number,
+): string {
+  if (width >= 1280 && height >= 720) return 'RES_1280X720';
+  if (width >= 1024 && height >= 768) return 'RES_1024X768';
+  if (width >= 800 && height >= 600) return 'RES_800X600';
+  return 'RES_640X480';
+}
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
 const MIN_LEARNING_CONFIDENCE = 0.7;
@@ -1833,6 +1859,7 @@ export class DaemonManager {
   private _containerMCPBridges: Map<string, import('../mcp-client/types.js').MCPToolBridge[]> = new Map();
   private _desktopRouterFactory: ((sessionId: string, allowedToolNames?: readonly string[]) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
+  private _backgroundRunSupervisor: BackgroundRunSupervisor | null = null;
   private _sessionModelInfo = new Map<string, {
     provider: string;
     model: string;
@@ -1840,6 +1867,7 @@ export class DaemonManager {
     updatedAt: number;
   }>();
   private _goalManager: import('../autonomous/goal-manager.js').GoalManager | null = null;
+  private readonly _foregroundSessionLocks = new Set<string>();
   private _policyEngine: import('../policy/engine.js').PolicyEngine | null = null;
   private _marketplace: import('../marketplace/service-marketplace.js').ServiceMarketplace | null = null;
   private _agentDiscovery: import('../social/discovery.js').AgentDiscovery | null = null;
@@ -2260,7 +2288,6 @@ export class DaemonManager {
           hostGid: typeof process.getgid === 'function' ? process.getgid() : undefined,
         });
         await this._desktopManager.start();
-        this.logger.info('Desktop sandbox manager started');
       } catch (err) {
         this.logger.warn?.('Desktop sandbox manager failed to start:', err);
       }
@@ -2509,6 +2536,11 @@ export class DaemonManager {
           memoryBackend,
           progressTracker,
         }),
+      cancelBackgroundRun: (sessionId: string) =>
+        this._backgroundRunSupervisor?.cancelRun(
+          sessionId,
+          "Background run cancelled from the web UI.",
+        ) ?? false,
     });
     const signals = this.createWebChatSignals(webChat);
     const onMessage = this.createWebChatMessageHandler({
@@ -2533,6 +2565,48 @@ export class DaemonManager {
 
     gateway.setWebChatHandler(webChat);
     this._webChatChannel = webChat;
+    if (this._chatExecutor && providers[0]) {
+      this._backgroundRunSupervisor = new BackgroundRunSupervisor({
+        chatExecutor: this._chatExecutor,
+        supervisorLlm: providers[0],
+        getSystemPrompt: () => this._systemPrompt,
+        createToolHandler: ({ sessionId, runId, cycleIndex }) =>
+          this.createWebChatSessionToolHandler({
+            sessionId,
+            webChat,
+            hooks,
+            approvalEngine,
+            baseToolHandler,
+            traceLabel: 'webchat.background',
+            traceConfig: resolveTraceLoggingConfig(gateway.config.logging),
+            traceId: `background:${sessionId}:${runId}:${cycleIndex}`,
+          }),
+        buildToolRoutingDecision: (sessionId, messageText, history) =>
+          this.buildToolRoutingDecision(sessionId, messageText, history),
+        seedHistoryForSession: (sessionId) => sessionMgr.get(sessionId)?.history ?? [],
+        isSessionBusy: (sessionId) => this._foregroundSessionLocks.has(sessionId),
+        onStatus: (sessionId, payload) => {
+          webChat.pushToSession(sessionId, { type: 'agent.status', payload });
+        },
+        publishUpdate: async (sessionId, content) => {
+          await webChat.send({ sessionId, content });
+          await memoryBackend.addEntry({
+            sessionId,
+            role: 'assistant',
+            content,
+          }).catch((error) => {
+            this.logger.debug("Background run memory write failed", {
+              sessionId,
+              error: toErrorMessage(error),
+            });
+          });
+        },
+        progressTracker,
+        logger: this.logger,
+      });
+    } else {
+      this._backgroundRunSupervisor = null;
+    }
     this.attachSubAgentLifecycleBridge(webChat);
 
     this.registerWebChatConfigReloadHandler({
@@ -3118,45 +3192,13 @@ export class DaemonManager {
           delegation: this.resolveDelegationToolContext,
         });
 
-        const toolHandler: ToolHandler = async (name, args) => {
-          if (traceConfig.enabled) {
-            this.logger.info('[trace] telegram.tool.call', {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              tool: name,
-              ...(traceConfig.includeToolArgs
-                ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
-                : {}),
-            });
-          }
-          const startedAt = Date.now();
-          try {
-            const result = await baseSessionHandler(name, args);
-            if (traceConfig.enabled) {
-              this.logger.info('[trace] telegram.tool.result', {
-                traceId: turnTraceId,
-                sessionId: msg.sessionId,
-                tool: name,
-                durationMs: Date.now() - startedAt,
-                ...(traceConfig.includeToolResults
-                  ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
-                  : {}),
-              });
-            }
-            return result;
-          } catch (error) {
-            if (traceConfig.enabled) {
-              this.logger.error('[trace] telegram.tool.error', {
-                traceId: turnTraceId,
-                sessionId: msg.sessionId,
-                tool: name,
-                durationMs: Date.now() - startedAt,
-                error: toErrorMessage(error),
-              });
-            }
-            throw error;
-          }
-        };
+        const toolHandler = this.createTracedSessionToolHandler({
+          traceLabel: 'telegram',
+          traceConfig,
+          turnTraceId,
+          sessionId: msg.sessionId,
+          baseSessionHandler,
+        });
 
         const result = await chatExecutor.execute({
           message: msg,
@@ -3420,45 +3462,13 @@ export class DaemonManager {
           delegation: this.resolveDelegationToolContext,
         });
 
-        const toolHandler: ToolHandler = async (name, args) => {
-          if (traceConfig.enabled) {
-            this.logger.info(`[trace] ${channelName}.tool.call`, {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              tool: name,
-              ...(traceConfig.includeToolArgs
-                ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
-                : {}),
-            });
-          }
-          const startedAt = Date.now();
-          try {
-            const result = await baseSessionHandler(name, args);
-            if (traceConfig.enabled) {
-              this.logger.info(`[trace] ${channelName}.tool.result`, {
-                traceId: turnTraceId,
-                sessionId: msg.sessionId,
-                tool: name,
-                durationMs: Date.now() - startedAt,
-                ...(traceConfig.includeToolResults
-                  ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
-                  : {}),
-              });
-            }
-            return result;
-          } catch (error) {
-            if (traceConfig.enabled) {
-              this.logger.error(`[trace] ${channelName}.tool.error`, {
-                traceId: turnTraceId,
-                sessionId: msg.sessionId,
-                tool: name,
-                durationMs: Date.now() - startedAt,
-                error: toErrorMessage(error),
-              });
-            }
-            throw error;
-          }
-        };
+        const toolHandler = this.createTracedSessionToolHandler({
+          traceLabel: channelName,
+          traceConfig,
+          turnTraceId,
+          sessionId: msg.sessionId,
+          baseSessionHandler,
+        });
 
         const result = await chatExecutor.execute({
           message: msg,
@@ -4656,6 +4666,10 @@ export class DaemonManager {
     this._toolRouter?.resetSession(webSessionId);
     this._sessionModelInfo.delete(webSessionId);
     await progressTracker?.clear(webSessionId);
+    await this._backgroundRunSupervisor?.cancelRun(
+      webSessionId,
+      "Background run cancelled because the session was reset.",
+    );
     await memoryBackend.deleteThread(webSessionId).catch((error) => {
       this.logger.debug("Failed to delete memory thread during session reset", {
         sessionId: webSessionId,
@@ -6033,6 +6047,151 @@ export class DaemonManager {
       this.handleWebChatInboundMessage(msg, params);
   }
 
+  private createTracedSessionToolHandler(params: {
+    traceLabel: string;
+    traceConfig: ResolvedTraceLoggingConfig;
+    turnTraceId: string;
+    sessionId: string;
+    baseSessionHandler: ToolHandler;
+    normalizeArgs?: (
+      name: string,
+      normalizedArgs: Record<string, unknown>,
+    ) => Record<string, unknown>;
+    beforeHandle?: (
+      name: string,
+      normalizedArgs: Record<string, unknown>,
+    ) => string | Promise<string | undefined> | undefined;
+  }): ToolHandler {
+    const {
+      traceLabel,
+      traceConfig,
+      turnTraceId,
+      sessionId,
+      baseSessionHandler,
+      normalizeArgs,
+      beforeHandle,
+    } = params;
+
+    return async (name, args) => {
+      const normalizedArgs = normalizeToolCallArguments(name, args);
+      const turnArgs = normalizeArgs?.(name, normalizedArgs) ?? normalizedArgs;
+      const interceptedResult = await beforeHandle?.(name, turnArgs);
+      if (typeof interceptedResult === 'string') {
+        return interceptedResult;
+      }
+
+      if (traceConfig.enabled) {
+        this.logger.info(`[trace] ${traceLabel}.tool.call`, {
+          traceId: turnTraceId,
+          sessionId,
+          tool: name,
+          ...(traceConfig.includeToolArgs
+            ? { args: summarizeTraceValue(turnArgs, traceConfig.maxChars) }
+            : {}),
+        });
+      }
+
+      const startedAt = Date.now();
+      try {
+        const result = await baseSessionHandler(name, turnArgs);
+        if (traceConfig.enabled) {
+          this.logger.info(`[trace] ${traceLabel}.tool.result`, {
+            traceId: turnTraceId,
+            sessionId,
+            tool: name,
+            durationMs: Date.now() - startedAt,
+            ...(traceConfig.includeToolResults
+              ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
+              : {}),
+          });
+        }
+        return result;
+      } catch (error) {
+        if (traceConfig.enabled) {
+          this.logger.error(`[trace] ${traceLabel}.tool.error`, {
+            traceId: turnTraceId,
+            sessionId,
+            tool: name,
+            durationMs: Date.now() - startedAt,
+            error: toErrorMessage(error),
+          });
+        }
+        throw error;
+      }
+    };
+  }
+
+  private createWebChatSessionToolHandler(params: {
+    sessionId: string;
+    webChat: WebChatChannel;
+    hooks: HookDispatcher;
+    approvalEngine: ApprovalEngine;
+    baseToolHandler: ToolHandler;
+    traceLabel: string;
+    traceConfig: ResolvedTraceLoggingConfig;
+    traceId: string;
+    normalizeArgs?: (
+      toolName: string,
+      normalizedArgs: Record<string, unknown>,
+    ) => Record<string, unknown>;
+    beforeHandle?: (
+      toolName: string,
+      args: Record<string, unknown>,
+    ) => string | undefined;
+  }): ToolHandler {
+    const {
+      sessionId,
+      webChat,
+      hooks,
+      approvalEngine,
+      baseToolHandler,
+      traceLabel,
+      traceConfig,
+      traceId,
+      normalizeArgs,
+      beforeHandle,
+    } = params;
+
+    const baseSessionHandler = createSessionToolHandler({
+      sessionId,
+      baseHandler: baseToolHandler,
+      availableToolNames: this.getAdvertisedToolNames(),
+      desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+      routerId: sessionId,
+      send: (m) => webChat.pushToSession(sessionId, m),
+      hooks,
+      approvalEngine,
+      delegation: this.resolveDelegationToolContext,
+      onToolStart: (name) => {
+        webChat.pushToSession(sessionId, {
+          type: 'agent.status',
+          payload: { phase: 'tool_call', detail: `Calling ${name}` },
+        });
+      },
+      onToolEnd: (toolName, _result, durationMs) => {
+        webChat.broadcastEvent('tool.executed', {
+          toolName,
+          durationMs,
+          sessionId,
+        });
+        webChat.pushToSession(sessionId, {
+          type: 'agent.status',
+          payload: { phase: 'generating' },
+        });
+      },
+    });
+
+    return this.createTracedSessionToolHandler({
+      traceLabel,
+      traceConfig,
+      turnTraceId: traceId,
+      sessionId,
+      baseSessionHandler,
+      normalizeArgs,
+      beforeHandle,
+    });
+  }
+
   private async handleWebChatInboundMessage(
     msg: GatewayMessage,
     params: WebChatMessageHandlerDeps,
@@ -6140,6 +6299,75 @@ export class DaemonManager {
     }
 
     webChat.broadcastEvent('chat.inbound', { sessionId: msg.sessionId });
+    const isDoomStopTurn = isDoomStopRequest(msg.content);
+
+    const activeBackgroundRun =
+      this._backgroundRunSupervisor?.getStatusSnapshot(msg.sessionId);
+    if (activeBackgroundRun) {
+      if (isBackgroundRunStopRequest(msg.content)) {
+        await this._backgroundRunSupervisor?.cancelRun(
+          msg.sessionId,
+          "Stopped the active background run for this session.",
+        );
+        if (!isDoomStopTurn) return;
+      }
+      if (isBackgroundRunStatusRequest(msg.content)) {
+        const nextCheck =
+          activeBackgroundRun.nextCheckAt !== undefined
+            ? Math.max(0, activeBackgroundRun.nextCheckAt - Date.now())
+            : undefined;
+        const nextHeartbeat =
+          activeBackgroundRun.nextHeartbeatAt !== undefined
+            ? Math.max(0, activeBackgroundRun.nextHeartbeatAt - Date.now())
+            : undefined;
+        const lastVerified =
+          activeBackgroundRun.lastVerifiedAt !== undefined
+            ? Math.max(0, Date.now() - activeBackgroundRun.lastVerifiedAt)
+            : undefined;
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content:
+            `Background run: ${activeBackgroundRun.state}\n` +
+            `Objective: ${activeBackgroundRun.objective}\n` +
+            `Cycles: ${activeBackgroundRun.cycleCount}\n` +
+            (lastVerified !== undefined
+              ? `Last verified: ~${Math.max(1, Math.ceil(lastVerified / 1000))}s ago\n`
+              : "") +
+            (activeBackgroundRun.lastUserUpdate
+              ? `Latest update: ${activeBackgroundRun.lastUserUpdate}\n`
+              : "") +
+            (nextHeartbeat !== undefined
+              ? `Next heartbeat: ~${Math.ceil(nextHeartbeat / 1000)}s\n`
+              : "") +
+            (nextCheck !== undefined
+              ? `Next check: ~${Math.ceil(nextCheck / 1000)}s`
+              : "Next check: pending"),
+        });
+        return;
+      }
+      await this._backgroundRunSupervisor?.cancelRun(
+        msg.sessionId,
+        "Background run stopped because a new user request took priority.",
+      );
+    }
+
+    if (inferBackgroundRunIntent(msg.content) && this._backgroundRunSupervisor) {
+      await memoryBackend.addEntry({
+        sessionId: msg.sessionId,
+        role: 'user',
+        content: msg.content,
+      }).catch((error) => {
+        this.logger.debug("Background run user message memory write failed", {
+          sessionId: msg.sessionId,
+          error: toErrorMessage(error),
+        });
+      });
+      await this._backgroundRunSupervisor.startRun({
+        sessionId: msg.sessionId,
+        objective: msg.content,
+      });
+      return;
+    }
 
     const sessionStreamCallback: StreamProgressCallback = (chunk) => {
       webChat.pushToSession(msg.sessionId, {
@@ -6151,81 +6379,83 @@ export class DaemonManager {
     // Detect greeting messages — block tool execution for casual conversation
     const GREETING_RE = /^(h(i|ello|ey|ola|owdy)|yo|sup|what'?s\s*up|greetings?|good\s*(morning|afternoon|evening)|gm|gn)\s*[!?.,:;\-)*]*$/i;
     const isGreeting = GREETING_RE.test(msg.content.trim());
+    const doomTurnContract = inferDoomTurnContract(msg.content);
+    const requestedDesktopResolution =
+      this._desktopManager?.getHandleBySession(msg.sessionId)?.resolution ??
+      this.gateway?.config.desktop?.resolution;
+    const requestedDoomResolution =
+      requestedDesktopResolution
+        ? chooseDoomResolutionForDisplay(
+          requestedDesktopResolution.width,
+          requestedDesktopResolution.height,
+        )
+        : DEFAULT_DOOM_FIT_RESOLUTION;
+    let doomStopIssued = false;
+    let doomLaunchIssued = false;
 
-    const baseSessionHandler = createSessionToolHandler({
+    const sessionToolHandler = this.createWebChatSessionToolHandler({
       sessionId: msg.sessionId,
-      baseHandler: baseToolHandler,
-      availableToolNames: this.getAdvertisedToolNames(),
-      desktopRouterFactory: this._desktopRouterFactory ?? undefined,
-      routerId: msg.sessionId,
-      send: (m) => webChat.pushToSession(msg.sessionId, m),
+      webChat,
       hooks,
       approvalEngine,
-      delegation: this.resolveDelegationToolContext,
-      onToolStart: (name) => {
-        webChat.pushToSession(msg.sessionId, {
-          type: 'agent.status',
-          payload: { phase: 'tool_call', detail: `Calling ${name}` },
-        });
+      baseToolHandler,
+      traceLabel: 'webchat',
+      traceConfig,
+      traceId: turnTraceId,
+      normalizeArgs: (toolName, normalizedArgs) => {
+        if (toolName !== 'mcp.doom.start_game') return normalizedArgs;
+        let nextArgs = normalizedArgs;
+        if (doomTurnContract?.requiresAutonomousPlay && nextArgs.async_player !== true) {
+          nextArgs = { ...nextArgs, async_player: true };
+        }
+        if (nextArgs.screen_resolution === 'RES_1280X720' && requestedDoomResolution !== 'RES_1280X720') {
+          nextArgs = { ...nextArgs, screen_resolution: requestedDoomResolution };
+        }
+        doomLaunchIssued = true;
+        return nextArgs;
       },
-      onToolEnd: (toolName, _result, durationMs) => {
-        webChat.broadcastEvent('tool.executed', {
-          toolName,
-          durationMs,
-          sessionId: msg.sessionId,
-        });
-        webChat.pushToSession(msg.sessionId, {
-          type: 'agent.status',
-          payload: { phase: 'generating' },
-        });
+      beforeHandle: (toolName) => {
+        if (isGreeting) {
+          return JSON.stringify({
+            error: 'This is a greeting message. Respond conversationally without using any tools.',
+          });
+        }
+        if (
+          doomTurnContract?.requiresLaunch &&
+          toolName.startsWith('mcp.doom.') &&
+          toolName !== 'mcp.doom.start_game' &&
+          toolName !== 'mcp.doom.stop_game' &&
+          !doomLaunchIssued
+        ) {
+          return JSON.stringify({
+            error:
+              'Launch Doom first with `mcp.doom.start_game` before calling follow-up Doom tools in this turn. ' +
+              'For play-until-stop requests, the launch must include `async_player: true`.',
+          });
+        }
+        if (isDoomStopTurn) {
+          const blockedResult = blockUntilDoomStopTool(toolName, doomStopIssued);
+          if (toolName === 'mcp.doom.stop_game' && !blockedResult) {
+            doomStopIssued = true;
+          }
+          if (blockedResult) return blockedResult;
+        }
+        return undefined;
       },
     });
 
-    const sessionToolHandler: ToolHandler = async (name, args) => {
-      if (isGreeting) {
-        return JSON.stringify({
-          error: 'This is a greeting message. Respond conversationally without using any tools.',
-        });
-      }
-      if (traceConfig.enabled) {
-        this.logger.info('[trace] webchat.tool.call', {
-          traceId: turnTraceId,
-          sessionId: msg.sessionId,
-          tool: name,
-          ...(traceConfig.includeToolArgs
-            ? { args: summarizeTraceValue(args, traceConfig.maxChars) }
-            : {}),
-        });
-      }
-
-      const toolStart = Date.now();
-      try {
-        const result = await baseSessionHandler(name, args);
-        if (traceConfig.enabled) {
-          this.logger.info('[trace] webchat.tool.result', {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            tool: name,
-            durationMs: Date.now() - toolStart,
-            ...(traceConfig.includeToolResults
-              ? { result: summarizeToolResultForTrace(result, traceConfig.maxChars) }
-              : {}),
-          });
-        }
-        return result;
-      } catch (error) {
-        if (traceConfig.enabled) {
-          this.logger.error('[trace] webchat.tool.error', {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            tool: name,
-            durationMs: Date.now() - toolStart,
-            error: toErrorMessage(error),
-          });
-        }
-        throw error;
-      }
-    };
+    if (isDoomStopTurn) {
+      await this.executeWebChatDoomStopTurn({
+        msg,
+        webChat,
+        hooks,
+        sessionMgr,
+        sessionToolHandler,
+        memoryBackend,
+        signals,
+      });
+      return;
+    }
 
     await this.executeWebChatConversationTurn({
       msg,
@@ -6243,6 +6473,87 @@ export class DaemonManager {
       traceConfig,
       turnTraceId,
     });
+  }
+
+  private async executeWebChatDoomStopTurn(params: {
+    msg: GatewayMessage;
+    webChat: WebChatChannel;
+    hooks: HookDispatcher;
+    sessionMgr: SessionManager;
+    sessionToolHandler: ToolHandler;
+    memoryBackend: MemoryBackend;
+    signals: WebChatSignals;
+  }): Promise<void> {
+    const {
+      msg,
+      webChat,
+      hooks,
+      sessionMgr,
+      sessionToolHandler,
+      memoryBackend,
+      signals,
+    } = params;
+
+    const session = sessionMgr.getOrCreate({
+      channel: 'webchat',
+      senderId: msg.sessionId,
+      scope: 'dm',
+      workspaceId: 'default',
+    });
+
+    signals.signalThinking(msg.sessionId);
+    let content = 'Doom stopped.';
+    try {
+      const result = await sessionToolHandler('mcp.doom.stop_game', {});
+      const parsed = parseToolResultObject(result);
+      const error =
+        parsed && typeof parsed.error === 'string' && parsed.error.trim().length > 0
+          ? parsed.error.trim()
+          : undefined;
+      if (error) {
+        content = `Failed to stop Doom: ${error}`;
+      } else if (parsed?.status === 'stopped') {
+        content = 'Doom stopped.';
+      } else {
+        content = 'Doom stop requested.';
+      }
+    } catch (error) {
+      content = `Failed to stop Doom: ${toErrorMessage(error)}`;
+    } finally {
+      signals.signalIdle(msg.sessionId);
+    }
+
+    sessionMgr.appendMessage(session.id, { role: 'user', content: msg.content });
+    sessionMgr.appendMessage(session.id, { role: 'assistant', content });
+
+    await webChat.send({
+      sessionId: msg.sessionId,
+      content,
+    });
+    webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
+
+    await hooks.dispatch('message:outbound', {
+      sessionId: msg.sessionId,
+      content,
+      provider: 'runtime',
+      userMessage: msg.content,
+      agentResponse: content,
+    });
+
+    try {
+      await memoryBackend.addEntry({
+        sessionId: msg.sessionId,
+        role: 'user',
+        content: msg.content,
+      });
+      await memoryBackend.addEntry({
+        sessionId: msg.sessionId,
+        role: 'assistant',
+        content,
+      });
+    } catch (error) {
+      this.logger.warn?.('Failed to persist messages to memory:', error);
+    }
   }
 
   private async executeWebChatConversationTurn(params: {
@@ -6279,6 +6590,7 @@ export class DaemonManager {
     } = params;
 
     this._activeSessionTraceIds.set(msg.sessionId, turnTraceId);
+    this._foregroundSessionLocks.add(msg.sessionId);
     try {
       signals.signalThinking(msg.sessionId);
 
@@ -6514,6 +6826,7 @@ export class DaemonManager {
         content: failure.userMessage,
       });
     } finally {
+      this._foregroundSessionLocks.delete(msg.sessionId);
       if (this._activeSessionTraceIds.get(msg.sessionId) === turnTraceId) {
         this._activeSessionTraceIds.delete(msg.sessionId);
       }
@@ -6543,6 +6856,9 @@ export class DaemonManager {
         '- Create, edit, and run project files from `/workspace` so changes persist outside the sandbox.\n\n' +
         'Desktop tools:\n' +
         '- desktop.bash — Run shell commands. THIS IS YOUR PRIMARY TOOL for scripting, package installation, and command execution.\n' +
+        '- desktop.process_start — Start a long-running background process with executable + args. USE THIS for servers, workers, and GUI apps you need to monitor or stop later.\n' +
+        '- desktop.process_status — Check managed process state and recent log output.\n' +
+        '- desktop.process_stop — Stop a managed process by processId/label/pid.\n' +
         '- desktop.text_editor — View, create, and precisely edit files. Commands: view, create, str_replace, insert, undo_edit.\n' +
         '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
         '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
@@ -6565,6 +6881,8 @@ export class DaemonManager {
         '- To create/edit files: use desktop.text_editor as the default. Only fall back to shell-based file writes when an editor action cannot express the change.\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- For long-running/background processes you need to inspect or stop later, use desktop.process_start/status/stop instead of desktop.bash.\n' +
+        '- desktop.process_start is structured exec only: command = one executable token/path, args = flat string array. Do NOT use bash -lc there.\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails.\n' +
         '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
         '- For web browsing, ALWAYS use the browser navigation/snapshot tools first; do not start with tab-state inspection.\n' +
@@ -6597,6 +6915,9 @@ export class DaemonManager {
         '- Do all persistent file creation and editing for desktop tasks under `/workspace`.\n\n' +
         'Desktop tools:\n' +
         '- desktop.bash — Run a shell command INSIDE the container. THIS IS YOUR PRIMARY TOOL for all scripting, package installation, and command execution inside the sandbox.\n' +
+        '- desktop.process_start — Start a long-running background process with executable + args. USE THIS for servers, workers, and GUI apps you need to monitor or stop later.\n' +
+        '- desktop.process_status — Check managed process state and recent log output.\n' +
+        '- desktop.process_stop — Stop a managed process by processId/label/pid.\n' +
         '- desktop.text_editor — View, create, and precisely edit files without opening a visual editor. Commands: view, create, str_replace, insert, undo_edit. USE THIS instead of cat heredoc for file creation and editing — it is more reliable and supports undo.\n' +
         '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
         '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
@@ -6620,6 +6941,8 @@ export class DaemonManager {
         '- To create/edit files: use desktop.text_editor as the default. Only fall back to shell-based file writes when an editor action cannot express the change.\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- For long-running/background processes you need to inspect or stop later, use desktop.process_start/status/stop instead of desktop.bash.\n' +
+        '- desktop.process_start is structured exec only: command = one executable token/path, args = flat string array. Do NOT use bash -lc there.\n' +
         '- system.http*/system.browse block localhost/private/internal targets by design. For local service checks on the HOST, use system.bash with curl (e.g. `curl -sSf http://127.0.0.1:8080`). Desktop tools run inside a Docker container and CANNOT reach the host\'s localhost.\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails. Always use desktop.bash or desktop.text_editor.\n' +
         '- keyboard_type is ONLY for GUI text fields (search boxes, GUI text editors like gedit/mousepad).\n' +
@@ -7040,6 +7363,10 @@ export class DaemonManager {
         this._cronScheduler.stop();
         this._cronScheduler = null;
       }
+      if (this._backgroundRunSupervisor !== null) {
+        await this._backgroundRunSupervisor.shutdown();
+        this._backgroundRunSupervisor = null;
+      }
       // Stop legacy heartbeat timer (if still in use)
       if (this._heartbeatTimer !== null) {
         clearInterval(this._heartbeatTimer);
@@ -7093,6 +7420,7 @@ export class DaemonManager {
       this._webChatInboundHandler = null;
       this._activeSessionTraceIds.clear();
       this._subagentActivityTraceBySession.clear();
+      this._foregroundSessionLocks.clear();
       if (this.gateway !== null) {
         await this.gateway.stop();
         this.gateway = null;

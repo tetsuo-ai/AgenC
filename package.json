@@ -35,6 +35,7 @@
     "security:gitguardian:mcp:scan": "node scripts/gitguardian-mcp-scan.mjs",
     "security:cargo:lock:check": "node scripts/check-cargo-lock-security.mjs",
     "security:desktop:hardening:check": "node scripts/check-desktop-image-hardening.mjs",
+    "desktop:image:doom:smoke": "node scripts/smoke-desktop-doom-image.mjs",
     "security:trivy:image": "trivy image --scanners vuln,misconfig,secret",
     "fender:list": "node scripts/solana-fender-mcp.mjs list",
     "fender:check:file": "node scripts/solana-fender-mcp.mjs check-file",

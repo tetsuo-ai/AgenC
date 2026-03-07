@@ -44,6 +44,18 @@ function assertDoesNotContainAptPackage(aptBlock, packageName) {
   }
 }
 
+function hasSecurePathLauncherInstaller(dockerfile) {
+  return (
+    /COPY install-secure-path-launchers\.sh \/tmp\/install-secure-path-launchers\.sh/.test(dockerfile) &&
+    /COPY secure-path-launchers\.txt \/tmp\/secure-path-launchers\.txt/.test(dockerfile) &&
+    /\/tmp\/install-secure-path-launchers\.sh \/tmp\/secure-path-launchers\.txt/.test(dockerfile)
+  );
+}
+
+function hasAdHocGamesSymlink(dockerfile) {
+  return /ln -sf \/usr\/games\//.test(dockerfile);
+}
+
 async function main() {
   const [dockerfile, guestCargoToml] = await Promise.all([
     fs.readFile(DOCKERFILE_PATH, "utf8"),
@@ -54,7 +66,7 @@ async function main() {
     fail('desktop image base must be "ubuntu:24.04"');
   }
 
-  if (!/RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends/.test(dockerfile)) {
+  if (!/apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends/.test(dockerfile)) {
     fail("missing apt upgrade stage before install");
   }
 
@@ -75,6 +87,14 @@ async function main() {
     fail("missing ffmpeg symlink to playwright binary");
   }
 
+  if (!hasSecurePathLauncherInstaller(dockerfile)) {
+    fail("missing secure-path launcher manifest installer wiring");
+  }
+
+  if (hasAdHocGamesSymlink(dockerfile)) {
+    fail("ad hoc /usr/games symlinks are forbidden; use the secure-path launcher manifest");
+  }
+
   if (/risc0-zkvm\s*=\s*\{[^}]*features\s*=\s*\[\s*"std"\s*\][^}]*\}/.test(guestCargoToml)) {
     fail('zkvm/methods/guest must not force `risc0-zkvm` "std" feature');
   }
@@ -92,4 +112,10 @@ if (isCliEntrypoint) {
   });
 }
 
-export { aptBlockContainsPackage, extractAptInstallBlock, tokenizeAptBlock };
+export {
+  aptBlockContainsPackage,
+  extractAptInstallBlock,
+  hasAdHocGamesSymlink,
+  hasSecurePathLauncherInstaller,
+  tokenizeAptBlock,
+};

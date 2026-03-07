@@ -118,6 +118,7 @@ import {
   resolveRetryPolicyMatrix,
   enrichToolResultMetadata,
   checkToolCallPermission,
+  normalizeToolCallArguments,
   parseToolCallArguments,
   executeToolWithRetry,
   trackToolCallFailureState,
@@ -879,6 +880,20 @@ export class ChatExecutor {
   ): Promise<ExecutionContext> {
     const { message, systemPrompt, sessionId, signal } = params;
     let { history } = params;
+    const effectiveMaxToolRounds =
+      typeof params.maxToolRounds === "number" && Number.isFinite(params.maxToolRounds)
+        ? Math.max(1, Math.floor(params.maxToolRounds))
+        : this.maxToolRounds;
+    const effectiveToolBudget =
+      typeof params.toolBudgetPerRequest === "number" &&
+        Number.isFinite(params.toolBudgetPerRequest)
+        ? Math.max(1, Math.floor(params.toolBudgetPerRequest))
+        : this.toolBudgetPerRequest;
+    const effectiveMaxModelRecalls =
+      typeof params.maxModelRecallsPerRequest === "number" &&
+        Number.isFinite(params.maxModelRecallsPerRequest)
+        ? Math.max(0, Math.floor(params.maxModelRecallsPerRequest))
+        : this.maxModelRecallsPerRequest;
     const messageText = extractMessageText(message);
     const plannerDecision = assessPlannerDecision(this.plannerEnabled, messageText, history);
     const initialRoutedToolNames = params.toolRouting?.routedToolNames
@@ -932,9 +947,9 @@ export class ChatExecutor {
         baseDelegationThreshold,
       },
       {
-        maxToolRounds: params.maxToolRounds ?? this.maxToolRounds,
-        toolBudgetPerRequest: this.toolBudgetPerRequest,
-        maxModelRecallsPerRequest: this.maxModelRecallsPerRequest,
+        maxToolRounds: effectiveMaxToolRounds,
+        toolBudgetPerRequest: effectiveToolBudget,
+        maxModelRecallsPerRequest: effectiveMaxModelRecalls,
         maxFailureBudgetPerRequest: this.maxFailureBudgetPerRequest,
         requestTimeoutMs: this.requestTimeoutMs,
         providerName: this.providers[0]?.name ?? "unknown",
@@ -1289,6 +1304,9 @@ export class ChatExecutor {
       let abortRound = false;
       for (const toolCall of ctx.response.toolCalls) {
         const action = await this.executeSingleToolCall(ctx, toolCall, loopState);
+        if (action === "end_round") {
+          break;
+        }
         if (action === "abort_loop" || action === "abort_round") {
           abortRound = true;
           break;
@@ -1456,7 +1474,7 @@ export class ChatExecutor {
       });
       return "skip";
     }
-    const args = parseResult.args;
+    const args = normalizeToolCallArguments(toolCall.name, parseResult.args);
 
     // Execute tool with retry.
     const exec = await executeToolWithRetry(
@@ -1540,6 +1558,10 @@ export class ChatExecutor {
     );
 
     if (abortRound) return "abort_round";
+    if (exec.toolFailed && toolCall.name === "mcp.doom.start_game") {
+      // Downstream Doom setup calls depend on a live game/executor.
+      return "end_round";
+    }
     return "processed";
   }
 

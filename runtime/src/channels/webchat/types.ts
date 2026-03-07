@@ -69,6 +69,8 @@ export interface WebChatDeps {
   onDesktopSessionRebound?: (sessionId: string) => void;
   /** Optional callback to fully reset backend context for a web session. */
   resetSessionContext?: (sessionId: string) => Promise<void> | void;
+  /** Optional callback to cancel a daemon-owned background run for a session. */
+  cancelBackgroundRun?: (sessionId: string) => Promise<boolean> | boolean;
 }
 
 // ============================================================================
@@ -318,7 +320,13 @@ export interface ChatStreamResponse {
 export interface AgentStatusResponse {
   type: "agent.status";
   payload: {
-    phase: "thinking" | "tool_call" | "generating" | "idle";
+    phase:
+      | "thinking"
+      | "tool_call"
+      | "generating"
+      | "idle"
+      | "background_run"
+      | "background_wait";
     detail?: string;
   };
   id?: string;

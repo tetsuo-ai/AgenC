@@ -128,3 +128,47 @@
 ## Web Vitest Invocation Gotcha (2026-03-06)
 
 - Run web package tests from `web/` or explicitly pass `--config web/vitest.config.ts`. Invoking `vitest` from the repo root skips the package `jsdom` config and produces false `document is not defined` / `Element is not defined` failures in React component tests.
+
+## Doom Launch Normalization Gotcha (2026-03-06)
+
+- When a runtime behavior already appears fixed in `runtime/dist`, still inspect the live `runtime/src` path before rebuilding. This Doom regression came from `chat-executor.ts` in source still calling tools with raw `parseResult.args`, even though the built artifact previously contained Doom resolution normalization.
+- For Doom MCP launch flows, treat a failed `mcp.doom.start_game` as a round boundary. Follow-up calls like `set_objective` or `get_situation_report` depend on a running game/executor and should not execute in the same model-emitted batch after launch failure.
+
+## Manual Foreground Daemon Logging Gotcha (2026-03-06)
+
+- When recovering the daemon by starting `runtime/dist/bin/daemon.js` in the foreground, fresh trace logs may land on the live process stdout instead of `~/.agenc/daemon.log`. If `daemon.log` stops advancing after a restart, inspect the active daemon PTY before assuming trace logging is broken.
+
+## Background Run Supervisor Gotchas (2026-03-06)
+
+- Long-running webchat work must be owned by the runtime, not by a single LLM completion. A launched process or monitor is only setup state; the daemon must keep scheduling follow-up cycles until completion, block, failure, or explicit user stop.
+- Ground background-run user updates against successful tool evidence. If a cycle only produced tool errors, do not publish the actor's optimistic narration; publish the error/retry state instead and keep supervising.
+- Feed the next background cycle explicit prior tool evidence, not just the last assistant prose. Without that artifact, the actor tends to repeat bad status checks instead of recovering from the concrete failure it just saw.
+- Keep background-run task text out of the foreground LLM session history. UI/history and memory can store those updates for the user, but if the raw objective and supervisor updates stay in `SessionManager`, unrelated follow-up requests inherit stale task context and the model continues the old job instead of answering the new question.
+- Prompt-level “take one bounded step” guidance is not enough. Background cycles need hard runtime budgets for tool rounds/model recalls, otherwise the model will keep polling inside a single `execute()` call and starve the supervisor loop.
+- Background runs also need runtime heartbeats while a cycle is still in progress. Waiting-state heartbeats alone do not cover slow provider/tool calls, and the session will look hung even when the supervisor still owns the task.
+
+## Detached Desktop PID Semantics Gotcha (2026-03-06)
+
+- For `desktop.bash` background launches, a detached wrapper shell PID is not the same thing as the real background workload PID. Return explicit fields (`launcherPid`, `backgroundPid`, `pidSemantics`) and only use `pid` as the primary PID after semantics are clarified, otherwise the model and user-facing summaries will report the wrong process identity.
+
+## Structured Desktop Process Tooling Gotcha (2026-03-06)
+
+- The desktop server `TOOL_DEFINITIONS` export in `containers/desktop/server/src/tools.ts` is the source of truth. `runtime/src/desktop/tool-definitions.ts` is generated from it by `npm --prefix runtime run generate:desktop-tool-definitions`, and runtime `build` / `test` / `typecheck` now fail fast on drift through `check:desktop-tool-definitions`.
+- For long-running desktop work, prefer explicit `desktop.process_start` / `desktop.process_status` / `desktop.process_stop` over `desktop.bash` background heuristics. Start/status/stop semantics belong in structured tools; `desktop.bash` should stay the one-shot shell escape hatch.
+- Do not write `/tmp/agenc-processes/registry.json` directly from managed-process lifecycle code. Persist through the serialized atomic writer in `containers/desktop/server/src/tools.ts` so overlapping `process_start` / `process_stop` / exit-hook updates cannot tear the registry file or publish out-of-order state.
+
+## Daemon Startup Readiness Gotcha (2026-03-06)
+
+- Do not treat daemon startup as “PID file appeared within 3 seconds.” The child process should report explicit readiness over IPC after `DaemonManager.start()` completes, and the parent CLI should wait on that readiness signal with a realistic startup budget. PID-file polling alone races slow startup paths like desktop manager/bootstrap and produces false negative `restart` errors even when the daemon is actually healthy.
+
+## Desktop Doom MCP Image Gotchas (2026-03-06)
+
+- Desktop MCP integrations must be installed into the desktop image itself, not assumed from prior local state. If the daemon expects `/usr/local/bin/<server>`, verify the image actually contains that launcher after every rebuild.
+- The desktop image entrypoint runs requested commands through `sudo`, so MCP launchers and helper binaries must live on `sudo`'s secure path. Export non-secure-path binaries through the manifest-driven installer in `containers/desktop/install-secure-path-launchers.sh` plus `containers/desktop/secure-path-launchers.txt`; do not add ad hoc `/usr/games` symlinks inline in the Dockerfile.
+- For Python MCP servers with package-relative imports, do not rely on `fastmcp run src/...` wrappers unless the upstream package guarantees that entry shape. A module-based wrapper like `python -c "from package.module import mcp; mcp.run()"` is safer inside the image.
+- Treat Doom MCP startup as a first-class image smoke contract. After rebuilding `agenc/desktop:latest`, run `npm run desktop:image:doom:smoke` so regressions in launcher exposure, patch wiring, or MCP startup fail immediately instead of surfacing later in daemon logs.
+
+## Doom Webchat Runtime Gotchas (2026-03-06)
+
+- Doom MCP `start_game` defaults are not safe for user-facing launch prompts: omitted args fall back to headless, HUD-off, `RES_320X240`. Normalize `mcp.doom.start_game` in the runtime so visible launches force a real window, HUD, and a sane resolution before the call leaves the executor.
+- Explicit "stop Doom" webchat requests should be runtime-owned, not model-owned. The model will often reach for `desktop.process_stop`, `kill`, or `sudo pkill`, but the game is owned by the Doom MCP. For webchat, short-circuit those requests to `mcp.doom.stop_game` directly.

@@ -6,6 +6,193 @@ import { DelegationPolicyEngine } from "./delegation-runtime.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 
 describe("createSessionToolHandler", () => {
+  it("normalizes Doom start_game args before execution and notifications", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () =>
+      JSON.stringify({ status: "running" }),
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    await handler("mcp.doom.start_game", {
+      screen_resolution: "1920x1080",
+      async_player: true,
+    });
+
+    expect(baseHandler).toHaveBeenCalledWith("mcp.doom.start_game", {
+      screen_resolution: "RES_1920X1080",
+      async_player: true,
+      window_visible: true,
+      render_hud: true,
+    });
+    expect(sentMessages[0]).toMatchObject({
+      type: "tools.executing",
+      payload: {
+        toolName: "mcp.doom.start_game",
+        args: {
+          screen_resolution: "RES_1920X1080",
+          async_player: true,
+          window_visible: true,
+          render_hud: true,
+        },
+      },
+    });
+  });
+
+  it("defaults Doom launch requests to a visible HUD-on window when args omit display settings", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () =>
+      JSON.stringify({ status: "running" }),
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    await handler("mcp.doom.start_game", {
+      scenario: "defend_the_center",
+      god_mode: true,
+    });
+
+    expect(baseHandler).toHaveBeenCalledWith("mcp.doom.start_game", {
+      scenario: "defend_the_center",
+      god_mode: true,
+      screen_resolution: "RES_1280X720",
+      window_visible: true,
+      render_hud: true,
+    });
+    expect(sentMessages[0]).toMatchObject({
+      type: "tools.executing",
+      payload: {
+        toolName: "mcp.doom.start_game",
+        args: {
+          scenario: "defend_the_center",
+          god_mode: true,
+          screen_resolution: "RES_1280X720",
+          window_visible: true,
+          render_hud: true,
+        },
+      },
+    });
+  });
+
+  it("wraps plain-text Doom execution failures as JSON errors", async () => {
+    const send = vi.fn();
+    const baseHandler = vi.fn(async () =>
+      "Executor not running. Start game with async_player=True.",
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const result = await handler("mcp.doom.set_objective", {
+      objective_type: "hold_position",
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      error: "Executor not running. Start game with async_player=True.",
+    });
+  });
+
+  it("blocks same-turn Doom follow-up calls after a failed launch", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async (name: string) => {
+      if (name === "mcp.doom.start_game") {
+        return "Unknown resolution 'banana'. Valid: ['RES_1280X720']";
+      }
+      return JSON.stringify({ status: "unexpected" });
+    });
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const startResult = await handler("mcp.doom.start_game", {
+      screen_resolution: "banana",
+      async_player: true,
+    });
+    const blockedResult = await handler("mcp.doom.set_objective", {
+      objective_type: "hold_position",
+    });
+
+    expect(JSON.parse(startResult)).toEqual({
+      error: "Unknown resolution 'banana'. Valid: ['RES_1280X720']",
+    });
+    expect(JSON.parse(blockedResult)).toEqual({
+      error:
+        'Skipped "mcp.doom.set_objective" because the previous Doom launch in this turn failed: Unknown resolution \'banana\'. Valid: [\'RES_1280X720\']',
+    });
+    expect(baseHandler).toHaveBeenCalledTimes(1);
+    expect(sentMessages.at(-1)).toMatchObject({
+      type: "tools.result",
+      payload: {
+        toolName: "mcp.doom.set_objective",
+        isError: true,
+      },
+    });
+  });
+
+  it("blocks duplicate same-turn Doom launches after a successful start", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const baseHandler = vi.fn(async () =>
+      JSON.stringify({ status: "running" }),
+    );
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+    });
+
+    const firstResult = await handler("mcp.doom.start_game", {
+      scenario: "defend_the_center",
+    });
+    const secondResult = await handler("mcp.doom.start_game", {
+      scenario: "defend_the_center",
+    });
+
+    expect(JSON.parse(firstResult)).toEqual({ status: "running" });
+    expect(JSON.parse(secondResult)).toEqual({
+      error:
+        'Skipped "mcp.doom.start_game" because Doom is already running from an earlier launch in this turn. Reuse the active game or call "mcp.doom.stop_game" before starting again.',
+    });
+    expect(baseHandler).toHaveBeenCalledTimes(1);
+    expect(sentMessages.at(-1)).toMatchObject({
+      type: "tools.result",
+      payload: {
+        toolName: "mcp.doom.start_game",
+        isError: true,
+      },
+    });
+  });
+
   it("reuses a single toolCallId for tool start/result and callbacks", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {
