@@ -108,6 +108,54 @@ describe("DesktopRESTBridge", () => {
         DesktopSandboxConnectionError,
       );
     });
+
+    it("subscribes to the desktop event stream and forwards parsed events", async () => {
+      const onEvent = vi.fn(async () => undefined);
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              [
+                "event: managed_process.exited",
+                'data: {"type":"managed_process.exited","timestamp":123,"payload":{"processId":"proc_123","state":"exited"}}',
+                "",
+                "",
+              ].join("\n"),
+            ),
+          );
+          controller.close();
+        },
+      });
+
+      bridge = new DesktopRESTBridge({
+        apiHostPort: 32769,
+        containerId: "abc123",
+        authToken: "test-token",
+        onEvent,
+      });
+
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes("/health")) {
+          return { ok: true, json: async () => ({ status: "ok" }) };
+        }
+        if (url.endsWith("/tools") && !url.includes("/tools/")) {
+          return { ok: true, json: async () => TOOL_DEFS };
+        }
+        if (url.endsWith("/events")) {
+          return { ok: true, body: stream };
+        }
+        return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+      });
+
+      await bridge.connect();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onEvent).toHaveBeenCalledWith({
+        type: "managed_process.exited",
+        timestamp: 123,
+        payload: { processId: "proc_123", state: "exited" },
+      });
+      bridge.disconnect();
+    });
   });
 
   describe("disconnect()", () => {

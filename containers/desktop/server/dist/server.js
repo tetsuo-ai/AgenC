@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
+import { TOOL_DEFINITIONS, executeTool, subscribeDesktopToolEvents, } from "./tools.js";
 import { isAuthorizedRequest, resolveAllowedOrigin } from "./auth.js";
 function json(res, status, data) {
     const body = JSON.stringify(data);
@@ -76,6 +76,39 @@ function handleToolsListRequest(req, res, path) {
     json(res, 200, TOOL_DEFINITIONS);
     return true;
 }
+function writeSseEvent(res, event) {
+    res.write(`event: ${event.type}\n`);
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+function handleEventStreamRequest(req, res, path) {
+    if (req.method !== "GET" || path !== "/events") {
+        return false;
+    }
+    res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+    });
+    res.write(": connected\n\n");
+    const unsubscribe = subscribeDesktopToolEvents((event) => {
+        if (!res.destroyed && !res.writableEnded) {
+            writeSseEvent(res, event);
+        }
+    });
+    const heartbeat = setInterval(() => {
+        if (!res.destroyed && !res.writableEnded) {
+            res.write(": ping\n\n");
+        }
+    }, 15_000);
+    const cleanup = () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+    };
+    req.on("close", cleanup);
+    req.on("aborted", cleanup);
+    res.on("close", cleanup);
+    return true;
+}
 function extractToolName(path) {
     const match = /^\/tools\/([a-z_]+)$/.exec(path);
     return match?.[1];
@@ -132,6 +165,9 @@ async function handleRequest(req, res, authToken, startTime) {
         return;
     }
     if (handleHealthRequest(req, res, path, startTime)) {
+        return;
+    }
+    if (handleEventStreamRequest(req, res, path)) {
         return;
     }
     if (handleToolsListRequest(req, res, path)) {

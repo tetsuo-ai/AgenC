@@ -99,9 +99,48 @@ interface ManagedProcessRecord {
   envKeys?: string[];
 }
 
+export interface DesktopToolEvent {
+  readonly type: "managed_process.exited";
+  readonly timestamp: number;
+  readonly payload: {
+    readonly processId: string;
+    readonly label?: string;
+    readonly pid: number;
+    readonly pgid: number;
+    readonly state: ManagedProcessState;
+    readonly startedAt: number;
+    readonly endedAt?: number;
+    readonly exitCode?: number | null;
+    readonly signal?: string | null;
+    readonly logPath: string;
+  };
+}
+
+type DesktopToolEventListener = (event: DesktopToolEvent) => void;
+
 let managedProcessesLoaded = false;
 const managedProcesses = new Map<string, ManagedProcessRecord>();
 let managedProcessRegistryPersistChain: Promise<void> = Promise.resolve();
+const desktopToolEventListeners = new Set<DesktopToolEventListener>();
+
+export function subscribeDesktopToolEvents(
+  listener: DesktopToolEventListener,
+): () => void {
+  desktopToolEventListeners.add(listener);
+  return () => {
+    desktopToolEventListeners.delete(listener);
+  };
+}
+
+function emitDesktopToolEvent(event: DesktopToolEvent): void {
+  for (const listener of [...desktopToolEventListeners]) {
+    try {
+      listener(event);
+    } catch (error) {
+      warnBestEffort("desktop tool event listener failed", error);
+    }
+  }
+}
 
 function exec(
   cmd: string,
@@ -628,14 +667,40 @@ async function finalizeManagedProcessExit(
   await ensureManagedProcessRegistryLoaded();
   const record = managedProcesses.get(processId);
   if (!record) return;
-  managedProcesses.set(processId, {
+  if (record.state === "exited" && typeof record.endedAt === "number") {
+    return;
+  }
+  const exitedRecord: ManagedProcessRecord = {
     ...record,
     state: "exited",
     endedAt: record.endedAt ?? Date.now(),
     exitCode,
     signal,
-  });
+  };
+  managedProcesses.set(processId, exitedRecord);
   await persistManagedProcessRegistry();
+  emitDesktopToolEvent({
+    type: "managed_process.exited",
+    timestamp: exitedRecord.endedAt ?? Date.now(),
+    payload: {
+      processId: exitedRecord.processId,
+      ...(exitedRecord.label ? { label: exitedRecord.label } : {}),
+      pid: exitedRecord.pid,
+      pgid: exitedRecord.pgid,
+      state: exitedRecord.state,
+      startedAt: exitedRecord.startedAt,
+      ...(typeof exitedRecord.endedAt === "number"
+        ? { endedAt: exitedRecord.endedAt }
+        : {}),
+      ...(exitedRecord.exitCode !== undefined
+        ? { exitCode: exitedRecord.exitCode }
+        : {}),
+      ...(exitedRecord.signal !== undefined
+        ? { signal: exitedRecord.signal }
+        : {}),
+      logPath: exitedRecord.logPath,
+    },
+  });
 }
 
 function buildManagedProcessResponse(

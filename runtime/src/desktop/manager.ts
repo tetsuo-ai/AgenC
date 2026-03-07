@@ -35,6 +35,11 @@ import {
 
 const CONTAINER_PREFIX = "agenc-desktop";
 const MANAGED_BY_LABEL = "managed-by=agenc-desktop";
+const SESSION_LABEL_KEY = "session-id";
+const RESOLUTION_LABEL_KEY = "agenc.desktop.resolution";
+const MAX_MEMORY_LABEL_KEY = "agenc.desktop.max-memory";
+const MAX_CPU_LABEL_KEY = "agenc.desktop.max-cpu";
+const CREATED_AT_LABEL_KEY = "agenc.desktop.created-at";
 const DOCKER_TIMEOUT_MS = 30_000;
 const READY_POLL_INTERVAL_MS = 1_000;
 const READY_TIMEOUT_MS = 60_000;
@@ -101,6 +106,31 @@ interface DockerRunOptions {
   sandboxOptions: CreateDesktopSandboxOptions;
 }
 
+interface DockerInspectRecord {
+  readonly Id?: string;
+  readonly Name?: string;
+  readonly Created?: string;
+  readonly Config?: {
+    readonly Env?: readonly string[];
+    readonly Labels?: Record<string, string>;
+  };
+  readonly State?: {
+    readonly Running?: boolean;
+    readonly Status?: string;
+    readonly StartedAt?: string;
+  };
+  readonly HostConfig?: {
+    readonly Memory?: number;
+    readonly NanoCpus?: number;
+  };
+  readonly NetworkSettings?: {
+    readonly Ports?: Record<
+      string,
+      Array<{ HostIp?: string; HostPort?: string }> | null
+    >;
+  };
+}
+
 function parsePortMappings(inspectJson: string): PortMapping {
   // docker inspect --format '{{json .NetworkSettings.Ports}}'
   // Returns: {"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"32768"}],"9990/tcp":[...]}
@@ -162,6 +192,67 @@ function validateCpuLimit(value: string): void {
       `Invalid CPU limit "${value}". Value must be greater than 0.`,
     );
   }
+}
+
+function parseInspectJson(stdout: string): DockerInspectRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (err) {
+    throw new Error(`Invalid docker inspect JSON: ${toErrorMessage(err)}`);
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("docker inspect returned no records");
+  }
+  const [record] = parsed;
+  if (!record || typeof record !== "object") {
+    throw new Error("docker inspect returned an invalid record");
+  }
+  return record as DockerInspectRecord;
+}
+
+function parseTimestamp(value: string | undefined): number | undefined {
+  if (!value || value.startsWith("0001-01-01")) return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function findEnvValue(
+  env: readonly string[] | undefined,
+  key: string,
+): string | undefined {
+  const prefix = `${key}=`;
+  const entry = env?.find((value) => value.startsWith(prefix));
+  return entry ? entry.slice(prefix.length) : undefined;
+}
+
+function parseResolutionLabel(
+  value: string | undefined,
+): { width: number; height: number } | undefined {
+  if (!value) return undefined;
+  const match = /^(\d+)x(\d+)$/.exec(value.trim());
+  if (!match) return undefined;
+  const width = Number.parseInt(match[1]!, 10);
+  const height = Number.parseInt(match[2]!, 10);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  return { width, height };
+}
+
+function normalizeRecoveredMemoryLimit(
+  value: string | undefined,
+  fallback: string,
+): string {
+  return value && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function normalizeRecoveredCpuLimit(
+  value: string | undefined,
+  fallback: string,
+): string {
+  return value && value.trim().length > 0 ? value.trim() : fallback;
 }
 
 // ============================================================================
@@ -264,13 +355,20 @@ export class DesktopSandboxManager {
       this.logger.warn("Docker not available — desktop sandbox disabled");
       return;
     }
-    await this.cleanupOrphans();
+    await this.recoverExistingContainers();
     this.logger.info("Desktop sandbox manager started");
   }
 
-  /** Stop the manager: destroy all containers, clear all timers. */
+  /** Stop the manager: preserve live containers for daemon recovery and clear local state. */
   async stop(): Promise<void> {
-    await this.destroyAll();
+    const preservedContainerIds = [...this.handles.keys()];
+    for (const containerId of preservedContainerIds) {
+      this.clearTimers(containerId);
+    }
+    this.handles.clear();
+    this.sessionMap.clear();
+    this.authTokens.clear();
+    this.dockerAvailable = null;
     this.logger.info("Desktop sandbox manager stopped");
   }
 
@@ -531,7 +629,11 @@ export class DesktopSandboxManager {
 
     args.push(
       "--label", MANAGED_BY_LABEL,
-      "--label", `session-id=${sessionId}`,
+      "--label", `${SESSION_LABEL_KEY}=${sessionId}`,
+      "--label", `${RESOLUTION_LABEL_KEY}=${resolution.width}x${resolution.height}`,
+      "--label", `${MAX_MEMORY_LABEL_KEY}=${maxMemory}`,
+      "--label", `${MAX_CPU_LABEL_KEY}=${maxCpu}`,
+      "--label", `${CREATED_AT_LABEL_KEY}=${Date.now()}`,
       "--publish", `127.0.0.1::${CONTAINER_API_PORT}`,
       "--publish", `127.0.0.1::${CONTAINER_VNC_PORT}`,
       "--network", this.config.networkMode === "none" ? "none" : "bridge",
@@ -689,8 +791,8 @@ export class DesktopSandboxManager {
     );
   }
 
-  /** Remove stale orphan containers with our management label. */
-  private async cleanupOrphans(): Promise<void> {
+  /** Reattach any live managed containers and clean up dead ones. */
+  private async recoverExistingContainers(): Promise<void> {
     try {
       const { stdout } = await execFileAsync("docker", [
         "ps",
@@ -702,12 +804,127 @@ export class DesktopSandboxManager {
       ]);
       const ids = stdout.trim().split("\n").filter(Boolean);
       for (const id of ids) {
-        this.logger.info(`Cleaning up orphan desktop container ${id}`);
-        await this.forceRemove(id);
+        const recovered = await this.recoverContainer(id);
+        if (!recovered) {
+          this.logger.info(`Cleaning up unrecoverable desktop container ${id}`);
+          await this.forceRemove(id);
+        }
       }
     } catch {
       // Intentional: Docker may not be available — logged by caller
     }
+  }
+
+  private async recoverContainer(containerId: string): Promise<boolean> {
+    let inspect: DockerInspectRecord;
+    try {
+      const { stdout } = await execFileAsync("docker", ["inspect", containerId]);
+      inspect = parseInspectJson(stdout);
+    } catch (err) {
+      this.logger.debug("Failed to inspect recoverable desktop container", {
+        containerId,
+        error: toErrorMessage(err),
+      });
+      return false;
+    }
+
+    const labels = inspect.Config?.Labels ?? {};
+    const sessionId = labels[SESSION_LABEL_KEY];
+    if (!sessionId) {
+      return false;
+    }
+
+    const authToken = findEnvValue(inspect.Config?.Env, DESKTOP_AUTH_ENV_KEY);
+    if (!authToken) {
+      this.logger.debug("Desktop container missing auth token during recovery", {
+        containerId,
+        sessionId,
+      });
+      return false;
+    }
+
+    if (inspect.State?.Running !== true) {
+      return false;
+    }
+
+    let ports: PortMapping;
+    try {
+      ports = parsePortMappings(
+        JSON.stringify(inspect.NetworkSettings?.Ports ?? {}),
+      );
+    } catch (err) {
+      this.logger.debug("Desktop container missing port mappings during recovery", {
+        containerId,
+        sessionId,
+        error: toErrorMessage(err),
+      });
+      return false;
+    }
+
+    const resolution =
+      parseResolutionLabel(labels[RESOLUTION_LABEL_KEY]) ??
+      (() => {
+        const width = Number.parseInt(
+          findEnvValue(inspect.Config?.Env, "DISPLAY_WIDTH") ?? "",
+          10,
+        );
+        const height = Number.parseInt(
+          findEnvValue(inspect.Config?.Env, "DISPLAY_HEIGHT") ?? "",
+          10,
+        );
+        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+          return { width, height };
+        }
+        return this.config.resolution;
+      })();
+
+    const createdAt =
+      Number.parseInt(labels[CREATED_AT_LABEL_KEY] ?? "", 10) ||
+      parseTimestamp(inspect.State?.StartedAt) ||
+      parseTimestamp(inspect.Created) ||
+      Date.now();
+
+    const handle: DesktopSandboxHandle = {
+      containerId,
+      containerName: inspect.Name?.replace(/^\//, "") || containerId,
+      sessionId,
+      status: "starting",
+      createdAt,
+      lastActivityAt: Date.now(),
+      apiHostPort: ports.apiHostPort,
+      vncHostPort: ports.vncHostPort,
+      resolution,
+      maxMemory: normalizeRecoveredMemoryLimit(
+        labels[MAX_MEMORY_LABEL_KEY],
+        this.config.maxMemory,
+      ),
+      maxCpu: normalizeRecoveredCpuLimit(
+        labels[MAX_CPU_LABEL_KEY],
+        this.config.maxCpu,
+      ),
+    };
+
+    try {
+      await this.waitForReady(handle, authToken);
+      handle.status = "ready";
+    } catch (err) {
+      this.logger.debug("Desktop container health check failed during recovery", {
+        containerId,
+        sessionId,
+        error: toErrorMessage(err),
+      });
+      return false;
+    }
+
+    this.handles.set(containerId, handle);
+    this.sessionMap.set(sessionId, containerId);
+    this.authTokens.set(containerId, authToken);
+    this.resetIdleTimer(containerId);
+    this.startLifetimeTimer(containerId);
+    this.logger.info(
+      `Recovered desktop sandbox ${containerId} for session ${sessionId} (API: ${ports.apiHostPort}, VNC: ${ports.vncHostPort})`,
+    );
+    return true;
   }
 
   /** Force-remove a container by name or ID. Idempotent. */
@@ -765,6 +982,12 @@ export class DesktopSandboxManager {
 
   /** Start the max lifetime timer for a container. */
   private startLifetimeTimer(containerId: string): void {
+    const handle = this.handles.get(containerId);
+    if (!handle) {
+      return;
+    }
+    const elapsedMs = Math.max(0, Date.now() - handle.createdAt);
+    const remainingMs = Math.max(0, this.config.maxLifetimeMs - elapsedMs);
     const timer = setTimeout(() => {
       this.logger.info(
         `Desktop sandbox ${containerId} max lifetime reached — destroying`,
@@ -774,7 +997,7 @@ export class DesktopSandboxManager {
           `Failed to destroy expired container ${containerId}: ${toErrorMessage(err)}`,
         );
       });
-    }, this.config.maxLifetimeMs);
+    }, remainingMs);
 
     timer.unref();
     this.lifetimeTimers.set(containerId, timer);

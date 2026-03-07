@@ -1,3 +1,24 @@
+## PR [pending]: durable task runtime operator-signal and carry-forward hardening
+- **Date:** 2026-03-06
+- **Files changed:** `runtime/src/gateway/background-run-store.ts`, `runtime/src/gateway/background-run-store.test.ts`, `runtime/src/gateway/background-run-supervisor.ts`, `runtime/src/gateway/background-run-supervisor.test.ts`, `runtime/src/gateway/daemon.ts`, `runtime/src/utils/keyed-async-queue.ts`, `runtime/src/utils/keyed-async-queue.test.ts`, `.claude/notes/gotchas.md`, `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-06-durable-task-runtime-phase3.md`
+- **What worked:** Active background runs now accept persisted operator signals instead of being cancelled by every follow-up user message, and the supervisor carries a compact durable state snapshot across cycles so long-running work no longer depends only on a short rolling transcript. The focused unit suite passed, and a live websocket smoke confirmed a real daemon session queued a follow-up instruction into the active run instead of tearing it down.
+- **What didn't:** The current operator-signal routing is session-exclusive while a background run is active. That is correct for task-runtime semantics, but it means foreground unrelated questions in the same session now need an explicit pause/new-session story instead of piggybacking on the old cancel-and-replace behavior.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: background run control-plane hardening
+- **Date:** 2026-03-06
+- **Files changed:** `runtime/src/gateway/background-run-control.ts`, `runtime/src/gateway/background-run-control.test.ts`, `runtime/src/gateway/background-run-store.ts`, `runtime/src/gateway/background-run-store.test.ts`, `runtime/src/gateway/background-run-supervisor.ts`, `runtime/src/gateway/background-run-supervisor.test.ts`, `runtime/src/gateway/daemon.ts`, `.claude/notes/gotchas.md`, `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-06-background-run-control-plane.md`
+- **What worked:** Session-level `status` and `stop` are now runtime-owned even after a run completes, because the supervisor persists a recent-run snapshot per session. The runtime also has real `pause`/`resume` semantics now, including queued operator instructions that remain queued while paused and resume cleanly later. Focused tests passed, and live websocket probes verified active control, terminal-status lookup, running-state recovery across daemon restart, and paused-state recovery across daemon restart.
+- **What didn't:** The control plane still lives in a large webchat branch inside `runtime/src/gateway/daemon.ts`, and `BackgroundRunSupervisor.executeCycle()` is still the dominant hot path. Both are correct, but they are the next extraction targets if the supervisor keeps growing.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: durable task runtime session recovery hardening
+- **Date:** 2026-03-06
+- **Files changed:** `runtime/src/gateway/background-run-store.ts`, `runtime/src/gateway/background-run-store.test.ts`, `runtime/src/gateway/background-run-supervisor.ts`, `runtime/src/gateway/background-run-supervisor.test.ts`, `runtime/src/gateway/daemon.ts`, `runtime/src/gateway/session.ts`, `runtime/src/channels/webchat/plugin.ts`, `runtime/src/channels/webchat/plugin.test.ts`, `runtime/src/channels/webchat/session-store.ts`, `runtime/src/channels/webchat/session-store.test.ts`, `runtime/src/channels/webchat/types.ts`, `web/src/hooks/useChat.ts`, `web/src/hooks/useChat.test.ts`
+- **What worked:** Background runs now persist/recover across daemon restarts, the web client can rediscover/resume prior sessions with a stable browser key, resumed foreground sessions rehydrate recent context from memory, and `until_stopped` runs are no longer forced to fail because of generic runtime/cycle caps.
+- **What didn't:** The new durable session store and the existing background run store both carry near-identical keyed async write-serialization logic. That duplication is acceptable for this phase, but it should be extracted before another durable store is added.
+- **Rule added to CLAUDE.md:** no
+
 ## PR [pending]: desktop doom image contract hardening
 - **Date:** 2026-03-06
 - **Files changed:** `containers/desktop/Dockerfile`, `containers/desktop/install-secure-path-launchers.sh`, `containers/desktop/secure-path-launchers.txt`, `scripts/check-desktop-image-hardening.mjs`, `scripts/check-desktop-image-hardening.test.mjs`, `scripts/smoke-desktop-doom-image.mjs`, `package.json`, `.github/workflows/ci.yml`, `README.md`, `docs/security/mcp-security-stack.md`, `.claude/notes/gotchas.md`, `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-06-doom-desktop-image-regression.md`
@@ -101,4 +122,18 @@
 - **Files changed:** `runtime/src/llm/chat-executor-tool-utils.ts`, `runtime/src/llm/chat-executor-tool-utils.test.ts`, `runtime/src/gateway/tool-handler-factory.ts`, `runtime/src/gateway/tool-handler-factory.test.ts`, `runtime/src/llm/chat-executor-recovery.ts`, `runtime/src/llm/chat-executor-recovery.test.ts`, `runtime/src/gateway/tool-routing.ts`, `runtime/src/gateway/tool-routing.test.ts`, `runtime/src/gateway/doom-stop-guard.ts`, `runtime/src/gateway/doom-stop-guard.test.ts`, `runtime/src/gateway/daemon.ts`
 - **What worked:** Minimal Doom launch prompts now normalize to a visible HUD-on `1280x720` window, duplicate same-turn `mcp.doom.start_game` calls are blocked, and explicit webchat stop requests bypass model improvisation and call `mcp.doom.stop_game` directly. Live websocket smoke confirmed both the rewritten launch args and the deterministic stop path.
 - **What didn't:** The deterministic Doom stop flow currently duplicates some of the normal webchat final-response/session-memory bookkeeping in `daemon.ts`. If more runtime-owned fast paths are added, extract that shared response path instead of cloning it again.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: runtime background-run signal-tail hardening
+- **Date:** 2026-03-06
+- **Files changed:** `runtime/src/gateway/background-run-supervisor.ts`, `runtime/src/gateway/background-run-supervisor.test.ts`
+- **What worked:** Late process and external signals no longer get lost in the cycle tail. The supervisor now keeps the cycle `running` until tail work finishes, preserves only the consumed signal snapshot during carry-forward compaction, suppresses stale working updates when fresh signals are pending, and completes on verified `process_exit` without falling into a second timer-driven cycle. Focused runtime tests and a live websocket smoke against the daemon both passed.
+- **What didn't:** `executeCycle()` is still a very large hot-path method, and deterministic terminal completion still relies on regex/classifier heuristics rather than typed tool-domain completion contracts.
+- **Rule added to CLAUDE.md:** no
+
+## PR [pending]: runtime desktop restart recovery for durable background runs
+- **Date:** 2026-03-07
+- **Files changed:** `runtime/src/desktop/manager.ts`, `runtime/src/desktop/manager.test.ts`, `runtime/src/channels/webchat/plugin.ts`, `runtime/src/gateway/daemon.ts`
+- **What worked:** Desktop sandboxes now survive daemon restart and reattach from Docker inspect data, so managed-process background runs can recover the same container and continue native `desktop.process_status` verification instead of probing a fresh empty sandbox. Live websocket restart recovery passed end to end with a real `/bin/sleep` managed process, and the completion update was still persisted to session history while the client was disconnected.
+- **What didn't:** Sandbox preservation is now runtime-safe, but daemon shutdown still preserves every tracked desktop container. That is correct for restart durability, but it needs a future operator mode split if we want a clean distinction between “restart/suspend” and “fully tear down desktops.”
 - **Rule added to CLAUDE.md:** no

@@ -1,5 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
+import {
+  TOOL_DEFINITIONS,
+  executeTool,
+  subscribeDesktopToolEvents,
+  type DesktopToolEvent,
+} from "./tools.js";
 import type { HealthResponse } from "./types.js";
 import { isAuthorizedRequest, resolveAllowedOrigin } from "./auth.js";
 
@@ -108,6 +113,51 @@ function handleToolsListRequest(
   return true;
 }
 
+function writeSseEvent(res: ServerResponse, event: DesktopToolEvent): void {
+  res.write(`event: ${event.type}\n`);
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function handleEventStreamRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  path: string,
+): boolean {
+  if (req.method !== "GET" || path !== "/events") {
+    return false;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+  });
+  res.write(": connected\n\n");
+
+  const unsubscribe = subscribeDesktopToolEvents((event) => {
+    if (!res.destroyed && !res.writableEnded) {
+      writeSseEvent(res, event);
+    }
+  });
+
+  const heartbeat = setInterval(() => {
+    if (!res.destroyed && !res.writableEnded) {
+      res.write(": ping\n\n");
+    }
+  }, 15_000);
+
+  const cleanup = (): void => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  };
+
+  req.on("close", cleanup);
+  req.on("aborted", cleanup);
+  res.on("close", cleanup);
+
+  return true;
+}
+
 function extractToolName(path: string): string | undefined {
   const match = /^\/tools\/([a-z_]+)$/.exec(path);
   return match?.[1];
@@ -183,6 +233,10 @@ async function handleRequest(
   }
 
   if (handleHealthRequest(req, res, path, startTime)) {
+    return;
+  }
+
+  if (handleEventStreamRequest(req, res, path)) {
     return;
   }
 

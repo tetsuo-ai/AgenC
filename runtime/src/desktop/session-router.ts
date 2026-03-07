@@ -14,7 +14,10 @@ import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
 import type { DesktopSandboxManager } from "./manager.js";
 import { DesktopSandboxPoolExhaustedError } from "./errors.js";
-import { DesktopRESTBridge } from "./rest-bridge.js";
+import {
+  DesktopRESTBridge,
+  type DesktopBridgeEvent,
+} from "./rest-bridge.js";
 import type { MCPServerConfig, MCPToolBridge } from "../mcp-client/types.js";
 import { ResilientMCPBridge } from "../mcp-client/resilient-bridge.js";
 
@@ -458,6 +461,8 @@ export interface DesktopRouterOptions {
   containerMCPBridges?: Map<string, MCPToolBridge[]>;
   /** Optional per-session tool allowlist for least-privilege desktop routing. */
   allowedToolNames?: readonly string[];
+  /** Optional callback for runtime-owned desktop lifecycle events. */
+  onDesktopEvent?: (event: DesktopBridgeEvent) => void | Promise<void>;
   logger?: Logger;
   /** Deprecated no-op. Auto-screenshot capture is disabled. */
   autoScreenshot?: boolean;
@@ -511,6 +516,7 @@ export function createDesktopAwareToolHandler(
     containerMCPConfigs,
     containerMCPBridges,
     allowedToolNames,
+    onDesktopEvent,
     logger: log = silentLogger,
     autoScreenshot: _autoScreenshot = false,
   } = options;
@@ -545,6 +551,7 @@ export function createDesktopAwareToolHandler(
         desktopManager,
         bridges,
         playwrightBridges,
+        onDesktopEvent,
         log,
       );
     }
@@ -566,6 +573,7 @@ export function createDesktopAwareToolHandler(
           bridges,
           scopedContainerMCPConfigs,
           containerMCPBridges,
+          onDesktopEvent,
           log,
         );
       }
@@ -583,7 +591,13 @@ export function createDesktopAwareToolHandler(
     // Ensure bridge is connected for this session
     let bridge = bridges.get(sessionId);
     if (!bridge || !bridge.isConnected()) {
-      bridge = await ensureBridge(sessionId, desktopManager, bridges, log);
+      bridge = await ensureBridge(
+        sessionId,
+        desktopManager,
+        bridges,
+        onDesktopEvent,
+        log,
+      );
       if (!bridge) {
         return safeStringify({ error: "Desktop sandbox unavailable" });
       }
@@ -662,7 +676,13 @@ export function createDesktopAwareToolHandler(
         containerMCPBridges,
         log,
       );
-      const recovered = await ensureBridge(sessionId, desktopManager, bridges, log);
+      const recovered = await ensureBridge(
+        sessionId,
+        desktopManager,
+        bridges,
+        onDesktopEvent,
+        log,
+      );
       if (recovered) {
         const retryTool = recovered.getTools().find((t) => t.name === `desktop.${toolName}`);
         if (retryTool) {
@@ -765,12 +785,19 @@ async function handlePlaywrightCall(
   desktopManager: DesktopSandboxManager,
   bridges: Map<string, DesktopRESTBridge>,
   playwrightBridges: Map<string, MCPToolBridge>,
+  onDesktopEvent: ((event: DesktopBridgeEvent) => void | Promise<void>) | undefined,
   log: Logger,
 ): Promise<string> {
   // Ensure desktop bridge exists first (Playwright needs a running container)
   let bridge = bridges.get(sessionId);
   if (!bridge || !bridge.isConnected()) {
-    bridge = await ensureBridge(sessionId, desktopManager, bridges, log);
+    bridge = await ensureBridge(
+      sessionId,
+      desktopManager,
+      bridges,
+      onDesktopEvent,
+      log,
+    );
     if (!bridge) {
       return safeStringify({ error: "Desktop sandbox unavailable" });
     }
@@ -805,6 +832,7 @@ async function ensureBridge(
   sessionId: string,
   desktopManager: DesktopSandboxManager,
   bridges: Map<string, DesktopRESTBridge>,
+  onDesktopEvent: ((event: DesktopBridgeEvent) => void | Promise<void>) | undefined,
   log: Logger,
 ): Promise<DesktopRESTBridge | undefined> {
   const connectBridge = async (): Promise<DesktopRESTBridge> => {
@@ -820,6 +848,7 @@ async function ensureBridge(
       containerId: handle.containerId,
       authToken,
       logger: log,
+      onEvent: onDesktopEvent,
     });
     await bridge.connect();
     bridges.set(sessionId, bridge);
@@ -985,12 +1014,19 @@ async function handleContainerMCPCall(
   bridges: Map<string, DesktopRESTBridge>,
   containerMCPConfigs: readonly MCPServerConfig[],
   containerMCPBridges: Map<string, MCPToolBridge[]>,
+  onDesktopEvent: ((event: DesktopBridgeEvent) => void | Promise<void>) | undefined,
   log: Logger,
 ): Promise<string> {
   // Ensure desktop bridge exists first (container MCP needs a running container)
   let bridge = bridges.get(sessionId);
   if (!bridge || !bridge.isConnected()) {
-    bridge = await ensureBridge(sessionId, desktopManager, bridges, log);
+    bridge = await ensureBridge(
+      sessionId,
+      desktopManager,
+      bridges,
+      onDesktopEvent,
+      log,
+    );
     if (!bridge) {
       return safeStringify({ error: "Desktop sandbox unavailable" });
     }

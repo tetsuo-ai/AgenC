@@ -60,12 +60,55 @@ function mockDockerSuccess(
         return;
       }
       if (subCommand === "inspect") {
+        const formatArgIndex = args.indexOf("--format");
+        if (formatArgIndex !== -1) {
+          const port1 = 32768 + containerIdCounter * 2;
+          const port2 = port1 + 1;
+          cb(
+            null,
+            responses.inspect ??
+              `{"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port1}"}],"9990/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port2}"}]}`,
+            "",
+          );
+          return;
+        }
         const port1 = 32768 + containerIdCounter * 2;
         const port2 = port1 + 1;
         cb(
           null,
-          responses.inspect ??
-            `{"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port1}"}],"9990/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port2}"}]}`,
+          responses.inspectFull ??
+            JSON.stringify([
+              {
+                Id: args[1] ?? `ctr${String(containerIdCounter).padStart(9, "0")}ff`,
+                Name: "/agenc-desktop-sess1",
+                Created: "2026-03-07T07:00:00.000Z",
+                Config: {
+                  Env: [
+                    "DISPLAY_WIDTH=1280",
+                    "DISPLAY_HEIGHT=1024",
+                    "DESKTOP_AUTH_TOKEN=recoveredtoken",
+                  ],
+                  Labels: {
+                    "session-id": "sess1",
+                    "agenc.desktop.resolution": "1280x1024",
+                    "agenc.desktop.max-memory": "4g",
+                    "agenc.desktop.max-cpu": "2.0",
+                    "agenc.desktop.created-at": "1772866800000",
+                  },
+                },
+                State: {
+                  Running: true,
+                  Status: "running",
+                  StartedAt: "2026-03-07T07:00:01.000Z",
+                },
+                NetworkSettings: {
+                  Ports: {
+                    "6080/tcp": [{ HostIp: "127.0.0.1", HostPort: `${port1}` }],
+                    "9990/tcp": [{ HostIp: "127.0.0.1", HostPort: `${port2}` }],
+                  },
+                },
+              },
+            ]),
           "",
         );
         return;
@@ -133,12 +176,12 @@ describe("DesktopSandboxManager", () => {
   });
 
   describe("start()", () => {
-    it("cleans up orphan containers on start", async () => {
-      mockDockerSuccess({ ps: "deadbeef1234\noldcontainer1\n" });
+    it("recovers live managed containers on start", async () => {
+      mockDockerSuccess({ ps: "deadbeef1234\n" });
+      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ status: "ok" }) });
       manager = new DesktopSandboxManager(makeConfig());
       await manager.start();
 
-      // Should have called docker ps with our label filter
       const psCalls = mockExecFile.mock.calls.filter(
         (c: unknown[]) => (c[1] as string[])[0] === "ps",
       );
@@ -147,12 +190,48 @@ describe("DesktopSandboxManager", () => {
         "managed-by=agenc-desktop",
       );
 
-      // Should have rm -f each orphan
+      expect(manager.activeCount).toBe(1);
+      const recovered = manager.getHandleBySession("sess1");
+      expect(recovered?.containerId).toBe("deadbeef1234");
+      expect(recovered?.status).toBe("ready");
+      expect(recovered?.apiHostPort).toBeGreaterThan(0);
+      expect(recovered?.vncHostPort).toBeGreaterThan(0);
+
       const rmCalls = mockExecFile.mock.calls.filter(
         (c: unknown[]) =>
           (c[1] as string[])[0] === "rm" && (c[1] as string[])[1] === "-f",
       );
-      expect(rmCalls.length).toBe(2);
+      expect(rmCalls.length).toBe(0);
+    });
+
+    it("removes dead managed containers it cannot recover", async () => {
+      mockDockerSuccess({
+        ps: "deadbeef1234\n",
+        inspectFull: JSON.stringify([
+          {
+            Id: "deadbeef1234",
+            Name: "/agenc-desktop-sess1",
+            Config: {
+              Env: ["DESKTOP_AUTH_TOKEN=recoveredtoken"],
+              Labels: { "session-id": "sess1" },
+            },
+            State: {
+              Running: false,
+              Status: "exited",
+            },
+            NetworkSettings: { Ports: {} },
+          },
+        ]),
+      });
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+
+      expect(manager.activeCount).toBe(0);
+      const rmCalls = mockExecFile.mock.calls.filter(
+        (c: unknown[]) =>
+          (c[1] as string[])[0] === "rm" && (c[1] as string[])[1] === "-f",
+      );
+      expect(rmCalls.length).toBe(1);
     });
   });
 
@@ -521,6 +600,26 @@ describe("DesktopSandboxManager", () => {
 
       await manager.destroyAll();
       expect(manager.activeCount).toBe(0);
+    });
+
+    it("stop preserves tracked containers for daemon recovery", async () => {
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+      const handle = await manager.create({ sessionId: "sess1" });
+      const rmCallsBeforeStop = mockExecFile.mock.calls.filter(
+        (c: unknown[]) =>
+          (c[1] as string[])[0] === "rm" && (c[1] as string[])[1] === "-f",
+      ).length;
+
+      await manager.stop();
+
+      expect(manager.activeCount).toBe(0);
+      expect(manager.getHandle(handle.containerId)).toBeUndefined();
+      const rmCalls = mockExecFile.mock.calls.filter(
+        (c: unknown[]) =>
+          (c[1] as string[])[0] === "rm" && (c[1] as string[])[1] === "-f",
+      );
+      expect(rmCalls.length).toBe(rmCallsBeforeStop);
     });
   });
 

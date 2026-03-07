@@ -25,6 +25,8 @@ const CONNECT_TIMEOUT_MS = 5_000;
 const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 180_000;
 /** Hard cap for individual tool execution calls (matches container bash upper bound + slack). */
 const MAX_TOOL_EXECUTION_TIMEOUT_MS = 660_000;
+const EVENT_STREAM_RETRY_INITIAL_MS = 500;
+const EVENT_STREAM_RETRY_MAX_MS = 5_000;
 
 // ============================================================================
 // Types for REST API responses
@@ -34,6 +36,12 @@ interface RESTToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+}
+
+export interface DesktopBridgeEvent {
+  readonly type: string;
+  readonly timestamp: number;
+  readonly payload: Record<string, unknown>;
 }
 
 function resolveToolExecutionTimeoutMs(args: Record<string, unknown>): number {
@@ -58,6 +66,7 @@ export interface DesktopRESTBridgeOptions {
   containerId: string;
   authToken: string;
   logger?: Logger;
+  onEvent?: (event: DesktopBridgeEvent) => void | Promise<void>;
 }
 
 export class DesktopRESTBridge {
@@ -65,14 +74,18 @@ export class DesktopRESTBridge {
   private readonly containerId: string;
   private readonly authToken: string;
   private readonly logger: Logger;
+  private readonly onEvent?: (event: DesktopBridgeEvent) => void | Promise<void>;
   private connected = false;
   private tools: Tool[] = [];
+  private eventStreamAbort: AbortController | null = null;
+  private eventStreamLoop: Promise<void> | null = null;
 
   constructor(options: DesktopRESTBridgeOptions) {
     this.baseUrl = `http://localhost:${options.apiHostPort}`;
     this.containerId = options.containerId;
     this.authToken = options.authToken;
     this.logger = options.logger ?? silentLogger;
+    this.onEvent = options.onEvent;
   }
 
   /** Fetch tool definitions from the container and create bridged Tool objects. */
@@ -89,6 +102,7 @@ export class DesktopRESTBridge {
 
     this.tools = definitions.map((def) => this.createBridgedTool(def));
     this.connected = true;
+    this.startEventStream();
 
     this.logger.info(
       `Desktop REST bridge connected to ${this.containerId} (${this.tools.length} tools)`,
@@ -99,6 +113,7 @@ export class DesktopRESTBridge {
   disconnect(): void {
     this.connected = false;
     this.tools = [];
+    this.stopEventStream();
   }
 
   /** Whether the bridge is currently connected. */
@@ -205,6 +220,7 @@ export class DesktopRESTBridge {
           // Network-level failures usually mean the container API is unhealthy.
           // Mark disconnected so callers can recycle/reconnect the bridge.
           bridgeRef.connected = false;
+          bridgeRef.stopEventStream();
           logger.error(
             `Desktop tool ${name} failed [${containerId}]: ${toErrorMessage(err)}`,
           );
@@ -217,5 +233,166 @@ export class DesktopRESTBridge {
         }
       },
     };
+  }
+
+  private startEventStream(): void {
+    if (!this.onEvent || this.eventStreamLoop || !this.connected) {
+      return;
+    }
+
+    const controller = new AbortController();
+    this.eventStreamAbort = controller;
+    this.eventStreamLoop = this.runEventStreamLoop(controller).finally(() => {
+      if (this.eventStreamAbort === controller) {
+        this.eventStreamAbort = null;
+      }
+      if (this.eventStreamLoop !== null) {
+        this.eventStreamLoop = null;
+      }
+    });
+  }
+
+  private stopEventStream(): void {
+    this.eventStreamAbort?.abort();
+    this.eventStreamAbort = null;
+    this.eventStreamLoop = null;
+  }
+
+  private async runEventStreamLoop(controller: AbortController): Promise<void> {
+    let retryDelayMs = EVENT_STREAM_RETRY_INITIAL_MS;
+    while (this.connected && !controller.signal.aborted) {
+      try {
+        const res = await fetch(`${this.baseUrl}/events`, {
+          headers: createDesktopAuthHeaders(this.authToken),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        if (!res.body) {
+          throw new Error("Event stream body missing");
+        }
+
+        retryDelayMs = EVENT_STREAM_RETRY_INITIAL_MS;
+        await this.consumeEventStream(res.body, controller.signal);
+      } catch (error) {
+        if (controller.signal.aborted || !this.connected) {
+          return;
+        }
+        this.logger.debug("Desktop event stream disconnected", {
+          containerId: this.containerId,
+          error: toErrorMessage(error),
+        });
+        await this.sleepWithAbort(retryDelayMs, controller.signal);
+        retryDelayMs = Math.min(
+          EVENT_STREAM_RETRY_MAX_MS,
+          retryDelayMs * 2,
+        );
+      }
+    }
+  }
+
+  private async consumeEventStream(
+    stream: ReadableStream<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (!signal.aborted) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        ({ buffer } = await this.drainEventBuffer(buffer));
+      }
+      buffer += decoder.decode();
+      await this.drainEventBuffer(buffer, true);
+    } finally {
+      void reader.cancel().catch(() => undefined);
+    }
+  }
+
+  private async drainEventBuffer(
+    buffer: string,
+    flushRemainder = false,
+  ): Promise<{ buffer: string }> {
+    let nextBuffer = buffer;
+    while (true) {
+      const separatorIndex = nextBuffer.indexOf("\n\n");
+      if (separatorIndex < 0) {
+        if (flushRemainder && nextBuffer.trim().length > 0) {
+          await this.handleEventChunk(nextBuffer);
+          nextBuffer = "";
+        }
+        return { buffer: nextBuffer };
+      }
+      const chunk = nextBuffer.slice(0, separatorIndex);
+      nextBuffer = nextBuffer.slice(separatorIndex + 2);
+      await this.handleEventChunk(chunk);
+    }
+  }
+
+  private async handleEventChunk(chunk: string): Promise<void> {
+    const lines = chunk
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length > 0 && !line.startsWith(":"));
+    if (lines.length === 0) return;
+
+    let eventType = "message";
+    const dataLines: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventType = line.slice("event:".length).trim();
+        continue;
+      }
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trim());
+      }
+    }
+    if (dataLines.length === 0 || !this.onEvent) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
+      const timestamp =
+        typeof parsed.timestamp === "number" ? parsed.timestamp : Date.now();
+      const payload =
+        parsed.payload && typeof parsed.payload === "object" && !Array.isArray(parsed.payload)
+          ? parsed.payload as Record<string, unknown>
+          : {};
+      await this.onEvent({
+        type:
+          typeof parsed.type === "string" && parsed.type.trim().length > 0
+            ? parsed.type
+            : eventType,
+        timestamp,
+        payload,
+      });
+    } catch (error) {
+      this.logger.debug("Failed to parse desktop event stream payload", {
+        containerId: this.containerId,
+        error: toErrorMessage(error),
+        chunk,
+      });
+    }
+  }
+
+  private async sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted || ms <= 0) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
   }
 }
