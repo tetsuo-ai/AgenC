@@ -97,4 +97,23 @@ describe("chat-executor-recovery", () => {
       hints.some((hint) => hint.message.includes("mcp.doom.stop_game")),
     ).toBe(true);
   });
+
+  it("redirects failed raw docker shell attempts to durable sandbox handles", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "docker run node:20-slim npm test",
+      },
+      result: JSON.stringify({
+        error: "Command docker is not allowlisted on system.bash.",
+      }),
+      isError: true,
+      durationMs: 7,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system-bash-sandbox-handle");
+    expect(hint?.message).toContain("system.sandboxStart");
+    expect(hint?.message).toContain("system.sandboxJobStart");
+  });
 });

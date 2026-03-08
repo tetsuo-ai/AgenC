@@ -155,6 +155,7 @@ export function summarizeStateful(
     missing_previous_response_id: 0,
     provider_retrieval_failure: 0,
     state_reconciliation_mismatch: 0,
+    unsupported: 0,
   };
   let attemptedCalls = 0;
   let continuedCalls = 0;
@@ -383,12 +384,32 @@ export function inferRecoveryHint(
 
   if (call.name === "system.bash") {
     const command = String(call.args?.command ?? "").trim().toLowerCase();
+    if (
+      failureTextLower.includes("long-running server process") ||
+      failureTextLower.includes("background process but does not redirect") ||
+      failureTextLower.includes("should run in background to avoid hanging")
+    ) {
+      return {
+        key: "system-bash-typed-server-handle",
+        message:
+          "For local HTTP services you need to monitor, prefer `system.serverStart`, then `system.serverStatus`/`system.serverResume`, `system.serverLogs`, and `system.serverStop`. " +
+          "Use `system.process*` for non-HTTP workers and `system.bash` for one-shot commands only.",
+      };
+    }
     if (isDesktopBiasedSystemCommandFailure(command, failureTextLower)) {
       return {
         key: "system-bash-host-desktop-mismatch",
         message:
           "This command failed on `system.bash` (host shell) but appears to target desktop/container tooling. " +
           "Attach desktop (`/desktop attach`) and run it with `desktop.bash` (or `playwright.*` for browser actions).",
+      };
+    }
+    if (/(^|\s)docker(\s|$)/.test(command)) {
+      return {
+        key: "system-bash-sandbox-handle",
+        message:
+          "For durable code-execution environments, prefer `system.sandboxStart`, then `system.sandboxJobStart`/`system.sandboxJobStatus`, `system.sandboxJobLogs`, and `system.sandboxStop` " +
+          "instead of raw docker shell commands on `system.bash`.",
       };
     }
     const isBuiltin = command.length > 0 && SHELL_BUILTIN_COMMANDS.has(command);

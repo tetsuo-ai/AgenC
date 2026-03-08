@@ -5,13 +5,26 @@ interface DurableHandleIdentity {
   readonly idempotencyKey: string;
 }
 
+interface DurableHandleResourceEnvelopeExpectation {
+  readonly cpu?: number;
+  readonly memoryMb?: number;
+  readonly diskMb?: number;
+  readonly network?: "enabled" | "disabled";
+  readonly wallClockMs?: number;
+  readonly sandboxAffinity?: string;
+  readonly environmentClass?: string;
+  readonly enforcement?: "none" | "best_effort";
+}
+
 interface DurableHandleContractHarness {
   readonly family: string;
   readonly handleIdField: string;
   readonly runningState: string;
   readonly terminalState: string;
+  readonly resourceEnvelope?: DurableHandleResourceEnvelopeExpectation;
   buildStartArgs(identity: DurableHandleIdentity): Record<string, unknown>;
   buildStatusArgs(identity: Partial<DurableHandleIdentity>): Record<string, unknown>;
+  buildMissingStatusArgs(): Record<string, unknown>;
   buildStopArgs(identity: Partial<DurableHandleIdentity> & {
     readonly handleId?: string;
   }): Record<string, unknown>;
@@ -41,6 +54,22 @@ export function runDurableHandleContractSuite(
       expect(second[harness.handleIdField]).toBe(first[harness.handleIdField]);
       expect(second.reused).toBe(true);
       expect(second.state).toBe(harness.runningState);
+    });
+
+    it("persists the shared resource envelope when provided", async () => {
+      const harness = harnessFactory();
+      if (!harness.resourceEnvelope) {
+        return;
+      }
+      const identity = nextIdentity(harness.family, "resources");
+
+      const started = await harness.start(harness.buildStartArgs(identity));
+      const status = await harness.status(
+        harness.buildStatusArgs({ label: identity.label }),
+      );
+
+      expect(started.resourceEnvelope).toMatchObject(harness.resourceEnvelope);
+      expect(status.resourceEnvelope).toMatchObject(harness.resourceEnvelope);
     });
 
     it("resolves status by idempotencyKey when label differs", async () => {
@@ -78,6 +107,20 @@ export function runDurableHandleContractSuite(
       expect(firstStop.state).toBe(harness.terminalState);
       expect(secondStop[harness.handleIdField]).toBe(started[harness.handleIdField]);
       expect(secondStop.state).toBe(harness.terminalState);
+    });
+
+    it("returns a structured not_found error envelope for missing handles", async () => {
+      const harness = harnessFactory();
+      const missing = await harness.status(harness.buildMissingStatusArgs());
+      const error = (missing.error ?? {}) as { code?: unknown };
+
+      expect(missing).toMatchObject({
+        error: expect.objectContaining({
+          kind: "not_found",
+          retryable: false,
+        }),
+      });
+      expect(String(error.code ?? "")).toContain("not_found");
     });
   });
 }

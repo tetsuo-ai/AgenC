@@ -36,6 +36,26 @@ export {
 } from "./process.js";
 
 export {
+  createServerTools,
+  SystemServerManager,
+} from "./server.js";
+
+export {
+  createRemoteJobTools,
+  SystemRemoteJobManager,
+} from "./remote-job.js";
+
+export {
+  createResearchTools,
+  SystemResearchManager,
+} from "./research.js";
+
+export {
+  createSandboxTools,
+  SystemSandboxManager,
+} from "./sandbox-handle.js";
+
+export {
   type BashToolConfig,
   type BashToolInput,
   type BashExecutionResult,
@@ -46,4 +66,9 @@ export {
   DEFAULT_MAX_OUTPUT_BYTES,
   DANGEROUS_SHELL_PATTERNS,
   type SystemProcessToolConfig,
+  type SystemServerToolConfig,
+  type SystemRemoteJobToolConfig,
+  type SystemResearchToolConfig,
+  type SystemSandboxToolConfig,
+  type SystemSandboxWorkspaceAccessMode,
 } from "./types.js";

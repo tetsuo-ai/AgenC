@@ -29,12 +29,17 @@ function makeTool(name: string): Tool {
 }
 
 describe("tool-environment-policy", () => {
-  it("treats all system.* tools as host-only in desktop mode", () => {
+  it("keeps only structured durable host handles available in desktop mode", () => {
     expect(isToolAllowedForEnvironment("system.bash", "desktop")).toBe(false);
     expect(isToolAllowedForEnvironment("system.open", "desktop")).toBe(false);
+    expect(isToolAllowedForEnvironment("system.processStart", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.serverStart", "desktop")).toBe(true);
     expect(
       isToolAllowedForEnvironment("system.browserSessionStart", "desktop"),
-    ).toBe(false);
+    ).toBe(true);
+    expect(isToolAllowedForEnvironment("system.remoteJobStart", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.researchStart", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.sandboxStart", "desktop")).toBe(true);
     expect(isToolAllowedForEnvironment("execute_with_agent", "desktop")).toBe(
       true,
     );
@@ -50,12 +55,14 @@ describe("tool-environment-policy", () => {
   it("filters llm tools for desktop-only mode", () => {
     const filtered = filterLlmToolsByEnvironment([
       makeLlmTool("system.bash"),
+      makeLlmTool("system.sandboxStart"),
       makeLlmTool("desktop.bash"),
       makeLlmTool("playwright.browser_navigate"),
       makeLlmTool("execute_with_agent"),
     ], "desktop");
 
     expect(filtered.map((tool) => tool.function.name)).toEqual([
+      "system.sandboxStart",
       "desktop.bash",
       "playwright.browser_navigate",
       "execute_with_agent",
@@ -80,11 +87,13 @@ describe("tool-environment-policy", () => {
     expect(
       filterToolNamesByEnvironment([
         "system.bash",
+        "system.sandboxStart",
         "desktop.bash",
         "mcp.browser.browser_snapshot",
         "execute_with_agent",
       ], "desktop"),
     ).toEqual([
+      "system.sandboxStart",
       "desktop.bash",
       "mcp.browser.browser_snapshot",
       "execute_with_agent",

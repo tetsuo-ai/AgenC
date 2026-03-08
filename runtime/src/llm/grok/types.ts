@@ -4,32 +4,12 @@
  * @module
  */
 
-import type { LLMProviderConfig } from "../types.js";
+import type {
+  LLMProviderConfig,
+  LLMStatefulResponsesConfig,
+} from "../types.js";
 
-export interface GrokStatefulResponsesConfig {
-  /** Enable session-scoped stateful continuation via `previous_response_id`. */
-  enabled?: boolean;
-  /** Explicit `store` value for Responses API calls while stateful mode is enabled. */
-  store?: boolean;
-  /** Retry once without `previous_response_id` on continuation failures. */
-  fallbackToStateless?: boolean;
-  /** Number of recent normalized turns used for reconciliation hashing. */
-  reconciliationWindow?: number;
-  /**
-   * Optional server-side Responses API compaction.
-   *
-   * When enabled, the adapter requests provider-native context management and
-   * falls back deterministically if the provider rejects the request shape.
-   */
-  compaction?: {
-    /** Enable server-side compaction on provider calls. */
-    enabled?: boolean;
-    /** Rendered-token threshold passed as `context_management.compact_threshold`. */
-    compactThreshold?: number;
-    /** Retry once without compaction if the provider rejects the field. */
-    fallbackOnUnsupported?: boolean;
-  };
-}
+export interface GrokStatefulResponsesConfig extends LLMStatefulResponsesConfig {}
 
 /**
  * Configuration specific to the Grok (xAI) provider.

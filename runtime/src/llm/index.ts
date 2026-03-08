@@ -18,10 +18,12 @@ export type {
   LLMCompactionDiagnostics,
   LLMCompactionFallbackReason,
   LLMCompactionItemRef,
+  LLMProviderCapabilities,
   LLMStatefulDiagnostics,
   LLMStatefulEvent,
   LLMStatefulEventType,
   LLMStatefulFallbackReason,
+  LLMStatefulResponsesConfig,
   LLMResponse,
   LLMStreamChunk,
   LLMTool,
@@ -32,6 +34,15 @@ export type {
   ToolHandler,
 } from "./types.js";
 export { validateToolCall } from "./types.js";
+export {
+  resolveLLMStatefulResponsesConfig,
+  buildUnsupportedCompactionDiagnostics,
+  buildUnsupportedStatefulDiagnostics,
+} from "./provider-capabilities.js";
+export type {
+  ResolvedLLMCompactionConfig,
+  ResolvedLLMStatefulResponsesConfig,
+} from "./provider-capabilities.js";
 
 // Error classes
 export {

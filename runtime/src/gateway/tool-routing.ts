@@ -105,6 +105,7 @@ const PROCESS_TERMS = new Set([
 const PROCESS_START_TOOL_NAMES = new Set([
   "desktop.process_start",
   "system.processStart",
+  "system.serverStart",
 ]);
 
 const PROCESS_STATUS_TOOL_NAMES = new Set([
@@ -112,11 +113,15 @@ const PROCESS_STATUS_TOOL_NAMES = new Set([
   "system.processStatus",
   "system.processResume",
   "system.processLogs",
+  "system.serverStatus",
+  "system.serverResume",
+  "system.serverLogs",
 ]);
 
 const PROCESS_STOP_TOOL_NAMES = new Set([
   "desktop.process_stop",
   "system.processStop",
+  "system.serverStop",
 ]);
 
 const PROCESS_START_TERMS = new Set([
@@ -137,6 +142,8 @@ const PROCESS_STATUS_TERMS = new Set([
   "monitor",
   "output",
   "pid",
+  "readiness",
+  "ready",
   "running",
   "state",
   "status",
@@ -149,6 +156,86 @@ const PROCESS_STOP_TERMS = new Set([
   "quit",
   "stop",
   "terminate",
+]);
+
+const SERVER_TOOL_NAMES = new Set([
+  "system.serverStart",
+  "system.serverStatus",
+  "system.serverResume",
+  "system.serverStop",
+  "system.serverLogs",
+]);
+
+const REMOTE_JOB_TOOL_NAMES = new Set([
+  "system.remoteJobStart",
+  "system.remoteJobStatus",
+  "system.remoteJobResume",
+  "system.remoteJobCancel",
+  "system.remoteJobArtifacts",
+]);
+
+const RESEARCH_TOOL_NAMES = new Set([
+  "system.researchStart",
+  "system.researchStatus",
+  "system.researchResume",
+  "system.researchUpdate",
+  "system.researchComplete",
+  "system.researchBlock",
+  "system.researchArtifacts",
+  "system.researchStop",
+]);
+
+const SANDBOX_TOOL_NAMES = new Set([
+  "system.sandboxStart",
+  "system.sandboxStatus",
+  "system.sandboxResume",
+  "system.sandboxStop",
+  "system.sandboxJobStart",
+  "system.sandboxJobStatus",
+  "system.sandboxJobResume",
+  "system.sandboxJobStop",
+  "system.sandboxJobLogs",
+]);
+
+const REMOTE_JOB_TERMS = new Set([
+  "callback",
+  "callbacks",
+  "job",
+  "jobs",
+  "mcp",
+  "poll",
+  "polling",
+  "remote",
+  "server",
+  "webhook",
+]);
+
+const RESEARCH_TERMS = new Set([
+  "analysis",
+  "artifact",
+  "artifacts",
+  "citation",
+  "citations",
+  "notes",
+  "report",
+  "research",
+  "resume",
+  "source",
+  "sources",
+  "summary",
+  "verify",
+  "verifier",
+]);
+
+const SANDBOX_TERMS = new Set([
+  "container",
+  "docker",
+  "environment",
+  "execution",
+  "exec",
+  "isolated",
+  "sandbox",
+  "workspace",
 ]);
 
 const DOOM_TERMS = new Set([
@@ -788,9 +875,35 @@ export class ToolRouter {
     const wantsProcessStart = intentTerms.some((term) => PROCESS_START_TERMS.has(term));
     const wantsProcessStatus = intentTerms.some((term) => PROCESS_STATUS_TERMS.has(term));
     const wantsProcessStop = intentTerms.some((term) => PROCESS_STOP_TERMS.has(term));
+    const wantsBackgroundWorkflow = intentTerms.includes("background");
+    const hasRemoteJobIntent = intentTerms.some((term) => REMOTE_JOB_TERMS.has(term));
+    const hasResearchIntent = intentTerms.some((term) => RESEARCH_TERMS.has(term));
+    const hasSandboxIntent = intentTerms.some((term) => SANDBOX_TERMS.has(term));
+    const wantsTypedServer =
+      explicitToolMentions.has("system.serverStart") ||
+      (
+        (intentTerms.includes("server") || intentTerms.includes("service")) &&
+        (
+          intentTerms.includes("health") ||
+          intentTerms.includes("ready") ||
+          intentTerms.includes("readiness") ||
+          intentTerms.includes("http") ||
+          intentTerms.includes("localhost") ||
+          intentTerms.includes("local")
+        )
+      );
+    const prefersDesktopProcessHandles =
+      wantsBackgroundWorkflow &&
+      !wantsTypedServer &&
+      !explicitToolMentions.has("system.processStart") &&
+      !explicitToolMentions.has("system.serverStart");
     const hasDoomIntent = intentTerms.some((term) => DOOM_TERMS.has(term));
     const wantsDoomStop = hasDoomIntent && wantsProcessStop;
     const hasBrowserIntent = intentTerms.some((term) => BROWSER_TERMS.has(term));
+    const wantsResearchHandles =
+      hasResearchIntent &&
+      !hasBrowserIntent &&
+      !hasRemoteJobIntent;
     const hasFileIntent = intentTerms.some((term) => FILE_TERMS.has(term));
     const hasNetworkIntent = intentTerms.some((term) => NETWORK_TERMS.has(term));
     const hasMCPIntent = intentTerms.some((term) => MCP_TERMS.has(term));
@@ -817,10 +930,42 @@ export class ToolRouter {
         hasProcessIntent &&
         (
           tool.name.startsWith("desktop.process_") ||
-          tool.name.startsWith("system.process")
+          tool.name.startsWith("system.process") ||
+          tool.name.startsWith("system.server")
         )
       ) {
         score += 10;
+      }
+      if (wantsTypedServer && SERVER_TOOL_NAMES.has(tool.name)) {
+        score += 14;
+      }
+      if (hasRemoteJobIntent && REMOTE_JOB_TOOL_NAMES.has(tool.name)) {
+        score += 14;
+      }
+      if (wantsResearchHandles && RESEARCH_TOOL_NAMES.has(tool.name)) {
+        score += 14;
+      }
+      if (hasSandboxIntent && SANDBOX_TOOL_NAMES.has(tool.name)) {
+        score += 18;
+      } else if (
+        hasSandboxIntent &&
+        (
+          tool.name.startsWith("system.process") ||
+          tool.name.startsWith("system.server") ||
+          tool.name.startsWith("desktop.process_")
+        )
+      ) {
+        score -= 6;
+      }
+      if (prefersDesktopProcessHandles) {
+        if (tool.name.startsWith("desktop.process_")) {
+          score += 18;
+        } else if (
+          tool.name.startsWith("system.server") ||
+          tool.name.startsWith("system.process")
+        ) {
+          score -= 6;
+        }
       }
       if (wantsProcessStart && PROCESS_START_TOOL_NAMES.has(tool.name)) {
         score += 12;

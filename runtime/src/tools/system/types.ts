@@ -64,8 +64,96 @@ export interface SystemProcessToolConfig {
   readonly defaultLogTailBytes?: number;
   /** Maximum recent-log bytes allowed per call. */
   readonly maxLogTailBytes?: number;
+  /** Default bounded settle window when waiting for fresh output from fast jobs. */
+  readonly defaultLogSettleMs?: number;
+  /** Maximum settle window allowed per call when waiting for fresh output. */
+  readonly maxLogSettleMs?: number;
   /** Default graceful stop wait window in milliseconds. */
   readonly defaultStopWaitMs?: number;
+  /** Logger for lifecycle and failure events. */
+  readonly logger?: Logger;
+  /** Time source override used by tests. */
+  readonly now?: () => number;
+}
+
+/**
+ * Configuration for durable host-managed server tools.
+ */
+export interface SystemServerToolConfig extends SystemProcessToolConfig {
+  /** Durable registry root for structured server handles. */
+  readonly rootDir?: string;
+  /** Default readiness timeout in milliseconds. */
+  readonly defaultReadinessTimeoutMs?: number;
+  /** Health probe request timeout in milliseconds. */
+  readonly healthTimeoutMs?: number;
+  /** Optional external allowlist for non-loopback health URLs. */
+  readonly allowedDomains?: readonly string[];
+  /** Optional external blocklist for non-loopback health URLs. */
+  readonly blockedDomains?: readonly string[];
+}
+
+/**
+ * Configuration for durable remote MCP job handle tools.
+ */
+export interface SystemRemoteJobToolConfig {
+  /** Durable registry root for remote job handles. */
+  readonly rootDir?: string;
+  /** Optional externally reachable callback base URL. */
+  readonly callbackBaseUrl?: string;
+  /** Polling timeout in milliseconds for remote status/cancel HTTP calls. */
+  readonly defaultPollTimeoutMs?: number;
+  /** Optional external allowlist for remote polling/cancel URLs. */
+  readonly allowedDomains?: readonly string[];
+  /** Optional external blocklist for remote polling/cancel URLs. */
+  readonly blockedDomains?: readonly string[];
+  /** Logger for lifecycle and failure events. */
+  readonly logger?: Logger;
+  /** Time source override used by tests. */
+  readonly now?: () => number;
+}
+
+/**
+ * Configuration for durable research handle tools.
+ */
+export interface SystemResearchToolConfig {
+  /** Durable registry root for research handles. */
+  readonly rootDir?: string;
+  /** Logger for lifecycle and failure events. */
+  readonly logger?: Logger;
+  /** Time source override used by tests. */
+  readonly now?: () => number;
+}
+
+export type SystemSandboxWorkspaceAccessMode = "none" | "readonly" | "readwrite";
+
+/**
+ * Configuration for durable code sandbox handle tools.
+ */
+export interface SystemSandboxToolConfig {
+  /** Durable registry root for sandbox handles. */
+  readonly rootDir?: string;
+  /** Default Docker image for sandbox environments. */
+  readonly defaultImage?: string;
+  /** Optional allowlist of Docker images permitted for sandbox creation. */
+  readonly allowedImages?: readonly string[];
+  /** Host workspace path mounted into sandboxes when access is enabled. */
+  readonly workspacePath?: string;
+  /** Default workspace mount mode. */
+  readonly defaultWorkspaceAccess?: SystemSandboxWorkspaceAccessMode;
+  /** Default network policy for sandboxes. */
+  readonly defaultNetworkAccess?: boolean;
+  /** Default graceful-stop wait window for sandbox jobs. */
+  readonly defaultStopWaitMs?: number;
+  /** Default recent-log bytes returned by sandbox job status/log calls. */
+  readonly defaultLogTailBytes?: number;
+  /** Maximum recent-log bytes allowed per sandbox job status/log call. */
+  readonly maxLogTailBytes?: number;
+  /** Default bounded settle window when sandbox job log inspection should wait for fresh output. */
+  readonly defaultLogSettleMs?: number;
+  /** Maximum settle window allowed per sandbox job status/log call. */
+  readonly maxLogSettleMs?: number;
+  /** Docker daemon command timeout in milliseconds. */
+  readonly dockerTimeoutMs?: number;
   /** Logger for lifecycle and failure events. */
   readonly logger?: Logger;
   /** Time source override used by tests. */
