@@ -309,11 +309,14 @@ export class HookDispatcher {
 // ============================================================================
 
 /**
- * Create stub HookHandlers for the built-in gateway hooks.
+ * Create the built-in gateway HookHandlers.
  *
- * These are no-op stubs that will be replaced with real implementations
- * as their respective systems are built (memory recorder in Phase 5,
- * audit logger in Phase 5, boot executor in Phase 2, approval gate in Phase 5).
+ * - **tool-audit-logger** (`tool:after`, priority 90): logs every tool
+ *   invocation with session, tool name, call ID, and duration.
+ * - **boot-executor** (`gateway:startup`, priority 10): no-op stub —
+ *   will run boot-time recovery tasks once implemented (Phase 2).
+ * - **approval-gate** (`tool:before`, priority 5): no-op stub — will
+ *   enforce approval policies once implemented (Phase 5).
  */
 export function createBuiltinHooks(): HookHandler[] {
   return [
@@ -321,7 +324,18 @@ export function createBuiltinHooks(): HookHandler[] {
       event: "tool:after",
       name: "tool-audit-logger",
       priority: 90,
-      handler: async () => ({ continue: true }),
+      handler: async (ctx: HookContext) => {
+        const { sessionId, toolName, durationMs, toolCallId } = ctx.payload as {
+          sessionId?: string;
+          toolName?: string;
+          durationMs?: number;
+          toolCallId?: string;
+        };
+        ctx.logger.info(
+          `[audit] tool:after session=${sessionId ?? "unknown"} tool=${toolName ?? "unknown"} callId=${toolCallId ?? "unknown"} durationMs=${durationMs ?? 0}`,
+        );
+        return { continue: true };
+      },
     },
     {
       event: "gateway:startup",

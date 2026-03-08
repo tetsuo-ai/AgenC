@@ -511,7 +511,7 @@ describe("HookDispatcher", () => {
       expect(gate!.priority).toBe(5);
     });
 
-    it("all built-in hooks are no-op stubs that continue", async () => {
+    it("all built-in hooks continue the chain", async () => {
       const hooks = createBuiltinHooks();
 
       for (const hook of hooks) {
@@ -523,6 +523,48 @@ describe("HookDispatcher", () => {
         });
         expect(result.continue).toBe(true);
       }
+    });
+
+    it("tool-audit-logger logs tool invocation details", async () => {
+      const hooks = createBuiltinHooks();
+      const logger = hooks.find((h) => h.name === "tool-audit-logger")!;
+      const infoSpy = vi.fn();
+
+      const result = await logger.handler({
+        event: "tool:after",
+        payload: {
+          sessionId: "sess-123",
+          toolName: "bash",
+          durationMs: 42,
+          toolCallId: "call-456",
+        },
+        logger: { ...silentLogger, info: infoSpy },
+        timestamp: Date.now(),
+      });
+
+      expect(result.continue).toBe(true);
+      expect(infoSpy).toHaveBeenCalledOnce();
+      expect(infoSpy.mock.calls[0][0]).toContain("sess-123");
+      expect(infoSpy.mock.calls[0][0]).toContain("bash");
+      expect(infoSpy.mock.calls[0][0]).toContain("call-456");
+      expect(infoSpy.mock.calls[0][0]).toContain("42");
+    });
+
+    it("tool-audit-logger handles missing payload fields gracefully", async () => {
+      const hooks = createBuiltinHooks();
+      const logger = hooks.find((h) => h.name === "tool-audit-logger")!;
+      const infoSpy = vi.fn();
+
+      const result = await logger.handler({
+        event: "tool:after",
+        payload: {},
+        logger: { ...silentLogger, info: infoSpy },
+        timestamp: Date.now(),
+      });
+
+      expect(result.continue).toBe(true);
+      expect(infoSpy).toHaveBeenCalledOnce();
+      expect(infoSpy.mock.calls[0][0]).toContain("unknown");
     });
 
     it("can be registered on a dispatcher", () => {
