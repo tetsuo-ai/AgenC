@@ -12,6 +12,7 @@ import type { ChannelContext } from "../../gateway/channel.js";
 import type { ControlMessage, ControlResponse } from "../../gateway/types.js";
 import { silentLogger } from "../../utils/logger.js";
 import { InMemoryBackend } from "../../memory/in-memory/backend.js";
+import { WebChatSessionStore } from "./session-store.js";
 
 // ============================================================================
 // Test helpers
@@ -28,6 +29,37 @@ function createDeps(overrides?: Partial<WebChatDeps>): WebChatDeps {
         channels: ["webchat", "telegram"],
         activeSessions: 2,
         controlPlanePort: 9100,
+        backgroundRuns: {
+          activeTotal: 1,
+          queuedSignalsTotal: 2,
+          stateCounts: {
+            pending: 0,
+            running: 0,
+            working: 1,
+            blocked: 0,
+            paused: 0,
+            completed: 0,
+            failed: 0,
+            cancelled: 0,
+            suspended: 0,
+          },
+          recentAlerts: [],
+          metrics: {
+            startedTotal: 1,
+            completedTotal: 0,
+            failedTotal: 0,
+            blockedTotal: 0,
+            recoveredTotal: 0,
+            meanLatencyMs: 12,
+            meanTimeToFirstAckMs: 2,
+            meanTimeToFirstVerifiedUpdateMs: 5,
+            falseCompletionRate: 0,
+            blockedWithoutNoticeRate: 0,
+            meanStopLatencyMs: 1,
+            recoverySuccessRate: 1,
+            verifierAccuracyRate: 1,
+          },
+        },
       }),
       config: { agent: { name: "test-agent" } },
     },
@@ -151,6 +183,103 @@ describe("WebChatChannel", () => {
       expect(gatewayMsg.content).toBe("Hello agent!");
       expect(gatewayMsg.senderId).toBe("client_1");
       expect(gatewayMsg.scope).toBe("dm");
+    });
+
+    it("should forward and persist policy context for the session", async () => {
+      const memoryBackend = new InMemoryBackend();
+      deps = createDeps({ memoryBackend });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", {
+          content: "hello tenant",
+          clientKey: "browser-tenant",
+          policyContext: {
+            tenantId: "tenant-a",
+            projectId: "project-x",
+          },
+        }),
+        send,
+      );
+
+      expect(context.onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: {
+            policyContext: {
+              tenantId: "tenant-a",
+              projectId: "project-x",
+            },
+          },
+        }),
+      );
+
+      const sessionId = vi
+        .mocked(context.onMessage)
+        .mock.calls[0]?.[0]?.sessionId as string;
+      const store = new WebChatSessionStore({ memoryBackend });
+      await vi.waitFor(async () => {
+        expect(await store.loadSession(sessionId)).toMatchObject({
+          metadata: {
+            policyContext: {
+              tenantId: "tenant-a",
+              projectId: "project-x",
+            },
+          },
+        });
+      });
+
+      const resumedContext = createContext();
+      const resumedChannel = new WebChatChannel(createDeps({ memoryBackend }));
+      await resumedChannel.initialize(resumedContext);
+      await resumedChannel.start();
+      const resumedSend = vi.fn<(response: ControlResponse) => void>();
+
+      resumedChannel.handleMessage(
+        "client_2",
+        "chat.resume",
+        msg("chat.resume", {
+          sessionId,
+          clientKey: "browser-tenant",
+        }),
+        resumedSend,
+      );
+      await vi.waitFor(() =>
+        expect(resumedSend).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "chat.resumed",
+            payload: expect.objectContaining({ sessionId }),
+          }),
+        ),
+      );
+
+      resumedChannel.handleMessage(
+        "client_2",
+        "chat.message",
+        msg("chat.message", {
+          content: "follow up",
+          clientKey: "browser-tenant",
+        }),
+        resumedSend,
+      );
+
+      await vi.waitFor(() =>
+        expect(resumedContext.onMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            metadata: {
+              policyContext: {
+                tenantId: "tenant-a",
+                projectId: "project-x",
+              },
+            },
+          }),
+        ),
+      );
     });
 
     it("should reject empty content", () => {
@@ -860,6 +989,106 @@ describe("WebChatChannel", () => {
             payload: [expect.objectContaining({ id: sessionId1 })],
           }),
         ),
+      );
+    });
+
+    it("should handle policy.simulate against the active owned session", async () => {
+      const policyPreview = vi.fn(async () => ({
+        toolName: "system.delete",
+        sessionId: "session-override",
+        policy: {
+          allowed: false,
+          mode: "normal",
+          violations: [{ code: "tool_denied", message: "Tool is denied" }],
+        },
+        approval: {
+          required: true,
+          elevated: false,
+          denied: false,
+        },
+      }));
+      deps = createDeps({ policyPreview });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      const sessionId = openChatSession(channel, context, "client_1", send, "hello");
+
+      channel.handleMessage(
+        "client_1",
+        "policy.simulate",
+        msg(
+          "policy.simulate",
+          { toolName: "system.delete", args: { target: "/tmp/file" } },
+          "req-policy-sim",
+        ),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "policy.simulate",
+            id: "req-policy-sim",
+            payload: expect.objectContaining({
+              toolName: "system.delete",
+              sessionId: "session-override",
+            }),
+          }),
+        ),
+      );
+      expect(policyPreview).toHaveBeenCalledWith({
+        sessionId,
+        toolName: "system.delete",
+        args: { target: "/tmp/file" },
+      });
+    });
+
+    it("should handle approval.respond with resolver identity derived from the web client", async () => {
+      const approvalEngine = {
+        resolve: vi.fn(async () => true),
+      } as unknown as NonNullable<WebChatDeps["approvalEngine"]>;
+      deps = createDeps({ approvalEngine });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      const sessionId = openChatSession(channel, context, "client_1", send, "hello");
+
+      channel.handleMessage(
+        "client_1",
+        "approval.respond",
+        msg(
+          "approval.respond",
+          { requestId: "req-1", approved: true },
+          "req-approval-respond",
+        ),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "approval.respond",
+            id: "req-approval-respond",
+            payload: { requestId: "req-1", approved: true, acknowledged: true },
+          }),
+        ),
+      );
+      expect(approvalEngine.resolve).toHaveBeenCalledWith(
+        "req-1",
+        expect.objectContaining({
+          approvedBy: "volatile:client_1",
+          resolver: expect.objectContaining({
+            actorId: "volatile:client_1",
+            sessionId,
+            channel: "webchat",
+          }),
+        }),
       );
     });
 

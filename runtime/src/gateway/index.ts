@@ -16,6 +16,9 @@ export type {
   GatewayTelemetryConfig,
   GatewayState,
   GatewayStatus,
+  GatewayBackgroundRunAlert,
+  GatewayBackgroundRunMetrics,
+  GatewayBackgroundRunStatus,
   GatewayEvent,
   GatewayEventHandler,
   GatewayEventSubscription,
@@ -247,9 +250,13 @@ export type {
   ElevatedModeConfig,
   ApprovalRequest,
   ApprovalResponse,
+  ApprovalResolverIdentity,
   ApprovalDisposition,
+  ApprovalEscalation,
   ApprovalEngineConfig,
+  ApprovalRequestHandler,
   ApprovalResponseHandler,
+  ApprovalEscalationHandler,
 } from "./approvals.js";
 
 export {

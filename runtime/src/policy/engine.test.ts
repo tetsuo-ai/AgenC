@@ -175,4 +175,306 @@ describe("PolicyEngine", () => {
       }),
     ).toThrow(PolicyViolationError);
   });
+
+  it("enforces tenant bundle tool denials", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        tenantBundles: {
+          tenant_a: {
+            enabled: true,
+            toolDenyList: ["system.processStart"],
+          },
+        },
+      },
+    });
+
+    const decision = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+      scope: { tenantId: "tenant_a" },
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.violations[0].code).toBe("tool_denied");
+  });
+
+  it("enforces run-scoped action budgets", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        scopedActionBudgets: {
+          run: {
+            "tool_call:*": {
+              limit: 1,
+              windowMs: 60_000,
+            },
+          },
+        },
+      },
+    });
+
+    const first = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+      scope: { runId: "run-1" },
+    });
+    const second = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+      scope: { runId: "run-1" },
+    });
+    const isolatedRun = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+      scope: { runId: "run-2" },
+    });
+
+    expect(first.allowed).toBe(true);
+    expect(second.allowed).toBe(false);
+    expect(second.violations[0].details).toMatchObject({ scope: "run" });
+    expect(isolatedRun.allowed).toBe(true);
+  });
+
+  it("simulate does not consume action budgets", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        actionBudgets: {
+          "tool_call:*": {
+            limit: 1,
+            windowMs: 60_000,
+          },
+        },
+      },
+    });
+
+    const simulated = engine.simulate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+    });
+    const firstReal = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+    });
+    const secondReal = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+    });
+
+    expect(simulated.allowed).toBe(true);
+    expect(firstReal.allowed).toBe(true);
+    expect(secondReal.allowed).toBe(false);
+  });
+
+  it("enforces rolling token budgets without consuming them in simulate mode", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        tokenBudget: {
+          limitTokens: 10,
+          windowMs: 60_000,
+        },
+      },
+    });
+
+    const simulated = engine.simulate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+      tokenCount: 9,
+    });
+    const first = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+      tokenCount: 9,
+    });
+    const second = engine.evaluate({
+      type: "tool_call",
+      name: "system.processStart",
+      access: "write",
+      tokenCount: 2,
+    });
+
+    expect(simulated.allowed).toBe(true);
+    expect(first.allowed).toBe(true);
+    expect(second.allowed).toBe(false);
+    expect(second.violations[0].code).toBe("token_budget_exceeded");
+  });
+
+  it("enforces run-scoped runtime budgets", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        scopedRuntimeBudgets: {
+          run: {
+            maxElapsedMs: 5_000,
+          },
+        },
+      },
+    });
+
+    const allowed = engine.evaluate({
+      type: "task_execution",
+      name: "background_run.supervision",
+      access: "write",
+      scope: { runId: "run-1" },
+      elapsedRuntimeMs: 4_000,
+      elapsedRuntimeMsByScope: { run: 4_000 },
+    });
+    const denied = engine.evaluate({
+      type: "task_execution",
+      name: "background_run.supervision",
+      access: "write",
+      scope: { runId: "run-1" },
+      elapsedRuntimeMs: 6_000,
+      elapsedRuntimeMsByScope: { run: 6_000 },
+    });
+
+    expect(allowed.allowed).toBe(true);
+    expect(denied.allowed).toBe(false);
+    expect(denied.violations[0].code).toBe("runtime_budget_exceeded");
+    expect(denied.violations[0].details).toMatchObject({ scope: "run" });
+  });
+
+  it("enforces scoped process budgets from per-scope process counts", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        scopedProcessBudgets: {
+          tenant: {
+            maxConcurrent: 1,
+          },
+        },
+      },
+    });
+
+    const decision = engine.evaluate({
+      type: "task_execution",
+      name: "background_run.supervision",
+      access: "write",
+      scope: { tenantId: "tenant-a", runId: "run-1" },
+      processCount: 3,
+      processCountByScope: {
+        global: 3,
+        tenant: 2,
+        run: 1,
+      },
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.violations[0].code).toBe("process_budget_exceeded");
+    expect(decision.violations[0].details).toMatchObject({
+      scope: "tenant",
+      observedConcurrent: 2,
+      maxConcurrent: 1,
+    });
+  });
+
+  it("blocks denied policy classes", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        policyClassRules: {
+          credential_secret_access: {
+            deny: true,
+          },
+        },
+      },
+    });
+
+    const decision = engine.evaluate({
+      type: "tool_call",
+      name: "system.bash",
+      access: "write",
+      policyClass: "credential_secret_access",
+      riskScore: 0.9,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.violations[0].code).toBe("policy_class_denied");
+  });
+
+  it("enforces network host allow-lists", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        networkAccess: {
+          allowHosts: ["api.example.com"],
+        },
+      },
+    });
+
+    const allowed = engine.evaluate({
+      type: "tool_call",
+      name: "system.httpGet",
+      access: "write",
+      metadata: {
+        networkHosts: ["api.example.com"],
+      },
+    });
+    const denied = engine.evaluate({
+      type: "tool_call",
+      name: "system.httpGet",
+      access: "write",
+      metadata: {
+        networkHosts: ["evil.example.com"],
+      },
+    });
+
+    expect(allowed.allowed).toBe(true);
+    expect(denied.allowed).toBe(false);
+    expect(denied.violations[0].code).toBe("network_access_denied");
+  });
+
+  it("enforces absolute write-scope roots", () => {
+    const engine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        writeScope: {
+          allowRoots: ["/srv/workspace"],
+          denyRoots: ["/srv/workspace/secrets"],
+        },
+      },
+    });
+
+    const allowed = engine.evaluate({
+      type: "tool_call",
+      name: "system.writeFile",
+      access: "write",
+      metadata: {
+        writePaths: ["/srv/workspace/output.txt"],
+      },
+    });
+    const denied = engine.evaluate({
+      type: "tool_call",
+      name: "system.writeFile",
+      access: "write",
+      metadata: {
+        writePaths: ["/srv/workspace/secrets/token.txt"],
+      },
+    });
+    const relative = engine.evaluate({
+      type: "tool_call",
+      name: "system.writeFile",
+      access: "write",
+      metadata: {
+        writePaths: ["relative/output.txt"],
+      },
+    });
+
+    expect(allowed.allowed).toBe(true);
+    expect(denied.allowed).toBe(false);
+    expect(denied.violations[0].code).toBe("write_scope_denied");
+    expect(relative.allowed).toBe(false);
+    expect(relative.violations[0].code).toBe("write_scope_denied");
+  });
 });

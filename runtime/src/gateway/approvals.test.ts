@@ -6,10 +6,12 @@ import {
   createApprovalGateHook,
   DEFAULT_APPROVAL_RULES,
 } from './approvals.js';
+import { buildMCPApprovalRules } from '../policy/mcp-governance.js';
 import type {
   ApprovalRule,
   ApprovalRequest,
   ApprovalResponse,
+  ApprovalEscalation,
 } from './approvals.js';
 import type { HookContext } from './hooks.js';
 import { silentLogger } from '../utils/logger.js';
@@ -121,6 +123,8 @@ describe('ApprovalEngine', () => {
     engine = new ApprovalEngine({
       rules: DEFAULT_APPROVAL_RULES,
       timeoutMs: 100,
+      defaultSlaMs: 50,
+      defaultEscalationDelayMs: 25,
       now: () => 1000,
       generateId: () => `req-${++idSeq}`,
     });
@@ -206,6 +210,26 @@ describe('ApprovalEngine', () => {
       expect(rule!.description).toBe('first');
     });
 
+    it("requires approval for untrusted MCP tools even without explicit per-tool rules", () => {
+      const eng = new ApprovalEngine({
+        rules: [
+          ...DEFAULT_APPROVAL_RULES,
+          ...buildMCPApprovalRules([
+            {
+              name: "danger",
+              command: "npx",
+              args: ["-y", "@pkg/danger@1.2.3"],
+              trustTier: "untrusted",
+              container: "desktop",
+            },
+          ]),
+        ],
+        generateId: () => "x",
+      });
+
+      expect(eng.requiresApproval("mcp.danger.delete_everything", {})).not.toBeNull();
+    });
+
     it('requires both minAmount AND argPatterns to pass', () => {
       const eng = new ApprovalEngine({
         rules: [
@@ -240,7 +264,7 @@ describe('ApprovalEngine', () => {
       const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
       const promise = engine.requestApproval(req);
-      engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
+      await engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
 
       const response = await promise;
       expect(response.disposition).toBe('yes');
@@ -251,7 +275,7 @@ describe('ApprovalEngine', () => {
       const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
       const promise = engine.requestApproval(req);
-      engine.resolve(req.id, { requestId: req.id, disposition: 'no' });
+      await engine.resolve(req.id, { requestId: req.id, disposition: 'no' });
 
       const response = await promise;
       expect(response.disposition).toBe('no');
@@ -279,20 +303,62 @@ describe('ApprovalEngine', () => {
       }
     });
 
+    it('emits request and escalation notifications before timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        const onRequest = vi.fn();
+        const onEscalation = vi.fn();
+        const eng = new ApprovalEngine({
+          rules: [{ tool: 'system.delete', slaMs: 25, escalationDelayMs: 25 }],
+          timeoutMs: 100,
+          now: () => Date.now(),
+          generateId: () => 'req-escalate',
+        });
+        eng.onRequest(onRequest);
+        eng.onEscalation(onEscalation);
+        const rule = eng.requiresApproval('system.delete', {})!;
+        const req = eng.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
+
+        const promise = eng.requestApproval(req);
+        expect(onRequest).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'req-escalate' }),
+        );
+
+        vi.advanceTimersByTime(25);
+        expect(onEscalation).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'req-escalate' }),
+          expect.objectContaining({
+            requestId: 'req-escalate',
+            toolName: 'system.delete',
+            escalateToSessionId: 'sess-1',
+          } satisfies Partial<ApprovalEscalation>),
+        );
+
+        await eng.resolve(req.id, { requestId: req.id, disposition: 'yes' });
+        await promise;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('always disposition elevates the session', async () => {
       const rule = DEFAULT_APPROVAL_RULES[0]; // system.delete
       const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
 
       const promise = engine.requestApproval(req);
-      engine.resolve(req.id, { requestId: req.id, disposition: 'always' });
+      await engine.resolve(req.id, { requestId: req.id, disposition: 'always' });
 
       await promise;
       expect(engine.isToolElevated('sess-1', 'system.delete')).toBe(true);
     });
 
-    it('resolve of nonexistent request is a no-op', () => {
-      // Should not throw
-      engine.resolve('nonexistent', { requestId: 'nonexistent', disposition: 'yes' });
+    it('resolve of nonexistent request is a no-op', async () => {
+      await expect(
+        engine.resolve('nonexistent', {
+          requestId: 'nonexistent',
+          disposition: 'yes',
+        }),
+      ).resolves.toBe(false);
     });
   });
 
@@ -310,10 +376,19 @@ describe('ApprovalEngine', () => {
 
       const promise = engine.requestApproval(req);
       const response: ApprovalResponse = { requestId: req.id, disposition: 'yes' };
-      engine.resolve(req.id, response);
+      await engine.resolve(req.id, response);
       await promise;
 
-      expect(handler).toHaveBeenCalledWith(req, response);
+      expect(handler).toHaveBeenCalledWith(
+        req,
+        expect.objectContaining({
+          requestId: req.id,
+          disposition: 'yes',
+          resolver: expect.objectContaining({
+            resolvedAt: 1000,
+          }),
+        }),
+      );
     });
 
     it('notifies on timeout auto-deny', async () => {
@@ -402,7 +477,7 @@ describe('ApprovalEngine', () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
       const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       const promise = engine.requestApproval(req);
-      engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
+      await engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
       await promise;
 
       expect(engine.getPending()).toHaveLength(0);
@@ -454,7 +529,7 @@ describe('ApprovalEngine', () => {
       const rule = DEFAULT_APPROVAL_RULES[0];
       const req = engine.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
       const promise = engine.requestApproval(req);
-      engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
+      await engine.resolve(req.id, { requestId: req.id, disposition: 'yes' });
 
       const response = await promise;
       expect(response.disposition).toBe('yes');
@@ -500,6 +575,10 @@ describe('ApprovalEngine', () => {
       expect(req.sessionId).toBe('sess-1');
       expect(req.message).toBe('Check');
       expect(req.createdAt).toBe(1000);
+      expect(req.deadlineAt).toBe(1100);
+      expect(req.slaMs).toBe(50);
+      expect(req.escalateAt).toBe(1050);
+      expect(req.allowDelegatedResolution).toBe(false);
       expect(req.rule).toBe(rule);
     });
 
@@ -519,6 +598,7 @@ describe('ApprovalEngine', () => {
 
       expect(req.parentSessionId).toBe('parent-1');
       expect(req.subagentSessionId).toBe('child-1');
+      expect(req.allowDelegatedResolution).toBe(true);
     });
 
     it('inherits denials from parent session across delegated children', async () => {
@@ -535,7 +615,7 @@ describe('ApprovalEngine', () => {
         },
       );
       const denyPromise = engine.requestApproval(denyReq);
-      engine.resolve(denyReq.id, { requestId: denyReq.id, disposition: 'no' });
+      await engine.resolve(denyReq.id, { requestId: denyReq.id, disposition: 'no' });
       await denyPromise;
 
       expect(engine.isToolDenied('child-a', 'system.delete', 'parent-1')).toBe(true);
@@ -553,13 +633,172 @@ describe('ApprovalEngine', () => {
         },
       );
       const allowPromise = engine.requestApproval(allowReq);
-      engine.resolve(allowReq.id, { requestId: allowReq.id, disposition: 'yes' });
+      await engine.resolve(allowReq.id, { requestId: allowReq.id, disposition: 'yes' });
       await allowPromise;
 
       // Parent-level denial is cleared after explicit approval.
       expect(engine.isToolDenied('child-c', 'system.delete', 'parent-1')).toBe(false);
       // Original child still keeps its own denied pattern.
       expect(engine.isToolDenied('child-a', 'system.delete')).toBe(true);
+    });
+
+    it('supports simulation without enqueuing a request', async () => {
+      const simulated = engine.simulate(
+        'system.delete',
+        { target: '/tmp/file' },
+        'sess-1',
+      );
+
+      expect(simulated).toMatchObject({
+        required: true,
+        elevated: false,
+        denied: false,
+        rule: { tool: 'system.delete' },
+        requestPreview: {
+          toolName: 'system.delete',
+          sessionId: 'sess-1',
+        },
+      });
+      expect(engine.getPending()).toHaveLength(0);
+
+      engine.elevate('sess-1', 'system.delete');
+      expect(engine.simulate('system.delete', {}, 'sess-1')).toEqual({
+        required: false,
+        elevated: true,
+        denied: false,
+      });
+
+      const rule = DEFAULT_APPROVAL_RULES[0];
+      const denyReq = engine.createRequest(
+        'system.delete',
+        {},
+        'child-x',
+        'Approve?',
+        rule,
+        { parentSessionId: 'parent-denied', subagentSessionId: 'child-x' },
+      );
+      const denyPromise = engine.requestApproval(denyReq);
+      await engine.resolve(denyReq.id, { requestId: denyReq.id, disposition: 'no' });
+      await denyPromise;
+      expect(
+        engine.simulate('system.delete', {}, 'child-y', {
+          parentSessionId: 'parent-denied',
+        }),
+      ).toEqual({
+        required: false,
+        elevated: false,
+        denied: true,
+      });
+    });
+
+    it('embeds approver group and required roles into requests and escalations', async () => {
+      vi.useFakeTimers();
+      try {
+        const onEscalation = vi.fn();
+        const eng = new ApprovalEngine({
+          rules: [
+            {
+              tool: 'system.delete',
+              approverGroup: 'ops',
+              approverRoles: ['incident_commander', 'security_oncall'],
+              escalationDelayMs: 25,
+            },
+          ],
+          timeoutMs: 100,
+          now: () => Date.now(),
+          generateId: () => 'req-governed',
+        });
+        eng.onEscalation(onEscalation);
+        const rule = eng.requiresApproval('system.delete', {})!;
+        const req = eng.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
+
+        expect(req.approverGroup).toBe('ops');
+        expect(req.requiredApproverRoles).toEqual([
+          'incident_commander',
+          'security_oncall',
+        ]);
+
+        const promise = eng.requestApproval(req);
+        vi.advanceTimersByTime(25);
+        expect(onEscalation).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'req-governed' }),
+          expect.objectContaining({
+            approverGroup: 'ops',
+            requiredApproverRoles: ['incident_commander', 'security_oncall'],
+          }),
+        );
+
+        await eng.resolve(req.id, {
+          requestId: req.id,
+          disposition: 'no',
+          resolver: {
+            actorId: 'operator-1',
+            sessionId: 'ops-session',
+            channel: 'webchat',
+            roles: ['incident_commander'],
+            resolvedAt: Date.now(),
+          },
+        });
+        await promise;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('signs resolver assertions and rejects manual responses without required roles', async () => {
+      const eng = new ApprovalEngine({
+        rules: [
+          {
+            tool: 'system.delete',
+            approverRoles: ['incident_commander'],
+          },
+        ],
+        resolverSigningKey: 'approval-signing-key',
+        generateId: () => 'req-role',
+      });
+      const rule = eng.requiresApproval('system.delete', {})!;
+      const req = eng.createRequest('system.delete', {}, 'sess-1', 'Approve?', rule);
+      const promise = eng.requestApproval(req);
+
+      await expect(
+        eng.resolve(req.id, {
+          requestId: req.id,
+          disposition: 'yes',
+          approvedBy: 'operator-1',
+          resolver: {
+            actorId: 'operator-1',
+            sessionId: 'sess-1',
+            channel: 'webchat',
+            resolvedAt: 1_234,
+          },
+        }),
+      ).resolves.toBe(false);
+      expect(eng.getPending()).toHaveLength(1);
+
+      await expect(
+        eng.resolve(req.id, {
+          requestId: req.id,
+          disposition: 'yes',
+          approvedBy: 'operator-1',
+          resolver: {
+            actorId: 'operator-1',
+            sessionId: 'sess-1',
+            channel: 'webchat',
+            roles: ['incident_commander'],
+            resolvedAt: 1_234,
+          },
+        }),
+      ).resolves.toBe(true);
+
+      const response = await promise;
+      expect(response.resolver).toMatchObject({
+        actorId: 'operator-1',
+        sessionId: 'sess-1',
+        channel: 'webchat',
+        roles: ['incident_commander'],
+        resolvedAt: 1_234,
+      });
+      expect(response.resolver?.assertion).toMatch(/^[a-f0-9]{64}$/);
     });
   });
 
@@ -650,7 +889,10 @@ describe('createApprovalGateHook', () => {
     setTimeout(() => {
       const pending = engine.getPending();
       if (pending.length > 0) {
-        engine.resolve(pending[0].id, { requestId: pending[0].id, disposition: 'no' });
+        void engine.resolve(pending[0].id, {
+          requestId: pending[0].id,
+          disposition: 'no',
+        });
       }
     }, 5);
 
@@ -675,7 +917,10 @@ describe('createApprovalGateHook', () => {
     setTimeout(() => {
       const pending = engine.getPending();
       if (pending.length > 0) {
-        engine.resolve(pending[0].id, { requestId: pending[0].id, disposition: 'yes' });
+        void engine.resolve(pending[0].id, {
+          requestId: pending[0].id,
+          disposition: 'yes',
+        });
       }
     }, 5);
 

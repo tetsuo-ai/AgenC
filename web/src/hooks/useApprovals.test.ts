@@ -102,4 +102,36 @@ describe('useApprovals', () => {
 
     expect(result.current.pending).toHaveLength(0);
   });
+
+  it('marks pending approvals as escalated when approval.escalated arrives', () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useApprovals({ send }));
+
+    act(() => {
+      (result.current as UseApprovalsHook).handleMessage({
+        type: 'approval.request',
+        payload: { requestId: 'req-escalate', action: 'delete', details: {} },
+      });
+      (result.current as UseApprovalsHook).handleMessage({
+        type: 'approval.escalated',
+        payload: {
+          requestId: 'req-escalate',
+          escalatedAt: 123,
+          escalateToSessionId: 'session-2',
+          approverGroup: 'ops',
+          requiredApproverRoles: ['incident_commander'],
+        },
+      });
+    });
+
+    expect(result.current.pending).toHaveLength(1);
+    expect(result.current.pending[0]).toMatchObject({
+      requestId: 'req-escalate',
+      escalated: true,
+      escalatedAt: 123,
+      escalateToSessionId: 'session-2',
+      approverGroup: 'ops',
+      requiredApproverRoles: ['incident_commander'],
+    });
+  });
 });

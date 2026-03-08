@@ -32,6 +32,10 @@ export type SendFn = (response: ControlResponse) => void;
 export interface HandlerRequestContext {
   /** Gateway-assigned websocket client id for this request. */
   clientId: string;
+  /** Stable owner key for the connected web client. */
+  ownerKey: string;
+  /** Logical channel name for the request. */
+  channel: string;
   /** Active mapped chat session for this client, if any. */
   activeSessionId?: string;
   /** Session ids owned by the current client. */
@@ -463,12 +467,13 @@ export async function handleMemorySessions(
 // Approval handlers
 // ============================================================================
 
-export function handleApprovalRespond(
+export async function handleApprovalRespond(
   deps: WebChatDeps,
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
-): void {
+  request: HandlerRequestContext,
+): Promise<void> {
   const requestId = payload?.requestId;
   const approved = payload?.approved;
   if (!requestId || typeof requestId !== 'string') {
@@ -483,13 +488,72 @@ export function handleApprovalRespond(
     send({ type: 'error', error: 'Approval engine not configured', id });
     return;
   }
-  deps.approvalEngine.resolve(requestId, {
+  const resolved = await deps.approvalEngine.resolve(requestId, {
     requestId,
     disposition: approved ? 'yes' : 'no',
+    approvedBy: request.ownerKey,
+    resolver: {
+      actorId: request.ownerKey,
+      sessionId: request.activeSessionId,
+      channel: request.channel,
+      resolvedAt: Date.now(),
+    },
   });
+  if (!resolved) {
+    send({
+      type: 'error',
+      error: `Approval response rejected for request ${requestId}`,
+      id,
+    });
+    return;
+  }
   send({
     type: 'approval.respond',
     payload: { requestId, approved, acknowledged: true },
+    id,
+  });
+}
+
+export async function handlePolicySimulate(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.policyPreview) {
+    send({ type: 'error', error: 'Policy simulation is not configured', id });
+    return;
+  }
+  const toolName = typeof payload?.toolName === 'string' ? payload.toolName.trim() : '';
+  if (!toolName) {
+    send({ type: 'error', error: 'Missing toolName in payload', id });
+    return;
+  }
+  const targetSessionId =
+    typeof payload?.sessionId === 'string' && payload.sessionId.length > 0
+      ? payload.sessionId
+      : request.activeSessionId;
+  if (!targetSessionId) {
+    send({ type: 'error', error: 'No active session available for policy simulation', id });
+    return;
+  }
+  if (!request.isSessionOwned(targetSessionId)) {
+    send({ type: 'error', error: 'Session is not owned by the current web client', id });
+    return;
+  }
+  const args =
+    payload?.args && typeof payload.args === 'object' && !Array.isArray(payload.args)
+      ? (payload.args as Record<string, unknown>)
+      : {};
+  const result = await deps.policyPreview({
+    sessionId: targetSessionId,
+    toolName,
+    args,
+  });
+  send({
+    type: 'policy.simulate',
+    payload: result,
     id,
   });
 }
@@ -876,6 +940,7 @@ export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
   'memory.search': handleMemorySearch,
   'memory.sessions': handleMemorySessions,
   'approval.respond': handleApprovalRespond,
+  'policy.simulate': handlePolicySimulate,
   'agents.list': handleAgentsList,
   'desktop.list': handleDesktopList,
   'desktop.create': handleDesktopCreate,

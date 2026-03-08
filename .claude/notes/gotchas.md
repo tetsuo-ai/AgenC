@@ -265,3 +265,35 @@
 - Fast-exit durable jobs need bounded output-settle semantics in the handle layer itself. If `logs` trusts only an asynchronous child-exit callback, short-lived commands can still look `running` long enough for the agent to miss the only useful output.
 - Desktop-only mode should still expose structured host-side durable handles such as `system.sandbox*`, `system.process*`, `system.server*`, `system.remoteJob*`, and `system.research*`. Blocking every `system.*` tool forces the agent back onto desktop-shell/process fallbacks and breaks the typed-handle contract.
 - When the model invents a placeholder handle id on a `start` call, treat that token as the caller's idempotency handle instead of silently discarding it. Otherwise the subsequent `status`/`logs`/`stop` calls will reference a durable id the runtime never persisted even though the overall workflow is otherwise correct.
+
+## Phase 6 Worker Plane Gotchas (2026-03-08)
+
+- Cross-worker durable queues cannot rely only on local enqueue-time wakeups. If standby workers do not poll the shared dispatch queue on their heartbeat path, work claimed or enqueued by another daemon can sit orphaned forever after a crash.
+- Lease and dispatch ownership must be reclaimable by liveness, not only by timestamp expiry. A dead worker with a still-future `leaseExpiresAt` or `claimExpiresAt` should not block takeover once its heartbeat is stale in the worker registry.
+- Live failover validation must prove the operator contract, not just store mutation. A real two-worker smoke should reconnect with the same `clientKey` and confirm the resumed chat history includes the post-failover completion update.
+
+## Phase 7 Governance Gotchas (2026-03-08)
+
+- Policy shadow mode must stay non-destructive. A simulated denial can log and audit, but it must not consume policy budgets or block the tool path, or “simulation” stops being safe for production dry-runs.
+- Approval simulation must not consume live request ids or mutate pending state. If preview paths share the same request-construction side effects as real approvals, dry-runs will perturb operator-visible approval flows.
+- Signed governance logs need redaction before hashing and signing. If raw payloads are hashed first and redacted later, the persisted chain becomes a durable secret sink even when exported output looks sealed.
+- Approval SLA escalation is not the same thing as timeout. The runtime should escalate before the hard auto-deny deadline; collapsing those into one timer removes the operator window that SLAs are supposed to protect.
+
+## Phase 6-7 Tech Debt Closure Gotchas (2026-03-08)
+
+- Shared worker dispatch should arm from a lightweight durable beacon, not by reloading and scanning the full queue on every supervisor wake. Full-queue scans are correct but wasteful once multiple workers are polling the same durable store.
+- Role-gated approval resolution must fail closed without destroying the pending request. If an operator response lacks the required approver role, the runtime should reject the resolution and leave the request/escalation path intact instead of silently timing out or mutating state.
+- Durable governance retention rules must be monotonic. Once a deployment enables `archive` retention or `legalHold`, later restarts/config reloads must not silently downgrade those guarantees for already-written audit records.
+
+## Phase 7 Governance Hardening Gotchas (2026-03-08)
+
+- `policy.writeScope` must fail closed on relative paths. If the runtime cannot resolve a candidate write path to an absolute root, treating it as implicitly allowed creates an easy policy bypass.
+- Secret-aware governance belongs in the session tool pipeline, not only the tool implementation. The policy/approval path needs a secret preview before execution so operators can see that a structured HTTP call is about to consume leased credentials without ever logging the secret itself.
+- Runtime secret scanning can hit external provider rate limits during broad repo sweeps. GitGuardian MCP results are still useful, but the sweep must report partial coverage explicitly instead of treating `429` batches as clean.
+
+## Phase 8 Run Event Gotchas (2026-03-08)
+
+- The durable run-event stream should use a typed event vocabulary, not raw strings. Freeform event labels make replay/eval code drift silently because producers and consumers can disagree without the compiler noticing.
+- `npm --prefix runtime` benchmark/gate scripts must resolve artifacts from both the repo root and the `runtime/` package root. Hardcoding only one path makes CI green while local gate checks fail.
+- Blocked state transitions need a persisted `user_update` event, not just a transient websocket notice. Replay and eval scoring cannot prove operator UX correctness from in-memory notifications alone.
+- Status/dashboard wiring is not proven until the live daemon is restarted on the rebuilt `dist`. A source-only check can leave `status.get` serving an older process that has none of the new `backgroundRuns` payload.

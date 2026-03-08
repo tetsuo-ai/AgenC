@@ -253,6 +253,37 @@ export {
 } from "./decomposition-search.js";
 
 export {
+  replayBackgroundRunFromStore,
+  type BackgroundRunReplayEvent,
+  type BackgroundRunReplayResult,
+} from "./background-run-replay.js";
+
+export {
+  BACKGROUND_RUN_QUALITY_ARTIFACT_SCHEMA_VERSION,
+  buildBackgroundRunQualityArtifact,
+  parseBackgroundRunQualityArtifact,
+  serializeBackgroundRunQualityArtifact,
+  type BackgroundRunScenarioCategory,
+  type BackgroundRunScenarioArtifact,
+  type BackgroundRunQualityArtifact,
+  type BackgroundRunQualityArtifactInput,
+} from "./background-run-quality.js";
+
+export {
+  DEFAULT_BACKGROUND_RUN_QUALITY_GATE_THRESHOLDS,
+  evaluateBackgroundRunQualityGates,
+  formatBackgroundRunGateEvaluation,
+  type BackgroundRunQualityGateThresholds,
+  type BackgroundRunGateViolation,
+  type BackgroundRunGateEvaluation,
+} from "./background-run-gates.js";
+
+export {
+  runBackgroundRunQualitySuite,
+  type BackgroundRunQualityRunnerConfig,
+} from "./background-run-quality-runner.js";
+
+export {
   computePassAtK,
   computePassCaretK,
   getRewardTier,

@@ -125,6 +125,46 @@ export interface GatewayStatus {
   activeSessions: number;
   controlPlanePort: number;
   agentName?: string;
+  backgroundRuns?: {
+    activeTotal: number;
+    queuedSignalsTotal: number;
+    stateCounts: Record<
+      | 'pending'
+      | 'running'
+      | 'working'
+      | 'blocked'
+      | 'paused'
+      | 'completed'
+      | 'failed'
+      | 'cancelled'
+      | 'suspended',
+      number
+    >;
+    recentAlerts: Array<{
+      id: string;
+      severity: 'info' | 'warn' | 'error';
+      code: string;
+      message: string;
+      createdAt: number;
+      sessionId?: string;
+      runId?: string;
+    }>;
+    metrics: {
+      startedTotal: number;
+      completedTotal: number;
+      failedTotal: number;
+      blockedTotal: number;
+      recoveredTotal: number;
+      meanLatencyMs?: number;
+      meanTimeToFirstAckMs?: number;
+      meanTimeToFirstVerifiedUpdateMs?: number;
+      falseCompletionRate?: number;
+      blockedWithoutNoticeRate?: number;
+      meanStopLatencyMs?: number;
+      recoverySuccessRate?: number;
+      verifierAccuracyRate?: number;
+    };
+  };
 }
 
 // ============================================================================
@@ -174,6 +214,16 @@ export interface ApprovalRequest {
   requestId: string;
   action: string;
   details: Record<string, unknown>;
+  message?: string;
+  deadlineAt?: number;
+  slaMs?: number;
+  escalateAt?: number;
+  escalatedAt?: number;
+  allowDelegatedResolution?: boolean;
+  approverGroup?: string;
+  requiredApproverRoles?: readonly string[];
+  escalateToSessionId?: string;
+  escalated?: boolean;
   parentSessionId?: string;
   subagentSessionId?: string;
 }

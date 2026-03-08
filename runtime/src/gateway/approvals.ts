@@ -10,6 +10,7 @@
  */
 
 import type { HookHandler, HookContext, HookResult } from "./hooks.js";
+import { createHmac } from "node:crypto";
 
 // ============================================================================
 // Types
@@ -31,6 +32,16 @@ export interface ApprovalRule {
   readonly conditions?: ApprovalConditions;
   /** Human-readable description for approval prompts. */
   readonly description?: string;
+  /** Target response SLA in ms before escalation is warranted. */
+  readonly slaMs?: number;
+  /** Escalation delay in ms (defaults to `slaMs` when set). */
+  readonly escalationDelayMs?: number;
+  /** Whether a parent/root session may resolve the request on behalf of a child. */
+  readonly allowParentDelegation?: boolean;
+  /** Optional enterprise approver group name for routing/escalation. */
+  readonly approverGroup?: string;
+  /** Optional resolver role set required to approve or deny the request. */
+  readonly approverRoles?: readonly string[];
 }
 
 /** Per-session elevated mode configuration. */
@@ -45,6 +56,10 @@ export interface ApprovalPolicyConfig {
   readonly rules: readonly ApprovalRule[];
   /** Default timeout for pending approvals in ms (default: 300_000 = 5 min). */
   readonly timeoutMs?: number;
+  /** Optional default response SLA in ms. */
+  readonly defaultSlaMs?: number;
+  /** Optional default escalation delay in ms. */
+  readonly defaultEscalationDelayMs?: number;
 }
 
 /** An approval request awaiting resolution. */
@@ -65,12 +80,39 @@ export interface ApprovalRequest {
   readonly message: string;
   /** Timestamp when the request was created. */
   readonly createdAt: number;
+  /** Hard deadline when the request auto-denies. */
+  readonly deadlineAt: number;
+  /** Optional target response SLA in ms. */
+  readonly slaMs?: number;
+  /** Optional escalation timestamp in epoch ms. */
+  readonly escalateAt?: number;
+  /** Whether a parent/root session may resolve this request. */
+  readonly allowDelegatedResolution: boolean;
+  /** Optional enterprise approver group name for escalation/routing. */
+  readonly approverGroup?: string;
+  /** Optional resolver roles required to resolve the request. */
+  readonly requiredApproverRoles?: readonly string[];
   /** The rule that triggered this request. */
   readonly rule: ApprovalRule;
 }
 
 /** The disposition of an approval response. */
 export type ApprovalDisposition = "yes" | "no" | "always";
+
+export interface ApprovalResolverIdentity {
+  /** Stable operator/user identity when available. */
+  readonly actorId?: string;
+  /** Session used to resolve the request. */
+  readonly sessionId?: string;
+  /** Channel where the resolution was recorded. */
+  readonly channel?: string;
+  /** Resolver roles asserted by the channel/runtime. */
+  readonly roles?: readonly string[];
+  /** Epoch ms when the response was recorded. */
+  readonly resolvedAt: number;
+  /** HMAC assertion binding request/disposition to resolver identity. */
+  readonly assertion?: string;
+}
 
 /** Response to an approval request. */
 export interface ApprovalResponse {
@@ -80,6 +122,29 @@ export interface ApprovalResponse {
   readonly disposition: ApprovalDisposition;
   /** Who approved/denied (optional). */
   readonly approvedBy?: string;
+  /** Structured, signed resolver identity assertion. */
+  readonly resolver?: ApprovalResolverIdentity;
+}
+
+export interface ApprovalEscalation {
+  readonly requestId: string;
+  readonly sessionId: string;
+  readonly parentSessionId?: string;
+  readonly subagentSessionId?: string;
+  readonly toolName: string;
+  readonly escalatedAt: number;
+  readonly escalateToSessionId: string;
+  readonly deadlineAt: number;
+  readonly approverGroup?: string;
+  readonly requiredApproverRoles?: readonly string[];
+}
+
+export interface ApprovalSimulationDecision {
+  readonly required: boolean;
+  readonly elevated: boolean;
+  readonly denied: boolean;
+  readonly rule?: ApprovalRule;
+  readonly requestPreview?: ApprovalRequest;
 }
 
 /** Configuration for the ApprovalEngine (with injectable deps for testing). */
@@ -88,6 +153,12 @@ export interface ApprovalEngineConfig {
   readonly rules?: readonly ApprovalRule[];
   /** Timeout for pending requests in ms (default: 300_000). */
   readonly timeoutMs?: number;
+  /** Default target response SLA in ms. */
+  readonly defaultSlaMs?: number;
+  /** Default escalation delay in ms. */
+  readonly defaultEscalationDelayMs?: number;
+  /** Optional signing key for resolver identity assertions. */
+  readonly resolverSigningKey?: string;
   /** Clock function (default: Date.now). */
   readonly now?: () => number;
   /** ID generator (default: crypto.randomUUID-like). */
@@ -143,6 +214,33 @@ export function extractAmount(
     if (!Number.isNaN(num)) return num;
   }
   return undefined;
+}
+
+function normalizeResolverRoles(value: readonly string[] | undefined): string[] {
+  if (!value) return [];
+  return [...new Set(value.map((entry) => entry.trim()).filter((entry) => entry.length > 0))];
+}
+
+function signResolverAssertion(params: {
+  signingKey: string;
+  requestId: string;
+  disposition: ApprovalDisposition;
+  actorId?: string;
+  sessionId?: string;
+  channel?: string;
+  roles?: readonly string[];
+  resolvedAt: number;
+}): string {
+  const serialized = JSON.stringify({
+    requestId: params.requestId,
+    disposition: params.disposition,
+    actorId: params.actorId ?? "",
+    sessionId: params.sessionId ?? "",
+    channel: params.channel ?? "",
+    roles: normalizeResolverRoles(params.roles),
+    resolvedAt: params.resolvedAt,
+  });
+  return createHmac("sha256", params.signingKey).update(serialized).digest("hex");
 }
 
 // ============================================================================
@@ -212,12 +310,21 @@ interface PendingRequest {
   readonly request: ApprovalRequest;
   resolve: (response: ApprovalResponse) => void;
   timer: ReturnType<typeof setTimeout>;
+  escalationTimer?: ReturnType<typeof setTimeout>;
+  escalated: boolean;
 }
 
 export type ApprovalResponseHandler = (
   request: ApprovalRequest,
   response: ApprovalResponse,
-) => void;
+) => void | Promise<void>;
+
+export type ApprovalRequestHandler = (request: ApprovalRequest) => void | Promise<void>;
+
+export type ApprovalEscalationHandler = (
+  request: ApprovalRequest,
+  escalation: ApprovalEscalation,
+) => void | Promise<void>;
 
 /**
  * Approval engine that evaluates tool invocations against configured rules,
@@ -226,10 +333,15 @@ export type ApprovalResponseHandler = (
 export class ApprovalEngine {
   private readonly rules: readonly ApprovalRule[];
   private readonly timeoutMs: number;
+  private readonly defaultSlaMs?: number;
+  private readonly defaultEscalationDelayMs?: number;
+  private readonly resolverSigningKey?: string;
   private readonly now: () => number;
   private readonly generateId: () => string;
   private readonly pending = new Map<string, PendingRequest>();
+  private readonly requestHandlers: ApprovalRequestHandler[] = [];
   private readonly responseHandlers: ApprovalResponseHandler[] = [];
+  private readonly escalationHandlers: ApprovalEscalationHandler[] = [];
   private readonly elevations = new Map<string, Set<string>>();
   private readonly denials = new Map<string, Set<string>>();
   private idCounter = 0;
@@ -237,6 +349,9 @@ export class ApprovalEngine {
   constructor(config?: ApprovalEngineConfig) {
     this.rules = config?.rules ?? DEFAULT_APPROVAL_RULES;
     this.timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.defaultSlaMs = config?.defaultSlaMs;
+    this.defaultEscalationDelayMs = config?.defaultEscalationDelayMs;
+    this.resolverSigningKey = config?.resolverSigningKey;
     this.now = config?.now ?? Date.now;
     this.generateId =
       config?.generateId ??
@@ -297,6 +412,30 @@ export class ApprovalEngine {
       subagentSessionId?: string;
     },
   ): ApprovalRequest {
+    return this.buildRequest(
+      this.generateId(),
+      toolName,
+      args,
+      sessionId,
+      message,
+      rule,
+      context,
+    );
+  }
+
+  private buildRequest(
+    requestId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    sessionId: string,
+    message: string,
+    rule: ApprovalRule,
+    context?: {
+      parentSessionId?: string;
+      subagentSessionId?: string;
+    },
+  ): ApprovalRequest {
+    const createdAt = this.now();
     const parentSessionId =
       typeof context?.parentSessionId === "string" &&
       context.parentSessionId.trim().length > 0
@@ -307,16 +446,94 @@ export class ApprovalEngine {
       context.subagentSessionId.trim().length > 0
         ? context.subagentSessionId.trim()
         : undefined;
+    const deadlineAt = createdAt + this.timeoutMs;
+    const slaMs =
+      rule.slaMs !== undefined
+        ? Math.min(rule.slaMs, this.timeoutMs)
+        : this.defaultSlaMs !== undefined
+          ? Math.min(this.defaultSlaMs, this.timeoutMs)
+          : undefined;
+    const escalationDelayMs =
+      rule.escalationDelayMs !== undefined
+        ? Math.min(rule.escalationDelayMs, this.timeoutMs)
+        : slaMs !== undefined
+          ? slaMs
+          : this.defaultEscalationDelayMs !== undefined
+            ? Math.min(this.defaultEscalationDelayMs, this.timeoutMs)
+            : undefined;
+    const escalateAt =
+      escalationDelayMs !== undefined ? createdAt + escalationDelayMs : undefined;
     return {
-      id: this.generateId(),
+      id: requestId,
       toolName,
       args,
       sessionId,
       ...(parentSessionId ? { parentSessionId } : {}),
       ...(subagentSessionId ? { subagentSessionId } : {}),
       message,
-      createdAt: this.now(),
+      createdAt,
+      deadlineAt,
+      ...(slaMs !== undefined ? { slaMs } : {}),
+      ...(escalateAt !== undefined ? { escalateAt } : {}),
+      allowDelegatedResolution:
+        parentSessionId !== undefined && rule.allowParentDelegation !== false,
+      ...(rule.approverGroup ? { approverGroup: rule.approverGroup } : {}),
+      ...(rule.approverRoles && rule.approverRoles.length > 0
+        ? { requiredApproverRoles: normalizeResolverRoles(rule.approverRoles) }
+        : {}),
       rule,
+    };
+  }
+
+  simulate(
+    toolName: string,
+    args: Record<string, unknown>,
+    sessionId: string,
+    context?: {
+      parentSessionId?: string;
+      subagentSessionId?: string;
+      message?: string;
+    },
+  ): ApprovalSimulationDecision {
+    if (this.isToolDenied(sessionId, toolName, context?.parentSessionId)) {
+      return {
+        required: false,
+        elevated: false,
+        denied: true,
+      };
+    }
+    if (this.isToolElevated(sessionId, toolName)) {
+      return {
+        required: false,
+        elevated: true,
+        denied: false,
+      };
+    }
+    const rule = this.requiresApproval(toolName, args);
+    if (!rule) {
+      return {
+        required: false,
+        elevated: false,
+        denied: false,
+      };
+    }
+    return {
+      required: true,
+      elevated: false,
+      denied: false,
+      rule,
+      requestPreview: this.buildRequest(
+        `approval-preview:${sessionId}:${toolName}`,
+        toolName,
+        args,
+        sessionId,
+        context?.message ??
+          (rule.description
+            ? `Approval required: ${rule.description}`
+            : `Approval required for ${toolName}`),
+        rule,
+        context,
+      ),
     };
   }
 
@@ -324,34 +541,95 @@ export class ApprovalEngine {
    * Submit an approval request and wait for resolution.
    * Auto-denies after the configured timeout.
    */
-  requestApproval(request: ApprovalRequest): Promise<ApprovalResponse> {
-    return new Promise<ApprovalResponse>((resolve) => {
+  async requestApproval(request: ApprovalRequest): Promise<ApprovalResponse> {
+    const responsePromise = new Promise<ApprovalResponse>((resolve) => {
+      const timeoutDelayMs = Math.max(0, request.deadlineAt - this.now());
       const timer = setTimeout(() => {
-        const response: ApprovalResponse = {
+        const response = this.normalizeResponse(request, {
           requestId: request.id,
           disposition: "no",
-        };
+          resolver: {
+            actorId: "system:auto-timeout",
+            channel: "system",
+            resolvedAt: this.now(),
+          },
+        });
+        const pending = this.pending.get(request.id);
+        if (pending?.escalationTimer) {
+          clearTimeout(pending.escalationTimer);
+        }
         this.pending.delete(request.id);
-        this.notifyHandlers(request, response);
+        void this.notifyHandlers(request, response);
         resolve(response);
-      }, this.timeoutMs);
+      }, timeoutDelayMs);
+      const pending: PendingRequest = {
+        request,
+        resolve,
+        timer,
+        escalated: false,
+      };
+      if (request.escalateAt !== undefined) {
+        const delayMs = Math.max(0, request.escalateAt - this.now());
+        pending.escalationTimer = setTimeout(() => {
+          const active = this.pending.get(request.id);
+          if (!active || active.escalated) {
+            return;
+          }
+          active.escalated = true;
+          const escalation: ApprovalEscalation = {
+            requestId: request.id,
+            sessionId: request.sessionId,
+            ...(request.parentSessionId
+              ? { parentSessionId: request.parentSessionId }
+              : {}),
+            ...(request.subagentSessionId
+              ? { subagentSessionId: request.subagentSessionId }
+              : {}),
+            toolName: request.toolName,
+            escalatedAt: this.now(),
+            escalateToSessionId:
+              request.allowDelegatedResolution && request.parentSessionId
+                ? request.parentSessionId
+                : request.sessionId,
+            deadlineAt: request.deadlineAt,
+            ...(request.approverGroup
+              ? { approverGroup: request.approverGroup }
+              : {}),
+            ...(request.requiredApproverRoles &&
+            request.requiredApproverRoles.length > 0
+              ? { requiredApproverRoles: request.requiredApproverRoles }
+              : {}),
+          };
+          void this.notifyEscalationHandlers(request, escalation);
+        }, delayMs);
+      }
 
-      this.pending.set(request.id, { request, resolve, timer });
+      this.pending.set(request.id, pending);
     });
+    await this.notifyRequestHandlers(request);
+    return responsePromise;
   }
 
   /**
    * Resolve a pending approval request.
    * If disposition is `'always'`, elevates the session for the tool's pattern.
    */
-  resolve(requestId: string, response: ApprovalResponse): void {
+  async resolve(requestId: string, response: ApprovalResponse): Promise<boolean> {
     const entry = this.pending.get(requestId);
-    if (!entry) return;
+    if (!entry) return false;
+
+    const normalizedResponse = this.normalizeResponse(entry.request, response);
+    if (!this.isResolutionAuthorized(entry.request, normalizedResponse)) {
+      return false;
+    }
 
     clearTimeout(entry.timer);
+    if (entry.escalationTimer) {
+      clearTimeout(entry.escalationTimer);
+    }
     this.pending.delete(requestId);
 
-    if (response.disposition === "always") {
+    if (normalizedResponse.disposition === "always") {
       this.elevate(entry.request.sessionId, entry.request.rule.tool);
       this.clearDeniedPattern(entry.request.sessionId, entry.request.rule.tool);
       if (entry.request.parentSessionId) {
@@ -362,7 +640,7 @@ export class ApprovalEngine {
       }
     }
 
-    if (response.disposition === "yes") {
+    if (normalizedResponse.disposition === "yes") {
       this.clearDeniedPattern(entry.request.sessionId, entry.request.rule.tool);
       if (entry.request.parentSessionId) {
         this.clearDeniedPattern(
@@ -372,15 +650,16 @@ export class ApprovalEngine {
       }
     }
 
-    if (response.disposition === "no") {
+    if (normalizedResponse.disposition === "no") {
       this.deny(entry.request.sessionId, entry.request.rule.tool);
       if (entry.request.parentSessionId) {
         this.deny(entry.request.parentSessionId, entry.request.rule.tool);
       }
     }
 
-    this.notifyHandlers(entry.request, response);
-    entry.resolve(response);
+    await this.notifyHandlers(entry.request, normalizedResponse);
+    entry.resolve(normalizedResponse);
+    return true;
   }
 
   /**
@@ -388,6 +667,14 @@ export class ApprovalEngine {
    */
   onResponse(handler: ApprovalResponseHandler): void {
     this.responseHandlers.push(handler);
+  }
+
+  onRequest(handler: ApprovalRequestHandler): void {
+    this.requestHandlers.push(handler);
+  }
+
+  onEscalation(handler: ApprovalEscalationHandler): void {
+    this.escalationHandlers.push(handler);
   }
 
   /**
@@ -463,7 +750,20 @@ export class ApprovalEngine {
   dispose(): void {
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
-      entry.resolve({ requestId: entry.request.id, disposition: "no" });
+      if (entry.escalationTimer) {
+        clearTimeout(entry.escalationTimer);
+      }
+      entry.resolve(
+        this.normalizeResponse(entry.request, {
+          requestId: entry.request.id,
+          disposition: "no",
+          resolver: {
+            actorId: "system:dispose",
+            channel: "system",
+            resolvedAt: this.now(),
+          },
+        }),
+      );
     }
     this.pending.clear();
     this.denials.clear();
@@ -477,15 +777,91 @@ export class ApprovalEngine {
     return [...this.pending.values()].map((e) => e.request);
   }
 
-  private notifyHandlers(
+  private normalizeResponse(
     request: ApprovalRequest,
     response: ApprovalResponse,
-  ): void {
+  ): ApprovalResponse {
+    const resolvedAt = response.resolver?.resolvedAt ?? this.now();
+    const roles = normalizeResolverRoles(response.resolver?.roles);
+    const actorId = response.resolver?.actorId ?? response.approvedBy;
+    const sessionId = response.resolver?.sessionId;
+    const channel = response.resolver?.channel;
+    const assertion =
+      this.resolverSigningKey !== undefined
+        ? signResolverAssertion({
+            signingKey: this.resolverSigningKey,
+            requestId: request.id,
+            disposition: response.disposition,
+            actorId,
+            sessionId,
+            channel,
+            roles,
+            resolvedAt,
+          })
+        : response.resolver?.assertion;
+
+    return {
+      requestId: response.requestId,
+      disposition: response.disposition,
+      approvedBy: actorId,
+      resolver: {
+        ...(actorId ? { actorId } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        ...(channel ? { channel } : {}),
+        ...(roles.length > 0 ? { roles } : {}),
+        resolvedAt,
+        ...(assertion ? { assertion } : {}),
+      },
+    };
+  }
+
+  private isResolutionAuthorized(
+    request: ApprovalRequest,
+    response: ApprovalResponse,
+  ): boolean {
+    const requiredRoles = request.requiredApproverRoles ?? [];
+    if (requiredRoles.length === 0) {
+      return true;
+    }
+    const resolverRoles = normalizeResolverRoles(response.resolver?.roles);
+    if (resolverRoles.length === 0) {
+      return false;
+    }
+    return requiredRoles.some((role) => resolverRoles.includes(role));
+  }
+
+  private async notifyHandlers(
+    request: ApprovalRequest,
+    response: ApprovalResponse,
+  ): Promise<void> {
     for (const handler of this.responseHandlers) {
       try {
-        handler(request, response);
+        await handler(request, response);
       } catch {
         // Notification failures must not block promise resolution
+      }
+    }
+  }
+
+  private async notifyRequestHandlers(request: ApprovalRequest): Promise<void> {
+    for (const handler of this.requestHandlers) {
+      try {
+        await handler(request);
+      } catch {
+        // Request notifications must not block tool execution.
+      }
+    }
+  }
+
+  private async notifyEscalationHandlers(
+    request: ApprovalRequest,
+    escalation: ApprovalEscalation,
+  ): Promise<void> {
+    for (const handler of this.escalationHandlers) {
+      try {
+        await handler(request, escalation);
+      } catch {
+        // Escalation notifications must not block timer resolution.
       }
     }
   }

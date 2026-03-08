@@ -25,6 +25,30 @@ Expected:
 - `Pipeline quality gates: PASS`
 - `context growth slope` and `max delta` stay under CI thresholds.
 
+### 1b) Background-run autonomy regression template
+
+Use this when a durable run stalls, completes without evidence, blocks silently, or fails to recover after restart.
+
+```bash
+cd runtime
+npm run benchmark:background-runs:ci
+npm run benchmark:background-runs:gates
+```
+
+Expected:
+
+- `Background-run quality gates passed.`
+- artifact written to `benchmarks/artifacts/background-run-quality.ci.json`
+- `falseCompletionRate == 0`
+- `blockedWithoutNoticeRate == 0`
+- `replayInconsistencies == 0`
+
+To inspect one artifact manually:
+
+```bash
+cat benchmarks/artifacts/background-run-quality.ci.json | jq '.scenarios[] | {scenarioId, finalState, replayConsistent, falseCompletion, blockedWithoutNotice}'
+```
+
 ### 2) Tool-turn ordering validation template
 
 Malformed sequence (must be rejected locally with `validation_error`, not forwarded):

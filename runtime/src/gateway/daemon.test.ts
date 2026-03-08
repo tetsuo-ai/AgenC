@@ -1684,7 +1684,7 @@ describe("DaemonManager", () => {
 
   it("allows parent sessions on text channels to list and resolve delegated approvals", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
-    const resolve = vi.fn();
+    const resolve = vi.fn(async () => true);
     const getPending = vi.fn(() => [
       {
         id: "req-parent",
@@ -1695,6 +1695,8 @@ describe("DaemonManager", () => {
         subagentSessionId: "subagent:child-9",
         message: "Approval required",
         createdAt: Date.now() - 1_000,
+        deadlineAt: Date.now() + 60_000,
+        allowDelegatedResolution: true,
         rule: { tool: "system.delete" },
       },
     ]);
@@ -1738,7 +1740,182 @@ describe("DaemonManager", () => {
       requestId: "req-parent",
       disposition: "yes",
       approvedBy: "operator-1",
+      resolver: expect.objectContaining({
+        actorId: "operator-1",
+        sessionId: "parent-9",
+        channel: "telegram",
+      }),
     });
+  });
+
+  it("pushes first-class approval escalation notices to webchat and text dispatchers", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const pushToSession = vi.fn();
+    const broadcastEvent = vi.fn();
+    const textSend = vi.fn(async () => {});
+    (dm as any)._webChatChannel = {
+      pushToSession,
+      broadcastEvent,
+    };
+    (dm as any)._textApprovalDispatchBySession.set("parent-1", {
+      channelName: "telegram",
+      send: textSend,
+    });
+
+    (dm as any).pushApprovalEscalationNotice({
+      sessionId: "parent-1",
+      request: {
+        id: "req-1",
+        toolName: "system.delete",
+        message: "Approval required",
+        parentSessionId: "parent-1",
+        subagentSessionId: "subagent:child-1",
+      },
+      escalation: {
+        escalatedAt: 1_700_000_000_000,
+        deadlineAt: 1_700_000_060_000,
+        escalateToSessionId: "parent-1",
+        approverGroup: "ops",
+        requiredApproverRoles: ["incident_commander"],
+      },
+    });
+
+    expect(pushToSession).toHaveBeenCalledWith(
+      "parent-1",
+      expect.objectContaining({
+        type: "approval.escalated",
+        payload: expect.objectContaining({
+          requestId: "req-1",
+          action: "system.delete",
+          approverGroup: "ops",
+          requiredApproverRoles: ["incident_commander"],
+        }),
+      }),
+    );
+    expect(broadcastEvent).toHaveBeenCalledWith(
+      "approval.escalated",
+      expect.objectContaining({
+        sessionId: "parent-1",
+        requestId: "req-1",
+      }),
+    );
+    expect(textSend).toHaveBeenCalledWith(
+      expect.stringContaining("Escalated request ID: req-1"),
+    );
+  });
+
+  it("builds policy simulation previews from the active policy and approval engines", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any).gateway = {
+      config: {
+        policy: {
+          defaultTenantId: "tenant-a",
+          defaultProjectId: "project-a",
+        },
+      },
+    };
+    (dm as any)._policyEngine = {
+      simulate: vi.fn(() => ({
+        allowed: false,
+        mode: "normal",
+        violations: [{ code: "tool_denied", message: "Tool is denied" }],
+      })),
+    };
+    (dm as any)._approvalEngine = {
+      simulate: vi.fn(() => ({
+        required: true,
+        elevated: false,
+        denied: false,
+        requestPreview: {
+          message: "Approval required",
+          deadlineAt: 123,
+          allowDelegatedResolution: true,
+          approverGroup: "ops",
+          requiredApproverRoles: ["incident_commander"],
+        },
+      })),
+    };
+
+    const preview = await (dm as any).buildPolicySimulationPreview({
+      sessionId: "session-1",
+      toolName: "system.delete",
+      args: { target: "/tmp/file" },
+    });
+
+    expect(preview).toEqual({
+      toolName: "system.delete",
+      sessionId: "session-1",
+      policy: {
+        allowed: false,
+        mode: "normal",
+        violations: [{ code: "tool_denied", message: "Tool is denied" }],
+      },
+      approval: {
+        required: true,
+        elevated: false,
+        denied: false,
+        requestPreview: {
+          message: "Approval required",
+          deadlineAt: 123,
+          allowDelegatedResolution: true,
+          approverGroup: "ops",
+          requiredApproverRoles: ["incident_commander"],
+        },
+      },
+    });
+  });
+
+  it("uses session-scoped tenant and project policy context for previews", async () => {
+    const simulate = vi.fn(() => ({
+      allowed: true,
+      mode: "normal",
+      violations: [],
+    }));
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any).gateway = {
+      config: {
+        policy: {
+          defaultTenantId: "tenant-default",
+          defaultProjectId: "project-default",
+        },
+      },
+    };
+    (dm as any)._webSessionManager = {
+      get: vi.fn(() => ({
+        metadata: {
+          policyContext: {
+            tenantId: "tenant-session",
+            projectId: "project-session",
+          },
+        },
+      })),
+    };
+    (dm as any)._policyEngine = { simulate };
+    (dm as any)._approvalEngine = {
+      simulate: vi.fn(() => ({
+        required: false,
+        elevated: false,
+        denied: false,
+      })),
+    };
+
+    await (dm as any).buildPolicySimulationPreview({
+      sessionId: "session-tenant",
+      toolName: "system.readFile",
+      args: { path: "/tmp/file" },
+    });
+
+    expect(simulate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: {
+          tenantId: "tenant-session",
+          projectId: "project-session",
+          runId: "session-tenant",
+          sessionId: "session-tenant",
+          channel: "webchat",
+        },
+      }),
+    );
   });
 });
 

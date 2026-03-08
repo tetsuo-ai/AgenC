@@ -4,6 +4,7 @@ import type { ApprovalEngine } from "./approvals.js";
 import { ApprovalEngine as ApprovalEngineImpl } from "./approvals.js";
 import { DelegationPolicyEngine } from "./delegation-runtime.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
+import { SessionCredentialBroker } from "../policy/session-credentials.js";
 
 describe("createSessionToolHandler", () => {
   it("normalizes Doom start_game args before execution and notifications", async () => {
@@ -280,6 +281,93 @@ describe("createSessionToolHandler", () => {
     );
   });
 
+  it("injects session credentials into structured HTTP tools without exposing the secret in UI events", async () => {
+    const originalSecret = process.env.AGENT_API_TOKEN;
+    process.env.AGENT_API_TOKEN = "top-secret-token";
+    try {
+      const sentMessages: ControlResponse[] = [];
+      const send = vi.fn((msg: ControlResponse): void => {
+        sentMessages.push(msg);
+      });
+      const hooks = {
+        dispatch: vi
+          .fn()
+          .mockResolvedValueOnce({ completed: true, payload: {} })
+          .mockResolvedValueOnce({ completed: true, payload: {} }),
+      } as any;
+      const baseHandler = vi.fn(async () => '{"ok":true}');
+      const broker = new SessionCredentialBroker({
+        policy: {
+          enabled: true,
+          credentialCatalog: {
+            api_token: {
+              sourceEnvVar: "AGENT_API_TOKEN",
+              domains: ["api.example.com"],
+              allowedTools: ["system.httpGet"],
+            },
+          },
+          tenantBundles: {
+            tenant_a: {
+              enabled: true,
+              credentialAllowList: ["api_token"],
+            },
+          },
+        },
+      });
+      const handler = createSessionToolHandler({
+        sessionId: "session-1",
+        baseHandler,
+        routerId: "router-a",
+        send,
+        hooks,
+        credentialBroker: broker,
+        resolvePolicyScope: () => ({ tenantId: "tenant_a" }),
+      });
+
+      await handler("system.httpGet", {
+        url: "https://api.example.com/v1/jobs",
+      });
+
+      expect(baseHandler).toHaveBeenCalledWith("system.httpGet", {
+        url: "https://api.example.com/v1/jobs",
+        headers: {
+          Authorization: "Bearer top-secret-token",
+        },
+      });
+      expect(sentMessages[0]).toMatchObject({
+        type: "tools.executing",
+        payload: {
+          toolName: "system.httpGet",
+          args: {
+            url: "https://api.example.com/v1/jobs",
+          },
+        },
+      });
+      expect(JSON.stringify(sentMessages[0])).not.toContain("top-secret-token");
+      expect(hooks.dispatch).toHaveBeenNthCalledWith(
+        1,
+        "tool:before",
+        expect.objectContaining({
+          toolName: "system.httpGet",
+          args: {
+            url: "https://api.example.com/v1/jobs",
+          },
+          credentialPreview: {
+            credentialIds: ["api_token"],
+            headerNames: ["Authorization"],
+            domains: ["api.example.com"],
+          },
+        }),
+      );
+    } finally {
+      if (originalSecret === undefined) {
+        delete process.env.AGENT_API_TOKEN;
+      } else {
+        process.env.AGENT_API_TOKEN = originalSecret;
+      }
+    }
+  });
+
   it("reuses toolCallId when approval is denied and tool does not execute", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {
@@ -303,6 +391,10 @@ describe("createSessionToolHandler", () => {
         sessionId: "session-1",
         message: "Requires explicit approval",
         createdAt: 1_700_000_000_000,
+        deadlineAt: 1_700_000_060_000,
+        allowDelegatedResolution: false,
+        approverGroup: "ops",
+        requiredApproverRoles: ["incident_commander"],
         rule: { tool: "system.delete" },
       })),
       requestApproval: vi.fn().mockResolvedValue({
@@ -340,6 +432,12 @@ describe("createSessionToolHandler", () => {
     const toolCallId = (executing!.payload as { toolCallId?: string }).toolCallId;
     const resultToolCallId = (toolResult!.payload as { toolCallId?: string }).toolCallId;
     expect(resultToolCallId).toBe(toolCallId);
+    expect(approvalRequest).toMatchObject({
+      payload: expect.objectContaining({
+        approverGroup: "ops",
+        requiredApproverRoles: ["incident_commander"],
+      }),
+    });
     expect(onToolStart).toHaveBeenCalledWith("system.delete", { target: "/tmp/file" }, toolCallId);
     expect(onToolEnd).toHaveBeenCalledWith(
       "system.delete",
@@ -437,6 +535,8 @@ describe("createSessionToolHandler", () => {
           sessionId,
           message,
           createdAt: 1_700_000_000_000,
+          deadlineAt: 1_700_000_060_000,
+          allowDelegatedResolution: true,
           rule,
           ...context,
         }),

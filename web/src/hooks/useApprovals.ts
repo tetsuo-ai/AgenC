@@ -71,11 +71,72 @@ export function useApprovals({ send }: UseApprovalsOptions): UseApprovalsReturn 
         requestId,
         action: (payload.action as string) ?? '',
         details: (payload.details as Record<string, unknown>) ?? {},
+        message: typeof payload.message === 'string' ? payload.message : undefined,
+        deadlineAt:
+          typeof payload.deadlineAt === 'number' ? payload.deadlineAt : undefined,
+        slaMs: typeof payload.slaMs === 'number' ? payload.slaMs : undefined,
+        escalateAt:
+          typeof payload.escalateAt === 'number' ? payload.escalateAt : undefined,
+        allowDelegatedResolution:
+          typeof payload.allowDelegatedResolution === 'boolean'
+            ? payload.allowDelegatedResolution
+            : undefined,
+        approverGroup:
+          typeof payload.approverGroup === 'string'
+            ? payload.approverGroup
+            : undefined,
+        requiredApproverRoles: Array.isArray(payload.requiredApproverRoles)
+          ? payload.requiredApproverRoles.filter(
+              (entry): entry is string => typeof entry === 'string',
+            )
+          : undefined,
+        parentSessionId:
+          typeof payload.parentSessionId === 'string'
+            ? payload.parentSessionId
+            : undefined,
+        subagentSessionId:
+          typeof payload.subagentSessionId === 'string'
+            ? payload.subagentSessionId
+            : undefined,
       };
       setPending((prev) => {
         if (prev.some((a) => a.requestId === requestId)) return prev;
         return [...prev, request];
       });
+      return;
+    }
+
+    if (msg.type === 'approval.escalated') {
+      const payload = (msg.payload ?? msg) as Record<string, unknown>;
+      const requestId = (payload.requestId as string) ?? '';
+      if (!requestId) return;
+      setPending((prev) =>
+        prev.map((request) =>
+          request.requestId !== requestId
+            ? request
+            : {
+                ...request,
+                escalated: true,
+                escalatedAt:
+                  typeof payload.escalatedAt === 'number'
+                    ? payload.escalatedAt
+                    : request.escalatedAt,
+                escalateToSessionId:
+                  typeof payload.escalateToSessionId === 'string'
+                    ? payload.escalateToSessionId
+                    : request.escalateToSessionId,
+                approverGroup:
+                  typeof payload.approverGroup === 'string'
+                    ? payload.approverGroup
+                    : request.approverGroup,
+                requiredApproverRoles: Array.isArray(payload.requiredApproverRoles)
+                  ? payload.requiredApproverRoles.filter(
+                      (entry): entry is string => typeof entry === 'string',
+                    )
+                  : request.requiredApproverRoles,
+              },
+        ),
+      );
     }
   }, [send]);
 

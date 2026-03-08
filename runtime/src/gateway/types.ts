@@ -310,6 +310,8 @@ export interface GatewayMCPConfig {
   servers: GatewayMCPServerConfig[];
 }
 
+export type GatewayMCPTrustTier = "trusted" | "sandboxed" | "untrusted";
+
 export interface GatewayMCPServerConfig {
   /** Human-readable server name (used for tool namespacing) */
   name: string;
@@ -327,23 +329,155 @@ export interface GatewayMCPServerConfig {
    *  Currently only "desktop" is supported — the MCP server will be spawned
    *  via `docker exec` inside the desktop sandbox container per session. */
   container?: "desktop";
+  /** Declarative runtime trust tier for tool exposure and isolation policy. */
+  trustTier?: GatewayMCPTrustTier;
+  /** Per-server runtime risk controls. */
+  riskControls?: {
+    /** Allow-list of MCP tool names or globs exposed from this server. */
+    toolAllowList?: string[];
+    /** Deny-list of MCP tool names or globs exposed from this server. */
+    toolDenyList?: string[];
+    /** Require runtime approval before invoking any exposed tool from this server. */
+    requireApproval?: boolean;
+  };
+  /** Per-server supply-chain assertions. */
+  supplyChain?: {
+    /** Require npx/dlx style package specs to pin an explicit version. */
+    requirePinnedPackageVersion?: boolean;
+    /** Require the desktop image used for this container-routed server to be digest pinned. */
+    requireDesktopImageDigest?: boolean;
+    /** Optional SHA-256 for the resolved executable binary. */
+    binarySha256?: string;
+    /** Optional SHA-256 for the filtered exposed MCP tool catalog. */
+    catalogSha256?: string;
+  };
 }
 
 export interface GatewayPolicyConfig {
   enabled?: boolean;
+  defaultTenantId?: string;
+  defaultProjectId?: string;
+  simulationMode?: "off" | "shadow";
   toolAllowList?: string[];
   toolDenyList?: string[];
+  credentialAllowList?: string[];
+  networkAccess?: {
+    allowHosts?: string[];
+    denyHosts?: string[];
+  };
+  writeScope?: {
+    allowRoots?: string[];
+    denyRoots?: string[];
+  };
+  credentialCatalog?: Record<
+    string,
+    {
+      sourceEnvVar: string;
+      domains: string[];
+      headerTemplates?: Record<string, string>;
+      allowedTools?: string[];
+      ttlMs?: number;
+    }
+  >;
   actionBudgets?: Record<string, { limit: number; windowMs: number }>;
   /** Spend budget. `limitLamports` is a decimal string for JSON round-trip safety. */
   spendBudget?: { limitLamports: string; windowMs: number };
+  tokenBudget?: { limitTokens: number; windowMs: number };
+  runtimeBudget?: { maxElapsedMs: number };
+  processBudget?: { maxConcurrent: number };
+  scopedActionBudgets?: {
+    tenant?: Record<string, { limit: number; windowMs: number }>;
+    project?: Record<string, { limit: number; windowMs: number }>;
+    run?: Record<string, { limit: number; windowMs: number }>;
+  };
+  scopedSpendBudgets?: {
+    tenant?: { limitLamports: string; windowMs: number };
+    project?: { limitLamports: string; windowMs: number };
+    run?: { limitLamports: string; windowMs: number };
+  };
+  scopedTokenBudgets?: {
+    tenant?: { limitTokens: number; windowMs: number };
+    project?: { limitTokens: number; windowMs: number };
+    run?: { limitTokens: number; windowMs: number };
+  };
+  scopedRuntimeBudgets?: {
+    tenant?: { maxElapsedMs: number };
+    project?: { maxElapsedMs: number };
+    run?: { maxElapsedMs: number };
+  };
+  scopedProcessBudgets?: {
+    tenant?: { maxConcurrent: number };
+    project?: { maxConcurrent: number };
+    run?: { maxConcurrent: number };
+  };
   /** Max risk score in [0, 1]. */
   maxRiskScore?: number;
+  policyClassRules?: Partial<
+    Record<
+      | "read_only"
+      | "reversible_side_effect"
+      | "destructive_side_effect"
+      | "irreversible_financial_action"
+      | "credential_secret_access",
+      {
+        deny?: boolean;
+        maxRiskScore?: number;
+      }
+    >
+  >;
+  audit?: {
+    enabled?: boolean;
+    signingKey?: string;
+    retentionMs?: number;
+    maxEntries?: number;
+    retentionMode?: "delete" | "archive";
+    legalHold?: boolean;
+    redaction?: {
+      redactActors?: boolean;
+      stripFields?: string[];
+      redactPatterns?: string[];
+    };
+  };
+  tenantBundles?: Record<
+    string,
+    Omit<
+      GatewayPolicyConfig,
+      | "tenantBundles"
+      | "projectBundles"
+      | "defaultTenantId"
+      | "defaultProjectId"
+      | "simulationMode"
+      | "audit"
+      | "credentialCatalog"
+    >
+  >;
+  projectBundles?: Record<
+    string,
+    Omit<
+      GatewayPolicyConfig,
+      | "tenantBundles"
+      | "projectBundles"
+      | "defaultTenantId"
+      | "defaultProjectId"
+      | "simulationMode"
+      | "audit"
+      | "credentialCatalog"
+    >
+  >;
   circuitBreaker?: {
     enabled?: boolean;
     threshold: number;
     windowMs: number;
     mode: "pause_discovery" | "halt_submissions" | "safe_mode";
   };
+}
+
+export interface GatewayApprovalConfig {
+  enabled?: boolean;
+  timeoutMs?: number;
+  defaultSlaMs?: number;
+  defaultEscalationDelayMs?: number;
+  resolverSigningKey?: string;
 }
 
 export interface GatewayMarketplaceConfig {
@@ -385,6 +519,8 @@ export interface GatewayConfig {
   mcp?: GatewayMCPConfig;
   /** Policy engine: budget enforcement + circuit breakers on tool calls */
   policy?: GatewayPolicyConfig;
+  /** Approval engine: SLAs and escalation behavior for gated tool calls. */
+  approvals?: GatewayApprovalConfig;
   /** Marketplace: task bidding between agents */
   marketplace?: GatewayMarketplaceConfig;
   /** Social module: discovery, messaging, feed, reputation, collaboration */
@@ -407,6 +543,52 @@ export interface GatewayStatus {
   readonly channels: string[];
   readonly activeSessions: number;
   readonly controlPlanePort: number;
+  readonly backgroundRuns?: GatewayBackgroundRunStatus;
+}
+
+export interface GatewayBackgroundRunAlert {
+  readonly id: string;
+  readonly severity: "info" | "warn" | "error";
+  readonly code: string;
+  readonly message: string;
+  readonly createdAt: number;
+  readonly sessionId?: string;
+  readonly runId?: string;
+}
+
+export interface GatewayBackgroundRunMetrics {
+  readonly startedTotal: number;
+  readonly completedTotal: number;
+  readonly failedTotal: number;
+  readonly blockedTotal: number;
+  readonly recoveredTotal: number;
+  readonly meanLatencyMs?: number;
+  readonly meanTimeToFirstAckMs?: number;
+  readonly meanTimeToFirstVerifiedUpdateMs?: number;
+  readonly falseCompletionRate?: number;
+  readonly blockedWithoutNoticeRate?: number;
+  readonly meanStopLatencyMs?: number;
+  readonly recoverySuccessRate?: number;
+  readonly verifierAccuracyRate?: number;
+}
+
+export interface GatewayBackgroundRunStatus {
+  readonly activeTotal: number;
+  readonly queuedSignalsTotal: number;
+  readonly stateCounts: Record<
+    | "pending"
+    | "running"
+    | "working"
+    | "blocked"
+    | "paused"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "suspended",
+    number
+  >;
+  readonly recentAlerts: readonly GatewayBackgroundRunAlert[];
+  readonly metrics: GatewayBackgroundRunMetrics;
 }
 
 // ============================================================================
