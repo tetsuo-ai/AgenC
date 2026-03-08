@@ -181,6 +181,85 @@ describe("Gateway", () => {
     });
   });
 
+  describe("webhook routes", () => {
+    it("serves registered HTTP webhook routes on the gateway port", async () => {
+      await gateway.start();
+      gateway.registerWebhookRoute({
+        method: "POST",
+        path: "/webhooks/test",
+        handler: async (req) => ({
+          status: 202,
+          body: {
+            accepted: true,
+            remoteAddress: req.remoteAddress,
+            body: req.body,
+          },
+        }),
+      });
+
+      const response = await fetch("http://127.0.0.1:9100/webhooks/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      });
+
+      expect(response.status).toBe(202);
+      await expect(response.json()).resolves.toMatchObject({
+        accepted: true,
+        body: { hello: "world" },
+      });
+    });
+
+    it("rejects duplicate webhook route registration", async () => {
+      gateway.registerWebhookRoute({
+        method: "POST",
+        path: "/webhooks/test",
+        handler: async () => ({ status: 200, body: { ok: true } }),
+      });
+
+      expect(() =>
+        gateway.registerWebhookRoute({
+          method: "POST",
+          path: "/webhooks/test",
+          handler: async () => ({ status: 200, body: { ok: true } }),
+        }),
+      ).toThrow(GatewayValidationError);
+    });
+
+    it("matches parameterized webhook routes and forwards path params", async () => {
+      gateway = new Gateway(
+        makeConfig({
+          gateway: { port: 9101, bind: "127.0.0.1" },
+        }),
+        { logger: silentLogger },
+      );
+      await gateway.start();
+      gateway.registerWebhookRoute({
+        method: "POST",
+        path: "/webhooks/test/:jobId",
+        handler: async (req) => ({
+          status: 202,
+          body: {
+            accepted: true,
+            jobId: req.params?.jobId,
+          },
+        }),
+      });
+
+      const response = await fetch("http://127.0.0.1:9101/webhooks/test/job-42", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      });
+
+      expect(response.status).toBe(202);
+      await expect(response.json()).resolves.toEqual({
+        accepted: true,
+        jobId: "job-42",
+      });
+    });
+  });
+
   describe("channels", () => {
     it("registerChannel adds to registry", async () => {
       await gateway.start();
@@ -931,6 +1010,11 @@ describe("config loading", () => {
             enabled: true,
             store: true,
             fallbackToStateless: true,
+            compaction: {
+              enabled: true,
+              compactThreshold: 120_000,
+              fallbackOnUnsupported: true,
+            },
           },
         },
       }),
@@ -950,6 +1034,11 @@ describe("config loading", () => {
             enabled: "yes" as unknown as boolean,
             store: 1 as unknown as boolean,
             fallbackToStateless: "no" as unknown as boolean,
+            compaction: {
+              enabled: "yes" as unknown as boolean,
+              compactThreshold: 0,
+              fallbackOnUnsupported: "no" as unknown as boolean,
+            },
           },
         },
       }),
@@ -964,6 +1053,37 @@ describe("config loading", () => {
     );
     expect(result.errors).toContain(
       "llm.statefulResponses.fallbackToStateless must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.statefulResponses.compaction.enabled must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "llm.statefulResponses.compaction.compactThreshold must be an integer between 1 and 9007199254740991",
+    );
+    expect(result.errors).toContain(
+      "llm.statefulResponses.compaction.fallbackOnUnsupported must be a boolean",
+    );
+  });
+
+  it("validateGatewayConfig requires a compaction threshold when statefulResponses.compaction is enabled", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          statefulResponses: {
+            enabled: true,
+            compaction: {
+              enabled: true,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "llm.statefulResponses.compaction.compactThreshold is required when compaction.enabled is true",
     );
   });
 

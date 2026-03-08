@@ -817,6 +817,8 @@ export interface SessionToolHandlerConfig {
   delegation?: DelegationToolCompositionResolver;
   /** Tool names visible to this session for child delegation scoping. */
   availableToolNames?: readonly string[];
+  /** Extra metadata attached to tool hook payloads for this handler. */
+  hookMetadata?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -851,6 +853,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     onToolEnd,
     delegation,
     availableToolNames,
+    hookMetadata,
   } = config;
   let toolCallSeq = 0;
   // Per-message duplicate guard to avoid opening the same GUI app twice when
@@ -940,6 +943,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         sessionId,
         toolName,
         args: normalizedArgs,
+        ...(hookMetadata ? { ...hookMetadata } : {}),
       });
       if (!beforeResult.completed) {
         // Bug fix: do NOT send tools.executing when hook blocks — the tool
@@ -1020,6 +1024,8 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           args: normalizedArgs,
           result: blockedResult,
           durationMs: 0,
+          toolCallId,
+          ...(hookMetadata ? { ...hookMetadata } : {}),
         });
       }
       onToolEnd?.(toolName, blockedResult, 0, toolCallId);
@@ -1109,6 +1115,8 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         args: normalizedArgs,
         result,
         durationMs,
+        toolCallId,
+        ...(hookMetadata ? { ...hookMetadata } : {}),
       });
     }
 

@@ -54,18 +54,21 @@ test("bash detaches explicit background commands that also write a PID file", as
 
 test("process_start/process_status/process_stop manage a long-running process", async () => {
   const label = `sleep-${Date.now().toString(36)}`;
+  const idempotencyKey = `${label}-request`;
   const nodeExec = process.execPath;
 
   const started = await executeTool("process_start", {
     command: nodeExec,
     args: ["-e", "console.log('ready'); setInterval(() => {}, 1000);"],
     label,
+    idempotencyKey,
   });
   assert.notEqual(started.isError, true);
   const startPayload = JSON.parse(started.content) as Record<string, unknown>;
   assert.equal(startPayload.started, true);
   assert.equal(startPayload.state, "running");
   assert.equal(startPayload.label, label);
+  assert.equal(startPayload.idempotencyKey, idempotencyKey);
   assert.match(String(startPayload.processId ?? ""), /^proc_/);
   assert.match(String(startPayload.pid ?? ""), /^\d+$/);
   assert.match(String(startPayload.pgid ?? ""), /^\d+$/);
@@ -73,8 +76,9 @@ test("process_start/process_status/process_stop manage a long-running process", 
 
   const reused = await executeTool("process_start", {
     command: nodeExec,
-    args: ["-e", "console.log('ignored'); setInterval(() => {}, 1000);"],
+    args: ["-e", "console.log('ready'); setInterval(() => {}, 1000);"],
     label,
+    idempotencyKey,
   });
   assert.notEqual(reused.isError, true);
   const reusedPayload = JSON.parse(reused.content) as Record<string, unknown>;
@@ -82,22 +86,31 @@ test("process_start/process_status/process_stop manage a long-running process", 
   assert.equal(reusedPayload.processId, startPayload.processId);
 
   const status = await executeTool("process_status", {
-    processId: startPayload.processId,
+    idempotencyKey,
   });
   assert.notEqual(status.isError, true);
   const statusPayload = JSON.parse(status.content) as Record<string, unknown>;
+  assert.equal(statusPayload.processId, startPayload.processId);
   assert.equal(statusPayload.state, "running");
   assert.equal(statusPayload.running, true);
   assert.match(String(statusPayload.recentOutput ?? ""), /ready/);
 
   const stopped = await executeTool("process_stop", {
-    processId: startPayload.processId,
+    idempotencyKey,
     gracePeriodMs: 500,
   });
   assert.notEqual(stopped.isError, true);
   const stopPayload = JSON.parse(stopped.content) as Record<string, unknown>;
   assert.equal(stopPayload.stopped, true);
   assert.equal(stopPayload.state, "exited");
+
+  const secondStop = await executeTool("process_stop", {
+    processId: startPayload.processId,
+  });
+  assert.notEqual(secondStop.isError, true);
+  const secondStopPayload = JSON.parse(secondStop.content) as Record<string, unknown>;
+  assert.equal(secondStopPayload.state, "exited");
+  assert.equal(secondStopPayload.alreadyExited, true);
 
   const finalStatus = await executeTool("process_status", {
     processId: startPayload.processId,
@@ -106,6 +119,72 @@ test("process_start/process_status/process_stop manage a long-running process", 
   const finalPayload = JSON.parse(finalStatus.content) as Record<string, unknown>;
   assert.equal(finalPayload.state, "exited");
   assert.equal(finalPayload.running, false);
+});
+
+test("process_start rejects idempotencyKey conflicts for different launch specs", async () => {
+  const label = `worker-${Date.now().toString(36)}`;
+  const idempotencyKey = `${label}-request`;
+  const nodeExec = process.execPath;
+
+  const started = await executeTool("process_start", {
+    command: nodeExec,
+    args: ["-e", "setInterval(() => {}, 1000);"],
+    label,
+    idempotencyKey,
+  });
+  assert.notEqual(started.isError, true);
+  const startPayload = JSON.parse(started.content) as Record<string, unknown>;
+
+  try {
+    const conflicting = await executeTool("process_start", {
+      command: nodeExec,
+      args: ["-e", "console.log('different'); setInterval(() => {}, 1000);"],
+      label: `${label}-other`,
+      idempotencyKey,
+    });
+    assert.equal(conflicting.isError, true);
+    const payload = JSON.parse(conflicting.content) as Record<string, unknown>;
+    assert.match(
+      String(payload.error ?? ""),
+      /already exists for that idempotencyKey/i,
+    );
+  } finally {
+    await executeTool("process_stop", {
+      processId: startPayload.processId,
+      gracePeriodMs: 500,
+    });
+  }
+});
+
+test("process_start rejects label conflicts while the managed process is still running", async () => {
+  const label = `service-${Date.now().toString(36)}`;
+  const nodeExec = process.execPath;
+
+  const started = await executeTool("process_start", {
+    command: nodeExec,
+    args: ["-e", "setInterval(() => {}, 1000);"],
+    label,
+    idempotencyKey: `${label}-request-a`,
+  });
+  assert.notEqual(started.isError, true);
+  const startPayload = JSON.parse(started.content) as Record<string, unknown>;
+
+  try {
+    const conflicting = await executeTool("process_start", {
+      command: nodeExec,
+      args: ["-e", "console.log('different'); setInterval(() => {}, 1000);"],
+      label,
+      idempotencyKey: `${label}-request-b`,
+    });
+    assert.equal(conflicting.isError, true);
+    const payload = JSON.parse(conflicting.content) as Record<string, unknown>;
+    assert.match(String(payload.error ?? ""), /already exists for that label/i);
+  } finally {
+    await executeTool("process_stop", {
+      processId: startPayload.processId,
+      gracePeriodMs: 500,
+    });
+  }
 });
 
 test("process_start rejects shell wrapper commands", async () => {
@@ -140,6 +219,7 @@ test("managed-process registry writes are serialized and stay valid on overlappi
         pgid: process.pid,
         state: "running",
         startedAt: Date.now(),
+        launchFingerprint: "seed-fingerprint",
       },
     ]);
 

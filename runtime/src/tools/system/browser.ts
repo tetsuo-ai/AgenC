@@ -21,6 +21,11 @@ import {
 } from "./http.js";
 import type { Dispatcher } from "undici";
 import { ensureLazyModule } from "../../utils/lazy-import.js";
+import {
+  closeBrowserSessions,
+  createBrowserSessionTools,
+  resetBrowserSessionsForTestingSync,
+} from "./browser-session.js";
 
 // ============================================================================
 // Types
@@ -534,6 +539,7 @@ async function getBrowser(
  * Nulls the reference before awaiting close to prevent stale-reference issues on error.
  */
 export async function closeBrowser(): Promise<void> {
+  await closeBrowserSessions();
   if (browserInstance) {
     const b = browserInstance;
     browserInstance = null;
@@ -546,6 +552,7 @@ export function _resetForTesting(): void {
   cheerioLoad = null;
   browserInstance = null;
   browserLaunchPromise = null;
+  resetBrowserSessionsForTestingSync();
 }
 
 // ============================================================================
@@ -1036,7 +1043,7 @@ function createExportPdfTool(config: BrowserToolConfig, logger: Logger): Tool {
  * Create browser tools for web content extraction.
  *
  * - Basic mode (default): 3 tools using fetch + cheerio (system.browse, system.extractLinks, system.htmlToMarkdown)
- * - Advanced mode: 7 tools (3 basic + 4 Playwright tools: system.screenshot, system.browserAction, system.evaluateJs, system.exportPdf)
+ * - Advanced mode: 12 tools (3 basic + 4 Playwright one-shot tools + 5 durable browser session tools)
  *
  * @param config - Optional configuration for mode, domain control, timeouts, etc.
  * @param logger - Optional logger instance (defaults to silent).
@@ -1092,6 +1099,7 @@ export function createBrowserTools(
     createBrowserActionTool(cfg, log),
     createEvaluateJsTool(cfg, log),
     createExportPdfTool(cfg, log),
+    ...createBrowserSessionTools(cfg, log),
   ];
 
   return [...basicTools, ...advancedTools];

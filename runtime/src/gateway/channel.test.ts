@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   PluginCatalog,
+  WebhookRouteRegistry,
   WebhookRouter,
   BaseChannelPlugin,
   ChannelNameInvalidError,
@@ -87,6 +88,60 @@ describe("WebhookRouter", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ received: { data: "test" } });
+  });
+});
+
+describe("WebhookRouteRegistry", () => {
+  it("matches parameterized routes and exposes params", () => {
+    const registry = new WebhookRouteRegistry();
+    registry.add({
+      method: "POST",
+      path: "/webhooks/test/:jobId",
+      handler: async () => ({ status: 200 }),
+    });
+
+    const match = registry.match("POST", "/webhooks/test/job-123");
+
+    expect(match?.route.path).toBe("/webhooks/test/:jobId");
+    expect(match?.params).toEqual({ jobId: "job-123" });
+  });
+
+  it("prefers exact routes over parameterized matches", () => {
+    const registry = new WebhookRouteRegistry();
+    registry.add({
+      method: "POST",
+      path: "/webhooks/test/:jobId",
+      handler: async () => ({ status: 200, body: { kind: "param" } }),
+    });
+    registry.add({
+      method: "POST",
+      path: "/webhooks/test/fixed",
+      handler: async () => ({ status: 200, body: { kind: "exact" } }),
+    });
+
+    const match = registry.match("POST", "/webhooks/test/fixed");
+
+    expect(match?.route.path).toBe("/webhooks/test/fixed");
+    expect(match?.params).toEqual({});
+  });
+
+  it("rejects duplicate parameterized route shapes", () => {
+    const registry = new WebhookRouteRegistry();
+    expect(
+      registry.add({
+        method: "POST",
+        path: "/webhooks/test/:jobId",
+        handler: async () => ({ status: 200 }),
+      }),
+    ).toBe(true);
+
+    expect(
+      registry.add({
+        method: "POST",
+        path: "/webhooks/test/:runId",
+        handler: async () => ({ status: 200 }),
+      }),
+    ).toBe(false);
   });
 });
 

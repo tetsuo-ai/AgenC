@@ -8,11 +8,13 @@ import type { GatewayMessage } from "../gateway/message.js";
 import type {
   LLMMessage,
   LLMProviderEvidence,
+  LLMCompactionDiagnostics,
   LLMResponse,
   LLMUsage,
   LLMRequestMetrics,
   LLMStatefulDiagnostics,
   LLMStatefulFallbackReason,
+  LLMStatefulResumeAnchor,
   StreamProgressCallback,
   ToolHandler,
   LLMProvider,
@@ -130,6 +132,10 @@ export interface ChatExecuteParams {
     /** Optional delegated output contract used for phase-specific validation. */
     readonly delegationSpec?: DelegationContractSpec;
   };
+  /** Optional provider-managed continuation hints restored by the runtime. */
+  readonly stateful?: {
+    readonly resumeAnchor?: LLMStatefulResumeAnchor;
+  };
 }
 
 /** Estimated prompt-shape statistics for one provider call. */
@@ -167,6 +173,8 @@ export interface ChatCallUsageRecord {
   readonly budgetDiagnostics?: PromptBudgetDiagnostics;
   /** Stateful continuation diagnostics for this provider call (when supported). */
   readonly statefulDiagnostics?: LLMStatefulDiagnostics;
+  /** Provider-native compaction diagnostics for this provider call (when supported). */
+  readonly compactionDiagnostics?: LLMCompactionDiagnostics;
 }
 
 /** Planner-routing decision and ROI summary for one execute() invocation. */
@@ -609,6 +617,7 @@ export interface ExecutionContext {
   readonly plannerDecision: PlannerDecision;
   readonly baseDelegationThreshold: number;
   readonly toolRouting?: ChatExecuteParams["toolRouting"];
+  readonly stateful?: ChatExecuteParams["stateful"];
   readonly requiredToolEvidence?: {
     readonly maxCorrectionAttempts: number;
     readonly delegationSpec?: DelegationContractSpec;
@@ -667,6 +676,7 @@ export interface BuildExecutionContextParams {
   readonly toolHandler?: ToolHandler;
   readonly streamCallback?: StreamProgressCallback;
   readonly toolRouting?: ChatExecuteParams["toolRouting"];
+  readonly stateful?: ChatExecuteParams["stateful"];
   readonly requiredToolEvidence?: ChatExecuteParams["requiredToolEvidence"];
   readonly initialRoutedToolNames: readonly string[];
   readonly expandedRoutedToolNames: readonly string[];
@@ -721,6 +731,7 @@ export function buildDefaultExecutionContext(
     plannerDecision: params.plannerDecision,
     baseDelegationThreshold: params.baseDelegationThreshold,
     toolRouting: params.toolRouting,
+    stateful: params.stateful,
     requiredToolEvidence: params.requiredToolEvidence
       ? {
         maxCorrectionAttempts: Math.max(

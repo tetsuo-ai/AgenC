@@ -15,6 +15,20 @@ export interface GrokStatefulResponsesConfig {
   fallbackToStateless?: boolean;
   /** Number of recent normalized turns used for reconciliation hashing. */
   reconciliationWindow?: number;
+  /**
+   * Optional server-side Responses API compaction.
+   *
+   * When enabled, the adapter requests provider-native context management and
+   * falls back deterministically if the provider rejects the request shape.
+   */
+  compaction?: {
+    /** Enable server-side compaction on provider calls. */
+    enabled?: boolean;
+    /** Rendered-token threshold passed as `context_management.compact_threshold`. */
+    compactThreshold?: number;
+    /** Retry once without compaction if the provider rejects the field. */
+    fallbackOnUnsupported?: boolean;
+  };
 }
 
 /**

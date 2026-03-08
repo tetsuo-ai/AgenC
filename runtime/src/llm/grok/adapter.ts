@@ -10,6 +10,9 @@
 import { createHash } from "node:crypto";
 import type {
   LLMChatOptions,
+  LLMCompactionDiagnostics,
+  LLMCompactionFallbackReason,
+  LLMCompactionItemRef,
   LLMToolChoice,
   LLMProvider,
   LLMMessage,
@@ -71,6 +74,7 @@ const VISION_MODELS_WITH_TOOLS = new Set([
 const DEFAULT_STATEFUL_RECONCILIATION_WINDOW = 48;
 const MAX_STATEFUL_RECONCILIATION_WINDOW = 256;
 const STATEFUL_HASH_VERSION = "v1";
+const DEFAULT_COMPACTION_FALLBACK_ON_UNSUPPORTED = true;
 
 interface StatefulSessionAnchor {
   responseId: string;
@@ -83,6 +87,13 @@ interface ResolvedStatefulConfig {
   store: boolean;
   fallbackToStateless: boolean;
   reconciliationWindow: number;
+  compaction: ResolvedCompactionConfig;
+}
+
+interface ResolvedCompactionConfig {
+  enabled: boolean;
+  compactThreshold?: number;
+  fallbackOnUnsupported: boolean;
 }
 
 function truncate(value: string, maxChars: number): string {
@@ -328,6 +339,7 @@ function normalizeMessageForReconciliation(message: LLMMessage): unknown {
     role: message.role,
     content: normalizeHashContent(message.content),
   };
+  if (message.phase) normalized.phase = message.phase;
   if (message.toolCallId) normalized.toolCallId = message.toolCallId;
   if (message.toolName) normalized.toolName = message.toolName;
   if (message.toolCalls && message.toolCalls.length > 0) {
@@ -375,6 +387,18 @@ function resolveStatefulConfig(
     fallbackToStateless: config?.fallbackToStateless ?? true,
     reconciliationWindow:
       config?.reconciliationWindow ?? DEFAULT_STATEFUL_RECONCILIATION_WINDOW,
+    compaction: {
+      enabled: config?.compaction?.enabled === true,
+      compactThreshold:
+        typeof config?.compaction?.compactThreshold === "number" &&
+          Number.isFinite(config.compaction.compactThreshold) &&
+          config.compaction.compactThreshold > 0
+          ? Math.floor(config.compaction.compactThreshold)
+          : undefined,
+      fallbackOnUnsupported:
+        config?.compaction?.fallbackOnUnsupported ??
+        DEFAULT_COMPACTION_FALLBACK_ON_UNSUPPORTED,
+    },
   };
 }
 
@@ -414,6 +438,69 @@ function appendStatefulEvent(
     reason: options?.reason,
     detail: options?.detail,
   });
+}
+
+function toProviderErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error.toLowerCase();
+  if (!error || typeof error !== "object") return "";
+  return String((error as { message?: unknown }).message ?? "").toLowerCase();
+}
+
+function isUnsupportedFieldError(message: string): boolean {
+  return (
+    message.includes("unknown") ||
+    message.includes("unsupported") ||
+    message.includes("invalid") ||
+    message.includes("unexpected") ||
+    message.includes("additional properties") ||
+    message.includes("not allowed")
+  );
+}
+
+function isAssistantPhaseRejection(error: unknown): boolean {
+  const message = toProviderErrorMessage(error);
+  return message.includes("phase") && isUnsupportedFieldError(message);
+}
+
+function isServerCompactionRejection(error: unknown): boolean {
+  const message = toProviderErrorMessage(error);
+  if (
+    !message.includes("context_management") &&
+    !message.includes("compact_threshold") &&
+    !message.includes("compaction")
+  ) {
+    return false;
+  }
+  return isUnsupportedFieldError(message);
+}
+
+function hashOpaqueCompactionItem(value: unknown): string {
+  return createHash("sha256").update(stableStringify(value)).digest("hex").slice(0, 16);
+}
+
+function extractCompactionItemRefs(
+  response: Record<string, unknown>,
+): LLMCompactionItemRef[] {
+  const output = Array.isArray(response.output)
+    ? (response.output as Array<Record<string, unknown>>)
+    : [];
+  const items: LLMCompactionItemRef[] = [];
+  for (const item of output) {
+    const type = typeof item.type === "string" ? item.type.trim() : "";
+    if (type.length === 0 || !/compact/i.test(type)) {
+      continue;
+    }
+    const id =
+      typeof item.id === "string" && item.id.trim().length > 0
+        ? item.id.trim()
+        : undefined;
+    items.push({
+      type,
+      id,
+      digest: hashOpaqueCompactionItem(item),
+    });
+  }
+  return items;
 }
 
 function hasImageContent(content: unknown): boolean {
@@ -607,6 +694,8 @@ export class GrokProvider implements LLMProvider {
   private readonly toolChars: number;
   private readonly statefulConfig: ResolvedStatefulConfig;
   private readonly statefulSessions = new Map<string, StatefulSessionAnchor>();
+  private assistantPhaseSupported: boolean | undefined;
+  private serverCompactionSupported: boolean | undefined;
 
   constructor(config: GrokProviderConfig) {
     this.config = {
@@ -659,31 +748,73 @@ export class GrokProvider implements LLMProvider {
         response,
         activePlan.requestMetrics,
         activePlan.statefulDiagnostics,
+        activePlan.compactionDiagnostics,
       );
+      if (activePlan.assistantPhaseEnabled) {
+        this.assistantPhaseSupported = true;
+      }
+      if (activePlan.compactionDiagnostics?.active) {
+        this.serverCompactionSupported = true;
+      }
       this.persistStatefulAnchor(activePlan, parsed);
       return parsed;
     };
 
-    try {
-      return await run(plan);
-    } catch (err: unknown) {
-      if (this.shouldRetryStatelessFromStateful(err, plan.statefulDiagnostics)) {
-        plan = this.buildRequestPlan(messages, options, {
-          forceStateless: true,
-          fallbackReason: "provider_retrieval_failure",
-          inheritedEvents: plan.statefulDiagnostics?.events ?? [],
-        });
-        try {
-          return await run(plan);
-        } catch (fallbackErr: unknown) {
-          const mappedFallback = this.mapError(fallbackErr);
-          this.logPromptOverflowDiagnostics(mappedFallback, plan.params);
-          throw mappedFallback;
+    while (true) {
+      try {
+        return await run(plan);
+      } catch (err: unknown) {
+        if (plan.assistantPhaseEnabled && isAssistantPhaseRejection(err)) {
+          this.assistantPhaseSupported = false;
+          plan = this.buildRequestPlan(messages, options, {
+            forceStateless: plan.statefulDiagnostics?.attempted === false
+              ? false
+              : undefined,
+            fallbackReason: plan.statefulDiagnostics?.fallbackReason,
+            inheritedEvents: plan.statefulDiagnostics?.events ?? [],
+            disableAssistantPhase: true,
+            disableServerCompaction:
+              plan.compactionDiagnostics?.active !== true
+                ? true
+                : undefined,
+            compactionFallbackReason: plan.compactionDiagnostics?.fallbackReason,
+          });
+          continue;
         }
+        if (
+          plan.compactionDiagnostics?.active &&
+          this.statefulConfig.compaction.fallbackOnUnsupported &&
+          isServerCompactionRejection(err)
+        ) {
+          this.serverCompactionSupported = false;
+          plan = this.buildRequestPlan(messages, options, {
+            forceStateless: false,
+            fallbackReason: plan.statefulDiagnostics?.fallbackReason,
+            inheritedEvents: plan.statefulDiagnostics?.events ?? [],
+            disableAssistantPhase: !plan.assistantPhaseEnabled ? true : undefined,
+            disableServerCompaction: true,
+            compactionFallbackReason: "request_rejected",
+          });
+          continue;
+        }
+        if (this.shouldRetryStatelessFromStateful(err, plan.statefulDiagnostics)) {
+          plan = this.buildRequestPlan(messages, options, {
+            forceStateless: true,
+            fallbackReason: "provider_retrieval_failure",
+            inheritedEvents: plan.statefulDiagnostics?.events ?? [],
+            disableAssistantPhase: !plan.assistantPhaseEnabled ? true : undefined,
+            disableServerCompaction:
+              plan.compactionDiagnostics?.active !== true
+                ? true
+                : undefined,
+            compactionFallbackReason: plan.compactionDiagnostics?.fallbackReason,
+          });
+          continue;
+        }
+        const mapped = this.mapError(err);
+        this.logPromptOverflowDiagnostics(mapped, plan.params);
+        throw mapped;
       }
-      const mapped = this.mapError(err);
-      this.logPromptOverflowDiagnostics(mapped, plan.params);
-      throw mapped;
     }
   }
 
@@ -697,6 +828,7 @@ export class GrokProvider implements LLMProvider {
     let params: Record<string, unknown> = { ...plan.params, stream: true };
     let requestMetrics = collectParamDiagnostics(params);
     let statefulDiagnostics = plan.statefulDiagnostics;
+    let compactionDiagnostics = plan.compactionDiagnostics;
     let content = "";
     let model = this.config.model;
     let finishReason: LLMResponse["finishReason"] = "stop";
@@ -710,30 +842,73 @@ export class GrokProvider implements LLMProvider {
 
     try {
       let stream: AsyncIterable<any>;
-      try {
-        stream = await withTimeout(
-          async (signal) =>
-            (client as any).responses.create(params, { signal }),
-          this.config.timeoutMs,
-          this.name,
-        );
-      } catch (err: unknown) {
-        if (this.shouldRetryStatelessFromStateful(err, statefulDiagnostics)) {
-          plan = this.buildRequestPlan(messages, options, {
-            forceStateless: true,
-            fallbackReason: "provider_retrieval_failure",
-            inheritedEvents: statefulDiagnostics?.events ?? [],
-          });
-          params = { ...plan.params, stream: true };
-          requestMetrics = collectParamDiagnostics(params);
-          statefulDiagnostics = plan.statefulDiagnostics;
+      while (true) {
+        try {
           stream = await withTimeout(
             async (signal) =>
               (client as any).responses.create(params, { signal }),
             this.config.timeoutMs,
             this.name,
           );
-        } else {
+          if (plan.assistantPhaseEnabled) {
+            this.assistantPhaseSupported = true;
+          }
+          if (plan.compactionDiagnostics?.active) {
+            this.serverCompactionSupported = true;
+          }
+          break;
+        } catch (err: unknown) {
+          if (plan.assistantPhaseEnabled && isAssistantPhaseRejection(err)) {
+            this.assistantPhaseSupported = false;
+            plan = this.buildRequestPlan(messages, options, {
+              fallbackReason: statefulDiagnostics?.fallbackReason,
+              inheritedEvents: statefulDiagnostics?.events ?? [],
+              disableAssistantPhase: true,
+              disableServerCompaction:
+                compactionDiagnostics?.active !== true ? true : undefined,
+              compactionFallbackReason: compactionDiagnostics?.fallbackReason,
+            });
+            params = { ...plan.params, stream: true };
+            requestMetrics = collectParamDiagnostics(params);
+            statefulDiagnostics = plan.statefulDiagnostics;
+            compactionDiagnostics = plan.compactionDiagnostics;
+            continue;
+          }
+          if (
+            plan.compactionDiagnostics?.active &&
+            this.statefulConfig.compaction.fallbackOnUnsupported &&
+            isServerCompactionRejection(err)
+          ) {
+            this.serverCompactionSupported = false;
+            plan = this.buildRequestPlan(messages, options, {
+              fallbackReason: statefulDiagnostics?.fallbackReason,
+              inheritedEvents: statefulDiagnostics?.events ?? [],
+              disableAssistantPhase: !plan.assistantPhaseEnabled ? true : undefined,
+              disableServerCompaction: true,
+              compactionFallbackReason: "request_rejected",
+            });
+            params = { ...plan.params, stream: true };
+            requestMetrics = collectParamDiagnostics(params);
+            statefulDiagnostics = plan.statefulDiagnostics;
+            compactionDiagnostics = plan.compactionDiagnostics;
+            continue;
+          }
+          if (this.shouldRetryStatelessFromStateful(err, statefulDiagnostics)) {
+            plan = this.buildRequestPlan(messages, options, {
+              forceStateless: true,
+              fallbackReason: "provider_retrieval_failure",
+              inheritedEvents: statefulDiagnostics?.events ?? [],
+              disableAssistantPhase: !plan.assistantPhaseEnabled ? true : undefined,
+              disableServerCompaction:
+                compactionDiagnostics?.active !== true ? true : undefined,
+              compactionFallbackReason: compactionDiagnostics?.fallbackReason,
+            });
+            params = { ...plan.params, stream: true };
+            requestMetrics = collectParamDiagnostics(params);
+            statefulDiagnostics = plan.statefulDiagnostics;
+            compactionDiagnostics = plan.compactionDiagnostics;
+            continue;
+          }
           throw err;
         }
       }
@@ -794,6 +969,18 @@ export class GrokProvider implements LLMProvider {
                 typeof response.id === "string" ? String(response.id) : undefined,
             };
           }
+          if (compactionDiagnostics) {
+            const compactionItems = extractCompactionItemRefs(
+              response as Record<string, unknown>,
+            );
+            compactionDiagnostics = {
+              ...compactionDiagnostics,
+              observedItemCount: compactionItems.length,
+              ...(compactionItems.length > 0
+                ? { latestItem: compactionItems[compactionItems.length - 1] }
+                : {}),
+            };
+          }
           break;
         }
 
@@ -822,6 +1009,7 @@ export class GrokProvider implements LLMProvider {
         model,
         requestMetrics,
         stateful: statefulDiagnostics,
+        compaction: compactionDiagnostics,
         providerEvidence,
         finishReason,
         ...(responseError ? { error: responseError } : {}),
@@ -842,6 +1030,7 @@ export class GrokProvider implements LLMProvider {
           model,
           requestMetrics,
           stateful: statefulDiagnostics,
+          compaction: compactionDiagnostics,
           providerEvidence,
           finishReason: "error",
           error: mappedError,
@@ -879,24 +1068,57 @@ export class GrokProvider implements LLMProvider {
       forceStateless?: boolean;
       fallbackReason?: LLMStatefulFallbackReason;
       inheritedEvents?: readonly LLMStatefulEvent[];
+      disableAssistantPhase?: boolean;
+      disableServerCompaction?: boolean;
+      compactionFallbackReason?: LLMCompactionFallbackReason;
     },
   ): {
     params: Record<string, unknown>;
     requestMetrics: LLMRequestMetrics;
     statefulDiagnostics?: LLMStatefulDiagnostics;
+    compactionDiagnostics?: LLMCompactionDiagnostics;
     sessionId?: string;
     reconciliationHash?: string;
+    assistantPhaseEnabled: boolean;
   } {
+    const assistantPhaseEnabled =
+      overrides?.disableAssistantPhase !== true &&
+      this.assistantPhaseSupported !== false;
+    const compactionEnabled =
+      this.statefulConfig.compaction.enabled === true &&
+      this.statefulConfig.compaction.compactThreshold !== undefined;
+    const compactionActive =
+      compactionEnabled &&
+      overrides?.disableServerCompaction !== true &&
+      this.serverCompactionSupported !== false;
+    const compactionDiagnostics = compactionEnabled
+      ? {
+        enabled: true,
+        requested: true,
+        active: compactionActive,
+        mode: "server_side_context_management" as const,
+        threshold: this.statefulConfig.compaction.compactThreshold!,
+        observedItemCount: 0,
+        ...(overrides?.compactionFallbackReason
+          ? { fallbackReason: overrides.compactionFallbackReason }
+          : {}),
+      }
+      : undefined;
     const sessionId = options?.stateful?.sessionId?.trim();
     if (!this.statefulConfig.enabled || !sessionId) {
       const params = this.buildParams(messages, {
         store: false,
         allowedToolNames: options?.toolRouting?.allowedToolNames,
         toolChoice: options?.toolChoice,
+        assistantPhaseEnabled,
+        contextManagementCompactThreshold:
+          compactionActive ? this.statefulConfig.compaction.compactThreshold : undefined,
       });
       return {
         params,
         requestMetrics: collectParamDiagnostics(params),
+        compactionDiagnostics,
+        assistantPhaseEnabled,
       };
     }
 
@@ -910,7 +1132,18 @@ export class GrokProvider implements LLMProvider {
       messages,
       this.statefulConfig.reconciliationWindow,
     );
-    const anchor = this.statefulSessions.get(sessionId);
+    const persistedResumeAnchor = options?.stateful?.resumeAnchor;
+    const memoryAnchor = this.statefulSessions.get(sessionId);
+    const anchor = memoryAnchor ?? (
+      persistedResumeAnchor?.previousResponseId &&
+      persistedResumeAnchor.reconciliationHash
+        ? {
+            responseId: persistedResumeAnchor.previousResponseId,
+            reconciliationHash: persistedResumeAnchor.reconciliationHash,
+            updatedAt: Date.now(),
+          }
+        : undefined
+    );
     const forceStateless = overrides?.forceStateless === true;
     let attempted = false;
     let continued = false;
@@ -970,6 +1203,9 @@ export class GrokProvider implements LLMProvider {
       previousResponseId: continued ? previousResponseId : undefined,
       allowedToolNames: options?.toolRouting?.allowedToolNames,
       toolChoice: options?.toolChoice,
+      assistantPhaseEnabled,
+      contextManagementCompactThreshold:
+        compactionActive ? this.statefulConfig.compaction.compactThreshold : undefined,
     });
 
     return {
@@ -977,6 +1213,8 @@ export class GrokProvider implements LLMProvider {
       requestMetrics: collectParamDiagnostics(params),
       sessionId,
       reconciliationHash: reconciliation.anchorHash,
+      compactionDiagnostics,
+      assistantPhaseEnabled,
       statefulDiagnostics: {
         enabled: true,
         attempted,
@@ -1047,6 +1285,8 @@ export class GrokProvider implements LLMProvider {
       previousResponseId?: string;
       allowedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
+      assistantPhaseEnabled?: boolean;
+      contextManagementCompactThreshold?: number;
     },
   ): Record<string, unknown> {
     const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
@@ -1078,7 +1318,7 @@ export class GrokProvider implements LLMProvider {
         }
       }
 
-      mapped.push(this.toOpenAIMessage(m));
+      mapped.push(this.toOpenAIMessage(m, options?.assistantPhaseEnabled !== false));
 
       // Flush collected images as a user message after the last tool message
       // in a contiguous tool-result block
@@ -1125,6 +1365,11 @@ export class GrokProvider implements LLMProvider {
       params.temperature = this.config.temperature;
     if (this.config.maxTokens !== undefined)
       params.max_output_tokens = this.config.maxTokens;
+    if (options?.contextManagementCompactThreshold !== undefined) {
+      params.context_management = {
+        compact_threshold: options.contextManagementCompactThreshold,
+      };
+    }
     const selectedTools = this.resolveResponseTools(options?.allowedToolNames);
     // Enable tools unless the vision model is known to not support them.
     if (selectedTools.tools.length > 0) {
@@ -1182,11 +1427,15 @@ export class GrokProvider implements LLMProvider {
     return { tools: selected, chars };
   }
 
-  private toOpenAIMessage(msg: LLMMessage): Record<string, unknown> {
+  private toOpenAIMessage(
+    msg: LLMMessage,
+    preserveAssistantPhase: boolean,
+  ): Record<string, unknown> {
     if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
       return {
         role: "assistant",
         content: msg.content,
+        ...(preserveAssistantPhase && msg.phase ? { phase: msg.phase } : {}),
         tool_calls: msg.toolCalls.map((tc) => ({
           id: tc.id,
           type: "function",
@@ -1218,7 +1467,13 @@ export class GrokProvider implements LLMProvider {
         tool_call_id: msg.toolCallId,
       };
     }
-    return { role: msg.role, content: msg.content };
+    return {
+      role: msg.role,
+      content: msg.content,
+      ...(msg.role === "assistant" && preserveAssistantPhase && msg.phase
+        ? { phase: msg.phase }
+        : {}),
+    };
   }
 
   private toResponseTools(tools: readonly LLMTool[]): Record<string, unknown>[] {
@@ -1262,10 +1517,17 @@ export class GrokProvider implements LLMProvider {
       const toolCalls = Array.isArray(message.tool_calls)
         ? (message.tool_calls as Array<Record<string, unknown>>)
         : [];
+      const phase = message.phase;
       const items: Record<string, unknown>[] = [];
       const normalizedContent = this.normalizeResponseMessageContent(content);
       if (normalizedContent !== undefined) {
-        items.push({ role, content: normalizedContent });
+        items.push({
+          role,
+          content: normalizedContent,
+          ...(phase === "commentary" || phase === "final_answer"
+            ? { phase }
+            : {}),
+        });
       }
       for (const tc of toolCalls) {
         const functionData = (tc.function as Record<string, unknown> | undefined) ?? {};
@@ -1329,15 +1591,28 @@ export class GrokProvider implements LLMProvider {
     response: any,
     requestMetrics?: LLMRequestMetrics,
     statefulDiagnostics?: LLMStatefulDiagnostics,
+    compactionDiagnostics?: LLMCompactionDiagnostics,
   ): LLMResponse {
     const toolCalls = this.extractToolCallsFromOutput(response.output);
     const finishReason = this.mapResponseFinishReason(response, toolCalls);
     const responseId =
       typeof response?.id === "string" ? String(response.id) : undefined;
+    const compactionItems = extractCompactionItemRefs(
+      response as Record<string, unknown>,
+    );
     const stateful = statefulDiagnostics
       ? {
         ...statefulDiagnostics,
         responseId,
+      }
+      : undefined;
+    const compaction = compactionDiagnostics
+      ? {
+        ...compactionDiagnostics,
+        observedItemCount: compactionItems.length,
+        ...(compactionItems.length > 0
+          ? { latestItem: compactionItems[compactionItems.length - 1] }
+          : {}),
       }
       : undefined;
     const parsedError = this.extractResponseError(response, finishReason);
@@ -1349,6 +1624,7 @@ export class GrokProvider implements LLMProvider {
       model: String(response.model ?? this.config.model),
       requestMetrics,
       stateful,
+      compaction,
       providerEvidence: this.extractProviderEvidence(response),
       finishReason,
       ...(parsedError ? { error: parsedError } : {}),

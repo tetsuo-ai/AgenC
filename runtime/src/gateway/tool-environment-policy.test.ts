@@ -32,9 +32,19 @@ describe("tool-environment-policy", () => {
   it("treats all system.* tools as host-only in desktop mode", () => {
     expect(isToolAllowedForEnvironment("system.bash", "desktop")).toBe(false);
     expect(isToolAllowedForEnvironment("system.open", "desktop")).toBe(false);
+    expect(
+      isToolAllowedForEnvironment("system.browserSessionStart", "desktop"),
+    ).toBe(false);
     expect(isToolAllowedForEnvironment("execute_with_agent", "desktop")).toBe(
       true,
     );
+  });
+
+  it("keeps host-scoped browser session tools available outside desktop-only mode", () => {
+    expect(isToolAllowedForEnvironment("system.browserSessionStart", "host")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.browserSessionStart", "both")).toBe(true);
+    expect(isToolAllowedForEnvironment("mcp.browser.browser_navigate", "host")).toBe(false);
+    expect(isToolAllowedForEnvironment("mcp.browser.browser_navigate", "both")).toBe(true);
   });
 
   it("filters llm tools for desktop-only mode", () => {

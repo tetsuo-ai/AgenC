@@ -204,3 +204,58 @@
 - Recovered desktop sandboxes need more than a container ID. The runtime must rebuild session mapping, auth token, port bindings, resolution, and resource metadata before follow-up `desktop.process_status` calls can reattach to the same workload.
 - Live websocket resume tests must use a stable `clientKey`. `chat.resume` is owner-scoped by design, so reconnect tests with a throwaway websocket client and no durable client key will fail even if the runtime recovery path is correct.
 - Once outbound messages are persisted to history/session metadata before socket delivery, “no client mapping” during daemon restart is expected. Keep that path at debug level; warn-level logs turn normal reconnect windows into incident noise.
+
+## Durable Run Contract Gotchas (2026-03-07)
+
+- In a durable supervisor, `blocked` is not a terminal synonym for `failed`. If blocked runs are deleted on shutdown or boot recovery, the runtime silently loses exactly the class of tasks that should be waiting for a later signal, approval, or operator intervention.
+- `suspended` should be an explicit lifecycle state, not an overloaded `working`. Without a distinct shutdown/drain state, recovery logic cannot tell the difference between “waiting for the next check” and “intentionally parked for restart handoff.”
+- Put the canonical run state machine in one module and make the store plus supervisor consume it. If each file hardcodes its own state list or transition assumptions, recovery and lifecycle bugs will reappear as soon as new states are added.
+
+## Durable Run Kernel Gotchas (2026-03-07)
+
+- A recovered run needs more than `state` and `objective`. If blocker state, watch registrations, compaction checkpoints, idle budgets, and operator signals are not persisted together, restart recovery can look healthy while the supervisor has already lost the information it needs to continue deterministically.
+- Lease ownership without a monotonic fence token is not enough. After a restart or split-brain handoff, stale workers must fail closed on write rather than silently overwriting the current owner’s run record.
+- Corrupt persisted run records should be quarantined, not ignored in place. Silent `undefined` loads make incidents unreplayable and leave the broken record sitting on the hot path for every future recovery attempt.
+- A restart smoke is not complete until the browser client can reattach with the same durable `clientKey` and the recovered history shows the post-restart completion/update. Recovering the run record alone is not the same as proving the operator-facing runtime survived.
+
+## Event-Driven Wake Plane Gotchas (2026-03-07)
+
+- Do not treat every queued wake as “urgent.” A future scheduler wake should not suppress a user-visible update for the current cycle, and it should not force an immediate recovery cycle on boot. Only already-due wakes should preempt the current working update path.
+- External wake reasons and scheduler wake reasons are different contracts. Re-enqueueing a synthetic `user_input` or `process_exit` wake just to trigger another cycle duplicates operator/process signals and creates false follow-up cycles. Immediate follow-ups should dispatch the already-queued wake, not manufacture a second copy.
+- Immediate wake dispatch must happen after the durable run write commits. If the wake fires before the run snapshot is persisted, the next cycle can steal the lease/fence and turn a normal operator signal into a stale-writer failure.
+
+## Wake Adapter Gotchas (2026-03-07)
+
+- Tool-result wake adapters must suppress the background run’s own internal tool calls. Without a stable `backgroundRunId` in hook payloads, every tool used by the supervisor can enqueue a second wake for itself and create pointless follow-up cycles.
+- Webhook wake ingress must be runtime-authenticated. If `auth.secret` is configured, require a constant-time token match; if it is not configured, restrict webhook wake calls to loopback so the control plane does not become an unauthenticated public signal endpoint.
+- Gateway HTTP webhook routing should share the same listener as the WebSocket control plane. Spinning up a second ad hoc HTTP listener for wake ingress creates drift in lifecycle, port ownership, and shutdown semantics.
+
+## Webhook Registry Cleanup Gotchas (2026-03-07)
+
+- Channel-plugin webhook routes and runtime-owned ingress routes must use the same registry/matcher abstraction. If the gateway and channel catalog maintain separate path semantics, duplicate detection, auth, and future route matching behavior will drift again.
+- Parameterized webhook routes must prefer exact matches first and treat `/foo/:id` and `/foo/:jobId` as the same route shape. Allowing both produces ambiguous handler ordering that only shows up at runtime.
+- Keep the shared webhook contracts in a dedicated module. If `channel.ts` reabsorbs route matching, params, and duplicate-shape logic, the gateway and channel lifecycle code will start drifting together again.
+- Keep the supervisor cycle orchestration split into preparation, decision resolution, and post-decision transition phases. If `executeCycle()` accumulates those concerns again, deterministic completion and blocked/working transitions become too hard to audit.
+
+## Typed Run Domain Gotchas (2026-03-08)
+
+- Do not treat `No tool calls executed in this cycle.` as durable tool evidence. `lastToolEvidence` must only reflect real tool-call output, or false model completion claims can bypass evidence gating.
+- Background finite objectives often plan as `until_condition`, not `finite`. Domain-native cycles and deterministic verifiers should gate on `requiresUserStop` / `until_stopped`, not only `kind === "finite"`.
+- For explicit finite workspace commands, prefer runtime-native execution over agent delegation when the command line can be parsed safely into direct `system.bash` args. A trivial `git status --short` objective should not depend on planner behavior to finish.
+- Signal-driven domains should not inherit the same retry cadence as local workspace work. Browser, research, pipeline, and remote-MCP runs should prefer slower signal-driven rechecks and wider heartbeat spacing, while local workspace/native-command runs can stay tighter.
+
+## Provider Compaction and Browser Session Gotchas (2026-03-08)
+
+- If assistant `phase` is part of provider continuation semantics, it must also be part of local reconciliation semantics. Preserving `phase` in outbound provider payloads without hashing it into the local anchor creates false `previous_response_id` matches after tool-heavy turns.
+- Provider-native compaction needs capability-aware fallback, not a static flag. When the provider rejects compaction fields, retry once without compaction and emit an explicit fallback reason into diagnostics instead of silently downgrading the request.
+- Prompt-level tool naming must survive routing. If the operator explicitly names `system.browserSessionStart` or another tool handle, the router should pin that exact tool into the routed subset rather than relying on generic family scoring.
+- `system.browserSession*` is host-scoped. In `desktop`-only mode it is supposed to disappear from the LLM-visible tool set; live browser-session smokes must run with `desktop.environment: "host"` or `"both"` if they are validating the host Playwright handle family.
+
+## Phase 5 Handle Contract Gotchas (2026-03-08)
+
+- `label` and `idempotencyKey` are different contracts. Treating them as aliases breaks real retries because the model will naturally use a human-readable handle label and a separate request idempotency key in the same call.
+- Keep the desktop managed-process contract in lockstep with the host managed-process contract. If `desktop.process_*` only supports `label` while `system.process*` supports separate `idempotencyKey`, the supervisor and prompt guidance drift into two incompatible retry models for the same long-running process pattern.
+- Terminal managed-process labels must be reclaimable. If exited host-process handles reserve labels forever, the next durable run will collide with stale registry state instead of starting the new process it asked for.
+- Legacy terminal states must be normalized at load boundaries, not only in one downstream parser. If persisted `stopped` records survive into live `system.processStatus` responses, the supervisor and the user-facing tool surface drift apart.
+- Live websocket validation for background runs should include a reconnect/history check. A background completion can legitimately arrive after the first client disconnects, so the operator-visible contract is not proven until the resumed session history shows the terminal update.
+- Desktop managed-process dedupe should prefer `idempotencyKey` over `label`, and label lookup should prefer running or most-recent records. Otherwise a stale exited desktop handle can shadow the live one and make `process_status` or `process_stop` hit the wrong process.

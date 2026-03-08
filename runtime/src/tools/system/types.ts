@@ -40,6 +40,38 @@ export interface BashToolConfig {
   readonly shellMode?: boolean;
 }
 
+/**
+ * Configuration for durable host-managed process tools.
+ */
+export interface SystemProcessToolConfig {
+  /** Durable registry/log root directory. */
+  readonly rootDir?: string;
+  /** Default working directory. */
+  readonly cwd?: string;
+  /** Lock working directory — reject per-call cwd overrides. */
+  readonly lockCwd?: boolean;
+  /** Environment variables exposed to managed processes. */
+  readonly env?: Record<string, string>;
+  /** Allowed executable names/paths (empty = allow all except deny rules). */
+  readonly allowList?: readonly string[];
+  /** Blocked executable names/paths. */
+  readonly denyList?: readonly string[];
+  /** Executables removed from the deny set. */
+  readonly denyExclusions?: readonly string[];
+  /** Disable allow/deny enforcement for trusted environments. */
+  readonly unrestricted?: boolean;
+  /** Default recent-log bytes returned by status/logs. */
+  readonly defaultLogTailBytes?: number;
+  /** Maximum recent-log bytes allowed per call. */
+  readonly maxLogTailBytes?: number;
+  /** Default graceful stop wait window in milliseconds. */
+  readonly defaultStopWaitMs?: number;
+  /** Logger for lifecycle and failure events. */
+  readonly logger?: Logger;
+  /** Time source override used by tests. */
+  readonly now?: () => number;
+}
+
 // ============================================================================
 // Shell mode safety types
 // ============================================================================

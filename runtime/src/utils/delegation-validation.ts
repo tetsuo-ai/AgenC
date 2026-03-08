@@ -207,6 +207,22 @@ function normalizeToolNames(toolNames: readonly string[] | undefined): string[] 
   ];
 }
 
+function looksLikeExplicitDelegatedToolName(toolName: string): boolean {
+  const normalized = toolName.trim().toLowerCase();
+  return normalized.includes(".") ||
+    normalized.startsWith("browser") ||
+    normalized.startsWith("playwright") ||
+    normalized.startsWith("desktop") ||
+    normalized.startsWith("system") ||
+    normalized.startsWith("mcp");
+}
+
+function extractExplicitDelegatedToolNames(
+  toolNames: readonly string[] | undefined,
+): string[] {
+  return normalizeToolNames(toolNames).filter(looksLikeExplicitDelegatedToolName);
+}
+
 function collectDelegationStepText(
   spec: DelegationContractSpec,
   options: {
@@ -705,15 +721,7 @@ function validateAcceptanceCriteriaEvidence(
 
 function hasExplicitToolRequirement(spec: DelegationContractSpec): boolean {
   if ((spec.tools?.length ?? 0) > 0) return true;
-  return (spec.requiredToolCapabilities ?? []).some((capability) => {
-    const normalized = capability.trim().toLowerCase();
-    return normalized.includes(".") ||
-      normalized.startsWith("browser") ||
-      normalized.startsWith("playwright") ||
-      normalized.startsWith("desktop") ||
-      normalized.startsWith("system") ||
-      normalized.startsWith("mcp");
-  });
+  return (spec.requiredToolCapabilities ?? []).some(looksLikeExplicitDelegatedToolName);
 }
 
 export function specRequiresSuccessfulToolEvidence(
@@ -805,7 +813,8 @@ export function resolveDelegatedChildToolScope(params: {
   enforceParentIntersection?: boolean;
 }): ResolvedDelegatedChildToolScope {
   const requested = normalizeToolNames(
-    params.requestedTools ?? params.spec.requiredToolCapabilities,
+    params.requestedTools ??
+      extractExplicitDelegatedToolNames(params.spec.requiredToolCapabilities),
   );
   const parentAllowedSet = new Set(normalizeToolNames(params.parentAllowedTools));
   const availableSet = new Set(normalizeToolNames(params.availableTools));
@@ -866,6 +875,11 @@ export function resolveDelegatedChildToolScope(params: {
     addCandidate(toolName);
   };
 
+  const addShellSemanticFallback = (): void => {
+    addSemanticFallback("desktop.bash");
+    addSemanticFallback("system.bash");
+  };
+
   if (requireBrowser || taskIntent === "research") {
     addSemanticFallback(PROVIDER_NATIVE_WEB_SEARCH_TOOL);
     addSemanticFallback("mcp.browser.browser_navigate");
@@ -874,21 +888,21 @@ export function resolveDelegatedChildToolScope(params: {
   }
 
   if (requireFileMutation || taskIntent === "implementation") {
-    addSemanticFallback("desktop.bash");
+    addShellSemanticFallback();
     addSemanticFallback("desktop.text_editor");
     addSemanticFallback("mcp.neovim.vim_edit");
     addSemanticFallback("mcp.neovim.vim_buffer_save");
   }
 
   if (taskIntent === "validation") {
-    addSemanticFallback("desktop.bash");
+    addShellSemanticFallback();
     addSemanticFallback("mcp.browser.browser_navigate");
     addSemanticFallback("mcp.browser.browser_snapshot");
     addSemanticFallback("mcp.browser.browser_run_code");
   }
 
   if (allowedTools.length === 0) {
-    addSemanticFallback("desktop.bash");
+    addShellSemanticFallback();
   }
 
   const refined = refineDelegatedChildToolAllowlist({

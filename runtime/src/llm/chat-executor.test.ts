@@ -1360,11 +1360,15 @@ describe("ChatExecutor", () => {
         scenario: "defend_the_center",
         async_player: true,
         screen_resolution: "RES_1280X720",
+        window_visible: true,
+        render_hud: true,
       });
       expect(result.toolCalls[0]?.args).toEqual({
         scenario: "defend_the_center",
         async_player: true,
         screen_resolution: "RES_1280X720",
+        window_visible: true,
+        render_hud: true,
       });
     });
 
@@ -1453,14 +1457,26 @@ describe("ChatExecutor", () => {
 
       expect(result.stopReason).toBe("completed");
       expect(result.content).toBe("Doom started after correcting the resolution.");
-      expect(toolHandler).toHaveBeenNthCalledWith(1, "mcp.doom.start_game", {
-        scenario: "defend_the_center",
-        screen_resolution: "banana",
-      });
-      expect(toolHandler).toHaveBeenNthCalledWith(2, "mcp.doom.start_game", {
-        scenario: "defend_the_center",
-        screen_resolution: "RES_1280X720",
-      });
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        1,
+        "mcp.doom.start_game",
+        expect.objectContaining({
+          scenario: "defend_the_center",
+          screen_resolution: "banana",
+          window_visible: true,
+          render_hud: true,
+        }),
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        2,
+        "mcp.doom.start_game",
+        expect.objectContaining({
+          scenario: "defend_the_center",
+          screen_resolution: "RES_1280X720",
+          window_visible: true,
+          render_hud: true,
+        }),
+      );
       expect(
         toolHandler.mock.calls.some(([name]) =>
           name === "mcp.doom.set_objective" ||
@@ -7123,6 +7139,55 @@ describe("ChatExecutor", () => {
       expect(provider.chat).toHaveBeenCalledWith(
         expect.any(Array),
         { stateful: { sessionId: "stateful-session" } },
+      );
+    });
+
+    it("passes persisted stateful resume anchors through provider calls", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "ok",
+            stateful: {
+              enabled: true,
+              attempted: true,
+              continued: true,
+              store: true,
+              fallbackToStateless: true,
+              previousResponseId: "resp_prev",
+              responseId: "resp_next",
+              reconciliationHash: "hash-next",
+              events: [],
+            },
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+      const message = { ...createMessage("stateful"), sessionId: "stateful-resume" };
+
+      await executor.execute(
+        createParams({
+          message,
+          sessionId: "stateful-resume",
+          stateful: {
+            resumeAnchor: {
+              previousResponseId: "resp_prev",
+              reconciliationHash: "hash-prev",
+            },
+          },
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledWith(
+        expect.any(Array),
+        {
+          stateful: {
+            sessionId: "stateful-resume",
+            resumeAnchor: {
+              previousResponseId: "resp_prev",
+              reconciliationHash: "hash-prev",
+            },
+          },
+        },
       );
     });
 

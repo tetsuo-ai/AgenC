@@ -14,6 +14,7 @@ import type {
   LLMProvider,
   LLMProviderEvidence,
   LLMMessage,
+  LLMStatefulResumeAnchor,
   LLMToolChoice,
   LLMToolCall,
   LLMResponse,
@@ -635,7 +636,7 @@ export class ChatExecutor {
       ) {
         this.pushMessage(
           ctx,
-          { role: "assistant", content: ctx.response.content },
+          { role: "assistant", content: ctx.response.content, phase: "commentary" },
           "assistant_runtime",
         );
       }
@@ -664,6 +665,7 @@ export class ChatExecutor {
         callSections: ctx.messageSections,
         onStreamChunk: ctx.activeStreamCallback,
         statefulSessionId: ctx.sessionId,
+        statefulResumeAnchor: ctx.stateful?.resumeAnchor,
         toolChoice: "required",
         ...((preferredToolNames.length > 0 || preferredToolName)
           ? {
@@ -690,6 +692,7 @@ export class ChatExecutor {
       callSections?: readonly PromptBudgetSection[];
       onStreamChunk?: StreamProgressCallback;
       statefulSessionId?: string;
+      statefulResumeAnchor?: LLMStatefulResumeAnchor;
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
       budgetReason: string;
@@ -728,7 +731,12 @@ export class ChatExecutor {
         effectiveCallSections,
         {
           ...(input.statefulSessionId
-            ? { statefulSessionId: input.statefulSessionId }
+            ? {
+              statefulSessionId: input.statefulSessionId,
+              ...(input.statefulResumeAnchor
+                ? { statefulResumeAnchor: input.statefulResumeAnchor }
+                : {}),
+            }
             : {}),
           ...(effectiveRoutedToolNames !== undefined
             ? { routedToolNames: effectiveRoutedToolNames }
@@ -847,6 +855,7 @@ export class ChatExecutor {
       callMessages: verifierMessages,
       callSections: verifierSections,
       statefulSessionId: ctx.sessionId,
+      statefulResumeAnchor: ctx.stateful?.resumeAnchor,
       budgetReason:
         "Planner verifier blocked by max model recalls per request budget",
     });
@@ -941,6 +950,7 @@ export class ChatExecutor {
         toolHandler: params.toolHandler ?? this.toolHandler,
         streamCallback: params.onStreamChunk ?? this.onStreamChunk,
         toolRouting: params.toolRouting,
+        stateful: params.stateful,
         requiredToolEvidence: params.requiredToolEvidence,
         initialRoutedToolNames,
         expandedRoutedToolNames,
@@ -1159,7 +1169,7 @@ export class ChatExecutor {
       retryCount++;
       this.pushMessage(
         ctx,
-        { role: "assistant", content: currentContent },
+        { role: "assistant", content: currentContent, phase: "commentary" },
         "assistant_runtime",
       );
       this.pushMessage(
@@ -1190,6 +1200,7 @@ export class ChatExecutor {
           ctx.messageSections,
           {
             statefulSessionId: ctx.sessionId,
+            statefulResumeAnchor: ctx.stateful?.resumeAnchor,
             ...(ctx.toolRouting
               ? { routedToolNames: ctx.activeRoutedToolNames }
               : {}),
@@ -1233,6 +1244,7 @@ export class ChatExecutor {
       callSections: ctx.messageSections,
       onStreamChunk: ctx.activeStreamCallback,
       statefulSessionId: ctx.sessionId,
+      statefulResumeAnchor: ctx.stateful?.resumeAnchor,
       ...(ctx.requiredToolEvidence
         ? {
           toolChoice: "required" as const,
@@ -1296,6 +1308,7 @@ export class ChatExecutor {
         {
           role: "assistant",
           content: ctx.response.content,
+          phase: "commentary",
           toolCalls: sanitizeToolCallsForReplay(ctx.response.toolCalls),
         },
         "assistant_runtime",
@@ -1365,6 +1378,7 @@ export class ChatExecutor {
         callSections: ctx.messageSections,
         onStreamChunk: ctx.activeStreamCallback,
         statefulSessionId: ctx.sessionId,
+        statefulResumeAnchor: ctx.stateful?.resumeAnchor,
         budgetReason:
           "Max model recalls exceeded while following up after tool calls",
       });
@@ -1994,6 +2008,7 @@ export class ChatExecutor {
             callSections: synthesisSections,
             onStreamChunk: ctx.activeStreamCallback,
             statefulSessionId: ctx.sessionId,
+            statefulResumeAnchor: ctx.stateful?.resumeAnchor,
             budgetReason:
               "Planner synthesis blocked by max model recalls per request budget",
           });
@@ -2180,6 +2195,7 @@ export class ChatExecutor {
     messageSections?: readonly PromptBudgetSection[],
     options?: {
       statefulSessionId?: string;
+      statefulResumeAnchor?: LLMStatefulResumeAnchor;
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
     },
@@ -2196,6 +2212,8 @@ export class ChatExecutor {
     const afterBudget = estimatePromptShape(boundedMessages);
     const budgetDiagnostics = budgeted.diagnostics;
     const hasStatefulSessionId = Boolean(options?.statefulSessionId);
+    const hasStatefulResumeAnchor =
+      hasStatefulSessionId && options?.statefulResumeAnchor !== undefined;
     const hasRoutedToolNames = Boolean(
       options?.routedToolNames && options.routedToolNames.length > 0,
     );
@@ -2204,7 +2222,14 @@ export class ChatExecutor {
       hasStatefulSessionId || hasRoutedToolNames || hasToolChoice
         ? {
           ...(hasStatefulSessionId
-            ? { stateful: { sessionId: String(options?.statefulSessionId) } }
+            ? {
+              stateful: {
+                sessionId: String(options?.statefulSessionId),
+                ...(hasStatefulResumeAnchor
+                  ? { resumeAnchor: options?.statefulResumeAnchor }
+                  : {}),
+              },
+            }
             : {}),
           ...(hasRoutedToolNames
             ? { toolRouting: { allowedToolNames: options?.routedToolNames } }
@@ -2583,6 +2608,7 @@ export class ChatExecutor {
       providerRequestMetrics: input.response.requestMetrics,
       budgetDiagnostics: input.budgetDiagnostics,
       statefulDiagnostics: input.response.stateful,
+      compactionDiagnostics: input.response.compaction,
     };
   }
 

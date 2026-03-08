@@ -851,6 +851,57 @@ describe("GrokProvider", () => {
     });
   });
 
+  it("preserves assistant phase on Responses API assistant input items", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({ apiKey: "test-key" });
+    await provider.chat([
+      { role: "system", content: "You are helpful." },
+      { role: "user", content: "Start working." },
+      { role: "assistant", content: "Checking the environment first.", phase: "commentary" },
+      { role: "user", content: "Continue." },
+    ]);
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.input).toEqual([
+      { role: "system", content: "You are helpful." },
+      { role: "user", content: "Start working." },
+      {
+        role: "assistant",
+        content: "Checking the environment first.",
+        phase: "commentary",
+      },
+      { role: "user", content: "Continue." },
+    ]);
+  });
+
+  it("retries without assistant phase when the provider rejects the field", async () => {
+    mockCreate
+      .mockRejectedValueOnce({
+        status: 400,
+        message: "Unknown field 'phase' on assistant input item",
+      })
+      .mockResolvedValueOnce(makeCompletion({ id: "resp_phase_retry" }));
+
+    const provider = new GrokProvider({ apiKey: "test-key" });
+    const response = await provider.chat([
+      { role: "user", content: "Start." },
+      { role: "assistant", content: "Working...", phase: "commentary" },
+      { role: "user", content: "Continue." },
+    ]);
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate.mock.calls[0][0].input[1]).toMatchObject({
+      role: "assistant",
+      phase: "commentary",
+    });
+    expect(mockCreate.mock.calls[1][0].input[1]).toEqual({
+      role: "assistant",
+      content: "Working...",
+    });
+    expect(response.content).toBe("Hello!");
+  });
+
   it("rejects orphan tool messages without matching assistant tool_calls", async () => {
     const provider = new GrokProvider({ apiKey: "test-key" });
 
@@ -1028,6 +1079,219 @@ describe("GrokProvider", () => {
     expect(second.stateful?.responseId).toBe("resp_2");
   });
 
+  it("requests server-side compaction when configured", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion({ id: "resp_compact_req" }));
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        compaction: {
+          enabled: true,
+          compactThreshold: 12_000,
+        },
+      },
+    });
+
+    const response = await provider.chat(
+      [{ role: "user", content: "hello" }],
+      { stateful: { sessionId: "sess-compact" } },
+    );
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.context_management).toEqual({ compact_threshold: 12_000 });
+    expect(response.compaction).toMatchObject({
+      enabled: true,
+      requested: true,
+      active: true,
+      threshold: 12_000,
+      observedItemCount: 0,
+    });
+  });
+
+  it("parses opaque provider compaction items into response diagnostics", async () => {
+    mockCreate.mockResolvedValueOnce(
+      makeCompletion({
+        id: "resp_compacted",
+        output: [
+          {
+            type: "compaction",
+            id: "cmp_1",
+            encrypted_content: "opaque",
+          },
+          {
+            type: "message",
+            content: [{ type: "output_text", text: "Hello after compaction!" }],
+          },
+        ],
+      }),
+    );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        compaction: {
+          enabled: true,
+          compactThreshold: 8_000,
+        },
+      },
+    });
+
+    const response = await provider.chat(
+      [{ role: "user", content: "compact if needed" }],
+      { stateful: { sessionId: "sess-compact-items" } },
+    );
+
+    expect(response.compaction).toMatchObject({
+      enabled: true,
+      requested: true,
+      active: true,
+      observedItemCount: 1,
+      latestItem: {
+        type: "compaction",
+        id: "cmp_1",
+      },
+    });
+    expect(response.compaction?.latestItem?.digest).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("retries without server-side compaction when the provider rejects context_management", async () => {
+    mockCreate
+      .mockRejectedValueOnce({
+        status: 400,
+        message: "Unknown field 'context_management.compact_threshold'",
+      })
+      .mockResolvedValueOnce(makeCompletion({ id: "resp_compact_retry" }));
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        compaction: {
+          enabled: true,
+          compactThreshold: 20_000,
+          fallbackOnUnsupported: true,
+        },
+      },
+    });
+
+    const response = await provider.chat(
+      [{ role: "user", content: "hello" }],
+      { stateful: { sessionId: "sess-compact-retry" } },
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate.mock.calls[0][0].context_management).toEqual({
+      compact_threshold: 20_000,
+    });
+    expect(mockCreate.mock.calls[1][0].context_management).toBeUndefined();
+    expect(response.compaction).toMatchObject({
+      enabled: true,
+      requested: true,
+      active: false,
+      fallbackReason: "request_rejected",
+    });
+  });
+
+  it("keeps continuation behavior stable with and without provider compaction", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_plain_1",
+          output_text: "Plain first",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_plain_2",
+          output_text: "Stable follow-up",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_compact_1",
+          output_text: "Compact first",
+          output: [
+            { type: "compaction", id: "cmp_ab_1", encrypted_content: "opaque" },
+            {
+              type: "message",
+              content: [{ type: "output_text", text: "Compact first" }],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_compact_2",
+          output_text: "Stable follow-up",
+        }),
+      );
+
+    const plainProvider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+    const compactProvider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+        compaction: {
+          enabled: true,
+          compactThreshold: 10_000,
+        },
+      },
+    });
+
+    await plainProvider.chat(
+      [{ role: "user", content: "first" }],
+      { stateful: { sessionId: "sess-ab-plain" } },
+    );
+    const plainFollowUp = await plainProvider.chat(
+      [
+        { role: "user", content: "first" },
+        { role: "assistant", content: "Plain first", phase: "final_answer" },
+        { role: "user", content: "continue" },
+      ],
+      { stateful: { sessionId: "sess-ab-plain" } },
+    );
+
+    await compactProvider.chat(
+      [{ role: "user", content: "first" }],
+      { stateful: { sessionId: "sess-ab-compact" } },
+    );
+    const compactFollowUp = await compactProvider.chat(
+      [
+        { role: "user", content: "first" },
+        { role: "assistant", content: "Compact first", phase: "final_answer" },
+        { role: "user", content: "continue" },
+      ],
+      { stateful: { sessionId: "sess-ab-compact" } },
+    );
+
+    expect(plainFollowUp.content).toBe("Stable follow-up");
+    expect(compactFollowUp.content).toBe("Stable follow-up");
+    expect(mockCreate.mock.calls[1][0].previous_response_id).toBe("resp_plain_1");
+    expect(mockCreate.mock.calls[1][0].context_management).toBeUndefined();
+    expect(mockCreate.mock.calls[3][0].previous_response_id).toBe("resp_compact_1");
+    expect(mockCreate.mock.calls[3][0].context_management).toEqual({
+      compact_threshold: 10_000,
+    });
+    expect(compactFollowUp.compaction).toMatchObject({
+      enabled: true,
+      active: true,
+    });
+  });
+
   it("falls back stateless on reconciliation mismatch and emits mismatch diagnostics", async () => {
     mockCreate
       .mockResolvedValueOnce(
@@ -1162,5 +1426,62 @@ describe("GrokProvider", () => {
     expect(response.stateful?.fallbackReason).toBe(
       "missing_previous_response_id",
     );
+  });
+
+  it("uses a persisted resume anchor after provider restart", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_anchor",
+          output_text: "Hello",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_resumed",
+          output_text: "Resumed",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    const first = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+      ],
+      { stateful: { sessionId: "sess-resume" } },
+    );
+    provider.clearSessionState();
+
+    const response = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "Hello" },
+        { role: "user", content: "continue after restart" },
+      ],
+      {
+        stateful: {
+          sessionId: "sess-resume",
+          resumeAnchor: {
+            previousResponseId: "resp_anchor",
+            reconciliationHash: first.stateful?.reconciliationHash,
+          },
+        },
+      },
+    );
+
+    const params = mockCreate.mock.calls[1][0];
+    expect(params.previous_response_id).toBe("resp_anchor");
+    expect(response.stateful?.continued).toBe(true);
+    expect(response.stateful?.responseId).toBe("resp_resumed");
   });
 });

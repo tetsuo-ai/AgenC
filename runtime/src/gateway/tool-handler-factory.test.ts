@@ -236,6 +236,50 @@ describe("createSessionToolHandler", () => {
     );
   });
 
+  it("attaches hook metadata and toolCallId to tool hook payloads", async () => {
+    const send = vi.fn();
+    const hooks = {
+      dispatch: vi
+        .fn()
+        .mockResolvedValueOnce({ completed: true, payload: {} })
+        .mockResolvedValueOnce({ completed: true, payload: {} }),
+    } as any;
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler: vi.fn(async () => '{"ok":true}'),
+      routerId: "router-a",
+      send,
+      hooks,
+      hookMetadata: { backgroundRunId: "bg-run-1" },
+    });
+
+    await handler("system.writeFile", {
+      path: "/tmp/output.txt",
+      content: "hello",
+    });
+
+    expect(hooks.dispatch).toHaveBeenNthCalledWith(
+      1,
+      "tool:before",
+      expect.objectContaining({
+        sessionId: "session-1",
+        toolName: "system.writeFile",
+        backgroundRunId: "bg-run-1",
+      }),
+    );
+    expect(hooks.dispatch).toHaveBeenNthCalledWith(
+      2,
+      "tool:after",
+      expect.objectContaining({
+        sessionId: "session-1",
+        toolName: "system.writeFile",
+        backgroundRunId: "bg-run-1",
+        toolCallId: expect.any(String),
+      }),
+    );
+  });
+
   it("reuses toolCallId when approval is denied and tool does not execute", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {

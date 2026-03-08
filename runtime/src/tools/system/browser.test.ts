@@ -1,9 +1,11 @@
+import { writeFile } from "node:fs/promises";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   TEST_LOOPBACK_IP,
   TEST_PUBLIC_IP,
   ipv4LookupResults,
 } from "./dnsTestFixtures.js";
+import { runDurableHandleContractSuite } from "./handle-contract.test-utils.js";
 import { silentLogger } from "../../utils/logger.js";
 
 vi.mock("node:dns/promises", () => ({
@@ -301,7 +303,7 @@ vi.mock("cheerio", () => ({
 
 const mockPage = {
   setViewportSize: vi.fn().mockResolvedValue(undefined),
-  goto: vi.fn().mockResolvedValue(undefined),
+  goto: vi.fn(),
   screenshot: vi.fn().mockResolvedValue(Buffer.from("fake-png-data")),
   pdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf-data")),
   click: vi.fn().mockResolvedValue(undefined),
@@ -309,6 +311,9 @@ const mockPage = {
   evaluate: vi.fn().mockResolvedValue("eval-result"),
   waitForSelector: vi.fn().mockResolvedValue(undefined),
   close: vi.fn().mockResolvedValue(undefined),
+  title: vi.fn(),
+  url: vi.fn(),
+  on: vi.fn(),
   mouse: { wheel: vi.fn().mockResolvedValue(undefined) },
 };
 
@@ -318,10 +323,17 @@ const mockBrowser = {
 };
 
 const mockLaunch = vi.fn().mockResolvedValue(mockBrowser);
+const mockPersistentContext = {
+  pages: vi.fn().mockResolvedValue([mockPage]),
+  newPage: vi.fn().mockResolvedValue(mockPage),
+  close: vi.fn().mockResolvedValue(undefined),
+};
+const mockLaunchPersistentContext = vi.fn().mockResolvedValue(mockPersistentContext);
 
 vi.mock("playwright", () => ({
   chromium: {
     launch: mockLaunch,
+    launchPersistentContext: mockLaunchPersistentContext,
   },
 }));
 
@@ -358,6 +370,12 @@ function makeHtmlResponse(
 }
 
 let mockFetch: ReturnType<typeof vi.fn>;
+let currentPageUrl = "about:blank";
+let currentPageTitle = "Example Domain";
+let downloadHandlers: Array<(download: {
+  suggestedFilename(): string;
+  saveAs(path: string): Promise<void>;
+}) => void> = [];
 const { lookup: dnsLookup } = await import("node:dns/promises");
 const mockDnsLookup = vi.mocked(dnsLookup);
 
@@ -381,9 +399,14 @@ beforeEach(() => {
   mockDnsLookup.mockResolvedValue(ipv4LookupResults(TEST_PUBLIC_IP));
 
   _resetForTesting();
+  currentPageUrl = "about:blank";
+  currentPageTitle = "Example Domain";
+  downloadHandlers = [];
 
   mockPage.setViewportSize.mockClear();
-  mockPage.goto.mockClear();
+  mockPage.goto.mockReset().mockImplementation(async (url: string) => {
+    currentPageUrl = url;
+  });
   mockPage.screenshot
     .mockClear()
     .mockResolvedValue(Buffer.from("fake-png-data"));
@@ -393,10 +416,29 @@ beforeEach(() => {
   mockPage.evaluate.mockClear().mockResolvedValue("eval-result");
   mockPage.waitForSelector.mockClear();
   mockPage.close.mockClear();
+  mockPage.title.mockReset().mockImplementation(async () => currentPageTitle);
+  mockPage.url.mockReset().mockImplementation(() => currentPageUrl);
+  mockPage.on.mockReset().mockImplementation(
+    (
+      event: string,
+      handler: (download: {
+        suggestedFilename(): string;
+        saveAs(path: string): Promise<void>;
+      }) => void,
+    ) => {
+      if (event === "download") {
+        downloadHandlers.push(handler);
+      }
+    },
+  );
   mockPage.mouse.wheel.mockClear();
   mockBrowser.newPage.mockClear().mockResolvedValue(mockPage);
   mockBrowser.close.mockClear();
   mockLaunch.mockClear().mockResolvedValue(mockBrowser);
+  mockPersistentContext.pages.mockClear().mockResolvedValue([mockPage]);
+  mockPersistentContext.newPage.mockClear().mockResolvedValue(mockPage);
+  mockPersistentContext.close.mockClear().mockResolvedValue(undefined);
+  mockLaunchPersistentContext.mockClear().mockResolvedValue(mockPersistentContext);
 });
 
 function makeRedirectResponse(location: string, url: string): Response {
@@ -452,9 +494,9 @@ describe("createBrowserTools", () => {
     ]);
   });
 
-  it("advanced mode creates 7 tools", () => {
+  it("advanced mode creates 12 tools", () => {
     const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
-    expect(tools).toHaveLength(7);
+    expect(tools).toHaveLength(12);
     expect(tools.map((t) => t.name)).toEqual([
       "system.browse",
       "system.extractLinks",
@@ -463,6 +505,11 @@ describe("createBrowserTools", () => {
       "system.browserAction",
       "system.evaluateJs",
       "system.exportPdf",
+      "system.browserSessionStart",
+      "system.browserSessionStatus",
+      "system.browserSessionResume",
+      "system.browserSessionStop",
+      "system.browserSessionArtifacts",
     ]);
   });
 
@@ -1572,6 +1619,185 @@ describe("closeBrowser", () => {
     await closeBrowser(); // should be a no-op
     expect(mockBrowser.close).not.toHaveBeenCalled();
   });
+
+  it("closes active browser session contexts too", async () => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    await start.execute({
+      url: "https://example.com",
+      idempotencyKey: "browser-session-close",
+    });
+
+    await closeBrowser();
+
+    expect(mockPersistentContext.close).toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// Advanced: durable browser sessions
+// ============================================================================
+
+describe("durable browser session tools", () => {
+  runDurableHandleContractSuite(() => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const status = tools.find((t) => t.name === "system.browserSessionStatus")!;
+    const stop = tools.find((t) => t.name === "system.browserSessionStop")!;
+
+    return {
+      family: "browser-session",
+      handleIdField: "sessionId",
+      runningState: "running",
+      terminalState: "stopped",
+      buildStartArgs: ({ label, idempotencyKey }) => ({
+        url: "https://example.com",
+        label,
+        idempotencyKey,
+      }),
+      buildStatusArgs: ({ label, idempotencyKey }) => ({
+        ...(label ? { label } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+      }),
+      buildStopArgs: ({ handleId, label, idempotencyKey }) => ({
+        ...(handleId ? { sessionId: handleId } : {}),
+        ...(label ? { label } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+      }),
+      start: async (args) => JSON.parse((await start.execute(args)).content) as Record<string, unknown>,
+      status: async (args) => JSON.parse((await status.execute(args)).content) as Record<string, unknown>,
+      stop: async (args) => JSON.parse((await stop.execute(args)).content) as Record<string, unknown>,
+    };
+  });
+
+  it("reports durable session status and current page state", async () => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const status = tools.find((t) => t.name === "system.browserSessionStatus")!;
+    const started = JSON.parse(
+      (
+        await start.execute({
+          url: "https://example.com",
+          label: "browser-status",
+        })
+      ).content,
+    );
+    currentPageTitle = "Status Page";
+
+    const result = JSON.parse(
+      (
+        await status.execute({
+          sessionId: started.sessionId,
+        })
+      ).content,
+    );
+
+    expect(result.sessionId).toBe(started.sessionId);
+    expect(result.currentUrl).toBe("https://example.com");
+    expect(result.title).toBe("Status Page");
+  });
+
+  it("resumes a durable browser session with actions and persists artifacts", async () => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const resume = tools.find((t) => t.name === "system.browserSessionResume")!;
+    const artifacts = tools.find((t) => t.name === "system.browserSessionArtifacts")!;
+    const started = JSON.parse(
+      (
+        await start.execute({
+          url: "https://example.com",
+          label: "browser-resume",
+        })
+      ).content,
+    );
+
+    const resumed = JSON.parse(
+      (
+        await resume.execute({
+          sessionId: started.sessionId,
+          actions: [
+            {
+              type: "navigate",
+              url: "https://example.com/account",
+            },
+            {
+              type: "screenshot",
+              label: "account-page",
+              fullPage: true,
+            },
+          ],
+        })
+      ).content,
+    );
+    const artifactList = JSON.parse(
+      (
+        await artifacts.execute({
+          sessionId: started.sessionId,
+        })
+      ).content,
+    );
+
+    expect(currentPageUrl).toBe("https://example.com/account");
+    expect(resumed.resumed).toBe(true);
+    expect(resumed.actionResults[1].artifactPath).toContain("account-page.png");
+    expect(artifactList.artifacts[0].kind).toBe("screenshot");
+    expect(artifactList.artifacts[0].path).toContain("account-page.png");
+  });
+
+  it("captures browser downloads as durable session artifacts", async () => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const artifacts = tools.find((t) => t.name === "system.browserSessionArtifacts")!;
+    const started = JSON.parse(
+      (
+        await start.execute({
+          url: "https://example.com",
+          label: "browser-download",
+        })
+      ).content,
+    );
+
+    expect(downloadHandlers).toHaveLength(1);
+    await downloadHandlers[0]({
+      suggestedFilename: () => "report.pdf",
+      saveAs: async (path: string) => {
+        await writeFile(path, "report");
+      },
+    });
+    await vi.waitFor(async () => {
+      const artifactList = JSON.parse(
+        (
+          await artifacts.execute({
+            sessionId: started.sessionId,
+          })
+        ).content,
+      );
+
+      expect(artifactList.artifacts[0].kind).toBe("download");
+      expect(artifactList.artifacts[0].path).toContain("report.pdf");
+    });
+  });
+
+  it("releases runtime resources when a browser session is stopped", async () => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const stop = tools.find((t) => t.name === "system.browserSessionStop")!;
+    const started = JSON.parse(
+      (
+        await start.execute({
+          url: "https://example.com",
+          label: "browser-stop-runtime",
+        })
+      ).content,
+    );
+
+    await stop.execute({
+      sessionId: started.sessionId,
+    });
+
+    expect(mockPersistentContext.close).toHaveBeenCalled();
+  });
+
 });
 
 // ============================================================================

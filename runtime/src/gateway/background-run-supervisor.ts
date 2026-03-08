@@ -10,6 +10,7 @@
  * @module
  */
 
+import { createHash } from "node:crypto";
 import type { ChatExecutor, ChatExecutorResult } from "../llm/chat-executor.js";
 import type { LLMMessage, LLMProvider, ToolHandler } from "../llm/types.js";
 import type { GatewayMessage } from "./message.js";
@@ -19,23 +20,60 @@ import { toErrorMessage } from "../utils/async.js";
 import type { ToolRoutingDecision } from "./tool-routing.js";
 import type { ProgressTracker } from "./progress.js";
 import {
+  AGENT_RUN_SCHEMA_VERSION,
+  assertAgentRunStateTransition,
+  inferAgentRunDomain,
+  isAgentRunDomain,
+  isTerminalAgentRunState,
+} from "./agent-run-contract.js";
+import {
   BackgroundRunStore,
+  DEFAULT_BACKGROUND_RUN_MAX_CYCLES,
+  DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
+  DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
+  type BackgroundRunApprovalState,
+  type BackgroundRunArtifactRef,
+  type BackgroundRunBlockerState,
+  type BackgroundRunBudgetState,
   type BackgroundRunCarryForwardState,
+  type BackgroundRunCompactionState,
   type BackgroundRunContract,
+  type BackgroundRunMemoryAnchor,
   type BackgroundRunManagedProcessLaunchSpec,
   type BackgroundRunManagedProcessPolicy,
   type BackgroundRunObservedTarget,
+  type BackgroundRunProviderContinuation,
   type BackgroundRunRecentSnapshot,
   type BackgroundRunSignal,
   type BackgroundRunState,
   type BackgroundRunWakeReason,
+  type BackgroundRunWatchRegistration,
   type PersistedBackgroundRun,
 } from "./background-run-store.js";
+import { BackgroundRunWakeBus } from "./background-run-wake-bus.js";
 import {
-  didToolCallFail,
   extractToolFailureText,
   parseToolResultObject,
 } from "../llm/chat-executor-tool-utils.js";
+import { buildBackgroundRunSignalFromToolResult } from "./background-run-wake-adapters.js";
+import {
+  buildNativeActorResult,
+  executeNativeToolCall,
+} from "./run-domain-native-tools.js";
+import {
+  createApprovalRunDomain,
+  createBrowserRunDomain,
+  createDesktopGuiRunDomain,
+  createGenericRunDomain,
+  createPipelineRunDomain,
+  createRemoteMcpRunDomain,
+  createResearchRunDomain,
+  createWorkspaceRunDomain,
+  type RunDomain,
+  type RunDomainNativeCycleResult,
+  type RunDomainVerification,
+  verificationSupportsContinuation,
+} from "./run-domains.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 8_000;
 const BUSY_RETRY_INTERVAL_MS = 1_500;
@@ -47,13 +85,14 @@ const ACTIVE_CYCLE_HEARTBEAT_INITIAL_MS = 8_000;
 const ACTIVE_CYCLE_HEARTBEAT_REPEAT_MS = 15_000;
 const HEARTBEAT_MIN_DELAY_MS = 10_000;
 const HEARTBEAT_MAX_DELAY_MS = 20_000;
-const MAX_BACKGROUND_CYCLES = 512;
-const MAX_BACKGROUND_RUNTIME_MS = 7 * 24 * 60 * 60_000;
 const MAX_RUN_HISTORY_MESSAGES = 12;
 const HISTORY_COMPACTION_THRESHOLD = 10;
-const MIN_CARRY_FORWARD_REFRESH_MS = 60_000;
 const MAX_TOOL_RESULT_PREVIEW_CHARS = 240;
 const MAX_USER_UPDATE_CHARS = 240;
+const MAX_MEMORY_FACTS = 6;
+const MAX_MEMORY_OPEN_LOOPS = 6;
+const MAX_MEMORY_ARTIFACTS = 6;
+const MAX_MEMORY_ANCHORS = 6;
 const BACKGROUND_RUN_MAX_TOOL_ROUNDS = 1;
 const BACKGROUND_RUN_MAX_TOOL_BUDGET = 4;
 const BACKGROUND_RUN_MAX_MODEL_RECALLS = 0;
@@ -116,10 +155,13 @@ export interface BackgroundRunStatusSnapshot {
   readonly lastWakeReason?: BackgroundRunWakeReason;
   readonly pendingSignals: number;
   readonly carryForwardSummary?: string;
+  readonly blockerSummary?: string;
+  readonly watchCount: number;
+  readonly fenceToken: number;
 }
 
 interface BackgroundRunDecision {
-  readonly state: Exclude<BackgroundRunState, "pending" | "running">;
+  readonly state: Exclude<BackgroundRunState, "pending" | "running" | "suspended">;
   readonly userUpdate: string;
   readonly internalSummary: string;
   readonly nextCheckMs?: number;
@@ -127,12 +169,13 @@ interface BackgroundRunDecision {
 }
 
 interface ActiveBackgroundRun {
-  version: 1;
+  version: typeof AGENT_RUN_SCHEMA_VERSION;
   id: string;
   sessionId: string;
   objective: string;
   contract: BackgroundRunContract;
   state: BackgroundRunState;
+  fenceToken: number;
   createdAt: number;
   updatedAt: number;
   cycleCount: number;
@@ -146,8 +189,13 @@ interface ActiveBackgroundRun {
   lastHeartbeatContent?: string;
   lastWakeReason?: BackgroundRunWakeReason;
   carryForward?: BackgroundRunCarryForwardState;
+  blocker?: BackgroundRunBlockerState;
+  approvalState: BackgroundRunApprovalState;
+  budgetState: BackgroundRunBudgetState;
+  compaction: BackgroundRunCompactionState;
   pendingSignals: BackgroundRunSignal[];
   observedTargets: BackgroundRunObservedTarget[];
+  watchRegistrations: BackgroundRunWatchRegistration[];
   internalHistory: LLMMessage[];
   leaseOwnerId?: string;
   leaseExpiresAt?: number;
@@ -188,6 +236,31 @@ interface StartBackgroundRunParams {
   readonly sessionId: string;
   readonly objective: string;
 }
+
+interface PreparedCycleContext {
+  readonly run: ActiveBackgroundRun;
+  readonly sessionId: string;
+  readonly cycleToolHandler: ToolHandler;
+  readonly actorPrompt: string;
+  readonly actorSystemPrompt: string;
+}
+
+interface ResolvedCycleOutcome {
+  readonly run: ActiveBackgroundRun;
+  readonly sessionId: string;
+  readonly actorResult?: ChatExecutorResult;
+  readonly decision: BackgroundRunDecision;
+  readonly heartbeatMs?: number;
+}
+
+const GENERIC_RUN_DOMAIN = createGenericRunDomain();
+const APPROVAL_RUN_DOMAIN = createApprovalRunDomain();
+const BROWSER_RUN_DOMAIN = createBrowserRunDomain();
+const DESKTOP_GUI_RUN_DOMAIN = createDesktopGuiRunDomain();
+const WORKSPACE_RUN_DOMAIN = createWorkspaceRunDomain();
+const RESEARCH_RUN_DOMAIN = createResearchRunDomain();
+const PIPELINE_RUN_DOMAIN = createPipelineRunDomain();
+const REMOTE_MCP_RUN_DOMAIN = createRemoteMcpRunDomain();
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -299,15 +372,281 @@ function getManagedProcessPolicyMode(run: ActiveBackgroundRun): "none" | "until_
   return getManagedProcessPolicy(run).mode;
 }
 
+function getWakeEventDomain(
+  type: BackgroundRunWakeReason,
+): "scheduler" | "operator" | "approval" | "tool" | "process" | "webhook" | "external" {
+  switch (type) {
+    case "start":
+    case "timer":
+    case "busy_retry":
+    case "recovery":
+    case "daemon_shutdown":
+      return "scheduler";
+    case "user_input":
+      return "operator";
+    case "approval":
+      return "approval";
+    case "tool_result":
+      return "tool";
+    case "process_exit":
+      return "process";
+    case "webhook":
+      return "webhook";
+    case "external_event":
+      return "external";
+  }
+}
+
+function buildWakeDedupeKey(params: {
+  sessionId: string;
+  runId?: string;
+  type: BackgroundRunWakeReason;
+  data?: Record<string, unknown>;
+}): string | undefined {
+  switch (params.type) {
+    case "start":
+    case "timer":
+    case "busy_retry":
+    case "recovery":
+      return `scheduled:${params.sessionId}:${params.runId ?? "pending"}`;
+    case "process_exit": {
+      const processId =
+        typeof params.data?.processId === "string" ? params.data.processId : undefined;
+      const exitCode =
+        typeof params.data?.exitCode === "number" ? params.data.exitCode : undefined;
+      return processId
+        ? `process_exit:${processId}:${exitCode ?? "unknown"}`
+        : undefined;
+    }
+    case "approval": {
+      const requestId =
+        typeof params.data?.requestId === "string" ? params.data.requestId : undefined;
+      return requestId ? `approval:${requestId}` : undefined;
+    }
+    case "tool_result": {
+      const toolCallId =
+        typeof params.data?.toolCallId === "string" ? params.data.toolCallId : undefined;
+      return toolCallId ? `tool_result:${toolCallId}` : undefined;
+    }
+    case "webhook": {
+      const eventId =
+        typeof params.data?.eventId === "string" ? params.data.eventId : undefined;
+      return eventId ? `webhook:${eventId}` : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
 function summarizeToolCalls(toolCalls: readonly ChatExecutorResult["toolCalls"][number][]): string {
   if (toolCalls.length === 0) return "No tool calls executed in this cycle.";
   return toolCalls
     .map((toolCall) => {
-      const result = truncate(toolCall.result, MAX_TOOL_RESULT_PREVIEW_CHARS);
+      const result = sanitizeMemoryText(
+        toolCall.result,
+        MAX_TOOL_RESULT_PREVIEW_CHARS,
+      );
       const state = toolCall.isError ? "error" : "ok";
       return `- ${toolCall.name} [${state}] ${result}`;
     })
     .join("\n");
+}
+
+function hashOpaqueValue(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function sanitizeMemoryText(text: string, maxChars: number): string {
+  const dataUriMatch = text.match(/data:[^;]+;base64,[A-Za-z0-9+/=\r\n]+/);
+  if (dataUriMatch) {
+    const digest = hashOpaqueValue(dataUriMatch[0]);
+    return truncate(`[binary artifact omitted sha256:${digest}]`, maxChars);
+  }
+  const base64Match = text.match(/[A-Za-z0-9+/=\r\n]{512,}/);
+  if (base64Match) {
+    const digest = hashOpaqueValue(base64Match[0]);
+    return truncate(`[large binary-like payload omitted sha256:${digest}]`, maxChars);
+  }
+  return truncate(text, maxChars);
+}
+
+function extractArtifactRefsFromToolCalls(
+  toolCalls: readonly ChatExecutorResult["toolCalls"][number][],
+  observedAt: number,
+): BackgroundRunArtifactRef[] {
+  const artifacts: BackgroundRunArtifactRef[] = [];
+  for (const toolCall of toolCalls) {
+    const payload = parseToolResultObject(toolCall.result);
+    if (!payload) {
+      if (/data:image\//i.test(toolCall.result)) {
+        artifacts.push({
+          kind: "opaque_provider_state",
+          locator: `inline:${toolCall.name}:${hashOpaqueValue(toolCall.result)}`,
+          label: toolCall.name,
+          source: toolCall.name,
+          observedAt,
+          digest: hashOpaqueValue(toolCall.result),
+        });
+      }
+      continue;
+    }
+
+    const candidateEntries: Array<{
+      kind: BackgroundRunArtifactRef["kind"];
+      locator?: string;
+      label?: string;
+      digest?: string;
+    }> = [
+      {
+        kind: "file",
+        locator:
+          typeof payload.filePath === "string"
+            ? payload.filePath
+            : typeof payload.path === "string"
+            ? payload.path
+            : typeof payload.artifactPath === "string"
+            ? payload.artifactPath
+            : undefined,
+        label: typeof payload.label === "string" ? payload.label : undefined,
+      },
+      {
+        kind: "download",
+        locator:
+          typeof payload.downloadPath === "string"
+            ? payload.downloadPath
+            : typeof payload.destination === "string"
+            ? payload.destination
+            : undefined,
+        label: typeof payload.filename === "string" ? payload.filename : undefined,
+      },
+      {
+        kind: "url",
+        locator: typeof payload.url === "string" ? payload.url : undefined,
+        label: typeof payload.title === "string" ? payload.title : undefined,
+      },
+      {
+        kind: "log",
+        locator: typeof payload.logPath === "string" ? payload.logPath : undefined,
+        label: typeof payload.label === "string" ? payload.label : undefined,
+      },
+      {
+        kind: "process",
+        locator:
+          typeof payload.processId === "string" ? payload.processId : undefined,
+        label: typeof payload.label === "string" ? payload.label : undefined,
+      },
+    ];
+
+    for (const entry of candidateEntries) {
+      if (!entry.locator || entry.locator.trim().length === 0) continue;
+      artifacts.push({
+        kind: entry.kind,
+        locator: entry.locator,
+        label: entry.label,
+        source: toolCall.name,
+        observedAt,
+        digest: entry.digest,
+      });
+    }
+  }
+
+  const seen = new Set<string>();
+  return artifacts.filter((artifact) => {
+    const key = `${artifact.kind}:${artifact.locator}:${artifact.source}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function extractProviderCompactionArtifacts(
+  actorResult: ChatExecutorResult,
+  observedAt: number,
+): BackgroundRunArtifactRef[] {
+  const artifacts: BackgroundRunArtifactRef[] = [];
+  for (const entry of actorResult.callUsage) {
+    const latestItem = entry.compactionDiagnostics?.latestItem;
+    if (!latestItem) continue;
+    artifacts.push({
+      kind: "opaque_provider_state",
+      locator: `provider:${entry.provider}:compaction:${latestItem.id ?? latestItem.digest}`,
+      label: `${entry.provider} compaction item`,
+      source: `${entry.provider}:context_management`,
+      observedAt,
+      digest: latestItem.digest,
+    });
+  }
+  const seen = new Set<string>();
+  return artifacts.filter((artifact) => {
+    const key = `${artifact.kind}:${artifact.locator}:${artifact.source}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeArtifactRefs(
+  previous: readonly BackgroundRunArtifactRef[],
+  next: readonly BackgroundRunArtifactRef[],
+): BackgroundRunArtifactRef[] {
+  const merged = [...previous];
+  for (const artifact of next) {
+    const existingIndex = merged.findIndex((candidate) =>
+      candidate.kind === artifact.kind &&
+      candidate.locator === artifact.locator &&
+      candidate.source === artifact.source,
+    );
+    if (existingIndex >= 0) {
+      merged[existingIndex] = artifact;
+      continue;
+    }
+    merged.push(artifact);
+  }
+  return merged.slice(-MAX_MEMORY_ARTIFACTS);
+}
+
+function mergeArtifactsIntoRun(
+  run: ActiveBackgroundRun,
+  artifacts: readonly BackgroundRunArtifactRef[],
+  observedAt: number,
+): void {
+  if (artifacts.length === 0) {
+    return;
+  }
+  const previous = run.carryForward?.artifacts ?? [];
+  const nextArtifacts = mergeArtifactRefs(previous, artifacts);
+  run.carryForward = {
+    ...(run.carryForward ?? buildEmptyCarryForwardState(observedAt)),
+    artifacts: nextArtifacts,
+    lastCompactedAt: run.carryForward?.lastCompactedAt ?? observedAt,
+  };
+}
+
+function recordToolEvidence(
+  run: ActiveBackgroundRun,
+  toolCalls: readonly ChatExecutorResult["toolCalls"][number][],
+): void {
+  if (toolCalls.length === 0) {
+    return;
+  }
+  run.lastToolEvidence = summarizeToolCalls(toolCalls);
+  const artifacts = extractArtifactRefsFromToolCalls(toolCalls, run.lastVerifiedAt ?? Date.now());
+  mergeArtifactsIntoRun(run, artifacts, run.lastVerifiedAt ?? Date.now());
+}
+
+function recordProviderCompactionArtifacts(
+  run: ActiveBackgroundRun,
+  actorResult: ChatExecutorResult,
+): void {
+  mergeArtifactsIntoRun(
+    run,
+    extractProviderCompactionArtifacts(actorResult, run.lastVerifiedAt ?? Date.now()),
+    run.lastVerifiedAt ?? Date.now(),
+  );
 }
 
 function formatCarryForwardState(
@@ -328,6 +667,26 @@ function formatCarryForwardState(
   if (carryForward.nextFocus) {
     parts.push(`Next focus: ${truncate(carryForward.nextFocus, 120)}`);
   }
+  if (carryForward.artifacts.length > 0) {
+    parts.push(
+      `Artifacts: ${carryForward.artifacts
+        .slice(0, 4)
+        .map((artifact) =>
+          `${artifact.kind}:${truncate(artifact.locator, 64)}`
+        )
+        .join(" | ")}`,
+    );
+  }
+  if (carryForward.providerContinuation) {
+    parts.push(
+      `Provider continuation: ${carryForward.providerContinuation.provider}#${carryForward.providerContinuation.responseId}`,
+    );
+  }
+  if (carryForward.summaryHealth.status === "repairing") {
+    parts.push(
+      `Summary health: repairing (${carryForward.summaryHealth.lastDriftReason ?? "detected drift"})`,
+    );
+  }
   return parts.join("\n");
 }
 
@@ -338,6 +697,37 @@ function formatSignals(signals: readonly BackgroundRunSignal[]): string | undefi
       `- [${signal.type}] ${truncate(signal.content, 180)}`,
     )
     .join("\n");
+}
+
+function buildInternalToolSignals(params: {
+  sessionId: string;
+  cycleCount: number;
+  actorResult: ChatExecutorResult;
+  observedAt: number;
+}): BackgroundRunSignal[] {
+  const { sessionId, cycleCount, actorResult, observedAt } = params;
+  return actorResult.toolCalls.flatMap((toolCall, index) => {
+    const signal = buildBackgroundRunSignalFromToolResult({
+      sessionId,
+      toolName: toolCall.name,
+      args: toolCall.args,
+      result: toolCall.result,
+      durationMs: toolCall.durationMs,
+    });
+    if (!signal) {
+      return [];
+    }
+    return [{
+      id: `internal:${cycleCount}:${index}:${toolCall.name}`,
+      type: signal.type,
+      content: signal.content,
+      timestamp: observedAt,
+      data: {
+        ...(signal.data ?? {}),
+        syntheticInternal: true,
+      },
+    }];
+  });
 }
 
 function formatObservedTargets(
@@ -358,6 +748,18 @@ function formatObservedTargets(
     .join("\n");
 }
 
+function dropSyntheticInternalSignals(
+  signals: readonly BackgroundRunSignal[],
+): BackgroundRunSignal[] {
+  return signals.filter((signal) => {
+    const data =
+      signal.data && typeof signal.data === "object" && !Array.isArray(signal.data)
+        ? signal.data as Record<string, unknown>
+        : undefined;
+    return data?.syntheticInternal !== true;
+  });
+}
+
 function cloneSignals(
   signals: readonly BackgroundRunSignal[],
 ): BackgroundRunSignal[] {
@@ -374,6 +776,145 @@ function removeConsumedSignals(
   if (signals.length === 0 || consumedSignals.length === 0) return [...signals];
   const consumedIds = new Set(consumedSignals.map((signal) => signal.id));
   return signals.filter((signal) => !consumedIds.has(signal.id));
+}
+
+function buildInitialBudgetState(
+  contract: BackgroundRunContract,
+  now: number,
+): BackgroundRunBudgetState {
+  return {
+    runtimeStartedAt: now,
+    lastActivityAt: now,
+    lastProgressAt: now,
+    maxRuntimeMs: DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
+    maxCycles: DEFAULT_BACKGROUND_RUN_MAX_CYCLES,
+    maxIdleMs: contract.requiresUserStop ? undefined : DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
+    nextCheckIntervalMs: contract.nextCheckMs,
+    heartbeatIntervalMs: contract.heartbeatMs,
+  };
+}
+
+function buildInitialCompactionState(): BackgroundRunCompactionState {
+  return {
+    lastCompactedAt: undefined,
+    lastCompactedCycle: 0,
+    refreshCount: 0,
+    lastHistoryLength: 0,
+    lastMilestoneAt: undefined,
+    lastCompactionReason: undefined,
+    repairCount: 0,
+    lastProviderAnchorAt: undefined,
+  };
+}
+
+function buildEmptyCarryForwardState(
+  now = Date.now(),
+): BackgroundRunCarryForwardState {
+  return {
+    summary: "Task remains active and requires continued supervision.",
+    verifiedFacts: [],
+    openLoops: [],
+    nextFocus: undefined,
+    artifacts: [],
+    memoryAnchors: [],
+    providerContinuation: undefined,
+    summaryHealth: {
+      status: "healthy",
+      driftCount: 0,
+    },
+    lastCompactedAt: now,
+  };
+}
+
+function recordRunActivity(
+  run: ActiveBackgroundRun,
+  now: number,
+  kind: "activity" | "progress" = "activity",
+): void {
+  run.budgetState = {
+    ...run.budgetState,
+    lastActivityAt: now,
+    lastProgressAt:
+      kind === "progress" ? now : run.budgetState.lastProgressAt,
+    nextCheckIntervalMs: run.contract.nextCheckMs,
+    heartbeatIntervalMs: run.contract.heartbeatMs,
+  };
+}
+
+function buildManagedProcessWatchRegistration(
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
+): BackgroundRunWatchRegistration {
+  return {
+    id: `watch:managed_process:${target.processId}`,
+    kind: "managed_process",
+    targetId: target.processId,
+    label: target.label,
+    wakeOn: ["process_exit", "tool_result"],
+    registeredAt: target.lastObservedAt,
+    lastTriggeredAt:
+      target.currentState === "exited" ? target.lastObservedAt : undefined,
+  };
+}
+
+function upsertWatchRegistration(
+  registrations: readonly BackgroundRunWatchRegistration[],
+  nextRegistration: BackgroundRunWatchRegistration,
+): BackgroundRunWatchRegistration[] {
+  const next = [...registrations];
+  const index = next.findIndex((registration) => registration.id === nextRegistration.id);
+  if (index >= 0) {
+    next[index] = nextRegistration;
+    return next;
+  }
+  next.push(nextRegistration);
+  return next;
+}
+
+function clearRunBlockers(run: ActiveBackgroundRun): void {
+  run.blocker = undefined;
+  run.approvalState = { status: "none" };
+}
+
+function buildBlockerState(
+  decision: BackgroundRunDecision,
+  now: number,
+): {
+  blocker: BackgroundRunBlockerState;
+  approvalState: BackgroundRunApprovalState;
+} {
+  const corpus = `${decision.userUpdate}\n${decision.internalSummary}`.toLowerCase();
+  const requiresApproval = /\bapprove|approval|authorization|authorize\b/.test(corpus);
+  const needsOperatorInput =
+    requiresApproval ||
+    /\b(user input|instruction|tell me|give a new instruction|waiting for you)\b/.test(corpus);
+  const code: BackgroundRunBlockerState["code"] = requiresApproval
+    ? "approval_required"
+    : /\brestart\b.*\bfailed|tool\b.*\bfail/.test(corpus)
+      ? "tool_failure"
+      : /\bprocess\b.*\bexited/.test(corpus)
+        ? "managed_process_exit"
+        : needsOperatorInput
+          ? "operator_input_required"
+          : "missing_prerequisite";
+  const blocker: BackgroundRunBlockerState = {
+    code,
+    summary: decision.userUpdate,
+    details: decision.internalSummary,
+    since: now,
+    requiresOperatorAction: needsOperatorInput,
+    requiresApproval,
+    retryable: decision.state !== "failed",
+  };
+  return {
+    blocker,
+    approvalState: requiresApproval
+      ? {
+          status: "waiting",
+          requestedAt: now,
+          summary: decision.userUpdate,
+        }
+      : { status: "none" },
+  };
 }
 
 function buildActorPrompt(run: ActiveBackgroundRun): string {
@@ -395,6 +936,10 @@ function buildActorPrompt(run: ActiveBackgroundRun): string {
   const observedTargetSection = observedTargets
     ? `Runtime observed targets:\n${observedTargets}\n`
     : "";
+  const domain = getRunDomain(run);
+  const domainPlannerContract = domain.plannerContract(run);
+  const domainVerifierContract = domain.verifierContract(run);
+  const domainArtifactContract = domain.artifactContract(run);
   const contractSummary =
     `Run contract:\n${JSON.stringify(run.contract, null, 2)}\n`;
   const firstCycleGuidance = run.cycleCount === 1
@@ -404,6 +949,9 @@ function buildActorPrompt(run: ActiveBackgroundRun): string {
     `Background objective:\n${run.objective}\n\n` +
     `Cycle: ${run.cycleCount}\n` +
     contractSummary +
+    `Domain planner contract:\n- ${domainPlannerContract.join("\n- ")}\n` +
+    `Domain verifier contract:\n- ${domainVerifierContract.join("\n- ")}\n` +
+    `Domain artifact contract:\n- ${domainArtifactContract.join("\n- ")}\n` +
     carryForwardSection +
     signalSection +
     observedTargetSection +
@@ -416,6 +964,7 @@ function buildActorPrompt(run: ActiveBackgroundRun): string {
 }
 
 function buildHeartbeatMessage(run: ActiveBackgroundRun): string {
+  const domainSummary = getRunDomain(run).summarizeStatus(run);
   const nextCheckMs =
     run.nextCheckAt !== undefined
       ? Math.max(0, run.nextCheckAt - Date.now())
@@ -424,7 +973,9 @@ function buildHeartbeatMessage(run: ActiveBackgroundRun): string {
     run.lastVerifiedAt !== undefined
       ? Math.max(0, Date.now() - run.lastVerifiedAt)
       : undefined;
-  const lastVerifiedText = run.lastUserUpdate
+  const lastVerifiedText = domainSummary
+    ? truncate(domainSummary, 120)
+    : run.lastUserUpdate
     ? truncate(run.lastUserUpdate, 120)
     : "Task is still active.";
 
@@ -442,7 +993,10 @@ function buildHeartbeatMessage(run: ActiveBackgroundRun): string {
 }
 
 function buildActiveCycleHeartbeatMessage(run: ActiveBackgroundRun): string {
-  const lastVerifiedText = run.lastUserUpdate
+  const domainSummary = getRunDomain(run).summarizeStatus(run);
+  const lastVerifiedText = domainSummary
+    ? truncate(domainSummary, 120)
+    : run.lastUserUpdate
     ? truncate(run.lastUserUpdate, 120)
     : "No verified update has been published yet.";
   const cycleAgeMs = Math.max(0, Date.now() - run.updatedAt);
@@ -487,8 +1041,9 @@ function buildContractPrompt(objective: string): string {
   return (
     `User objective:\n${objective}\n\n` +
     "Return JSON only in this shape:\n" +
-    '{"kind":"finite|until_condition|until_stopped","successCriteria":["..."],"completionCriteria":["..."],"blockedCriteria":["..."],"nextCheckMs":8000,"heartbeatMs":15000,"requiresUserStop":false,"managedProcessPolicy":{"mode":"none|until_exit|keep_running|restart_on_exit","maxRestarts":5,"restartBackoffMs":5000}}\n\n' +
+    '{"domain":"generic|managed_process|approval|browser|desktop_gui|workspace|research|pipeline|remote_mcp","kind":"finite|until_condition|until_stopped","successCriteria":["..."],"completionCriteria":["..."],"blockedCriteria":["..."],"nextCheckMs":8000,"heartbeatMs":15000,"requiresUserStop":false,"managedProcessPolicy":{"mode":"none|until_exit|keep_running|restart_on_exit","maxRestarts":5,"restartBackoffMs":5000}}\n\n' +
     "Rules:\n" +
+    "- Choose the domain that best matches the primary runtime surface being supervised.\n" +
     "- Use until_stopped only when the user explicitly says the task should continue until they stop it.\n" +
     "- Use until_condition when the task should keep running until some external condition is observed.\n" +
     "- Use finite for bounded tasks that should complete on their own.\n" +
@@ -545,6 +1100,7 @@ function buildCarryForwardPrompt(params: {
     "Rules:\n" +
     "- Keep only durable task-relevant context that the next cycle actually needs.\n" +
     "- Prefer verified facts over guesses.\n" +
+    "- Do not invent artifact paths, URLs, or provider checkpoint IDs.\n" +
     "- Include open loops that still require supervision.\n" +
     "- Include operator/user signals when they change the next step.\n" +
     "- Keep summary under 240 chars and each list item under 120 chars.\n"
@@ -645,7 +1201,10 @@ function parseDecision(text: string): BackgroundRunDecision | undefined {
   }
 }
 
-function parseContract(text: string): BackgroundRunContract | undefined {
+function parseContract(
+  text: string,
+  objective?: string,
+): BackgroundRunContract | undefined {
   const raw = extractJsonObject(text);
   if (!raw) return undefined;
   try {
@@ -676,38 +1235,57 @@ function parseContract(text: string): BackgroundRunContract | undefined {
       const list = value.filter((item): item is string => typeof item === "string");
       return list.length > 0 ? list : [fallback];
     };
+    const successCriteria = normalizeList(
+      parsed.successCriteria,
+      "Make forward progress on the objective with verified evidence.",
+    );
+    const completionCriteria = normalizeList(
+      parsed.completionCriteria,
+      "Only complete once the environment confirms the objective is satisfied.",
+    );
+    const blockedCriteria = normalizeList(
+      parsed.blockedCriteria,
+      "Block when required tools, permissions, or external preconditions are missing.",
+    );
+    const requiresUserStop =
+      typeof parsed.requiresUserStop === "boolean"
+        ? parsed.requiresUserStop
+        : kind === "until_stopped";
+    const normalizedManagedProcessPolicy =
+      managedProcessPolicy !== undefined
+        ? {
+            mode: normalizeManagedProcessPolicyMode(managedProcessPolicy.mode),
+            maxRestarts: normalizePositiveInteger(
+              managedProcessPolicy.maxRestarts,
+            ),
+            restartBackoffMs: normalizePositiveInteger(
+              managedProcessPolicy.restartBackoffMs,
+            ),
+          }
+        : undefined;
+    const inferredDomain = inferAgentRunDomain({
+      objective,
+      successCriteria,
+      completionCriteria,
+      blockedCriteria,
+      requiresUserStop,
+      managedProcessPolicy: normalizedManagedProcessPolicy,
+    });
     return {
+      domain:
+        inferredDomain !== "generic"
+          ? inferredDomain
+          : isAgentRunDomain(parsed.domain)
+          ? parsed.domain
+          : inferredDomain,
       kind,
-      successCriteria: normalizeList(
-        parsed.successCriteria,
-        "Make forward progress on the objective with verified evidence.",
-      ),
-      completionCriteria: normalizeList(
-        parsed.completionCriteria,
-        "Only complete once the environment confirms the objective is satisfied.",
-      ),
-      blockedCriteria: normalizeList(
-        parsed.blockedCriteria,
-        "Block when required tools, permissions, or external preconditions are missing.",
-      ),
+      successCriteria,
+      completionCriteria,
+      blockedCriteria,
       nextCheckMs,
       heartbeatMs,
-      requiresUserStop:
-        typeof parsed.requiresUserStop === "boolean"
-          ? parsed.requiresUserStop
-          : kind === "until_stopped",
-      managedProcessPolicy:
-        managedProcessPolicy !== undefined
-          ? {
-              mode: normalizeManagedProcessPolicyMode(managedProcessPolicy.mode),
-              maxRestarts: normalizePositiveInteger(
-                managedProcessPolicy.maxRestarts,
-              ),
-              restartBackoffMs: normalizePositiveInteger(
-                managedProcessPolicy.restartBackoffMs,
-              ),
-            }
-          : undefined,
+      requiresUserStop,
+      managedProcessPolicy: normalizedManagedProcessPolicy,
     };
   } catch {
     return undefined;
@@ -724,19 +1302,26 @@ function parseCarryForwardState(
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (typeof parsed.summary !== "string") return undefined;
     const verifiedFacts = normalizeStringArray(parsed.verifiedFacts)
-      .slice(0, 6)
-      .map((item) => truncate(item, 120));
+      .slice(0, MAX_MEMORY_FACTS)
+      .map((item) => sanitizeMemoryText(item, 120));
     const openLoops = normalizeStringArray(parsed.openLoops)
-      .slice(0, 6)
-      .map((item) => truncate(item, 120));
+      .slice(0, MAX_MEMORY_OPEN_LOOPS)
+      .map((item) => sanitizeMemoryText(item, 120));
     return {
-      summary: truncate(parsed.summary, 240),
+      summary: sanitizeMemoryText(parsed.summary, 240),
       verifiedFacts,
       openLoops,
       nextFocus:
         typeof parsed.nextFocus === "string"
-          ? truncate(parsed.nextFocus, 120)
+          ? sanitizeMemoryText(parsed.nextFocus, 120)
           : undefined,
+      artifacts: [],
+      memoryAnchors: [],
+      providerContinuation: undefined,
+      summaryHealth: {
+        status: "healthy",
+        driftCount: 0,
+      },
       lastCompactedAt: now,
     };
   } catch {
@@ -755,11 +1340,11 @@ function buildFallbackCarryForwardState(params: {
   const verifiedFacts = [
     ...truncateList(previous?.verifiedFacts ?? [], 3, 120),
     ...(latestToolEvidence ? [truncate(latestToolEvidence, 120)] : []),
-  ].slice(0, 4);
+  ].slice(0, MAX_MEMORY_FACTS);
   const openLoops = [
     ...truncateList(previous?.openLoops ?? [], 3, 120),
     ...pendingSignals.slice(0, 2).map((signal) => truncate(signal.content, 120)),
-  ].slice(0, 4);
+  ].slice(0, MAX_MEMORY_OPEN_LOOPS);
   return {
     summary: truncate(
       latestUpdate ??
@@ -773,7 +1358,222 @@ function buildFallbackCarryForwardState(params: {
       pendingSignals[0]?.content
         ? truncate(pendingSignals[0].content, 120)
         : previous?.nextFocus,
+    artifacts: previous?.artifacts ?? [],
+    memoryAnchors: previous?.memoryAnchors ?? [],
+    providerContinuation: previous?.providerContinuation,
+    summaryHealth: previous?.summaryHealth ?? {
+      status: "healthy",
+      driftCount: 0,
+    },
     lastCompactedAt: now,
+  };
+}
+
+type CarryForwardRefreshReason =
+  | "history_threshold"
+  | "milestone"
+  | "forced"
+  | "repair";
+
+function buildMemoryAnchor(
+  kind: BackgroundRunMemoryAnchor["kind"],
+  reference: string,
+  summary: string,
+  createdAt: number,
+): BackgroundRunMemoryAnchor {
+  return {
+    kind,
+    reference,
+    summary: truncate(summary, 160),
+    createdAt,
+  };
+}
+
+function mergeMemoryAnchors(
+  previous: readonly BackgroundRunMemoryAnchor[],
+  additions: readonly BackgroundRunMemoryAnchor[],
+): BackgroundRunMemoryAnchor[] {
+  const merged = [...previous];
+  for (const anchor of additions) {
+    const existingIndex = merged.findIndex((candidate) =>
+      candidate.kind === anchor.kind && candidate.reference === anchor.reference,
+    );
+    if (existingIndex >= 0) {
+      merged[existingIndex] = anchor;
+      continue;
+    }
+    merged.push(anchor);
+  }
+  return merged.slice(-MAX_MEMORY_ANCHORS);
+}
+
+function extractLatestProviderContinuation(
+  actorResult: ChatExecutorResult | undefined,
+  now: number,
+): BackgroundRunProviderContinuation | undefined {
+  if (!actorResult) return undefined;
+  const latestUsage = [...actorResult.callUsage]
+    .reverse()
+    .find((entry) => entry.statefulDiagnostics?.responseId);
+  const responseId = latestUsage?.statefulDiagnostics?.responseId;
+  if (!latestUsage || !responseId) {
+    return undefined;
+  }
+  return {
+    provider: latestUsage.provider,
+    responseId,
+    reconciliationHash: latestUsage.statefulDiagnostics?.reconciliationHash,
+    updatedAt: now,
+    mode: "previous_response_id",
+  };
+}
+
+function buildCarryForwardAnchors(params: {
+  previous: readonly BackgroundRunMemoryAnchor[];
+  providerContinuation?: BackgroundRunProviderContinuation;
+  pendingSignals: readonly BackgroundRunSignal[];
+  actorResult?: ChatExecutorResult;
+  now: number;
+}): BackgroundRunMemoryAnchor[] {
+  const additions: BackgroundRunMemoryAnchor[] = [];
+  if (params.providerContinuation) {
+    additions.push(
+      buildMemoryAnchor(
+        "provider_response",
+        params.providerContinuation.responseId,
+        `${params.providerContinuation.provider} previous_response_id anchor`,
+        params.providerContinuation.updatedAt,
+      ),
+    );
+  }
+  const signalAnchor = params.pendingSignals[0];
+  if (signalAnchor) {
+    additions.push(
+      buildMemoryAnchor(
+        "event",
+        signalAnchor.id,
+        signalAnchor.content,
+        signalAnchor.timestamp,
+      ),
+    );
+  }
+  if (params.actorResult?.content) {
+    additions.push(
+      buildMemoryAnchor(
+        "progress",
+        `cycle:${params.now}`,
+        params.actorResult.content,
+        params.now,
+      ),
+    );
+  }
+  return mergeMemoryAnchors(params.previous, additions);
+}
+
+function deriveCarryForwardRefreshReason(params: {
+  run: ActiveBackgroundRun;
+  actorResult?: ChatExecutorResult;
+  force?: boolean;
+  pendingSignals: readonly BackgroundRunSignal[];
+}): CarryForwardRefreshReason | undefined {
+  if (params.force === true) {
+    return "forced";
+  }
+  if (!params.run.carryForward) {
+    return "milestone";
+  }
+  if (params.pendingSignals.length > 0) {
+    return "milestone";
+  }
+  if (params.actorResult?.toolCalls.some((toolCall) => !toolCall.isError)) {
+    return "milestone";
+  }
+  if (params.run.internalHistory.length >= HISTORY_COMPACTION_THRESHOLD) {
+    return "history_threshold";
+  }
+  return undefined;
+}
+
+function detectCarryForwardDrift(params: {
+  candidate: BackgroundRunCarryForwardState;
+  actorResult?: ChatExecutorResult;
+  previous?: BackgroundRunCarryForwardState;
+}): string | undefined {
+  const corpus = [
+    params.candidate.summary,
+    ...params.candidate.verifiedFacts,
+    ...params.candidate.openLoops,
+    params.candidate.nextFocus ?? "",
+  ].join("\n");
+  if (/data:image\/|[A-Za-z0-9+/=\r\n]{512,}/.test(corpus)) {
+    return "carry_forward_contains_binary_payload";
+  }
+
+  const actorResult = params.actorResult;
+  if (!actorResult) {
+    return undefined;
+  }
+
+  const onlyToolErrors =
+    actorResult.toolCalls.length > 0 &&
+    actorResult.toolCalls.every((toolCall) => toolCall.isError);
+  if (
+    onlyToolErrors &&
+    /\b(succeeded|completed|finished|generated|downloaded|uploaded|deployed|ready)\b/i.test(
+      corpus,
+    )
+  ) {
+    return "carry_forward_claims_success_after_error_cycle";
+  }
+
+  const previousSummary = params.previous?.summary?.trim();
+  if (
+    previousSummary &&
+    previousSummary === params.candidate.summary.trim() &&
+    actorResult.toolCalls.some((toolCall) => !toolCall.isError)
+  ) {
+    return "carry_forward_failed_to_refresh_after_new_evidence";
+  }
+
+  return undefined;
+}
+
+function repairCarryForwardState(params: {
+  previous?: BackgroundRunCarryForwardState;
+  latestUpdate?: string;
+  latestToolEvidence?: string;
+  pendingSignals: readonly BackgroundRunSignal[];
+  actorResult?: ChatExecutorResult;
+  now: number;
+  reason: string;
+  providerContinuation?: BackgroundRunProviderContinuation;
+}): BackgroundRunCarryForwardState {
+  const repaired = buildFallbackCarryForwardState({
+    previous: params.previous,
+    latestUpdate: params.latestUpdate,
+    latestToolEvidence: params.latestToolEvidence,
+    pendingSignals: params.pendingSignals,
+    now: params.now,
+  });
+  return {
+    ...repaired,
+    artifacts: params.previous?.artifacts ?? [],
+    memoryAnchors: buildCarryForwardAnchors({
+      previous: params.previous?.memoryAnchors ?? [],
+      providerContinuation: params.providerContinuation ?? params.previous?.providerContinuation,
+      pendingSignals: params.pendingSignals,
+      actorResult: params.actorResult,
+      now: params.now,
+    }),
+    providerContinuation:
+      params.providerContinuation ?? params.previous?.providerContinuation,
+    summaryHealth: {
+      status: "repairing",
+      driftCount: (params.previous?.summaryHealth.driftCount ?? 0) + 1,
+      lastDriftAt: params.now,
+      lastRepairAt: params.now,
+      lastDriftReason: params.reason,
+    },
   };
 }
 
@@ -781,40 +1581,52 @@ function buildFallbackContract(objective: string): BackgroundRunContract {
   const untilStopped = UNTIL_STOP_RE.test(objective);
   const continuous = CONTINUOUS_RE.test(objective) || BACKGROUND_RE.test(objective);
   const managedProcessPolicyMode = inferManagedProcessPolicyMode(objective);
+  const successCriteria = [
+    "Use tools to make measurable progress and verify the result.",
+  ];
+  const completionCriteria = [
+    untilStopped
+      ? "Do not complete until the user explicitly stops the run."
+      : "Only complete once tool evidence shows the objective is satisfied.",
+  ];
+  const blockedCriteria = [
+    "Block when required approvals, credentials, or external preconditions are missing.",
+  ];
+  const managedProcessPolicy =
+    managedProcessPolicyMode !== "none"
+      ? {
+          mode: managedProcessPolicyMode,
+          maxRestarts:
+            managedProcessPolicyMode === "restart_on_exit"
+              ? DEFAULT_MANAGED_PROCESS_MAX_RESTARTS
+              : undefined,
+          restartBackoffMs:
+            managedProcessPolicyMode === "restart_on_exit"
+              ? DEFAULT_MANAGED_PROCESS_RESTART_BACKOFF_MS
+              : undefined,
+        }
+      : undefined;
   return {
+    domain: inferAgentRunDomain({
+      objective,
+      successCriteria,
+      completionCriteria,
+      blockedCriteria,
+      requiresUserStop: untilStopped,
+      managedProcessPolicy,
+    }),
     kind: untilStopped
       ? "until_stopped"
       : continuous
         ? "until_condition"
         : "finite",
-    successCriteria: [
-      "Use tools to make measurable progress and verify the result.",
-    ],
-    completionCriteria: [
-      untilStopped
-        ? "Do not complete until the user explicitly stops the run."
-        : "Only complete once tool evidence shows the objective is satisfied.",
-    ],
-    blockedCriteria: [
-      "Block when required approvals, credentials, or external preconditions are missing.",
-    ],
+    successCriteria,
+    completionCriteria,
+    blockedCriteria,
     nextCheckMs: DEFAULT_POLL_INTERVAL_MS,
     heartbeatMs: continuous ? HEARTBEAT_MIN_DELAY_MS : undefined,
     requiresUserStop: untilStopped,
-    managedProcessPolicy:
-      managedProcessPolicyMode !== "none"
-        ? {
-            mode: managedProcessPolicyMode,
-            maxRestarts:
-              managedProcessPolicyMode === "restart_on_exit"
-                ? DEFAULT_MANAGED_PROCESS_MAX_RESTARTS
-                : undefined,
-            restartBackoffMs:
-              managedProcessPolicyMode === "restart_on_exit"
-                ? DEFAULT_MANAGED_PROCESS_RESTART_BACKOFF_MS
-                : undefined,
-          }
-        : undefined,
+    managedProcessPolicy,
   };
 }
 
@@ -871,7 +1683,24 @@ function groundDecision(
   run: ActiveBackgroundRun,
   actorResult: ChatExecutorResult,
   decision: BackgroundRunDecision,
+  domainDecision?: BackgroundRunDecision,
 ): BackgroundRunDecision {
+  if (domainDecision?.state === "working") {
+    if (decision.state !== "working") {
+      return domainDecision;
+    }
+    const normalizedActorContent = truncate(
+      actorResult.content || "",
+      MAX_USER_UPDATE_CHARS,
+    );
+    if (
+      normalizedActorContent.length > 0 &&
+      decision.userUpdate === normalizedActorContent
+    ) {
+      return domainDecision;
+    }
+  }
+
   const successfulToolCalls = actorResult.toolCalls.filter((toolCall) => !toolCall.isError);
   const failedToolCalls = actorResult.toolCalls.filter((toolCall) => toolCall.isError);
 
@@ -964,7 +1793,40 @@ function parseManagedProcessState(value: unknown): "running" | "exited" | undefi
   if (value === "running" || value === "exited") {
     return value;
   }
+  if (value === "stopped" || value === "failed") {
+    return "exited";
+  }
   return undefined;
+}
+
+function getManagedProcessSurfaceFromToolName(
+  toolName: string,
+): "desktop" | "host" | undefined {
+  if (toolName.startsWith("desktop.process_")) {
+    return "desktop";
+  }
+  if (toolName.startsWith("system.process")) {
+    return "host";
+  }
+  return undefined;
+}
+
+function getManagedProcessSurface(
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
+): "desktop" | "host" {
+  return target.surface ?? "desktop";
+}
+
+function managedProcessStatusToolName(
+  surface: "desktop" | "host",
+): "desktop.process_status" | "system.processStatus" {
+  return surface === "host" ? "system.processStatus" : "desktop.process_status";
+}
+
+function managedProcessStartToolName(
+  surface: "desktop" | "host",
+): "desktop.process_start" | "system.processStart" {
+  return surface === "host" ? "system.processStart" : "desktop.process_start";
 }
 
 function parseManagedProcessLaunchSpec(
@@ -1076,13 +1938,10 @@ function extractManagedProcessObservation(
   observedAt: number,
   existingTarget?: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
 ): BackgroundRunObservedTarget | undefined {
+  const surface = getManagedProcessSurfaceFromToolName(toolCall.name);
   if (
     toolCall.isError ||
-    (
-      toolCall.name !== "desktop.process_start" &&
-      toolCall.name !== "desktop.process_status" &&
-      toolCall.name !== "desktop.process_stop"
-    )
+    !surface
   ) {
     return undefined;
   }
@@ -1101,6 +1960,7 @@ function extractManagedProcessObservation(
       typeof payload.label === "string" && payload.label.trim().length > 0
         ? payload.label.trim()
         : undefined,
+    surface,
     pid: typeof payload.pid === "number" ? payload.pid : undefined,
     pgid: typeof payload.pgid === "number" ? payload.pgid : undefined,
     desiredState: "running",
@@ -1179,6 +2039,14 @@ function observeManagedProcessTargets(
       desiredState,
       exitPolicy,
     });
+    run.watchRegistrations = upsertWatchRegistration(
+      run.watchRegistrations,
+      buildManagedProcessWatchRegistration({
+        ...observation,
+        desiredState,
+        exitPolicy,
+      }),
+    );
   }
 }
 
@@ -1219,6 +2087,17 @@ function observeManagedProcessExitSignal(run: ActiveBackgroundRun): void {
         ? processExitSignal.data?.signal as string | null | undefined
         : existing.signal,
   });
+  run.watchRegistrations = upsertWatchRegistration(
+    run.watchRegistrations,
+    {
+      ...buildManagedProcessWatchRegistration({
+        ...existing,
+        currentState: "exited",
+        lastObservedAt: processExitSignal.timestamp,
+      }),
+      lastTriggeredAt: processExitSignal.timestamp,
+    },
+  );
 }
 
 function buildManagedProcessCompletionDecision(
@@ -1350,52 +2229,6 @@ function buildManagedProcessExitDetail(
   );
 }
 
-async function executeNativeToolCall(
-  toolHandler: ToolHandler,
-  name: string,
-  args: Record<string, unknown>,
-): Promise<ChatExecutorResult["toolCalls"][number]> {
-  const startedAt = Date.now();
-  try {
-    const result = await toolHandler(name, args);
-    return {
-      name,
-      args,
-      result,
-      isError: didToolCallFail(false, result),
-      durationMs: Math.max(0, Date.now() - startedAt),
-    };
-  } catch (error) {
-    const result = JSON.stringify({ error: toErrorMessage(error) });
-    return {
-      name,
-      args,
-      result,
-      isError: true,
-      durationMs: Math.max(0, Date.now() - startedAt),
-    };
-  }
-}
-
-function buildNativeActorResult(
-  toolCalls: readonly ChatExecutorResult["toolCalls"][number][],
-  content: string,
-): ChatExecutorResult {
-  const durationMs = toolCalls.reduce((total, toolCall) => total + toolCall.durationMs, 0);
-  return {
-    content,
-    provider: "runtime-native",
-    model: "managed-process-supervisor",
-    usedFallback: false,
-    toolCalls,
-    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    callUsage: [],
-    durationMs,
-    compacted: false,
-    stopReason: "completed",
-  };
-}
-
 function markManagedProcessRestart(
   run: ActiveBackgroundRun,
   previousTarget: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
@@ -1430,21 +2263,23 @@ async function executeManagedProcessNativeCycle(params: {
   }
 
   const policy = getManagedProcessPolicy(run);
+  const surface = getManagedProcessSurface(target);
   const statusArgs = target.label ? { label: target.label } : { processId: target.processId };
   const statusCall = await executeNativeToolCall(
     toolHandler,
-    "desktop.process_status",
+    managedProcessStatusToolName(surface),
     statusArgs,
   );
   const toolCalls: ChatExecutorResult["toolCalls"][number][] = [statusCall];
   const actorResult = buildNativeActorResult(
     toolCalls,
     `Verified managed process ${buildManagedProcessIdentity(target)}.`,
+    "managed-process-supervisor",
   );
 
   observeManagedProcessTargets(run, actorResult, now);
   run.lastVerifiedAt = now;
-  run.lastToolEvidence = summarizeToolCalls(toolCalls);
+  recordToolEvidence(run, toolCalls);
 
   const refreshedTarget =
     findManagedProcessTarget(run.observedTargets, target.processId, target.label) ??
@@ -1602,17 +2437,18 @@ async function executeManagedProcessNativeCycle(params: {
   if (launchSpec.logPath) restartArgs.logPath = launchSpec.logPath;
   const restartCall = await executeNativeToolCall(
     toolHandler,
-    "desktop.process_start",
+    managedProcessStartToolName(surface),
     restartArgs,
   );
   toolCalls.push(restartCall);
   const restartActorResult = buildNativeActorResult(
     toolCalls,
     `Recovered managed process ${buildManagedProcessIdentity(refreshedTarget)}.`,
+    "managed-process-supervisor",
   );
   observeManagedProcessTargets(run, restartActorResult, now);
   run.lastVerifiedAt = now;
-  run.lastToolEvidence = summarizeToolCalls(toolCalls);
+  recordToolEvidence(run, toolCalls);
 
   if (restartCall.isError) {
     return {
@@ -1653,14 +2489,277 @@ async function executeManagedProcessNativeCycle(params: {
   };
 }
 
+function toDecisionFromDomainVerification(
+  verification: RunDomainVerification,
+): BackgroundRunDecision {
+  switch (verification.state) {
+    case "success":
+      return {
+        state: "completed",
+        userUpdate: verification.userUpdate,
+        internalSummary: verification.summary,
+        shouldNotifyUser: true,
+      };
+    case "blocked":
+      return {
+        state: "blocked",
+        userUpdate: verification.userUpdate,
+        internalSummary: verification.summary,
+        shouldNotifyUser: true,
+      };
+    case "needs_attention":
+      return {
+        state: "blocked",
+        userUpdate: verification.userUpdate,
+        internalSummary: verification.summary,
+        shouldNotifyUser: true,
+      };
+    case "safe_to_continue":
+      return {
+        state: "working",
+        userUpdate: verification.userUpdate,
+        internalSummary: verification.summary,
+        nextCheckMs: verification.nextCheckMs,
+        shouldNotifyUser: true,
+      };
+  }
+}
+
+function toDomainVerificationFromDecision(
+  decision: BackgroundRunDecision,
+): RunDomainVerification {
+  switch (decision.state) {
+    case "completed":
+      return {
+        state: "success",
+        summary: decision.internalSummary,
+        userUpdate: decision.userUpdate,
+        safeToContinue: false,
+      };
+    case "blocked":
+      return {
+        state: "blocked",
+        summary: decision.internalSummary,
+        userUpdate: decision.userUpdate,
+        safeToContinue: false,
+      };
+    case "failed":
+      return {
+        state: "needs_attention",
+        summary: decision.internalSummary,
+        userUpdate: decision.userUpdate,
+        safeToContinue: false,
+      };
+    case "working":
+      return {
+        state: "safe_to_continue",
+        summary: decision.internalSummary,
+        userUpdate: decision.userUpdate,
+        safeToContinue: true,
+        nextCheckMs: decision.nextCheckMs,
+      };
+  }
+  throw new Error(`Unhandled background run decision state: ${(decision as { state?: string }).state ?? "unknown"}`);
+}
+
+const MANAGED_PROCESS_RUN_DOMAIN: RunDomain<ActiveBackgroundRun> = {
+  id: "managed_process",
+  matches: (run) =>
+    run.contract.domain === "managed_process" ||
+    getManagedProcessPolicyMode(run) !== "none" ||
+    run.observedTargets.some((target) => target.kind === "managed_process"),
+  plannerContract: () => [
+    "Use deterministic managed-process lifecycle evidence as the source of truth.",
+    "Persist launch specs when restart_on_exit behavior is required.",
+  ],
+  verifierContract: () => [
+    "Map process lifecycle into typed success, blocked, needs_attention, or safe_to_continue states.",
+    "Reject assistant completion claims while the managed process is still running.",
+  ],
+  eventSubscriptions: () => ["process_exit", "tool_result", "user_input", "approval"],
+  artifactContract: () => [
+    "Managed process identity, pid/pgid, launch spec, and log path are durable artifacts.",
+  ],
+  recoveryStrategy: () =>
+    "Recover the last observed process identity, probe status deterministically, and only restart within bounded restart policy.",
+  summarizeStatus: (run) => {
+    const target = findLatestManagedProcessTarget(run.observedTargets);
+    if (!target) {
+      return run.lastUserUpdate;
+    }
+    return truncate(
+      `Managed process ${buildManagedProcessIdentity(target)} is ${target.currentState}.`,
+      MAX_USER_UPDATE_CHARS,
+    );
+  },
+  detectBlocker: (run) => {
+    if (run.blocker?.code === "managed_process_exit") {
+      return {
+        state: "blocked",
+        summary: run.blocker.summary,
+        userUpdate: truncate(run.blocker.summary, MAX_USER_UPDATE_CHARS),
+        safeToContinue: false,
+        blockerCode: run.blocker.code,
+      };
+    }
+    return undefined;
+  },
+  detectDeterministicVerification: (run) => {
+    const terminalDecision = buildDeterministicCompletionDecision(run);
+    if (terminalDecision) {
+      return toDomainVerificationFromDecision(terminalDecision);
+    }
+    const target = findLatestManagedProcessTarget(run.observedTargets);
+    if (target?.currentState === "running") {
+      return {
+        state: "safe_to_continue",
+        summary:
+          "Managed-process domain verified the process is still running.",
+        userUpdate: truncate(
+          `Managed process ${buildManagedProcessIdentity(target)} is still running.`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        safeToContinue: true,
+        nextCheckMs: clampPollIntervalMs(run.contract.nextCheckMs),
+      };
+    }
+    if (target?.currentState === "exited") {
+      if (target.exitPolicy === "keep_running") {
+        return {
+          state: "blocked",
+          summary:
+            "Managed-process domain detected an exited process under keep_running policy.",
+          userUpdate: truncate(
+            `${buildManagedProcessExitDetail(run, target)} Restart is not configured, so the run is blocked until you give a new instruction.`,
+            MAX_USER_UPDATE_CHARS,
+          ),
+          safeToContinue: false,
+          blockerCode: "managed_process_exit",
+        };
+      }
+      if (target.exitPolicy === "restart_on_exit") {
+        if (!target.launchSpec) {
+          return {
+            state: "blocked",
+            summary:
+              "Managed-process domain cannot restart because no launch spec was persisted.",
+            userUpdate: truncate(
+              `${buildManagedProcessExitDetail(run, target)} Restart is configured but the runtime has no launch spec to use.`,
+              MAX_USER_UPDATE_CHARS,
+            ),
+            safeToContinue: false,
+            blockerCode: "missing_prerequisite",
+          };
+        }
+        return {
+          state: "safe_to_continue",
+          summary:
+            "Managed-process domain detected an exited process and will hand off to native restart handling.",
+          userUpdate: truncate(
+            `${buildManagedProcessExitDetail(run, target)} Restart policy is active and the runtime will verify recovery.`,
+            MAX_USER_UPDATE_CHARS,
+          ),
+          safeToContinue: true,
+          nextCheckMs: 0,
+        };
+      }
+    }
+    return undefined;
+  },
+  observeActorResult: (run, actorResult, now) => {
+    observeManagedProcessTargets(run, actorResult, now);
+  },
+  executeNativeCycle: async (
+    run,
+    context,
+  ): Promise<RunDomainNativeCycleResult | undefined> => {
+    const nativeResult = await executeManagedProcessNativeCycle({
+      run,
+      toolHandler: context.toolHandler,
+      now: context.now,
+    });
+    if (!nativeResult) {
+      return undefined;
+    }
+    return {
+      actorResult: nativeResult.actorResult,
+      verification: toDomainVerificationFromDecision(nativeResult.decision),
+    };
+  },
+};
+
+function getRunDomain(run: ActiveBackgroundRun): RunDomain<ActiveBackgroundRun> {
+  if (APPROVAL_RUN_DOMAIN.matches(run)) {
+    return APPROVAL_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+  }
+  if (MANAGED_PROCESS_RUN_DOMAIN.matches(run)) {
+    return MANAGED_PROCESS_RUN_DOMAIN;
+  }
+  if (BROWSER_RUN_DOMAIN.matches(run)) {
+    return BROWSER_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+  }
+  if (DESKTOP_GUI_RUN_DOMAIN.matches(run)) {
+    return DESKTOP_GUI_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+  }
+  if (WORKSPACE_RUN_DOMAIN.matches(run)) {
+    return WORKSPACE_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+  }
+  if (RESEARCH_RUN_DOMAIN.matches(run)) {
+    return RESEARCH_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+  }
+  if (PIPELINE_RUN_DOMAIN.matches(run)) {
+    return PIPELINE_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+  }
+  if (REMOTE_MCP_RUN_DOMAIN.matches(run)) {
+    return REMOTE_MCP_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+  }
+  return GENERIC_RUN_DOMAIN as RunDomain<ActiveBackgroundRun>;
+}
+
+function buildDeterministicRunDomainDecision(
+  run: ActiveBackgroundRun,
+): BackgroundRunDecision | undefined {
+  const domain = getRunDomain(run);
+  const blocker = domain.detectBlocker(run);
+  if (blocker && !verificationSupportsContinuation(blocker)) {
+    if (
+      domain.id === "approval" &&
+      run.pendingSignals.some((signal) =>
+        /\b(approved|approval granted|authorized|token granted|continue)\b/i.test(
+          signal.content,
+        ),
+      )
+    ) {
+      return undefined;
+    }
+    return toDecisionFromDomainVerification(blocker);
+  }
+  const verification = domain.detectDeterministicVerification(run);
+  return verification ? toDecisionFromDomainVerification(verification) : undefined;
+}
+
+function buildPreCycleDomainDecision(
+  run: ActiveBackgroundRun,
+): BackgroundRunDecision | undefined {
+  const domain = getRunDomain(run);
+  if (domain.id === "managed_process") {
+    return undefined;
+  }
+  if (run.pendingSignals.length === 0 && !run.blocker) {
+    return undefined;
+  }
+  return buildDeterministicRunDomainDecision(run);
+}
+
 function toPersistedRun(run: ActiveBackgroundRun): PersistedBackgroundRun {
   return {
-    version: 1,
+    version: AGENT_RUN_SCHEMA_VERSION,
     id: run.id,
     sessionId: run.sessionId,
     objective: run.objective,
     contract: run.contract,
     state: run.state,
+    fenceToken: run.fenceToken,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     cycleCount: run.cycleCount,
@@ -1674,17 +2773,25 @@ function toPersistedRun(run: ActiveBackgroundRun): PersistedBackgroundRun {
     lastHeartbeatContent: run.lastHeartbeatContent,
     lastWakeReason: run.lastWakeReason,
     carryForward: run.carryForward,
+    blocker: run.blocker,
+    approvalState: run.approvalState,
+    budgetState: run.budgetState,
+    compaction: run.compaction,
     pendingSignals: cloneSignals(run.pendingSignals),
     observedTargets: [...run.observedTargets],
+    watchRegistrations: [...run.watchRegistrations],
     internalHistory: trimHistory([...run.internalHistory]),
     leaseOwnerId: run.leaseOwnerId,
     leaseExpiresAt: run.leaseExpiresAt,
   };
 }
 
-function toRecentSnapshot(run: ActiveBackgroundRun): BackgroundRunRecentSnapshot {
+function toRecentSnapshot(
+  run: ActiveBackgroundRun,
+  queuedWakeCount = 0,
+): BackgroundRunRecentSnapshot {
   return {
-    version: 1,
+    version: AGENT_RUN_SCHEMA_VERSION,
     runId: run.id,
     sessionId: run.sessionId,
     objective: run.objective,
@@ -1700,19 +2807,23 @@ function toRecentSnapshot(run: ActiveBackgroundRun): BackgroundRunRecentSnapshot
     lastUserUpdate: run.lastUserUpdate,
     lastToolEvidence: run.lastToolEvidence,
     lastWakeReason: run.lastWakeReason,
-    pendingSignals: run.pendingSignals.length,
+    pendingSignals: run.pendingSignals.length + queuedWakeCount,
     carryForwardSummary: run.carryForward?.summary,
+    blockerSummary: run.blocker?.summary,
+    watchCount: run.watchRegistrations.length,
+    fenceToken: run.fenceToken,
   };
 }
 
 function toActiveRun(run: PersistedBackgroundRun): ActiveBackgroundRun {
   return {
-    version: 1,
+    version: AGENT_RUN_SCHEMA_VERSION,
     id: run.id,
     sessionId: run.sessionId,
     objective: run.objective,
     contract: run.contract,
     state: run.state,
+    fenceToken: run.fenceToken,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     cycleCount: run.cycleCount,
@@ -1726,8 +2837,13 @@ function toActiveRun(run: PersistedBackgroundRun): ActiveBackgroundRun {
     lastHeartbeatContent: run.lastHeartbeatContent,
     lastWakeReason: run.lastWakeReason,
     carryForward: run.carryForward,
+    blocker: run.blocker,
+    approvalState: run.approvalState,
+    budgetState: run.budgetState,
+    compaction: run.compaction,
     pendingSignals: cloneSignals(run.pendingSignals),
     observedTargets: [...run.observedTargets],
+    watchRegistrations: [...run.watchRegistrations],
     internalHistory: [...run.internalHistory],
     leaseOwnerId: run.leaseOwnerId,
     leaseExpiresAt: run.leaseExpiresAt,
@@ -1744,6 +2860,7 @@ function chooseNextCheckMs(params: {
   previousToolEvidence?: string;
 }): { nextCheckMs: number; stableWorkingCycles: number; heartbeatMs?: number } {
   const { run, actorResult, decision, previousToolEvidence } = params;
+  const domainRetryPolicy = getRunDomain(run).retryPolicy?.(run);
   const successfulToolCalls = actorResult.toolCalls.filter((toolCall) => !toolCall.isError);
   const failedToolCalls = actorResult.toolCalls.filter((toolCall) => toolCall.isError);
   const currentEvidence = summarizeToolCalls(actorResult.toolCalls);
@@ -1760,7 +2877,7 @@ function chooseNextCheckMs(params: {
 
   if (run.cycleCount === 1 && successfulToolCalls.length > 0) {
     return {
-      nextCheckMs: FAST_FOLLOWUP_POLL_INTERVAL_MS,
+      nextCheckMs: domainRetryPolicy?.fastFollowupMs ?? FAST_FOLLOWUP_POLL_INTERVAL_MS,
       stableWorkingCycles: 0,
     };
   }
@@ -1769,7 +2886,7 @@ function chooseNextCheckMs(params: {
     return {
       nextCheckMs: Math.min(
         clampPollIntervalMs(decision.nextCheckMs),
-        DEFAULT_POLL_INTERVAL_MS,
+        domainRetryPolicy?.idleNextCheckMs ?? DEFAULT_POLL_INTERVAL_MS,
       ),
       stableWorkingCycles: 0,
     };
@@ -1779,17 +2896,24 @@ function chooseNextCheckMs(params: {
     ? 0
     : run.stableWorkingCycles + 1;
   const nextCheckMs = clampPollIntervalMs(
-    DEFAULT_POLL_INTERVAL_MS + (stableWorkingCycles * STABLE_POLL_STEP_MS),
+    Math.min(
+      domainRetryPolicy?.maxNextCheckMs ?? MAX_POLL_INTERVAL_MS,
+      (domainRetryPolicy?.idleNextCheckMs ?? DEFAULT_POLL_INTERVAL_MS) +
+        (stableWorkingCycles * (domainRetryPolicy?.stableStepMs ?? STABLE_POLL_STEP_MS)),
+    ),
   );
 
   return {
     nextCheckMs,
     stableWorkingCycles,
     heartbeatMs:
-      nextCheckMs >= HEARTBEAT_MIN_DELAY_MS
+      nextCheckMs >= (domainRetryPolicy?.heartbeatMinMs ?? HEARTBEAT_MIN_DELAY_MS)
         ? Math.min(
-          HEARTBEAT_MAX_DELAY_MS,
-          Math.max(HEARTBEAT_MIN_DELAY_MS, Math.floor(nextCheckMs / 2)),
+          domainRetryPolicy?.heartbeatMaxMs ?? HEARTBEAT_MAX_DELAY_MS,
+          Math.max(
+            domainRetryPolicy?.heartbeatMinMs ?? HEARTBEAT_MIN_DELAY_MS,
+            Math.floor(nextCheckMs / 2),
+          ),
         )
         : undefined,
   };
@@ -1834,6 +2958,7 @@ export class BackgroundRunSupervisor {
   private readonly publishUpdate: BackgroundRunSupervisorConfig["publishUpdate"];
   private readonly progressTracker?: ProgressTracker;
   private readonly runStore: BackgroundRunStore;
+  private readonly wakeBus: BackgroundRunWakeBus;
   private readonly logger: Logger;
   private readonly instanceId: string;
   private readonly now: () => number;
@@ -1856,6 +2981,14 @@ export class BackgroundRunSupervisor {
       config.instanceId ??
       `background-supervisor-${Math.random().toString(36).slice(2, 10)}`;
     this.now = config.now ?? (() => Date.now());
+    this.wakeBus = new BackgroundRunWakeBus({
+      runStore: this.runStore,
+      logger: this.logger,
+      now: this.now,
+      onWakeReady: async (sessionId) => {
+        await this.executeCycle(sessionId);
+      },
+    });
   }
 
   hasActiveRun(sessionId: string): boolean {
@@ -1878,8 +3011,11 @@ export class BackgroundRunSupervisor {
       nextHeartbeatAt: run.nextHeartbeatAt,
       lastUserUpdate: run.lastUserUpdate,
       lastWakeReason: run.lastWakeReason,
-      pendingSignals: run.pendingSignals.length,
+      pendingSignals: run.pendingSignals.length + this.wakeBus.getQueuedCount(sessionId),
       carryForwardSummary: run.carryForward?.summary,
+      blockerSummary: run.blocker?.summary,
+      watchCount: run.watchRegistrations.length,
+      fenceToken: run.fenceToken,
     };
   }
 
@@ -1887,7 +3023,7 @@ export class BackgroundRunSupervisor {
     sessionId: string,
   ): Promise<BackgroundRunRecentSnapshot | undefined> {
     const active = this.activeRuns.get(sessionId);
-    if (active) return toRecentSnapshot(active);
+    if (active) return toRecentSnapshot(active, this.wakeBus.getQueuedCount(sessionId));
     return this.runStore.loadRecentSnapshot(sessionId);
   }
 
@@ -1899,12 +3035,7 @@ export class BackgroundRunSupervisor {
     const persistedRuns = await this.runStore.listRuns();
     let recovered = 0;
     for (const persistedRun of persistedRuns) {
-      if (
-        persistedRun.state === "completed" ||
-        persistedRun.state === "failed" ||
-        persistedRun.state === "blocked" ||
-        persistedRun.state === "cancelled"
-      ) {
+      if (isTerminalAgentRunState(persistedRun.state)) {
         await this.runStore.deleteRun(persistedRun.sessionId);
         continue;
       }
@@ -1915,7 +3046,12 @@ export class BackgroundRunSupervisor {
       );
       if (!lease.claimed || !lease.run) continue;
       const run = toActiveRun(lease.run);
-      if (run.state === "running") {
+      if (run.state === "running" || run.state === "suspended") {
+        assertAgentRunStateTransition(
+          run.state,
+          "working",
+          "recover active run",
+        );
         run.state = "working";
         run.updatedAt = this.now();
         run.nextCheckAt = this.now();
@@ -1923,6 +3059,7 @@ export class BackgroundRunSupervisor {
         run.lastWakeReason = "recovery";
       }
       this.activeRuns.set(run.sessionId, run);
+      await this.wakeBus.recoverSession(run.sessionId);
       await this.persistRun(run, {
         type: "run_recovered",
         summary: `Recovered background run: ${truncate(run.objective, 200)}`,
@@ -1933,8 +3070,21 @@ export class BackgroundRunSupervisor {
         recovered += 1;
         continue;
       }
+      if (
+        run.state === "blocked" &&
+        run.pendingSignals.length === 0 &&
+        (
+          this.wakeBus.getNextAvailableAt(run.sessionId) === undefined ||
+          this.wakeBus.getNextAvailableAt(run.sessionId)! > this.now()
+        )
+      ) {
+        recovered += 1;
+        continue;
+      }
+      const nextQueuedWakeAt = this.wakeBus.getNextAvailableAt(run.sessionId);
       const nextDelay =
-        run.pendingSignals.length > 0
+        run.pendingSignals.length > 0 ||
+          (nextQueuedWakeAt !== undefined && nextQueuedWakeAt <= this.now())
           ? 0
           : run.nextCheckAt !== undefined
           ? Math.max(0, run.nextCheckAt - this.now())
@@ -1955,12 +3105,13 @@ export class BackgroundRunSupervisor {
     const now = this.now();
     const contract = await this.planRunContract(params.objective);
     const run: ActiveBackgroundRun = {
-      version: 1,
+      version: AGENT_RUN_SCHEMA_VERSION,
       id: `bg-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       sessionId: params.sessionId,
       objective: params.objective.trim(),
       contract,
       state: "pending",
+      fenceToken: 1,
       createdAt: now,
       updatedAt: now,
       cycleCount: 0,
@@ -1972,8 +3123,13 @@ export class BackgroundRunSupervisor {
       lastHeartbeatContent: undefined,
       lastWakeReason: "start",
       carryForward: undefined,
+      blocker: undefined,
+      approvalState: { status: "none" },
+      budgetState: buildInitialBudgetState(contract, now),
+      compaction: buildInitialCompactionState(),
       pendingSignals: [],
       observedTargets: [],
+      watchRegistrations: [],
       nextCheckAt: undefined,
       nextHeartbeatAt: undefined,
       internalHistory: [
@@ -2025,24 +3181,40 @@ export class BackgroundRunSupervisor {
     const content = params.content.trim();
     if (!content) return false;
 
-    const signal: BackgroundRunSignal = {
-      id: `signal-${this.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      type: params.type ?? "user_input",
+    const type = params.type ?? "user_input";
+    const now = this.now();
+    await this.wakeBus.enqueue({
+      sessionId: params.sessionId,
+      runId: run.id,
+      type,
+      domain: getWakeEventDomain(type),
       content,
-      timestamp: this.now(),
       data: params.data ? { ...params.data } : undefined,
-    };
-    run.pendingSignals.push(signal);
-    if (signal.type === "process_exit") {
-      observeManagedProcessExitSignal(run);
+      createdAt: now,
+      availableAt: now,
+      dedupeKey: buildWakeDedupeKey({
+        sessionId: params.sessionId,
+        runId: run.id,
+        type,
+        data: params.data,
+      }),
+      dispatchReady: false,
+    });
+    run.updatedAt = now;
+    run.lastWakeReason = type;
+    run.nextCheckAt = run.state === "paused" ? run.nextCheckAt : now;
+    if (run.state !== "paused") {
+      run.budgetState = {
+        ...run.budgetState,
+        nextCheckIntervalMs: 0,
+      };
     }
-    run.updatedAt = this.now();
-    run.lastWakeReason = signal.type;
+    recordRunActivity(run, run.updatedAt);
     await this.persistRun(run, {
       type: "run_signalled",
       summary: truncate(`Background run signalled: ${content}`, 200),
-      timestamp: this.now(),
-      data: { signalType: signal.type },
+      timestamp: now,
+      data: { signalType: type },
     });
 
     if (run.state === "paused") {
@@ -2050,12 +3222,14 @@ export class BackgroundRunSupervisor {
     }
 
     if (run.state !== "running") {
-      const completionDecision = buildDeterministicCompletionDecision(run);
-      if (completionDecision) {
-        await this.finishRun(run, completionDecision);
-        return true;
+      if (run.state !== "blocked" && run.state !== "suspended") {
+        const completionDecision = buildDeterministicRunDomainDecision(run);
+        if (completionDecision && completionDecision.state !== "working") {
+          await this.finishRun(run, completionDecision);
+          return true;
+        }
       }
-      this.schedule(run, 0, signal.type);
+      this.wakeBus.dispatchNow(params.sessionId);
     }
     return true;
   }
@@ -2071,10 +3245,12 @@ export class BackgroundRunSupervisor {
     this.clearRunTimers(run);
     run.abortController?.abort();
     run.abortController = null;
+    assertAgentRunStateTransition(run.state, "paused", "pauseRun");
     run.state = "paused";
     run.updatedAt = this.now();
     run.lastWakeReason = "user_input";
     run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+    recordRunActivity(run, run.updatedAt, "progress");
 
     await this.progressTracker?.append({
       sessionId,
@@ -2097,11 +3273,14 @@ export class BackgroundRunSupervisor {
     const run = this.activeRuns.get(sessionId);
     if (!run || run.state !== "paused") return false;
 
+    assertAgentRunStateTransition(run.state, "working", "resumeRun");
     run.state = "working";
     run.updatedAt = this.now();
     run.lastWakeReason = "user_input";
     run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
     run.lastHeartbeatContent = undefined;
+    clearRunBlockers(run);
+    recordRunActivity(run, run.updatedAt, "progress");
 
     await this.progressTracker?.append({
       sessionId,
@@ -2114,7 +3293,7 @@ export class BackgroundRunSupervisor {
       timestamp: this.now(),
     });
     await this.publishUpdate(sessionId, run.lastUserUpdate);
-    this.schedule(run, 0, run.pendingSignals[0]?.type ?? "user_input");
+    this.wakeBus.dispatchNow(sessionId);
     return true;
   }
 
@@ -2125,11 +3304,16 @@ export class BackgroundRunSupervisor {
     this.clearRunTimers(run);
     run.abortController?.abort();
     run.abortController = null;
+    assertAgentRunStateTransition(run.state, "cancelled", "cancelRun");
     run.state = "cancelled";
     run.updatedAt = this.now();
     run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+    recordRunActivity(run, run.updatedAt, "progress");
     this.activeRuns.delete(sessionId);
-    await this.runStore.saveRecentSnapshot(toRecentSnapshot(run));
+    await this.runStore.saveRecentSnapshot(
+      toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
+    );
+    await this.wakeBus.clearSession(sessionId);
 
     await this.runStore.appendEvent(toPersistedRun(run), {
       type: "run_cancelled",
@@ -2152,11 +3336,13 @@ export class BackgroundRunSupervisor {
       this.clearRunTimers(run);
       run.abortController?.abort();
       run.abortController = null;
-      if (run.state === "running") {
-        run.state = "working";
+      if (run.state === "running" || run.state === "working" || run.state === "pending") {
+        assertAgentRunStateTransition(run.state, "suspended", "shutdown");
+        run.state = "suspended";
         run.nextCheckAt = this.now();
         run.nextHeartbeatAt = undefined;
         run.lastWakeReason = "recovery";
+        recordRunActivity(run, this.now());
       }
       await this.runStore.releaseLease(
         run.sessionId,
@@ -2175,9 +3361,13 @@ export class BackgroundRunSupervisor {
         summary: "Background run suspended for daemon shutdown and will recover on next boot.",
         timestamp: this.now(),
       });
-      await this.runStore.saveRecentSnapshot(toRecentSnapshot(run));
+      await this.runStore.saveRecentSnapshot(
+        toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
+      );
       this.activeRuns.delete(run.sessionId);
+      await this.wakeBus.clearSession(run.sessionId);
     }
+    this.wakeBus.dispose();
   }
 
   private schedule(
@@ -2187,17 +3377,45 @@ export class BackgroundRunSupervisor {
   ): void {
     if (this.activeRuns.get(run.sessionId) !== run) return;
     if (run.timer) clearTimeout(run.timer);
-    run.nextCheckAt = this.now() + delayMs;
+    const now = this.now();
+    run.nextCheckAt = now + delayMs;
     run.lastWakeReason = wakeReason;
-    void this.persistRun(run).catch((error) => {
-      this.logger.debug("Failed to persist scheduled background run", {
+    run.budgetState = {
+      ...run.budgetState,
+      nextCheckIntervalMs: delayMs,
+    };
+    void (async () => {
+      await this.wakeBus.enqueue({
         sessionId: run.sessionId,
+        runId: run.id,
+        type: wakeReason,
+        domain: getWakeEventDomain(wakeReason),
+        content: `Scheduled ${wakeReason} wake for cycle ${run.cycleCount + 1}.`,
+        createdAt: now,
+        availableAt: run.nextCheckAt,
+        dedupeKey: buildWakeDedupeKey({
+          sessionId: run.sessionId,
+          runId: run.id,
+          type: wakeReason,
+        }),
+        data: {
+          runId: run.id,
+          cycleCount: run.cycleCount,
+        },
+        dispatchReady: false,
+      });
+      await this.persistRun(run);
+      if (delayMs <= 0) {
+        this.wakeBus.dispatchNow(run.sessionId);
+      }
+    })().catch((error) => {
+      this.logger.debug("Failed to schedule background wake", {
+        sessionId: run.sessionId,
+        wakeReason,
         error: toErrorMessage(error),
       });
     });
-    run.timer = setTimeout(() => {
-      void this.executeCycle(run.sessionId);
-    }, Math.max(0, delayMs));
+    run.timer = null;
   }
 
   private clearRunTimers(run: ActiveBackgroundRun): void {
@@ -2222,6 +3440,10 @@ export class BackgroundRunSupervisor {
     run.nextHeartbeatAt = undefined;
     if (delayMs === undefined || delayMs <= 0) return;
     run.nextHeartbeatAt = this.now() + delayMs;
+    run.budgetState = {
+      ...run.budgetState,
+      heartbeatIntervalMs: delayMs,
+    };
     void this.persistRun(run).catch((error) => {
       this.logger.debug("Failed to persist background heartbeat schedule", {
         sessionId: run.sessionId,
@@ -2273,10 +3495,10 @@ export class BackgroundRunSupervisor {
     await this.persistRun(run);
   }
 
-  private async executeCycle(sessionId: string): Promise<void> {
-    const run = this.activeRuns.get(sessionId);
-    if (!run) return;
-    if (run.state === "paused") return;
+  private async prepareCycleRun(
+    run: ActiveBackgroundRun,
+    sessionId: string,
+  ): Promise<ToolHandler | undefined> {
     const leasedRun = await this.runStore.renewLease(
       toPersistedRun(run),
       this.instanceId,
@@ -2285,17 +3507,29 @@ export class BackgroundRunSupervisor {
     if (!leasedRun) {
       this.clearRunTimers(run);
       this.activeRuns.delete(sessionId);
-      return;
+      return undefined;
     }
     run.leaseOwnerId = leasedRun.leaseOwnerId;
     run.leaseExpiresAt = leasedRun.leaseExpiresAt;
+    run.fenceToken = leasedRun.fenceToken;
+    const deliveredWakeBatch = await this.wakeBus.drainDueWakeEvents(sessionId);
+    if (deliveredWakeBatch.run) {
+      run.pendingSignals = cloneSignals(deliveredWakeBatch.run.pendingSignals);
+      run.updatedAt = deliveredWakeBatch.run.updatedAt;
+      run.fenceToken = deliveredWakeBatch.run.fenceToken;
+      run.leaseOwnerId = deliveredWakeBatch.run.leaseOwnerId;
+      run.leaseExpiresAt = deliveredWakeBatch.run.leaseExpiresAt;
+    }
+    if (run.pendingSignals.some((signal) => signal.type === "process_exit")) {
+      observeManagedProcessExitSignal(run);
+    }
     if (this.isSessionBusy?.(sessionId)) {
       this.schedule(run, BUSY_RETRY_INTERVAL_MS, "busy_retry");
-      return;
+      return undefined;
     }
     if (
       !run.contract.requiresUserStop &&
-      this.now() - run.createdAt > MAX_BACKGROUND_RUNTIME_MS
+      this.now() - run.budgetState.runtimeStartedAt > run.budgetState.maxRuntimeMs
     ) {
       await this.finishRun(run, {
         state: "failed",
@@ -2303,22 +3537,37 @@ export class BackgroundRunSupervisor {
         internalSummary: "Exceeded maximum background runtime budget.",
         shouldNotifyUser: true,
       });
-      return;
+      return undefined;
     }
-    if (!run.contract.requiresUserStop && run.cycleCount >= MAX_BACKGROUND_CYCLES) {
+    if (!run.contract.requiresUserStop && run.cycleCount >= run.budgetState.maxCycles) {
       await this.finishRun(run, {
         state: "failed",
         userUpdate: "Background run hit its cycle budget before completing.",
         internalSummary: "Exceeded maximum background cycle budget.",
         shouldNotifyUser: true,
       });
-      return;
+      return undefined;
+    }
+    if (
+      run.budgetState.maxIdleMs !== undefined &&
+      this.now() - run.budgetState.lastActivityAt > run.budgetState.maxIdleMs
+    ) {
+      await this.finishRun(run, {
+        state: "failed",
+        userUpdate: "Background run exhausted its idle budget before the objective completed.",
+        internalSummary: "Exceeded maximum background idle budget.",
+        shouldNotifyUser: true,
+      });
+      return undefined;
     }
 
+    assertAgentRunStateTransition(run.state, "running", "executeCycle start");
     run.state = "running";
     run.updatedAt = this.now();
     run.cycleCount += 1;
     run.nextHeartbeatAt = undefined;
+    clearRunBlockers(run);
+    recordRunActivity(run, run.updatedAt);
     if (run.heartbeatTimer) {
       clearTimeout(run.heartbeatTimer);
       run.heartbeatTimer = null;
@@ -2335,40 +3584,153 @@ export class BackgroundRunSupervisor {
     });
     this.scheduleHeartbeat(run, ACTIVE_CYCLE_HEARTBEAT_INITIAL_MS);
 
-    const cycleToolHandler = this.createToolHandler({
+    return this.createToolHandler({
       sessionId,
       runId: run.id,
       cycleIndex: run.cycleCount,
     });
-    const actorPrompt = buildActorPrompt(run);
-    const actorSystemPrompt = `${this.getSystemPrompt()}\n\n${BACKGROUND_ACTOR_SECTION}`;
+  }
+
+  private async handleWorkingDecision(params: {
+    run: ActiveBackgroundRun;
+    sessionId: string;
+    actorResult: ChatExecutorResult | undefined;
+    decision: BackgroundRunDecision;
+    heartbeatMs?: number;
+  }): Promise<boolean> {
+    const { run, sessionId, actorResult, decision, heartbeatMs } = params;
+    const carryForwardSignalSnapshot = cloneSignals(run.pendingSignals);
+    await this.refreshCarryForwardState({
+      run,
+      actorResult,
+      signalSnapshot: carryForwardSignalSnapshot,
+    });
+    if (!this.isActiveRun(run)) {
+      return true;
+    }
+    const postRefreshSignalDrivenCompletion = buildDeterministicRunDomainDecision(run);
+    if (
+      postRefreshSignalDrivenCompletion &&
+      postRefreshSignalDrivenCompletion.state !== "working"
+    ) {
+      await this.finishRun(run, postRefreshSignalDrivenCompletion);
+      return true;
+    }
+
+    const pendingSignalWake = run.pendingSignals[0];
+    const hasPendingSignals = pendingSignalWake !== undefined;
+    const nextQueuedWakeAt = this.wakeBus.getNextAvailableAt(sessionId);
+    const hasReadyQueuedWakes =
+      nextQueuedWakeAt !== undefined && nextQueuedWakeAt <= this.now();
+    const nextCheckMs = hasPendingSignals || hasReadyQueuedWakes
+      ? 0
+      : clampPollIntervalMs(decision.nextCheckMs);
+
+    assertAgentRunStateTransition(run.state, "working", "executeCycle continue");
+    run.state = "working";
+    run.updatedAt = this.now();
+    await this.progressTracker?.append({
+      sessionId,
+      type: "decision",
+      summary: truncate(
+        `Background run working: ${decision.internalSummary}`,
+        200,
+      ),
+    });
+    if (decision.shouldNotifyUser && !hasPendingSignals && !hasReadyQueuedWakes) {
+      await this.publishUpdateIfChanged(run, decision.userUpdate);
+    }
+    if (!this.isActiveRun(run)) {
+      return true;
+    }
+    if (!hasPendingSignals && !hasReadyQueuedWakes) {
+      this.scheduleHeartbeat(run, heartbeatMs);
+    }
+    this.onStatus?.(sessionId, {
+      phase: "background_wait",
+      detail: hasPendingSignals || hasReadyQueuedWakes
+        ? "Processing newly arrived external signals"
+        : `Next verification in ~${Math.max(1, Math.ceil(nextCheckMs / 1000))}s`,
+    });
+    await this.persistRun(run, {
+      type: "cycle_working",
+      summary: truncate(
+        `Background run working: ${decision.internalSummary}`,
+        200,
+      ),
+      timestamp: this.now(),
+      data: {
+        nextCheckMs,
+        consecutiveErrorCycles: run.consecutiveErrorCycles,
+        pendingSignals: run.pendingSignals.length,
+      },
+    });
+    if (!this.isActiveRun(run)) {
+      return true;
+    }
+    if (hasPendingSignals || hasReadyQueuedWakes) {
+      this.wakeBus.dispatchNow(sessionId);
+      return true;
+    }
+    this.schedule(run, nextCheckMs, "timer");
+    return true;
+  }
+
+  private async resolveCycleDecision(params: {
+    run: ActiveBackgroundRun;
+    sessionId: string;
+    cycleToolHandler: ToolHandler;
+    actorPrompt: string;
+    actorSystemPrompt: string;
+  }): Promise<{
+    actorResult?: ChatExecutorResult;
+    decision: BackgroundRunDecision;
+    heartbeatMs?: number;
+  }> {
+    const { run, sessionId, cycleToolHandler, actorPrompt, actorSystemPrompt } = params;
     let actorResult: ChatExecutorResult | undefined;
     let decision: BackgroundRunDecision;
     let heartbeatMs: number | undefined;
-    let consecutiveErrorCycles = run.consecutiveErrorCycles;
+
     try {
       const previousToolEvidence = run.lastToolEvidence;
-      const nativeCycle = await executeManagedProcessNativeCycle({
-        run,
+      const nativeCycle = await getRunDomain(run).executeNativeCycle?.(run, {
         toolHandler: cycleToolHandler,
         now: this.now(),
       });
       if (nativeCycle) {
         actorResult = nativeCycle.actorResult;
-        decision = nativeCycle.decision;
+        decision = toDecisionFromDomainVerification(nativeCycle.verification);
       } else {
         const toolRoutingDecision = this.buildToolRoutingDecision?.(
           sessionId,
           actorPrompt,
           run.internalHistory,
         );
+        const abortSignal = run.abortController?.signal;
+        if (!abortSignal) {
+          throw new Error("Background cycle missing abort signal");
+        }
         actorResult = await this.chatExecutor.execute({
           message: toRunMessage(actorPrompt, sessionId, run.id, run.cycleCount),
           history: run.internalHistory,
           systemPrompt: actorSystemPrompt,
           sessionId,
+          stateful: run.carryForward?.providerContinuation
+            ? {
+              resumeAnchor: {
+                previousResponseId: run.carryForward.providerContinuation.responseId,
+                ...(run.carryForward.providerContinuation.reconciliationHash
+                  ? {
+                    reconciliationHash:
+                      run.carryForward.providerContinuation.reconciliationHash,
+                  }
+                  : {}),
+              },
+            }
+            : undefined,
           toolHandler: cycleToolHandler,
-          signal: run.abortController.signal,
+          signal: abortSignal,
           maxToolRounds: BACKGROUND_RUN_MAX_TOOL_ROUNDS,
           toolBudgetPerRequest: BACKGROUND_RUN_MAX_TOOL_BUDGET,
           maxModelRecallsPerRequest: BACKGROUND_RUN_MAX_MODEL_RECALLS,
@@ -2384,21 +3746,70 @@ export class BackgroundRunSupervisor {
         run.internalHistory = trimHistory([
           ...run.internalHistory,
           { role: "user", content: actorPrompt },
-          { role: "assistant", content: actorResult.content },
+          { role: "assistant", content: actorResult.content, phase: "commentary" },
         ]);
         run.lastVerifiedAt = this.now();
-        run.lastToolEvidence = summarizeToolCalls(actorResult.toolCalls);
-        observeManagedProcessTargets(run, actorResult, run.lastVerifiedAt);
+        recordToolEvidence(run, actorResult.toolCalls);
+        recordProviderCompactionArtifacts(run, actorResult);
+        const providerContinuation = extractLatestProviderContinuation(
+          actorResult,
+          run.lastVerifiedAt,
+        );
+        if (providerContinuation) {
+          run.carryForward = {
+            ...(run.carryForward ?? buildEmptyCarryForwardState(run.lastVerifiedAt)),
+            providerContinuation,
+            memoryAnchors: buildCarryForwardAnchors({
+              previous: run.carryForward?.memoryAnchors ?? [],
+              providerContinuation,
+              pendingSignals: [],
+              actorResult,
+              now: run.lastVerifiedAt,
+            }),
+            lastCompactedAt: run.carryForward?.lastCompactedAt ?? run.lastVerifiedAt,
+          };
+          run.compaction = {
+            ...run.compaction,
+            lastProviderAnchorAt: providerContinuation.updatedAt,
+          };
+        }
+        if (actorResult.toolCalls.length > 0) {
+          run.pendingSignals = [
+            ...run.pendingSignals,
+            ...buildInternalToolSignals({
+              sessionId,
+              cycleCount: run.cycleCount,
+              actorResult,
+              observedAt: run.lastVerifiedAt,
+            }),
+          ];
+        }
+        getRunDomain(run).observeActorResult?.(run, actorResult, run.lastVerifiedAt);
+        const domainDecision = buildDeterministicRunDomainDecision(run);
         decision =
-          buildDeterministicCompletionDecision(run) ??
+          (
+            domainDecision && domainDecision.state !== "working"
+              ? domainDecision
+              : undefined
+          ) ??
           (await this.evaluateDecision(run, actorResult)) ??
           buildFallbackDecision(run, actorResult);
+        decision = groundDecision(run, actorResult, decision, domainDecision);
       }
 
-      consecutiveErrorCycles = computeConsecutiveErrorCycles(run, actorResult);
+      const consecutiveErrorCycles = computeConsecutiveErrorCycles(run, actorResult);
       run.consecutiveErrorCycles = consecutiveErrorCycles;
       decision = groundDecision(run, actorResult, decision);
       decision = applyRepeatedErrorGuard(decision, consecutiveErrorCycles);
+      run.pendingSignals = dropSyntheticInternalSignals(run.pendingSignals);
+      recordRunActivity(
+        run,
+        this.now(),
+        actorResult.toolCalls.some((toolCall) => !toolCall.isError) ||
+          decision.state !== "working"
+          ? "progress"
+          : "activity",
+      );
       if (decision.state === "working") {
         const cadence = chooseNextCheckMs({
           run,
@@ -2417,9 +3828,10 @@ export class BackgroundRunSupervisor {
       }
     } catch (error) {
       if (run.abortController?.signal.aborted) {
-        return;
+        throw error;
       }
       run.consecutiveErrorCycles += 1;
+      recordRunActivity(run, this.now());
       decision = {
         state:
           run.consecutiveErrorCycles >= MAX_CONSECUTIVE_ERROR_CYCLES
@@ -2436,88 +3848,139 @@ export class BackgroundRunSupervisor {
             : MIN_POLL_INTERVAL_MS,
         shouldNotifyUser: true,
       };
+    }
+
+    return {
+      actorResult,
+      decision,
+      heartbeatMs,
+    };
+  }
+
+  private async prepareCycleContext(
+    sessionId: string,
+  ): Promise<PreparedCycleContext | undefined> {
+    const run = this.activeRuns.get(sessionId);
+    if (!run) return;
+    if (run.state === "paused") return;
+    const cycleToolHandler = await this.prepareCycleRun(run, sessionId);
+    if (!cycleToolHandler) return;
+    return {
+      run,
+      sessionId,
+      cycleToolHandler,
+      actorPrompt: buildActorPrompt(run),
+      actorSystemPrompt: `${this.getSystemPrompt()}\n\n${BACKGROUND_ACTOR_SECTION}`,
+    };
+  }
+
+  private async resolvePreparedCycleOutcome(
+    context: PreparedCycleContext,
+  ): Promise<ResolvedCycleOutcome | undefined> {
+    const { run, sessionId, cycleToolHandler, actorPrompt, actorSystemPrompt } = context;
+    let actorResult: ChatExecutorResult | undefined;
+    let decision: BackgroundRunDecision;
+    let heartbeatMs: number | undefined;
+    const preCycleDecision = buildPreCycleDomainDecision(run);
+    if (preCycleDecision) {
+      return {
+        run,
+        sessionId,
+        actorResult: undefined,
+        decision: preCycleDecision,
+        heartbeatMs: undefined,
+      };
+    }
+    try {
+      ({ actorResult, decision, heartbeatMs } = await this.resolveCycleDecision({
+        run,
+        sessionId,
+        cycleToolHandler,
+        actorPrompt,
+        actorSystemPrompt,
+      }));
+    } catch (error) {
+      if (run.abortController?.signal.aborted) {
+        return;
+      }
+      throw error;
     } finally {
       run.abortController = null;
     }
 
-    const signalDrivenCompletion = buildDeterministicCompletionDecision(run);
-    if (signalDrivenCompletion) {
+    const signalDrivenCompletion = buildDeterministicRunDomainDecision(run);
+    if (signalDrivenCompletion && signalDrivenCompletion.state !== "working") {
       decision = signalDrivenCompletion;
     }
 
+    return {
+      run,
+      sessionId,
+      actorResult,
+      decision,
+      heartbeatMs,
+    };
+  }
+
+  private async handleResolvedCycleOutcome(
+    outcome: ResolvedCycleOutcome,
+  ): Promise<void> {
+    const {
+      run,
+      sessionId,
+      actorResult,
+      decision,
+      heartbeatMs,
+    } = outcome;
+
     if (decision.state === "working") {
-      const carryForwardSignalSnapshot = cloneSignals(run.pendingSignals);
-      await this.refreshCarryForwardState({
+      if (await this.handleWorkingDecision({
         run,
-        actorResult,
-        signalSnapshot: carryForwardSignalSnapshot,
-      });
-      if (!this.isActiveRun(run)) {
-        return;
-      }
-      const postRefreshSignalDrivenCompletion = buildDeterministicCompletionDecision(run);
-      if (postRefreshSignalDrivenCompletion) {
-        await this.finishRun(run, postRefreshSignalDrivenCompletion);
-        return;
-      }
-
-      const pendingSignalWake = run.pendingSignals[0];
-      const hasPendingSignals = pendingSignalWake !== undefined;
-      const nextWakeReason = pendingSignalWake?.type ?? "timer";
-      const nextCheckMs = hasPendingSignals
-        ? 0
-        : clampPollIntervalMs(decision.nextCheckMs);
-
-      run.state = "working";
-      run.updatedAt = this.now();
-      await this.progressTracker?.append({
         sessionId,
-        type: "decision",
-        summary: truncate(
-          `Background run working: ${decision.internalSummary}`,
-          200,
-        ),
-      });
-      if (decision.shouldNotifyUser && !hasPendingSignals) {
-        await this.publishUpdateIfChanged(run, decision.userUpdate);
-      }
-      if (!this.isActiveRun(run)) {
+        actorResult,
+        decision,
+        heartbeatMs,
+      })) {
         return;
       }
-      if (!hasPendingSignals) {
-        this.scheduleHeartbeat(run, heartbeatMs);
-      }
-      this.onStatus?.(sessionId, {
-        phase: "background_wait",
-        detail: hasPendingSignals
-          ? "Processing newly arrived external signals"
-          : `Next verification in ~${Math.max(1, Math.ceil(nextCheckMs / 1000))}s`,
-      });
-      await this.persistRun(run, {
-        type: "cycle_working",
-        summary: truncate(
-          `Background run working: ${decision.internalSummary}`,
-          200,
-        ),
-        timestamp: this.now(),
-        data: {
-          nextCheckMs,
-          consecutiveErrorCycles: run.consecutiveErrorCycles,
-          pendingSignals: run.pendingSignals.length,
-        },
-      });
-      if (!this.isActiveRun(run)) {
-        return;
-      }
-      this.schedule(run, nextCheckMs, nextWakeReason);
       return;
     }
 
+    await this.finishNonWorkingCycle({
+      run,
+      actorResult,
+      decision,
+    });
+  }
+
+  private async finishNonWorkingCycle(params: {
+    run: ActiveBackgroundRun;
+    actorResult?: ChatExecutorResult;
+    decision: BackgroundRunDecision;
+  }): Promise<void> {
+    const { run, actorResult, decision } = params;
     await this.refreshCarryForwardState({ run, actorResult, force: true });
     if (!this.isActiveRun(run)) {
       return;
     }
+    if (decision.state === "blocked") {
+      await this.parkBlockedRun(run, decision);
+      return;
+    }
     await this.finishRun(run, decision);
+  }
+
+  private async executeCycle(sessionId: string): Promise<void> {
+    const context = await this.prepareCycleContext(sessionId);
+    if (!context) {
+      return;
+    }
+
+    const outcome = await this.resolvePreparedCycleOutcome(context);
+    if (!outcome) {
+      return;
+    }
+    await this.handleResolvedCycleOutcome(outcome);
   }
 
   private async evaluateDecision(
@@ -2557,24 +4020,20 @@ export class BackgroundRunSupervisor {
     signalSnapshot?: readonly BackgroundRunSignal[];
   }): Promise<void> {
     const { run, actorResult, force, signalSnapshot } = params;
+    const now = this.now();
+    const previousCarryForward = run.carryForward;
     const pendingSignals = signalSnapshot ?? run.pendingSignals;
-    const hasSuccessfulToolCalls =
-      actorResult?.toolCalls.some((toolCall) => !toolCall.isError) ?? false;
-    const carryForwardAgeMs =
-      run.carryForward !== undefined
-        ? this.now() - run.carryForward.lastCompactedAt
-        : undefined;
-    const shouldRefresh =
-      force === true ||
-      !run.carryForward ||
-      pendingSignals.length > 0 ||
-      run.internalHistory.length >= HISTORY_COMPACTION_THRESHOLD ||
-      (
-        hasSuccessfulToolCalls &&
-        (carryForwardAgeMs === undefined ||
-          carryForwardAgeMs >= MIN_CARRY_FORWARD_REFRESH_MS)
-      );
-    if (!shouldRefresh) return;
+    const refreshReason = deriveCarryForwardRefreshReason({
+      run,
+      actorResult,
+      force,
+      pendingSignals,
+    });
+    if (!refreshReason) return;
+    const providerContinuation =
+      extractLatestProviderContinuation(actorResult, now) ??
+      previousCarryForward?.providerContinuation;
+    let finalReason: CarryForwardRefreshReason = refreshReason;
 
     try {
       const response = await this.supervisorLlm.chat([
@@ -2584,7 +4043,7 @@ export class BackgroundRunSupervisor {
           content: buildCarryForwardPrompt({
             objective: run.objective,
             contract: run.contract,
-            previous: run.carryForward,
+            previous: previousCarryForward,
             actorResult,
             latestUpdate: run.lastUserUpdate,
             latestToolEvidence: run.lastToolEvidence,
@@ -2595,15 +4054,59 @@ export class BackgroundRunSupervisor {
       ], {
         toolChoice: "none",
       });
-      run.carryForward =
-        parseCarryForwardState(response.content, this.now()) ??
+      const parsed =
+        parseCarryForwardState(response.content, now) ??
         buildFallbackCarryForwardState({
-          previous: run.carryForward,
+          previous: previousCarryForward,
           latestUpdate: run.lastUserUpdate,
           latestToolEvidence: run.lastToolEvidence,
           pendingSignals,
-          now: this.now(),
+          now,
         });
+      const driftReason = detectCarryForwardDrift({
+        candidate: parsed,
+        actorResult,
+        previous: previousCarryForward,
+      });
+      if (driftReason) {
+        finalReason = "repair";
+        run.carryForward = repairCarryForwardState({
+          previous: previousCarryForward,
+          latestUpdate: run.lastUserUpdate,
+          latestToolEvidence: run.lastToolEvidence,
+          pendingSignals,
+          actorResult,
+          now,
+          reason: driftReason,
+          providerContinuation,
+        });
+        this.logger.warn("Background run carry-forward drift detected", {
+          sessionId: run.sessionId,
+          runId: run.id,
+          reason: driftReason,
+        });
+      } else {
+        run.carryForward = {
+          ...parsed,
+          artifacts: previousCarryForward?.artifacts ?? [],
+          memoryAnchors: buildCarryForwardAnchors({
+            previous: previousCarryForward?.memoryAnchors ?? [],
+            providerContinuation,
+            pendingSignals,
+            actorResult,
+            now,
+          }),
+          providerContinuation,
+          summaryHealth: {
+            status: "healthy",
+            driftCount: previousCarryForward?.summaryHealth.driftCount ?? 0,
+            lastDriftAt: previousCarryForward?.summaryHealth.lastDriftAt,
+            lastRepairAt: previousCarryForward?.summaryHealth.lastRepairAt,
+            lastDriftReason: previousCarryForward?.summaryHealth.lastDriftReason,
+          },
+          lastCompactedAt: now,
+        };
+      }
     } catch (error) {
       this.logger.debug("Background run carry-forward refresh failed", {
         sessionId: run.sessionId,
@@ -2611,13 +4114,76 @@ export class BackgroundRunSupervisor {
         error: toErrorMessage(error),
       });
       run.carryForward = buildFallbackCarryForwardState({
-        previous: run.carryForward,
+        previous: previousCarryForward,
         latestUpdate: run.lastUserUpdate,
         latestToolEvidence: run.lastToolEvidence,
         pendingSignals,
-        now: this.now(),
+        now,
+      });
+      run.carryForward = {
+        ...run.carryForward,
+        memoryAnchors: buildCarryForwardAnchors({
+          previous: previousCarryForward?.memoryAnchors ?? [],
+          providerContinuation,
+          pendingSignals,
+          actorResult,
+          now,
+        }),
+        providerContinuation,
+        summaryHealth: previousCarryForward?.summaryHealth ?? {
+          status: "healthy",
+          driftCount: 0,
+        },
+      };
+    }
+
+    run.compaction = {
+      ...run.compaction,
+      lastCompactedAt: run.carryForward.lastCompactedAt,
+      lastCompactedCycle: run.cycleCount,
+      refreshCount: run.compaction.refreshCount + 1,
+      lastHistoryLength: run.internalHistory.length,
+      lastMilestoneAt:
+        finalReason === "milestone" || finalReason === "repair"
+          ? now
+          : run.compaction.lastMilestoneAt,
+      lastCompactionReason: finalReason,
+      repairCount:
+        finalReason === "repair"
+          ? run.compaction.repairCount + 1
+          : run.compaction.repairCount,
+      lastProviderAnchorAt:
+        providerContinuation?.updatedAt ?? run.compaction.lastProviderAnchorAt,
+    };
+    if (finalReason === "repair") {
+      this.logger.info("Background run repaired carry-forward state", {
+        sessionId: run.sessionId,
+        runId: run.id,
+        refreshCount: run.compaction.refreshCount,
       });
     }
+    const latestProviderCompactionArtifact = [...run.carryForward.artifacts]
+      .reverse()
+      .find((artifact) =>
+        artifact.kind === "opaque_provider_state" &&
+        artifact.source.endsWith(":context_management")
+      );
+    await this.runStore.appendEvent(toPersistedRun(run), {
+      type: "memory_compacted",
+      summary: truncate(
+        `Background run memory ${finalReason === "repair" ? "repaired" : "refreshed"} (${finalReason}).`,
+        200,
+      ),
+      timestamp: now,
+      data: {
+        reason: finalReason,
+        refreshCount: run.compaction.refreshCount,
+        repairCount: run.compaction.repairCount,
+        providerResponseId: run.carryForward.providerContinuation?.responseId,
+        providerCompactionArtifact: latestProviderCompactionArtifact?.locator,
+        providerCompactionDigest: latestProviderCompactionArtifact?.digest,
+      },
+    });
 
     if (pendingSignals.length > 0) {
       run.pendingSignals = removeConsumedSignals(run.pendingSignals, pendingSignals);
@@ -2632,7 +4198,7 @@ export class BackgroundRunSupervisor {
       ], {
         toolChoice: "none",
       });
-      return parseContract(response.content) ?? buildFallbackContract(objective);
+      return parseContract(response.content, objective) ?? buildFallbackContract(objective);
     } catch (error) {
       this.logger.debug("Background run contract planning failed", {
         objective: truncate(objective, 120),
@@ -2652,7 +4218,9 @@ export class BackgroundRunSupervisor {
     },
   ): Promise<void> {
     await this.runStore.saveRun(toPersistedRun(run));
-    await this.runStore.saveRecentSnapshot(toRecentSnapshot(run));
+    await this.runStore.saveRecentSnapshot(
+      toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
+    );
     if (event) {
       await this.runStore.appendEvent(toPersistedRun(run), event);
     }
@@ -2666,6 +4234,7 @@ export class BackgroundRunSupervisor {
     if (run.lastUserUpdate === next) return;
     run.lastUserUpdate = next;
     run.lastHeartbeatContent = undefined;
+    recordRunActivity(run, this.now(), "progress");
     if (run.heartbeatTimer) {
       clearTimeout(run.heartbeatTimer);
       run.heartbeatTimer = null;
@@ -2679,6 +4248,47 @@ export class BackgroundRunSupervisor {
     });
   }
 
+  private async parkBlockedRun(
+    run: ActiveBackgroundRun,
+    decision: BackgroundRunDecision,
+  ): Promise<void> {
+    this.clearRunTimers(run);
+    run.abortController?.abort();
+    run.abortController = null;
+    assertAgentRunStateTransition(run.state, "blocked", "parkBlockedRun");
+    run.state = "blocked";
+    run.updatedAt = this.now();
+    const blockerState = buildBlockerState(decision, run.updatedAt);
+    run.blocker = blockerState.blocker;
+    run.approvalState = blockerState.approvalState;
+    recordRunActivity(run, run.updatedAt, "progress");
+    if (decision.shouldNotifyUser) {
+      run.lastUserUpdate = truncate(decision.userUpdate, MAX_USER_UPDATE_CHARS);
+    }
+    run.lastHeartbeatContent = undefined;
+
+    await this.progressTracker?.append({
+      sessionId: run.sessionId,
+      type: "decision",
+      summary: truncate(`Background run blocked: ${decision.internalSummary}`, 200),
+    });
+    await this.persistRun(run, {
+      type: "run_blocked",
+      summary: truncate(`Background run blocked: ${decision.internalSummary}`, 200),
+      timestamp: this.now(),
+      data: {
+        pendingSignals: run.pendingSignals.length,
+      },
+    });
+    this.onStatus?.(run.sessionId, {
+      phase: "background_blocked",
+      detail: "Background run is blocked and waiting for a new signal or intervention",
+    });
+    if (decision.shouldNotifyUser) {
+      await this.publishUpdate(run.sessionId, truncate(decision.userUpdate, MAX_USER_UPDATE_CHARS));
+    }
+  }
+
   private async finishRun(
     run: ActiveBackgroundRun,
     decision: BackgroundRunDecision,
@@ -2686,13 +4296,19 @@ export class BackgroundRunSupervisor {
     this.clearRunTimers(run);
     run.abortController?.abort();
     run.abortController = null;
+    assertAgentRunStateTransition(run.state, decision.state, "finishRun");
     run.state = decision.state;
     run.updatedAt = this.now();
+    clearRunBlockers(run);
+    recordRunActivity(run, run.updatedAt, "progress");
     if (decision.shouldNotifyUser) {
       run.lastUserUpdate = truncate(decision.userUpdate, MAX_USER_UPDATE_CHARS);
     }
     this.activeRuns.delete(run.sessionId);
-    await this.runStore.saveRecentSnapshot(toRecentSnapshot(run));
+    await this.runStore.saveRecentSnapshot(
+      toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
+    );
+    await this.wakeBus.clearSession(run.sessionId);
 
     const progressType = decision.state === "completed"
       ? "task_completed"

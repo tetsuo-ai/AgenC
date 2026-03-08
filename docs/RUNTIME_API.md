@@ -381,9 +381,14 @@ Use for most production channels where correctness and predictable behavior matt
       "cooldownMs": 120000
     },
     "statefulResponses": {
-      "enabled": false,
+      "enabled": true,
       "store": false,
-      "fallbackToStateless": true
+      "fallbackToStateless": true,
+      "compaction": {
+        "enabled": true,
+        "compactThreshold": 20000,
+        "fallbackOnUnsupported": true
+      }
     }
   }
 }
@@ -415,7 +420,12 @@ Use for high-volume low-latency channels where strict retries are less valuable 
     "statefulResponses": {
       "enabled": true,
       "store": false,
-      "fallbackToStateless": true
+      "fallbackToStateless": true,
+      "compaction": {
+        "enabled": true,
+        "compactThreshold": 16000,
+        "fallbackOnUnsupported": true
+      }
     },
     "toolRouting": {
       "enabled": true,
@@ -448,9 +458,14 @@ Use during incident triage. This profile prioritizes observability and reproduci
     "maxModelRecallsPerRequest": 3,
     "maxFailureBudgetPerRequest": 4,
     "statefulResponses": {
-      "enabled": false,
+      "enabled": true,
       "store": false,
-      "fallbackToStateless": true
+      "fallbackToStateless": true,
+      "compaction": {
+        "enabled": true,
+        "compactThreshold": 12000,
+        "fallbackOnUnsupported": true
+      }
     }
   },
   "logging": {
@@ -488,9 +503,14 @@ Use for multi-step delegated workloads where planner DAG execution, verifier gat
     "maxModelRecallsPerRequest": 3,
     "maxFailureBudgetPerRequest": 4,
     "statefulResponses": {
-      "enabled": false,
+      "enabled": true,
       "store": false,
-      "fallbackToStateless": true
+      "fallbackToStateless": true,
+      "compaction": {
+        "enabled": true,
+        "compactThreshold": 18000,
+        "fallbackOnUnsupported": true
+      }
     },
     "subagents": {
       "enabled": true,
@@ -532,6 +552,33 @@ Use for multi-step delegated workloads where planner DAG execution, verifier gat
   }
 }
 ```
+
+### Stateful Response Compaction
+
+`llm.statefulResponses.compaction` enables provider-native opaque compaction for
+providers that support server-side continuation. The current runtime surface is:
+
+- `enabled`: turn provider compaction on for stateful responses.
+- `compactThreshold`: rendered-token threshold after which the provider may
+  compact server-side state.
+- `fallbackOnUnsupported`: retry once without compaction if the provider rejects
+  the field or does not support it.
+
+The runtime preserves assistant `phase` metadata in local history and includes
+provider compaction diagnostics in call-level traces so compacted continuations
+remain replayable.
+
+### Host vs Desktop Browser Tooling
+
+The tool surface is intentionally split by environment:
+
+- `system.browserSession*` is host-scoped and only available when
+  `desktop.environment` is `"host"` or `"both"`.
+- `mcp.browser.*` / `playwright.*` is desktop-scoped and remains the correct
+  choice for visible browser automation inside the sandboxed desktop.
+
+If you run the gateway in `desktop`-only mode, the runtime will correctly filter
+`system.browserSession*` out of the LLM-visible tool set.
 
 ### Profile Selection Guide
 

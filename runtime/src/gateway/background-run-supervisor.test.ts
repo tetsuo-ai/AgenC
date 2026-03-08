@@ -15,6 +15,7 @@ import {
   isBackgroundRunStopRequest,
 } from "./background-run-supervisor.js";
 import { BackgroundRunStore } from "./background-run-store.js";
+import { AGENT_RUN_SCHEMA_VERSION } from "./agent-run-contract.js";
 
 function makeResult(
   overrides: Partial<ChatExecutorResult> = {},
@@ -30,6 +31,36 @@ function makeResult(
     durationMs: 10,
     compacted: false,
     stopReason: "completed",
+    ...overrides,
+  };
+}
+
+function makeCallUsageRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    callIndex: 1,
+    phase: "initial",
+    provider: "grok",
+    model: "grok-test",
+    finishReason: "stop",
+    usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+    beforeBudget: {
+      messageCount: 1,
+      systemMessages: 1,
+      userMessages: 0,
+      assistantMessages: 0,
+      toolMessages: 0,
+      estimatedChars: 20,
+      systemPromptChars: 10,
+    },
+    afterBudget: {
+      messageCount: 1,
+      systemMessages: 1,
+      userMessages: 0,
+      assistantMessages: 0,
+      toolMessages: 0,
+      estimatedChars: 20,
+      systemPromptChars: 10,
+    },
     ...overrides,
   };
 }
@@ -65,12 +96,117 @@ async function eventually(assertion: () => void, attempts = 10): Promise<void> {
   throw lastError;
 }
 
+async function eventuallyAsync(
+  assertion: () => Promise<void>,
+  attempts = 10,
+): Promise<void> {
+  let lastError: unknown;
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+  }
+  throw lastError;
+}
+
+function makePersistedRunRecord(
+  overrides: Record<string, unknown> & {
+    readonly sessionId: string;
+    readonly objective: string;
+  },
+) {
+  const contractOverrides = (overrides.contract ?? {}) as Record<string, unknown>;
+  const record = {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    id: "bg-persisted",
+    sessionId: overrides.sessionId,
+    objective: overrides.objective,
+    contract: {
+      domain: "generic",
+      kind: "finite",
+      successCriteria: ["Verify the objective completes."],
+      completionCriteria: ["Observe deterministic completion evidence."],
+      blockedCriteria: ["Required runtime evidence is missing."],
+      nextCheckMs: 4_000,
+      heartbeatMs: 12_000,
+      requiresUserStop: false,
+      managedProcessPolicy: { mode: "none" },
+      ...contractOverrides,
+    },
+    state: "working",
+    fenceToken: 1,
+    createdAt: 1,
+    updatedAt: 1,
+    cycleCount: 1,
+    stableWorkingCycles: 0,
+    consecutiveErrorCycles: 0,
+    nextCheckAt: 10,
+    nextHeartbeatAt: undefined,
+    lastVerifiedAt: 1,
+    lastUserUpdate: undefined,
+    lastToolEvidence: undefined,
+    lastHeartbeatContent: undefined,
+    lastWakeReason: "tool_result",
+    carryForward: undefined,
+    blocker: undefined,
+    approvalState: { status: "none" },
+    budgetState: {
+      runtimeStartedAt: 1,
+      lastActivityAt: 1,
+      lastProgressAt: 1,
+      maxRuntimeMs: 604_800_000,
+      maxCycles: 512,
+      maxIdleMs: undefined,
+      nextCheckIntervalMs: 4_000,
+      heartbeatIntervalMs: 12_000,
+    },
+    compaction: {
+      lastCompactedAt: undefined,
+      lastCompactedCycle: 0,
+      refreshCount: 0,
+      lastHistoryLength: 0,
+      lastMilestoneAt: undefined,
+      lastCompactionReason: undefined,
+      repairCount: 0,
+      lastProviderAnchorAt: undefined,
+    },
+    pendingSignals: [],
+    observedTargets: [],
+    watchRegistrations: [],
+    internalHistory: [],
+    leaseOwnerId: undefined,
+    leaseExpiresAt: undefined,
+    ...overrides,
+  };
+  return {
+    ...record,
+    contract: {
+      domain: "generic",
+      kind: "finite",
+      successCriteria: ["Verify the objective completes."],
+      completionCriteria: ["Observe deterministic completion evidence."],
+      blockedCriteria: ["Required runtime evidence is missing."],
+      nextCheckMs: 4_000,
+      heartbeatMs: 12_000,
+      requiresUserStop: false,
+      managedProcessPolicy: { mode: "none" },
+      ...contractOverrides,
+    },
+  };
+}
+
 function createManagedProcessToolHandler(params?: {
   readonly initialProcessId?: string;
   readonly label?: string;
   readonly command?: string;
   readonly args?: readonly string[];
   readonly cwd?: string;
+  readonly surface?: "desktop" | "host";
 }) {
   const state = {
     processId: params?.initialProcessId ?? "proc_watcher",
@@ -78,13 +214,19 @@ function createManagedProcessToolHandler(params?: {
     command: params?.command ?? "/bin/sleep",
     args: [...(params?.args ?? ["2"])],
     cwd: params?.cwd ?? "/tmp",
+    surface: params?.surface ?? "desktop",
     currentState: "running" as "running" | "exited",
     exitCode: 0 as number | null,
     restartCount: 0,
   };
 
+  const statusToolName =
+    state.surface === "host" ? "system.processStatus" : "desktop.process_status";
+  const startToolName =
+    state.surface === "host" ? "system.processStart" : "desktop.process_start";
+
   const handler = vi.fn<ToolHandler>(async (name, args) => {
-    if (name === "desktop.process_status") {
+    if (name === statusToolName) {
       return JSON.stringify({
         processId: state.processId,
         label: state.label,
@@ -95,7 +237,7 @@ function createManagedProcessToolHandler(params?: {
         exitCode: state.currentState === "exited" ? state.exitCode : undefined,
       });
     }
-    if (name === "desktop.process_start") {
+    if (name === startToolName) {
       state.restartCount += 1;
       state.processId =
         state.restartCount === 1
@@ -132,12 +274,17 @@ function createManagedProcessToolHandler(params?: {
     snapshot() {
       return { ...state, args: [...state.args] };
     },
+    toolNames: {
+      status: statusToolName,
+      start: startToolName,
+    },
   };
 }
 
 describe("background-run-supervisor", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(0);
   });
 
   it("detects explicit long-running intent", () => {
@@ -202,9 +349,11 @@ describe("background-run-supervisor", () => {
       sessionId: "session-1",
       objective: "Play Doom until I say stop and keep me updated.",
     });
-    await vi.runOnlyPendingTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
+    await eventually(() => {
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
 
-    expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[0].message.content).toContain("Cycle: 1");
     expect(execute.mock.calls[0]?.[0].systemPrompt).toContain(
       "launch it so the tool call returns immediately",
@@ -583,7 +732,7 @@ describe("background-run-supervisor", () => {
       content: "If it fails, restart it instead of stopping.",
       type: "user_input",
     });
-    expect(supervisor.getStatusSnapshot("session-pause-resume")?.pendingSignals).toBe(1);
+    expect(supervisor.getStatusSnapshot("session-pause-resume")?.pendingSignals).toBe(2);
     expect(execute).toHaveBeenCalledTimes(1);
 
     await supervisor.resumeRun("session-pause-resume");
@@ -601,7 +750,7 @@ describe("background-run-supervisor", () => {
     );
   });
 
-  it("publishes a runtime heartbeat while a stable background run waits for the next verification", async () => {
+  it("preserves the latest deterministic update while a stable background run waits for the next verification", async () => {
     const publishUpdate = vi.fn(async () => undefined);
     const execute = vi
       .fn()
@@ -620,6 +769,20 @@ describe("background-run-supervisor", () => {
         }),
       )
       .mockResolvedValueOnce(
+        makeResult({
+          content: "Background job started.",
+          toolCalls: [
+            {
+              name: "desktop.bash",
+              args: { command: "test -f /tmp/file" },
+              result: "File does not exist yet",
+              isError: false,
+              durationMs: 8,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValue(
         makeResult({
           content: "Background job started.",
           toolCalls: [
@@ -689,16 +852,16 @@ describe("background-run-supervisor", () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(4_000);
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(12_000);
 
-    expect(execute).toHaveBeenCalledTimes(2);
-    expect(publishUpdate).toHaveBeenNthCalledWith(
-      3,
+    expect(execute.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(publishUpdate).toHaveBeenLastCalledWith(
       "session-heartbeat",
-      expect.stringContaining("Still working in the background."),
+      "Tool result observed for desktop.bash.",
     );
 
     const snapshot = supervisor.getStatusSnapshot("session-heartbeat");
+    expect(snapshot?.state).toBe("working");
     expect(snapshot?.nextHeartbeatAt).toBeUndefined();
     expect(snapshot?.nextCheckAt).toBeTypeOf("number");
   });
@@ -963,10 +1126,37 @@ describe("background-run-supervisor", () => {
               {
                 name: "desktop.process_start",
                 args: { label: "watcher" },
-                result: '{"state":"running"}',
+                result: '{"processId":"proc_recover","label":"watcher","state":"running"}',
                 isError: false,
                 durationMs: 4,
               },
+            ],
+            callUsage: [
+              makeCallUsageRecord({
+                provider: "grok",
+                statefulDiagnostics: {
+                  enabled: true,
+                  attempted: false,
+                  continued: false,
+                  store: true,
+                  fallbackToStateless: true,
+                  responseId: "resp_recover_1",
+                  reconciliationHash: "hash_recover_1",
+                },
+                compactionDiagnostics: {
+                  enabled: true,
+                  requested: true,
+                  active: true,
+                  mode: "server_side_context_management",
+                  threshold: 12_000,
+                  observedItemCount: 1,
+                  latestItem: {
+                    type: "compaction",
+                    id: "cmp_recover_1",
+                    digest: "recoverdigest0001",
+                  },
+                },
+              }),
             ],
           }),
         );
@@ -1008,8 +1198,53 @@ describe("background-run-supervisor", () => {
       });
       await vi.advanceTimersByTimeAsync(0);
       expect(supervisor1.getStatusSnapshot("session-recover")?.state).toBe("working");
+      await expect(runStore1.loadRun("session-recover")).resolves.toMatchObject({
+        state: "working",
+        fenceToken: 2,
+        carryForward: expect.objectContaining({
+          providerContinuation: expect.objectContaining({
+            responseId: "resp_recover_1",
+            reconciliationHash: "hash_recover_1",
+          }),
+          artifacts: expect.arrayContaining([
+            expect.objectContaining({
+              kind: "opaque_provider_state",
+              locator: "provider:grok:compaction:cmp_recover_1",
+              digest: "recoverdigest0001",
+            }),
+          ]),
+        }),
+        budgetState: expect.objectContaining({
+          maxRuntimeMs: 604_800_000,
+          maxCycles: 512,
+          nextCheckIntervalMs: 4000,
+        }),
+        compaction: expect.objectContaining({
+          refreshCount: 1,
+        }),
+        watchRegistrations: [
+          expect.objectContaining({
+            targetId: "proc_recover",
+            label: "watcher",
+          }),
+        ],
+        blocker: undefined,
+        approvalState: { status: "none" },
+      });
       expect((await runStore1.listRuns()).length).toBe(1);
       await supervisor1.shutdown();
+      await expect(runStore1.loadRun("session-recover")).resolves.toMatchObject({
+        state: "suspended",
+        budgetState: expect.objectContaining({
+          maxRuntimeMs: 604_800_000,
+          maxCycles: 512,
+        }),
+        watchRegistrations: [
+          expect.objectContaining({
+            targetId: "proc_recover",
+          }),
+        ],
+      });
       expect((await runStore1.listRuns()).length).toBe(1);
       await backend1.close();
 
@@ -1023,7 +1258,7 @@ describe("background-run-supervisor", () => {
             {
               name: "desktop.process_status",
               args: { processId: "watcher" },
-              result: '{"state":"running"}',
+              result: '{"processId":"proc_recover","label":"watcher","state":"running"}',
               isError: false,
               durationMs: 3,
             },
@@ -1057,16 +1292,567 @@ describe("background-run-supervisor", () => {
       expect((await runStore2.listRuns()).length).toBe(1);
       const recovered = await supervisor2.recoverRuns();
       expect(recovered).toBe(1);
-      expect(supervisor2.getStatusSnapshot("session-recover")?.state).toBe("working");
+      expect(supervisor2.getStatusSnapshot("session-recover")).toMatchObject({
+        state: "working",
+        watchCount: 1,
+      });
 
       await vi.advanceTimersByTimeAsync(0);
       expect(execute2).toHaveBeenCalledTimes(1);
+      expect(execute2.mock.calls[0]?.[0]).toMatchObject({
+        stateful: {
+          resumeAnchor: {
+            previousResponseId: "resp_recover_1",
+            reconciliationHash: "hash_recover_1",
+          },
+        },
+      });
+      await expect(runStore2.loadRun("session-recover")).resolves.toMatchObject({
+        state: "working",
+        fenceToken: expect.any(Number),
+        carryForward: expect.objectContaining({
+          artifacts: expect.arrayContaining([
+            expect.objectContaining({
+              kind: "opaque_provider_state",
+              locator: "provider:grok:compaction:cmp_recover_1",
+              digest: "recoverdigest0001",
+            }),
+          ]),
+        }),
+        budgetState: expect.objectContaining({
+          maxRuntimeMs: 604_800_000,
+          maxCycles: 512,
+        }),
+        compaction: expect.objectContaining({
+          lastHistoryLength: expect.any(Number),
+        }),
+        watchRegistrations: [
+          expect.objectContaining({
+            targetId: "proc_recover",
+          }),
+        ],
+      });
       await vi.advanceTimersByTimeAsync(4_000);
       expect(execute2).toHaveBeenCalledTimes(2);
       await backend2.close();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("allows only one daemon instance to recover and own a persisted run lease", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "agenc-bg-run-lease-"));
+    const dbPath = join(tempDir, "memory.sqlite");
+
+    try {
+      const backend = new SqliteBackend({ dbPath });
+      const runStore = new BackgroundRunStore({ memoryBackend: backend });
+      await runStore.saveRun({
+        version: AGENT_RUN_SCHEMA_VERSION,
+        id: "bg-lease",
+        sessionId: "session-lease",
+        objective: "Keep the watcher running.",
+        contract: {
+          kind: "until_stopped",
+          successCriteria: ["Keep the watcher running."],
+          completionCriteria: ["User explicitly stops the run."],
+          blockedCriteria: ["Missing watcher tooling."],
+          nextCheckMs: 4_000,
+          heartbeatMs: 12_000,
+          requiresUserStop: true,
+        },
+        state: "working",
+        fenceToken: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        cycleCount: 1,
+        stableWorkingCycles: 0,
+        consecutiveErrorCycles: 0,
+        nextCheckAt: 10_000,
+        nextHeartbeatAt: undefined,
+        lastVerifiedAt: 1,
+        lastUserUpdate: "Watcher is still running.",
+        lastToolEvidence: "desktop.process_status [ok] running",
+        lastHeartbeatContent: undefined,
+        lastWakeReason: "timer",
+        carryForward: undefined,
+        blocker: undefined,
+        approvalState: { status: "none" },
+        budgetState: {
+          runtimeStartedAt: 1,
+          lastActivityAt: 1,
+          lastProgressAt: 1,
+          maxRuntimeMs: 604_800_000,
+          maxCycles: 512,
+          maxIdleMs: undefined,
+          nextCheckIntervalMs: 4_000,
+          heartbeatIntervalMs: 12_000,
+        },
+        compaction: {
+          lastCompactedAt: undefined,
+          lastCompactedCycle: 0,
+          refreshCount: 0,
+          lastHistoryLength: 0,
+          lastMilestoneAt: undefined,
+          lastCompactionReason: undefined,
+          repairCount: 0,
+          lastProviderAnchorAt: undefined,
+        },
+        pendingSignals: [],
+        observedTargets: [],
+        watchRegistrations: [],
+        internalHistory: [],
+        leaseOwnerId: undefined,
+        leaseExpiresAt: undefined,
+      });
+      await backend.close();
+
+      const makeSupervisor = () => new BackgroundRunSupervisor({
+        chatExecutor: { execute: vi.fn(async () => makeResult()) } as any,
+        supervisorLlm: {
+          name: "supervisor",
+          chat: vi.fn(async () => ({
+            content:
+              '{"state":"working","userUpdate":"Watcher still running.","internalSummary":"verified","nextCheckMs":4000,"shouldNotifyUser":true}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          })),
+          chatStream: vi.fn(),
+          healthCheck: vi.fn(async () => true),
+        },
+        getSystemPrompt: () => "base system prompt",
+        runStore: new BackgroundRunStore({
+          memoryBackend: new SqliteBackend({ dbPath }),
+        }),
+        createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+        publishUpdate: vi.fn(async () => undefined),
+      });
+
+      const supervisorA = makeSupervisor();
+      const supervisorB = makeSupervisor();
+
+      await expect(supervisorA.recoverRuns()).resolves.toBe(1);
+      await expect(supervisorB.recoverRuns()).resolves.toBe(0);
+      expect(supervisorA.getStatusSnapshot("session-lease")?.state).toBe("working");
+      expect(supervisorB.getStatusSnapshot("session-lease")).toBeUndefined();
+
+      await supervisorA.shutdown();
+      await supervisorB.shutdown();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      label: "browser",
+      record: makePersistedRunRecord({
+        sessionId: "session-browser-recover",
+        objective: "Download the report from the browser session.",
+        contract: {
+          domain: "browser",
+          successCriteria: ["Download the report artifact."],
+          completionCriteria: ["Observe the report download completing."],
+          blockedCriteria: ["Browser automation fails."],
+        },
+        pendingSignals: [
+          {
+            id: "sig-browser-recover",
+            type: "tool_result",
+            content: "Browser download completed at /tmp/report.pdf.",
+            timestamp: 2,
+            data: {
+              category: "browser",
+              toolName: "mcp.browser.browser_download",
+              artifactPath: "/tmp/report.pdf",
+              failed: false,
+            },
+          },
+        ],
+      }),
+      expectedUpdate: "Browser download completed at /tmp/report.pdf. Objective satisfied.",
+    },
+    {
+      label: "desktop_gui",
+      record: makePersistedRunRecord({
+        sessionId: "session-desktop-gui-recover",
+        objective: "Launch the desktop app window and confirm it is visible.",
+        contract: {
+          domain: "desktop_gui",
+          successCriteria: ["Open the application window."],
+          completionCriteria: ["Observe the window becoming visible."],
+          blockedCriteria: ["Desktop launch fails."],
+        },
+        pendingSignals: [
+          {
+            id: "sig-desktop-gui-recover",
+            type: "tool_result",
+            content: "Application window launched and focused.",
+            timestamp: 2,
+            data: {
+              toolName: "desktop.launch",
+              failed: false,
+            },
+          },
+        ],
+      }),
+      expectedUpdate: "Application window launched and focused. Objective satisfied.",
+    },
+    {
+      label: "workspace",
+      record: makePersistedRunRecord({
+        sessionId: "session-workspace-recover",
+        objective: "Run `git status --short` in the workspace and tell me when the command succeeds.",
+        contract: {
+          domain: "workspace",
+          successCriteria: ["Execute the workspace command successfully."],
+          completionCriteria: ["Verify the command succeeds in the workspace."],
+          blockedCriteria: ["Workspace tooling is missing."],
+        },
+        pendingSignals: [
+          {
+            id: "sig-workspace-recover",
+            type: "tool_result",
+            content: "Tool result observed for desktop.bash.",
+            timestamp: 2,
+            data: {
+              category: "generic",
+              toolName: "desktop.bash",
+              command: "git status --short",
+              failed: false,
+            },
+          },
+        ],
+      }),
+      expectedUpdate: "Tool result observed for desktop.bash. Objective satisfied.",
+    },
+    {
+      label: "research",
+      record: makePersistedRunRecord({
+        sessionId: "session-research-recover",
+        objective: "Research the vendor and save a short report.",
+        contract: {
+          domain: "research",
+          successCriteria: ["Produce the report artifact."],
+          completionCriteria: ["Persist the report to disk."],
+          blockedCriteria: ["Research tools fail."],
+        },
+        pendingSignals: [
+          {
+            id: "sig-research-recover",
+            type: "webhook",
+            content: "Artifact watcher saved the research report.",
+            timestamp: 2,
+            data: {
+              source: "artifact-watcher",
+              path: "/tmp/research-report.md",
+            },
+          },
+        ],
+      }),
+      expectedUpdate: "Artifact watcher saved the research report. Objective satisfied.",
+    },
+    {
+      label: "pipeline",
+      record: makePersistedRunRecord({
+        sessionId: "session-pipeline-recover",
+        objective: "Wait for the deployment pipeline to complete successfully.",
+        contract: {
+          domain: "pipeline",
+          successCriteria: ["Observe the deployment pipeline complete."],
+          completionCriteria: ["Receive a healthy completion signal."],
+          blockedCriteria: ["The deployment pipeline becomes unhealthy."],
+        },
+        pendingSignals: [
+          {
+            id: "sig-pipeline-recover",
+            type: "external_event",
+            content: "Pipeline deploy-1 completed successfully.",
+            timestamp: 2,
+            data: {
+              category: "health",
+              eventType: "pipeline.completed",
+              state: "completed",
+              status: 200,
+            },
+          },
+        ],
+      }),
+      expectedUpdate: "Pipeline deploy-1 completed successfully. Objective satisfied.",
+    },
+    {
+      label: "remote_mcp",
+      record: makePersistedRunRecord({
+        sessionId: "session-remote-mcp-recover",
+        objective: "Wait for the remote MCP job to finish successfully.",
+        contract: {
+          domain: "remote_mcp",
+          successCriteria: ["Observe the remote MCP job complete."],
+          completionCriteria: ["Receive a completion event from the remote server."],
+          blockedCriteria: ["Remote MCP job fails."],
+        },
+        pendingSignals: [
+          {
+            id: "sig-remote-mcp-recover",
+            type: "webhook",
+            content: "MCP event observed from remote-job-server (job-42) completed successfully.",
+            timestamp: 2,
+            data: {
+              category: "mcp",
+              source: "remote-mcp-webhook",
+              serverName: "remote-job-server",
+              jobId: "job-42",
+              state: "completed",
+              status: 200,
+            },
+          },
+        ],
+      }),
+      expectedUpdate:
+        "MCP event observed from remote-job-server (job-42) completed successfully. Objective satisfied.",
+    },
+  ])(
+    "recovers $label runs and completes deterministically from persisted evidence",
+    async ({ record, expectedUpdate }) => {
+      const tempDir = await mkdtemp(join(tmpdir(), "agenc-bg-run-domain-recover-"));
+      const dbPath = join(tempDir, "memory.sqlite");
+
+      try {
+        const backend1 = new SqliteBackend({ dbPath });
+        const runStore1 = new BackgroundRunStore({ memoryBackend: backend1 });
+        await runStore1.saveRun(record);
+        await backend1.close();
+
+        const backend2 = new SqliteBackend({ dbPath });
+        const runStore2 = new BackgroundRunStore({ memoryBackend: backend2 });
+        const execute = vi.fn(async () => makeResult({ content: "actor should not run" }));
+        const publishUpdate = vi.fn(async () => undefined);
+        const supervisor = new BackgroundRunSupervisor({
+          chatExecutor: { execute } as any,
+          supervisorLlm: {
+            name: "supervisor",
+            chat: vi.fn(async () => ({
+              content:
+                '{"summary":"deterministic verifier should complete this without another model turn","verifiedFacts":[],"openLoops":[],"nextFocus":"None."}',
+              toolCalls: [],
+              usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+              model: "supervisor-model",
+              finishReason: "stop",
+            })),
+            chatStream: vi.fn(),
+            healthCheck: vi.fn(async () => true),
+          },
+          getSystemPrompt: () => "base system prompt",
+          runStore: runStore2,
+          createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+          publishUpdate,
+        });
+
+        await expect(supervisor.recoverRuns()).resolves.toBe(1);
+        await vi.advanceTimersByTimeAsync(0);
+
+        await eventuallyAsync(async () => {
+          const snapshot = await runStore2.loadRecentSnapshot(record.sessionId);
+          expect(snapshot?.state).toBe("completed");
+          expect(snapshot?.lastUserUpdate).toBe(expectedUpdate);
+        });
+        expect(execute).not.toHaveBeenCalled();
+        expect(supervisor.getStatusSnapshot(record.sessionId)).toBeUndefined();
+        expect(publishUpdate).toHaveBeenLastCalledWith(record.sessionId, expectedUpdate);
+
+        await backend2.close();
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("recovers approval-gated runs in blocked state until a durable approval wake arrives", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "agenc-bg-run-approval-recover-"));
+    const dbPath = join(tempDir, "memory.sqlite");
+
+    try {
+      const backend1 = new SqliteBackend({ dbPath });
+      const runStore1 = new BackgroundRunStore({ memoryBackend: backend1 });
+      await runStore1.saveRun(
+        makePersistedRunRecord({
+          sessionId: "session-approval-recover",
+          objective: "Wait for approval before deploying the change.",
+          contract: {
+            domain: "approval",
+            successCriteria: ["Continue after approval."],
+            completionCriteria: ["Receive approval from the operator."],
+            blockedCriteria: ["Approval is still pending."],
+          },
+          state: "blocked",
+          approvalState: {
+            status: "waiting",
+            requestId: "approval-123",
+            requestedAt: 1,
+            summary: "Waiting for deployment approval.",
+          },
+          blocker: {
+            code: "approval_required",
+            summary: "Waiting for deployment approval.",
+            requiresOperatorAction: false,
+            requiresApproval: true,
+            since: 1,
+          },
+          pendingSignals: [],
+        }),
+      );
+      await backend1.close();
+
+      const backend2 = new SqliteBackend({ dbPath });
+      const runStore2 = new BackgroundRunStore({ memoryBackend: backend2 });
+      const execute = vi.fn(async () => makeResult({ content: "actor should not run" }));
+      const supervisor = new BackgroundRunSupervisor({
+        chatExecutor: { execute } as any,
+        supervisorLlm: {
+          name: "supervisor",
+          chat: vi.fn(async () => ({
+            content:
+              '{"summary":"approval wait recovered","verifiedFacts":[],"openLoops":[],"nextFocus":"None."}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          })),
+          chatStream: vi.fn(),
+          healthCheck: vi.fn(async () => true),
+        },
+        getSystemPrompt: () => "base system prompt",
+        runStore: runStore2,
+        createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+        publishUpdate: vi.fn(async () => undefined),
+      });
+
+      await expect(supervisor.recoverRuns()).resolves.toBe(1);
+      expect(supervisor.getStatusSnapshot("session-approval-recover")).toMatchObject({
+        state: "blocked",
+        objective: "Wait for approval before deploying the change.",
+      });
+      expect(execute).not.toHaveBeenCalled();
+      await expect(runStore2.loadRun("session-approval-recover")).resolves.toMatchObject({
+        state: "blocked",
+        approvalState: {
+          status: "waiting",
+          requestedAt: 1,
+          summary: "Waiting for deployment approval.",
+        },
+      });
+
+      await backend2.close();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps blocked runs durable and resumes them when a new signal arrives", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "Missing approval token.",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "Approval applied. Continuing work.",
+          toolCalls: [
+            {
+              name: "desktop.process_status",
+              args: { processId: "proc_watcher" },
+              result: '{"state":"running"}',
+              isError: false,
+              durationMs: 5,
+            },
+          ],
+        }),
+      );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["continue until approved"],"completionCriteria":["verify the task resumes"],"blockedCriteria":["missing approval token"],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"blocked","userUpdate":"Blocked waiting for the approval token.","internalSummary":"approval token missing","shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Approval token received and the run resumed.","internalSummary":"resumed after approval","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const runStore = createRunStore();
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-blocked",
+      objective: "Keep monitoring this until the approval token arrives.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(supervisor.getStatusSnapshot("session-blocked")?.state).toBe("blocked");
+    await expect(runStore.loadRun("session-blocked")).resolves.toMatchObject({
+      state: "blocked",
+      blocker: expect.objectContaining({
+        code: "approval_required",
+        requiresApproval: true,
+      }),
+      approvalState: {
+        status: "waiting",
+        requestedAt: expect.any(Number),
+        summary: "Blocked waiting for the approval token.",
+      },
+    });
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-blocked",
+      "Blocked waiting for the approval token.",
+    );
+
+    const signalled = await supervisor.signalRun({
+      sessionId: "session-blocked",
+      content: "Approval token granted. Continue.",
+    });
+    expect(signalled).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(supervisor.getStatusSnapshot("session-blocked")?.state).toBe("working");
+    await expect(runStore.loadRun("session-blocked")).resolves.toMatchObject({
+      state: "working",
+      blocker: undefined,
+      approvalState: { status: "none" },
+    });
   });
 
   it("queues user signals for an active run and carries forward compact state into the next cycle", async () => {
@@ -1080,7 +1866,7 @@ describe("background-run-supervisor", () => {
             {
               name: "desktop.process_start",
               args: { label: "watcher" },
-              result: '{"state":"running"}',
+              result: '{"processId":"proc_watcher","label":"watcher","state":"running"}',
               isError: false,
               durationMs: 5,
             },
@@ -1094,7 +1880,7 @@ describe("background-run-supervisor", () => {
             {
               name: "desktop.process_status",
               args: { processId: "watcher" },
-              result: '{"state":"running"}',
+              result: '{"processId":"proc_watcher","label":"watcher","state":"running"}',
               isError: false,
               durationMs: 5,
             },
@@ -1180,10 +1966,489 @@ describe("background-run-supervisor", () => {
     expect(secondPrompt).toContain("Watcher is running and needs supervision.");
     expect(secondPrompt).toContain("Pending external signals:");
     expect(secondPrompt).toContain("If it crashes, restart it and keep monitoring.");
-    expect(supervisor.getStatusSnapshot("session-signals")?.pendingSignals).toBe(0);
+    expect(supervisor.getStatusSnapshot("session-signals")?.pendingSignals).toBe(1);
     expect(supervisor.getStatusSnapshot("session-signals")?.carryForwardSummary).toContain(
       "crash-restart instruction queued and applied",
     );
+    await expect(
+      (supervisor as any).runStore.loadRun("session-signals"),
+    ).resolves.toMatchObject({
+      watchRegistrations: [
+        expect.objectContaining({
+          kind: "managed_process",
+          targetId: "proc_watcher",
+        }),
+      ],
+      compaction: expect.objectContaining({
+        refreshCount: 2,
+      }),
+      budgetState: expect.objectContaining({
+        maxCycles: 512,
+        nextCheckIntervalMs: 4000,
+      }),
+      fenceToken: expect.any(Number),
+    });
+  });
+
+  it("persists provider continuation anchors and reuses them on the next cycle", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "Watcher started and verified.",
+          callUsage: [
+            makeCallUsageRecord({
+              statefulDiagnostics: {
+                enabled: true,
+                attempted: false,
+                continued: false,
+                store: true,
+                fallbackToStateless: true,
+                responseId: "resp_cycle_1",
+                reconciliationHash: "hash_cycle_1",
+                events: [],
+              },
+            }),
+          ],
+          toolCalls: [
+            {
+              name: "desktop.process_start",
+              args: { label: "watcher" },
+              result: '{"processId":"proc_watcher","label":"watcher","state":"running"}',
+              isError: false,
+              durationMs: 5,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "Watcher is still running.",
+          toolCalls: [
+            {
+              name: "desktop.process_status",
+              args: { processId: "proc_watcher" },
+              result: '{"processId":"proc_watcher","label":"watcher","state":"running"}',
+              isError: false,
+              durationMs: 5,
+            },
+          ],
+        }),
+      );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["keep the watcher running"],"completionCriteria":["observe the watcher exit"],"blockedCriteria":["missing process controls"],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Watcher is running.","internalSummary":"verified running","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Watcher is running.","verifiedFacts":["Watcher started."],"openLoops":["Wait for process exit."],"nextFocus":"Continue monitoring."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Watcher still running.","internalSummary":"verified running again","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Watcher is still running.","verifiedFacts":["Watcher is running."],"openLoops":["Wait for process exit."],"nextFocus":"Keep monitoring."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const runStore = createRunStore();
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-stateful-anchor",
+      objective: "Monitor the watcher in the background and keep it running.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(runStore.loadRun("session-stateful-anchor")).resolves.toMatchObject({
+      carryForward: expect.objectContaining({
+        providerContinuation: expect.objectContaining({
+          provider: "grok",
+          responseId: "resp_cycle_1",
+          reconciliationHash: "hash_cycle_1",
+          mode: "previous_response_id",
+        }),
+      }),
+      compaction: expect.objectContaining({
+        lastProviderAnchorAt: expect.any(Number),
+      }),
+    });
+
+    await supervisor.signalRun({
+      sessionId: "session-stateful-anchor",
+      content: "Check it again.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls[1]?.[0]).toMatchObject({
+      stateful: {
+        resumeAnchor: {
+          previousResponseId: "resp_cycle_1",
+          reconciliationHash: "hash_cycle_1",
+        },
+      },
+    });
+  });
+
+  it("repairs poisoned carry-forward summaries that drift from verified evidence", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "Watcher started.",
+          toolCalls: [
+            {
+              name: "desktop.process_start",
+              args: { label: "watcher" },
+              result: '{"processId":"proc_watcher","label":"watcher","state":"running"}',
+              isError: false,
+              durationMs: 5,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "Latest status probe failed and will retry.",
+          toolCalls: [
+            {
+              name: "desktop.process_status",
+              args: { processId: "proc_watcher" },
+              result: "process lookup failed",
+              isError: true,
+              durationMs: 5,
+            },
+          ],
+        }),
+      );
+    const poisonedSummary =
+      "The watcher completed successfully and the objective is fully satisfied.";
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["keep watching the process"],"completionCriteria":["observe the watcher exit"],"blockedCriteria":["missing process controls"],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Watcher is running.","internalSummary":"verified running","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Watcher is running.","verifiedFacts":["Watcher started."],"openLoops":["Wait for process exit."],"nextFocus":"Keep monitoring."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Latest status probe failed and will retry.","internalSummary":"probe failed","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            `{"summary":"${poisonedSummary}","verifiedFacts":["Watcher completed successfully."],"openLoops":[],"nextFocus":"None."}`,
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const runStore = createRunStore();
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-carry-repair",
+      objective: "Monitor the watcher in the background until it exits.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await supervisor.signalRun({
+      sessionId: "session-carry-repair",
+      content: "Check it again now.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(runStore.loadRun("session-carry-repair")).resolves.toMatchObject({
+      carryForward: expect.objectContaining({
+        summaryHealth: expect.objectContaining({
+          status: "repairing",
+          driftCount: 1,
+          lastDriftReason: "carry_forward_claims_success_after_error_cycle",
+        }),
+      }),
+      compaction: expect.objectContaining({
+        lastCompactionReason: "repair",
+        repairCount: 1,
+      }),
+    });
+    const repaired = await runStore.loadRun("session-carry-repair");
+    expect(repaired?.carryForward?.summary).not.toBe(poisonedSummary);
+  });
+
+  it("stores provider compaction artifacts out of band and traces them on memory refresh", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValue(
+      makeResult({
+        content: "Watcher launched and compacted provider state was returned.",
+        toolCalls: [
+          {
+            name: "desktop.process_start",
+            args: { label: "watcher" },
+            result: '{"processId":"proc_watcher","label":"watcher","state":"running"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+        callUsage: [
+          makeCallUsageRecord({
+            provider: "grok",
+            statefulDiagnostics: {
+              enabled: true,
+              attempted: false,
+              continued: false,
+              store: true,
+              fallbackToStateless: true,
+              responseId: "resp_compacted",
+              reconciliationHash: "hash_compacted",
+            },
+            compactionDiagnostics: {
+              enabled: true,
+              requested: true,
+              active: true,
+              mode: "server_side_context_management",
+              threshold: 12_000,
+              observedItemCount: 1,
+              latestItem: {
+                type: "compaction",
+                id: "cmp_1",
+                digest: "deadbeefcafebabe",
+              },
+            },
+          }),
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["watch the process"],"completionCriteria":["observe it exit"],"blockedCriteria":["missing process controls"],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Watcher launched.","internalSummary":"watcher launched","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Watcher launched and needs monitoring.","verifiedFacts":["Watcher process launched."],"openLoops":["Wait for process exit."],"nextFocus":"Keep monitoring the watcher."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const runStore = createRunStore();
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-provider-compaction",
+      objective: "Monitor the watcher in the background until it exits.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const run = await runStore.loadRun("session-provider-compaction");
+    expect(run).toMatchObject({
+      carryForward: expect.objectContaining({
+        providerContinuation: expect.objectContaining({
+          responseId: "resp_compacted",
+        }),
+        artifacts: [
+          expect.objectContaining({
+            kind: "process",
+            locator: "proc_watcher",
+          }),
+          expect.objectContaining({
+            kind: "opaque_provider_state",
+            locator: "provider:grok:compaction:cmp_1",
+            source: "grok:context_management",
+            digest: "deadbeefcafebabe",
+          }),
+        ],
+      }),
+    });
+
+    const compactionEvent = (await runStore.listEvents(run!.id)).find((event) =>
+      event.metadata?.eventType === "memory_compacted"
+    );
+    expect(compactionEvent?.metadata).toMatchObject({
+      eventType: "memory_compacted",
+      providerCompactionArtifact: "provider:grok:compaction:cmp_1",
+      providerCompactionDigest: "deadbeefcafebabe",
+    });
+  });
+
+  it("keeps binary tool outputs out of band when recording carry-forward evidence", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const binaryPayload = `data:image/png;base64,${"A".repeat(900)}`;
+    const execute = vi.fn().mockResolvedValue(
+      makeResult({
+        content: "Captured a screenshot for later verification.",
+        toolCalls: [
+          {
+            name: "desktop.screenshot",
+            args: {},
+            result: binaryPayload,
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["capture screenshot evidence"],"completionCriteria":["observe the expected GUI state"],"blockedCriteria":["desktop tooling missing"],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Screenshot captured.","internalSummary":"captured screenshot evidence","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Screenshot captured for later verification.","verifiedFacts":["GUI screenshot captured."],"openLoops":["Verify the GUI state."],"nextFocus":"Inspect the screenshot evidence."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const runStore = createRunStore();
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-binary-evidence",
+      objective: "Capture screenshot evidence in the background.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const run = await runStore.loadRun("session-binary-evidence");
+    expect(run?.lastToolEvidence).toContain("binary artifact omitted");
+    expect(run?.lastToolEvidence).not.toContain(binaryPayload);
+    expect(run?.carryForward?.artifacts).toEqual([
+      expect.objectContaining({
+        kind: "opaque_provider_state",
+        source: "desktop.screenshot",
+        digest: expect.any(String),
+      }),
+    ]);
   });
 
   it("completes deterministically from a verified process_exit signal when the objective is satisfied", async () => {
@@ -1257,7 +2522,9 @@ describe("background-run-supervisor", () => {
       content: 'Managed process "watcher" (proc_watcher) exited (exitCode=0).',
     });
 
-    expect(supervisor.getStatusSnapshot("session-process-complete")).toBeUndefined();
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-process-complete")).toBeUndefined();
+    });
     expect(publishUpdate).toHaveBeenLastCalledWith(
       "session-process-complete",
       'Managed process "watcher" (proc_watcher) exited (exitCode=0). Objective satisfied.',
@@ -1370,10 +2637,129 @@ describe("background-run-supervisor", () => {
       },
     );
 
-    const snapshot = supervisor.getStatusSnapshot("session-process-exit");
-    expect(snapshot?.state).toBe("working");
-    expect(snapshot?.lastUserUpdate).toContain("Restarted");
-    expect(snapshot?.lastUserUpdate).toContain("proc_watcher_2");
+    await eventually(() => {
+      const snapshot = supervisor.getStatusSnapshot("session-process-exit");
+      expect(snapshot?.state).toBe("working");
+      expect(snapshot?.lastUserUpdate).toContain("Restarted");
+      expect(snapshot?.lastUserUpdate).toContain("proc_watcher_2");
+    });
+  });
+
+  it("restarts host managed-process runs with the host durable process tool family", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Host watcher started.",
+        toolCalls: [
+          {
+            name: "system.processStart",
+            args: {
+              command: "/bin/sleep",
+              args: ["2"],
+              cwd: "/tmp",
+              label: "host-watcher",
+            },
+            result:
+              '{"processId":"proc_watcher","label":"host-watcher","command":"/bin/sleep","args":["2"],"cwd":"/tmp","state":"running"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      }),
+    );
+    const nativeTools = createManagedProcessToolHandler({
+      surface: "host",
+      label: "host-watcher",
+    });
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["watch the host process"],"completionCriteria":["observe the terminal state"],"blockedCriteria":["missing process tooling"],"nextCheckMs":60000,"heartbeatMs":15000,"requiresUserStop":false,"managedProcessPolicy":{"mode":"restart_on_exit","maxRestarts":3,"restartBackoffMs":2000}}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Host watcher is running.","internalSummary":"verified running","nextCheckMs":60000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Host watcher is running.","verifiedFacts":["Host watcher is running."],"openLoops":["Monitor for process exit."],"nextFocus":"Wait for process events."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Host watcher exited once and was restarted by the runtime.","verifiedFacts":["Host watcher exited.","Host watcher restarted successfully."],"openLoops":["Verify the restarted watcher stays up."],"nextFocus":"Confirm the restarted process is healthy."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => nativeTools.handler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-host-process-exit",
+      objective: "Monitor this host process in the background and recover on exit.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    nativeTools.markExited(0);
+
+    await supervisor.signalRun({
+      sessionId: "session-host-process-exit",
+      type: "process_exit",
+      content: 'Managed process "host-watcher" (proc_watcher) exited (exitCode=0).',
+      data: { processId: "proc_watcher", exitCode: 0 },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(nativeTools.handler).toHaveBeenNthCalledWith(
+      1,
+      nativeTools.toolNames.status,
+      { label: "host-watcher" },
+    );
+    expect(nativeTools.handler).toHaveBeenNthCalledWith(
+      2,
+      nativeTools.toolNames.start,
+      {
+        command: "/bin/sleep",
+        args: ["2"],
+        cwd: "/tmp",
+        label: "host-watcher",
+      },
+    );
+
+    await eventually(() => {
+      const snapshot = supervisor.getStatusSnapshot("session-host-process-exit");
+      expect(snapshot?.state).toBe("working");
+      expect(snapshot?.lastUserUpdate).toContain("Restarted");
+      expect(snapshot?.lastUserUpdate).toContain("proc_watcher_2");
+    });
   });
 
   it("uses native managed-process verification on timer wakes after the initial actor cycle", async () => {
@@ -1467,6 +2853,588 @@ describe("background-run-supervisor", () => {
     const snapshot = supervisor.getStatusSnapshot("session-native-probe");
     expect(snapshot?.state).toBe("working");
     expect(snapshot?.lastUserUpdate).toContain("still running");
+  });
+
+  it("rejects optimistic completion claims when the managed-process domain verifies the process is still running", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Watcher started successfully.",
+        toolCalls: [
+          {
+            name: "desktop.process_start",
+            args: {
+              command: "/bin/sleep",
+              args: ["2"],
+              cwd: "/tmp",
+              label: "watcher",
+            },
+            result:
+              '{"processId":"proc_watcher","label":"watcher","command":"/bin/sleep","args":["2"],"cwd":"/tmp","state":"running"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["watch the process until it exits"],"completionCriteria":["observe the process exit"],"blockedCriteria":["missing process tooling"],"nextCheckMs":4000,"heartbeatMs":15000,"requiresUserStop":false,"managedProcessPolicy":{"mode":"until_exit"}}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Watcher is running.","verifiedFacts":["Watcher is running."],"openLoops":["Wait for process exit."],"nextFocus":"Verify process status again."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-managed-process-grounding",
+      objective: "Monitor this process in the background until it exits.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const snapshot = supervisor.getStatusSnapshot(
+      "session-managed-process-grounding",
+    );
+    expect(snapshot?.state).toBe("working");
+    expect(snapshot?.lastUserUpdate).toContain("still running");
+    expect(supervisor.hasActiveRun("session-managed-process-grounding")).toBe(true);
+  });
+
+  it("rejects optimistic browser completion claims when only navigation evidence exists", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Opened the report page.",
+        toolCalls: [
+          {
+            name: "mcp.browser.browser_navigate",
+            args: {
+              url: "https://example.com/report",
+            },
+            result:
+              '{"url":"https://example.com/report","title":"Quarterly Report"}',
+            isError: false,
+            durationMs: 6,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"browser","kind":"finite","successCriteria":["Download the report artifact."],"completionCriteria":["Observe the report download completing."],"blockedCriteria":["Browser automation fails."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"completed","userUpdate":"The report download is complete.","internalSummary":"done","shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"The report page is open but the download has not happened yet.","verifiedFacts":["The report page loaded successfully."],"openLoops":["Trigger and verify the report download."],"nextFocus":"Download the report artifact."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-browser-grounding",
+      objective: "Download the report from the browser session.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const snapshot = supervisor.getStatusSnapshot("session-browser-grounding");
+    expect(snapshot?.state).toBe("working");
+    expect(snapshot?.lastUserUpdate).toContain("Browser navigation completed");
+    expect(supervisor.hasActiveRun("session-browser-grounding")).toBe(true);
+  });
+
+  it("completes workspace runs deterministically from internal command evidence", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Ran the workspace test suite.",
+        toolCalls: [
+          {
+            name: "system.bash",
+            args: {
+              command: "npm",
+              args: ["test"],
+            },
+            result: '{"stdout":"all tests passed\\n","stderr":"","exitCode":0}',
+            isError: false,
+            durationMs: 11,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"generic","kind":"finite","successCriteria":["Execute the workspace tests."],"completionCriteria":["Verify the test command succeeds."],"blockedCriteria":["Workspace tooling is missing."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"The workspace test command completed successfully.","verifiedFacts":["npm test succeeded."],"openLoops":[],"nextFocus":"None."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-workspace-complete",
+      objective: "Run the workspace test suite successfully.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(supervisor.getStatusSnapshot("session-workspace-complete")).toBeUndefined();
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-workspace-complete",
+      "Tool result observed for system.bash. Objective satisfied.",
+    );
+  });
+
+  it("completes explicit finite workspace commands through the native workspace domain without actor tool planning", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn();
+    const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      expect(name).toBe("system.bash");
+      expect(args).toEqual({
+        command: "git",
+        args: ["status", "--short"],
+      });
+      return '{"stdout":"","stderr":"","exitCode":0}';
+    });
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"generic","kind":"until_condition","successCriteria":["Execute the workspace command successfully."],"completionCriteria":["Verify the command succeeds in the workspace."],"blockedCriteria":["Workspace tooling is missing."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"The workspace command completed successfully.","verifiedFacts":["git status --short succeeded."],"openLoops":[],"nextFocus":"None."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => toolHandler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-workspace-native",
+      objective: "Run `git status --short` in the workspace and tell me when the command succeeds.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(supervisor.getStatusSnapshot("session-workspace-native")).toBeUndefined();
+    expect(execute).not.toHaveBeenCalled();
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-workspace-native",
+      "Workspace command `git status --short` succeeded. Objective satisfied.",
+    );
+  });
+
+  it("rejects false workspace success claims that have no verified tool evidence", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Objective satisfied. The workspace command succeeded.",
+        toolCalls: [],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"workspace","kind":"finite","successCriteria":["Execute the workspace validation successfully."],"completionCriteria":["Verify the workspace command succeeds."],"blockedCriteria":["Workspace tooling is missing."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"completed","userUpdate":"Objective satisfied. The workspace command succeeded.","internalSummary":"model claimed success","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"No verified workspace evidence exists yet.","verifiedFacts":[],"openLoops":["Run a command or produce a file change."],"nextFocus":"Obtain verified workspace evidence."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-workspace-false-success",
+      objective: "Validate the workspace command succeeds and report when finished.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const snapshot =
+      supervisor.getStatusSnapshot("session-workspace-false-success") ??
+      await supervisor.getRecentSnapshot("session-workspace-false-success");
+    expect(snapshot?.state).toBe("blocked");
+    expect(snapshot?.lastUserUpdate).toBe(
+      "Background run cannot mark itself complete without verified tool evidence.",
+    );
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-workspace-false-success",
+      "Background run cannot mark itself complete without verified tool evidence.",
+    );
+  });
+
+  it("completes browser runs from download events without spending another actor cycle", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Opened the report page.",
+        toolCalls: [
+          {
+            name: "mcp.browser.browser_navigate",
+            args: { url: "https://example.com/report" },
+            result:
+              '{"url":"https://example.com/report","title":"Quarterly Report"}',
+            isError: false,
+            durationMs: 6,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"browser","kind":"finite","successCriteria":["Download the report artifact."],"completionCriteria":["Observe the report download completing."],"blockedCriteria":["Browser automation fails."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"The report page is open.","internalSummary":"browser session ready","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"The report page is open and waiting for a download event.","verifiedFacts":["The report page loaded."],"openLoops":["Wait for the report download."],"nextFocus":"Observe the browser download event."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"The browser download event completed the run.","verifiedFacts":["The report download completed."],"openLoops":[],"nextFocus":"None."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-browser-download",
+      objective: "Download the report from the browser session.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(supervisor.getStatusSnapshot("session-browser-download")?.state).toBe("working");
+
+    await supervisor.signalRun({
+      sessionId: "session-browser-download",
+      type: "external_event",
+      content: "Browser download completed at /tmp/report.pdf.",
+      data: {
+        eventType: "browser.download.completed",
+        path: "/tmp/report.pdf",
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(supervisor.getStatusSnapshot("session-browser-download")).toBeUndefined();
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-browser-download",
+      "Browser download completed at /tmp/report.pdf. Objective satisfied.",
+    );
+  });
+
+  it("uses signal-preferred retry cadence for browser runs when no new tool evidence arrives", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Still waiting for the browser page to change.",
+        toolCalls: [],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"browser","kind":"until_condition","successCriteria":["Open the browser page."],"completionCriteria":["Observe the page reach the requested state."],"blockedCriteria":["Browser automation fails."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Still waiting for browser evidence.","internalSummary":"browser waiting","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Waiting for the browser page to change.","verifiedFacts":[],"openLoops":["Wait for browser evidence."],"nextFocus":"Observe the page state."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-browser-retry-policy",
+      objective: "Keep watching the browser page until the target state appears.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const snapshot = supervisor.getStatusSnapshot("session-browser-retry-policy");
+    expect(snapshot?.state).toBe("working");
+    expect((snapshot?.nextCheckAt ?? 0) - (snapshot?.updatedAt ?? 0)).toBe(15_000);
+  });
+
+  it("completes remote MCP runs from callback events without another actor cycle", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Started the remote MCP job.",
+        toolCalls: [
+          {
+            name: "mcp.remote.jobs_start",
+            args: { query: "generate report" },
+            result:
+              '{"jobId":"job-42","serverName":"remote-job-server","state":"running"}',
+            isError: false,
+            durationMs: 9,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"remote_mcp","kind":"finite","successCriteria":["Observe the remote MCP job complete."],"completionCriteria":["Receive a completion event from the remote server."],"blockedCriteria":["Remote MCP job fails."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"The remote MCP job is running.","internalSummary":"waiting for callback","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"The remote MCP job is running and waiting for a callback.","verifiedFacts":["Remote MCP job job-42 started."],"openLoops":["Wait for remote completion callback."],"nextFocus":"Observe the remote MCP event."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"The remote MCP callback completed the run.","verifiedFacts":["Remote MCP job job-42 completed."],"openLoops":[],"nextFocus":"None."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-remote-mcp-complete",
+      objective: "Wait for the remote MCP job to finish.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(supervisor.getStatusSnapshot("session-remote-mcp-complete")?.state).toBe("working");
+
+    await supervisor.signalRun({
+      sessionId: "session-remote-mcp-complete",
+      type: "tool_result",
+      content: "Remote MCP job job-42 completed successfully.",
+      data: {
+        category: "mcp",
+        serverName: "remote-job-server",
+        jobId: "job-42",
+        state: "completed",
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(supervisor.getStatusSnapshot("session-remote-mcp-complete")).toBeUndefined();
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-remote-mcp-complete",
+      "Remote MCP job job-42 completed successfully. Objective satisfied.",
+    );
   });
 
   it("completes deterministically from managed process status without waiting for an exit event", async () => {

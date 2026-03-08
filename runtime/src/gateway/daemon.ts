@@ -90,6 +90,8 @@ import { createBashTool } from '../tools/system/bash.js';
 import { createHttpTools } from '../tools/system/http.js';
 import { createFilesystemTools } from '../tools/system/filesystem.js';
 import { createBrowserTools } from '../tools/system/browser.js';
+import { createProcessTools } from '../tools/system/process.js';
+import { resolveBrowserToolMode } from './browser-tool-mode.js';
 import { createExecuteWithAgentTool } from './delegation-tool.js';
 import { SkillDiscovery } from '../skills/markdown/discovery.js';
 import type { DiscoveredSkill } from '../skills/markdown/discovery.js';
@@ -149,6 +151,12 @@ import {
   formatInactiveBackgroundRunStatus,
   formatInactiveBackgroundRunStop,
 } from './background-run-control.js';
+import {
+  buildBackgroundRunSignalFromDesktopEvent,
+  createBackgroundRunToolAfterHook,
+  createBackgroundRunWebhookRoute,
+  mapDesktopBridgeEventTypeToWebChatEvent,
+} from './background-run-wake-adapters.js';
 import { inferDoomTurnContract } from '../llm/chat-executor-doom.js';
 import {
   blockUntilDoomStopTool,
@@ -171,67 +179,6 @@ function chooseDoomResolutionForDisplay(
   if (width >= 1024 && height >= 768) return 'RES_1024X768';
   if (width >= 800 && height >= 600) return 'RES_800X600';
   return 'RES_640X480';
-}
-
-function mapDesktopBridgeEventTypeToWebChatEvent(type: string): string {
-  if (type === 'managed_process.exited') {
-    return 'desktop.process.exited';
-  }
-  return `desktop.${type.replace(/_/g, '.')}`;
-}
-
-function buildBackgroundRunSignalFromDesktopEvent(
-  event: DesktopBridgeEvent,
-): {
-  type: 'process_exit' | 'external_event';
-  content: string;
-  data?: Record<string, unknown>;
-} | undefined {
-  if (event.type === 'managed_process.exited') {
-    const processId =
-      typeof event.payload.processId === 'string'
-        ? event.payload.processId
-        : 'unknown-process';
-    const label =
-      typeof event.payload.label === 'string' && event.payload.label.trim().length > 0
-        ? event.payload.label.trim()
-        : undefined;
-    const exitCode =
-      typeof event.payload.exitCode === 'number'
-        ? `exitCode=${event.payload.exitCode}`
-        : undefined;
-    const signal =
-      typeof event.payload.signal === 'string' && event.payload.signal.trim().length > 0
-        ? `signal=${event.payload.signal}`
-        : undefined;
-    const status = [exitCode, signal].filter(Boolean).join(', ');
-    return {
-      type: 'process_exit',
-      content:
-        `Managed process ${label ? `"${label}" ` : ''}(${processId}) exited` +
-        (status ? ` (${status}).` : '.'),
-      data: {
-        processId,
-        ...(label ? { label } : {}),
-        ...(typeof event.payload.pid === 'number' ? { pid: event.payload.pid } : {}),
-        ...(typeof event.payload.pgid === 'number' ? { pgid: event.payload.pgid } : {}),
-        ...(typeof event.payload.startedAt === 'number' ? { startedAt: event.payload.startedAt } : {}),
-        ...(typeof event.payload.endedAt === 'number' ? { endedAt: event.payload.endedAt } : {}),
-        ...(typeof event.payload.exitCode === 'number' || event.payload.exitCode === null
-          ? { exitCode: event.payload.exitCode }
-          : {}),
-        ...(typeof event.payload.signal === 'string' || event.payload.signal === null
-          ? { signal: event.payload.signal }
-          : {}),
-        ...(typeof event.payload.logPath === 'string' ? { logPath: event.payload.logPath } : {}),
-      },
-    };
-  }
-
-  return {
-    type: 'external_event',
-    content: `Desktop event observed: ${event.type}`,
-  };
 }
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
@@ -260,6 +207,7 @@ const HOOK_PRIORITIES = {
   POLICY_GATE: 3,
   APPROVAL_GATE: 5,
   PROGRESS_TRACKER: 95,
+  BACKGROUND_RUN_WAKE: 96,
 } as const;
 
 /** Cron schedule expressions for autonomous features. */
@@ -344,6 +292,10 @@ const CHROMIUM_HOST_CHROME_CANDIDATES = [
 ] as const;
 const CHROMIUM_SHIM_DIR_SEGMENTS = ['.agenc', 'bin'] as const;
 const HOST_RUNTIME_SHIM_COMMAND = 'agenc-runtime' as const;
+const CURRENT_MODULE_FILE_PATH =
+  typeof __filename === 'string'
+    ? __filename
+    : (process.argv[1] ? resolvePath(process.argv[1]) : resolvePath(process.cwd(), 'runtime', 'dist', 'bin', 'daemon.js'));
 
 /**
  * Build a minimal environment for system.bash.
@@ -447,7 +399,7 @@ function buildRuntimeShimScript(targetExecutable: string): string {
 
 function resolveAgencRuntimeBinaryCandidates(
   currentWorkingDirectory: string = process.cwd(),
-  currentFilePath: string = __filename,
+  currentFilePath: string = CURRENT_MODULE_FILE_PATH,
 ): string[] {
   const packageRoot = resolvePath(dirname(currentFilePath), '..', '..');
   return [
@@ -528,7 +480,7 @@ export async function ensureAgencRuntimeShim(
   logger: Logger | undefined = silentLogger,
   homeDir: string = homedir(),
   currentWorkingDirectory: string = process.cwd(),
-  currentFilePath: string = __filename,
+  currentFilePath: string = CURRENT_MODULE_FILE_PATH,
 ): Promise<string | undefined> {
   if (!config.desktop?.enabled) {
     return undefined;
@@ -2476,6 +2428,13 @@ export class DaemonManager {
         return { continue: true };
       },
     });
+    hooks.on({
+      ...createBackgroundRunToolAfterHook({
+        getSupervisor: () => this._backgroundRunSupervisor,
+        logger: this.logger,
+      }),
+      priority: HOOK_PRIORITIES.BACKGROUND_RUN_WAKE,
+    });
 
     await this.attachWebChatPolicyHook({
       config,
@@ -2485,6 +2444,26 @@ export class DaemonManager {
 
     const approvalEngine = new ApprovalEngine();
     this._approvalEngine = approvalEngine;
+    approvalEngine.onResponse((request, response) => {
+      const sessionId = request.parentSessionId ?? request.sessionId;
+      void this._backgroundRunSupervisor?.signalRun({
+        sessionId,
+        type: 'approval',
+        content: `Approval ${response.disposition} for ${request.toolName} (${request.id}).`,
+        data: {
+          requestId: request.id,
+          toolName: request.toolName,
+          disposition: response.disposition,
+          approvedBy: response.approvedBy,
+        },
+      }).catch((error) => {
+        this.logger.debug('Failed to signal background run from approval response', {
+          sessionId,
+          requestId: request.id,
+          error: toErrorMessage(error),
+        });
+      });
+    });
 
     // --- Resumable pipeline executor ---
     const pipelineExecutor = new PipelineExecutor({
@@ -2663,6 +2642,7 @@ export class DaemonManager {
             traceLabel: 'webchat.background',
             traceConfig: resolveTraceLoggingConfig(gateway.config.logging),
             traceId: `background:${sessionId}:${runId}:${cycleIndex}`,
+            hookMetadata: { backgroundRunId: runId },
           }),
         buildToolRoutingDecision: (sessionId, messageText, history) =>
           this.buildToolRoutingDecision(sessionId, messageText, history),
@@ -2687,6 +2667,13 @@ export class DaemonManager {
         progressTracker,
         logger: this.logger,
       });
+      gateway.registerWebhookRoute(
+        createBackgroundRunWebhookRoute({
+          getSupervisor: () => this._backgroundRunSupervisor,
+          authSecret: gateway.config.auth?.secret,
+          logger: this.logger,
+        }),
+      );
       const recoveredRuns = await this._backgroundRunSupervisor.recoverRuns();
       if (recoveredRuns > 0) {
         this.logger.info(`Recovered ${recoveredRuns} background run(s) on boot`);
@@ -4409,6 +4396,11 @@ export class DaemonManager {
       timeoutMs: config.desktop?.enabled ? 300_000 : undefined,
       maxTimeoutMs: config.desktop?.enabled ? 600_000 : undefined,
     }));
+    registry.registerAll(createProcessTools({
+      logger: this.logger,
+      env: safeEnv,
+      denyExclusions,
+    }));
     registry.registerAll(createHttpTools({}, this.logger));
 
     // Security: Restrict filesystem access to workspace + project root + Desktop + /tmp.
@@ -4424,7 +4416,8 @@ export class DaemonManager {
       allowedPaths: allowedFilesystemPaths,
       allowDelete: false,
     }));
-    registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
+    const browserToolMode = await resolveBrowserToolMode(this.logger);
+    registry.registerAll(createBrowserTools({ mode: browserToolMode }, this.logger));
     registry.register(createExecuteWithAgentTool());
     const walletResult = await this.loadWallet(config);
     const marketplaceActorId = walletResult
@@ -6296,6 +6289,7 @@ export class DaemonManager {
       toolName: string,
       normalizedArgs: Record<string, unknown>,
     ) => Record<string, unknown>;
+    hookMetadata?: Record<string, unknown>;
     beforeHandle?: (
       toolName: string,
       args: Record<string, unknown>,
@@ -6311,6 +6305,7 @@ export class DaemonManager {
       traceConfig,
       traceId,
       normalizeArgs,
+      hookMetadata,
       beforeHandle,
     } = params;
 
@@ -6323,6 +6318,7 @@ export class DaemonManager {
       send: (m) => webChat.pushToSession(sessionId, m),
       hooks,
       approvalEngine,
+      hookMetadata,
       delegation: this.resolveDelegationToolContext,
       onToolStart: (name) => {
         webChat.pushToSession(sessionId, {
@@ -7055,9 +7051,9 @@ export class DaemonManager {
         '- Create, edit, and run project files from `/workspace` so changes persist outside the sandbox.\n\n' +
         'Desktop tools:\n' +
         '- desktop.bash — Run shell commands. THIS IS YOUR PRIMARY TOOL for scripting, package installation, and command execution.\n' +
-        '- desktop.process_start — Start a long-running background process with executable + args. USE THIS for servers, workers, and GUI apps you need to monitor or stop later.\n' +
+        '- desktop.process_start — Start a long-running background process with executable + args. USE THIS for servers, workers, and GUI apps you need to monitor or stop later. Supports idempotencyKey for safe retries.\n' +
         '- desktop.process_status — Check managed process state and recent log output.\n' +
-        '- desktop.process_stop — Stop a managed process by processId/label/pid.\n' +
+        '- desktop.process_stop — Stop a managed process by processId/idempotencyKey/label/pid.\n' +
         '- desktop.text_editor — View, create, and precisely edit files. Commands: view, create, str_replace, insert, undo_edit.\n' +
         '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
         '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
@@ -7104,6 +7100,12 @@ export class DaemonManager {
         'AVAILABLE ENVIRONMENTS:\n\n' +
         '1. Host machine — use system.* tools (system.bash, system.httpGet, etc.) for API calls, file operations, ' +
         'scripting, and anything that does not need a graphical interface.\n\n' +
+        'Host long-running process tools:\n' +
+        '- system.processStart — Start a durable host process handle with executable + args.\n' +
+        '- system.processStatus — Check host process state and recent log output.\n' +
+        '- system.processResume — Reattach to an existing host process handle and fetch current state.\n' +
+        '- system.processStop — Stop a durable host process handle.\n' +
+        '- system.processLogs — Read persisted host process logs.\n\n' +
         '2. Desktop sandbox (Docker) — use desktop.* tools for tasks that need a visual desktop, browser, or GUI applications. ' +
         'This is a full Ubuntu/XFCE desktop. The user can watch via VNC.\n\n' +
         'Choose the right tools for the job. Use system.* tools for API calls, file I/O, and non-visual work. ' +
@@ -7114,9 +7116,9 @@ export class DaemonManager {
         '- Do all persistent file creation and editing for desktop tasks under `/workspace`.\n\n' +
         'Desktop tools:\n' +
         '- desktop.bash — Run a shell command INSIDE the container. THIS IS YOUR PRIMARY TOOL for all scripting, package installation, and command execution inside the sandbox.\n' +
-        '- desktop.process_start — Start a long-running background process with executable + args. USE THIS for servers, workers, and GUI apps you need to monitor or stop later.\n' +
+        '- desktop.process_start — Start a long-running background process with executable + args. USE THIS for servers, workers, and GUI apps you need to monitor or stop later. Supports idempotencyKey for safe retries.\n' +
         '- desktop.process_status — Check managed process state and recent log output.\n' +
-        '- desktop.process_stop — Stop a managed process by processId/label/pid.\n' +
+        '- desktop.process_stop — Stop a managed process by processId/idempotencyKey/label/pid.\n' +
         '- desktop.text_editor — View, create, and precisely edit files without opening a visual editor. Commands: view, create, str_replace, insert, undo_edit. USE THIS instead of cat heredoc for file creation and editing — it is more reliable and supports undo.\n' +
         '- desktop.mouse_click — Click at (x, y) coordinates on a GUI element\n' +
         '- desktop.mouse_move, desktop.mouse_drag, desktop.mouse_scroll — Mouse control for GUI interaction\n' +
@@ -7140,6 +7142,8 @@ export class DaemonManager {
         '- To create/edit files: use desktop.text_editor as the default. Only fall back to shell-based file writes when an editor action cannot express the change.\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- For long-running/background processes on the HOST, use system.processStart/status/resume/stop/logs instead of system.bash.\n' +
+        '- system.processStart is structured exec only: command = one executable token/path, args = flat string array. Do NOT use shell snippets there.\n' +
         '- For long-running/background processes you need to inspect or stop later, use desktop.process_start/status/stop instead of desktop.bash.\n' +
         '- desktop.process_start is structured exec only: command = one executable token/path, args = flat string array. Do NOT use bash -lc there.\n' +
         '- system.http*/system.browse block localhost/private/internal targets by design. For local service checks on the HOST, use system.bash with curl (e.g. `curl -sSf http://127.0.0.1:8080`). Desktop tools run inside a Docker container and CANNOT reach the host\'s localhost.\n' +
@@ -7423,10 +7427,7 @@ export class DaemonManager {
    */
   private async discoverSkills(): Promise<DiscoveredSkill[]> {
     try {
-      // __filename = runtime/dist/bin/agenc-runtime.js (tsup entry point).
-      // We need the package root (runtime/) to find src/skills/bundled/.
-      // dist/bin/ → dist/ → runtime/ (2 levels up from dirname)
-      const pkgRoot = resolvePath(dirname(__filename), '..', '..');
+      const pkgRoot = resolvePath(dirname(CURRENT_MODULE_FILE_PATH), '..', '..');
       const builtinSkills = join(pkgRoot, 'src', 'skills', 'bundled');
       const userSkills = join(homedir(), '.agenc', 'skills');
 
