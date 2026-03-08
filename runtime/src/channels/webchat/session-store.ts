@@ -16,6 +16,16 @@ export interface PersistedWebChatSession {
   readonly updatedAt: number;
   readonly lastActiveAt: number;
   readonly messageCount: number;
+  readonly metadata?: PersistedWebChatSessionMetadata;
+}
+
+export interface PersistedWebChatPolicyContext {
+  readonly tenantId?: string;
+  readonly projectId?: string;
+}
+
+export interface PersistedWebChatSessionMetadata {
+  readonly policyContext?: PersistedWebChatPolicyContext;
 }
 
 export interface WebChatSessionStoreConfig {
@@ -60,6 +70,62 @@ function coerceSession(value: unknown): PersistedWebChatSession | undefined {
     updatedAt: raw.updatedAt,
     lastActiveAt: raw.lastActiveAt,
     messageCount: raw.messageCount,
+    ...(coerceSessionMetadata(raw.metadata)
+      ? { metadata: coerceSessionMetadata(raw.metadata) }
+      : {}),
+  };
+}
+
+function coercePolicyContext(
+  value: unknown,
+): PersistedWebChatPolicyContext | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const tenantId =
+    typeof raw.tenantId === "string" && raw.tenantId.trim().length > 0
+      ? raw.tenantId.trim()
+      : undefined;
+  const projectId =
+    typeof raw.projectId === "string" && raw.projectId.trim().length > 0
+      ? raw.projectId.trim()
+      : undefined;
+  if (!tenantId && !projectId) {
+    return undefined;
+  }
+  return {
+    ...(tenantId ? { tenantId } : {}),
+    ...(projectId ? { projectId } : {}),
+  };
+}
+
+function coerceSessionMetadata(
+  value: unknown,
+): PersistedWebChatSessionMetadata | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const policyContext = coercePolicyContext(raw.policyContext);
+  if (!policyContext) {
+    return undefined;
+  }
+  return { policyContext };
+}
+
+function mergeSessionMetadata(
+  current: PersistedWebChatSessionMetadata | undefined,
+  update: PersistedWebChatSessionMetadata | undefined,
+): PersistedWebChatSessionMetadata | undefined {
+  if (!current && !update) return undefined;
+  const nextPolicyContext = update?.policyContext
+    ? {
+        ...(current?.policyContext ?? {}),
+        ...update.policyContext,
+      }
+    : current?.policyContext;
+  if (!nextPolicyContext) {
+    return undefined;
+  }
+  return {
+    policyContext: nextPolicyContext,
   };
 }
 
@@ -108,6 +174,7 @@ export class WebChatSessionStore {
     sessionId: string;
     ownerKey: string;
     createdAt?: number;
+    metadata?: PersistedWebChatSessionMetadata;
   }): Promise<PersistedWebChatSession> {
     const createdAt = params.createdAt ?? Date.now();
     return this.queue.run(params.sessionId, async () => {
@@ -116,7 +183,16 @@ export class WebChatSessionStore {
         if (existing.ownerKey !== params.ownerKey) {
           throw new Error("Session owner mismatch");
         }
-        return existing;
+        if (!params.metadata) {
+          return existing;
+        }
+        const next: PersistedWebChatSession = {
+          ...existing,
+          metadata: mergeSessionMetadata(existing.metadata, params.metadata),
+          updatedAt: createdAt,
+        };
+        await this.writeSession(next);
+        return next;
       }
 
       const next: PersistedWebChatSession = {
@@ -128,6 +204,7 @@ export class WebChatSessionStore {
         updatedAt: createdAt,
         lastActiveAt: createdAt,
         messageCount: 0,
+        ...(params.metadata ? { metadata: params.metadata } : {}),
       };
 
       await this.writeSession(next);
@@ -142,6 +219,7 @@ export class WebChatSessionStore {
     sender: "user" | "agent";
     content: string;
     timestamp?: number;
+    metadata?: PersistedWebChatSessionMetadata;
   }): Promise<PersistedWebChatSession> {
     const timestamp = params.timestamp ?? Date.now();
     return this.queue.run(params.sessionId, async () => {
@@ -160,6 +238,14 @@ export class WebChatSessionStore {
         updatedAt: timestamp,
         lastActiveAt: timestamp,
         messageCount: (current?.messageCount ?? 0) + 1,
+        ...(mergeSessionMetadata(current?.metadata, params.metadata)
+          ? {
+              metadata: mergeSessionMetadata(
+                current?.metadata,
+                params.metadata,
+              ),
+            }
+          : {}),
       };
 
       await this.writeSession(next);

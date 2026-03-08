@@ -22,6 +22,8 @@ import type {
   GatewayConfig,
   GatewayLLMConfig,
   GatewayMCPServerConfig,
+  GatewayPolicyConfig,
+  GatewayBackgroundRunStatus,
   GatewayStatus,
   ConfigDiff,
   GatewayLoggingConfig,
@@ -106,7 +108,16 @@ import { VoiceBridge } from './voice-bridge.js';
 import { createSessionToolHandler } from './tool-handler-factory.js';
 import type { DesktopBridgeEvent } from '../desktop/rest-bridge.js';
 import { InMemoryBackend } from '../memory/in-memory/backend.js';
-import { ApprovalEngine } from './approvals.js';
+import { ApprovalEngine, DEFAULT_APPROVAL_RULES } from './approvals.js';
+import { buildToolPolicyAction } from '../policy/tool-governance.js';
+import {
+  buildMCPApprovalRules,
+  SessionCredentialBroker,
+  type GovernanceAuditEventType,
+  type RuntimeSessionCredentialConfig,
+  validateMCPServerBinaryIntegrity,
+  validateMCPServerStaticPolicy,
+} from "../policy/index.js";
 import type { MemoryBackend } from '../memory/types.js';
 import { entryToMessage } from '../memory/types.js';
 import { createEmbeddingProvider } from '../memory/embeddings.js';
@@ -115,6 +126,8 @@ import { SemanticMemoryRetriever } from '../memory/retriever.js';
 import { MemoryIngestionEngine, createIngestionHooks } from '../memory/ingestion.js';
 import { DailyLogManager, CuratedMemoryManager } from '../memory/structured.js';
 import { UnifiedTelemetryCollector } from '../telemetry/collector.js';
+import type { TelemetrySnapshot } from '../telemetry/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
 import { SessionManager } from './session.js';
 import { WorkspaceLoader, getDefaultWorkspacePath, assembleSystemPrompt } from './workspace-files.js';
 import { loadPersonalityTemplate, mergePersonality } from './personality.js';
@@ -341,6 +354,184 @@ export function resolveBashDenyExclusions(
     return [...LINUX_DESKTOP_BASH_DENY_EXCLUSIONS];
   }
   return undefined;
+}
+
+function mapScopedActionBudgets(
+  value: GatewayPolicyConfig['scopedActionBudgets'],
+): {
+  tenant?: Record<string, { limit: number; windowMs: number }>;
+  project?: Record<string, { limit: number; windowMs: number }>;
+  run?: Record<string, { limit: number; windowMs: number }>;
+} {
+  return {
+    tenant: value?.tenant ? { ...value.tenant } : undefined,
+    project: value?.project ? { ...value.project } : undefined,
+    run: value?.run ? { ...value.run } : undefined,
+  };
+}
+
+function mapScopedSpendBudgets(
+  value: GatewayPolicyConfig['scopedSpendBudgets'],
+): {
+  tenant?: { limitLamports: bigint; windowMs: number };
+  project?: { limitLamports: bigint; windowMs: number };
+  run?: { limitLamports: bigint; windowMs: number };
+} {
+  const mapRule = (
+    rule: { limitLamports: string; windowMs: number } | undefined,
+  ) =>
+    rule
+      ? {
+          limitLamports: BigInt(rule.limitLamports),
+          windowMs: rule.windowMs,
+        }
+      : undefined;
+  return {
+    tenant: mapRule(value?.tenant),
+    project: mapRule(value?.project),
+    run: mapRule(value?.run),
+  };
+}
+
+function mapScopedTokenBudgets(
+  value: GatewayPolicyConfig["scopedTokenBudgets"],
+): {
+  tenant?: { limitTokens: number; windowMs: number };
+  project?: { limitTokens: number; windowMs: number };
+  run?: { limitTokens: number; windowMs: number };
+} {
+  const mapRule = (
+    rule: { limitTokens: number; windowMs: number } | undefined,
+  ) =>
+    rule
+      ? {
+          limitTokens: rule.limitTokens,
+          windowMs: rule.windowMs,
+        }
+      : undefined;
+  return {
+    tenant: mapRule(value?.tenant),
+    project: mapRule(value?.project),
+    run: mapRule(value?.run),
+  };
+}
+
+function mapScopedRuntimeBudgets(
+  value: GatewayPolicyConfig["scopedRuntimeBudgets"],
+): {
+  tenant?: { maxElapsedMs: number };
+  project?: { maxElapsedMs: number };
+  run?: { maxElapsedMs: number };
+} {
+  const mapRule = (rule: { maxElapsedMs: number } | undefined) =>
+    rule
+      ? {
+          maxElapsedMs: rule.maxElapsedMs,
+        }
+      : undefined;
+  return {
+    tenant: mapRule(value?.tenant),
+    project: mapRule(value?.project),
+    run: mapRule(value?.run),
+  };
+}
+
+function mapScopedProcessBudgets(
+  value: GatewayPolicyConfig["scopedProcessBudgets"],
+): {
+  tenant?: { maxConcurrent: number };
+  project?: { maxConcurrent: number };
+  run?: { maxConcurrent: number };
+} {
+  const mapRule = (rule: { maxConcurrent: number } | undefined) =>
+    rule
+      ? {
+          maxConcurrent: rule.maxConcurrent,
+        }
+      : undefined;
+  return {
+    tenant: mapRule(value?.tenant),
+    project: mapRule(value?.project),
+    run: mapRule(value?.run),
+  };
+}
+
+function mapPolicyBundles(
+  bundles: GatewayPolicyConfig['tenantBundles'] | GatewayPolicyConfig['projectBundles'],
+):
+  | Record<string, import('../policy/types.js').RuntimePolicyBundleConfig>
+  | undefined {
+  if (!bundles) return undefined;
+  return Object.fromEntries(
+    Object.entries(bundles).map(([key, bundle]) => [
+      key,
+      {
+        ...bundle,
+        credentialAllowList: bundle.credentialAllowList
+          ? [...bundle.credentialAllowList]
+          : undefined,
+        actionBudgets: bundle.actionBudgets ? { ...bundle.actionBudgets } : undefined,
+        spendBudget: bundle.spendBudget
+          ? {
+              limitLamports: BigInt(bundle.spendBudget.limitLamports),
+              windowMs: bundle.spendBudget.windowMs,
+            }
+          : undefined,
+        tokenBudget: bundle.tokenBudget
+          ? {
+              limitTokens: bundle.tokenBudget.limitTokens,
+              windowMs: bundle.tokenBudget.windowMs,
+            }
+          : undefined,
+        runtimeBudget: bundle.runtimeBudget
+          ? {
+              maxElapsedMs: bundle.runtimeBudget.maxElapsedMs,
+            }
+          : undefined,
+        processBudget: bundle.processBudget
+          ? {
+              maxConcurrent: bundle.processBudget.maxConcurrent,
+            }
+          : undefined,
+        scopedActionBudgets: bundle.scopedActionBudgets
+          ? mapScopedActionBudgets(bundle.scopedActionBudgets)
+          : undefined,
+        scopedSpendBudgets: bundle.scopedSpendBudgets
+          ? mapScopedSpendBudgets(bundle.scopedSpendBudgets)
+          : undefined,
+        scopedTokenBudgets: bundle.scopedTokenBudgets
+          ? mapScopedTokenBudgets(bundle.scopedTokenBudgets)
+          : undefined,
+        scopedRuntimeBudgets: bundle.scopedRuntimeBudgets
+          ? mapScopedRuntimeBudgets(bundle.scopedRuntimeBudgets)
+          : undefined,
+        scopedProcessBudgets: bundle.scopedProcessBudgets
+          ? mapScopedProcessBudgets(bundle.scopedProcessBudgets)
+          : undefined,
+        policyClassRules: bundle.policyClassRules,
+      },
+    ]),
+  );
+}
+
+function mapCredentialCatalog(
+  catalog: GatewayPolicyConfig["credentialCatalog"],
+): Record<string, RuntimeSessionCredentialConfig> | undefined {
+  if (!catalog) return undefined;
+  return Object.fromEntries(
+    Object.entries(catalog).map(([credentialId, value]) => [
+      credentialId,
+      {
+        sourceEnvVar: value.sourceEnvVar,
+        domains: [...value.domains],
+        headerTemplates: value.headerTemplates
+          ? { ...value.headerTemplates }
+          : undefined,
+        allowedTools: value.allowedTools ? [...value.allowedTools] : undefined,
+        ttlMs: value.ttlMs,
+      },
+    ]),
+  );
 }
 
 function splitPathEntries(pathValue: string | undefined): string[] {
@@ -1850,6 +2041,10 @@ export class DaemonManager {
   private _voiceBridge: VoiceBridge | null = null;
   private _memoryBackend: MemoryBackend | null = null;
   private _approvalEngine: ApprovalEngine | null = null;
+  private _governanceAuditLog: import('../policy/governance-audit-log.js').GovernanceAuditLog | null =
+    null;
+  private _sessionCredentialBroker: SessionCredentialBroker | null = null;
+  private _webSessionManager: SessionManager | null = null;
   private _telemetry: UnifiedTelemetryCollector | null = null;
   private _hookDispatcher: HookDispatcher | null = null;
   private _connectionManager: ConnectionManager | null = null;
@@ -2240,6 +2435,12 @@ export class DaemonManager {
         hooks: this._hookDispatcher ?? undefined,
         approvalEngine: this._approvalEngine ?? undefined,
         delegation: this.resolveDelegationToolContext,
+        credentialBroker: this._sessionCredentialBroker ?? undefined,
+        resolvePolicyScope: () =>
+          this.resolvePolicyScopeForSession({
+            sessionId: sessionIdentity.subagentSessionId,
+            runId: sessionIdentity.parentSessionId,
+          }),
       }),
       logger: this.logger,
     });
@@ -2448,11 +2649,107 @@ export class DaemonManager {
       config,
       hooks,
       telemetry,
+      memoryBackend,
     });
 
-    const approvalEngine = new ApprovalEngine();
+    const approvalEngine = new ApprovalEngine({
+      rules: [
+        ...DEFAULT_APPROVAL_RULES,
+        ...buildMCPApprovalRules(config.mcp?.servers),
+      ],
+      timeoutMs: config.approvals?.timeoutMs,
+      defaultSlaMs: config.approvals?.defaultSlaMs,
+      defaultEscalationDelayMs: config.approvals?.defaultEscalationDelayMs,
+      resolverSigningKey:
+        config.approvals?.resolverSigningKey ?? config.auth?.secret,
+    });
     this._approvalEngine = approvalEngine;
-    approvalEngine.onResponse((request, response) => {
+    approvalEngine.onRequest(async (request) => {
+      await this.appendGovernanceAuditEvent({
+        type: 'approval.requested',
+        actor: request.sessionId,
+        subject: request.toolName,
+        scope: this.resolvePolicyScopeForSession({
+          sessionId: request.sessionId,
+          runId: request.parentSessionId ?? request.sessionId,
+          channel: 'webchat',
+        }),
+        payload: {
+          requestId: request.id,
+          message: request.message,
+          deadlineAt: request.deadlineAt,
+          slaMs: request.slaMs,
+          escalateAt: request.escalateAt,
+          allowDelegatedResolution: request.allowDelegatedResolution,
+          approverGroup: request.approverGroup,
+          requiredApproverRoles: request.requiredApproverRoles,
+          parentSessionId: request.parentSessionId,
+          subagentSessionId: request.subagentSessionId,
+        },
+      });
+    });
+    approvalEngine.onEscalation(async (request, escalation) => {
+      await this.appendGovernanceAuditEvent({
+        type: 'approval.escalated',
+        actor: escalation.escalateToSessionId,
+        subject: request.toolName,
+        scope: this.resolvePolicyScopeForSession({
+          sessionId: request.sessionId,
+          runId: request.parentSessionId ?? request.sessionId,
+          channel: 'webchat',
+        }),
+        payload: {
+          requestId: request.id,
+          escalatedAt: escalation.escalatedAt,
+          escalateToSessionId: escalation.escalateToSessionId,
+          deadlineAt: escalation.deadlineAt,
+          approverGroup: escalation.approverGroup,
+          requiredApproverRoles: escalation.requiredApproverRoles,
+        },
+      });
+      const targetSessionId = escalation.escalateToSessionId;
+      this.pushApprovalEscalationNotice({
+        sessionId: targetSessionId,
+        request,
+        escalation,
+      });
+      void this._backgroundRunSupervisor?.signalRun({
+        sessionId: targetSessionId,
+        type: 'approval',
+        content: `Approval escalation for ${request.toolName} (${request.id}).`,
+        data: {
+          requestId: request.id,
+          toolName: request.toolName,
+          escalatedAt: escalation.escalatedAt,
+          escalateToSessionId: escalation.escalateToSessionId,
+          approverGroup: escalation.approverGroup,
+          requiredApproverRoles: escalation.requiredApproverRoles,
+        },
+      }).catch((error) => {
+        this.logger.debug('Failed to signal background run from approval escalation', {
+          sessionId: targetSessionId,
+          requestId: request.id,
+          error: toErrorMessage(error),
+        });
+      });
+    });
+    approvalEngine.onResponse(async (request, response) => {
+      await this.appendGovernanceAuditEvent({
+        type: 'approval.resolved',
+        actor: response.approvedBy,
+        subject: request.toolName,
+        scope: this.resolvePolicyScopeForSession({
+          sessionId: request.sessionId,
+          runId: request.parentSessionId ?? request.sessionId,
+          channel: 'webchat',
+        }),
+        payload: {
+          requestId: request.id,
+          disposition: response.disposition,
+          approvedBy: response.approvedBy,
+          resolver: response.resolver,
+        },
+      });
       const sessionId = request.parentSessionId ?? request.sessionId;
       void this._backgroundRunSupervisor?.signalRun({
         sessionId,
@@ -2540,6 +2837,7 @@ export class DaemonManager {
     }) : null;
 
     const sessionMgr = this.createSessionManager(hooks);
+    this._webSessionManager = sessionMgr;
     const resolveSessionId = this.createSessionIdResolver(sessionMgr);
     this._systemPrompt = await this.buildSystemPrompt(config);
     this._voiceSystemPrompt = await this.buildSystemPrompt(config, { forVoice: true });
@@ -2566,7 +2864,7 @@ export class DaemonManager {
     this._voiceBridge = voiceBridge ?? null;
 
     const webChat = new WebChatChannel({
-      gateway: { getStatus: () => gateway.getStatus(), config },
+      gateway: { getStatus: () => this.buildGatewayStatusSnapshot(gateway), config },
       skills: skillList,
       voiceBridge,
       memoryBackend,
@@ -2606,6 +2904,12 @@ export class DaemonManager {
           sessionId,
           "Background run cancelled from the web UI.",
         ) ?? false,
+      policyPreview: (params) =>
+        this.buildPolicySimulationPreview({
+          sessionId: params.sessionId,
+          toolName: params.toolName,
+          args: params.args,
+        }),
     });
     const signals = this.createWebChatSignals(webChat);
     const onMessage = this.createWebChatMessageHandler({
@@ -2640,6 +2944,14 @@ export class DaemonManager {
         supervisorLlm: providers[0],
         getSystemPrompt: () => this._systemPrompt,
         runStore,
+        policyEngine: this._policyEngine ?? undefined,
+        resolvePolicyScope: ({ sessionId, runId }) =>
+          this.resolvePolicyScopeForSession({
+            sessionId,
+            runId,
+            channel: 'webchat',
+          }),
+        telemetry: this._telemetry ?? undefined,
         createToolHandler: ({ sessionId, runId, cycleIndex }) =>
           this.createWebChatSessionToolHandler({
             sessionId,
@@ -2769,6 +3081,121 @@ export class DaemonManager {
     );
     this._telemetry = telemetry;
     return telemetry;
+  }
+
+  private buildGatewayStatusSnapshot(gateway: Gateway): GatewayStatus {
+    return {
+      ...gateway.getStatus(),
+      backgroundRuns: this.buildBackgroundRunStatusSummary(),
+    };
+  }
+
+  private buildBackgroundRunStatusSummary(): GatewayBackgroundRunStatus | undefined {
+    const fleet = this._backgroundRunSupervisor?.getFleetStatusSnapshot();
+    const telemetry = this._telemetry?.getFullSnapshot();
+    if (!fleet && !telemetry) {
+      return undefined;
+    }
+
+    return {
+      activeTotal: fleet?.activeTotal ?? 0,
+      queuedSignalsTotal: fleet?.queuedSignalsTotal ?? 0,
+      stateCounts: fleet?.stateCounts ?? {
+        pending: 0,
+        running: 0,
+        working: 0,
+        blocked: 0,
+        paused: 0,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+        suspended: 0,
+      },
+      recentAlerts: fleet?.recentAlerts ?? [],
+      metrics: {
+        startedTotal: this.getTelemetryCounterTotal(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUNS_STARTED_TOTAL,
+        ),
+        completedTotal: this.getTelemetryCounterTotal(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUNS_COMPLETED_TOTAL,
+        ),
+        failedTotal: this.getTelemetryCounterTotal(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUNS_FAILED_TOTAL,
+        ),
+        blockedTotal: this.getTelemetryCounterTotal(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUNS_BLOCKED_TOTAL,
+        ),
+        recoveredTotal: this.getTelemetryCounterTotal(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUNS_RECOVERED_TOTAL,
+        ),
+        meanLatencyMs: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_LATENCY_MS,
+        ),
+        meanTimeToFirstAckMs: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_TIME_TO_FIRST_ACK_MS,
+        ),
+        meanTimeToFirstVerifiedUpdateMs: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_TIME_TO_FIRST_VERIFIED_UPDATE_MS,
+        ),
+        falseCompletionRate: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_FALSE_COMPLETION_RATE,
+        ),
+        blockedWithoutNoticeRate: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_BLOCKED_WITHOUT_NOTICE_RATE,
+        ),
+        meanStopLatencyMs: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_STOP_LATENCY_MS,
+        ),
+        recoverySuccessRate: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_RECOVERY_SUCCESS_RATE,
+        ),
+        verifierAccuracyRate: this.getTelemetryHistogramMean(
+          telemetry,
+          TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_VERIFIER_ACCURACY,
+        ),
+      },
+    };
+  }
+
+  private getTelemetryCounterTotal(
+    snapshot: TelemetrySnapshot | null | undefined,
+    metricName: string,
+  ): number {
+    if (!snapshot) {
+      return 0;
+    }
+    return Object.entries(snapshot.counters)
+      .filter(([key]) => key === metricName || key.startsWith(`${metricName}|`))
+      .reduce((sum, [, value]) => sum + value, 0);
+  }
+
+  private getTelemetryHistogramMean(
+    snapshot: TelemetrySnapshot | null | undefined,
+    metricName: string,
+  ): number | undefined {
+    if (!snapshot) {
+      return undefined;
+    }
+    const entries = Object.entries(snapshot.histograms)
+      .filter(([key]) => key === metricName || key.startsWith(`${metricName}|`))
+      .flatMap(([, values]) => values);
+    if (entries.length === 0) {
+      return undefined;
+    }
+    const total = entries.reduce((sum, entry) => sum + entry.value, 0);
+    return total / entries.length;
   }
 
   private async configureDesktopRoutingForWebChat(
@@ -2987,18 +3414,48 @@ export class DaemonManager {
     config: GatewayConfig;
     hooks: HookDispatcher;
     telemetry: UnifiedTelemetryCollector | null;
+    memoryBackend: MemoryBackend;
   }): Promise<void> {
-    const { config, hooks, telemetry } = params;
+    const { config, hooks, telemetry, memoryBackend } = params;
+    this._sessionCredentialBroker = null;
     if (!config.policy?.enabled) {
       return;
     }
     try {
       const { PolicyEngine } = await import('../policy/engine.js');
+      const { MemoryBackedGovernanceAuditLog } = await import(
+        '../policy/governance-audit-log.js'
+      );
+      const { createPolicyGateHook } = await import('../policy/policy-gate.js');
+      const resolvedAuditSigningKey =
+        config.policy.audit?.signingKey ?? config.auth?.secret;
+      if (config.policy.audit?.enabled === true && !resolvedAuditSigningKey) {
+        this.logger.warn?.(
+          'Policy governance audit logging is enabled but no signing key is configured; audit log disabled',
+        );
+      }
+      this._governanceAuditLog =
+        config.policy.audit?.enabled === true && resolvedAuditSigningKey
+          ? await MemoryBackedGovernanceAuditLog.create({
+              signingKey: resolvedAuditSigningKey,
+              retentionMs: config.policy.audit?.retentionMs,
+              maxEntries: config.policy.audit?.maxEntries,
+              retentionMode: config.policy.audit?.retentionMode,
+              legalHold: config.policy.audit?.legalHold,
+              redaction: config.policy.audit?.redaction,
+              memoryBackend,
+            })
+          : null;
       this._policyEngine = new PolicyEngine({
         policy: {
           enabled: true,
+          simulationMode: config.policy.simulationMode,
           toolAllowList: config.policy.toolAllowList,
           toolDenyList: config.policy.toolDenyList,
+          credentialAllowList: config.policy.credentialAllowList,
+          networkAccess: config.policy.networkAccess,
+          writeScope: config.policy.writeScope,
+          credentialCatalog: mapCredentialCatalog(config.policy.credentialCatalog),
           actionBudgets: config.policy.actionBudgets,
           spendBudget: config.policy.spendBudget
             ? {
@@ -3006,32 +3463,126 @@ export class DaemonManager {
               windowMs: config.policy.spendBudget.windowMs,
             }
             : undefined,
+          tokenBudget: config.policy.tokenBudget
+            ? {
+              limitTokens: config.policy.tokenBudget.limitTokens,
+              windowMs: config.policy.tokenBudget.windowMs,
+            }
+            : undefined,
+          runtimeBudget: config.policy.runtimeBudget
+            ? {
+              maxElapsedMs: config.policy.runtimeBudget.maxElapsedMs,
+            }
+            : undefined,
+          processBudget: config.policy.processBudget
+            ? {
+              maxConcurrent: config.policy.processBudget.maxConcurrent,
+            }
+            : undefined,
+          scopedActionBudgets: config.policy.scopedActionBudgets
+            ? mapScopedActionBudgets(config.policy.scopedActionBudgets)
+            : undefined,
+          scopedSpendBudgets: config.policy.scopedSpendBudgets
+            ? mapScopedSpendBudgets(config.policy.scopedSpendBudgets)
+            : undefined,
+          scopedTokenBudgets: config.policy.scopedTokenBudgets
+            ? mapScopedTokenBudgets(config.policy.scopedTokenBudgets)
+            : undefined,
+          scopedRuntimeBudgets: config.policy.scopedRuntimeBudgets
+            ? mapScopedRuntimeBudgets(config.policy.scopedRuntimeBudgets)
+            : undefined,
+          scopedProcessBudgets: config.policy.scopedProcessBudgets
+            ? mapScopedProcessBudgets(config.policy.scopedProcessBudgets)
+            : undefined,
           maxRiskScore: config.policy.maxRiskScore,
+          policyClassRules: config.policy.policyClassRules,
           circuitBreaker: config.policy.circuitBreaker,
+          defaultTenantId: config.policy.defaultTenantId,
+          defaultProjectId: config.policy.defaultProjectId,
+          tenantBundles: mapPolicyBundles(config.policy.tenantBundles),
+          projectBundles: mapPolicyBundles(config.policy.projectBundles),
+          audit: config.policy.audit,
         },
         logger: this.logger,
         metrics: telemetry ?? undefined,
       });
-      hooks.on({
-        event: 'tool:before',
-        name: 'policy-gate',
-        priority: HOOK_PRIORITIES.POLICY_GATE,
-        handler: async (ctx) => {
-          const payload = ctx.payload as Record<string, unknown>;
-          const decision = this._policyEngine!.evaluate({
-            type: 'tool_call',
-            name: payload.toolName as string,
-            access: 'write',
-            metadata: payload,
+      this._sessionCredentialBroker = new SessionCredentialBroker({
+        policy: this._policyEngine.getPolicy(),
+        logger: this.logger,
+        onLeaseIssued: async ({ sessionId, credentialId, scope, lease }) => {
+          await this.appendGovernanceAuditEvent({
+            type: "credential.issued",
+            actor: sessionId,
+            subject: credentialId,
+            scope,
+            payload: {
+              sessionId,
+              credentialId,
+              sourceEnvVar: lease.sourceEnvVar,
+              issuedAt: lease.issuedAt,
+              expiresAt: lease.expiresAt,
+              domains: lease.domains,
+              allowedTools: lease.allowedTools,
+            },
           });
-          if (!decision.allowed) {
-            this.logger.warn?.(
-              `Policy blocked tool "${payload.toolName}": ${decision.violations.map((v) => v.message).join('; ')}`,
-            );
-            return { continue: false };
-          }
-          return { continue: true };
         },
+        onLeaseRevoked: async ({
+          sessionId,
+          credentialId,
+          scope,
+          lease,
+          reason,
+        }) => {
+          await this.appendGovernanceAuditEvent({
+            type: "credential.revoked",
+            actor: sessionId,
+            subject: credentialId,
+            scope,
+            payload: {
+              sessionId,
+              credentialId,
+              sourceEnvVar: lease.sourceEnvVar,
+              issuedAt: lease.issuedAt,
+              expiresAt: lease.expiresAt,
+              revokedAt: lease.revokedAt,
+              reason,
+            },
+          });
+        },
+      });
+      hooks.on({
+        ...createPolicyGateHook({
+          engine: this._policyEngine,
+          logger: this.logger,
+          simulationMode: config.policy.simulationMode,
+          auditLog: this._governanceAuditLog ?? undefined,
+          resolveScope: (payload) => {
+            const sessionId =
+              typeof payload.sessionId === 'string'
+                ? payload.sessionId
+                : undefined;
+            if (!sessionId) {
+              return {
+                tenantId: config.policy?.defaultTenantId,
+                projectId: config.policy?.defaultProjectId,
+                runId:
+                  typeof payload.backgroundRunId === 'string'
+                    ? payload.backgroundRunId
+                    : undefined,
+                channel: 'webchat',
+              };
+            }
+            return this.resolvePolicyScopeForSession({
+              sessionId,
+              runId:
+                typeof payload.backgroundRunId === 'string'
+                  ? payload.backgroundRunId
+                  : undefined,
+              channel: 'webchat',
+            });
+          },
+        }),
+        priority: HOOK_PRIORITIES.POLICY_GATE,
       });
       this.logger.info('Policy engine initialized');
     } catch (error) {
@@ -3103,8 +3654,50 @@ export class DaemonManager {
                 windowMs: newConfig.policy.spendBudget.windowMs,
               }
               : undefined,
+            tokenBudget: newConfig.policy.tokenBudget
+              ? {
+                limitTokens: newConfig.policy.tokenBudget.limitTokens,
+                windowMs: newConfig.policy.tokenBudget.windowMs,
+              }
+              : undefined,
+            runtimeBudget: newConfig.policy.runtimeBudget
+              ? {
+                maxElapsedMs: newConfig.policy.runtimeBudget.maxElapsedMs,
+              }
+              : undefined,
+            processBudget: newConfig.policy.processBudget
+              ? {
+                maxConcurrent: newConfig.policy.processBudget.maxConcurrent,
+              }
+              : undefined,
+            scopedActionBudgets: newConfig.policy.scopedActionBudgets
+              ? mapScopedActionBudgets(newConfig.policy.scopedActionBudgets)
+              : undefined,
+            scopedSpendBudgets: newConfig.policy.scopedSpendBudgets
+              ? mapScopedSpendBudgets(newConfig.policy.scopedSpendBudgets)
+              : undefined,
+            scopedTokenBudgets: newConfig.policy.scopedTokenBudgets
+              ? mapScopedTokenBudgets(newConfig.policy.scopedTokenBudgets)
+              : undefined,
+            scopedRuntimeBudgets: newConfig.policy.scopedRuntimeBudgets
+              ? mapScopedRuntimeBudgets(newConfig.policy.scopedRuntimeBudgets)
+              : undefined,
+            scopedProcessBudgets: newConfig.policy.scopedProcessBudgets
+              ? mapScopedProcessBudgets(newConfig.policy.scopedProcessBudgets)
+              : undefined,
             maxRiskScore: newConfig.policy.maxRiskScore,
+            policyClassRules: newConfig.policy.policyClassRules,
             circuitBreaker: newConfig.policy.circuitBreaker,
+            defaultTenantId: newConfig.policy.defaultTenantId,
+            defaultProjectId: newConfig.policy.defaultProjectId,
+            tenantBundles: mapPolicyBundles(newConfig.policy.tenantBundles),
+            projectBundles: mapPolicyBundles(newConfig.policy.projectBundles),
+            networkAccess: newConfig.policy.networkAccess,
+            writeScope: newConfig.policy.writeScope,
+            credentialAllowList: newConfig.policy.credentialAllowList,
+            credentialCatalog: mapCredentialCatalog(newConfig.policy.credentialCatalog),
+            audit: newConfig.policy.audit,
+            simulationMode: newConfig.policy.simulationMode,
           });
           this.logger.info('Policy engine config reloaded');
         }
@@ -3327,6 +3920,13 @@ export class DaemonManager {
           hooks: this._hookDispatcher ?? undefined,
           approvalEngine: this._approvalEngine ?? undefined,
           delegation: this.resolveDelegationToolContext,
+          credentialBroker: this._sessionCredentialBroker ?? undefined,
+          resolvePolicyScope: () =>
+            this.resolvePolicyScopeForSession({
+              sessionId: msg.sessionId,
+              runId: msg.sessionId,
+              channel: "telegram",
+            }),
         });
 
         const toolHandler = this.createTracedSessionToolHandler({
@@ -3597,6 +4197,13 @@ export class DaemonManager {
           hooks: this._hookDispatcher ?? undefined,
           approvalEngine: this._approvalEngine ?? undefined,
           delegation: this.resolveDelegationToolContext,
+          credentialBroker: this._sessionCredentialBroker ?? undefined,
+          resolvePolicyScope: () =>
+            this.resolvePolicyScopeForSession({
+              sessionId: msg.sessionId,
+              runId: msg.sessionId,
+              channel: channelName,
+            }),
         });
 
         const toolHandler = this.createTracedSessionToolHandler({
@@ -4426,14 +5033,15 @@ export class DaemonManager {
       env: safeEnv,
       denyExclusions,
     }));
+    const callbackPort = config.gateway?.port ?? 3100;
     const remoteJobManager = new SystemRemoteJobManager({
       logger: this.logger,
-      callbackBaseUrl: `http://127.0.0.1:${config.gateway.port}`,
+      callbackBaseUrl: `http://127.0.0.1:${callbackPort}`,
     });
     this._remoteJobManager = remoteJobManager;
     registry.registerAll(createRemoteJobTools({
       logger: this.logger,
-      callbackBaseUrl: `http://127.0.0.1:${config.gateway.port}`,
+      callbackBaseUrl: `http://127.0.0.1:${callbackPort}`,
     }, remoteJobManager));
     registry.registerAll(createResearchTools({
       logger: this.logger,
@@ -4510,6 +5118,28 @@ export class DaemonManager {
 
     // External MCP server tools (Peekaboo, macos-automator, etc.)
     if (config.mcp?.servers?.length) {
+      const desktopImage = config.desktop?.image ?? 'agenc/desktop:latest';
+      for (const server of config.mcp.servers.filter((entry) => entry.enabled !== false)) {
+        const staticViolations = validateMCPServerStaticPolicy(server, {
+          desktopImage,
+        });
+        if (staticViolations.length > 0) {
+          throw new Error(
+            staticViolations.map((violation) => violation.message).join("; "),
+          );
+        }
+        if (!server.container) {
+          const binaryViolations = await validateMCPServerBinaryIntegrity({
+            server,
+          });
+          if (binaryViolations.length > 0) {
+            throw new Error(
+              binaryViolations.map((violation) => violation.message).join("; "),
+            );
+          }
+        }
+      }
+
       // Split: host servers boot now, container servers are per-session (via desktop router)
       const hostServers = config.mcp.servers.filter((s) => !s.container);
       const containerServers = config.mcp.servers.filter((s) => s.container === 'desktop');
@@ -4550,6 +5180,7 @@ export class DaemonManager {
                 {
                   listToolsTimeoutMs: serverConfig.timeout,
                   callToolTimeoutMs: serverConfig.timeout,
+                  serverConfig,
                 },
               );
               const schemas = bridge.tools.map((t) => ({
@@ -4612,6 +5243,7 @@ export class DaemonManager {
                 const bridge = await createToolBridge(client, serverConfig.name, this.logger, {
                   listToolsTimeoutMs: serverConfig.timeout ?? 30_000,
                   callToolTimeoutMs: serverConfig.timeout ?? 30_000,
+                  serverConfig,
                 });
                 const schemas = bridge.tools.map((t) => ({
                   name: t.name,
@@ -4830,6 +5462,15 @@ export class DaemonManager {
     this._toolRouter?.resetSession(webSessionId);
     this._sessionModelInfo.delete(webSessionId);
     await progressTracker?.clear(webSessionId);
+    await this._sessionCredentialBroker?.revoke({
+      sessionId: webSessionId,
+      scope: this.resolvePolicyScopeForSession({
+        sessionId: webSessionId,
+        runId: webSessionId,
+        channel: "webchat",
+      }),
+      reason: "session_reset",
+    });
     await this._backgroundRunSupervisor?.cancelRun(
       webSessionId,
       "Background run cancelled because the session was reset.",
@@ -5034,6 +5675,128 @@ export class DaemonManager {
           `Memory: ${memoryBackend.name}\n` +
           `Tools: ${registry.size}\n` +
           `Skills: ${availableSkills.length}`,
+        );
+      },
+    });
+    commandRegistry.register({
+      name: 'policy',
+      description: 'Show policy state or simulate a tool policy decision',
+      args: '[status|simulate <toolName> [jsonArgs]|credentials|revoke-credentials [credentialId]]',
+      global: true,
+      handler: async (ctx) => {
+        const subcommand = ctx.argv[0]?.toLowerCase();
+        if (!subcommand || subcommand === 'status') {
+          const state = this._policyEngine?.getState();
+          const policy = this.gateway?.config.policy;
+          await ctx.reply(
+            [
+              `Policy engine: ${this._policyEngine ? 'enabled' : 'disabled'}`,
+              `Simulation mode: ${policy?.simulationMode ?? 'off'}`,
+              `Audit log: ${
+                this._governanceAuditLog ? 'enabled' : 'disabled'
+              }`,
+              state
+                ? `Circuit mode: ${state.mode} (recent violations: ${state.recentViolations})`
+                : 'Circuit mode: unavailable',
+            ].join('\n'),
+          );
+          return;
+        }
+        if (subcommand === "credentials") {
+          const leases = this._sessionCredentialBroker?.listLeases(ctx.sessionId) ?? [];
+          if (leases.length === 0) {
+            await ctx.reply("No active session credential leases.");
+            return;
+          }
+          const lines = leases.map(
+            (lease) =>
+              `- ${lease.credentialId}: expires ${new Date(lease.expiresAt).toISOString()} ` +
+              `(domains=${lease.domains.join(", ") || "none"})`,
+          );
+          await ctx.reply(`Active session credential leases:\n${lines.join("\n")}`);
+          return;
+        }
+        if (subcommand === "revoke-credentials") {
+          const credentialId = ctx.argv[1]?.trim();
+          const revoked =
+            (await this._sessionCredentialBroker?.revoke({
+              sessionId: ctx.sessionId,
+              credentialId: credentialId && credentialId.length > 0 ? credentialId : undefined,
+              scope: this.resolvePolicyScopeForSession({
+                sessionId: ctx.sessionId,
+                runId: ctx.sessionId,
+                channel: "webchat",
+              }),
+              reason: "manual",
+            })) ?? 0;
+          await ctx.reply(
+            revoked > 0
+              ? `Revoked ${revoked} session credential lease${revoked === 1 ? "" : "s"}.`
+              : credentialId
+                ? `No active lease found for credential ${credentialId}.`
+                : "No active session credential leases to revoke.",
+          );
+          return;
+        }
+        if (subcommand !== 'simulate') {
+          await ctx.reply(
+            'Usage: /policy [status|simulate <toolName> [jsonArgs]|credentials|revoke-credentials [credentialId]]',
+          );
+          return;
+        }
+        const toolName = ctx.argv[1]?.trim();
+        if (!toolName) {
+          await ctx.reply(
+            'Usage: /policy simulate <toolName> [jsonArgs]',
+          );
+          return;
+        }
+        const argsText = ctx.args.replace(/^simulate\s+\S+\s*/i, '').trim();
+        let parsedArgs: Record<string, unknown> = {};
+        if (argsText.length > 0) {
+          try {
+            const candidate = JSON.parse(argsText);
+            if (
+              !candidate ||
+              typeof candidate !== 'object' ||
+              Array.isArray(candidate)
+            ) {
+              await ctx.reply('Policy simulate JSON args must be an object.');
+              return;
+            }
+            parsedArgs = candidate as Record<string, unknown>;
+          } catch (error) {
+            await ctx.reply(
+              `Policy simulate JSON parse failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+            return;
+          }
+        }
+        const preview = await this.buildPolicySimulationPreview({
+          sessionId: ctx.sessionId,
+          toolName,
+          args: parsedArgs,
+        });
+        const violationLines =
+          preview.policy.violations.length > 0
+            ? preview.policy.violations
+                .map((violation) => `- ${violation.code}: ${violation.message}`)
+                .join('\n')
+            : '- none';
+        const approvalPreview = preview.approval.requestPreview;
+        await ctx.reply(
+          [
+            `Policy simulation for ${preview.toolName}`,
+            `Session: ${preview.sessionId}`,
+            `Policy: ${preview.policy.allowed ? 'allow' : 'deny'} (${preview.policy.mode})`,
+            `Violations:\n${violationLines}`,
+            `Approval: required=${preview.approval.required} elevated=${preview.approval.elevated} denied=${preview.approval.denied}`,
+            approvalPreview
+              ? `Approval preview: ${approvalPreview.message}`
+              : 'Approval preview: none',
+          ].join('\n'),
         );
       },
     });
@@ -5865,6 +6628,211 @@ export class DaemonManager {
     };
   }
 
+  private async appendGovernanceAuditEvent(params: {
+    type: GovernanceAuditEventType;
+    actor?: string;
+    subject?: string;
+    scope?: {
+      tenantId?: string;
+      projectId?: string;
+      runId?: string;
+      sessionId?: string;
+      channel?: string;
+    };
+    payload?: Record<string, unknown>;
+  }): Promise<void> {
+    if (!this._governanceAuditLog) {
+      return;
+    }
+    await this._governanceAuditLog.append(params);
+  }
+
+  private extractSessionPolicyContext(
+    sessionId: string,
+  ): { tenantId?: string; projectId?: string } | undefined {
+    const metadata = this._webSessionManager?.get(sessionId)?.metadata;
+    if (!metadata || typeof metadata !== 'object') {
+      return undefined;
+    }
+    const raw =
+      typeof metadata.policyContext === 'object' &&
+      metadata.policyContext !== null
+        ? (metadata.policyContext as Record<string, unknown>)
+        : undefined;
+    if (!raw) {
+      return undefined;
+    }
+    const tenantId =
+      typeof raw.tenantId === 'string' && raw.tenantId.trim().length > 0
+        ? raw.tenantId.trim()
+        : undefined;
+    const projectId =
+      typeof raw.projectId === 'string' && raw.projectId.trim().length > 0
+        ? raw.projectId.trim()
+        : undefined;
+    if (!tenantId && !projectId) {
+      return undefined;
+    }
+    return {
+      ...(tenantId ? { tenantId } : {}),
+      ...(projectId ? { projectId } : {}),
+    };
+  }
+
+  private applyWebSessionPolicyContext(
+    session: { metadata: Record<string, unknown> },
+    msg: GatewayMessage,
+  ): void {
+    const raw =
+      typeof msg.metadata?.policyContext === 'object' &&
+      msg.metadata?.policyContext !== null
+        ? (msg.metadata.policyContext as Record<string, unknown>)
+        : undefined;
+    if (!raw) {
+      return;
+    }
+    const tenantId =
+      typeof raw.tenantId === 'string' && raw.tenantId.trim().length > 0
+        ? raw.tenantId.trim()
+        : undefined;
+    const projectId =
+      typeof raw.projectId === 'string' && raw.projectId.trim().length > 0
+        ? raw.projectId.trim()
+        : undefined;
+    if (!tenantId && !projectId) {
+      return;
+    }
+    session.metadata.policyContext = {
+      ...(typeof session.metadata.policyContext === 'object' &&
+      session.metadata.policyContext !== null
+        ? (session.metadata.policyContext as Record<string, unknown>)
+        : {}),
+      ...(tenantId ? { tenantId } : {}),
+      ...(projectId ? { projectId } : {}),
+    };
+  }
+
+  private resolvePolicyScopeForSession(params: {
+    sessionId: string;
+    runId?: string;
+    channel?: string;
+  }): {
+    tenantId?: string;
+    projectId?: string;
+    runId?: string;
+    sessionId: string;
+    channel: string;
+  } {
+    const sessionContext = this.extractSessionPolicyContext(params.sessionId);
+    const policyConfig = this.gateway?.config.policy;
+    return {
+      tenantId: sessionContext?.tenantId ?? policyConfig?.defaultTenantId,
+      projectId: sessionContext?.projectId ?? policyConfig?.defaultProjectId,
+      ...(params.runId ? { runId: params.runId } : {}),
+      sessionId: params.sessionId,
+      channel: params.channel ?? 'webchat',
+    };
+  }
+
+  private async buildPolicySimulationPreview(params: {
+    sessionId: string;
+    toolName: string;
+    args?: Record<string, unknown>;
+  }): Promise<{
+    toolName: string;
+    sessionId: string;
+    policy: {
+      allowed: boolean;
+      mode: string;
+      violations: Array<{
+        code: string;
+        message: string;
+      }>;
+    };
+    approval: {
+      required: boolean;
+      elevated: boolean;
+      denied: boolean;
+      requestPreview?: {
+        message: string;
+        deadlineAt: number;
+        allowDelegatedResolution: boolean;
+        approverGroup?: string;
+        requiredApproverRoles?: readonly string[];
+      };
+    };
+  }> {
+    const args = params.args ?? {};
+    const scope = this.resolvePolicyScopeForSession({
+      sessionId: params.sessionId,
+      runId: params.sessionId,
+      channel: 'webchat',
+    });
+    const action = buildToolPolicyAction({
+      toolName: params.toolName,
+      args,
+      scope,
+    });
+    const policyDecision = this._policyEngine?.simulate(action) ?? {
+      allowed: true,
+      mode: 'normal',
+      violations: [],
+    };
+    const approvalDecision = this._approvalEngine?.simulate(
+      params.toolName,
+      args,
+      params.sessionId,
+      {
+        message: `Policy simulation preview for ${params.toolName}`,
+      },
+    ) ?? {
+      required: false,
+      elevated: false,
+      denied: false,
+    };
+
+    return {
+      toolName: params.toolName,
+      sessionId: params.sessionId,
+      policy: {
+        allowed: policyDecision.allowed,
+        mode: policyDecision.mode,
+        violations: policyDecision.violations.map((violation) => ({
+          code: violation.code,
+          message: violation.message,
+        })),
+      },
+      approval: {
+        required: approvalDecision.required,
+        elevated: approvalDecision.elevated,
+        denied: approvalDecision.denied,
+        ...(approvalDecision.requestPreview
+          ? {
+              requestPreview: {
+                message: approvalDecision.requestPreview.message,
+                deadlineAt: approvalDecision.requestPreview.deadlineAt,
+                allowDelegatedResolution:
+                  approvalDecision.requestPreview.allowDelegatedResolution,
+                ...(approvalDecision.requestPreview.approverGroup
+                  ? {
+                      approverGroup:
+                        approvalDecision.requestPreview.approverGroup,
+                    }
+                  : {}),
+                ...(approvalDecision.requestPreview.requiredApproverRoles &&
+                approvalDecision.requestPreview.requiredApproverRoles.length > 0
+                  ? {
+                      requiredApproverRoles:
+                        approvalDecision.requestPreview.requiredApproverRoles,
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+    };
+  }
+
   private parseApprovalDisposition(
     value: string | undefined,
   ): "yes" | "no" | "always" | null {
@@ -5888,6 +6856,37 @@ export class DaemonManager {
       `Reply: approve ${requestId} yes\n` +
       `Or: approve ${requestId} no\n` +
       `Or: approve ${requestId} always`
+    );
+  }
+
+  private formatApprovalEscalationMessage(params: {
+    requestId: string;
+    action: string;
+    deadlineAt: number;
+    message?: string;
+    approverGroup?: string;
+    requiredApproverRoles?: readonly string[];
+  }): string {
+    const detail =
+      params.message?.trim().length
+        ? params.message.trim()
+        : `Approval escalated for ${params.action}`;
+    const roleSummary =
+      params.requiredApproverRoles && params.requiredApproverRoles.length > 0
+        ? `\nRequired roles: ${params.requiredApproverRoles.join(", ")}`
+        : "";
+    const groupSummary = params.approverGroup
+      ? `\nApprover group: ${params.approverGroup}`
+      : "";
+    return (
+      `${detail}\n` +
+      `Escalated request ID: ${params.requestId}\n` +
+      `Deadline: ${new Date(params.deadlineAt).toISOString()}` +
+      `${groupSummary}` +
+      `${roleSummary}\n` +
+      `Reply: approve ${params.requestId} yes\n` +
+      `Or: approve ${params.requestId} no\n` +
+      `Or: approve ${params.requestId} always`
     );
   }
 
@@ -5944,20 +6943,50 @@ export class DaemonManager {
     send: (content: string) => Promise<void>;
   }): void {
     const { response, sessionId, channelName, send } = params;
-    if (response.type !== "approval.request") return;
+    if (
+      response.type !== "approval.request" &&
+      response.type !== "approval.escalated"
+    ) {
+      return;
+    }
     const payload =
       typeof response.payload === "object" && response.payload !== null
         ? (response.payload as Record<string, unknown>)
         : {};
     const requestId = typeof payload.requestId === "string" ? payload.requestId : "";
     const action = typeof payload.action === "string" ? payload.action : "tool call";
-    const message =
-      typeof payload.message === "string"
-        ? payload.message
-        : `Approval required for ${action}`;
     if (!requestId) return;
+    const message =
+      typeof payload.message === "string" ? payload.message : undefined;
+    const approverGroup =
+      typeof payload.approverGroup === "string"
+        ? payload.approverGroup
+        : undefined;
+    const requiredApproverRoles = Array.isArray(payload.requiredApproverRoles)
+      ? payload.requiredApproverRoles.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : undefined;
+    const content =
+      response.type === "approval.escalated"
+        ? this.formatApprovalEscalationMessage({
+            requestId,
+            action,
+            deadlineAt:
+              typeof payload.deadlineAt === "number"
+                ? payload.deadlineAt
+                : Date.now(),
+            message,
+            approverGroup,
+            requiredApproverRoles,
+          })
+        : this.formatApprovalRequestMessage(
+            requestId,
+            action,
+            message ?? `Approval required for ${action}`,
+          );
 
-    void send(this.formatApprovalRequestMessage(requestId, action, message)).catch(
+    void send(content).catch(
       (error) => {
         this.logger.warn("Failed to send approval prompt to text channel", {
           channel: channelName,
@@ -5967,6 +6996,77 @@ export class DaemonManager {
         });
       },
     );
+  }
+
+  private pushApprovalEscalationNotice(params: {
+    sessionId: string;
+    request: {
+      id: string;
+      toolName: string;
+      message: string;
+      parentSessionId?: string;
+      subagentSessionId?: string;
+    };
+    escalation: {
+      escalatedAt: number;
+      deadlineAt: number;
+      escalateToSessionId: string;
+      approverGroup?: string;
+      requiredApproverRoles?: readonly string[];
+    };
+  }): void {
+    const { sessionId, request, escalation } = params;
+    const response: ControlResponse = {
+      type: "approval.escalated",
+      payload: {
+        requestId: request.id,
+        action: request.toolName,
+        message: request.message,
+        escalatedAt: escalation.escalatedAt,
+        deadlineAt: escalation.deadlineAt,
+        escalateToSessionId: escalation.escalateToSessionId,
+        ...(escalation.approverGroup
+          ? { approverGroup: escalation.approverGroup }
+          : {}),
+        ...(escalation.requiredApproverRoles &&
+        escalation.requiredApproverRoles.length > 0
+          ? { requiredApproverRoles: escalation.requiredApproverRoles }
+          : {}),
+        ...(request.parentSessionId
+          ? { parentSessionId: request.parentSessionId }
+          : {}),
+        ...(request.subagentSessionId
+          ? { subagentSessionId: request.subagentSessionId }
+          : {}),
+      },
+    };
+    this._webChatChannel?.pushToSession(sessionId, response);
+    this._webChatChannel?.broadcastEvent("approval.escalated", {
+      sessionId,
+      requestId: request.id,
+      toolName: request.toolName,
+      escalatedAt: escalation.escalatedAt,
+      deadlineAt: escalation.deadlineAt,
+      escalateToSessionId: escalation.escalateToSessionId,
+      ...(escalation.approverGroup
+        ? { approverGroup: escalation.approverGroup }
+        : {}),
+      ...(escalation.requiredApproverRoles &&
+      escalation.requiredApproverRoles.length > 0
+        ? { requiredApproverRoles: escalation.requiredApproverRoles }
+        : {}),
+    });
+
+    const textDispatch = this._textApprovalDispatchBySession.get(sessionId);
+    if (!textDispatch) {
+      return;
+    }
+    this.forwardControlToTextChannel({
+      response,
+      sessionId,
+      channelName: textDispatch.channelName,
+      send: textDispatch.send,
+    });
   }
 
   private async handleTextChannelApprovalCommand(params: {
@@ -6054,11 +7154,32 @@ export class DaemonManager {
       return true;
     }
 
-    approvalEngine.resolve(requestId, {
+    const resolverRoles =
+      Array.isArray(msg.metadata?.roles)
+        ? msg.metadata.roles.filter(
+            (entry): entry is string => typeof entry === 'string',
+          )
+        : undefined;
+    const resolved = await approvalEngine.resolve(requestId, {
       requestId,
       disposition,
       approvedBy: msg.senderId,
+      resolver: {
+        actorId: msg.senderId,
+        sessionId: msg.sessionId,
+        channel: msg.channel,
+        ...(resolverRoles && resolverRoles.length > 0
+          ? { roles: resolverRoles }
+          : {}),
+        resolvedAt: Date.now(),
+      },
     });
+    if (!resolved) {
+      await send(
+        `Approval ${requestId} requires a different approver role or identity.`,
+      );
+      return true;
+    }
     await send(
       `Recorded approval: ${disposition} for ${request.toolName} (${requestId}).`,
     );
@@ -6364,6 +7485,13 @@ export class DaemonManager {
       send: (m) => webChat.pushToSession(sessionId, m),
       hooks,
       approvalEngine,
+      credentialBroker: this._sessionCredentialBroker ?? undefined,
+      resolvePolicyScope: () =>
+        this.resolvePolicyScopeForSession({
+          sessionId,
+          runId: sessionId,
+          channel: 'webchat',
+        }),
       hookMetadata,
       delegation: this.resolveDelegationToolContext,
       onToolStart: (name) => {
@@ -6420,6 +7548,13 @@ export class DaemonManager {
       return;
     }
     const turnTraceId = createTurnTraceId(msg);
+    const session = sessionMgr.getOrCreate({
+      channel: 'webchat',
+      senderId: msg.sessionId,
+      scope: 'dm',
+      workspaceId: 'default',
+    });
+    this.applyWebSessionPolicyContext(session, msg);
 
     const traceConfig = resolveTraceLoggingConfig(getLoggingConfig());
     if (traceConfig.enabled) {
@@ -7560,6 +8695,11 @@ export class DaemonManager {
       this._collaborationProtocol = null;
       this._marketplace = null;
       this._policyEngine = null;
+      this._governanceAuditLog = null;
+      if (this._sessionCredentialBroker !== null) {
+        await this._sessionCredentialBroker.revokeAll("shutdown");
+        this._sessionCredentialBroker = null;
+      }
       // Clean up subsystems
       if (this._approvalEngine !== null) {
         this._approvalEngine.dispose();
@@ -7754,7 +8894,8 @@ export class DaemonManager {
       running: this.gateway !== null && this.gateway.state === 'running',
       pid: process.pid,
       uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
-      gatewayStatus: this.gateway !== null ? this.gateway.getStatus() : null,
+      gatewayStatus:
+        this.gateway !== null ? this.buildGatewayStatusSnapshot(this.gateway) : null,
       memoryUsage: {
         heapUsedMB: Math.round((mem.heapUsed / 1024 / 1024) * 100) / 100,
         rssMB: Math.round((mem.rss / 1024 / 1024) * 100) / 100,

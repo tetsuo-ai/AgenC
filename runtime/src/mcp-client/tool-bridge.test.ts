@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createToolBridge } from "./tool-bridge.js";
+import { computeMCPToolCatalogSha256 } from "../policy/mcp-governance.js";
 
 function makeMockClient(tools: { name: string; description?: string; inputSchema?: object }[] = []) {
   return {
@@ -70,6 +71,65 @@ describe("createToolBridge", () => {
     const bridge = await createToolBridge(client, "srv");
 
     expect(bridge.tools).toHaveLength(0);
+  });
+
+  it("filters discovered tools using per-server allow and deny lists", async () => {
+    const client = makeMockClient([
+      { name: "allowedRead" },
+      { name: "allowedDangerous" },
+      { name: "otherTool" },
+    ]);
+
+    const bridge = await createToolBridge(client, "srv", undefined, {
+      serverConfig: {
+        name: "srv",
+        command: "npx",
+        args: ["-y", "@pkg/server@1.2.3"],
+        riskControls: {
+          toolAllowList: ["allowed*"],
+          toolDenyList: ["allowedDangerous"],
+        },
+      },
+    });
+
+    expect(bridge.tools.map((tool) => tool.name)).toEqual([
+      "mcp.srv.allowedRead",
+    ]);
+  });
+
+  it("rejects tool catalogs whose digest does not match the configured expectation", async () => {
+    const client = makeMockClient([{ name: "tool1" }]);
+
+    await expect(
+      createToolBridge(client, "srv", undefined, {
+        serverConfig: {
+          name: "srv",
+          command: "npx",
+          args: ["-y", "@pkg/server@1.2.3"],
+          supplyChain: {
+            catalogSha256: "f".repeat(64),
+          },
+        },
+      }),
+    ).rejects.toThrow(/tool catalog digest mismatch/i);
+  });
+
+  it("accepts matching tool catalog digests", async () => {
+    const tools = [{ name: "tool1", description: "desc" }];
+    const client = makeMockClient(tools);
+
+    const bridge = await createToolBridge(client, "srv", undefined, {
+      serverConfig: {
+        name: "srv",
+        command: "npx",
+        args: ["-y", "@pkg/server@1.2.3"],
+        supplyChain: {
+          catalogSha256: computeMCPToolCatalogSha256(tools),
+        },
+      },
+    });
+
+    expect(bridge.tools).toHaveLength(1);
   });
 
   // --------------------------------------------------------------------------

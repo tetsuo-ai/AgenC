@@ -35,6 +35,27 @@ export const TELEMETRY_METRIC_NAMES = {
   // Policy
   POLICY_VIOLATIONS_TOTAL: "agenc.policy.violations.total",
   POLICY_DECISIONS_TOTAL: "agenc.policy.decisions.total",
+  // Durable background runs
+  BACKGROUND_RUNS_STARTED_TOTAL: "agenc.background_runs.started.total",
+  BACKGROUND_RUNS_COMPLETED_TOTAL: "agenc.background_runs.completed.total",
+  BACKGROUND_RUNS_FAILED_TOTAL: "agenc.background_runs.failed.total",
+  BACKGROUND_RUNS_BLOCKED_TOTAL: "agenc.background_runs.blocked.total",
+  BACKGROUND_RUNS_RECOVERED_TOTAL: "agenc.background_runs.recovered.total",
+  BACKGROUND_RUN_ACTIVE_TOTAL: "agenc.background_runs.active.total",
+  BACKGROUND_RUN_LATENCY_MS: "agenc.background_runs.latency_ms",
+  BACKGROUND_RUN_TIME_TO_FIRST_ACK_MS:
+    "agenc.background_runs.time_to_first_ack_ms",
+  BACKGROUND_RUN_TIME_TO_FIRST_VERIFIED_UPDATE_MS:
+    "agenc.background_runs.time_to_first_verified_update_ms",
+  BACKGROUND_RUN_FALSE_COMPLETION_RATE:
+    "agenc.background_runs.false_completion_rate",
+  BACKGROUND_RUN_BLOCKED_WITHOUT_NOTICE_RATE:
+    "agenc.background_runs.blocked_without_notice_rate",
+  BACKGROUND_RUN_STOP_LATENCY_MS: "agenc.background_runs.stop_latency_ms",
+  BACKGROUND_RUN_RECOVERY_SUCCESS_RATE:
+    "agenc.background_runs.recovery_success_rate",
+  BACKGROUND_RUN_VERIFIER_ACCURACY:
+    "agenc.background_runs.verifier_accuracy",
   // Adaptive verifier
   VERIFIER_ADAPTIVE_RISK_SCORE: "agenc.verifier.adaptive.risk_score",
   VERIFIER_ADAPTIVE_RISK_TIER_TOTAL: "agenc.verifier.adaptive.risk_tier.total",

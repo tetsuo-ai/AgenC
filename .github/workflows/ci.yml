@@ -173,6 +173,14 @@ jobs:
             --fail-fast-harmful-delegation-rate "${PIPELINE_FAIL_FAST_HARMFUL_DELEGATION_RATE}" \
             --fail-fast-runaway-cap-hit-rate "${PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE}"
 
+      - name: Run background-run quality suite
+        run: npm run benchmark:background-runs:ci --prefix runtime
+
+      - name: Enforce background-run quality gates
+        run: |
+          npx tsx runtime/scripts/check-background-run-gates.ts \
+            --artifact runtime/benchmarks/artifacts/background-run-quality.ci.json
+
       - name: Run decomposition delegation benchmark suite
         run: npm run benchmark:delegation --prefix runtime
 
@@ -219,6 +227,7 @@ jobs:
             runtime/benchmarks/artifacts/mutation.ci.json
             runtime/benchmarks/artifacts/mutation-trend.ci.json
             runtime/benchmarks/artifacts/pipeline-quality.ci.json
+            runtime/benchmarks/artifacts/background-run-quality.ci.json
             runtime/benchmarks/artifacts/delegation-benchmark.latest.json
             runtime/benchmarks/artifacts/delegation-quality.ci.json
 
@@ -255,6 +264,11 @@ jobs:
         run: |
           npx tsx runtime/scripts/run-pipeline-quality.ts \
             --output runtime/benchmarks/artifacts/nightly-pipeline-quality.json
+
+      - name: Run nightly background-run quality suite
+        run: |
+          npx tsx runtime/scripts/run-background-run-quality.ts \
+            --output runtime/benchmarks/artifacts/nightly-background-run-quality.json
 
       - name: Run nightly decomposition delegation benchmark suite
         run: |
@@ -341,6 +355,12 @@ jobs:
             --fail-fast-runaway-cap-hit-rate "${PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE}" \
             --dry-run
 
+      - name: Nightly background-run gate report (dry-run)
+        run: |
+          npx tsx runtime/scripts/check-background-run-gates.ts \
+            --artifact runtime/benchmarks/artifacts/nightly-background-run-quality.json \
+            --dry-run
+
       - name: Upload nightly reliability artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -351,5 +371,6 @@ jobs:
             runtime/benchmarks/artifacts/nightly-mutation.json
             runtime/benchmarks/artifacts/nightly-mutation-trend.json
             runtime/benchmarks/artifacts/nightly-pipeline-quality.json
+            runtime/benchmarks/artifacts/nightly-background-run-quality.json
             runtime/benchmarks/artifacts/nightly-delegation-benchmark.json
             runtime/benchmarks/artifacts/nightly-delegation-quality.json

@@ -1,5 +1,6 @@
 import type { LLMMessage } from "../llm/types.js";
 import type { MemoryBackend, MemoryEntry } from "../memory/types.js";
+import type { PolicyEvaluationScope } from "../policy/types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { KeyedAsyncQueue } from "../utils/keyed-async-queue.js";
@@ -24,20 +25,38 @@ const BACKGROUND_RUN_RECENT_KEY_PREFIX = "background-run:recent:session:";
 const BACKGROUND_RUN_EVENT_SESSION_PREFIX = "background-run:";
 const BACKGROUND_RUN_CORRUPT_KEY_PREFIX = "background-run:corrupt:";
 const BACKGROUND_RUN_WAKE_QUEUE_KEY_PREFIX = "background-run:wake-queue:session:";
+const BACKGROUND_RUN_DISPATCH_QUEUE_KEY = "background-run:dispatch-queue";
+const BACKGROUND_RUN_DISPATCH_BEACON_KEY = "background-run:dispatch-beacon";
+const BACKGROUND_RUN_WORKER_REGISTRY_KEY = "background-run:workers";
+const BACKGROUND_RUN_DISPATCH_LOCK_KEY = "__background-run-dispatch__";
+const BACKGROUND_RUN_WORKER_REGISTRY_LOCK_KEY = "__background-run-workers__";
 const DEFAULT_LEASE_DURATION_MS = 45_000;
+const DEFAULT_DISPATCH_CLAIM_DURATION_MS = 45_000;
 export const DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS = 7 * 24 * 60 * 60_000;
 export const DEFAULT_BACKGROUND_RUN_MAX_CYCLES = 512;
 export const DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS = 60 * 60_000;
 const DEFAULT_TERMINAL_SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_CORRUPT_RECORD_RETENTION_MS = 3 * 24 * 60 * 60_000;
 const DEFAULT_WAKE_DEAD_LETTER_RETENTION_MS = 3 * 24 * 60 * 60_000;
+const DEFAULT_DISPATCH_DEAD_LETTER_RETENTION_MS = 3 * 24 * 60 * 60_000;
 const DEFAULT_WAKE_EVENT_MAX_DELIVERY_ATTEMPTS = 3;
 const DEFAULT_WAKE_QUEUE_MAX_EVENTS = 256;
+const DEFAULT_DISPATCH_QUEUE_MAX_ITEMS = 512;
+const DEFAULT_WORKER_HEARTBEAT_TTL_MS = 20_000;
 
 export type BackgroundRunKind = AgentRunKind;
 export type BackgroundRunState = AgentRunState;
 export type BackgroundRunContract = AgentRunContract;
 export type BackgroundRunManagedProcessPolicy = AgentRunManagedProcessPolicy;
+
+export type BackgroundRunWorkerPool =
+  | "generic"
+  | "browser"
+  | "desktop"
+  | "code"
+  | "research"
+  | "approval"
+  | "remote_mcp";
 
 export interface BackgroundRunManagedProcessLaunchSpec {
   readonly command: string;
@@ -207,11 +226,17 @@ export interface BackgroundRunBudgetState {
   readonly runtimeStartedAt: number;
   readonly lastActivityAt: number;
   readonly lastProgressAt: number;
+  readonly totalTokens: number;
+  readonly lastCycleTokens: number;
+  readonly managedProcessCount: number;
   readonly maxRuntimeMs: number;
   readonly maxCycles: number;
   readonly maxIdleMs?: number;
   readonly nextCheckIntervalMs: number;
   readonly heartbeatIntervalMs?: number;
+  readonly firstAcknowledgedAt?: number;
+  readonly firstVerifiedUpdateAt?: number;
+  readonly stopRequestedAt?: number;
 }
 
 export interface BackgroundRunCompactionState {
@@ -230,6 +255,7 @@ export interface BackgroundRunRecentSnapshot {
   readonly runId: string;
   readonly sessionId: string;
   readonly objective: string;
+  readonly policyScope?: PolicyEvaluationScope;
   readonly state: BackgroundRunState;
   readonly contractKind: BackgroundRunKind;
   readonly requiresUserStop: boolean;
@@ -247,6 +273,8 @@ export interface BackgroundRunRecentSnapshot {
   readonly blockerSummary?: string;
   readonly watchCount: number;
   readonly fenceToken: number;
+  readonly preferredWorkerId?: string;
+  readonly workerAffinityKey?: string;
 }
 
 export interface PersistedBackgroundRun {
@@ -254,6 +282,7 @@ export interface PersistedBackgroundRun {
   readonly id: string;
   readonly sessionId: string;
   readonly objective: string;
+  readonly policyScope?: PolicyEvaluationScope;
   readonly contract: BackgroundRunContract;
   readonly state: BackgroundRunState;
   readonly createdAt: number;
@@ -278,12 +307,99 @@ export interface PersistedBackgroundRun {
   readonly watchRegistrations: readonly BackgroundRunWatchRegistration[];
   readonly internalHistory: readonly LLMMessage[];
   readonly fenceToken: number;
+  readonly preferredWorkerId?: string;
+  readonly workerAffinityKey?: string;
   readonly leaseOwnerId?: string;
   readonly leaseExpiresAt?: number;
 }
 
+export interface BackgroundRunDispatchItem {
+  readonly version: typeof AGENT_RUN_SCHEMA_VERSION;
+  readonly id: string;
+  readonly sessionId: string;
+  readonly runId?: string;
+  readonly pool: BackgroundRunWorkerPool;
+  readonly reason:
+    | BackgroundRunWakeReason
+    | "resume"
+    | "heartbeat"
+    | "recovery"
+    | "admission_retry";
+  readonly priority: number;
+  readonly enqueuedAt: number;
+  readonly availableAt: number;
+  readonly sequence: number;
+  readonly deliveryCount: number;
+  readonly maxDeliveryAttempts: number;
+  readonly dedupeKey?: string;
+  readonly preferredWorkerId?: string;
+  readonly affinityKey?: string;
+  readonly claimOwnerId?: string;
+  readonly claimExpiresAt?: number;
+  readonly data?: Record<string, unknown>;
+}
+
+export interface BackgroundRunDispatchDeadLetter {
+  readonly item: BackgroundRunDispatchItem;
+  readonly failedAt: number;
+  readonly reason: string;
+}
+
+export interface PersistedBackgroundRunDispatchQueue {
+  readonly version: typeof AGENT_RUN_SCHEMA_VERSION;
+  readonly nextSequence: number;
+  readonly updatedAt: number;
+  readonly items: readonly BackgroundRunDispatchItem[];
+  readonly deadLetters: readonly BackgroundRunDispatchDeadLetter[];
+}
+
+export interface PersistedBackgroundRunDispatchBeacon {
+  readonly version: typeof AGENT_RUN_SCHEMA_VERSION;
+  readonly revision: number;
+  readonly updatedAt: number;
+  readonly queueDepth: number;
+  readonly nextAvailableAt?: number;
+}
+
+export interface BackgroundRunWorkerRecord {
+  readonly version: typeof AGENT_RUN_SCHEMA_VERSION;
+  readonly workerId: string;
+  readonly pools: readonly BackgroundRunWorkerPool[];
+  readonly state: "active" | "draining";
+  readonly registeredAt: number;
+  readonly lastHeartbeatAt: number;
+  readonly heartbeatTtlMs: number;
+  readonly maxConcurrentRuns: number;
+  readonly inFlightRuns: number;
+  readonly currentSessionIds: readonly string[];
+  readonly affinityKeys: readonly string[];
+}
+
+export interface PersistedBackgroundRunWorkerRegistry {
+  readonly version: typeof AGENT_RUN_SCHEMA_VERSION;
+  readonly updatedAt: number;
+  readonly workers: readonly BackgroundRunWorkerRecord[];
+}
+
+export type BackgroundRunEventType =
+  | "run_recovered"
+  | "run_started"
+  | "run_signalled"
+  | "run_paused"
+  | "run_resumed"
+  | "run_cancelled"
+  | "run_suspended"
+  | "cycle_started"
+  | "cycle_working"
+  | "decision"
+  | "memory_compacted"
+  | "user_update"
+  | "run_blocked"
+  | "run_completed"
+  | "run_failed";
+
 export interface BackgroundRunEvent {
-  readonly type: string;
+  readonly type: BackgroundRunEventType;
   readonly summary: string;
   readonly timestamp: number;
   readonly data?: Record<string, unknown>;
@@ -299,6 +415,7 @@ export interface BackgroundRunGarbageCollectOptions {
   readonly terminalSnapshotRetentionMs?: number;
   readonly corruptRecordRetentionMs?: number;
   readonly wakeDeadLetterRetentionMs?: number;
+  readonly dispatchDeadLetterRetentionMs?: number;
 }
 
 export interface BackgroundRunGarbageCollectResult {
@@ -306,6 +423,9 @@ export interface BackgroundRunGarbageCollectResult {
   readonly deletedTerminalSnapshots: number;
   readonly deletedCorruptRecords: number;
   readonly deletedWakeDeadLetters: number;
+  readonly deletedDispatchDeadLetters: number;
+  readonly deletedStaleWorkers: number;
+  readonly releasedExpiredDispatchClaims: number;
 }
 
 export interface EnqueueBackgroundRunWakeEventParams {
@@ -329,10 +449,45 @@ export interface DequeueBackgroundRunWakeEventsResult {
   readonly nextAvailableAt?: number;
 }
 
+export interface EnqueueBackgroundRunDispatchParams {
+  readonly sessionId: string;
+  readonly runId?: string;
+  readonly pool: BackgroundRunWorkerPool;
+  readonly reason:
+    | BackgroundRunWakeReason
+    | "resume"
+    | "heartbeat"
+    | "recovery"
+    | "admission_retry";
+  readonly createdAt?: number;
+  readonly availableAt?: number;
+  readonly priority?: number;
+  readonly maxDeliveryAttempts?: number;
+  readonly dedupeKey?: string;
+  readonly preferredWorkerId?: string;
+  readonly affinityKey?: string;
+  readonly data?: Record<string, unknown>;
+}
+
+export interface BackgroundRunDispatchClaimResult {
+  readonly claimed: boolean;
+  readonly item?: BackgroundRunDispatchItem;
+  readonly queueDepth: number;
+}
+
+export interface BackgroundRunDispatchStats {
+  readonly totalQueued: number;
+  readonly totalClaimed: number;
+  readonly queuedByPool: Record<BackgroundRunWorkerPool, number>;
+  readonly claimedByPool: Record<BackgroundRunWorkerPool, number>;
+}
+
 export interface BackgroundRunStoreConfig {
   readonly memoryBackend: MemoryBackend;
   readonly logger?: Logger;
   readonly leaseDurationMs?: number;
+  readonly dispatchClaimDurationMs?: number;
+  readonly workerHeartbeatTtlMs?: number;
 }
 
 function cloneJson<T>(value: T): T {
@@ -443,6 +598,18 @@ function isWakeEventDomain(value: unknown): value is BackgroundRunWakeEvent["dom
   );
 }
 
+function isBackgroundRunWorkerPool(value: unknown): value is BackgroundRunWorkerPool {
+  return (
+    value === "generic" ||
+    value === "browser" ||
+    value === "desktop" ||
+    value === "code" ||
+    value === "research" ||
+    value === "approval" ||
+    value === "remote_mcp"
+  );
+}
+
 function wakeEventPriority(
   event: Pick<BackgroundRunWakeEvent, "domain">,
 ): number {
@@ -471,6 +638,108 @@ function compareWakeEvents(
   return (
     left.availableAt - right.availableAt ||
     wakeEventPriority(left) - wakeEventPriority(right) ||
+    left.sequence - right.sequence
+  );
+}
+
+function buildDefaultDispatchQueue(now: number): PersistedBackgroundRunDispatchQueue {
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    nextSequence: 0,
+    updatedAt: now,
+    items: [],
+    deadLetters: [],
+  };
+}
+
+function buildDispatchBeacon(
+  queue: PersistedBackgroundRunDispatchQueue,
+  revision: number,
+): PersistedBackgroundRunDispatchBeacon {
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    revision,
+    updatedAt: queue.updatedAt,
+    queueDepth: queue.items.length,
+    nextAvailableAt: queue.items[0]?.availableAt,
+  };
+}
+
+function buildDefaultDispatchBeacon(now: number): PersistedBackgroundRunDispatchBeacon {
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    revision: 0,
+    updatedAt: now,
+    queueDepth: 0,
+  };
+}
+
+function buildDefaultWorkerRegistry(now: number): PersistedBackgroundRunWorkerRegistry {
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    updatedAt: now,
+    workers: [],
+  };
+}
+
+function buildActiveWorkerMap(
+  registry: PersistedBackgroundRunWorkerRegistry,
+  now: number,
+): ReadonlyMap<string, BackgroundRunWorkerRecord> {
+  return new Map(
+    registry.workers
+      .filter(
+        (entry) =>
+          entry.state === "active" &&
+          entry.lastHeartbeatAt + entry.heartbeatTtlMs > now,
+      )
+      .map((entry) => [entry.workerId, entry] as const),
+  );
+}
+
+function dispatchPriority(
+  item: Pick<BackgroundRunDispatchItem, "reason" | "priority">,
+): number {
+  switch (item.reason) {
+    case "approval":
+      return 0;
+    case "resume":
+      return 1;
+    case "user_input":
+      return 2;
+    case "process_exit":
+      return 3;
+    case "tool_result":
+      return 4;
+    case "webhook":
+      return 5;
+    case "external_event":
+      return 6;
+    case "heartbeat":
+      return 7;
+    case "start":
+      return 8;
+    case "recovery":
+      return 9;
+    case "timer":
+      return 10;
+    case "busy_retry":
+      return 11;
+    case "admission_retry":
+      return 12;
+    case "daemon_shutdown":
+      return 13;
+  }
+}
+
+function compareDispatchItems(
+  left: BackgroundRunDispatchItem,
+  right: BackgroundRunDispatchItem,
+): number {
+  return (
+    left.availableAt - right.availableAt ||
+    dispatchPriority(left) - dispatchPriority(right) ||
+    left.priority - right.priority ||
     left.sequence - right.sequence
   );
 }
@@ -580,6 +849,201 @@ function coerceWakeQueue(
       typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
     events,
     deadLetters,
+  };
+}
+
+function coerceDispatchItem(value: unknown): BackgroundRunDispatchItem | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const reason = raw.reason;
+  if (
+    (raw.version !== 1 && raw.version !== AGENT_RUN_SCHEMA_VERSION) ||
+    typeof raw.id !== "string" ||
+    typeof raw.sessionId !== "string" ||
+    typeof raw.sequence !== "number" ||
+    typeof raw.enqueuedAt !== "number" ||
+    typeof raw.availableAt !== "number" ||
+    typeof raw.deliveryCount !== "number" ||
+    typeof raw.priority !== "number" ||
+    !isBackgroundRunWorkerPool(raw.pool) ||
+    !(
+      isAgentRunWakeReason(reason) ||
+      reason === "resume" ||
+      reason === "heartbeat" ||
+      reason === "recovery" ||
+      reason === "admission_retry"
+    )
+  ) {
+    return undefined;
+  }
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    id: raw.id,
+    sessionId: raw.sessionId,
+    runId: typeof raw.runId === "string" ? raw.runId : undefined,
+    pool: raw.pool,
+    reason,
+    priority: raw.priority,
+    enqueuedAt: raw.enqueuedAt,
+    availableAt: raw.availableAt,
+    sequence: raw.sequence,
+    deliveryCount: raw.deliveryCount,
+    maxDeliveryAttempts:
+      coercePositiveInteger(raw.maxDeliveryAttempts) ??
+      DEFAULT_WAKE_EVENT_MAX_DELIVERY_ATTEMPTS,
+    dedupeKey: typeof raw.dedupeKey === "string" ? raw.dedupeKey : undefined,
+    preferredWorkerId:
+      typeof raw.preferredWorkerId === "string"
+        ? raw.preferredWorkerId
+        : undefined,
+    affinityKey:
+      typeof raw.affinityKey === "string" ? raw.affinityKey : undefined,
+    claimOwnerId:
+      typeof raw.claimOwnerId === "string" ? raw.claimOwnerId : undefined,
+    claimExpiresAt:
+      typeof raw.claimExpiresAt === "number" ? raw.claimExpiresAt : undefined,
+    data:
+      raw.data && typeof raw.data === "object" && !Array.isArray(raw.data)
+        ? cloneJson(raw.data as Record<string, unknown>)
+        : undefined,
+  };
+}
+
+function coerceDispatchDeadLetter(
+  value: unknown,
+): BackgroundRunDispatchDeadLetter | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const item = coerceDispatchItem(raw.item);
+  if (!item || typeof raw.failedAt !== "number" || typeof raw.reason !== "string") {
+    return undefined;
+  }
+  return {
+    item,
+    failedAt: raw.failedAt,
+    reason: raw.reason,
+  };
+}
+
+function coerceDispatchQueue(
+  value: unknown,
+): PersistedBackgroundRunDispatchQueue | undefined {
+  if (value === undefined) {
+    return buildDefaultDispatchQueue(Date.now());
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (
+    (raw.version !== 1 && raw.version !== AGENT_RUN_SCHEMA_VERSION) ||
+    typeof raw.nextSequence !== "number" ||
+    typeof raw.updatedAt !== "number"
+  ) {
+    return undefined;
+  }
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    nextSequence: raw.nextSequence,
+    updatedAt: raw.updatedAt,
+    items: Array.isArray(raw.items)
+      ? raw.items
+          .map((item) => coerceDispatchItem(item))
+          .filter((item): item is BackgroundRunDispatchItem => item !== undefined)
+          .sort(compareDispatchItems)
+      : [],
+    deadLetters: Array.isArray(raw.deadLetters)
+      ? raw.deadLetters
+          .map((item) => coerceDispatchDeadLetter(item))
+          .filter(
+            (item): item is BackgroundRunDispatchDeadLetter => item !== undefined,
+          )
+      : [],
+  };
+}
+
+function coerceDispatchBeacon(
+  value: unknown,
+): PersistedBackgroundRunDispatchBeacon | undefined {
+  if (value === undefined) {
+    return buildDefaultDispatchBeacon(Date.now());
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (
+    (raw.version !== 1 && raw.version !== AGENT_RUN_SCHEMA_VERSION) ||
+    typeof raw.revision !== "number" ||
+    typeof raw.updatedAt !== "number" ||
+    typeof raw.queueDepth !== "number"
+  ) {
+    return undefined;
+  }
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    revision: raw.revision,
+    updatedAt: raw.updatedAt,
+    queueDepth: raw.queueDepth,
+    nextAvailableAt:
+      typeof raw.nextAvailableAt === "number" ? raw.nextAvailableAt : undefined,
+  };
+}
+
+function coerceWorkerRecord(value: unknown): BackgroundRunWorkerRecord | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (
+    (raw.version !== 1 && raw.version !== AGENT_RUN_SCHEMA_VERSION) ||
+    typeof raw.workerId !== "string" ||
+    (raw.state !== "active" && raw.state !== "draining") ||
+    typeof raw.registeredAt !== "number" ||
+    typeof raw.lastHeartbeatAt !== "number"
+  ) {
+    return undefined;
+  }
+  const pools = Array.isArray(raw.pools)
+    ? raw.pools.filter((pool): pool is BackgroundRunWorkerPool =>
+        isBackgroundRunWorkerPool(pool),
+      )
+    : [];
+  if (pools.length === 0) {
+    return undefined;
+  }
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    workerId: raw.workerId,
+    pools,
+    state: raw.state,
+    registeredAt: raw.registeredAt,
+    lastHeartbeatAt: raw.lastHeartbeatAt,
+    heartbeatTtlMs:
+      coercePositiveInteger(raw.heartbeatTtlMs) ?? DEFAULT_WORKER_HEARTBEAT_TTL_MS,
+    maxConcurrentRuns: coercePositiveInteger(raw.maxConcurrentRuns) ?? 1,
+    inFlightRuns: coerceNonNegativeInteger(raw.inFlightRuns) ?? 0,
+    currentSessionIds: normalizeStringArray(raw.currentSessionIds),
+    affinityKeys: normalizeStringArray(raw.affinityKeys),
+  };
+}
+
+function coerceWorkerRegistry(
+  value: unknown,
+): PersistedBackgroundRunWorkerRegistry | undefined {
+  if (value === undefined) {
+    return buildDefaultWorkerRegistry(Date.now());
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (
+    (raw.version !== 1 && raw.version !== AGENT_RUN_SCHEMA_VERSION) ||
+    typeof raw.updatedAt !== "number"
+  ) {
+    return undefined;
+  }
+  return {
+    version: AGENT_RUN_SCHEMA_VERSION,
+    updatedAt: raw.updatedAt,
+    workers: Array.isArray(raw.workers)
+      ? raw.workers
+          .map((item) => coerceWorkerRecord(item))
+          .filter((item): item is BackgroundRunWorkerRecord => item !== undefined)
+      : [],
   };
 }
 
@@ -797,6 +1261,9 @@ function buildDefaultBudgetState(params: {
     runtimeStartedAt: params.createdAt,
     lastActivityAt: params.updatedAt,
     lastProgressAt: params.updatedAt,
+    totalTokens: 0,
+    lastCycleTokens: 0,
+    managedProcessCount: 0,
     maxRuntimeMs: DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
     maxCycles: DEFAULT_BACKGROUND_RUN_MAX_CYCLES,
     maxIdleMs: params.contract.requiresUserStop ? undefined : DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
@@ -927,6 +1394,13 @@ function coerceBudgetState(
       typeof raw.lastProgressAt === "number"
         ? raw.lastProgressAt
         : defaults.lastProgressAt,
+    totalTokens:
+      coerceNonNegativeInteger(raw.totalTokens) ?? defaults.totalTokens,
+    lastCycleTokens:
+      coerceNonNegativeInteger(raw.lastCycleTokens) ?? defaults.lastCycleTokens,
+    managedProcessCount:
+      coerceNonNegativeInteger(raw.managedProcessCount) ??
+      defaults.managedProcessCount,
     maxRuntimeMs:
       coercePositiveInteger(raw.maxRuntimeMs) ?? defaults.maxRuntimeMs,
     maxCycles:
@@ -939,6 +1413,57 @@ function coerceBudgetState(
     heartbeatIntervalMs:
       coercePositiveInteger(raw.heartbeatIntervalMs) ??
       defaults.heartbeatIntervalMs,
+    firstAcknowledgedAt:
+      typeof raw.firstAcknowledgedAt === "number"
+        ? raw.firstAcknowledgedAt
+        : defaults.firstAcknowledgedAt,
+    firstVerifiedUpdateAt:
+      typeof raw.firstVerifiedUpdateAt === "number"
+        ? raw.firstVerifiedUpdateAt
+        : defaults.firstVerifiedUpdateAt,
+    stopRequestedAt:
+      typeof raw.stopRequestedAt === "number"
+        ? raw.stopRequestedAt
+        : defaults.stopRequestedAt,
+  };
+}
+
+function coercePolicyScope(
+  value: unknown,
+): PolicyEvaluationScope | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  const tenantId =
+    typeof raw.tenantId === "string" && raw.tenantId.trim().length > 0
+      ? raw.tenantId.trim()
+      : undefined;
+  const projectId =
+    typeof raw.projectId === "string" && raw.projectId.trim().length > 0
+      ? raw.projectId.trim()
+      : undefined;
+  const runId =
+    typeof raw.runId === "string" && raw.runId.trim().length > 0
+      ? raw.runId.trim()
+      : undefined;
+  const sessionId =
+    typeof raw.sessionId === "string" && raw.sessionId.trim().length > 0
+      ? raw.sessionId.trim()
+      : undefined;
+  const channel =
+    typeof raw.channel === "string" && raw.channel.trim().length > 0
+      ? raw.channel.trim()
+      : undefined;
+  if (!tenantId && !projectId && !runId && !sessionId && !channel) {
+    return undefined;
+  }
+  return {
+    ...(tenantId ? { tenantId } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(channel ? { channel } : {}),
   };
 }
 
@@ -1008,6 +1533,7 @@ function coerceRecentSnapshot(
     runId: raw.runId,
     sessionId: raw.sessionId,
     objective: raw.objective,
+    policyScope: coercePolicyScope(raw.policyScope),
     state,
     contractKind,
     requiresUserStop: raw.requiresUserStop,
@@ -1041,6 +1567,14 @@ function coerceRecentSnapshot(
       coerceNonNegativeInteger(raw.watchCount) ?? 0,
     fenceToken:
       coercePositiveInteger(raw.fenceToken) ?? 1,
+    preferredWorkerId:
+      typeof raw.preferredWorkerId === "string"
+        ? raw.preferredWorkerId
+        : undefined,
+    workerAffinityKey:
+      typeof raw.workerAffinityKey === "string"
+        ? raw.workerAffinityKey
+        : undefined,
   };
 }
 
@@ -1243,6 +1777,7 @@ function coerceRun(value: unknown): PersistedBackgroundRun | undefined {
   const id = raw.id as string;
   const sessionId = raw.sessionId as string;
   const objective = raw.objective as string;
+  const policyScope = coercePolicyScope(raw.policyScope);
   const state = raw.state as BackgroundRunState;
   const createdAt = raw.createdAt as number;
   const updatedAt = raw.updatedAt as number;
@@ -1260,6 +1795,7 @@ function coerceRun(value: unknown): PersistedBackgroundRun | undefined {
     id,
     sessionId,
     objective,
+    policyScope,
     contract,
     state,
     createdAt,
@@ -1297,6 +1833,14 @@ function coerceRun(value: unknown): PersistedBackgroundRun | undefined {
     watchRegistrations: durableState.watchRegistrations,
     internalHistory: cloneJson(raw.internalHistory as readonly LLMMessage[]),
     fenceToken: durableState.fenceToken,
+    preferredWorkerId:
+      typeof raw.preferredWorkerId === "string"
+        ? raw.preferredWorkerId
+        : undefined,
+    workerAffinityKey:
+      typeof raw.workerAffinityKey === "string"
+        ? raw.workerAffinityKey
+        : undefined,
     leaseOwnerId:
       typeof raw.leaseOwnerId === "string" ? raw.leaseOwnerId : undefined,
     leaseExpiresAt:
@@ -1308,12 +1852,18 @@ export class BackgroundRunStore {
   private readonly memoryBackend: MemoryBackend;
   private readonly logger: Logger;
   private readonly leaseDurationMs: number;
+  private readonly dispatchClaimDurationMs: number;
+  private readonly workerHeartbeatTtlMs: number;
   private readonly queue: KeyedAsyncQueue;
 
   constructor(config: BackgroundRunStoreConfig) {
     this.memoryBackend = config.memoryBackend;
     this.logger = config.logger ?? silentLogger;
     this.leaseDurationMs = config.leaseDurationMs ?? DEFAULT_LEASE_DURATION_MS;
+    this.dispatchClaimDurationMs =
+      config.dispatchClaimDurationMs ?? DEFAULT_DISPATCH_CLAIM_DURATION_MS;
+    this.workerHeartbeatTtlMs =
+      config.workerHeartbeatTtlMs ?? DEFAULT_WORKER_HEARTBEAT_TTL_MS;
     this.queue = new KeyedAsyncQueue({
       logger: this.logger,
       label: "Background run store",
@@ -1326,6 +1876,18 @@ export class BackgroundRunStore {
 
   private async loadRawWakeQueue(sessionId: string): Promise<unknown> {
     return this.memoryBackend.get(backgroundRunWakeQueueKey(sessionId));
+  }
+
+  private async loadRawDispatchQueue(): Promise<unknown> {
+    return this.memoryBackend.get(BACKGROUND_RUN_DISPATCH_QUEUE_KEY);
+  }
+
+  private async loadRawDispatchBeacon(): Promise<unknown> {
+    return this.memoryBackend.get(BACKGROUND_RUN_DISPATCH_BEACON_KEY);
+  }
+
+  private async loadRawWorkerRegistry(): Promise<unknown> {
+    return this.memoryBackend.get(BACKGROUND_RUN_WORKER_REGISTRY_KEY);
   }
 
   private async quarantineCorruptRun(
@@ -1390,6 +1952,21 @@ export class BackgroundRunStore {
       await this.memoryBackend.delete(backgroundRunKey(sessionId));
       await this.memoryBackend.delete(backgroundRunWakeQueueKey(sessionId));
     });
+    await this.queue.run(BACKGROUND_RUN_DISPATCH_LOCK_KEY, async () => {
+      const queue = await this.loadDispatchQueue();
+      const items = queue.items.filter((item) => item.sessionId !== sessionId);
+      if (items.length === queue.items.length) {
+        return;
+      }
+      await this.memoryBackend.set(
+        BACKGROUND_RUN_DISPATCH_QUEUE_KEY,
+        cloneJson({
+          ...queue,
+          updatedAt: Date.now(),
+          items,
+        } satisfies PersistedBackgroundRunDispatchQueue),
+      );
+    });
   }
 
   async saveRecentSnapshot(snapshot: BackgroundRunRecentSnapshot): Promise<void> {
@@ -1410,6 +1987,19 @@ export class BackgroundRunStore {
   ): Promise<BackgroundRunRecentSnapshot | undefined> {
     const value = await this.memoryBackend.get(backgroundRunRecentKey(sessionId));
     return coerceRecentSnapshot(value);
+  }
+
+  async listRecentSnapshots(): Promise<readonly BackgroundRunRecentSnapshot[]> {
+    const keys = await this.memoryBackend.listKeys(BACKGROUND_RUN_RECENT_KEY_PREFIX);
+    const snapshots = await Promise.all(
+      keys.map(async (key) => {
+        const value = await this.memoryBackend.get(key);
+        return coerceRecentSnapshot(value);
+      }),
+    );
+    return snapshots
+      .filter((snapshot): snapshot is BackgroundRunRecentSnapshot => snapshot !== undefined)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
   }
 
   async listRuns(): Promise<readonly PersistedBackgroundRun[]> {
@@ -1694,6 +2284,460 @@ export class BackgroundRunStore {
     });
   }
 
+  async loadDispatchQueue(): Promise<PersistedBackgroundRunDispatchQueue> {
+    const value = await this.loadRawDispatchQueue();
+    const queue = coerceDispatchQueue(value);
+    if (!queue) {
+      const rawValue = await this.loadRawDispatchQueue();
+      const fallback = buildDefaultDispatchQueue(Date.now());
+      await this.saveDispatchQueueAndBeacon(fallback, 0);
+      this.logger.warn("Reset invalid background dispatch queue", {
+        hadRawValue: rawValue !== undefined,
+      });
+      return fallback;
+    }
+    return queue;
+  }
+
+  async loadDispatchBeacon(): Promise<PersistedBackgroundRunDispatchBeacon> {
+    const value = await this.loadRawDispatchBeacon();
+    const beacon = coerceDispatchBeacon(value);
+    if (!beacon) {
+      const fallbackQueue = await this.loadDispatchQueue();
+      const fallback = buildDispatchBeacon(fallbackQueue, 0);
+      await this.memoryBackend.set(
+        BACKGROUND_RUN_DISPATCH_BEACON_KEY,
+        cloneJson(fallback),
+      );
+      this.logger.warn("Reset invalid background dispatch beacon", {
+        hadRawValue: value !== undefined,
+      });
+      return fallback;
+    }
+    return beacon;
+  }
+
+  private async saveDispatchQueueAndBeacon(
+    queue: PersistedBackgroundRunDispatchQueue,
+    previousRevision?: number,
+  ): Promise<PersistedBackgroundRunDispatchBeacon> {
+    const currentBeacon =
+      previousRevision !== undefined
+        ? undefined
+        : coerceDispatchBeacon(await this.loadRawDispatchBeacon());
+    const revision = (previousRevision ?? currentBeacon?.revision ?? 0) + 1;
+    const beacon = buildDispatchBeacon(queue, revision);
+    await this.memoryBackend.set(
+      BACKGROUND_RUN_DISPATCH_QUEUE_KEY,
+      cloneJson(queue),
+    );
+    await this.memoryBackend.set(
+      BACKGROUND_RUN_DISPATCH_BEACON_KEY,
+      cloneJson(beacon),
+    );
+    return beacon;
+  }
+
+  async loadWorkerRegistry(): Promise<PersistedBackgroundRunWorkerRegistry> {
+    const value = await this.loadRawWorkerRegistry();
+    const registry = coerceWorkerRegistry(value);
+    if (!registry) {
+      const rawValue = await this.loadRawWorkerRegistry();
+      await this.memoryBackend.set(
+        BACKGROUND_RUN_WORKER_REGISTRY_KEY,
+        buildDefaultWorkerRegistry(Date.now()),
+      );
+      this.logger.warn("Reset invalid background worker registry", {
+        hadRawValue: rawValue !== undefined,
+      });
+      return buildDefaultWorkerRegistry(Date.now());
+    }
+    return registry;
+  }
+
+  async listWorkers(): Promise<readonly BackgroundRunWorkerRecord[]> {
+    const registry = await this.loadWorkerRegistry();
+    return registry.workers;
+  }
+
+  async heartbeatWorker(params: {
+    workerId: string;
+    pools: readonly BackgroundRunWorkerPool[];
+    maxConcurrentRuns: number;
+    state?: BackgroundRunWorkerRecord["state"];
+    currentSessionIds?: readonly string[];
+    affinityKeys?: readonly string[];
+    now?: number;
+  }): Promise<BackgroundRunWorkerRecord> {
+    const now = params.now ?? Date.now();
+    return this.queue.run(BACKGROUND_RUN_WORKER_REGISTRY_LOCK_KEY, async () => {
+      const registry = await this.loadWorkerRegistry();
+      const nextWorker: BackgroundRunWorkerRecord = {
+        version: AGENT_RUN_SCHEMA_VERSION,
+        workerId: params.workerId,
+        pools: [...new Set(params.pools)].filter(isBackgroundRunWorkerPool),
+        state: params.state ?? "active",
+        registeredAt:
+          registry.workers.find((worker) => worker.workerId === params.workerId)?.registeredAt ??
+          now,
+        lastHeartbeatAt: now,
+        heartbeatTtlMs: this.workerHeartbeatTtlMs,
+        maxConcurrentRuns: Math.max(1, Math.floor(params.maxConcurrentRuns)),
+        inFlightRuns: params.currentSessionIds?.length ?? 0,
+        currentSessionIds: params.currentSessionIds ? [...params.currentSessionIds] : [],
+        affinityKeys: params.affinityKeys ? [...new Set(params.affinityKeys)] : [],
+      };
+      const workers = registry.workers.filter(
+        (worker) => worker.workerId !== params.workerId,
+      );
+      workers.push(nextWorker);
+      const nextRegistry: PersistedBackgroundRunWorkerRegistry = {
+        version: AGENT_RUN_SCHEMA_VERSION,
+        updatedAt: now,
+        workers,
+      };
+      await this.memoryBackend.set(
+        BACKGROUND_RUN_WORKER_REGISTRY_KEY,
+        cloneJson(nextRegistry),
+      );
+      return nextWorker;
+    });
+  }
+
+  async setWorkerDrainState(params: {
+    workerId: string;
+    draining: boolean;
+    now?: number;
+  }): Promise<BackgroundRunWorkerRecord | undefined> {
+    const now = params.now ?? Date.now();
+    return this.queue.run(BACKGROUND_RUN_WORKER_REGISTRY_LOCK_KEY, async () => {
+      const registry = await this.loadWorkerRegistry();
+      const existing = registry.workers.find(
+        (worker) => worker.workerId === params.workerId,
+      );
+      if (!existing) {
+        return undefined;
+      }
+      const nextWorker: BackgroundRunWorkerRecord = {
+        ...existing,
+        state: params.draining ? "draining" : "active",
+        lastHeartbeatAt: now,
+      };
+      const workers = registry.workers.map((worker) =>
+        worker.workerId === params.workerId ? nextWorker : worker,
+      );
+      await this.memoryBackend.set(
+        BACKGROUND_RUN_WORKER_REGISTRY_KEY,
+        cloneJson({
+          version: AGENT_RUN_SCHEMA_VERSION,
+          updatedAt: now,
+          workers,
+        } satisfies PersistedBackgroundRunWorkerRegistry),
+      );
+      return nextWorker;
+    });
+  }
+
+  async removeWorker(workerId: string): Promise<void> {
+    await this.queue.run(BACKGROUND_RUN_WORKER_REGISTRY_LOCK_KEY, async () => {
+      const registry = await this.loadWorkerRegistry();
+      const workers = registry.workers.filter((worker) => worker.workerId !== workerId);
+      await this.memoryBackend.set(
+        BACKGROUND_RUN_WORKER_REGISTRY_KEY,
+        cloneJson({
+          version: AGENT_RUN_SCHEMA_VERSION,
+          updatedAt: Date.now(),
+          workers,
+        } satisfies PersistedBackgroundRunWorkerRegistry),
+      );
+    });
+  }
+
+  async enqueueDispatch(
+    params: EnqueueBackgroundRunDispatchParams,
+  ): Promise<BackgroundRunDispatchItem> {
+    const createdAt = params.createdAt ?? Date.now();
+    const availableAt = params.availableAt ?? createdAt;
+    return this.queue.run(BACKGROUND_RUN_DISPATCH_LOCK_KEY, async () => {
+      const currentQueue = await this.loadDispatchQueue();
+      const existingIndex =
+        params.dedupeKey !== undefined
+          ? currentQueue.items.findIndex((item) => item.dedupeKey === params.dedupeKey)
+          : -1;
+      const nextItem: BackgroundRunDispatchItem = {
+        version: AGENT_RUN_SCHEMA_VERSION,
+        id:
+          existingIndex >= 0
+            ? currentQueue.items[existingIndex]!.id
+            : `dispatch-${createdAt.toString(36)}-${currentQueue.nextSequence.toString(36)}`,
+        sessionId: params.sessionId,
+        runId: params.runId,
+        pool: params.pool,
+        reason: params.reason,
+        priority: params.priority ?? 0,
+        enqueuedAt:
+          existingIndex >= 0
+            ? currentQueue.items[existingIndex]!.enqueuedAt
+            : createdAt,
+        availableAt,
+        sequence:
+          existingIndex >= 0
+            ? currentQueue.items[existingIndex]!.sequence
+            : currentQueue.nextSequence,
+        deliveryCount:
+          existingIndex >= 0
+            ? currentQueue.items[existingIndex]!.deliveryCount
+            : 0,
+        maxDeliveryAttempts:
+          params.maxDeliveryAttempts ?? DEFAULT_WAKE_EVENT_MAX_DELIVERY_ATTEMPTS,
+        dedupeKey: params.dedupeKey,
+        preferredWorkerId: params.preferredWorkerId,
+        affinityKey: params.affinityKey,
+        claimOwnerId:
+          existingIndex >= 0 ? currentQueue.items[existingIndex]!.claimOwnerId : undefined,
+        claimExpiresAt:
+          existingIndex >= 0 ? currentQueue.items[existingIndex]!.claimExpiresAt : undefined,
+        data: params.data ? cloneJson(params.data) : undefined,
+      };
+
+      let items = [...currentQueue.items];
+      let nextSequence = currentQueue.nextSequence;
+      if (existingIndex >= 0) {
+        items.splice(existingIndex, 1, nextItem);
+      } else {
+        items.push(nextItem);
+        nextSequence += 1;
+      }
+      items.sort(compareDispatchItems);
+
+      const deadLetters = [...currentQueue.deadLetters];
+      while (items.length > DEFAULT_DISPATCH_QUEUE_MAX_ITEMS) {
+        const overflow = items.pop();
+        if (!overflow) break;
+        deadLetters.push({
+          item: overflow,
+          failedAt: createdAt,
+          reason: "dispatch_queue_overflow",
+        });
+      }
+
+      const nextQueue: PersistedBackgroundRunDispatchQueue = {
+        version: AGENT_RUN_SCHEMA_VERSION,
+        nextSequence,
+        updatedAt: createdAt,
+        items,
+        deadLetters,
+      };
+      await this.saveDispatchQueueAndBeacon(nextQueue);
+      return nextItem;
+    });
+  }
+
+  async getDispatchStats(): Promise<BackgroundRunDispatchStats> {
+    const queue = await this.loadDispatchQueue();
+    const queuedByPool = {
+      generic: 0,
+      browser: 0,
+      desktop: 0,
+      code: 0,
+      research: 0,
+      approval: 0,
+      remote_mcp: 0,
+    } satisfies Record<BackgroundRunWorkerPool, number>;
+    const claimedByPool = {
+      generic: 0,
+      browser: 0,
+      desktop: 0,
+      code: 0,
+      research: 0,
+      approval: 0,
+      remote_mcp: 0,
+    } satisfies Record<BackgroundRunWorkerPool, number>;
+    let totalClaimed = 0;
+    for (const item of queue.items) {
+      if (item.claimOwnerId && item.claimExpiresAt && item.claimExpiresAt > Date.now()) {
+        totalClaimed += 1;
+        claimedByPool[item.pool] += 1;
+      } else {
+        queuedByPool[item.pool] += 1;
+      }
+    }
+    return {
+      totalQueued: queue.items.length - totalClaimed,
+      totalClaimed,
+      queuedByPool,
+      claimedByPool,
+    };
+  }
+
+  async getNextDispatchAvailability(): Promise<number | undefined> {
+    const beacon = await this.loadDispatchBeacon();
+    return beacon.nextAvailableAt;
+  }
+
+  async getQueuedDispatchCountForSession(sessionId: string): Promise<number> {
+    const now = Date.now();
+    const queue = await this.loadDispatchQueue();
+    return queue.items.filter(
+      (item) =>
+        item.sessionId === sessionId &&
+        (!item.claimOwnerId || !item.claimExpiresAt || item.claimExpiresAt <= now),
+    ).length;
+  }
+
+  async claimDispatchForWorker(params: {
+    workerId: string;
+    pools: readonly BackgroundRunWorkerPool[];
+    now?: number;
+  }): Promise<BackgroundRunDispatchClaimResult> {
+    const now = params.now ?? Date.now();
+    return this.queue.run(BACKGROUND_RUN_DISPATCH_LOCK_KEY, async () => {
+      const [queue, registry] = await Promise.all([
+        this.loadDispatchQueue(),
+        this.loadWorkerRegistry(),
+      ]);
+      const worker = registry.workers.find((entry) => entry.workerId === params.workerId);
+      if (!worker || worker.state === "draining") {
+        return { claimed: false, queueDepth: queue.items.length };
+      }
+      if (worker.inFlightRuns >= worker.maxConcurrentRuns) {
+        return { claimed: false, queueDepth: queue.items.length };
+      }
+      const activeWorkers = buildActiveWorkerMap(registry, now);
+
+      const index = queue.items.findIndex((item) => {
+        if (!params.pools.includes(item.pool)) return false;
+        if (item.availableAt > now) return false;
+        if (item.claimOwnerId && item.claimExpiresAt && item.claimExpiresAt > now) {
+          const claimOwner = activeWorkers.get(item.claimOwnerId);
+          if (claimOwner?.state === "active") {
+            return false;
+          }
+        }
+        if (item.preferredWorkerId && item.preferredWorkerId !== params.workerId) {
+          const preferred = activeWorkers.get(item.preferredWorkerId);
+          if (preferred && preferred.state === "active") {
+            return false;
+          }
+        }
+        if (item.affinityKey) {
+          const affinityOwner = [...activeWorkers.values()].find(
+            (activeWorker) =>
+              activeWorker.workerId !== params.workerId &&
+              activeWorker.affinityKeys.includes(item.affinityKey!),
+          );
+          if (affinityOwner) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (index < 0) {
+        return { claimed: false, queueDepth: queue.items.length };
+      }
+
+      const item = queue.items[index]!;
+      const claimedItem: BackgroundRunDispatchItem = {
+        ...item,
+        deliveryCount: item.deliveryCount + 1,
+        claimOwnerId: params.workerId,
+        claimExpiresAt: now + this.dispatchClaimDurationMs,
+      };
+      const items = [...queue.items];
+      items.splice(index, 1, claimedItem);
+      await this.saveDispatchQueueAndBeacon({
+        ...queue,
+        updatedAt: now,
+        items,
+      } satisfies PersistedBackgroundRunDispatchQueue);
+      return {
+        claimed: true,
+        item: claimedItem,
+        queueDepth: items.length,
+      };
+    });
+  }
+
+  async completeDispatch(params: {
+    dispatchId: string;
+    workerId: string;
+    now?: number;
+  }): Promise<void> {
+    const now = params.now ?? Date.now();
+    await this.queue.run(BACKGROUND_RUN_DISPATCH_LOCK_KEY, async () => {
+      const queue = await this.loadDispatchQueue();
+      const items = queue.items.filter(
+        (item) =>
+          !(
+            item.id === params.dispatchId &&
+            item.claimOwnerId === params.workerId
+          ),
+      );
+      if (items.length === queue.items.length) {
+        return;
+      }
+      await this.saveDispatchQueueAndBeacon({
+        ...queue,
+        updatedAt: now,
+        items,
+      } satisfies PersistedBackgroundRunDispatchQueue);
+    });
+  }
+
+  async releaseDispatch(params: {
+    dispatchId: string;
+    workerId: string;
+    now?: number;
+    availableAt?: number;
+    preferredWorkerId?: string;
+  }): Promise<void> {
+    const now = params.now ?? Date.now();
+    await this.queue.run(BACKGROUND_RUN_DISPATCH_LOCK_KEY, async () => {
+      const queue = await this.loadDispatchQueue();
+      const index = queue.items.findIndex((item) => item.id === params.dispatchId);
+      if (index < 0) {
+        return;
+      }
+      const item = queue.items[index]!;
+      if (item.claimOwnerId && item.claimOwnerId !== params.workerId) {
+        return;
+      }
+      const released: BackgroundRunDispatchItem = {
+        ...item,
+        availableAt: params.availableAt ?? now,
+        preferredWorkerId: params.preferredWorkerId ?? item.preferredWorkerId,
+        claimOwnerId: undefined,
+        claimExpiresAt: undefined,
+      };
+      const items = [...queue.items];
+      if (released.deliveryCount >= released.maxDeliveryAttempts) {
+        items.splice(index, 1);
+        await this.saveDispatchQueueAndBeacon({
+          ...queue,
+          updatedAt: now,
+          items,
+          deadLetters: [
+            ...queue.deadLetters,
+            {
+              item: released,
+              failedAt: now,
+              reason: "dispatch_delivery_attempts_exhausted",
+            },
+          ],
+        } satisfies PersistedBackgroundRunDispatchQueue);
+        return;
+      }
+      items.splice(index, 1, released);
+      items.sort(compareDispatchItems);
+      await this.saveDispatchQueueAndBeacon({
+        ...queue,
+        updatedAt: now,
+        items,
+      } satisfies PersistedBackgroundRunDispatchQueue);
+    });
+  }
+
   async garbageCollect(
     options: BackgroundRunGarbageCollectOptions = {},
   ): Promise<BackgroundRunGarbageCollectResult> {
@@ -1704,10 +2748,15 @@ export class BackgroundRunStore {
       options.corruptRecordRetentionMs ?? DEFAULT_CORRUPT_RECORD_RETENTION_MS;
     const wakeDeadLetterRetentionMs =
       options.wakeDeadLetterRetentionMs ?? DEFAULT_WAKE_DEAD_LETTER_RETENTION_MS;
+    const dispatchDeadLetterRetentionMs =
+      options.dispatchDeadLetterRetentionMs ?? DEFAULT_DISPATCH_DEAD_LETTER_RETENTION_MS;
     let releasedExpiredLeases = 0;
     let deletedTerminalSnapshots = 0;
     let deletedCorruptRecords = 0;
     let deletedWakeDeadLetters = 0;
+    let deletedDispatchDeadLetters = 0;
+    let deletedStaleWorkers = 0;
+    let releasedExpiredDispatchClaims = 0;
 
     const runKeys = await this.memoryBackend.listKeys(BACKGROUND_RUN_KEY_PREFIX);
     for (const key of runKeys) {
@@ -1784,11 +2833,64 @@ export class BackgroundRunStore {
       }));
     }
 
+    await this.queue.run(BACKGROUND_RUN_DISPATCH_LOCK_KEY, async () => {
+      const dispatchQueue = await this.loadDispatchQueue();
+      const items = dispatchQueue.items.map((item) => {
+        if (
+          item.claimOwnerId &&
+          typeof item.claimExpiresAt === "number" &&
+          item.claimExpiresAt <= now
+        ) {
+          releasedExpiredDispatchClaims += 1;
+          return {
+            ...item,
+            claimOwnerId: undefined,
+            claimExpiresAt: undefined,
+          } satisfies BackgroundRunDispatchItem;
+        }
+        return item;
+      });
+      const retainedDeadLetters = dispatchQueue.deadLetters.filter(
+        (deadLetter) =>
+          deadLetter.failedAt + dispatchDeadLetterRetentionMs > now,
+      );
+      deletedDispatchDeadLetters +=
+        dispatchQueue.deadLetters.length - retainedDeadLetters.length;
+      await this.saveDispatchQueueAndBeacon({
+        ...dispatchQueue,
+        updatedAt: now,
+        items,
+        deadLetters: retainedDeadLetters,
+      } satisfies PersistedBackgroundRunDispatchQueue);
+    });
+
+    await this.queue.run(BACKGROUND_RUN_WORKER_REGISTRY_LOCK_KEY, async () => {
+      const registry = await this.loadWorkerRegistry();
+      const workers = registry.workers.filter((worker) => {
+        const alive = worker.lastHeartbeatAt + worker.heartbeatTtlMs > now;
+        if (!alive) {
+          deletedStaleWorkers += 1;
+        }
+        return alive;
+      });
+      await this.memoryBackend.set(
+        BACKGROUND_RUN_WORKER_REGISTRY_KEY,
+        cloneJson({
+          version: AGENT_RUN_SCHEMA_VERSION,
+          updatedAt: now,
+          workers,
+        } satisfies PersistedBackgroundRunWorkerRegistry),
+      );
+    });
+
     return {
       releasedExpiredLeases,
       deletedTerminalSnapshots,
       deletedCorruptRecords,
       deletedWakeDeadLetters,
+      deletedDispatchDeadLetters,
+      deletedStaleWorkers,
+      releasedExpiredDispatchClaims,
     };
   }
 
@@ -1821,13 +2923,18 @@ export class BackgroundRunStore {
     now = Date.now(),
   ): Promise<BackgroundRunLeaseResult> {
     return this.queue.run(sessionId, async () => {
-      const current = await this.loadRun(sessionId);
+      const [current, workerRegistry] = await Promise.all([
+        this.loadRun(sessionId),
+        this.loadWorkerRegistry(),
+      ]);
       if (!current) return { claimed: false };
+      const activeWorkers = buildActiveWorkerMap(workerRegistry, now);
       const leaseIsActive =
         current.leaseOwnerId &&
         current.leaseOwnerId !== instanceId &&
         typeof current.leaseExpiresAt === "number" &&
-        current.leaseExpiresAt > now;
+        current.leaseExpiresAt > now &&
+        activeWorkers.has(current.leaseOwnerId);
       if (leaseIsActive) {
         return { claimed: false, run: current };
       }

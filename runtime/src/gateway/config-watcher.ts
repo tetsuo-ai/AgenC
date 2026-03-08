@@ -112,6 +112,15 @@ const VALID_CIRCUIT_BREAKER_MODES: ReadonlySet<string> = new Set([
   "halt_submissions",
   "safe_mode",
 ]);
+const VALID_POLICY_SIMULATION_MODES: ReadonlySet<string> = new Set([
+  "off",
+  "shadow",
+]);
+const VALID_MCP_TRUST_TIERS: ReadonlySet<string> = new Set([
+  "trusted",
+  "sandboxed",
+  "untrusted",
+]);
 const VALID_MATCHING_POLICIES: ReadonlySet<string> = new Set([
   "best_price",
   "best_eta",
@@ -124,6 +133,7 @@ const VALID_MESSAGING_MODES: ReadonlySet<string> = new Set([
 ]);
 const DOCKER_MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
 const DOCKER_CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
+const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
 
 function normalizeBindAddress(bind: string): string {
   const normalized = bind.trim().toLowerCase();
@@ -288,13 +298,51 @@ function validateDesktopSection(desktop: unknown, errors: string[]): void {
 }
 
 function validatePolicySection(policy: unknown, errors: string[]): void {
+  validatePolicySectionAtPath(policy, "policy", errors, true);
+}
+
+function validatePolicySectionAtPath(
+  policy: unknown,
+  path: string,
+  errors: string[],
+  allowBundles: boolean,
+): void {
   if (policy === undefined) return;
   if (!isRecord(policy)) {
-    errors.push("policy must be an object");
+    errors.push(`${path} must be an object`);
     return;
   }
   if (policy.enabled !== undefined && typeof policy.enabled !== "boolean") {
-    errors.push("policy.enabled must be a boolean");
+    errors.push(`${path}.enabled must be a boolean`);
+  }
+  if (
+    policy.defaultTenantId !== undefined &&
+    typeof policy.defaultTenantId !== "string"
+  ) {
+    errors.push(`${path}.defaultTenantId must be a string`);
+  }
+  if (
+    policy.defaultProjectId !== undefined &&
+    typeof policy.defaultProjectId !== "string"
+  ) {
+    errors.push(`${path}.defaultProjectId must be a string`);
+  }
+  if (!allowBundles && policy.simulationMode !== undefined) {
+    errors.push(`${path}.simulationMode is not allowed inside nested policy bundles`);
+  }
+  if (!allowBundles && policy.audit !== undefined) {
+    errors.push(`${path}.audit is not allowed inside nested policy bundles`);
+  }
+  if (!allowBundles && policy.credentialCatalog !== undefined) {
+    errors.push(`${path}.credentialCatalog is not allowed inside nested policy bundles`);
+  }
+  if (policy.simulationMode !== undefined) {
+    requireOneOf(
+      policy.simulationMode,
+      `${path}.simulationMode`,
+      VALID_POLICY_SIMULATION_MODES,
+      errors,
+    );
   }
   if (policy.maxRiskScore !== undefined) {
     if (
@@ -302,81 +350,605 @@ function validatePolicySection(policy: unknown, errors: string[]): void {
       policy.maxRiskScore < 0 ||
       policy.maxRiskScore > 1
     ) {
-      errors.push("policy.maxRiskScore must be a number between 0 and 1");
+      errors.push(`${path}.maxRiskScore must be a number between 0 and 1`);
     }
   }
   if (policy.toolAllowList !== undefined && !isStringArray(policy.toolAllowList)) {
-    errors.push("policy.toolAllowList must be an array of strings");
+    errors.push(`${path}.toolAllowList must be an array of strings`);
   }
   if (policy.toolDenyList !== undefined && !isStringArray(policy.toolDenyList)) {
-    errors.push("policy.toolDenyList must be an array of strings");
+    errors.push(`${path}.toolDenyList must be an array of strings`);
+  }
+  if (
+    policy.credentialAllowList !== undefined &&
+    !isStringArray(policy.credentialAllowList)
+  ) {
+    errors.push(`${path}.credentialAllowList must be an array of strings`);
+  }
+  if (policy.networkAccess !== undefined) {
+    if (!isRecord(policy.networkAccess)) {
+      errors.push(`${path}.networkAccess must be an object`);
+    } else {
+      if (
+        policy.networkAccess.allowHosts !== undefined &&
+        !isStringArray(policy.networkAccess.allowHosts)
+      ) {
+        errors.push(`${path}.networkAccess.allowHosts must be an array of strings`);
+      }
+      if (
+        policy.networkAccess.denyHosts !== undefined &&
+        !isStringArray(policy.networkAccess.denyHosts)
+      ) {
+        errors.push(`${path}.networkAccess.denyHosts must be an array of strings`);
+      }
+    }
+  }
+  if (policy.writeScope !== undefined) {
+    if (!isRecord(policy.writeScope)) {
+      errors.push(`${path}.writeScope must be an object`);
+    } else {
+      if (
+        policy.writeScope.allowRoots !== undefined &&
+        !isStringArray(policy.writeScope.allowRoots)
+      ) {
+        errors.push(`${path}.writeScope.allowRoots must be an array of strings`);
+      }
+      if (
+        policy.writeScope.denyRoots !== undefined &&
+        !isStringArray(policy.writeScope.denyRoots)
+      ) {
+        errors.push(`${path}.writeScope.denyRoots must be an array of strings`);
+      }
+    }
+  }
+  if (allowBundles && policy.credentialCatalog !== undefined) {
+    if (!isRecord(policy.credentialCatalog)) {
+      errors.push(`${path}.credentialCatalog must be an object`);
+    } else {
+      for (const [credentialId, value] of Object.entries(policy.credentialCatalog)) {
+        if (!isRecord(value)) {
+          errors.push(`${path}.credentialCatalog.${credentialId} must be an object`);
+          continue;
+        }
+        if (
+          typeof value.sourceEnvVar !== "string" ||
+          value.sourceEnvVar.trim().length === 0
+        ) {
+          errors.push(`${path}.credentialCatalog.${credentialId}.sourceEnvVar must be a non-empty string`);
+        }
+        if (!isStringArray(value.domains) || value.domains.length === 0) {
+          errors.push(`${path}.credentialCatalog.${credentialId}.domains must be a non-empty array of strings`);
+        }
+        if (
+          value.headerTemplates !== undefined &&
+          !isRecord(value.headerTemplates)
+        ) {
+          errors.push(`${path}.credentialCatalog.${credentialId}.headerTemplates must be an object`);
+        } else if (isRecord(value.headerTemplates)) {
+          for (const [headerName, template] of Object.entries(value.headerTemplates)) {
+            if (headerName.trim().length === 0) {
+              errors.push(`${path}.credentialCatalog.${credentialId}.headerTemplates contains an empty header name`);
+            }
+            if (typeof template !== "string" || template.length === 0) {
+              errors.push(`${path}.credentialCatalog.${credentialId}.headerTemplates.${headerName} must be a non-empty string`);
+            }
+          }
+        }
+        if (
+          value.allowedTools !== undefined &&
+          !isStringArray(value.allowedTools)
+        ) {
+          errors.push(`${path}.credentialCatalog.${credentialId}.allowedTools must be an array of strings`);
+        }
+        if (value.ttlMs !== undefined) {
+          requireIntRange(
+            value.ttlMs,
+            `${path}.credentialCatalog.${credentialId}.ttlMs`,
+            1_000,
+            86_400_000,
+            errors,
+          );
+        }
+      }
+    }
   }
   if (policy.actionBudgets !== undefined) {
-    if (!isRecord(policy.actionBudgets)) {
-      errors.push("policy.actionBudgets must be an object");
+    validateBudgetMap(policy.actionBudgets, `${path}.actionBudgets`, errors);
+  }
+  if (policy.spendBudget !== undefined) {
+    validateSpendBudget(policy.spendBudget, `${path}.spendBudget`, errors);
+  }
+  if (policy.tokenBudget !== undefined) {
+    validateTokenBudget(policy.tokenBudget, `${path}.tokenBudget`, errors);
+  }
+  if (policy.runtimeBudget !== undefined) {
+    validateRuntimeBudget(policy.runtimeBudget, `${path}.runtimeBudget`, errors);
+  }
+  if (policy.processBudget !== undefined) {
+    validateProcessBudget(policy.processBudget, `${path}.processBudget`, errors);
+  }
+  if (policy.scopedActionBudgets !== undefined) {
+    if (!isRecord(policy.scopedActionBudgets)) {
+      errors.push(`${path}.scopedActionBudgets must be an object`);
     } else {
-      for (const [key, val] of Object.entries(
-        policy.actionBudgets as Record<string, unknown>,
-      )) {
-        if (!isRecord(val)) {
-          errors.push(`policy.actionBudgets.${key} must be an object`);
+      for (const scopeName of ["tenant", "project", "run"] as const) {
+        const scopeValue = policy.scopedActionBudgets[scopeName];
+        if (scopeValue !== undefined) {
+          validateBudgetMap(
+            scopeValue,
+            `${path}.scopedActionBudgets.${scopeName}`,
+            errors,
+          );
+        }
+      }
+    }
+  }
+  if (policy.scopedSpendBudgets !== undefined) {
+    if (!isRecord(policy.scopedSpendBudgets)) {
+      errors.push(`${path}.scopedSpendBudgets must be an object`);
+    } else {
+      for (const scopeName of ["tenant", "project", "run"] as const) {
+        const scopeValue = policy.scopedSpendBudgets[scopeName];
+        if (scopeValue !== undefined) {
+          validateSpendBudget(
+            scopeValue,
+            `${path}.scopedSpendBudgets.${scopeName}`,
+            errors,
+          );
+        }
+      }
+    }
+  }
+  if (policy.scopedTokenBudgets !== undefined) {
+    if (!isRecord(policy.scopedTokenBudgets)) {
+      errors.push(`${path}.scopedTokenBudgets must be an object`);
+    } else {
+      for (const scopeName of ["tenant", "project", "run"] as const) {
+        const scopeValue = policy.scopedTokenBudgets[scopeName];
+        if (scopeValue !== undefined) {
+          validateTokenBudget(
+            scopeValue,
+            `${path}.scopedTokenBudgets.${scopeName}`,
+            errors,
+          );
+        }
+      }
+    }
+  }
+  if (policy.scopedRuntimeBudgets !== undefined) {
+    if (!isRecord(policy.scopedRuntimeBudgets)) {
+      errors.push(`${path}.scopedRuntimeBudgets must be an object`);
+    } else {
+      for (const scopeName of ["tenant", "project", "run"] as const) {
+        const scopeValue = policy.scopedRuntimeBudgets[scopeName];
+        if (scopeValue !== undefined) {
+          validateRuntimeBudget(
+            scopeValue,
+            `${path}.scopedRuntimeBudgets.${scopeName}`,
+            errors,
+          );
+        }
+      }
+    }
+  }
+  if (policy.scopedProcessBudgets !== undefined) {
+    if (!isRecord(policy.scopedProcessBudgets)) {
+      errors.push(`${path}.scopedProcessBudgets must be an object`);
+    } else {
+      for (const scopeName of ["tenant", "project", "run"] as const) {
+        const scopeValue = policy.scopedProcessBudgets[scopeName];
+        if (scopeValue !== undefined) {
+          validateProcessBudget(
+            scopeValue,
+            `${path}.scopedProcessBudgets.${scopeName}`,
+            errors,
+          );
+        }
+      }
+    }
+  }
+  if (policy.policyClassRules !== undefined) {
+    if (!isRecord(policy.policyClassRules)) {
+      errors.push(`${path}.policyClassRules must be an object`);
+    } else {
+      const validClasses = new Set([
+        "read_only",
+        "reversible_side_effect",
+        "destructive_side_effect",
+        "irreversible_financial_action",
+        "credential_secret_access",
+      ]);
+      for (const [key, value] of Object.entries(policy.policyClassRules)) {
+        if (!validClasses.has(key)) {
+          errors.push(`${path}.policyClassRules.${key} is not a valid policy class`);
+          continue;
+        }
+        if (!isRecord(value)) {
+          errors.push(`${path}.policyClassRules.${key} must be an object`);
+          continue;
+        }
+        if (value.deny !== undefined && typeof value.deny !== "boolean") {
+          errors.push(`${path}.policyClassRules.${key}.deny must be a boolean`);
+        }
+        if (
+          value.maxRiskScore !== undefined &&
+          (typeof value.maxRiskScore !== "number" ||
+            value.maxRiskScore < 0 ||
+            value.maxRiskScore > 1)
+        ) {
+          errors.push(`${path}.policyClassRules.${key}.maxRiskScore must be a number between 0 and 1`);
+        }
+      }
+    }
+  }
+  if (policy.audit !== undefined) {
+    if (!isRecord(policy.audit)) {
+      errors.push(`${path}.audit must be an object`);
+    } else {
+      if (
+        policy.audit.enabled !== undefined &&
+        typeof policy.audit.enabled !== "boolean"
+      ) {
+        errors.push(`${path}.audit.enabled must be a boolean`);
+      }
+      if (
+        policy.audit.signingKey !== undefined &&
+        typeof policy.audit.signingKey !== "string"
+      ) {
+        errors.push(`${path}.audit.signingKey must be a string`);
+      }
+      if (
+        policy.audit.retentionMs !== undefined &&
+        typeof policy.audit.retentionMs !== "number"
+      ) {
+        errors.push(`${path}.audit.retentionMs must be a number`);
+      } else if (
+        typeof policy.audit.retentionMs === "number" &&
+        policy.audit.retentionMs <= 0
+      ) {
+        errors.push(`${path}.audit.retentionMs must be greater than 0`);
+      }
+      if (
+        policy.audit.maxEntries !== undefined &&
+        typeof policy.audit.maxEntries !== "number"
+      ) {
+        errors.push(`${path}.audit.maxEntries must be a number`);
+      } else if (
+        typeof policy.audit.maxEntries === "number" &&
+        policy.audit.maxEntries < 0
+      ) {
+        errors.push(`${path}.audit.maxEntries must be greater than or equal to 0`);
+      }
+      if (
+        policy.audit.retentionMode !== undefined &&
+        policy.audit.retentionMode !== "delete" &&
+        policy.audit.retentionMode !== "archive"
+      ) {
+        errors.push(`${path}.audit.retentionMode must be one of: delete, archive`);
+      }
+      if (
+        policy.audit.legalHold !== undefined &&
+        typeof policy.audit.legalHold !== "boolean"
+      ) {
+        errors.push(`${path}.audit.legalHold must be a boolean`);
+      }
+      if (policy.audit.redaction !== undefined) {
+        if (!isRecord(policy.audit.redaction)) {
+          errors.push(`${path}.audit.redaction must be an object`);
         } else {
-          if (typeof val.limit !== "number") {
-            errors.push(`policy.actionBudgets.${key}.limit must be a number`);
+          if (
+            policy.audit.redaction.redactActors !== undefined &&
+            typeof policy.audit.redaction.redactActors !== "boolean"
+          ) {
+            errors.push(`${path}.audit.redaction.redactActors must be a boolean`);
           }
-          if (typeof val.windowMs !== "number") {
-            errors.push(`policy.actionBudgets.${key}.windowMs must be a number`);
+          if (
+            policy.audit.redaction.stripFields !== undefined &&
+            !isStringArray(policy.audit.redaction.stripFields)
+          ) {
+            errors.push(
+              `${path}.audit.redaction.stripFields must be an array of strings`,
+            );
+          }
+          if (
+            policy.audit.redaction.redactPatterns !== undefined &&
+            !isStringArray(policy.audit.redaction.redactPatterns)
+          ) {
+            errors.push(
+              `${path}.audit.redaction.redactPatterns must be an array of strings`,
+            );
+          } else {
+            for (const pattern of policy.audit.redaction.redactPatterns ?? []) {
+              try {
+                // eslint-disable-next-line no-new
+                new RegExp(pattern, "g");
+              } catch {
+                errors.push(
+                  `${path}.audit.redaction.redactPatterns contains an invalid regex: ${pattern}`,
+                );
+              }
+            }
           }
         }
       }
     }
   }
-  if (policy.spendBudget !== undefined) {
-    if (!isRecord(policy.spendBudget)) {
-      errors.push("policy.spendBudget must be an object");
+  if (allowBundles && policy.tenantBundles !== undefined) {
+    if (!isRecord(policy.tenantBundles)) {
+      errors.push(`${path}.tenantBundles must be an object`);
     } else {
-      if (
-        typeof policy.spendBudget.limitLamports !== "string" ||
-        !/^\\d+$/.test(policy.spendBudget.limitLamports)
-      ) {
-        errors.push("policy.spendBudget.limitLamports must be a decimal string");
+      for (const [key, value] of Object.entries(policy.tenantBundles)) {
+        validatePolicySectionAtPath(
+          value,
+          `${path}.tenantBundles.${key}`,
+          errors,
+          false,
+        );
       }
-      if (typeof policy.spendBudget.windowMs !== "number") {
-        errors.push("policy.spendBudget.windowMs must be a number");
+    }
+  }
+  if (allowBundles && policy.projectBundles !== undefined) {
+    if (!isRecord(policy.projectBundles)) {
+      errors.push(`${path}.projectBundles must be an object`);
+    } else {
+      for (const [key, value] of Object.entries(policy.projectBundles)) {
+        validatePolicySectionAtPath(
+          value,
+          `${path}.projectBundles.${key}`,
+          errors,
+          false,
+        );
       }
     }
   }
   if (policy.circuitBreaker !== undefined) {
     if (!isRecord(policy.circuitBreaker)) {
-      errors.push("policy.circuitBreaker must be an object");
+      errors.push(`${path}.circuitBreaker must be an object`);
     } else {
       if (
         policy.circuitBreaker.enabled !== undefined &&
         typeof policy.circuitBreaker.enabled !== "boolean"
       ) {
-        errors.push("policy.circuitBreaker.enabled must be a boolean");
+        errors.push(`${path}.circuitBreaker.enabled must be a boolean`);
       }
       if (
         policy.circuitBreaker.threshold !== undefined &&
         typeof policy.circuitBreaker.threshold !== "number"
       ) {
-        errors.push("policy.circuitBreaker.threshold must be a number");
+        errors.push(`${path}.circuitBreaker.threshold must be a number`);
       }
       if (
         policy.circuitBreaker.windowMs !== undefined &&
         typeof policy.circuitBreaker.windowMs !== "number"
       ) {
-        errors.push("policy.circuitBreaker.windowMs must be a number");
+        errors.push(`${path}.circuitBreaker.windowMs must be a number`);
       }
       if (policy.circuitBreaker.mode !== undefined) {
         requireOneOf(
           policy.circuitBreaker.mode,
-          "policy.circuitBreaker.mode",
+          `${path}.circuitBreaker.mode`,
           VALID_CIRCUIT_BREAKER_MODES,
           errors,
         );
       }
     }
+  }
+}
+
+function validateMcpSection(mcp: unknown, errors: string[]): void {
+  if (mcp === undefined) return;
+  if (!isRecord(mcp)) {
+    errors.push("mcp must be an object");
+    return;
+  }
+  if (!Array.isArray(mcp.servers)) {
+    errors.push("mcp.servers must be an array");
+    return;
+  }
+  for (const [index, server] of mcp.servers.entries()) {
+    const path = `mcp.servers[${index}]`;
+    if (!isRecord(server)) {
+      errors.push(`${path} must be an object`);
+      continue;
+    }
+    if (typeof server.name !== "string" || server.name.trim().length === 0) {
+      errors.push(`${path}.name must be a non-empty string`);
+    }
+    if (typeof server.command !== "string" || server.command.trim().length === 0) {
+      errors.push(`${path}.command must be a non-empty string`);
+    }
+    if (!isStringArray(server.args)) {
+      errors.push(`${path}.args must be an array of strings`);
+    }
+    if (server.env !== undefined && !isRecord(server.env)) {
+      errors.push(`${path}.env must be an object`);
+    } else if (isRecord(server.env)) {
+      for (const [key, value] of Object.entries(server.env)) {
+        if (typeof value !== "string") {
+          errors.push(`${path}.env.${key} must be a string`);
+        }
+      }
+    }
+    if (server.enabled !== undefined && typeof server.enabled !== "boolean") {
+      errors.push(`${path}.enabled must be a boolean`);
+    }
+    if (server.timeout !== undefined) {
+      requireIntRange(server.timeout, `${path}.timeout`, 1, 300_000, errors);
+    }
+    if (
+      server.container !== undefined &&
+      server.container !== "desktop"
+    ) {
+      errors.push(`${path}.container must be "desktop" when provided`);
+    }
+    if (server.trustTier !== undefined) {
+      requireOneOf(
+        server.trustTier,
+        `${path}.trustTier`,
+        VALID_MCP_TRUST_TIERS,
+        errors,
+      );
+    }
+    if (server.riskControls !== undefined) {
+      if (!isRecord(server.riskControls)) {
+        errors.push(`${path}.riskControls must be an object`);
+      } else {
+        if (
+          server.riskControls.toolAllowList !== undefined &&
+          !isStringArray(server.riskControls.toolAllowList)
+        ) {
+          errors.push(`${path}.riskControls.toolAllowList must be an array of strings`);
+        }
+        if (
+          server.riskControls.toolDenyList !== undefined &&
+          !isStringArray(server.riskControls.toolDenyList)
+        ) {
+          errors.push(`${path}.riskControls.toolDenyList must be an array of strings`);
+        }
+        if (
+          server.riskControls.requireApproval !== undefined &&
+          typeof server.riskControls.requireApproval !== "boolean"
+        ) {
+          errors.push(`${path}.riskControls.requireApproval must be a boolean`);
+        }
+      }
+    }
+    if (server.supplyChain !== undefined) {
+      if (!isRecord(server.supplyChain)) {
+        errors.push(`${path}.supplyChain must be an object`);
+      } else {
+        if (
+          server.supplyChain.requirePinnedPackageVersion !== undefined &&
+          typeof server.supplyChain.requirePinnedPackageVersion !== "boolean"
+        ) {
+          errors.push(`${path}.supplyChain.requirePinnedPackageVersion must be a boolean`);
+        }
+        if (
+          server.supplyChain.requireDesktopImageDigest !== undefined &&
+          typeof server.supplyChain.requireDesktopImageDigest !== "boolean"
+        ) {
+          errors.push(`${path}.supplyChain.requireDesktopImageDigest must be a boolean`);
+        }
+        if (
+          server.supplyChain.binarySha256 !== undefined &&
+          (typeof server.supplyChain.binarySha256 !== "string" ||
+            !SHA256_HEX_RE.test(server.supplyChain.binarySha256))
+        ) {
+          errors.push(`${path}.supplyChain.binarySha256 must be a 64-character hex SHA-256 digest`);
+        }
+        if (
+          server.supplyChain.catalogSha256 !== undefined &&
+          (typeof server.supplyChain.catalogSha256 !== "string" ||
+            !SHA256_HEX_RE.test(server.supplyChain.catalogSha256))
+        ) {
+          errors.push(`${path}.supplyChain.catalogSha256 must be a 64-character hex SHA-256 digest`);
+        }
+      }
+    }
+  }
+}
+
+function validateBudgetMap(
+  value: unknown,
+  path: string,
+  errors: string[],
+): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  for (const [key, val] of Object.entries(value)) {
+    if (!isRecord(val)) {
+      errors.push(`${path}.${key} must be an object`);
+      continue;
+    }
+    if (typeof val.limit !== "number") {
+      errors.push(`${path}.${key}.limit must be a number`);
+    }
+    if (typeof val.windowMs !== "number") {
+      errors.push(`${path}.${key}.windowMs must be a number`);
+    }
+  }
+}
+
+function validateSpendBudget(
+  value: unknown,
+  path: string,
+  errors: string[],
+): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (
+    typeof value.limitLamports !== "string" ||
+    !/^\d+$/.test(value.limitLamports)
+  ) {
+    errors.push(`${path}.limitLamports must be a decimal string`);
+  }
+  if (typeof value.windowMs !== "number") {
+    errors.push(`${path}.windowMs must be a number`);
+  }
+}
+
+function validateTokenBudget(
+  value: unknown,
+  path: string,
+  errors: string[],
+): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (
+    typeof value.limitTokens !== "number" ||
+    !Number.isFinite(value.limitTokens) ||
+    value.limitTokens <= 0
+  ) {
+    errors.push(`${path}.limitTokens must be a finite positive number`);
+  }
+  if (
+    typeof value.windowMs !== "number" ||
+    !Number.isFinite(value.windowMs) ||
+    value.windowMs <= 0
+  ) {
+    errors.push(`${path}.windowMs must be a finite positive number`);
+  }
+}
+
+function validateRuntimeBudget(
+  value: unknown,
+  path: string,
+  errors: string[],
+): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (
+    typeof value.maxElapsedMs !== "number" ||
+    !Number.isFinite(value.maxElapsedMs) ||
+    value.maxElapsedMs <= 0
+  ) {
+    errors.push(`${path}.maxElapsedMs must be a finite positive number`);
+  }
+}
+
+function validateProcessBudget(
+  value: unknown,
+  path: string,
+  errors: string[],
+): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (
+    typeof value.maxConcurrent !== "number" ||
+    !Number.isInteger(value.maxConcurrent) ||
+    value.maxConcurrent <= 0
+  ) {
+    errors.push(`${path}.maxConcurrent must be a finite positive integer`);
   }
 }
 
@@ -428,6 +1000,75 @@ function validateMarketplaceSection(
     !isStringArray(marketplace.authorizedSelectorIds)
   ) {
     errors.push("marketplace.authorizedSelectorIds must be an array of strings");
+  }
+}
+
+function validateApprovalsSection(approvals: unknown, errors: string[]): void {
+  if (approvals === undefined) return;
+  if (!isRecord(approvals)) {
+    errors.push("approvals must be an object");
+    return;
+  }
+  if (
+    approvals.enabled !== undefined &&
+    typeof approvals.enabled !== "boolean"
+  ) {
+    errors.push("approvals.enabled must be a boolean");
+  }
+  if (
+    approvals.timeoutMs !== undefined &&
+    typeof approvals.timeoutMs !== "number"
+  ) {
+    errors.push("approvals.timeoutMs must be a number");
+  } else if (
+    typeof approvals.timeoutMs === "number" &&
+    approvals.timeoutMs <= 0
+  ) {
+    errors.push("approvals.timeoutMs must be greater than 0");
+  }
+  if (
+    approvals.defaultSlaMs !== undefined &&
+    typeof approvals.defaultSlaMs !== "number"
+  ) {
+    errors.push("approvals.defaultSlaMs must be a number");
+  } else if (
+    typeof approvals.defaultSlaMs === "number" &&
+    approvals.defaultSlaMs <= 0
+  ) {
+    errors.push("approvals.defaultSlaMs must be greater than 0");
+  }
+  if (
+    approvals.defaultEscalationDelayMs !== undefined &&
+    typeof approvals.defaultEscalationDelayMs !== "number"
+  ) {
+    errors.push("approvals.defaultEscalationDelayMs must be a number");
+  } else if (
+    typeof approvals.defaultEscalationDelayMs === "number" &&
+    approvals.defaultEscalationDelayMs <= 0
+  ) {
+    errors.push("approvals.defaultEscalationDelayMs must be greater than 0");
+  }
+  if (
+    approvals.resolverSigningKey !== undefined &&
+    typeof approvals.resolverSigningKey !== "string"
+  ) {
+    errors.push("approvals.resolverSigningKey must be a string");
+  }
+  if (
+    typeof approvals.timeoutMs === "number" &&
+    typeof approvals.defaultSlaMs === "number" &&
+    approvals.defaultSlaMs > approvals.timeoutMs
+  ) {
+    errors.push("approvals.defaultSlaMs must not exceed approvals.timeoutMs");
+  }
+  if (
+    typeof approvals.timeoutMs === "number" &&
+    typeof approvals.defaultEscalationDelayMs === "number" &&
+    approvals.defaultEscalationDelayMs > approvals.timeoutMs
+  ) {
+    errors.push(
+      "approvals.defaultEscalationDelayMs must not exceed approvals.timeoutMs",
+    );
   }
 }
 
@@ -1305,7 +1946,9 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
   validateAuthSection(obj.auth, errors);
   validateAuthSecretRequirement(obj.gateway, obj.auth, errors);
   validateDesktopSection(obj.desktop, errors);
+  validateMcpSection(obj.mcp, errors);
   validatePolicySection(obj.policy, errors);
+  validateApprovalsSection(obj.approvals, errors);
   validateMarketplaceSection(obj.marketplace, errors);
   validateSocialSection(obj.social, errors);
 

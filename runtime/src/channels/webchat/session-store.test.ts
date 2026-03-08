@@ -47,4 +47,37 @@ describe("WebChatSessionStore", () => {
       lastActiveAt: 250,
     });
   });
+
+  it("persists policy context metadata for durable session scope", async () => {
+    const backend = new InMemoryBackend();
+    const store = new WebChatSessionStore({ memoryBackend: backend });
+
+    await store.ensureSession({
+      sessionId: "session-3",
+      ownerKey: "web:browser-3",
+      createdAt: 300,
+      metadata: {
+        policyContext: {
+          tenantId: "tenant-a",
+          projectId: "project-x",
+        },
+      },
+    });
+    await store.recordActivity({
+      sessionId: "session-3",
+      ownerKey: "web:browser-3",
+      sender: "user",
+      content: "hello",
+      timestamp: 350,
+    });
+
+    expect(await store.loadSession("session-3")).toMatchObject({
+      metadata: {
+        policyContext: {
+          tenantId: "tenant-a",
+          projectId: "project-x",
+        },
+      },
+    });
+  });
 });

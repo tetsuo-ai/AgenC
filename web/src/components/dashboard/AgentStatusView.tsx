@@ -18,6 +18,16 @@ function formatUptime(ms: number): string {
   return `${seconds}s`;
 }
 
+function formatMetric(value: number | undefined, fractionDigits = 2): string {
+  if (value === undefined || Number.isNaN(value)) return 'n/a';
+  return value.toFixed(fractionDigits);
+}
+
+function formatRate(value: number | undefined): string {
+  if (value === undefined || Number.isNaN(value)) return 'n/a';
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 const STATE_BADGE: Record<string, { bg: string; text: string; dot: string }> = {
   running: { bg: 'bg-emerald-500/10', text: 'text-emerald-500', dot: 'bg-emerald-500' },
   starting: { bg: 'bg-amber-500/10', text: 'text-amber-500', dot: 'bg-amber-500' },
@@ -150,6 +160,55 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
             </div>
           )}
         </div>
+
+        {status.backgroundRuns ? (
+          <div className="animate-list-item space-y-4" style={{ animationDelay: delay() }}>
+            <div className="text-[10px] text-tetsuo-400 uppercase tracking-[0.15em] font-medium">Background Runs</div>
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard label="Active" value={status.backgroundRuns.activeTotal} accent={status.backgroundRuns.activeTotal > 0} />
+              <StatCard label="Queued Signals" value={status.backgroundRuns.queuedSignalsTotal} />
+              <StatCard label="Recovered" value={status.backgroundRuns.metrics.recoveredTotal} />
+              <StatCard label="Blocked" value={status.backgroundRuns.stateCounts.blocked} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard label="Mean Ack" value={`${formatMetric(status.backgroundRuns.metrics.meanTimeToFirstAckMs)}ms`} />
+              <StatCard label="Mean Verified" value={`${formatMetric(status.backgroundRuns.metrics.meanTimeToFirstVerifiedUpdateMs)}ms`} />
+              <StatCard label="False Completion" value={formatRate(status.backgroundRuns.metrics.falseCompletionRate)} />
+              <StatCard label="Verifier Accuracy" value={formatRate(status.backgroundRuns.metrics.verifierAccuracyRate)} accent={(status.backgroundRuns.metrics.verifierAccuracyRate ?? 0) >= 0.95} />
+            </div>
+            <div className="rounded-xl border border-tetsuo-200 bg-tetsuo-50 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold text-tetsuo-700">Recent Alerts</div>
+                <div className="text-[11px] text-tetsuo-400">
+                  {status.backgroundRuns.recentAlerts.length}
+                </div>
+              </div>
+              {status.backgroundRuns.recentAlerts.length === 0 ? (
+                <div className="text-sm text-tetsuo-400">No background-run alerts recorded.</div>
+              ) : (
+                <div className="space-y-2">
+                  {status.backgroundRuns.recentAlerts.slice(0, 5).map((alert) => (
+                    <div key={alert.id} className="rounded-lg border border-tetsuo-200 bg-white px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${alert.severity === 'error' ? 'text-red-500' : alert.severity === 'warn' ? 'text-amber-500' : 'text-emerald-600'}`}>
+                          {alert.severity}
+                        </span>
+                        <span className="text-[11px] text-tetsuo-400">
+                          {new Date(alert.createdAt).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-sm text-tetsuo-700">{alert.message}</div>
+                      <div className="mt-1 text-[11px] text-tetsuo-400">
+                        {alert.code}
+                        {alert.sessionId ? ` • ${alert.sessionId}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div></div>
     </div>
   );

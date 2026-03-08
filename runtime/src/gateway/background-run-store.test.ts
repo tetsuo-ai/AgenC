@@ -14,6 +14,11 @@ function makeRun(
     id: "bg-test",
     sessionId: "session-1",
     objective: "Monitor a process until it completes.",
+    policyScope: {
+      tenantId: "tenant-a",
+      projectId: "project-x",
+      runId: "run-bg-test",
+    },
     contract: {
       domain: "managed_process",
       kind: "until_condition",
@@ -63,11 +68,17 @@ function makeRun(
       runtimeStartedAt: 1,
       lastActivityAt: 1,
       lastProgressAt: 1,
+      totalTokens: 8,
+      lastCycleTokens: 3,
+      managedProcessCount: 1,
       maxRuntimeMs: 604_800_000,
       maxCycles: 512,
       maxIdleMs: 3_600_000,
       nextCheckIntervalMs: 4_000,
       heartbeatIntervalMs: 12_000,
+      firstAcknowledgedAt: 2,
+      firstVerifiedUpdateAt: 3,
+      stopRequestedAt: undefined,
     },
     compaction: {
       lastCompactedAt: 1,
@@ -145,6 +156,12 @@ describe("BackgroundRunStore", () => {
     const run = makeRun();
 
     await store.saveRun(run);
+    await store.heartbeatWorker({
+      workerId: "instance-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 1_000,
+    });
 
     const foreignClaim = await store.claimLease(run.sessionId, "instance-b", 5_000);
     expect(foreignClaim.claimed).toBe(false);
@@ -161,6 +178,34 @@ describe("BackgroundRunStore", () => {
     });
     expect(released?.leaseOwnerId).toBeUndefined();
     expect(released?.nextCheckAt).toBe(15_000);
+  });
+
+  it("allows another worker to steal a lease when the owner heartbeat is stale", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+    const run = makeRun({
+      leaseOwnerId: "instance-a",
+      leaseExpiresAt: 40_000,
+    });
+
+    await store.saveRun(run);
+    await store.heartbeatWorker({
+      workerId: "instance-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 1_000,
+    });
+    await store.heartbeatWorker({
+      workerId: "instance-b",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 25_000,
+    });
+
+    const claimed = await store.claimLease(run.sessionId, "instance-b", 25_000);
+    expect(claimed.claimed).toBe(true);
+    expect(claimed.run?.leaseOwnerId).toBe("instance-b");
+    expect(claimed.run?.leaseExpiresAt).toBeGreaterThan(25_000);
   });
 
   it("stores append-only run events in a dedicated thread", async () => {
@@ -205,6 +250,11 @@ describe("BackgroundRunStore", () => {
       runId: "bg-test",
       sessionId: "session-1",
       objective: "Monitor the process until it exits.",
+      policyScope: {
+        tenantId: "tenant-a",
+        projectId: "project-x",
+        runId: "run-bg-test",
+      },
       state: "completed",
       contractKind: "until_condition",
       requiresUserStop: false,
@@ -229,6 +279,11 @@ describe("BackgroundRunStore", () => {
       runId: "bg-test",
       sessionId: "session-1",
       objective: "Monitor the process until it exits.",
+      policyScope: {
+        tenantId: "tenant-a",
+        projectId: "project-x",
+        runId: "run-bg-test",
+      },
       state: "completed",
       contractKind: "until_condition",
       requiresUserStop: false,
@@ -246,6 +301,46 @@ describe("BackgroundRunStore", () => {
       blockerSummary: undefined,
       watchCount: 1,
       fenceToken: 2,
+    });
+  });
+
+  it("persists policy scope and extended budget counters across reload", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+    const run = makeRun({
+      budgetState: {
+        runtimeStartedAt: 1,
+        lastActivityAt: 5,
+        lastProgressAt: 8,
+        totalTokens: 21,
+        lastCycleTokens: 13,
+        managedProcessCount: 2,
+        maxRuntimeMs: 500_000,
+        maxCycles: 64,
+        maxIdleMs: 30_000,
+        nextCheckIntervalMs: 4_000,
+        heartbeatIntervalMs: 12_000,
+        firstAcknowledgedAt: 2,
+        firstVerifiedUpdateAt: 9,
+        stopRequestedAt: 10,
+      },
+    });
+
+    await store.saveRun(run);
+
+    const reloaded = await store.loadRun(run.sessionId);
+    expect(reloaded?.policyScope).toEqual({
+      tenantId: "tenant-a",
+      projectId: "project-x",
+      runId: "run-bg-test",
+    });
+    expect(reloaded?.budgetState).toMatchObject({
+      totalTokens: 21,
+      lastCycleTokens: 13,
+      managedProcessCount: 2,
+      firstAcknowledgedAt: 2,
+      firstVerifiedUpdateAt: 9,
+      stopRequestedAt: 10,
     });
   });
 
@@ -399,6 +494,9 @@ describe("BackgroundRunStore", () => {
       deletedTerminalSnapshots: 1,
       deletedCorruptRecords: 1,
       deletedWakeDeadLetters: 0,
+      deletedDispatchDeadLetters: 0,
+      deletedStaleWorkers: 0,
+      releasedExpiredDispatchClaims: 0,
     });
 
     await expect(store.loadRun("lease-expired")).resolves.toMatchObject({
@@ -773,5 +871,317 @@ describe("BackgroundRunStore", () => {
         approvalState: fixture.approvalState,
       });
     }
+  });
+
+  it("claims durable dispatch items by worker pool and preserves preferred-worker affinity", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+
+    await store.heartbeatWorker({
+      workerId: "worker-browser",
+      pools: ["browser"],
+      maxConcurrentRuns: 1,
+      now: 1,
+    });
+    await store.heartbeatWorker({
+      workerId: "worker-generic",
+      pools: ["generic", "code"],
+      maxConcurrentRuns: 1,
+      now: 1,
+    });
+
+    await store.enqueueDispatch({
+      sessionId: "session-browser",
+      runId: "bg-browser",
+      pool: "browser",
+      reason: "start",
+      createdAt: 2,
+      availableAt: 2,
+      dedupeKey: "dispatch:bg-browser:start",
+      preferredWorkerId: "worker-browser",
+    });
+
+    const genericClaim = await store.claimDispatchForWorker({
+      workerId: "worker-generic",
+      pools: ["generic", "code"],
+      now: 2,
+    });
+    expect(genericClaim.claimed).toBe(false);
+
+    const browserClaim = await store.claimDispatchForWorker({
+      workerId: "worker-browser",
+      pools: ["browser"],
+      now: 2,
+    });
+    expect(browserClaim).toMatchObject({
+      claimed: true,
+      item: expect.objectContaining({
+        sessionId: "session-browser",
+        pool: "browser",
+        preferredWorkerId: "worker-browser",
+        claimOwnerId: "worker-browser",
+      }),
+    });
+  });
+
+  it("allows another worker to reclaim a dispatch item when the claim owner heartbeat is stale", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+
+    await store.heartbeatWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 1_000,
+    });
+    await store.heartbeatWorker({
+      workerId: "worker-b",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 25_000,
+    });
+
+    await store.enqueueDispatch({
+      sessionId: "session-stale-claim",
+      runId: "bg-stale-claim",
+      pool: "generic",
+      reason: "timer",
+      createdAt: 1_000,
+      availableAt: 1_000,
+      dedupeKey: "dispatch:stale-claim",
+    });
+
+    const firstClaim = await store.claimDispatchForWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      now: 1_500,
+    });
+    expect(firstClaim.claimed).toBe(true);
+    expect(firstClaim.item?.claimOwnerId).toBe("worker-a");
+    expect(firstClaim.item?.claimExpiresAt).toBeGreaterThan(25_000);
+
+    const recoveredClaim = await store.claimDispatchForWorker({
+      workerId: "worker-b",
+      pools: ["generic"],
+      now: 25_000,
+    });
+    expect(recoveredClaim.claimed).toBe(true);
+    expect(recoveredClaim.item?.claimOwnerId).toBe("worker-b");
+  });
+
+  it("supports worker drain state and releases expired dispatch claims during garbage collection", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+
+    await store.heartbeatWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 1,
+    });
+    await store.enqueueDispatch({
+      sessionId: "session-1",
+      runId: "bg-test",
+      pool: "generic",
+      reason: "timer",
+      createdAt: 2,
+      availableAt: 2,
+      dedupeKey: "dispatch:bg-test:timer",
+    });
+    const claimed = await store.claimDispatchForWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      now: 2,
+    });
+    expect(claimed.claimed).toBe(true);
+
+    const drained = await store.setWorkerDrainState({
+      workerId: "worker-a",
+      draining: true,
+      now: 3,
+    });
+    expect(drained?.state).toBe("draining");
+
+    await expect(
+      store.garbageCollect({
+        now: 100_000,
+      }),
+    ).resolves.toMatchObject({
+      releasedExpiredDispatchClaims: 1,
+      deletedStaleWorkers: 1,
+    });
+
+    const stats = await store.getDispatchStats();
+    expect(stats.totalQueued).toBe(1);
+    expect(stats.totalClaimed).toBe(0);
+  });
+
+  it("dedupes durable dispatch items by key and updates the latest availability", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+
+    await store.enqueueDispatch({
+      sessionId: "session-1",
+      runId: "bg-test",
+      pool: "generic",
+      reason: "timer",
+      createdAt: 1,
+      availableAt: 10,
+      dedupeKey: "dispatch:bg-test:timer",
+    });
+    await store.enqueueDispatch({
+      sessionId: "session-1",
+      runId: "bg-test",
+      pool: "generic",
+      reason: "busy_retry",
+      createdAt: 2,
+      availableAt: 5,
+      dedupeKey: "dispatch:bg-test:timer",
+    });
+
+    await store.heartbeatWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 3,
+    });
+
+    const claim = await store.claimDispatchForWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      now: 5,
+    });
+    expect(claim.item).toMatchObject({
+      reason: "busy_retry",
+      availableAt: 5,
+    });
+  });
+
+  it("maintains a lightweight dispatch beacon as queue state changes", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+
+    expect(await store.loadDispatchBeacon()).toMatchObject({
+      revision: 0,
+      queueDepth: 0,
+    });
+    expect((await store.loadDispatchBeacon()).nextAvailableAt).toBeUndefined();
+
+    await store.enqueueDispatch({
+      sessionId: "session-1",
+      runId: "bg-test",
+      pool: "generic",
+      reason: "timer",
+      createdAt: 1,
+      availableAt: 10,
+      dedupeKey: "dispatch:bg-test:timer",
+    });
+    expect(await store.loadDispatchBeacon()).toMatchObject({
+      revision: 1,
+      queueDepth: 1,
+      nextAvailableAt: 10,
+    });
+
+    await store.heartbeatWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 2,
+    });
+    await store.claimDispatchForWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      now: 10,
+    });
+    expect(await store.loadDispatchBeacon()).toMatchObject({
+      revision: 2,
+      queueDepth: 1,
+      nextAvailableAt: 10,
+    });
+
+    await store.completeDispatch({
+      dispatchId: "dispatch-1-0",
+      workerId: "worker-a",
+      now: 11,
+    });
+    expect(await store.loadDispatchBeacon()).toMatchObject({
+      revision: 3,
+      queueDepth: 0,
+      nextAvailableAt: undefined,
+    });
+  });
+
+  it("holds up under concurrent dispatch-claim load across multiple workers", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+    const totalItems = 48;
+
+    await Promise.all([
+      store.heartbeatWorker({
+        workerId: "worker-a",
+        pools: ["generic"],
+        maxConcurrentRuns: 1,
+        now: 1,
+      }),
+      store.heartbeatWorker({
+        workerId: "worker-b",
+        pools: ["generic"],
+        maxConcurrentRuns: 1,
+        now: 1,
+      }),
+      store.heartbeatWorker({
+        workerId: "worker-c",
+        pools: ["generic"],
+        maxConcurrentRuns: 1,
+        now: 1,
+      }),
+    ]);
+
+    await Promise.all(
+      Array.from({ length: totalItems }, (_, index) =>
+        store.enqueueDispatch({
+          sessionId: `session-${index}`,
+          runId: `bg-${index}`,
+          pool: "generic",
+          reason: "start",
+          createdAt: index + 2,
+          availableAt: 2,
+          dedupeKey: `dispatch:bg-${index}:start`,
+        }),
+      ),
+    );
+
+    const claimedIds = new Set<string>();
+    const consume = async (workerId: string) => {
+      while (true) {
+        const claim = await store.claimDispatchForWorker({
+          workerId,
+          pools: ["generic"],
+          now: 2,
+        });
+        if (!claim.claimed || !claim.item) {
+          return;
+        }
+        expect(claimedIds.has(claim.item.id)).toBe(false);
+        claimedIds.add(claim.item.id);
+        await store.completeDispatch({
+          dispatchId: claim.item.id,
+          workerId,
+          now: 2,
+        });
+      }
+    };
+
+    await Promise.all([
+      consume("worker-a"),
+      consume("worker-b"),
+      consume("worker-c"),
+    ]);
+
+    expect(claimedIds.size).toBe(totalItems);
+    await expect(store.getDispatchStats()).resolves.toMatchObject({
+      totalQueued: 0,
+      totalClaimed: 0,
+    });
   });
 });

@@ -29,6 +29,8 @@ import {
   specRequiresSuccessfulToolEvidence,
   validateDelegatedOutputContract,
 } from '../utils/delegation-validation.js';
+import type { PolicyEvaluationScope } from "../policy/types.js";
+import type { SessionCredentialBroker } from "../policy/session-credentials.js";
 
 const DESKTOP_GUI_LAUNCH_RE =
   /^\s*(?:sudo\s+)?(?:env\s+[^;]+\s+)?(?:nohup\s+|setsid\s+)?(?:xfce4-terminal|gnome-terminal|xterm|kitty|firefox|chromium|chromium-browser|google-chrome|thunar|nautilus|mousepad|gedit)\b/i;
@@ -325,6 +327,53 @@ function buildApprovalMessage(params: {
   );
 }
 
+function sendImmediateToolError(params: {
+  send: (msg: ControlResponse) => void;
+  toolName: string;
+  result: string;
+  toolCallId: string;
+  sessionId: string;
+  isSubAgentSession: boolean;
+  onToolEnd: SessionToolHandlerConfig["onToolEnd"];
+  hooks?: HookDispatcher;
+  args: Record<string, unknown>;
+  hookMetadata?: Record<string, unknown>;
+}): string {
+  const {
+    send,
+    toolName,
+    result,
+    toolCallId,
+    sessionId,
+    isSubAgentSession,
+    onToolEnd,
+    hooks,
+    args,
+    hookMetadata,
+  } = params;
+  sendDeniedToolResult({
+    send,
+    toolName,
+    result,
+    toolCallId,
+    sessionId,
+    isSubAgentSession,
+  });
+  if (hooks) {
+    void hooks.dispatch("tool:after", {
+      sessionId,
+      toolName,
+      args,
+      result,
+      durationMs: 0,
+      toolCallId,
+      ...(hookMetadata ? { ...hookMetadata } : {}),
+    });
+  }
+  onToolEnd?.(toolName, result, 0, toolCallId);
+  return result;
+}
+
 async function runApprovalGate(params: {
   approvalEngine: ApprovalEngine | undefined;
   name: string;
@@ -417,6 +466,19 @@ async function runApprovalGate(params: {
       action: name,
       details: args,
       message: request.message,
+      deadlineAt: request.deadlineAt,
+      ...(request.slaMs !== undefined ? { slaMs: request.slaMs } : {}),
+      ...(request.escalateAt !== undefined
+        ? { escalateAt: request.escalateAt }
+        : {}),
+      allowDelegatedResolution: request.allowDelegatedResolution,
+      ...(request.approverGroup
+        ? { approverGroup: request.approverGroup }
+        : {}),
+      ...(request.requiredApproverRoles &&
+      request.requiredApproverRoles.length > 0
+        ? { requiredApproverRoles: request.requiredApproverRoles }
+        : {}),
       ...(request.parentSessionId
         ? { parentSessionId: request.parentSessionId }
         : {}),
@@ -819,6 +881,10 @@ export interface SessionToolHandlerConfig {
   availableToolNames?: readonly string[];
   /** Extra metadata attached to tool hook payloads for this handler. */
   hookMetadata?: Record<string, unknown>;
+  /** Optional session credential broker for structured secret injection. */
+  credentialBroker?: SessionCredentialBroker;
+  /** Optional callback resolving the policy scope for this session. */
+  resolvePolicyScope?: () => PolicyEvaluationScope | undefined;
 }
 
 // ============================================================================
@@ -854,6 +920,8 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     delegation,
     availableToolNames,
     hookMetadata,
+    credentialBroker,
+    resolvePolicyScope,
   } = config;
   let toolCallSeq = 0;
   // Per-message duplicate guard to avoid opening the same GUI app twice when
@@ -876,6 +944,23 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       ? subAgentManager?.getInfo(sessionId) ?? null
       : null;
     const parentSessionId = subAgentInfo?.parentSessionId;
+    const policyScope = resolvePolicyScope?.();
+    const credentialPreparation = credentialBroker?.prepare({
+      sessionId,
+      toolName,
+      args: normalizedArgs,
+      scope: policyScope,
+    });
+    if (credentialPreparation && !credentialPreparation.ok) {
+      return JSON.stringify({ error: credentialPreparation.error });
+    }
+    const credentialPrepared = credentialPreparation?.prepared;
+    const enrichedHookMetadata = {
+      ...(hookMetadata ? { ...hookMetadata } : {}),
+      ...(credentialPrepared
+        ? { credentialPreview: credentialPrepared.preview }
+        : {}),
+    };
 
     const launchKey = normalizeDesktopBashCommand(toolName, args);
     if (launchKey) {
@@ -943,7 +1028,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         sessionId,
         toolName,
         args: normalizedArgs,
-        ...(hookMetadata ? { ...hookMetadata } : {}),
+        ...(enrichedHookMetadata ? { ...enrichedHookMetadata } : {}),
       });
       if (!beforeResult.completed) {
         // Bug fix: do NOT send tools.executing when hook blocks — the tool
@@ -1009,27 +1094,42 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
 
     const blockedResult = doomTurnGuard.blockedResult(toolName);
     if (blockedResult) {
-      sendDeniedToolResult({
+      return sendImmediateToolError({
         send,
         toolName,
         result: blockedResult,
         toolCallId,
         sessionId,
         isSubAgentSession,
+        onToolEnd,
+        hooks,
+        args: normalizedArgs,
+        hookMetadata: enrichedHookMetadata,
       });
-      if (hooks) {
-        await hooks.dispatch('tool:after', {
-          sessionId,
+    }
+
+    let executionArgs = normalizedArgs;
+    if (credentialBroker && credentialPrepared) {
+      const injectionResult = credentialBroker.inject({
+        prepared: credentialPrepared,
+        args: normalizedArgs,
+        scope: policyScope,
+      });
+      if (!injectionResult.ok) {
+        return sendImmediateToolError({
+          send,
           toolName,
-          args: normalizedArgs,
-          result: blockedResult,
-          durationMs: 0,
+          result: JSON.stringify({ error: injectionResult.error }),
           toolCallId,
-          ...(hookMetadata ? { ...hookMetadata } : {}),
+          sessionId,
+          isSubAgentSession,
+          onToolEnd,
+          hooks,
+          args: normalizedArgs,
+          hookMetadata: enrichedHookMetadata,
         });
       }
-      onToolEnd?.(toolName, blockedResult, 0, toolCallId);
-      return blockedResult;
+      executionArgs = injectionResult.args;
     }
 
     // 5. Select handler: delegation executor or desktop-aware/base handler
@@ -1054,7 +1154,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     const start = Date.now();
     let result: string;
     try {
-      result = await activeHandler(toolName, normalizedArgs);
+      result = await activeHandler(toolName, executionArgs);
     } catch (error) {
       if (isSubAgentSession && lifecycleEmitter) {
         lifecycleEmitter.emit({
@@ -1116,7 +1216,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         result,
         durationMs,
         toolCallId,
-        ...(hookMetadata ? { ...hookMetadata } : {}),
+        ...(enrichedHookMetadata ? { ...enrichedHookMetadata } : {}),
       });
     }
 

@@ -9,6 +9,7 @@
 
 // Re-export the canonical WebChatHandler from gateway/types to avoid duplication
 export type { WebChatHandler } from "../../gateway/types.js";
+import type { GatewayStatus } from "../../gateway/types.js";
 
 import type {
   ChatCancelledPayload,
@@ -30,13 +31,7 @@ import type {
 export interface WebChatDeps {
   /** Gateway instance for status queries. */
   gateway: {
-    getStatus(): {
-      state: string;
-      uptimeMs: number;
-      channels: string[];
-      activeSessions: number;
-      controlPlanePort: number;
-    };
+    getStatus(): GatewayStatus;
     config: {
       agent?: { name?: string };
       connection?: { rpcUrl?: string; keypairPath?: string };
@@ -73,6 +68,35 @@ export interface WebChatDeps {
   hydrateSessionContext?: (sessionId: string) => Promise<void> | void;
   /** Optional callback to cancel a daemon-owned background run for a session. */
   cancelBackgroundRun?: (sessionId: string) => Promise<boolean> | boolean;
+  /** Optional policy simulation preview helper for operator workflows. */
+  policyPreview?: (params: {
+    sessionId: string;
+    toolName: string;
+    args?: Record<string, unknown>;
+  }) => Promise<{
+    toolName: string;
+    sessionId: string;
+    policy: {
+      allowed: boolean;
+      mode: string;
+      violations: Array<{
+        code: string;
+        message: string;
+      }>;
+    };
+    approval: {
+      required: boolean;
+      elevated: boolean;
+      denied: boolean;
+      requestPreview?: {
+        message: string;
+        deadlineAt: number;
+        allowDelegatedResolution: boolean;
+        approverGroup?: string;
+        requiredApproverRoles?: readonly string[];
+      };
+    };
+  }>;
 }
 
 // ============================================================================
@@ -93,6 +117,10 @@ export interface ChatMessageRequest {
   payload: {
     content: string;
     clientKey?: string;
+    policyContext?: {
+      tenantId?: string;
+      projectId?: string;
+    };
     attachments?: Array<{ type: string; url?: string; mimeType: string }>;
   };
   id?: string;
@@ -188,6 +216,16 @@ export interface ApprovalRespondRequest {
   payload: {
     requestId: string;
     approved: boolean;
+  };
+  id?: string;
+}
+
+export interface PolicySimulateRequest {
+  type: "policy.simulate";
+  payload: {
+    toolName: string;
+    args?: Record<string, unknown>;
+    sessionId?: string;
   };
   id?: string;
 }
@@ -400,8 +438,60 @@ export interface ApprovalRequestResponse {
     action: string;
     details: Record<string, unknown>;
     message?: string;
+    deadlineAt?: number;
+    slaMs?: number;
+    escalateAt?: number;
+    allowDelegatedResolution?: boolean;
+    approverGroup?: string;
+    requiredApproverRoles?: readonly string[];
     parentSessionId?: string;
     subagentSessionId?: string;
+  };
+  id?: string;
+}
+
+export interface ApprovalEscalatedResponse {
+  type: "approval.escalated";
+  payload: {
+    requestId: string;
+    action: string;
+    message?: string;
+    escalatedAt: number;
+    deadlineAt: number;
+    escalateToSessionId: string;
+    approverGroup?: string;
+    requiredApproverRoles?: readonly string[];
+    parentSessionId?: string;
+    subagentSessionId?: string;
+  };
+  id?: string;
+}
+
+export interface PolicySimulateResponse {
+  type: "policy.simulate";
+  payload: {
+    toolName: string;
+    sessionId: string;
+    policy: {
+      allowed: boolean;
+      mode: string;
+      violations: Array<{
+        code: string;
+        message: string;
+      }>;
+    };
+    approval: {
+      required: boolean;
+      elevated: boolean;
+      denied: boolean;
+      requestPreview?: {
+        message: string;
+        deadlineAt: number;
+        allowDelegatedResolution: boolean;
+        approverGroup?: string;
+        requiredApproverRoles?: readonly string[];
+      };
+    };
   };
   id?: string;
 }

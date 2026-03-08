@@ -11,7 +11,7 @@ import type { LLMTool, ToolHandler } from "../llm/types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import type { PolicyEngine } from "../policy/engine.js";
-import type { PolicyAction } from "../policy/types.js";
+import { buildToolPolicyAction } from "../policy/tool-governance.js";
 
 /**
  * Registry for managing tool instances.
@@ -160,12 +160,10 @@ export class ToolRegistry {
       }
 
       if (this.policyEngine) {
-        const action: PolicyAction = {
-          type: "tool_call",
-          name,
-          access: inferToolAccess(name),
-          metadata: { args },
-        };
+        const action = buildToolPolicyAction({
+          toolName: name,
+          args,
+        });
         const decision = this.policyEngine.evaluate(action);
         if (!decision.allowed) {
           const violation = decision.violations[0];
@@ -193,17 +191,6 @@ export class ToolRegistry {
       }
     };
   }
-}
-
-function inferToolAccess(toolName: string): "read" | "write" {
-  // Extract action segment (last dot-separated part), e.g. "system.readFile" → "readfile"
-  const action = (toolName.split(".").pop() ?? toolName).toLowerCase();
-  // Exact match for standalone read actions
-  if (action === "stat" || action === "status") return "read";
-  // Prefix match for compound read actions (getTask, listDir, readFile, queryBalance, etc.)
-  const readPrefixes = ["get", "list", "query", "inspect", "read"];
-  if (readPrefixes.some((p) => action.startsWith(p))) return "read";
-  return "write";
 }
 
 function normalizeToolErrorContent(content: string): string {

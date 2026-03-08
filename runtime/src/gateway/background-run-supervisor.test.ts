@@ -6,6 +6,7 @@ import type { ChatExecutorResult } from "../llm/chat-executor.js";
 import type { LLMProvider, ToolHandler } from "../llm/types.js";
 import { InMemoryBackend } from "../memory/in-memory/backend.js";
 import { SqliteBackend } from "../memory/sqlite/backend.js";
+import { PolicyEngine } from "../policy/engine.js";
 import {
   BackgroundRunSupervisor,
   inferBackgroundRunIntent,
@@ -126,6 +127,11 @@ function makePersistedRunRecord(
     id: "bg-persisted",
     sessionId: overrides.sessionId,
     objective: overrides.objective,
+    policyScope: {
+      tenantId: "tenant-a",
+      projectId: "project-x",
+      runId: "run-bg-persisted",
+    },
     contract: {
       domain: "generic",
       kind: "finite",
@@ -159,11 +165,17 @@ function makePersistedRunRecord(
       runtimeStartedAt: 1,
       lastActivityAt: 1,
       lastProgressAt: 1,
+      totalTokens: 0,
+      lastCycleTokens: 0,
+      managedProcessCount: 0,
       maxRuntimeMs: 604_800_000,
       maxCycles: 512,
       maxIdleMs: undefined,
       nextCheckIntervalMs: 4_000,
       heartbeatIntervalMs: 12_000,
+      firstAcknowledgedAt: undefined,
+      firstVerifiedUpdateAt: undefined,
+      stopRequestedAt: undefined,
     },
     compaction: {
       lastCompactedAt: undefined,
@@ -1443,6 +1455,119 @@ describe("background-run-supervisor", () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("reclaims a stale claimed dispatch on a standby worker after the owner heartbeat stops", async () => {
+    const runStore = createRunStore();
+    const publishUpdate = vi.fn(async () => undefined);
+
+    await runStore.saveRun(
+      makePersistedRunRecord({
+        id: "bg-failover-dispatch",
+        sessionId: "session-failover-dispatch",
+        objective: "Download the report from the browser session.",
+        contract: {
+          domain: "browser",
+          successCriteria: ["Download the report artifact."],
+          completionCriteria: ["Observe the report download completing."],
+          blockedCriteria: ["Browser automation fails."],
+        },
+        pendingSignals: [
+          {
+            id: "sig-failover-dispatch",
+            type: "tool_result",
+            content: "Browser download completed at /tmp/report.pdf.",
+            timestamp: 1,
+            data: {
+              category: "browser",
+              toolName: "mcp.browser.browser_download",
+              eventType: "browser.download.completed",
+              path: "/tmp/report.pdf",
+            },
+          },
+        ],
+        preferredWorkerId: "worker-a",
+        workerAffinityKey: "session:session-failover-dispatch",
+      }),
+    );
+    await runStore.heartbeatWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 2,
+      currentSessionIds: [],
+      affinityKeys: ["session:session-failover-dispatch"],
+      now: 0,
+    });
+    const claimedLease = await runStore.claimLease(
+      "session-failover-dispatch",
+      "worker-a",
+      1_000,
+    );
+    expect(claimedLease.claimed).toBe(true);
+    await runStore.enqueueDispatch({
+      sessionId: "session-failover-dispatch",
+      runId: "bg-failover-dispatch",
+      pool: "generic",
+      reason: "timer",
+      createdAt: 1_000,
+      availableAt: 1_000,
+      dedupeKey: "dispatch:session-failover-dispatch:timer",
+      preferredWorkerId: "worker-a",
+      affinityKey: "session:session-failover-dispatch",
+    });
+    const claimedDispatch = await runStore.claimDispatchForWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      now: 1_000,
+    });
+    expect(claimedDispatch.claimed).toBe(true);
+    expect(claimedDispatch.item?.claimOwnerId).toBe("worker-a");
+
+    const execute = vi.fn().mockResolvedValue(
+      makeResult({
+        content: "actor should not run for deterministic failover completion",
+      }),
+    );
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi.fn(async () => ({
+          content:
+            '{"state":"completed","userUpdate":"Standby worker finished the task after failover. Objective satisfied.","internalSummary":"reclaimed stale dispatch","shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    vi.setSystemTime(25_000);
+    await (supervisor as any).heartbeatWorker();
+    await (supervisor as any).pumpDispatchQueue();
+
+    await eventuallyAsync(async () => {
+      const snapshot = await runStore.loadRecentSnapshot("session-failover-dispatch");
+      expect(snapshot?.state).toBe("completed");
+      expect(snapshot?.lastUserUpdate).toBe(
+        "Browser download completed at /tmp/report.pdf. Objective satisfied.",
+      );
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(supervisor.getStatusSnapshot("session-failover-dispatch")).toBeUndefined();
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-failover-dispatch",
+      "Browser download completed at /tmp/report.pdf. Objective satisfied.",
+    );
+
+    await supervisor.shutdown();
   });
 
   it.each([
@@ -3437,6 +3562,70 @@ describe("background-run-supervisor", () => {
     );
   });
 
+  it("defers new dispatches under queue saturation by scheduling admission_retry work", async () => {
+    const runStore = createRunStore();
+    await runStore.heartbeatWorker({
+      workerId: "foreign-generic-worker",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 0,
+    });
+    await Promise.all(
+      Array.from({ length: 96 }, (_, index) =>
+        runStore.enqueueDispatch({
+          sessionId: `session-saturated-${index}`,
+          runId: `bg-saturated-${index}`,
+          pool: "generic",
+          reason: "timer",
+          createdAt: 1,
+          availableAt: 1,
+          dedupeKey: `dispatch:saturated:${index}`,
+          preferredWorkerId: "foreign-generic-worker",
+        }),
+      ),
+    );
+
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValue(makeResult({ content: "Should not run yet." }));
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi.fn(async () => ({
+          content:
+            '{"domain":"generic","kind":"finite","successCriteria":["Complete the task."],"completionCriteria":["Observe success."],"blockedCriteria":["Runtime unavailable."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-admission",
+      objective: "Run this generic background task.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(0);
+    const dispatchQueue = await runStore.loadDispatchQueue();
+    expect(dispatchQueue.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: "session-admission",
+          reason: "admission_retry",
+        }),
+      ]),
+    );
+  });
+
   it("completes deterministically from managed process status without waiting for an exit event", async () => {
     const publishUpdate = vi.fn(async () => undefined);
     const execute = vi.fn().mockResolvedValue(
@@ -3710,5 +3899,184 @@ describe("background-run-supervisor", () => {
       "session-late-external-signal",
       "Watcher is running.",
     );
+  });
+
+  it("fails a run when the scoped token budget is exhausted", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "Still monitoring.",
+          tokenUsage: { promptTokens: 4, completionTokens: 5, totalTokens: 9 },
+          callUsage: [
+            makeCallUsageRecord({
+              usage: { promptTokens: 4, completionTokens: 5, totalTokens: 9 },
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeResult({
+          content: "This second cycle should trip the budget.",
+          tokenUsage: { promptTokens: 4, completionTokens: 5, totalTokens: 9 },
+          callUsage: [
+            makeCallUsageRecord({
+              usage: { promptTokens: 4, completionTokens: 5, totalTokens: 9 },
+            }),
+          ],
+        }),
+      );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"generic","kind":"finite","successCriteria":["Keep checking."],"completionCriteria":["Observe deterministic completion."],"blockedCriteria":["Runtime unavailable."],"nextCheckMs":2000,"heartbeatMs":12000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValue({
+          content:
+            '{"state":"working","userUpdate":"Still monitoring.","internalSummary":"waiting","nextCheckMs":2000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+      policyEngine: new PolicyEngine({
+        policy: {
+          enabled: true,
+          scopedTokenBudgets: {
+            run: {
+              limitTokens: 8,
+              windowMs: 60_000,
+            },
+          },
+        },
+      }),
+      resolvePolicyScope: ({ runId }) => ({ runId }),
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-token-budget",
+      objective: "Keep monitoring in the background.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-token-budget")).toBeUndefined();
+    });
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-token-budget",
+      "Background run exhausted its token budget before the objective completed.",
+    );
+  });
+
+  it("waits when the managed-process concurrency budget is saturated", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValue(
+      makeResult({
+        content: "Still monitoring.",
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValue({
+          content:
+            '{"state":"working","userUpdate":"Still monitoring.","internalSummary":"waiting","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+    const runStore = createRunStore();
+    await runStore.saveRun(
+      makePersistedRunRecord({
+        sessionId: "session-process-budget",
+        objective: "Monitor this process until it exits.",
+        contract: {
+          domain: "generic",
+          kind: "finite",
+          successCriteria: ["Keep monitoring."],
+          completionCriteria: ["Observe deterministic completion."],
+          blockedCriteria: ["Runtime unavailable."],
+          nextCheckMs: 4_000,
+          heartbeatMs: 12_000,
+          requiresUserStop: false,
+          managedProcessPolicy: { mode: "none" },
+        },
+        observedTargets: [
+          {
+            kind: "managed_process",
+            processId: "proc_watcher",
+            label: "watcher",
+            desiredState: "exited",
+            exitPolicy: "until_exit",
+            currentState: "running",
+            lastObservedAt: 1,
+          },
+        ],
+      }),
+    );
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+      policyEngine: new PolicyEngine({
+        policy: {
+          enabled: true,
+          scopedProcessBudgets: {
+            run: {
+              maxConcurrent: 0,
+            },
+          },
+        },
+      }),
+      resolvePolicyScope: ({ runId }) => ({ runId }),
+    });
+
+    await supervisor.recoverRuns();
+    await vi.advanceTimersByTimeAsync(20);
+
+    const snapshot = supervisor.getStatusSnapshot("session-process-budget");
+    expect(snapshot?.state).toBe("working");
+    await eventually(() => {
+      expect(publishUpdate).toHaveBeenCalledWith(
+        "session-process-budget",
+        "Background run is waiting for available managed-process capacity (run scope).",
+      );
+    });
+    expect(execute).not.toHaveBeenCalled();
+
+    const persisted = await runStore.loadRun("session-process-budget");
+    expect(persisted?.policyScope).toMatchObject({
+      sessionId: "session-process-budget",
+      tenantId: "tenant-a",
+      projectId: "project-x",
+      runId: "run-bg-persisted",
+    });
+    expect(persisted?.budgetState.managedProcessCount).toBe(1);
   });
 });

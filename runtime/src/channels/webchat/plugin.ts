@@ -29,7 +29,10 @@ import { HANDLER_MAP } from "./handlers.js";
 import type { SendFn } from "./handlers.js";
 import type { HandlerRequestContext } from "./handlers.js";
 import { matchesEventFilters } from "./protocol.js";
-import { WebChatSessionStore } from "./session-store.js";
+import {
+  WebChatSessionStore,
+  type PersistedWebChatPolicyContext,
+} from "./session-store.js";
 
 const MESSAGE_ID_TTL_MS = 5 * 60_000;
 const MAX_TRACKED_MESSAGE_IDS = 5_000;
@@ -71,6 +74,10 @@ export class WebChatChannel
   private readonly sessionHistory = new Map<
     string,
     Array<{ content: string; sender: "user" | "agent"; timestamp: number }>
+  >();
+  private readonly sessionPolicyContexts = new Map<
+    string,
+    PersistedWebChatPolicyContext
   >();
   // clientIds subscribed to events and their optional filters
   private readonly eventSubscribers = new Map<string, readonly string[] | null>();
@@ -142,6 +149,7 @@ export class WebChatChannel
     this.clientSenders.clear();
     this.sessionOwners.clear();
     this.sessionHistory.clear();
+    this.sessionPolicyContexts.clear();
     this.eventSubscribers.clear();
     this.seenMessageIds.clear();
     this.healthy = false;
@@ -313,6 +321,8 @@ export class WebChatChannel
     if (handler) {
       const requestContext: HandlerRequestContext = {
         clientId,
+        ownerKey: this.currentOwnerKey(clientId),
+        channel: this.name,
         activeSessionId: this.clientSessions.get(clientId),
         listOwnedSessionIds: () => this.listOwnedSessionIds(clientId),
         isSessionOwned: (sessionId: string) =>
@@ -448,6 +458,12 @@ export class WebChatChannel
     const ownerKey = this.resolveOwnerKey(clientId, payload);
     const timestamp = Date.now();
     const sessionId = this.ensureSession(clientId, ownerKey);
+    const policyContext =
+      this.parsePolicyContext(payload) ?? this.sessionPolicyContexts.get(sessionId);
+
+    if (policyContext) {
+      this.sessionPolicyContexts.set(sessionId, policyContext);
+    }
 
     // Notify the client of its session ID (needed for desktop viewer matching)
     send({ type: 'chat.session', payload: { sessionId } });
@@ -462,6 +478,7 @@ export class WebChatChannel
       content: content as string,
       sender: "user",
       timestamp,
+      ...(policyContext ? { policyContext } : {}),
     });
 
     // Convert base64 attachments from the WebSocket payload to MessageAttachment[]
@@ -508,9 +525,9 @@ export class WebChatChannel
       sessionId,
       content: content as string,
       scope: "dm",
+      ...(policyContext ? { metadata: { policyContext } } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
-
     this.context.onMessage(gatewayMsg).catch((err) => {
       this.context.logger.warn?.(
         "WebChat: error delivering message to gateway:",
@@ -656,6 +673,11 @@ export class WebChatChannel
     this.clientSessions.set(clientId, targetSessionId);
     this.sessionClients.set(targetSessionId, clientId);
     this.sessionOwners.set(targetSessionId, ownerKey);
+    const persisted = await this.sessionStore?.loadSession(targetSessionId);
+    const policyContext = persisted?.metadata?.policyContext;
+    if (policyContext) {
+      this.sessionPolicyContexts.set(targetSessionId, policyContext);
+    }
 
     await Promise.resolve(this.deps.hydrateSessionContext?.(targetSessionId));
     const history = await this.loadSessionHistory(targetSessionId);
@@ -922,7 +944,12 @@ export class WebChatChannel
 
   private async persistSessionActivity(
     sessionId: string,
-    entry: { content: string; sender: "user" | "agent"; timestamp: number },
+    entry: {
+      content: string;
+      sender: "user" | "agent";
+      timestamp: number;
+      policyContext?: PersistedWebChatPolicyContext;
+    },
   ): Promise<void> {
     if (!this.sessionStore) {
       return;
@@ -941,6 +968,9 @@ export class WebChatChannel
         sender: entry.sender,
         content: entry.content,
         timestamp: entry.timestamp,
+        ...(entry.policyContext
+          ? { metadata: { policyContext: entry.policyContext } }
+          : {}),
       });
     } catch (error) {
       this.context.logger.debug("Failed to persist webchat session activity", {
@@ -982,11 +1012,39 @@ export class WebChatChannel
         }));
       if (history.length > 0) {
         this.sessionHistory.set(sessionId, history);
-        return history;
       }
+      return history;
     }
     const history = this.sessionHistory.get(sessionId) ?? [];
     return typeof limit === "number" && limit > 0 ? history.slice(-limit) : history;
+  }
+
+  private parsePolicyContext(
+    payload: Record<string, unknown> | undefined,
+  ): PersistedWebChatPolicyContext | undefined {
+    if (
+      !payload ||
+      typeof payload.policyContext !== "object" ||
+      payload.policyContext === null
+    ) {
+      return undefined;
+    }
+    const raw = payload.policyContext as Record<string, unknown>;
+    const tenantId =
+      typeof raw.tenantId === "string" && raw.tenantId.trim().length > 0
+        ? raw.tenantId.trim()
+        : undefined;
+    const projectId =
+      typeof raw.projectId === "string" && raw.projectId.trim().length > 0
+        ? raw.projectId.trim()
+        : undefined;
+    if (!tenantId && !projectId) {
+      return undefined;
+    }
+    return {
+      ...(tenantId ? { tenantId } : {}),
+      ...(projectId ? { projectId } : {}),
+    };
   }
 
   // --------------------------------------------------------------------------

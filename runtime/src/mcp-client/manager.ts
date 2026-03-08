@@ -14,6 +14,20 @@ import { silentLogger } from "../utils/logger.js";
 import { createMCPConnection } from "./connection.js";
 import { createToolBridge } from "./tool-bridge.js";
 import { ResilientMCPBridge } from "./resilient-bridge.js";
+import type { MCPToolCatalogPolicyConfig } from "../policy/mcp-governance.js";
+
+function toToolCatalogPolicyConfig(
+  config: MCPServerConfig,
+): MCPToolCatalogPolicyConfig | undefined {
+  const typed = config as MCPServerConfig & MCPToolCatalogPolicyConfig;
+  if (!typed.riskControls && !typed.supplyChain) {
+    return undefined;
+  }
+  return {
+    riskControls: typed.riskControls,
+    supplyChain: typed.supplyChain,
+  };
+}
 
 /**
  * Manages multiple external MCP server connections.
@@ -66,6 +80,7 @@ export class MCPManager {
             {
               listToolsTimeoutMs: config.timeout,
               callToolTimeoutMs: config.timeout,
+              serverConfig: toToolCatalogPolicyConfig(config),
             },
           );
           const bridge = new ResilientMCPBridge(config, rawBridge, this.logger);

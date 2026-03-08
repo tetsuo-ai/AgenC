@@ -11,6 +11,11 @@ import type { Tool, ToolResult, JSONSchema } from "../tools/types.js";
 import type { MCPToolBridge } from "./types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
+import {
+  computeMCPToolCatalogSha256,
+  filterMCPToolCatalog,
+  type MCPToolCatalogPolicyConfig,
+} from "../policy/mcp-governance.js";
 
 const DEFAULT_MCP_LIST_TOOLS_TIMEOUT_MS = 30_000;
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 45_000;
@@ -18,6 +23,7 @@ const DEFAULT_MCP_CALL_TIMEOUT_MS = 45_000;
 interface ToolBridgeOptions {
   listToolsTimeoutMs?: number;
   callToolTimeoutMs?: number;
+  serverConfig?: MCPToolCatalogPolicyConfig;
 }
 
 interface MCPToolDescriptor {
@@ -96,7 +102,21 @@ export async function createToolBridge(
     listToolsTimeoutMs,
     () => client.listTools(),
   );
-  const mcpTools = Array.isArray(response.tools) ? response.tools : [];
+  const rawTools = Array.isArray(response.tools) ? response.tools : [];
+  const mcpTools = options.serverConfig
+    ? filterMCPToolCatalog(options.serverConfig, rawTools)
+    : rawTools;
+
+  if (options.serverConfig?.supplyChain?.catalogSha256) {
+    const actualSha = computeMCPToolCatalogSha256(mcpTools);
+    const expectedSha =
+      options.serverConfig.supplyChain.catalogSha256.trim().toLowerCase();
+    if (actualSha !== expectedSha) {
+      throw new Error(
+        `MCP server "${serverName}" tool catalog digest mismatch: expected ${expectedSha}, got ${actualSha}`,
+      );
+    }
+  }
 
   logger.info(`MCP server "${serverName}" exposes ${mcpTools.length} tools`);
 
