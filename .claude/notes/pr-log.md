@@ -1,3 +1,10 @@
+## PR [pending]: add phase 5 desktop process debt note
+- **Date:** 2026-03-07
+- **Files changed:** `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-08-phase5-desktop-process-handle-contract.md`
+- **What worked:** The Phase 5 desktop managed-process contract cleanup now has a committed debt note alongside the shipped runtime/code changes, instead of existing only as a local ignored artifact.
+- **What didn't:** This is documentation-only follow-up, so there is no additional product-surface behavior or validation beyond keeping the notes history complete.
+- **Rule added to CLAUDE.md:** no
+
 ## PR [pending]: durable task runtime foundation and phase 5 contract hardening
 - **Date:** 2026-03-07
 - **Files changed:** `runtime/src/gateway/{agent-run-contract.ts,background-run-store.ts,background-run-supervisor.ts,background-run-wake-bus.ts,background-run-wake-adapters.ts,run-domains.ts,webhooks.ts,daemon.ts,gateway.ts,channel.ts}`, `runtime/src/tools/system/{process.ts,browser-session.ts,handle-contract.ts,command-line.ts}`, `containers/desktop/server/src/tools.ts`, `runtime/src/desktop/tool-definitions.ts`, related tests under `runtime/src/**` and `containers/desktop/server/src/*.test.ts`, plus `docs/architecture/README.md`, `docs/ROADMAP.md`, `docs/RUNTIME_API.md`, and `.claude/notes/*`.
