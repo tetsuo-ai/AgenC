@@ -165,6 +165,7 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
           <div className="animate-list-item space-y-4" style={{ animationDelay: delay() }}>
             <div className="text-[10px] text-tetsuo-400 uppercase tracking-[0.15em] font-medium">Background Runs</div>
             <div className="grid grid-cols-2 gap-3">
+              <StatCard label="Multi-Agent" value={status.backgroundRuns.multiAgentEnabled ? 'On' : 'Off'} accent={status.backgroundRuns.multiAgentEnabled} />
               <StatCard label="Active" value={status.backgroundRuns.activeTotal} accent={status.backgroundRuns.activeTotal > 0} />
               <StatCard label="Queued Signals" value={status.backgroundRuns.queuedSignalsTotal} />
               <StatCard label="Recovered" value={status.backgroundRuns.metrics.recoveredTotal} />

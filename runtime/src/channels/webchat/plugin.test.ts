@@ -30,6 +30,7 @@ function createDeps(overrides?: Partial<WebChatDeps>): WebChatDeps {
         activeSessions: 2,
         controlPlanePort: 9100,
         backgroundRuns: {
+          multiAgentEnabled: true,
           activeTotal: 1,
           queuedSignalsTotal: 2,
           stateCounts: {
@@ -124,6 +125,94 @@ async function startDesktopChannel(
   await channel.initialize(context);
   await channel.start();
   return { deps, context, channel };
+}
+
+function makeRunSummary(sessionId = "session-owned") {
+  return {
+    runId: `run-${sessionId}`,
+    sessionId,
+    objective: "Watch a managed process until it exits.",
+    state: "working",
+    currentPhase: "active",
+    explanation: "Run is active and waiting for the next verification cycle.",
+    unsafeToContinue: false,
+    createdAt: 1,
+    updatedAt: 2,
+    lastVerifiedAt: 2,
+    nextCheckAt: 4_000,
+    nextHeartbeatAt: 12_000,
+    cycleCount: 1,
+    contractKind: "finite",
+    contractDomain: "generic",
+    requiresUserStop: false,
+    pendingSignals: 0,
+    watchCount: 1,
+    fenceToken: 1,
+    lastUserUpdate: "Watching the process.",
+    lastToolEvidence: "system.processStatus -> running",
+    lastWakeReason: "tool_result",
+    carryForwardSummary: "Continue observing the process.",
+    blockerSummary: undefined,
+    approvalRequired: false,
+    approvalState: "none",
+    checkpointAvailable: true,
+    preferredWorkerId: "worker-a",
+    workerAffinityKey: sessionId,
+  };
+}
+
+function makeRunDetail(sessionId = "session-owned") {
+  return {
+    ...makeRunSummary(sessionId),
+    policyScope: {
+      tenantId: "tenant-a",
+      projectId: "project-x",
+      runId: `run-${sessionId}`,
+    },
+    contract: {
+      domain: "generic",
+      kind: "finite",
+      successCriteria: ["Observe process completion."],
+      completionCriteria: ["Verify terminal evidence."],
+      blockedCriteria: ["Missing process evidence."],
+      nextCheckMs: 4_000,
+      heartbeatMs: 12_000,
+      requiresUserStop: false,
+      managedProcessPolicy: { mode: "none" },
+    },
+    blocker: undefined,
+    approval: { status: "none", summary: undefined },
+    budget: {
+      runtimeStartedAt: 1,
+      lastActivityAt: 2,
+      lastProgressAt: 2,
+      totalTokens: 4,
+      lastCycleTokens: 2,
+      managedProcessCount: 1,
+      maxRuntimeMs: 60_000,
+      maxCycles: 32,
+      maxIdleMs: 10_000,
+      nextCheckIntervalMs: 4_000,
+      heartbeatIntervalMs: 12_000,
+      firstAcknowledgedAt: 1,
+      firstVerifiedUpdateAt: 2,
+      stopRequestedAt: undefined,
+    },
+    compaction: {
+      lastCompactedAt: undefined,
+      lastCompactedCycle: 0,
+      refreshCount: 0,
+      lastHistoryLength: 4,
+      lastMilestoneAt: undefined,
+      lastCompactionReason: undefined,
+      repairCount: 0,
+      lastProviderAnchorAt: undefined,
+    },
+    artifacts: [],
+    observedTargets: [],
+    watchRegistrations: [],
+    recentEvents: [],
+  };
 }
 
 // ============================================================================
@@ -1088,6 +1177,118 @@ describe("WebChatChannel", () => {
             sessionId,
             channel: "webchat",
           }),
+        }),
+      );
+    });
+
+    it("lists only runs owned by the requesting client", async () => {
+      const listBackgroundRuns = vi.fn(async (sessionIds?: readonly string[]) =>
+        (sessionIds ?? []).map((sessionId) => makeRunSummary(sessionId)),
+      );
+      deps = createDeps({ listBackgroundRuns });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      const sessionId1 = openChatSession(channel, context, "client_1", send1, "client one");
+      openChatSession(channel, context, "client_2", send2, "client two");
+
+      channel.handleMessage(
+        "client_1",
+        "runs.list",
+        msg("runs.list", {}, "req-runs-list"),
+        send1,
+      );
+
+      await vi.waitFor(() =>
+        expect(send1).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "runs.list",
+            id: "req-runs-list",
+            payload: [expect.objectContaining({ sessionId: sessionId1 })],
+          }),
+        ),
+      );
+      expect(listBackgroundRuns).toHaveBeenCalledWith([sessionId1]);
+    });
+
+    it("inspects and controls only owned runs", async () => {
+      const inspectBackgroundRun = vi.fn(async (sessionId: string) => makeRunDetail(sessionId));
+      const controlBackgroundRun = vi.fn(async ({ action, actor }: any) =>
+        makeRunDetail(action.sessionId ?? "session-owned"),
+      );
+      deps = createDeps({ inspectBackgroundRun, controlBackgroundRun });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      const ownedSessionId = openChatSession(channel, context, "client_1", send, "owned session");
+
+      channel.handleMessage(
+        "client_1",
+        "run.inspect",
+        msg("run.inspect", { sessionId: ownedSessionId }, "req-run-inspect"),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "run.inspect",
+            id: "req-run-inspect",
+            payload: expect.objectContaining({ sessionId: ownedSessionId }),
+          }),
+        ),
+      );
+      expect(inspectBackgroundRun).toHaveBeenCalledWith(ownedSessionId);
+
+      channel.handleMessage(
+        "client_1",
+        "run.control",
+        msg(
+          "run.control",
+          { action: "pause", sessionId: ownedSessionId, reason: "operator pause" },
+          "req-run-control",
+        ),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "run.updated",
+            id: "req-run-control",
+            payload: expect.objectContaining({ sessionId: ownedSessionId }),
+          }),
+        ),
+      );
+      expect(controlBackgroundRun).toHaveBeenCalledWith({
+        action: {
+          action: "pause",
+          sessionId: ownedSessionId,
+          reason: "operator pause",
+        },
+        actor: "volatile:client_1",
+        channel: "webchat",
+      });
+
+      channel.handleMessage(
+        "client_1",
+        "run.inspect",
+        msg("run.inspect", { sessionId: "foreign-session" }, "req-run-inspect-foreign"),
+        send,
+      );
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "error",
+          id: "req-run-inspect-foreign",
+          error: "Missing or unauthorized run sessionId",
         }),
       );
     });

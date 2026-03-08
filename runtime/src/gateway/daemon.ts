@@ -165,7 +165,21 @@ import {
   isBackgroundRunStatusRequest,
   isBackgroundRunStopRequest,
 } from './background-run-supervisor.js';
+import { BackgroundRunNotifier } from './background-run-notifier.js';
 import { BackgroundRunStore } from './background-run-store.js';
+import type { PersistedBackgroundRun } from './background-run-store.js';
+import type {
+  BackgroundRunControlAction,
+  BackgroundRunOperatorDetail,
+  BackgroundRunOperatorSummary,
+} from './background-run-operator.js';
+import {
+  DurableSubrunOrchestrator,
+  type DurableSubrunAdmissionDecision,
+} from './durable-subrun-orchestrator.js';
+import {
+  evaluateAutonomyCanaryAdmission,
+} from './autonomy-rollout.js';
 import {
   formatBackgroundRunStatus,
   formatInactiveBackgroundRunStatus,
@@ -178,6 +192,8 @@ import {
   mapDesktopBridgeEventTypeToWebChatEvent,
 } from './background-run-wake-adapters.js';
 import { inferDoomTurnContract } from '../llm/chat-executor-doom.js';
+import { parseBackgroundRunQualityArtifact } from '../eval/background-run-quality.js';
+import type { DelegationBenchmarkSummary } from '../eval/delegation-benchmark.js';
 import {
   blockUntilDoomStopTool,
   isDoomStopRequest,
@@ -2085,6 +2101,7 @@ export class DaemonManager {
   private _desktopRouterFactory: ((sessionId: string, allowedToolNames?: readonly string[]) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private _backgroundRunSupervisor: BackgroundRunSupervisor | null = null;
+  private _durableSubrunOrchestrator: DurableSubrunOrchestrator | null = null;
   private _remoteJobManager: SystemRemoteJobManager | null = null;
   private _sessionModelInfo = new Map<string, {
     provider: string;
@@ -2904,6 +2921,12 @@ export class DaemonManager {
           sessionId,
           "Background run cancelled from the web UI.",
         ) ?? false,
+      listBackgroundRuns: (sessionIds) =>
+        this.listOwnedBackgroundRuns(sessionIds),
+      inspectBackgroundRun: (sessionId) =>
+        this.inspectOwnedBackgroundRun(sessionId),
+      controlBackgroundRun: (params) =>
+        this.controlOwnedBackgroundRun(params),
       policyPreview: (params) =>
         this.buildPolicySimulationPreview({
           sessionId: params.sessionId,
@@ -2934,11 +2957,34 @@ export class DaemonManager {
 
     gateway.setWebChatHandler(webChat);
     this._webChatChannel = webChat;
-    if (this._chatExecutor && providers[0]) {
+    const autonomyConfig = gateway.config.autonomy;
+    const backgroundRunsEnabled =
+      autonomyConfig?.enabled !== false &&
+      autonomyConfig?.featureFlags?.backgroundRuns !== false &&
+      autonomyConfig?.killSwitches?.backgroundRuns !== true;
+    const multiAgentEnabled =
+      backgroundRunsEnabled &&
+      autonomyConfig?.featureFlags?.multiAgent !== false &&
+      autonomyConfig?.killSwitches?.multiAgent !== true;
+    const backgroundRunNotificationsEnabled =
+      backgroundRunsEnabled &&
+      autonomyConfig?.featureFlags?.notifications !== false &&
+      autonomyConfig?.killSwitches?.notifications !== true;
+    if (this._chatExecutor && providers[0] && backgroundRunsEnabled) {
       const runStore = new BackgroundRunStore({
         memoryBackend,
         logger: this.logger,
       });
+      const notifier =
+        backgroundRunNotificationsEnabled &&
+          autonomyConfig?.notifications?.enabled !== false &&
+          Array.isArray(autonomyConfig?.notifications?.sinks) &&
+          autonomyConfig.notifications.sinks.length > 0
+          ? new BackgroundRunNotifier({
+            config: autonomyConfig.notifications,
+            logger: this.logger,
+          })
+          : undefined;
       this._backgroundRunSupervisor = new BackgroundRunSupervisor({
         chatExecutor: this._chatExecutor,
         supervisorLlm: providers[0],
@@ -2986,6 +3032,18 @@ export class DaemonManager {
         },
         progressTracker,
         logger: this.logger,
+        notifier,
+      });
+      this._durableSubrunOrchestrator = new DurableSubrunOrchestrator({
+        supervisor: this._backgroundRunSupervisor,
+        enabled: multiAgentEnabled,
+        logger: this.logger,
+        qualityArtifactProvider: () =>
+          this.loadBackgroundRunQualityArtifactFromDisk(),
+        delegationBenchmarkProvider: () =>
+          this.loadDelegationBenchmarkSummaryFromDisk(),
+        admissionEvaluator: ({ parentRun }): DurableSubrunAdmissionDecision =>
+          this.evaluateMultiAgentAdmission(parentRun),
       });
       gateway.registerWebhookRoute(
         createBackgroundRunWebhookRoute({
@@ -3000,6 +3058,7 @@ export class DaemonManager {
       }
     } else {
       this._backgroundRunSupervisor = null;
+      this._durableSubrunOrchestrator = null;
     }
     if (this._remoteJobManager) {
       gateway.registerWebhookRoute({
@@ -3093,11 +3152,13 @@ export class DaemonManager {
   private buildBackgroundRunStatusSummary(): GatewayBackgroundRunStatus | undefined {
     const fleet = this._backgroundRunSupervisor?.getFleetStatusSnapshot();
     const telemetry = this._telemetry?.getFullSnapshot();
-    if (!fleet && !telemetry) {
+    const multiAgentEnabled = this._durableSubrunOrchestrator !== null;
+    if (!fleet && !telemetry && !multiAgentEnabled) {
       return undefined;
     }
 
     return {
+      multiAgentEnabled,
       activeTotal: fleet?.activeTotal ?? 0,
       queuedSignalsTotal: fleet?.queuedSignalsTotal ?? 0,
       stateCounts: fleet?.stateCounts ?? {
@@ -3167,6 +3228,151 @@ export class DaemonManager {
         ),
       },
     };
+  }
+
+  private resolveArtifactPathCandidates(fileName: string): string[] {
+    return [
+      resolvePath(process.cwd(), "runtime", "benchmarks", "artifacts", fileName),
+      resolvePath(process.cwd(), "benchmarks", "artifacts", fileName),
+    ];
+  }
+
+  private async loadJsonArtifact<T>(
+    candidates: readonly string[],
+    parser: (value: unknown) => T,
+  ): Promise<T | undefined> {
+    for (const candidate of candidates) {
+      try {
+        await access(candidate, constants.R_OK);
+        const raw = await readFile(candidate, "utf8");
+        return parser(JSON.parse(raw));
+      } catch (error) {
+        const message = toErrorMessage(error);
+        if (
+          message.includes("ENOENT") ||
+          message.includes("no such file") ||
+          message.includes("Unexpected end of JSON input")
+        ) {
+          continue;
+        }
+        this.logger.debug("Autonomy artifact load failed", {
+          path: candidate,
+          error: message,
+        });
+      }
+    }
+    return undefined;
+  }
+
+  private async loadBackgroundRunQualityArtifactFromDisk() {
+    return this.loadJsonArtifact(
+      this.resolveArtifactPathCandidates("background-run-quality.ci.json"),
+      parseBackgroundRunQualityArtifact,
+    );
+  }
+
+  private async loadDelegationBenchmarkSummaryFromDisk(): Promise<
+    DelegationBenchmarkSummary | undefined
+  > {
+    return this.loadJsonArtifact(
+      this.resolveArtifactPathCandidates("delegation-benchmark.latest.json"),
+      (value) => {
+        if (typeof value !== "object" || value === null) {
+          throw new Error("delegation benchmark artifact must be an object");
+        }
+        const summary = (value as Record<string, unknown>).summary;
+        if (typeof summary !== "object" || summary === null) {
+          throw new Error("delegation benchmark artifact summary is missing");
+        }
+        return summary as DelegationBenchmarkSummary;
+      },
+    );
+  }
+
+  private evaluateBackgroundRunAdmission(params: {
+    sessionId: string;
+    domain: string;
+  }) {
+    const scope = this.resolvePolicyScopeForSession({
+      sessionId: params.sessionId,
+      channel: "webchat",
+    });
+    return evaluateAutonomyCanaryAdmission({
+      autonomy: this.gateway?.config.autonomy,
+      tenantId: scope.tenantId,
+      feature: "backgroundRuns",
+      domain: params.domain,
+      stableKey: params.sessionId,
+    });
+  }
+
+  private evaluateMultiAgentAdmission(
+    parentRun: PersistedBackgroundRun,
+  ): DurableSubrunAdmissionDecision {
+    const decision = evaluateAutonomyCanaryAdmission({
+      autonomy: this.gateway?.config.autonomy,
+      tenantId: parentRun.policyScope?.tenantId,
+      feature: "multiAgent",
+      domain: parentRun.contract.domain,
+      stableKey: parentRun.sessionId,
+    });
+    return {
+      allowed: decision.allowed,
+      reason: decision.reason,
+    };
+  }
+
+  private async listOwnedBackgroundRuns(
+    sessionIds: readonly string[],
+  ): Promise<readonly BackgroundRunOperatorSummary[]> {
+    if (!this._backgroundRunSupervisor || sessionIds.length === 0) {
+      return [];
+    }
+    return this._backgroundRunSupervisor.listOperatorSummaries(sessionIds);
+  }
+
+  private async inspectOwnedBackgroundRun(
+    sessionId: string,
+  ): Promise<BackgroundRunOperatorDetail | undefined> {
+    if (!this._backgroundRunSupervisor) {
+      return undefined;
+    }
+    return this._backgroundRunSupervisor.getOperatorDetail(sessionId);
+  }
+
+  private async controlOwnedBackgroundRun(params: {
+    action: BackgroundRunControlAction;
+    actor?: string;
+    channel?: string;
+  }): Promise<BackgroundRunOperatorDetail | undefined> {
+    if (!this._backgroundRunSupervisor) {
+      return undefined;
+    }
+    const detail = await this._backgroundRunSupervisor.applyOperatorControl(
+      params.action,
+    );
+    if (!detail) {
+      return undefined;
+    }
+    await this.appendGovernanceAuditEvent({
+      type: 'run.controlled',
+      actor: params.actor ? `webchat:${params.actor}` : undefined,
+      subject: detail.sessionId,
+      scope: {
+        tenantId: detail.policyScope?.tenantId,
+        projectId: detail.policyScope?.projectId,
+        runId: detail.runId,
+        sessionId: detail.sessionId,
+        channel: params.channel,
+      },
+      payload: {
+        action: params.action.action,
+        state: detail.state,
+        currentPhase: detail.currentPhase,
+        unsafeToContinue: detail.unsafeToContinue,
+      },
+    });
+    return detail;
   }
 
   private getTelemetryCounterTotal(
@@ -7728,6 +7934,17 @@ export class DaemonManager {
     }
 
     if (inferBackgroundRunIntent(msg.content) && this._backgroundRunSupervisor) {
+      const admission = this.evaluateBackgroundRunAdmission({
+        sessionId: msg.sessionId,
+        domain: "generic",
+      });
+      if (!admission.allowed) {
+        this.logger.info("Background run canary admission denied", {
+          sessionId: msg.sessionId,
+          cohort: admission.cohort,
+          reason: admission.reason,
+        });
+      } else {
       await memoryBackend.addEntry({
         sessionId: msg.sessionId,
         role: 'user',
@@ -7743,6 +7960,7 @@ export class DaemonManager {
         objective: msg.content,
       });
       return;
+      }
     }
 
     const sessionStreamCallback: StreamProgressCallback = (chunk) => {
@@ -8746,6 +8964,7 @@ export class DaemonManager {
       if (this._backgroundRunSupervisor !== null) {
         await this._backgroundRunSupervisor.shutdown();
         this._backgroundRunSupervisor = null;
+        this._durableSubrunOrchestrator = null;
       }
       if (this._desktopManager !== null) {
         await this._desktopManager.stop();

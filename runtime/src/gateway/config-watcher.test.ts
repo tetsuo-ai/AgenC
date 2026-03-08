@@ -154,6 +154,102 @@ describe("validateGatewayConfig desktop resource limits", () => {
 
 });
 
+describe("validateGatewayConfig autonomy controls", () => {
+  it("accepts autonomy notifications, feature flags, kill switches, and canary settings", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      autonomy: {
+        enabled: true,
+        featureFlags: {
+          backgroundRuns: true,
+          multiAgent: true,
+          notifications: true,
+          replayGates: true,
+          canaryRollout: true,
+        },
+        killSwitches: {
+          backgroundRuns: false,
+          multiAgent: false,
+          notifications: false,
+          replayGates: false,
+          canaryRollout: false,
+        },
+        slo: {
+          runStartLatencyMs: 500,
+          updateCadenceMs: 10_000,
+          completionAccuracyRate: 0.98,
+          recoverySuccessRate: 0.95,
+          stopLatencyMs: 1_000,
+          eventLossRate: 0,
+        },
+        canary: {
+          enabled: true,
+          tenantAllowList: ["tenant-a"],
+          featureAllowList: ["multiAgent"],
+          domainAllowList: ["research"],
+          percentage: 10,
+        },
+        notifications: {
+          enabled: true,
+          sinks: [
+            {
+              id: "ops-webhook",
+              type: "webhook",
+              url: "https://example.com/hook",
+              events: ["run_started", "run_completed"],
+              sessionIds: ["session-1"],
+              headers: {
+                "x-ops-team": "platform",
+              },
+              signingSecret: "signing-secret",
+            },
+          ],
+        },
+      },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects invalid autonomy notification sink configuration", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      autonomy: {
+        notifications: {
+          sinks: [
+            {
+              id: "",
+              type: "pagerduty",
+              url: "",
+              enabled: "yes",
+              events: ["bad_event"],
+              headers: "bad",
+            },
+          ],
+        },
+      },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "autonomy.notifications.sinks[0].id must be a non-empty string",
+    );
+    expect(result.errors).toContain(
+      "autonomy.notifications.sinks[0].type must be one of: webhook, slack_webhook, discord_webhook, email_webhook, mobile_push_webhook",
+    );
+    expect(result.errors).toContain(
+      "autonomy.notifications.sinks[0].url must be a non-empty string",
+    );
+    expect(result.errors).toContain(
+      "autonomy.notifications.sinks[0].enabled must be a boolean",
+    );
+    expect(result.errors).toContain(
+      "autonomy.notifications.sinks[0].events[0] must be one of: run_started, run_updated, run_blocked, run_completed, run_failed, run_cancelled, run_controlled",
+    );
+    expect(result.errors).toContain(
+      "autonomy.notifications.sinks[0].headers must be an object",
+    );
+  });
+});
+
 describe("validateGatewayConfig auth safety for bind address", () => {
   it("rejects non-local bind without auth.secret", () => {
     const result = validateGatewayConfig({

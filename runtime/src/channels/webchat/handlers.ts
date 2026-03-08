@@ -16,6 +16,7 @@
 
 import type { ControlResponse } from '../../gateway/types.js';
 import type { WebChatDeps } from './types.js';
+import type { BackgroundRunControlAction } from '../../gateway/background-run-operator.js';
 import { createProgram } from '../../idl.js';
 import { OnChainTaskStatus, taskStatusToString } from '../../task/types.js';
 import { findTaskPda, findEscrowPda } from '../../task/pda.js';
@@ -898,6 +899,117 @@ export async function handleDesktopDestroy(
   });
 }
 
+function resolveOwnedRunSessionId(
+  payload: Record<string, unknown> | undefined,
+  request: HandlerRequestContext,
+): string | undefined {
+  const explicit =
+    typeof payload?.sessionId === 'string' && payload.sessionId.length > 0
+      ? payload.sessionId
+      : undefined;
+  if (explicit) {
+    return request.isSessionOwned(explicit) ? explicit : undefined;
+  }
+  return request.activeSessionId && request.isSessionOwned(request.activeSessionId)
+    ? request.activeSessionId
+    : undefined;
+}
+
+export async function handleRunsList(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.listBackgroundRuns) {
+    send({ type: 'error', error: 'Background run operator API not available', id });
+    return;
+  }
+  const explicitSessionId =
+    typeof payload?.sessionId === 'string' && payload.sessionId.length > 0
+      ? payload.sessionId
+      : undefined;
+  if (explicitSessionId && !request.isSessionOwned(explicitSessionId)) {
+    send({ type: 'error', error: 'Not authorized for target run session', id });
+    return;
+  }
+  const sessionIds = explicitSessionId
+    ? [explicitSessionId]
+    : request.listOwnedSessionIds();
+  await safeAsync(send, id, 'error', 'Failed to list background runs', async () => {
+    const runs = await deps.listBackgroundRuns!(sessionIds);
+    send({ type: 'runs.list', payload: runs, id });
+  });
+}
+
+export async function handleRunInspect(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.inspectBackgroundRun) {
+    send({ type: 'error', error: 'Background run operator API not available', id });
+    return;
+  }
+  const sessionId = resolveOwnedRunSessionId(payload, request);
+  if (!sessionId) {
+    send({ type: 'error', error: 'Missing or unauthorized run sessionId', id });
+    return;
+  }
+  await safeAsync(send, id, 'error', 'Failed to inspect background run', async () => {
+    const detail = await deps.inspectBackgroundRun!(sessionId);
+    if (!detail) {
+      send({ type: 'error', error: `Background run "${sessionId}" not found`, id });
+      return;
+    }
+    send({ type: 'run.inspect', payload: detail, id });
+  });
+}
+
+export async function handleRunControl(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.controlBackgroundRun) {
+    send({ type: 'error', error: 'Background run operator API not available', id });
+    return;
+  }
+  if (!payload || typeof payload !== 'object') {
+    send({ type: 'error', error: 'Missing run control payload', id });
+    return;
+  }
+  const sessionId =
+    typeof payload.sessionId === 'string' && payload.sessionId.length > 0
+      ? payload.sessionId
+      : request.activeSessionId;
+  if (!sessionId || !request.isSessionOwned(sessionId)) {
+    send({ type: 'error', error: 'Missing or unauthorized run sessionId', id });
+    return;
+  }
+  const action = {
+    ...payload,
+    sessionId,
+  } as BackgroundRunControlAction;
+  await safeAsync(send, id, 'error', 'Failed to control background run', async () => {
+    const detail = await deps.controlBackgroundRun!({
+      action,
+      actor: request.ownerKey,
+      channel: request.channel,
+    });
+    if (!detail) {
+      send({ type: 'error', error: `Background run "${sessionId}" not found`, id });
+      return;
+    }
+    send({ type: 'run.updated', payload: detail, id });
+  });
+}
+
 // ============================================================================
 // Shared handler utilities
 // ============================================================================
@@ -941,6 +1053,9 @@ export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
   'memory.sessions': handleMemorySessions,
   'approval.respond': handleApprovalRespond,
   'policy.simulate': handlePolicySimulate,
+  'runs.list': handleRunsList,
+  'run.inspect': handleRunInspect,
+  'run.control': handleRunControl,
   'agents.list': handleAgentsList,
   'desktop.list': handleDesktopList,
   'desktop.create': handleDesktopCreate,

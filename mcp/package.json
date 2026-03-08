@@ -50,6 +50,7 @@
   },
   "overrides": {
     "ajv": "^8.18.0",
+    "express-rate-limit": "^8.2.2",
     "hono": "^4.11.10",
     "minimatch": "^9.0.9",
     "matrix-js-sdk": "^38.2.0",
@@ -58,6 +59,7 @@
   },
   "resolutions": {
     "ajv": "^8.18.0",
+    "express-rate-limit": "^8.2.2",
     "hono": "^4.11.10",
     "minimatch": "^9.0.9",
     "matrix-js-sdk": "^38.2.0",

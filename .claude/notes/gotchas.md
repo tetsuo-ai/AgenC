@@ -297,3 +297,11 @@
 - `npm --prefix runtime` benchmark/gate scripts must resolve artifacts from both the repo root and the `runtime/` package root. Hardcoding only one path makes CI green while local gate checks fail.
 - Blocked state transitions need a persisted `user_update` event, not just a transient websocket notice. Replay and eval scoring cannot prove operator UX correctness from in-memory notifications alone.
 - Status/dashboard wiring is not proven until the live daemon is restarted on the rebuilt `dist`. A source-only check can leave `status.get` serving an older process that has none of the new `backgroundRuns` payload.
+
+## Phase 9-11 Completion Gotchas (2026-03-08)
+
+- Operator dashboards need to render carry-forward summaries separately from live verified evidence. If the UI collapses them into one text stream, a compacted summary can look like a fresh runtime update and hide the real last-verified state.
+- Same-session dispatch queue items are redundant once one dispatch for that session is claimed. If stale timer dispatches are left queued alongside a late operator or signal wake, the supervisor can execute an extra cycle against already-consumed wake state.
+- Delegated-subagent integration fixtures must include successful tool evidence whenever the delegated contract requires grounded capabilities. A plausible textual summary alone is no longer enough once delegated-output validation checks for real tool-backed evidence.
+- Secret-scanning sweeps against external providers can fail partially under rate limits. GitGuardian MCP results are still useful, but the final security note must say when coverage is partial instead of implying a clean full sweep.
+- When transitive dependency fixes are applied through package-manager overrides, mirror them across the root package and every nested package that carries its own lockfile. Otherwise Trivy can still report a vulnerable version from a stale nested `package-lock.json` or `yarn.lock` even when `npm ls` from the repo root looks fixed.

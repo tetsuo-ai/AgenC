@@ -9,6 +9,11 @@ import type {
   SubagentLifecyclePayload,
   SubagentLifecycleType,
 } from '../../runtime/src/channels/webchat/protocol.ts';
+import type {
+  BackgroundRunControlAction,
+  BackgroundRunOperatorDetail,
+  BackgroundRunOperatorSummary,
+} from '../../runtime/src/gateway/background-run-operator.ts';
 
 // ============================================================================
 // Connection State
@@ -126,6 +131,7 @@ export interface GatewayStatus {
   controlPlanePort: number;
   agentName?: string;
   backgroundRuns?: {
+    multiAgentEnabled: boolean;
     activeTotal: number;
     queuedSignalsTotal: number;
     stateCounts: Record<
@@ -262,6 +268,14 @@ export interface ActivityEvent {
 }
 
 // ============================================================================
+// Durable Runs
+// ============================================================================
+
+export type RunSummary = BackgroundRunOperatorSummary;
+export type RunDetail = BackgroundRunOperatorDetail;
+export type RunControlAction = BackgroundRunControlAction;
+
+// ============================================================================
 // WebSocket Message Envelope
 // ============================================================================
 
@@ -312,4 +326,4 @@ export type VoiceMode = 'vad' | 'push-to-talk';
 // Navigation
 // ============================================================================
 
-export type ViewId = 'chat' | 'status' | 'skills' | 'tasks' | 'memory' | 'activity' | 'desktop' | 'settings' | 'payment';
+export type ViewId = 'chat' | 'status' | 'runs' | 'skills' | 'tasks' | 'memory' | 'activity' | 'desktop' | 'settings' | 'payment';

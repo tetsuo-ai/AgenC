@@ -1,6 +1,13 @@
 import type { LLMMessage } from "../llm/types.js";
 import type { MemoryBackend, MemoryEntry } from "../memory/types.js";
 import type { PolicyEvaluationScope } from "../policy/types.js";
+import type { BackgroundRunLineage } from "./subrun-contract.js";
+import {
+  assertValidBackgroundRunLineage,
+  isSubrunJoinStrategy,
+  isSubrunRedundancyPattern,
+  isSubrunRole,
+} from "./subrun-contract.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { KeyedAsyncQueue } from "../utils/keyed-async-queue.js";
@@ -22,6 +29,7 @@ import {
 
 const BACKGROUND_RUN_KEY_PREFIX = "background-run:session:";
 const BACKGROUND_RUN_RECENT_KEY_PREFIX = "background-run:recent:session:";
+const BACKGROUND_RUN_CHECKPOINT_KEY_PREFIX = "background-run:checkpoint:session:";
 const BACKGROUND_RUN_EVENT_SESSION_PREFIX = "background-run:";
 const BACKGROUND_RUN_CORRUPT_KEY_PREFIX = "background-run:corrupt:";
 const BACKGROUND_RUN_WAKE_QUEUE_KEY_PREFIX = "background-run:wake-queue:session:";
@@ -306,6 +314,7 @@ export interface PersistedBackgroundRun {
   readonly observedTargets: readonly BackgroundRunObservedTarget[];
   readonly watchRegistrations: readonly BackgroundRunWatchRegistration[];
   readonly internalHistory: readonly LLMMessage[];
+  readonly lineage?: BackgroundRunLineage;
   readonly fenceToken: number;
   readonly preferredWorkerId?: string;
   readonly workerAffinityKey?: string;
@@ -389,6 +398,13 @@ export type BackgroundRunEventType =
   | "run_resumed"
   | "run_cancelled"
   | "run_suspended"
+  | "run_objective_updated"
+  | "run_contract_amended"
+  | "run_budget_adjusted"
+  | "run_compaction_forced"
+  | "run_worker_reassigned"
+  | "run_retried"
+  | "run_verification_overridden"
   | "cycle_started"
   | "cycle_working"
   | "decision"
@@ -396,7 +412,10 @@ export type BackgroundRunEventType =
   | "user_update"
   | "run_blocked"
   | "run_completed"
-  | "run_failed";
+  | "run_failed"
+  | "subrun_spawned"
+  | "subrun_joined"
+  | "subrun_failed_attribution";
 
 export interface BackgroundRunEvent {
   readonly type: BackgroundRunEventType;
@@ -475,6 +494,11 @@ export interface BackgroundRunDispatchClaimResult {
   readonly queueDepth: number;
 }
 
+export interface BackgroundRunPruneDispatchResult {
+  readonly removedCount: number;
+  readonly queueDepth: number;
+}
+
 export interface BackgroundRunDispatchStats {
   readonly totalQueued: number;
   readonly totalClaimed: number;
@@ -500,6 +524,10 @@ function backgroundRunKey(sessionId: string): string {
 
 function backgroundRunRecentKey(sessionId: string): string {
   return `${BACKGROUND_RUN_RECENT_KEY_PREFIX}${sessionId}`;
+}
+
+function backgroundRunCheckpointKey(sessionId: string): string {
+  return `${BACKGROUND_RUN_CHECKPOINT_KEY_PREFIX}${sessionId}`;
 }
 
 function backgroundRunEventSessionId(runId: string): string {
@@ -1770,6 +1798,88 @@ function coerceRunDurableState(params: {
   };
 }
 
+function coerceRunLineage(value: unknown): BackgroundRunLineage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  const scope = raw.scope && typeof raw.scope === "object"
+    ? raw.scope as Record<string, unknown>
+    : undefined;
+  const artifactContract =
+    raw.artifactContract && typeof raw.artifactContract === "object"
+      ? raw.artifactContract as Record<string, unknown>
+      : undefined;
+  const budget = raw.budget && typeof raw.budget === "object"
+    ? raw.budget as Record<string, unknown>
+    : undefined;
+  const lineage: BackgroundRunLineage = {
+    rootRunId: typeof raw.rootRunId === "string" ? raw.rootRunId : "",
+    parentRunId:
+      typeof raw.parentRunId === "string" ? raw.parentRunId : undefined,
+    role: isSubrunRole(raw.role) ? raw.role : "worker",
+    depth:
+      typeof raw.depth === "number" && Number.isInteger(raw.depth) ? raw.depth : -1,
+    joinStrategy: isSubrunJoinStrategy(raw.joinStrategy)
+      ? raw.joinStrategy
+      : undefined,
+    redundancyPattern: isSubrunRedundancyPattern(raw.redundancyPattern)
+      ? raw.redundancyPattern
+      : undefined,
+    scope: {
+      allowedTools: Array.isArray(scope?.allowedTools)
+        ? scope.allowedTools.filter((tool): tool is string => typeof tool === "string")
+        : [],
+      allowedWriteRoots: Array.isArray(scope?.allowedWriteRoots)
+        ? scope.allowedWriteRoots.filter((entry): entry is string => typeof entry === "string")
+        : undefined,
+      allowedHosts: Array.isArray(scope?.allowedHosts)
+        ? scope.allowedHosts.filter((entry): entry is string => typeof entry === "string")
+        : undefined,
+    },
+    artifactContract: {
+      requiredKinds: Array.isArray(artifactContract?.requiredKinds)
+        ? artifactContract.requiredKinds.filter(
+          (kind): kind is BackgroundRunArtifactRef["kind"] =>
+            kind === "file" ||
+            kind === "url" ||
+            kind === "log" ||
+            kind === "process" ||
+            kind === "download" ||
+            kind === "opaque_provider_state",
+        )
+        : [],
+      minArtifactCount:
+        typeof artifactContract?.minArtifactCount === "number"
+          ? artifactContract.minArtifactCount
+          : undefined,
+      summaryRequired:
+        typeof artifactContract?.summaryRequired === "boolean"
+          ? artifactContract.summaryRequired
+          : undefined,
+    },
+    budget: {
+      maxRuntimeMs:
+        typeof budget?.maxRuntimeMs === "number" ? budget.maxRuntimeMs : 0,
+      maxTokens:
+        typeof budget?.maxTokens === "number" ? budget.maxTokens : undefined,
+      maxToolCalls:
+        typeof budget?.maxToolCalls === "number" ? budget.maxToolCalls : undefined,
+      maxChildren:
+        typeof budget?.maxChildren === "number" ? budget.maxChildren : undefined,
+    },
+    childRunIds: Array.isArray(raw.childRunIds)
+      ? raw.childRunIds.filter((entry): entry is string => typeof entry === "string")
+      : [],
+  };
+  try {
+    assertValidBackgroundRunLineage(lineage);
+    return lineage;
+  } catch {
+    return undefined;
+  }
+}
+
 function coerceRun(value: unknown): PersistedBackgroundRun | undefined {
   const core = coerceRunCore(value);
   if (!core) return undefined;
@@ -1832,6 +1942,7 @@ function coerceRun(value: unknown): PersistedBackgroundRun | undefined {
     observedTargets,
     watchRegistrations: durableState.watchRegistrations,
     internalHistory: cloneJson(raw.internalHistory as readonly LLMMessage[]),
+    lineage: coerceRunLineage(raw.lineage),
     fenceToken: durableState.fenceToken,
     preferredWorkerId:
       typeof raw.preferredWorkerId === "string"
@@ -1987,6 +2098,45 @@ export class BackgroundRunStore {
   ): Promise<BackgroundRunRecentSnapshot | undefined> {
     const value = await this.memoryBackend.get(backgroundRunRecentKey(sessionId));
     return coerceRecentSnapshot(value);
+  }
+
+  async saveCheckpoint(run: PersistedBackgroundRun): Promise<void> {
+    const validated = coerceRun(run);
+    if (!validated) {
+      throw new Error("Invalid BackgroundRun checkpoint");
+    }
+    await this.queue.run(run.sessionId, async () => {
+      await this.memoryBackend.set(
+        backgroundRunCheckpointKey(run.sessionId),
+        cloneJson(validated),
+      );
+    });
+  }
+
+  async loadCheckpoint(sessionId: string): Promise<PersistedBackgroundRun | undefined> {
+    const value = await this.memoryBackend.get(backgroundRunCheckpointKey(sessionId));
+    return coerceRun(value);
+  }
+
+  async listCheckpoints(): Promise<readonly PersistedBackgroundRun[]> {
+    const keys = await this.memoryBackend.listKeys(
+      BACKGROUND_RUN_CHECKPOINT_KEY_PREFIX,
+    );
+    const runs = await Promise.all(
+      keys.map(async (key) => {
+        const value = await this.memoryBackend.get(key);
+        return coerceRun(value);
+      }),
+    );
+    return runs
+      .filter((run): run is PersistedBackgroundRun => run !== undefined)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  async deleteCheckpoint(sessionId: string): Promise<void> {
+    await this.queue.run(sessionId, async () => {
+      await this.memoryBackend.delete(backgroundRunCheckpointKey(sessionId));
+    });
   }
 
   async listRecentSnapshots(): Promise<readonly BackgroundRunRecentSnapshot[]> {
@@ -2682,6 +2832,37 @@ export class BackgroundRunStore {
         updatedAt: now,
         items,
       } satisfies PersistedBackgroundRunDispatchQueue);
+    });
+  }
+
+  async pruneDispatchesForSession(params: {
+    sessionId: string;
+    excludeDispatchId?: string;
+    now?: number;
+  }): Promise<BackgroundRunPruneDispatchResult> {
+    const now = params.now ?? Date.now();
+    return this.queue.run(BACKGROUND_RUN_DISPATCH_LOCK_KEY, async () => {
+      const queue = await this.loadDispatchQueue();
+      const items = queue.items.filter((item) =>
+        item.sessionId !== params.sessionId ||
+        item.id === params.excludeDispatchId
+      );
+      const removedCount = queue.items.length - items.length;
+      if (removedCount === 0) {
+        return {
+          removedCount: 0,
+          queueDepth: queue.items.length,
+        };
+      }
+      await this.saveDispatchQueueAndBeacon({
+        ...queue,
+        updatedAt: now,
+        items,
+      } satisfies PersistedBackgroundRunDispatchQueue);
+      return {
+        removedCount,
+        queueDepth: items.length,
+      };
     });
   }
 

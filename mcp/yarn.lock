@@ -10,8 +10,9 @@
 "@agenc/runtime@file:../runtime":
   version "0.1.0"
   dependencies:
-    "@agenc/sdk" "file:../../../.cache/yarn/v6/npm-@agenc-runtime-0.1.0-d31eee8c-e602-4624-9cfe-3ca8723f97de-1772624414261/node_modules/@agenc/sdk"
+    "@agenc/sdk" "file:../../../.cache/yarn/v6/npm-@agenc-runtime-0.1.0-48bcda18-0fb2-45dd-a045-a1265ccd0b0f-1772972974871/node_modules/@agenc/sdk"
     "@modelcontextprotocol/sdk" "^1.26.0"
+    undici "^6.23.0"
   optionalDependencies:
     "@slack/bolt" "^4.0.0"
     "@whiskeysockets/baileys" "^6.0.0"
@@ -754,16 +755,16 @@
     tslib "^2.8.0"
 
 "@thi.ng/bitstream@^2.2.12":
-  version "2.4.41"
-  resolved "https://registry.yarnpkg.com/@thi.ng/bitstream/-/bitstream-2.4.41.tgz#dfc9eda3d4f8d0dfd2e7eaa8471a4e82e2d2fbf1"
-  integrity sha512-treRzw3+7I1YCuilFtznwT3SGtceS9spUXhyBqeuKNTm4nIfMuvg4fNqx4GgpuS6cGPQNPMUJm0OyzKnSe2Emw==
+  version "2.4.43"
+  resolved "https://registry.yarnpkg.com/@thi.ng/bitstream/-/bitstream-2.4.43.tgz#f7bf16c4370919159552f1ac9613cb1e7d071904"
+  integrity sha512-tObOEr+osboa0kqQPk7Ny0E3vVfBRch13YJO5RpaDDSkMQmoXK/pw3yW/6kKJIObt27YQol6pGlOZBvB8MsghQ==
   dependencies:
-    "@thi.ng/errors" "^2.6.3"
+    "@thi.ng/errors" "^2.6.5"
 
-"@thi.ng/errors@^2.6.3":
-  version "2.6.3"
-  resolved "https://registry.yarnpkg.com/@thi.ng/errors/-/errors-2.6.3.tgz#efd4085a27ce6bb1ac7649abe2773008ef40a05f"
-  integrity sha512-owkOOKHf7MrAPN2jNpKWDdY/vjtPFiJf6oxZ3jkkhV6ICTu2iY1fXIR2wQ7kVEeybdtb0w24k2PtrU43OYCWdg==
+"@thi.ng/errors@^2.6.5":
+  version "2.6.5"
+  resolved "https://registry.yarnpkg.com/@thi.ng/errors/-/errors-2.6.5.tgz#4cc81073b75638e2317830221b53bc4bd58ab108"
+  integrity sha512-XKfcJzxikMI1+MKSiABcLzI2WIsm4SxGEdLIIQjYqew3q3CoypGe+w5W/DMvMWF6eFWT6ONINbiJ6QMHFTfVzA==
 
 "@tokenizer/token@^0.3.0":
   version "0.3.0"
@@ -821,9 +822,9 @@
     undici-types "~6.21.0"
 
 "@types/node@>=13.7.0", "@types/node@>=18", "@types/node@>=18.0.0":
-  version "25.3.3"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-25.3.3.tgz#605862544ee7ffd7a936bcbf0135a14012f1e549"
-  integrity sha512-DpzbrH7wIcBaJibpKo9nnSQL0MTRdnWttGyE5haGwK86xgMOkFLp7vEyfQPGLOJh5wNYiJ3V9PmUMDhV9u8kkQ==
+  version "25.3.5"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-25.3.5.tgz#beccb5915561f7a9970ace547ad44d6cdbf39b46"
+  integrity sha512-oX8xrhvpiyRCQkG1MFchB09f+cXftgIXb3a7UUa4Y3wpmZPw5tyZGTLWhlESOLq1Rq6oDlc8npVU2/9xiCuXMA==
   dependencies:
     undici-types "~7.18.0"
 
@@ -1584,9 +1585,9 @@ detect-libc@^2.0.0:
   integrity sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==
 
 discord-api-types@^0.38.1, discord-api-types@^0.38.16, discord-api-types@^0.38.33:
-  version "0.38.40"
-  resolved "https://registry.yarnpkg.com/discord-api-types/-/discord-api-types-0.38.40.tgz#215b6662c5657f13ae12c3d2dd32af89db658b61"
-  integrity sha512-P/His8cotqZgQqrt+hzrocp9L8RhQQz1GkrCnC9TMJ8Uw2q0tg8YyqJyGULxhXn/8kxHETN4IppmOv+P2m82lQ==
+  version "0.38.41"
+  resolved "https://registry.yarnpkg.com/discord-api-types/-/discord-api-types-0.38.41.tgz#4dcf88da7d80d4afb6f3b811f3ecf804deed6b14"
+  integrity sha512-yMECyR8j9c2fVTvCQ+Qc24pweYFIZk/XoxDOmt1UvPeSw5tK6gXBd/2hhP+FEAe9Y6ny8pRMaf618XDK4U53OQ==
 
 discord.js@^14.7.0:
   version "14.25.1"
@@ -1833,12 +1834,12 @@ expand-template@^2.0.3:
   resolved "https://registry.yarnpkg.com/expand-template/-/expand-template-2.0.3.tgz#6e14b3fcee0f3a6340ecb57d2e8918692052a47c"
   integrity sha512-XYfuKMvj4O35f/pOXLObndIRvyQ+/+6AhODh+OKWj9S9498pHHn/IMszH+gt0fBCRWMNfk1ZSp5x3AifmnI2vg==
 
-express-rate-limit@^8.2.1:
-  version "8.2.1"
-  resolved "https://registry.npmjs.org/express-rate-limit/-/express-rate-limit-8.2.1.tgz"
-  integrity sha512-PCZEIEIxqwhzw4KF0n7QF4QqruVTcF73O5kFKUnGOyjbCCgizBBiFaYpd/fnBLUMPw/BWw9OsiN7GgrNYr7j6g==
+express-rate-limit@^8.2.1, express-rate-limit@^8.2.2:
+  version "8.3.0"
+  resolved "https://registry.npmjs.org/express-rate-limit/-/express-rate-limit-8.3.0.tgz"
+  integrity sha512-KJzBawY6fB9FiZGdE/0aftepZ91YlaGIrV8vgblRM3J8X+dHx/aiowJWwkx6LIGyuqGiANsjSwwrbb8mifOJ4Q==
   dependencies:
-    ip-address "10.0.1"
+    ip-address "10.1.0"
 
 express@^5.0.0, express@^5.2.1:
   version "5.2.1"
@@ -2162,10 +2163,10 @@ ioredis@^5.0.0:
     redis-parser "^3.0.0"
     standard-as-callback "^2.1.0"
 
-ip-address@10.0.1:
-  version "10.0.1"
-  resolved "https://registry.npmjs.org/ip-address/-/ip-address-10.0.1.tgz"
-  integrity sha512-NWv9YLW4PoW2B7xtzaS3NCot75m6nK7Icdv0o3lfMceJVRfSoQwqD4wEH5rLwoKJwUiZ/rfpiVBhnaF0FK4HoA==
+ip-address@10.1.0:
+  version "10.1.0"
+  resolved "https://registry.npmjs.org/ip-address/-/ip-address-10.1.0.tgz"
+  integrity sha512-XXADHxXmvT9+CRxhXg56LJovE+bmWnEWB78LB83VZTprKTmaC5QfruXocxzTZ2Kl0DNwKuBdlIhjL8LeY8Sf8Q==
 
 ipaddr.js@1.9.1:
   version "1.9.1"
@@ -3686,7 +3687,7 @@ ws@^7.5.10:
 
 ws@^8, ws@^8.0.0, ws@^8.13.0, ws@^8.16.0, ws@^8.17.0, ws@^8.5.0:
   version "8.19.0"
-  resolved "https://registry.yarnpkg.com/ws/-/ws-8.19.0.tgz#ddc2bdfa5b9ad860204f5a72a4863a8895fd8c8b"
+  resolved "https://registry.npmjs.org/ws/-/ws-8.19.0.tgz"
   integrity sha512-blAT2mjOEIi0ZzruJfIhb3nps74PRWTCz1IjglWEEpQl5XS/UNama6u2/rjFkDDouqr4L67ry+1aGIALViWjDg==
 
 zod-to-json-schema@^3.25.1:

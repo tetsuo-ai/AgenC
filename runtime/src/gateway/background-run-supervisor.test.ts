@@ -15,6 +15,7 @@ import {
   isBackgroundRunStatusRequest,
   isBackgroundRunStopRequest,
 } from "./background-run-supervisor.js";
+import { BackgroundRunNotifier } from "./background-run-notifier.js";
 import { BackgroundRunStore } from "./background-run-store.js";
 import { AGENT_RUN_SCHEMA_VERSION } from "./agent-run-contract.js";
 
@@ -393,6 +394,80 @@ describe("background-run-supervisor", () => {
     expect(remainingMs).toBeLessThanOrEqual(4_000);
   });
 
+  it("fans durable lifecycle events out to configured notification sinks", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }));
+    const notifier = new BackgroundRunNotifier({
+      config: {
+        enabled: true,
+        sinks: [
+          {
+            id: "ops-webhook",
+            type: "webhook",
+            url: "https://example.com/hook",
+            events: ["run_started", "run_completed"],
+          },
+        ],
+      },
+      fetchImpl,
+    });
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "Verified completion.",
+        toolCalls: [
+          {
+            name: "system.processStatus",
+            args: { processId: "proc-demo" },
+            result: '{"processId":"proc-demo","state":"exited"}',
+            isError: false,
+            durationMs: 8,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi.fn(async () => ({
+        content:
+          '{"state":"completed","userUpdate":"Objective satisfied.","internalSummary":"verified complete","shouldNotifyUser":true}',
+        toolCalls: [],
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        model: "supervisor-model",
+        finishReason: "stop",
+      })),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+      notifier,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-1",
+      objective: "Watch until it completes.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await eventually(() => {
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
+    const firstBody = JSON.parse(
+      String((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body),
+    );
+    const secondBody = JSON.parse(
+      String((fetchImpl.mock.calls[1] as [string, RequestInit])[1].body),
+    );
+    expect(firstBody.eventType).toBe("run_started");
+    expect(secondBody.eventType).toBe("run_completed");
+  });
+
   it("grounds optimistic working decisions when every tool call in the cycle failed", async () => {
     const publishUpdate = vi.fn(async () => undefined);
     const execute = vi.fn(async () =>
@@ -639,6 +714,179 @@ describe("background-run-supervisor", () => {
     expect(cancelled).toBe(true);
     expect(supervisor.hasActiveRun("session-3")).toBe(false);
     expect(publishUpdate).toHaveBeenLastCalledWith("session-3", "Stopped by user.");
+  });
+
+  it("exposes operator detail and persists objective, constraint, and budget interventions", async () => {
+    const runStore = createRunStore();
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "Watcher started.",
+        toolCalls: [
+          {
+            name: "system.processStart",
+            args: { command: "/bin/sleep", args: ["5"] },
+            result: '{"processId":"proc_1","state":"running"}',
+            isError: false,
+            durationMs: 10,
+          },
+        ],
+      }),
+    );
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi.fn(async () => ({
+          content:
+            '{"state":"working","userUpdate":"Managed process is still running.","internalSummary":"verified running","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-ops",
+      objective: "Watch the process until it exits.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await eventually(() => {
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    await supervisor.updateRunObjective(
+      "session-ops",
+      "Watch the process and report the exit code.",
+      "Operator refined the goal.",
+    );
+    await supervisor.amendRunConstraints(
+      "session-ops",
+      {
+        successCriteria: ["Observe the process exit code."],
+        blockedCriteria: ["Missing exit evidence."],
+        nextCheckMs: 7_000,
+      },
+      "Operator tightened the verifier contract.",
+    );
+    await supervisor.adjustRunBudget(
+      "session-ops",
+      {
+        maxRuntimeMs: 120_000,
+        maxCycles: 12,
+      },
+      "Operator narrowed the budget.",
+    );
+
+    const detail = await supervisor.getOperatorDetail("session-ops");
+    expect(detail).toMatchObject({
+      sessionId: "session-ops",
+      objective: "Watch the process and report the exit code.",
+    });
+    expect(detail?.contract.successCriteria).toEqual([
+      "Observe the process exit code.",
+    ]);
+    expect(detail?.contract.blockedCriteria).toEqual([
+      "Missing exit evidence.",
+    ]);
+    expect(detail?.contract.nextCheckMs).toBe(7_000);
+    expect(detail?.budget.maxRuntimeMs).toBe(120_000);
+    expect(detail?.budget.maxCycles).toBe(12);
+
+    const summaries = await supervisor.listOperatorSummaries(["session-ops"]);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.objective).toBe(
+      "Watch the process and report the exit code.",
+    );
+
+    const events = await runStore.listEvents(detail!.runId);
+    expect(events.map((entry) => entry.metadata?.eventType)).toEqual(
+      expect.arrayContaining([
+        "run_objective_updated",
+        "run_contract_amended",
+        "run_budget_adjusted",
+      ]),
+    );
+  });
+
+  it("retries a terminal checkpoint and records verification overrides", async () => {
+    const runStore = createRunStore();
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "Watcher completed.",
+        toolCalls: [
+          {
+            name: "system.processStatus",
+            args: { processId: "proc_1" },
+            result: '{"processId":"proc_1","state":"exited","exitCode":0}',
+            isError: false,
+            durationMs: 10,
+          },
+        ],
+      }),
+    );
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi.fn(async () => ({
+          content:
+            '{"state":"completed","userUpdate":"Managed process exited cleanly.","internalSummary":"verified exit","shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-retry",
+      objective: "Watch the process until it exits.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await eventuallyAsync(async () => {
+      expect(await runStore.loadCheckpoint("session-retry")).toBeDefined();
+    });
+
+    await supervisor.retryRunFromCheckpoint(
+      "session-retry",
+      "Operator requested a retry from the terminal checkpoint.",
+    );
+
+    let detail = await supervisor.getOperatorDetail("session-retry");
+    expect(detail?.state).toBe("working");
+    expect(detail?.checkpointAvailable).toBe(true);
+
+    await supervisor.applyVerificationOverride("session-retry", {
+      mode: "fail",
+      reason: "Operator marked the replay invalid.",
+      userUpdate: "Operator override recorded: replay invalid.",
+    });
+
+    detail = await supervisor.getOperatorDetail("session-retry");
+    expect(detail?.state).toBe("failed");
+    expect(detail?.unsafeToContinue).toBe(true);
+
+    const events = await runStore.listEvents(detail!.runId);
+    expect(events.map((entry) => entry.metadata?.eventType)).toEqual(
+      expect.arrayContaining(["run_retried", "run_verification_overridden"]),
+    );
   });
 
   it("pauses a run, queues signals without waking it, and resumes cleanly", async () => {
@@ -2095,7 +2343,7 @@ describe("background-run-supervisor", () => {
     expect(supervisor.getStatusSnapshot("session-signals")?.carryForwardSummary).toContain(
       "crash-restart instruction queued and applied",
     );
-    await expect(
+  await expect(
       (supervisor as any).runStore.loadRun("session-signals"),
     ).resolves.toMatchObject({
       watchRegistrations: [
@@ -2112,6 +2360,101 @@ describe("background-run-supervisor", () => {
         nextCheckIntervalMs: 4000,
       }),
       fenceToken: expect.any(Number),
+    });
+  });
+
+  it("does not execute an extra cycle when a late operator signal overlaps an expired timer dispatch", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(makeResult({ content: "Cycle 1 actor step." }))
+      .mockResolvedValueOnce(makeResult({ content: "Cycle 2 actor step." }));
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"domain":"generic","kind":"until_stopped","successCriteria":["Keep making progress until stopped."],"completionCriteria":["Receive a stop request."],"blockedCriteria":["Runtime unavailable."],"nextCheckMs":4000,"heartbeatMs":12000,"requiresUserStop":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Cycle 1 complete.","internalSummary":"cycle 1","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Cycle 1 complete.","verifiedFacts":["Cycle 1 finished."],"openLoops":["Continue monitoring."],"nextFocus":"Run cycle 2."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Cycle 2 complete.","internalSummary":"cycle 2","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Cycle 2 complete.","verifiedFacts":["Cycle 2 finished."],"openLoops":["Continue monitoring."],"nextFocus":"Run cycle 3."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+    const runStore = createRunStore();
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-late-signal",
+      objective: "Keep monitoring for multiple hours until the operator stops the run.",
+    });
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-late-signal")).toMatchObject({
+        state: "working",
+        cycleCount: 1,
+        lastUserUpdate: "Cycle 1 complete.",
+      });
+    });
+
+    vi.setSystemTime(2 * 60 * 60 * 1000);
+    await supervisor.signalRun({
+      sessionId: "session-late-signal",
+      content: "Continue cycle 2.",
+    });
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-late-signal")).toMatchObject({
+        state: "working",
+        cycleCount: 2,
+        lastUserUpdate: "Cycle 2 complete.",
+      });
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    await expect(runStore.getDispatchStats()).resolves.toMatchObject({
+      totalQueued: 1,
+      totalClaimed: 0,
     });
   });
 

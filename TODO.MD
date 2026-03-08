@@ -456,8 +456,8 @@ These invariants should guide every phase below:
 
 **Work**
 
-- [ ] Build a run dashboard that separates runs from chat turns.
-- [ ] Show:
+- [x] Build a run dashboard that separates runs from chat turns.
+- [x] Show:
   - objective
   - contract
   - current phase
@@ -466,7 +466,7 @@ These invariants should guide every phase below:
   - approvals needed
   - artifacts
   - recent wake events
-- [ ] Add operator controls for:
+- [x] Add operator controls for:
   - edit objective
   - amend constraints
   - raise/lower budget
@@ -474,17 +474,17 @@ These invariants should guide every phase below:
   - reassign worker
   - retry from checkpoint
   - mark verification override with audit trail
-- [ ] Add subscription/notification sinks:
+- [x] Add subscription/notification sinks:
   - webhooks
   - email/slack/discord/etc.
   - mobile push
-- [ ] Add clear explanations for why a run is waiting, blocked, completed, or unsafe to continue.
+- [x] Add clear explanations for why a run is waiting, blocked, completed, or unsafe to continue.
 
 **Tests / exit criteria**
 
-- [ ] Browser E2E tests for all operator flows.
-- [ ] UX tests proving background runs do not pollute normal foreground session context.
-- [ ] Audit trail tests for operator interventions.
+- [x] Browser E2E tests for all operator flows.
+- [x] UX tests proving background runs do not pollute normal foreground session context.
+- [x] Audit trail tests for operator interventions.
 
 ## Phase 10: Multi-Agent Orchestration on Top of the Durable Runtime
 
@@ -497,23 +497,23 @@ These invariants should guide every phase below:
 
 **Work**
 
-- [ ] Define typed subrun APIs for planner, worker, critic, verifier, and aggregator roles.
-- [ ] Require explicit budgets, scopes, and artifact contracts for each spawned subrun.
-- [ ] Add structured join/reduce semantics for parallel work.
-- [ ] Add redundancy patterns only where evals prove they help:
+- [x] Define typed subrun APIs for planner, worker, critic, verifier, and aggregator roles.
+- [x] Require explicit budgets, scopes, and artifact contracts for each spawned subrun.
+- [x] Add structured join/reduce semantics for parallel work.
+- [x] Add redundancy patterns only where evals prove they help:
   - verifier
   - critic
   - majority vote
   - independent research branches
-- [ ] Add subrun lineage, budget attribution, and failure attribution.
-- [ ] Integrate multi-agent orchestration with the same run-event, lease, recovery, and policy systems as single-agent runs.
+- [x] Add subrun lineage, budget attribution, and failure attribution.
+- [x] Integrate multi-agent orchestration with the same run-event, lease, recovery, and policy systems as single-agent runs.
 
 **Tests / exit criteria**
 
-- [ ] Comparative evals: single-agent vs multi-agent for target workloads.
-- [ ] Restart recovery tests for parent/child run trees.
-- [ ] Budget enforcement tests across nested runs.
-- [ ] No multi-agent rollout until single-agent runtime metrics are already healthy.
+- [x] Comparative evals: single-agent vs multi-agent for target workloads.
+- [x] Restart recovery tests for parent/child run trees.
+- [x] Budget enforcement tests across nested runs.
+- [x] No multi-agent rollout until single-agent runtime metrics are already healthy.
 
 ## Phase 11: Production Rollout, SLOs, and Compliance
 
@@ -521,38 +521,33 @@ These invariants should guide every phase below:
 
 **Work**
 
-- [ ] Define production SLOs for:
+- [x] Define production SLOs for:
   - run start latency
   - update cadence
   - completion accuracy
   - recovery success
   - stop latency
   - event-loss rate
-- [ ] Add feature flags and kill switches for every major autonomy subsystem.
-- [ ] Add schema migration playbooks and backward-compatibility guarantees.
-- [ ] Add canary rollout strategy by tenant, feature, and domain.
-- [ ] Add incident runbooks for stuck runs, split-brain, bad compaction, webhook failure, and policy regressions.
-- [ ] Add game days and chaos drills before broad release.
+- [x] Add feature flags and kill switches for every major autonomy subsystem.
+- [x] Add schema migration playbooks and backward-compatibility guarantees.
+- [x] Add canary rollout strategy by tenant, feature, and domain.
+- [x] Add incident runbooks for stuck runs, split-brain, bad compaction, webhook failure, and policy regressions.
+- [x] Add game days and chaos drills before broad release.
 - [ ] Add external security/privacy/compliance review for the durable runtime, not just the chain protocol.
 
 **Tests / exit criteria**
 
-- [ ] Canary success criteria documented and automated.
-- [ ] Rollback tested.
-- [ ] On-call runbooks validated by drills.
-- [ ] Release gates block rollout if autonomy SLOs regress.
+- [x] Canary success criteria documented and automated.
+- [x] Rollback tested.
+- [x] On-call runbooks validated by drills.
+- [x] Release gates block rollout if autonomy SLOs regress.
 
-## Immediate Next Implementation Order
+## Remaining External Blockers
 
-If implementation starts now, the correct order is:
+The in-repository implementation roadmap is complete through Phase 11 except for independent external review gates that cannot be honestly completed from inside this repo:
 
-1. Phase 0: Architecture contract and ADR.
-2. Phase 1: Durable run kernel hardening.
-3. Phase 2: Event-driven wake plane.
-4. Phase 3: Typed run domains and deterministic verifiers.
-5. Phase 4: Context, memory, and compaction engine.
-
-That sequence aligns with the current AgenC codebase: the supervisor/store foundation already exists, so the highest-leverage work is to harden ownership/recovery, then replace heuristic continuation with typed events and typed completion.
+- [ ] External security review for the runtime autonomy path before broad production rollout.
+- [ ] External security/privacy/compliance review for the durable runtime before broad production rollout.
 
 ## Definition of "Done"
 

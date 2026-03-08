@@ -10,6 +10,11 @@
 // Re-export the canonical WebChatHandler from gateway/types to avoid duplication
 export type { WebChatHandler } from "../../gateway/types.js";
 import type { GatewayStatus } from "../../gateway/types.js";
+import type {
+  BackgroundRunControlAction,
+  BackgroundRunOperatorDetail,
+  BackgroundRunOperatorSummary,
+} from "../../gateway/background-run-operator.js";
 
 import type {
   ChatCancelledPayload,
@@ -68,6 +73,22 @@ export interface WebChatDeps {
   hydrateSessionContext?: (sessionId: string) => Promise<void> | void;
   /** Optional callback to cancel a daemon-owned background run for a session. */
   cancelBackgroundRun?: (sessionId: string) => Promise<boolean> | boolean;
+  /** Optional listing helper for operator-facing durable background runs. */
+  listBackgroundRuns?: (
+    sessionIds: readonly string[],
+  ) => Promise<readonly BackgroundRunOperatorSummary[]>;
+  /** Optional detail helper for one durable background run. */
+  inspectBackgroundRun?: (
+    sessionId: string,
+  ) => Promise<BackgroundRunOperatorDetail | undefined>;
+  /** Optional mutation helper for operator-driven run controls. */
+  controlBackgroundRun?: (
+    params: {
+      action: BackgroundRunControlAction;
+      actor?: string;
+      channel?: string;
+    },
+  ) => Promise<BackgroundRunOperatorDetail | undefined>;
   /** Optional policy simulation preview helper for operator workflows. */
   policyPreview?: (params: {
     sessionId: string;
@@ -268,6 +289,24 @@ export interface DesktopAttachRequest {
 export interface DesktopDestroyRequest {
   type: "desktop.destroy";
   payload: { containerId: string };
+  id?: string;
+}
+
+export interface RunsListRequest {
+  type: "runs.list";
+  payload?: { sessionId?: string };
+  id?: string;
+}
+
+export interface RunInspectRequest {
+  type: "run.inspect";
+  payload?: { sessionId?: string };
+  id?: string;
+}
+
+export interface RunControlRequest {
+  type: "run.control";
+  payload: BackgroundRunControlAction;
   id?: string;
 }
 
@@ -493,6 +532,24 @@ export interface PolicySimulateResponse {
       };
     };
   };
+  id?: string;
+}
+
+export interface RunsListResponse {
+  type: "runs.list";
+  payload: readonly BackgroundRunOperatorSummary[];
+  id?: string;
+}
+
+export interface RunInspectResponse {
+  type: "run.inspect";
+  payload: BackgroundRunOperatorDetail;
+  id?: string;
+}
+
+export interface RunUpdatedResponse {
+  type: "run.updated";
+  payload: BackgroundRunOperatorDetail;
   id?: string;
 }
 

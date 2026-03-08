@@ -78,6 +78,183 @@ const DEFAULT_CONFIG = {
 
 const OLLAMA_MODELS = ['llama3', 'qwen2.5'];
 
+function createContract(overrides = {}) {
+  return {
+    domain: 'generic',
+    kind: 'finite',
+    successCriteria: ['Observe the managed process reach a terminal state.'],
+    completionCriteria: ['Verify runtime evidence before completing the run.'],
+    blockedCriteria: ['Pause if operator approval becomes required.'],
+    nextCheckMs: 4000,
+    heartbeatMs: 12000,
+    requiresUserStop: false,
+    managedProcessPolicy: { mode: 'none' },
+    ...overrides,
+  };
+}
+
+function createRunDetail(overrides = {}) {
+  return {
+    runId: 'run_demo_1',
+    sessionId: 'session_run_demo_1',
+    objective: 'Watch the demo process until it exits cleanly.',
+    state: 'working',
+    currentPhase: 'active',
+    explanation: 'Run is active and waiting for the next verification cycle. Next verification in ~4s.',
+    unsafeToContinue: false,
+    createdAt: Date.now() - 90_000,
+    updatedAt: Date.now() - 2_000,
+    lastVerifiedAt: Date.now() - 5_000,
+    nextCheckAt: Date.now() + 4_000,
+    nextHeartbeatAt: Date.now() + 12_000,
+    cycleCount: 4,
+    contractKind: 'finite',
+    contractDomain: 'generic',
+    requiresUserStop: false,
+    pendingSignals: 1,
+    watchCount: 1,
+    fenceToken: 3,
+    lastUserUpdate: 'Operator asked the runtime to keep watching until completion.',
+    lastToolEvidence: 'system.processStatus -> running (pid=12345)',
+    lastWakeReason: 'tool_result',
+    carryForwardSummary: 'Process is stable and the verifier is waiting for the next check.',
+    blockerSummary: undefined,
+    approvalRequired: false,
+    approvalState: 'none',
+    checkpointAvailable: true,
+    preferredWorkerId: 'worker-local-1',
+    workerAffinityKey: 'session_run_demo_1',
+    policyScope: {
+      tenantId: 'tenant-demo',
+      projectId: 'project-demo',
+      runId: 'run_demo_1',
+    },
+    contract: createContract(),
+    blocker: undefined,
+    approval: {
+      status: 'none',
+      requestId: undefined,
+      summary: undefined,
+      since: undefined,
+    },
+    budget: {
+      runtimeStartedAt: Date.now() - 90_000,
+      lastActivityAt: Date.now() - 2_000,
+      lastProgressAt: Date.now() - 5_000,
+      totalTokens: 240,
+      lastCycleTokens: 38,
+      managedProcessCount: 1,
+      maxRuntimeMs: 600_000,
+      maxCycles: 64,
+      maxIdleMs: 60_000,
+      nextCheckIntervalMs: 4_000,
+      heartbeatIntervalMs: 12_000,
+      firstAcknowledgedAt: Date.now() - 88_000,
+      firstVerifiedUpdateAt: Date.now() - 85_000,
+      stopRequestedAt: undefined,
+    },
+    compaction: {
+      lastCompactedAt: undefined,
+      lastCompactedCycle: 0,
+      refreshCount: 0,
+      lastHistoryLength: 6,
+      lastMilestoneAt: Date.now() - 6_000,
+      lastCompactionReason: undefined,
+      repairCount: 0,
+      lastProviderAnchorAt: undefined,
+    },
+    artifacts: [
+      {
+        kind: 'process_handle',
+        locator: 'proc_demo_1',
+        label: 'Managed process handle',
+      },
+    ],
+    observedTargets: [],
+    watchRegistrations: [
+      {
+        watchId: 'watch_demo_1',
+        kind: 'managed_process',
+        target: 'proc_demo_1',
+        createdAt: Date.now() - 60_000,
+      },
+    ],
+    recentEvents: [
+      {
+        summary: 'Run accepted a tool_result wake for the managed process.',
+        timestamp: Date.now() - 7_000,
+        eventType: 'signal_received',
+        data: { reason: 'tool_result' },
+      },
+      {
+        summary: 'Verifier observed the process still running.',
+        timestamp: Date.now() - 5_000,
+        eventType: 'run_verified',
+        data: { state: 'running' },
+      },
+    ],
+    ...overrides,
+  };
+}
+
+let testRunDetail = createRunDetail();
+
+function summarizeRun(detail) {
+  return {
+    runId: detail.runId,
+    sessionId: detail.sessionId,
+    objective: detail.objective,
+    state: detail.state,
+    currentPhase: detail.currentPhase,
+    explanation: detail.explanation,
+    unsafeToContinue: detail.unsafeToContinue,
+    createdAt: detail.createdAt,
+    updatedAt: detail.updatedAt,
+    lastVerifiedAt: detail.lastVerifiedAt,
+    nextCheckAt: detail.nextCheckAt,
+    nextHeartbeatAt: detail.nextHeartbeatAt,
+    cycleCount: detail.cycleCount,
+    contractKind: detail.contractKind,
+    contractDomain: detail.contractDomain,
+    requiresUserStop: detail.requiresUserStop,
+    pendingSignals: detail.pendingSignals,
+    watchCount: detail.watchCount,
+    fenceToken: detail.fenceToken,
+    lastUserUpdate: detail.lastUserUpdate,
+    lastToolEvidence: detail.lastToolEvidence,
+    lastWakeReason: detail.lastWakeReason,
+    carryForwardSummary: detail.carryForwardSummary,
+    blockerSummary: detail.blocker?.summary,
+    approvalRequired: detail.approvalRequired,
+    approvalState: detail.approvalState,
+    preferredWorkerId: detail.preferredWorkerId,
+    workerAffinityKey: detail.workerAffinityKey,
+    checkpointAvailable: detail.checkpointAvailable,
+  };
+}
+
+function updateRunDetail(mutator) {
+  testRunDetail = {
+    ...mutator(testRunDetail),
+    updatedAt: Date.now(),
+  };
+}
+
+function appendRunEvent(eventType, summary, data = {}) {
+  updateRunDetail((detail) => ({
+    ...detail,
+    recentEvents: [
+      {
+        summary,
+        timestamp: Date.now(),
+        eventType,
+        data,
+      },
+      ...detail.recentEvents,
+    ].slice(0, 16),
+  }));
+}
+
 let nextToolCallId = 1;
 let nextSandboxId = 1;
 
@@ -189,10 +366,184 @@ wss.on('connection', (ws) => {
             activeSessions: clients.size,
             controlPlanePort: PORT,
             agentName: 'test-agent',
+            backgroundRuns: {
+              activeTotal: 1,
+              queuedSignalsTotal: testRunDetail.pendingSignals,
+              stateCounts: {
+                pending: 0,
+                running: testRunDetail.state === 'running' ? 1 : 0,
+                working: testRunDetail.state === 'working' ? 1 : 0,
+                blocked: testRunDetail.state === 'blocked' ? 1 : 0,
+                paused: testRunDetail.state === 'paused' ? 1 : 0,
+                completed: testRunDetail.state === 'completed' ? 1 : 0,
+                failed: testRunDetail.state === 'failed' ? 1 : 0,
+                cancelled: testRunDetail.state === 'cancelled' ? 1 : 0,
+                suspended: testRunDetail.state === 'suspended' ? 1 : 0,
+              },
+              recentAlerts: [],
+              metrics: {
+                startedTotal: 1,
+                completedTotal: 0,
+                failedTotal: 0,
+                blockedTotal: 0,
+                recoveredTotal: 0,
+                meanLatencyMs: 120,
+                meanTimeToFirstAckMs: 300,
+                meanTimeToFirstVerifiedUpdateMs: 2500,
+                falseCompletionRate: 0,
+                blockedWithoutNoticeRate: 0,
+                meanStopLatencyMs: 900,
+                recoverySuccessRate: 1,
+                verifierAccuracyRate: 1,
+              },
+            },
           },
           id,
         }));
         break;
+
+      case 'runs.list':
+        ws.send(JSON.stringify({
+          type: 'runs.list',
+          payload: [summarizeRun(testRunDetail)],
+          id,
+        }));
+        break;
+
+      case 'run.inspect':
+        ws.send(JSON.stringify({
+          type: 'run.inspect',
+          payload: testRunDetail,
+          id,
+        }));
+        break;
+
+      case 'run.control': {
+        const action = payload.action;
+        if (action === 'pause') {
+          updateRunDetail((detail) => ({
+            ...detail,
+            state: 'paused',
+            currentPhase: 'paused',
+            explanation: 'Run is paused by an operator and will not make progress until resumed.',
+            lastUserUpdate: 'Background run paused from the run dashboard.',
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_paused', 'Operator paused the run from the dashboard.', { action });
+        } else if (action === 'resume') {
+          updateRunDetail((detail) => ({
+            ...detail,
+            state: 'working',
+            currentPhase: 'active',
+            explanation: 'Run is active and waiting for the next verification cycle. Next verification in ~4s.',
+            lastUserUpdate: 'Background run resumed from the run dashboard.',
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_resumed', 'Operator resumed the run from the dashboard.', { action });
+        } else if (action === 'cancel') {
+          updateRunDetail((detail) => ({
+            ...detail,
+            state: 'cancelled',
+            currentPhase: 'cancelled',
+            explanation: 'Run was cancelled and is no longer executing.',
+            lastUserUpdate: payload.reason ?? 'Stopped from the run dashboard.',
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_cancelled', 'Operator stopped the run from the dashboard.', { action });
+        } else if (action === 'edit_objective' && typeof payload.objective === 'string') {
+          updateRunDetail((detail) => ({
+            ...detail,
+            objective: payload.objective,
+            lastUserUpdate: `Objective updated to: ${payload.objective}`,
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_objective_updated', `Objective changed to "${payload.objective}".`, { action });
+        } else if (action === 'amend_constraints' && payload.constraints) {
+          updateRunDetail((detail) => ({
+            ...detail,
+            contract: {
+              ...detail.contract,
+              ...payload.constraints,
+            },
+            lastUserUpdate: 'Operator amended the run constraints.',
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_contract_amended', 'Operator amended the run constraints.', { action });
+        } else if (action === 'adjust_budget' && payload.budget) {
+          updateRunDetail((detail) => ({
+            ...detail,
+            budget: {
+              ...detail.budget,
+              ...payload.budget,
+            },
+            lastUserUpdate: 'Operator adjusted the run budget.',
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_budget_adjusted', 'Operator adjusted the run budget.', { action });
+        } else if (action === 'force_compact') {
+          updateRunDetail((detail) => ({
+            ...detail,
+            compaction: {
+              ...detail.compaction,
+              lastCompactedAt: Date.now(),
+              lastCompactedCycle: detail.cycleCount,
+              refreshCount: detail.compaction.refreshCount + 1,
+              lastCompactionReason: 'operator_forced',
+            },
+            carryForwardSummary: 'Carry-forward state was refreshed by an operator override.',
+            lastUserUpdate: 'Operator forced compaction for this run.',
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_compaction_forced', 'Operator forced carry-forward compaction.', { action });
+        } else if (action === 'reassign_worker' && payload.worker) {
+          updateRunDetail((detail) => ({
+            ...detail,
+            preferredWorkerId: payload.worker.preferredWorkerId,
+            workerAffinityKey: payload.worker.workerAffinityKey,
+            lastUserUpdate: 'Operator reassigned the preferred worker.',
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent('run_worker_reassigned', 'Operator reassigned the preferred worker.', { action });
+        } else if (action === 'retry_from_checkpoint') {
+          updateRunDetail((detail) => ({
+            ...detail,
+            state: 'working',
+            currentPhase: 'active',
+            explanation: 'Run resumed from the latest checkpoint and is active again.',
+            checkpointAvailable: true,
+            lastUserUpdate: 'Operator retried the run from its latest checkpoint.',
+            lastWakeReason: 'recovery',
+          }));
+          appendRunEvent('run_retried', 'Operator retried the run from its checkpoint.', { action });
+        } else if (action === 'verification_override' && payload.override) {
+          const mode = payload.override.mode;
+          updateRunDetail((detail) => ({
+            ...detail,
+            state: mode === 'fail' ? 'failed' : mode === 'complete' ? 'completed' : 'working',
+            currentPhase: mode === 'fail' ? 'failed' : mode === 'complete' ? 'completed' : 'active',
+            explanation:
+              mode === 'fail'
+                ? 'Run failed and needs operator review before it is retried.'
+                : mode === 'complete'
+                  ? 'Run completed and the runtime recorded a terminal result.'
+                  : 'Run is active and waiting for the next verification cycle. Next verification in ~4s.',
+            lastUserUpdate: payload.override.reason,
+            lastWakeReason: 'user_input',
+          }));
+          appendRunEvent(
+            'run_verification_overridden',
+            `Operator verification override recorded: ${payload.override.reason}`,
+            { action, mode },
+          );
+        }
+
+        ws.send(JSON.stringify({
+          type: 'run.updated',
+          payload: testRunDetail,
+          id,
+        }));
+        break;
+      }
 
       case 'skills.list':
         ws.send(JSON.stringify({

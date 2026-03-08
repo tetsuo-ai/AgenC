@@ -131,6 +131,23 @@ const VALID_MESSAGING_MODES: ReadonlySet<string> = new Set([
   "off-chain",
   "auto",
 ]);
+const VALID_BACKGROUND_RUN_NOTIFICATION_EVENTS: ReadonlySet<string> = new Set([
+  "run_started",
+  "run_updated",
+  "run_blocked",
+  "run_completed",
+  "run_failed",
+  "run_cancelled",
+  "run_controlled",
+]);
+const VALID_BACKGROUND_RUN_NOTIFICATION_SINK_TYPES: ReadonlySet<string> =
+  new Set([
+    "webhook",
+    "slack_webhook",
+    "discord_webhook",
+    "email_webhook",
+    "mobile_push_webhook",
+  ]);
 const DOCKER_MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
 const DOCKER_CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
@@ -1124,6 +1141,204 @@ function validateSocialSection(social: unknown, errors: string[]): void {
   }
 }
 
+function validateAutonomySection(autonomy: unknown, errors: string[]): void {
+  if (autonomy === undefined) return;
+  if (!isRecord(autonomy)) {
+    errors.push("autonomy must be an object");
+    return;
+  }
+
+  if (autonomy.enabled !== undefined && typeof autonomy.enabled !== "boolean") {
+    errors.push("autonomy.enabled must be a boolean");
+  }
+
+  const validateBoolRecord = (
+    value: unknown,
+    path: string,
+    allowedKeys: readonly string[],
+  ): void => {
+    if (value === undefined) return;
+    if (!isRecord(value)) {
+      errors.push(`${path} must be an object`);
+      return;
+    }
+    for (const [key, entry] of Object.entries(value)) {
+      if (!allowedKeys.includes(key)) {
+        errors.push(`${path}.${key} is not a supported autonomy control`);
+        continue;
+      }
+      if (typeof entry !== "boolean") {
+        errors.push(`${path}.${key} must be a boolean`);
+      }
+    }
+  };
+
+  validateBoolRecord(
+    autonomy.featureFlags,
+    "autonomy.featureFlags",
+    ["backgroundRuns", "multiAgent", "notifications", "replayGates", "canaryRollout"],
+  );
+  validateBoolRecord(
+    autonomy.killSwitches,
+    "autonomy.killSwitches",
+    ["backgroundRuns", "multiAgent", "notifications", "replayGates", "canaryRollout"],
+  );
+
+  if (autonomy.slo !== undefined) {
+    if (!isRecord(autonomy.slo)) {
+      errors.push("autonomy.slo must be an object");
+    } else {
+      const sloFields = [
+        "runStartLatencyMs",
+        "updateCadenceMs",
+        "completionAccuracyRate",
+        "recoverySuccessRate",
+        "stopLatencyMs",
+        "eventLossRate",
+      ];
+      for (const field of sloFields) {
+        const value = autonomy.slo[field];
+        if (value === undefined) continue;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          errors.push(`autonomy.slo.${field} must be a non-negative number`);
+        }
+      }
+    }
+  }
+
+  if (autonomy.canary !== undefined) {
+    if (!isRecord(autonomy.canary)) {
+      errors.push("autonomy.canary must be an object");
+    } else {
+      if (
+        autonomy.canary.enabled !== undefined &&
+        typeof autonomy.canary.enabled !== "boolean"
+      ) {
+        errors.push("autonomy.canary.enabled must be a boolean");
+      }
+      if (
+        autonomy.canary.tenantAllowList !== undefined &&
+        !isStringArray(autonomy.canary.tenantAllowList)
+      ) {
+        errors.push("autonomy.canary.tenantAllowList must be an array of strings");
+      }
+      if (
+        autonomy.canary.featureAllowList !== undefined &&
+        !isStringArray(autonomy.canary.featureAllowList)
+      ) {
+        errors.push("autonomy.canary.featureAllowList must be an array of strings");
+      }
+      if (
+        autonomy.canary.domainAllowList !== undefined &&
+        !isStringArray(autonomy.canary.domainAllowList)
+      ) {
+        errors.push("autonomy.canary.domainAllowList must be an array of strings");
+      }
+      if (autonomy.canary.percentage !== undefined) {
+        requireIntRange(
+          autonomy.canary.percentage,
+          "autonomy.canary.percentage",
+          0,
+          100,
+          errors,
+        );
+      }
+    }
+  }
+
+  if (autonomy.notifications !== undefined) {
+    if (!isRecord(autonomy.notifications)) {
+      errors.push("autonomy.notifications must be an object");
+    } else {
+      if (
+        autonomy.notifications.enabled !== undefined &&
+        typeof autonomy.notifications.enabled !== "boolean"
+      ) {
+        errors.push("autonomy.notifications.enabled must be a boolean");
+      }
+      const sinks = autonomy.notifications.sinks;
+      if (sinks !== undefined) {
+        if (!Array.isArray(sinks)) {
+          errors.push("autonomy.notifications.sinks must be an array");
+        } else {
+          sinks.forEach((sink, index) => {
+            const path = `autonomy.notifications.sinks[${index}]`;
+            if (!isRecord(sink)) {
+              errors.push(`${path} must be an object`);
+              return;
+            }
+            if (typeof sink.id !== "string" || sink.id.trim().length === 0) {
+              errors.push(`${path}.id must be a non-empty string`);
+            }
+            if (typeof sink.url !== "string" || sink.url.trim().length === 0) {
+              errors.push(`${path}.url must be a non-empty string`);
+            }
+            if (sink.type === undefined) {
+              errors.push(`${path}.type is required`);
+            } else {
+              requireOneOf(
+                sink.type,
+                `${path}.type`,
+                VALID_BACKGROUND_RUN_NOTIFICATION_SINK_TYPES,
+                errors,
+              );
+            }
+            if (
+              sink.enabled !== undefined &&
+              typeof sink.enabled !== "boolean"
+            ) {
+              errors.push(`${path}.enabled must be a boolean`);
+            }
+            if (sink.events !== undefined) {
+              if (!Array.isArray(sink.events)) {
+                errors.push(`${path}.events must be an array of strings`);
+              } else {
+                sink.events.forEach((event, eventIndex) => {
+                  requireOneOf(
+                    event,
+                    `${path}.events[${eventIndex}]`,
+                    VALID_BACKGROUND_RUN_NOTIFICATION_EVENTS,
+                    errors,
+                  );
+                });
+              }
+            }
+            if (
+              sink.sessionIds !== undefined &&
+              !isStringArray(sink.sessionIds)
+            ) {
+              errors.push(`${path}.sessionIds must be an array of strings`);
+            }
+            if (sink.headers !== undefined) {
+              if (!isRecord(sink.headers)) {
+                errors.push(`${path}.headers must be an object`);
+              } else {
+                for (const [headerKey, headerValue] of Object.entries(sink.headers)) {
+                  if (typeof headerValue !== "string") {
+                    errors.push(`${path}.headers.${headerKey} must be a string`);
+                  }
+                }
+              }
+            }
+            if (
+              sink.signingSecret !== undefined &&
+              typeof sink.signingSecret !== "string"
+            ) {
+              errors.push(`${path}.signingSecret must be a string`);
+            }
+            if (
+              sink.recipient !== undefined &&
+              typeof sink.recipient !== "string"
+            ) {
+              errors.push(`${path}.recipient must be a string`);
+            }
+          });
+        }
+      }
+    }
+  }
+}
+
 function validateLlmToolFailureCircuitBreakerSection(
   breakerValue: unknown,
   errors: string[],
@@ -1951,6 +2166,7 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
   validateApprovalsSection(obj.approvals, errors);
   validateMarketplaceSection(obj.marketplace, errors);
   validateSocialSection(obj.social, errors);
+  validateAutonomySection(obj.autonomy, errors);
 
   return validationResult(errors);
 }
