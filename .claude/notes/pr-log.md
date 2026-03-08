@@ -1,3 +1,10 @@
+## PR #1410: complete phase 4 and 5 runtime hardening
+- **Date:** 2026-03-07
+- **Files changed:** `runtime/src/llm/{provider-capabilities.ts,index.ts,types.ts,grok/adapter.ts,grok/types.ts,ollama/adapter.ts,ollama/adapter.test.ts,ollama/types.ts,chat-executor-recovery.ts,chat-executor-recovery.test.ts}`, `runtime/src/tools/system/{handle-contract.ts,handle-contract.test.ts,handle-contract.test-utils.ts,process.ts,process.test.ts,server.ts,server.test.ts,remote-job.ts,remote-job.test.ts,research.ts,research.test.ts,sandbox-handle.ts,sandbox-handle.test.ts,browser-session.ts,types.ts,index.ts}`, `runtime/src/gateway/{daemon.ts,tool-routing.ts,tool-routing.test.ts,tool-environment-policy.ts,tool-environment-policy.test.ts}`, `runtime/src/{index.ts,tools/index.ts}`, `docs/INCIDENT_REPLAY_RUNBOOK.md`, `.claude/notes/{gotchas.md,phase4-phase5-remaining-checklist.md,techdebt-2026-03-07-phase4-phase5-checklist-completion.md}`, and `TODO.MD` remained intentionally uncommitted.
+- **What worked:** Phase 4 provider compaction/replay gating and Phase 5 long-lived handle completion now line up with the real runtime surface. The live daemon path now prefers `system.sandbox*` in desktop mode, fast-exit sandbox jobs surface terminal output correctly, and the provider/stateful/runtime contract has explicit capability and fallback semantics across supported and unsupported adapters.
+- **What didn't:** The only remaining follow-up in this slice is documentation polish for the new bounded log-settle controls. Runtime correctness, replay gates, and the checklist-completion scope are clean.
+- **Rule added to CLAUDE.md:** no
+
 ## PR [pending]: add phase 5 desktop process debt note
 - **Date:** 2026-03-07
 - **Files changed:** `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-08-phase5-desktop-process-handle-contract.md`
