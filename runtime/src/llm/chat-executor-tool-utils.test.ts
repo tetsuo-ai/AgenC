@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkToolCallPermission,
   didToolCallFail,
   normalizeDoomScreenResolution,
   normalizeToolCallArguments,
@@ -111,6 +112,42 @@ describe("chat-executor-tool-utils", () => {
         window_visible: true,
         render_hud: true,
       });
+    });
+  });
+
+  describe("checkToolCallPermission", () => {
+    it("does not block repeated side-effect tools within the same round", () => {
+      const permission = checkToolCallPermission(
+        {
+          id: "tool-1",
+          name: "system.open",
+          arguments: "{}",
+        },
+        null,
+        null,
+        false,
+        false,
+      );
+
+      expect(permission).toEqual({ action: "processed" });
+    });
+
+    it("still blocks tools outside the routed subset", () => {
+      const permission = checkToolCallPermission(
+        {
+          id: "tool-2",
+          name: "system.delete",
+          arguments: "{}",
+        },
+        null,
+        new Set(["system.readFile"]),
+        true,
+        false,
+      );
+
+      expect(permission.action).toBe("skip");
+      expect(permission.routingMiss).toBe(true);
+      expect(permission.expandAfterRound).toBe(true);
     });
   });
 });

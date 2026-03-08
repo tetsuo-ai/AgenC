@@ -22,6 +22,7 @@ import type {
   StreamProgressCallback,
   ToolHandler,
 } from "./types.js";
+import type { DelegationOutputValidationCode } from "../utils/delegation-validation.js";
 import {
   LLMProviderError,
   LLMRateLimitError,
@@ -110,7 +111,6 @@ import {
   DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
   DEFAULT_TOOL_FAILURE_BREAKER_WINDOW_MS,
   DEFAULT_TOOL_FAILURE_BREAKER_COOLDOWN_MS,
-  MACOS_SIDE_EFFECT_TOOLS,
   DEFAULT_EVAL_RUBRIC,
   MAX_COMPACT_INPUT,
 } from "./chat-executor-constants.js";
@@ -198,10 +198,12 @@ import {
 } from "./chat-executor-verifier.js";
 import {
   getMissingSuccessfulToolEvidenceMessage,
-  resolveDelegatedCorrectionToolChoiceToolNames,
-  resolveDelegatedInitialToolChoiceToolName,
   validateDelegatedOutputContract,
 } from "../utils/delegation-validation.js";
+import {
+  type ToolContractGuidancePhase,
+  resolveToolContractGuidance,
+} from "./chat-executor-contract-guidance.js";
 // ---------------------------------------------------------------------------
 // Re-exports — preserve backward-compatible import paths for consumers
 // ---------------------------------------------------------------------------
@@ -539,15 +541,48 @@ export class ChatExecutor {
     return this.allowedTools ? [...this.allowedTools] : [];
   }
 
-  private getRequiredToolEvidencePreferredToolName(
+  private maybePushRuntimeInstruction(
     ctx: ExecutionContext,
-  ): string | undefined {
-    const delegationSpec = ctx.requiredToolEvidence?.delegationSpec;
-    if (!delegationSpec) return undefined;
-    return resolveDelegatedInitialToolChoiceToolName(
-      delegationSpec,
-      this.getAllowedToolNamesForEvidence(ctx),
-    );
+    content: string,
+  ): void {
+    const runtimeHintCount = ctx.messageSections.filter(
+      (section) => section === "system_runtime",
+    ).length;
+    if (runtimeHintCount >= this.maxRuntimeSystemHints) return;
+
+    const alreadyPresent = ctx.messages.some((message, index) => {
+      if (ctx.messageSections[index] !== "system_runtime") return false;
+      return message.role === "system" &&
+        typeof message.content === "string" &&
+        message.content === content;
+    });
+    if (alreadyPresent) return;
+
+    this.pushMessage(ctx, { role: "system", content }, "system_runtime");
+  }
+
+  private resolveActiveToolContractGuidance(
+    ctx: ExecutionContext,
+    input?: {
+      readonly phase?: ToolContractGuidancePhase;
+      readonly allowedToolNames?: readonly string[];
+      readonly validationCode?: DelegationOutputValidationCode;
+    },
+  ): {
+    readonly source: string;
+    readonly runtimeInstruction?: string;
+    readonly routedToolNames?: readonly string[];
+    readonly toolChoice: LLMToolChoice;
+  } | undefined {
+    return resolveToolContractGuidance({
+      phase: input?.phase ?? "tool_followup",
+      messageText: ctx.messageText,
+      toolCalls: ctx.allToolCalls,
+      allowedToolNames:
+        input?.allowedToolNames ?? this.getAllowedToolNamesForEvidence(ctx),
+      requiredToolEvidence: ctx.requiredToolEvidence,
+      validationCode: input?.validationCode,
+    });
   }
 
   private async enforceRequiredToolEvidenceBeforeCompletion(
@@ -648,17 +683,14 @@ export class ChatExecutor {
       ctx.requiredToolEvidenceCorrectionAttempts += 1;
       retried = true;
 
-      const preferredToolNames =
-        contractValidation?.code && ctx.requiredToolEvidence?.delegationSpec
-          ? resolveDelegatedCorrectionToolChoiceToolNames(
-            ctx.requiredToolEvidence.delegationSpec,
-            correctionAllowedTools,
-            contractValidation.code,
-          )
-          : [];
-      const preferredToolName =
-        preferredToolNames[0] ??
-        this.getRequiredToolEvidencePreferredToolName(ctx);
+      const correctionContractGuidance = this.resolveActiveToolContractGuidance(
+        ctx,
+        {
+          phase: "correction",
+          allowedToolNames: correctionAllowedTools,
+          validationCode: contractValidation?.code,
+        },
+      );
       const nextResponse = await this.callModelForPhase(ctx, {
         phase,
         callMessages: ctx.messages,
@@ -666,12 +698,10 @@ export class ChatExecutor {
         onStreamChunk: ctx.activeStreamCallback,
         statefulSessionId: ctx.sessionId,
         statefulResumeAnchor: ctx.stateful?.resumeAnchor,
-        toolChoice: "required",
-        ...((preferredToolNames.length > 0 || preferredToolName)
+        toolChoice: correctionContractGuidance?.toolChoice ?? "required",
+        ...((correctionContractGuidance?.routedToolNames?.length ?? 0) > 0
           ? {
-            routedToolNames: preferredToolNames.length > 0
-              ? preferredToolNames
-              : [preferredToolName!] as const,
+            routedToolNames: correctionContractGuidance!.routedToolNames,
           }
           : {}),
         budgetReason:
@@ -1236,8 +1266,20 @@ export class ChatExecutor {
   }
 
   private async executeToolCallLoop(ctx: ExecutionContext): Promise<void> {
-    const preferredInitialToolName =
-      this.getRequiredToolEvidencePreferredToolName(ctx);
+    const initialContractGuidance = this.resolveActiveToolContractGuidance(ctx, {
+      phase: "initial",
+    });
+    if (initialContractGuidance?.runtimeInstruction) {
+      this.maybePushRuntimeInstruction(
+        ctx,
+        initialContractGuidance.runtimeInstruction,
+      );
+    }
+    const initialToolChoice =
+      initialContractGuidance?.toolChoice ??
+      (ctx.requiredToolEvidence ? "required" : undefined);
+    const initialRoutedToolNames =
+      initialContractGuidance?.routedToolNames;
     ctx.response = await this.callModelForPhase(ctx, {
       phase: "initial",
       callMessages: ctx.messages,
@@ -1245,11 +1287,13 @@ export class ChatExecutor {
       onStreamChunk: ctx.activeStreamCallback,
       statefulSessionId: ctx.sessionId,
       statefulResumeAnchor: ctx.stateful?.resumeAnchor,
-      ...(ctx.requiredToolEvidence
+      ...((initialToolChoice !== undefined || initialRoutedToolNames !== undefined)
         ? {
-          toolChoice: "required" as const,
-          ...(preferredInitialToolName
-            ? { routedToolNames: [preferredInitialToolName] as const }
+          ...(initialToolChoice !== undefined
+            ? { toolChoice: initialToolChoice }
+            : {}),
+          ...(initialRoutedToolNames !== undefined
+            ? { routedToolNames: initialRoutedToolNames }
             : {}),
         }
         : {}),
@@ -1270,7 +1314,6 @@ export class ChatExecutor {
       consecutiveSemanticDuplicateRounds: 0,
     };
     const loopState: ToolLoopState = {
-      sideEffectExecuted: false,
       remainingToolImageChars: MAX_TOOL_IMAGE_CHARS_BUDGET,
       activeRoutedToolSet: null,
       expandAfterRound: false,
@@ -1371,6 +1414,19 @@ export class ChatExecutor {
         }
       }
 
+      const followupContractGuidance = this.resolveActiveToolContractGuidance(
+        ctx,
+        {
+          phase: "tool_followup",
+        },
+      );
+      if (followupContractGuidance?.runtimeInstruction) {
+        this.maybePushRuntimeInstruction(
+          ctx,
+          followupContractGuidance.runtimeInstruction,
+        );
+      }
+
       // Re-call LLM.
       const nextResponse = await this.callModelForPhase(ctx, {
         phase: "tool_followup",
@@ -1379,6 +1435,14 @@ export class ChatExecutor {
         onStreamChunk: ctx.activeStreamCallback,
         statefulSessionId: ctx.sessionId,
         statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+        ...(followupContractGuidance
+          ? {
+            toolChoice: followupContractGuidance.toolChoice,
+            ...(followupContractGuidance.routedToolNames
+              ? { routedToolNames: followupContractGuidance.routedToolNames }
+              : {}),
+          }
+          : {}),
         budgetReason:
           "Max model recalls exceeded while following up after tool calls",
       });
@@ -1433,14 +1497,13 @@ export class ChatExecutor {
       return "abort_loop";
     }
 
-    // Permission check (side-effect dedup, allowlist, routed subset).
+    // Permission check (allowlist, routed subset).
     const permission = checkToolCallPermission(
       toolCall,
       this.allowedTools,
       loopState.activeRoutedToolSet,
       ctx.canExpandOnRoutingMiss,
       ctx.routedToolsExpanded,
-      loopState.sideEffectExecuted,
     );
     if (permission.errorResult) {
       if (permission.routingMiss) ctx.routedToolMisses++;
@@ -1464,8 +1527,6 @@ export class ChatExecutor {
       if (permission.expandAfterRound) loopState.expandAfterRound = true;
       return "skip";
     }
-    if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name)) loopState.sideEffectExecuted = true;
-
     // Parse arguments.
     const parseResult = parseToolCallArguments(toolCall);
     if (!parseResult.ok) {

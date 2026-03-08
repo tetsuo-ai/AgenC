@@ -248,11 +248,13 @@ function signResolverAssertion(params: {
 // ============================================================================
 
 /**
- * Built-in approval rules for common dangerous operations.
+ * Baseline approval rules for common dangerous operations.
  *
- * Note: `system.bash` and `desktop.bash` are intentionally NOT included by
- * default to avoid blocking normal terminal workflows. Teams that require
- * blanket shell approvals can add explicit rules via configuration.
+ * These rules are applied only when the gateway approval engine is explicitly
+ * enabled. `system.bash`, `desktop.bash`, and desktop automation tools are
+ * intentionally excluded from the baseline to avoid blocking normal
+ * interactive workflows. Teams that require stricter desktop approvals can
+ * opt in via gateway configuration.
  */
 export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
   {
@@ -281,7 +283,9 @@ export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
     tool: 'agenc.registerAgent',
     description: 'Agent registration with staked SOL',
   },
-  // Desktop automation — require approval by default
+];
+
+export const DEFAULT_DESKTOP_APPROVAL_RULES: readonly ApprovalRule[] = [
   {
     tool: "mcp.peekaboo.click",
     description: "Desktop mouse click",
@@ -299,6 +303,17 @@ export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
     description: "macOS automation script",
   },
 ];
+
+export function buildDefaultApprovalRules(options?: {
+  readonly gateDesktopAutomation?: boolean;
+}): ApprovalRule[] {
+  return [
+    ...DEFAULT_APPROVAL_RULES,
+    ...(options?.gateDesktopAutomation === true
+      ? DEFAULT_DESKTOP_APPROVAL_RULES
+      : []),
+  ];
+}
 
 // ============================================================================
 // ApprovalEngine

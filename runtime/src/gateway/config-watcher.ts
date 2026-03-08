@@ -1033,6 +1033,12 @@ function validateApprovalsSection(approvals: unknown, errors: string[]): void {
     errors.push("approvals.enabled must be a boolean");
   }
   if (
+    approvals.gateDesktopAutomation !== undefined &&
+    typeof approvals.gateDesktopAutomation !== "boolean"
+  ) {
+    errors.push("approvals.gateDesktopAutomation must be a boolean");
+  }
+  if (
     approvals.timeoutMs !== undefined &&
     typeof approvals.timeoutMs !== "number"
   ) {

@@ -143,21 +143,6 @@ export const ENABLE_TOOL_IMAGE_REPLAY = false;
 // ============================================================================
 
 /**
- * macOS native tools that cause visible side-effects (opening apps, running scripts).
- * Once any tool in this set executes, further calls to ANY tool in the set are
- * skipped for the remainder of the request. This prevents the model from e.g.
- * opening 3 YouTube tabs.
- *
- * NOTE: Desktop sandbox tools (`desktop.*`) are intentionally excluded — multi-step
- * desktop automation (click → type → screenshot → verify) needs repeated calls.
- */
-export const MACOS_SIDE_EFFECT_TOOLS = new Set([
-  "system.open",
-  "system.applescript",
-  "system.notification",
-]);
-
-/**
  * High-risk side-effect tools MUST NOT be auto-retried unless an explicit
  * idempotency token is provided in tool args.
  */

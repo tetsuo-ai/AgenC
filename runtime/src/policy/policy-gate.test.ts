@@ -27,6 +27,10 @@ describe("createPolicyGateHook", () => {
     });
 
     expect(result.continue).toBe(false);
+    expect(result.payload).toMatchObject({
+      blocked: true,
+      reason: expect.stringContaining('Policy blocked tool "system.delete"'),
+    });
   });
 
   it("allows denied tools in shadow mode and records the simulated violation", async () => {
@@ -112,5 +116,9 @@ describe("createPolicyGateHook", () => {
     });
 
     expect(result.continue).toBe(false);
+    expect(result.payload).toMatchObject({
+      blocked: true,
+      reason: expect.stringContaining('Policy blocked tool "system.httpGet"'),
+    });
   });
 });

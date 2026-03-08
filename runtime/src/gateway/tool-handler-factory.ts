@@ -47,8 +47,6 @@ const MAX_DELEGATION_TIMEOUT_MS = 3_600_000;
 const DELEGATION_FAILURE_SIGNAL_RE =
   /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
 const DOOM_TOOL_PREFIX = 'mcp.doom.';
-const DOOM_START_TOOL = 'mcp.doom.start_game';
-const DOOM_STOP_TOOL = 'mcp.doom.stop_game';
 const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
   "system.makeDir": "system.mkdir",
   "system.listFiles": "system.listDir",
@@ -84,83 +82,6 @@ function canonicalizeToolFailureResult(
   return JSON.stringify({
     error: trimmed.length > 0 ? trimmed : `Tool "${toolName}" failed`,
   });
-}
-
-function extractToolFailureReason(result: string): string | null {
-  try {
-    const parsed = JSON.parse(result) as unknown;
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      !Array.isArray(parsed) &&
-      typeof (parsed as { error?: unknown }).error === 'string'
-    ) {
-      const error = (parsed as { error: string }).error.trim();
-      return error.length > 0 ? error : null;
-    }
-  } catch {
-    // Fall back to raw output below.
-  }
-
-  const trimmed = result.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-interface DoomTurnGuard {
-  beginTool(toolName: string): void;
-  blockedResult(toolName: string): string | null;
-  observeResult(toolName: string, result: string): string;
-}
-
-function createDoomTurnGuard(): DoomTurnGuard {
-  let failedLaunchReason: string | null = null;
-  let launchActive = false;
-
-  return {
-    beginTool(toolName: string): void {
-      if (toolName === DOOM_START_TOOL) {
-        failedLaunchReason = null;
-      }
-    },
-
-    blockedResult(toolName: string): string | null {
-      if (toolName === DOOM_START_TOOL && launchActive) {
-        return JSON.stringify({
-          error:
-            `Skipped "${toolName}" because Doom is already running from an earlier launch in this turn. ` +
-            `Reuse the active game or call "${DOOM_STOP_TOOL}" before starting again.`,
-        });
-      }
-
-      if (!failedLaunchReason || !isDoomTool(toolName) || toolName === DOOM_START_TOOL) {
-        return null;
-      }
-
-      return JSON.stringify({
-        error:
-          `Skipped "${toolName}" because the previous Doom launch in this turn failed: ` +
-          failedLaunchReason,
-      });
-    },
-
-    observeResult(toolName: string, result: string): string {
-      const canonicalResult = canonicalizeToolFailureResult(toolName, result);
-      if (toolName === DOOM_START_TOOL) {
-        const failed = didToolCallFail(false, canonicalResult);
-        failedLaunchReason = failed
-          ? extractToolFailureReason(canonicalResult)
-          : null;
-        launchActive = !failed;
-      } else if (
-        toolName === DOOM_STOP_TOOL &&
-        !didToolCallFail(false, canonicalResult)
-      ) {
-        launchActive = false;
-        failedLaunchReason = null;
-      }
-      return canonicalResult;
-    },
-  };
 }
 
 function normalizeDesktopBashCommand(
@@ -927,7 +848,6 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
   // Per-message duplicate guard to avoid opening the same GUI app twice when
   // the model emits repeated desktop.bash launch calls in one turn.
   const seenGuiLaunches = new Set<string>();
-  const doomTurnGuard = createDoomTurnGuard();
   const nextToolCallId = (): string =>
     `tool-${Date.now().toString(36)}-${++toolCallSeq}`;
 
@@ -1033,6 +953,11 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       if (!beforeResult.completed) {
         // Bug fix: do NOT send tools.executing when hook blocks — the tool
         // never started executing, so the client shouldn't show a tool card.
+        const hookReason =
+          typeof beforeResult.payload.reason === "string" &&
+          beforeResult.payload.reason.trim().length > 0
+            ? beforeResult.payload.reason.trim()
+            : `Tool "${toolName}" blocked by hook`;
         if (isSubAgentSession && lifecycleEmitter) {
           lifecycleEmitter.emit({
             type: 'subagents.failed',
@@ -1040,14 +965,12 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
             sessionId,
             subagentSessionId: sessionId,
             toolName,
-            payload: { stage: 'hook_before' },
+            payload: { stage: 'hook_before', reason: hookReason },
           });
         }
-        return JSON.stringify({ error: `Tool "${toolName}" blocked by hook` });
+        return JSON.stringify({ error: hookReason });
       }
     }
-
-    doomTurnGuard.beginTool(toolName);
 
     // 2. Notify caller: tool execution starting
     onToolStart?.(toolName, normalizedArgs, toolCallId);
@@ -1090,22 +1013,6 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     });
     if (approvalError) {
       return approvalError;
-    }
-
-    const blockedResult = doomTurnGuard.blockedResult(toolName);
-    if (blockedResult) {
-      return sendImmediateToolError({
-        send,
-        toolName,
-        result: blockedResult,
-        toolCallId,
-        sessionId,
-        isSubAgentSession,
-        onToolEnd,
-        hooks,
-        args: normalizedArgs,
-        hookMetadata: enrichedHookMetadata,
-      });
     }
 
     let executionArgs = normalizedArgs;
@@ -1173,7 +1080,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       throw error;
     }
     const durationMs = Date.now() - start;
-    result = doomTurnGuard.observeResult(toolName, result);
+    result = canonicalizeToolFailureResult(toolName, result);
 
     if (launchKey && shouldMarkGuiLaunchSeen(result)) {
       seenGuiLaunches.add(launchKey);
