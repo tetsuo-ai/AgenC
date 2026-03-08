@@ -86,4 +86,39 @@ describe("VoiceBridge delegation", () => {
     );
     expect(result).toContain("Task completed");
   });
+
+  it("surfaces the concrete inbound hook block reason", async () => {
+    const send = vi.fn();
+    const bridge = new VoiceBridge({
+      apiKey: "voice-key",
+      toolHandler: vi.fn(async () => ""),
+      systemPrompt: "You are a helpful assistant.",
+      getChatExecutor: () => null,
+      hooks: {
+        dispatch: vi.fn(async () => ({
+          completed: false,
+          payload: {
+            reason: 'Policy blocked message: tenant is suspended',
+          },
+        })),
+      } as any,
+    });
+
+    const spoken = await (bridge as any).dispatchPolicyCheck(
+      "client-1",
+      "session-1",
+      "Investigate the failing run",
+      send,
+    );
+
+    expect(spoken).toBe("Policy blocked message: tenant is suspended");
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          status: "blocked",
+          error: "Policy blocked message: tenant is suspended",
+        }),
+      }),
+    );
+  });
 });

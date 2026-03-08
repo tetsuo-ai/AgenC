@@ -108,10 +108,10 @@ import { VoiceBridge } from './voice-bridge.js';
 import { createSessionToolHandler } from './tool-handler-factory.js';
 import type { DesktopBridgeEvent } from '../desktop/rest-bridge.js';
 import { InMemoryBackend } from '../memory/in-memory/backend.js';
-import { ApprovalEngine, DEFAULT_APPROVAL_RULES } from './approvals.js';
+import { ApprovalEngine } from './approvals.js';
+import { resolveGatewayApprovalRules } from "./approval-runtime.js";
 import { buildToolPolicyAction } from '../policy/tool-governance.js';
 import {
-  buildMCPApprovalRules,
   SessionCredentialBroker,
   type GovernanceAuditEventType,
   type RuntimeSessionCredentialConfig,
@@ -1914,7 +1914,7 @@ interface WebChatMessageHandlerDeps {
   sessionMgr: SessionManager;
   getSystemPrompt: () => string;
   baseToolHandler: ToolHandler;
-  approvalEngine: ApprovalEngine;
+  approvalEngine: ApprovalEngine | null;
   memoryBackend: MemoryBackend;
   signals: WebChatSignals;
   sessionTokenBudget: number;
@@ -2669,19 +2669,23 @@ export class DaemonManager {
       memoryBackend,
     });
 
-    const approvalEngine = new ApprovalEngine({
-      rules: [
-        ...DEFAULT_APPROVAL_RULES,
-        ...buildMCPApprovalRules(config.mcp?.servers),
-      ],
-      timeoutMs: config.approvals?.timeoutMs,
-      defaultSlaMs: config.approvals?.defaultSlaMs,
-      defaultEscalationDelayMs: config.approvals?.defaultEscalationDelayMs,
-      resolverSigningKey:
-        config.approvals?.resolverSigningKey ?? config.auth?.secret,
+    const approvalRules = resolveGatewayApprovalRules({
+      approvals: config.approvals,
+      mcpServers: config.mcp?.servers,
     });
+    const approvalEngine =
+      approvalRules.length > 0
+        ? new ApprovalEngine({
+            rules: approvalRules,
+            timeoutMs: config.approvals?.timeoutMs,
+            defaultSlaMs: config.approvals?.defaultSlaMs,
+            defaultEscalationDelayMs: config.approvals?.defaultEscalationDelayMs,
+            resolverSigningKey:
+              config.approvals?.resolverSigningKey ?? config.auth?.secret,
+          })
+        : null;
     this._approvalEngine = approvalEngine;
-    approvalEngine.onRequest(async (request) => {
+    approvalEngine?.onRequest(async (request) => {
       await this.appendGovernanceAuditEvent({
         type: 'approval.requested',
         actor: request.sessionId,
@@ -2705,7 +2709,7 @@ export class DaemonManager {
         },
       });
     });
-    approvalEngine.onEscalation(async (request, escalation) => {
+    approvalEngine?.onEscalation(async (request, escalation) => {
       await this.appendGovernanceAuditEvent({
         type: 'approval.escalated',
         actor: escalation.escalateToSessionId,
@@ -2750,7 +2754,7 @@ export class DaemonManager {
         });
       });
     });
-    approvalEngine.onResponse(async (request, response) => {
+    approvalEngine?.onResponse(async (request, response) => {
       await this.appendGovernanceAuditEvent({
         type: 'approval.resolved',
         actor: response.approvedBy,
@@ -2791,7 +2795,7 @@ export class DaemonManager {
     const pipelineExecutor = new PipelineExecutor({
       toolHandler: baseToolHandler,
       memoryBackend,
-      approvalEngine,
+      approvalEngine: approvalEngine ?? undefined,
       progressTracker,
       logger: this.logger,
     });
@@ -2873,7 +2877,7 @@ export class DaemonManager {
       getChatExecutor: () => this._chatExecutor,
       sessionManager: sessionMgr,
       hooks,
-      approvalEngine,
+      approvalEngine: approvalEngine ?? undefined,
       memoryBackend,
       delegation: this.resolveDelegationToolContext,
     };
@@ -2885,7 +2889,7 @@ export class DaemonManager {
       skills: skillList,
       voiceBridge,
       memoryBackend,
-      approvalEngine,
+      approvalEngine: approvalEngine ?? undefined,
       skillToggle,
       connection: this._connectionManager?.getConnection(),
       broadcastEvent: (type, data) => webChat.broadcastEvent(type, data),
@@ -3003,7 +3007,7 @@ export class DaemonManager {
             sessionId,
             webChat,
             hooks,
-            approvalEngine,
+            approvalEngine: approvalEngine ?? undefined,
             baseToolHandler,
             traceLabel: 'webchat.background',
             traceConfig: resolveTraceLoggingConfig(gateway.config.logging),
@@ -3809,7 +3813,7 @@ export class DaemonManager {
       getChatExecutor: () => ChatExecutor | null | undefined;
       sessionManager: SessionManager;
       hooks: HookDispatcher;
-      approvalEngine: ApprovalEngine;
+      approvalEngine?: ApprovalEngine;
       memoryBackend: MemoryBackend;
       delegation: DelegationToolCompositionResolver;
     };
@@ -7653,7 +7657,7 @@ export class DaemonManager {
     sessionId: string;
     webChat: WebChatChannel;
     hooks: HookDispatcher;
-    approvalEngine: ApprovalEngine;
+    approvalEngine?: ApprovalEngine;
     baseToolHandler: ToolHandler;
     traceLabel: string;
     traceConfig: ResolvedTraceLoggingConfig;
@@ -7970,9 +7974,6 @@ export class DaemonManager {
       });
     };
 
-    // Detect greeting messages — block tool execution for casual conversation
-    const GREETING_RE = /^(h(i|ello|ey|ola|owdy)|yo|sup|what'?s\s*up|greetings?|good\s*(morning|afternoon|evening)|gm|gn)\s*[!?.,:;\-)*]*$/i;
-    const isGreeting = GREETING_RE.test(msg.content.trim());
     const doomTurnContract = inferDoomTurnContract(msg.content);
     const requestedDesktopResolution =
       this._desktopManager?.getHandleBySession(msg.sessionId)?.resolution ??
@@ -7985,13 +7986,12 @@ export class DaemonManager {
         )
         : DEFAULT_DOOM_FIT_RESOLUTION;
     let doomStopIssued = false;
-    let doomLaunchIssued = false;
 
     const sessionToolHandler = this.createWebChatSessionToolHandler({
       sessionId: msg.sessionId,
       webChat,
       hooks,
-      approvalEngine,
+      approvalEngine: approvalEngine ?? undefined,
       baseToolHandler,
       traceLabel: 'webchat',
       traceConfig,
@@ -8005,28 +8005,9 @@ export class DaemonManager {
         if (nextArgs.screen_resolution === 'RES_1280X720' && requestedDoomResolution !== 'RES_1280X720') {
           nextArgs = { ...nextArgs, screen_resolution: requestedDoomResolution };
         }
-        doomLaunchIssued = true;
         return nextArgs;
       },
       beforeHandle: (toolName) => {
-        if (isGreeting) {
-          return JSON.stringify({
-            error: 'This is a greeting message. Respond conversationally without using any tools.',
-          });
-        }
-        if (
-          doomTurnContract?.requiresLaunch &&
-          toolName.startsWith('mcp.doom.') &&
-          toolName !== 'mcp.doom.start_game' &&
-          toolName !== 'mcp.doom.stop_game' &&
-          !doomLaunchIssued
-        ) {
-          return JSON.stringify({
-            error:
-              'Launch Doom first with `mcp.doom.start_game` before calling follow-up Doom tools in this turn. ' +
-              'For play-until-stop requests, the launch must include `async_player: true`.',
-          });
-        }
         if (isDoomStopTurn) {
           const blockedResult = blockUntilDoomStopTool(toolName, doomStopIssued);
           if (toolName === 'mcp.doom.stop_game' && !blockedResult) {

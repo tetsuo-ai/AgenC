@@ -42,12 +42,6 @@ export interface DelegationPolicyDecision {
   readonly threshold: number;
 }
 
-const DELEGATION_SCORE_KEYS = [
-  "spawnDecisionScore",
-  "delegationScore",
-  "utilityScore",
-] as const;
-
 export function isSubAgentSessionId(sessionId: string): boolean {
   return sessionId.startsWith(SUB_AGENT_SESSION_PREFIX);
 }
@@ -58,15 +52,6 @@ export function isDelegationToolName(toolName: string): boolean {
     toolName.startsWith("subagent.") ||
     toolName.startsWith("agenc.subagent.")
   );
-}
-
-function extractDelegationScore(args: Record<string, unknown>): number | undefined {
-  for (const key of DELEGATION_SCORE_KEYS) {
-    const value = args[key];
-    if (typeof value !== "number" || !Number.isFinite(value)) continue;
-    return value;
-  }
-  return undefined;
 }
 
 export class DelegationPolicyEngine {
@@ -159,21 +144,6 @@ export class DelegationPolicyEngine {
         allowed: false,
         reason: `Delegation tool "${input.toolName}" is not allowlisted`,
         matchedRule: "tool_not_allowlisted",
-        threshold: this.config.spawnDecisionThreshold,
-      };
-    }
-
-    const score = extractDelegationScore(input.args);
-    if (
-      typeof score === "number" &&
-      score < this.config.spawnDecisionThreshold
-    ) {
-      return {
-        allowed: false,
-        reason:
-          `Delegation score ${score.toFixed(3)} is below threshold ` +
-          `${this.config.spawnDecisionThreshold.toFixed(3)}`,
-        matchedRule: "score_below_threshold",
         threshold: this.config.spawnDecisionThreshold,
       };
     }

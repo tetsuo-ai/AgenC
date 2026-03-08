@@ -473,7 +473,10 @@ export interface GatewayPolicyConfig {
 }
 
 export interface GatewayApprovalConfig {
+  /** Opt-in approval engine for gated tool calls. */
   enabled?: boolean;
+  /** Require approval for desktop click/type/scroll automation tools. */
+  gateDesktopAutomation?: boolean;
   timeoutMs?: number;
   defaultSlaMs?: number;
   defaultEscalationDelayMs?: number;

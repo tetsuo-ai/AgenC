@@ -590,6 +590,7 @@ describe("validateGatewayConfig approvals", () => {
       ...makeConfig(),
       approvals: {
         enabled: true,
+        gateDesktopAutomation: true,
         timeoutMs: 60_000,
         defaultSlaMs: 10_000,
         defaultEscalationDelayMs: 15_000,
@@ -605,6 +606,7 @@ describe("validateGatewayConfig approvals", () => {
       ...makeConfig(),
       approvals: {
         enabled: "yes" as unknown as boolean,
+        gateDesktopAutomation: "strict" as unknown as boolean,
         timeoutMs: "slow" as unknown as number,
         defaultSlaMs: "fast" as unknown as number,
         defaultEscalationDelayMs: {} as unknown as number,
@@ -614,6 +616,9 @@ describe("validateGatewayConfig approvals", () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("approvals.enabled must be a boolean");
+    expect(result.errors).toContain(
+      "approvals.gateDesktopAutomation must be a boolean",
+    );
     expect(result.errors).toContain("approvals.timeoutMs must be a number");
     expect(result.errors).toContain("approvals.defaultSlaMs must be a number");
     expect(result.errors).toContain(

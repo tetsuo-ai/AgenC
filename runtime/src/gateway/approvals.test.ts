@@ -3,7 +3,9 @@ import {
   globMatch,
   extractAmount,
   ApprovalEngine,
+  buildDefaultApprovalRules,
   createApprovalGateHook,
+  DEFAULT_DESKTOP_APPROVAL_RULES,
   DEFAULT_APPROVAL_RULES,
 } from './approvals.js';
 import { buildMCPApprovalRules } from '../policy/mcp-governance.js';
@@ -807,8 +809,8 @@ describe('ApprovalEngine', () => {
   // ============================================================================
 
   describe('DEFAULT_APPROVAL_RULES', () => {
-    it('has 10 rules', () => {
-      expect(DEFAULT_APPROVAL_RULES).toHaveLength(10);
+    it('has 6 baseline high-risk rules', () => {
+      expect(DEFAULT_APPROVAL_RULES).toHaveLength(6);
     });
 
     it('covers system.delete and system.evaluateJs', () => {
@@ -835,6 +837,32 @@ describe('ApprovalEngine', () => {
     it('agenc.createTask has minAmount 1 SOL in lamports', () => {
       const rule = DEFAULT_APPROVAL_RULES.find((r) => r.tool === 'agenc.createTask');
       expect(rule!.conditions!.minAmount).toBe(1_000_000_000);
+    });
+
+    it('does not include desktop automation tools by default', () => {
+      const tools = DEFAULT_APPROVAL_RULES.map((r) => r.tool);
+      expect(tools).not.toContain('mcp.peekaboo.click');
+      expect(tools).not.toContain('mcp.macos-automator.*');
+    });
+  });
+
+  describe('DEFAULT_DESKTOP_APPROVAL_RULES', () => {
+    it('keeps desktop automation gating separate from baseline defaults', () => {
+      expect(DEFAULT_DESKTOP_APPROVAL_RULES.map((rule) => rule.tool)).toEqual([
+        'mcp.peekaboo.click',
+        'mcp.peekaboo.type',
+        'mcp.peekaboo.scroll',
+        'mcp.macos-automator.*',
+      ]);
+    });
+  });
+
+  describe('buildDefaultApprovalRules', () => {
+    it('keeps desktop automation opt-in', () => {
+      expect(buildDefaultApprovalRules()).toHaveLength(6);
+      expect(
+        buildDefaultApprovalRules({ gateDesktopAutomation: true }),
+      ).toHaveLength(10);
     });
   });
 });

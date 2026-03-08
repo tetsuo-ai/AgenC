@@ -659,11 +659,16 @@ export class VoiceBridge {
       channel: "voice",
     });
     if (!result.completed) {
+      const reason =
+        typeof result.payload.reason === "string" &&
+        result.payload.reason.trim().length > 0
+          ? result.payload.reason.trim()
+          : "Message blocked by policy";
       send({
         type: VM.DELEGATION,
-        payload: { status: "blocked", task, error: "Message blocked by policy" },
+        payload: { status: "blocked", task, error: reason },
       });
-      return "Sorry, that request was blocked by the security policy.";
+      return reason;
     }
     return null;
   }

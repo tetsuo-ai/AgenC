@@ -14,7 +14,6 @@ import {
   HIGH_RISK_TOOL_PREFIXES,
   SAFE_TOOL_RETRY_TOOLS,
   SAFE_TOOL_RETRY_PREFIXES,
-  MACOS_SIDE_EFFECT_TOOLS,
   MAX_CONSECUTIVE_IDENTICAL_FAILURES,
   MAX_CONSECUTIVE_ALL_FAILED_ROUNDS,
   MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS,
@@ -172,25 +171,14 @@ export interface ToolCallPermissionResult {
   readonly routingMiss?: boolean;
 }
 
-/** Check side-effect dedup, global allowlist, and routed subset for a tool call. */
+/** Check global allowlist and routed subset constraints for a tool call. */
 export function checkToolCallPermission(
   toolCall: LLMToolCall,
   allowedTools: Set<string> | null,
   routedToolSet: Set<string> | null,
   canExpandOnRoutingMiss: boolean,
   routedToolsExpanded: boolean,
-  sideEffectExecuted: boolean,
 ): ToolCallPermissionResult {
-  // Side-effect dedup check.
-  if (MACOS_SIDE_EFFECT_TOOLS.has(toolCall.name) && sideEffectExecuted) {
-    return {
-      action: "skip",
-      errorResult: safeStringify({
-        error: `Skipped "${toolCall.name}" — a desktop action was already performed. Combine actions into a single tool call.`,
-      }),
-    };
-  }
-
   // Global allowlist check.
   if (allowedTools && !allowedTools.has(toolCall.name)) {
     return {

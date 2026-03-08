@@ -576,7 +576,6 @@ export interface FullPlannerSummaryState extends MutablePlannerSummaryState {
 
 /** Loop-local mutable state shared across tool calls within a single round. */
 export interface ToolLoopState {
-  sideEffectExecuted: boolean;
   remainingToolImageChars: number;
   activeRoutedToolSet: Set<string> | null;
   expandAfterRound: boolean;

@@ -112,7 +112,7 @@ describe("createSessionToolHandler", () => {
     });
   });
 
-  it("blocks same-turn Doom follow-up calls after a failed launch", async () => {
+  it("does not block same-turn Doom follow-up calls after a failed launch", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {
       sentMessages.push(msg);
@@ -122,7 +122,7 @@ describe("createSessionToolHandler", () => {
       if (name === "mcp.doom.start_game") {
         return "Unknown resolution 'banana'. Valid: ['RES_1280X720']";
       }
-      return JSON.stringify({ status: "unexpected" });
+      return "Executor not running. Start game with async_player=True.";
     });
     const handler = createSessionToolHandler({
       sessionId: "session-1",
@@ -143,20 +143,18 @@ describe("createSessionToolHandler", () => {
       error: "Unknown resolution 'banana'. Valid: ['RES_1280X720']",
     });
     expect(JSON.parse(blockedResult)).toEqual({
-      error:
-        'Skipped "mcp.doom.set_objective" because the previous Doom launch in this turn failed: Unknown resolution \'banana\'. Valid: [\'RES_1280X720\']',
+      error: "Executor not running. Start game with async_player=True.",
     });
-    expect(baseHandler).toHaveBeenCalledTimes(1);
+    expect(baseHandler).toHaveBeenCalledTimes(2);
     expect(sentMessages.at(-1)).toMatchObject({
       type: "tools.result",
       payload: {
         toolName: "mcp.doom.set_objective",
-        isError: true,
       },
     });
   });
 
-  it("blocks duplicate same-turn Doom launches after a successful start", async () => {
+  it("does not block duplicate same-turn Doom launches after a successful start", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {
       sentMessages.push(msg);
@@ -180,16 +178,12 @@ describe("createSessionToolHandler", () => {
     });
 
     expect(JSON.parse(firstResult)).toEqual({ status: "running" });
-    expect(JSON.parse(secondResult)).toEqual({
-      error:
-        'Skipped "mcp.doom.start_game" because Doom is already running from an earlier launch in this turn. Reuse the active game or call "mcp.doom.stop_game" before starting again.',
-    });
-    expect(baseHandler).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(secondResult)).toEqual({ status: "running" });
+    expect(baseHandler).toHaveBeenCalledTimes(2);
     expect(sentMessages.at(-1)).toMatchObject({
       type: "tools.result",
       payload: {
         toolName: "mcp.doom.start_game",
-        isError: true,
       },
     });
   });
@@ -279,6 +273,36 @@ describe("createSessionToolHandler", () => {
         toolCallId: expect.any(String),
       }),
     );
+  });
+
+  it("surfaces the blocking reason returned by tool:before hooks", async () => {
+    const send = vi.fn();
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const hooks = {
+      dispatch: vi.fn().mockResolvedValue({
+        completed: false,
+        payload: {
+          blocked: true,
+          reason: 'Policy blocked tool "system.delete": Tool is denied',
+        },
+      }),
+    } as any;
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+      hooks,
+    });
+
+    const result = await handler("system.delete", { target: "/tmp/file" });
+
+    expect(JSON.parse(result)).toEqual({
+      error: 'Policy blocked tool "system.delete": Tool is denied',
+    });
+    expect(baseHandler).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("injects session credentials into structured HTTP tools without exposing the secret in UI events", async () => {
@@ -1749,5 +1773,41 @@ describe("createSessionToolHandler", () => {
     expect(baseHandler).not.toHaveBeenCalled();
     expect(sentMessages.some((msg) => msg.type === "tools.executing")).toBe(false);
     expect(sentMessages.some((msg) => msg.type === "tools.result")).toBe(false);
+  });
+
+  it("does not veto execute_with_agent calls just because the score is below threshold", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+
+    const policyEngine = new DelegationPolicyEngine({
+      enabled: true,
+      spawnDecisionThreshold: 0.95,
+      fallbackBehavior: "continue_without_delegation",
+    });
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      routerId: "router-a",
+      send,
+      delegation: () => ({
+        subAgentManager: null,
+        policyEngine,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "inspect logs",
+      spawnDecisionScore: 0.1,
+    });
+    const parsed = JSON.parse(result) as { error?: string };
+
+    expect(parsed.error).toContain("Delegation runtime unavailable");
+    expect(parsed.error).not.toContain("below threshold");
+    expect(sentMessages.some((msg) => msg.type === "tools.executing")).toBe(true);
+    expect(sentMessages.some((msg) => msg.type === "tools.result")).toBe(true);
   });
 });

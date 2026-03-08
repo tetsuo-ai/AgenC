@@ -114,7 +114,15 @@ export function createPolicyGateHook(
       options.logger.warn?.(
         `Policy blocked tool "${toolName}": ${violationSummary}`,
       );
-      return { continue: false };
+      return {
+        continue: false,
+        payload: {
+          ...payload,
+          blocked: true,
+          reason: `Policy blocked tool "${toolName}": ${violationSummary}`,
+          violations: decision.violations,
+        },
+      };
     },
   };
 }

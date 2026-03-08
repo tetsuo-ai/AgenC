@@ -1485,6 +1485,128 @@ describe("ChatExecutor", () => {
       ).toBe(false);
     });
 
+    it("steers Doom turns toward start_game first and then the missing follow-up tool", async () => {
+      let started = false;
+      const toolHandler = vi.fn(async (name: string) => {
+        if (name === "mcp.doom.start_game") {
+          started = true;
+          return safeJson({ status: "running" });
+        }
+        if (name === "mcp.doom.set_god_mode") {
+          if (!started) {
+            return safeJson({
+              error:
+                "Launch Doom first with `mcp.doom.start_game` before calling follow-up Doom tools in this turn. " +
+                "For play-until-stop requests, the launch must include `async_player: true`.",
+            });
+          }
+          return safeJson({
+            status: "god_mode_updated",
+            god_mode_enabled: true,
+          });
+        }
+        return safeJson({ name });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-god-early",
+                  name: "mcp.doom.set_god_mode",
+                  arguments: safeJson({ enabled: true }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({}),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-god-correct",
+                  name: "mcp.doom.set_god_mode",
+                  arguments: safeJson({ enabled: true }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "God mode is enabled and Doom is running.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["mcp.doom.start_game", "mcp.doom.set_god_mode"],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage("Enable god mode in Doom."),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toBe("God mode is enabled and Doom is running.");
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        1,
+        "mcp.doom.set_god_mode",
+        { enabled: true },
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(2, "mcp.doom.start_game", {
+        screen_resolution: "RES_1280X720",
+        window_visible: true,
+        render_hud: true,
+      });
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        3,
+        "mcp.doom.set_god_mode",
+        { enabled: true },
+      );
+
+      const firstOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[1] as LLMChatOptions | undefined;
+      expect(firstOptions?.toolChoice).toBe("required");
+      expect(firstOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.start_game",
+      ]);
+
+      const secondOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1]?.[1] as LLMChatOptions | undefined;
+      expect(secondOptions?.toolChoice).toBe("required");
+      expect(secondOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.start_game",
+      ]);
+
+      const thirdOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[1] as LLMChatOptions | undefined;
+      expect(thirdOptions?.toolChoice).toBe("required");
+      expect(thirdOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.set_god_mode",
+      ]);
+    });
+
     it("passes routed tool subset to provider chat options", async () => {
       const provider = createMockProvider("primary");
       const executor = new ChatExecutor({ providers: [provider] });
