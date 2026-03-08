@@ -1,9 +1,10 @@
 /**
  * Shared tool-environment filtering helpers.
  *
- * Desktop-only mode must exclude host `system.*` tools everywhere, not just
- * from the top-level chat schema. Host-only mode excludes desktop/container
- * surfaces instead.
+ * Desktop-only mode excludes raw host-mutation tools like `system.bash`, but it
+ * keeps the structured durable-handle families available so the runtime can
+ * still supervise long-lived host resources deterministically.
+ * Host-only mode excludes desktop/container surfaces instead.
  *
  * @module
  */
@@ -13,6 +14,15 @@ import type { LLMTool } from "../llm/types.js";
 export type ToolEnvironmentMode = "both" | "desktop" | "host";
 
 const HOST_TOOL_PREFIX = "system.";
+const DESKTOP_ALLOWED_HOST_TOOL_PREFIXES = [
+  "system.process",
+  "system.server",
+  "system.browserSession",
+  "system.browserTransfer",
+  "system.remoteJob",
+  "system.research",
+  "system.sandbox",
+] as const;
 const DESKTOP_TOOL_PREFIXES = [
   "desktop.",
   "playwright.",
@@ -26,13 +36,22 @@ function isDesktopScopedToolName(name: string): boolean {
   return DESKTOP_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
+function isStructuredHostControlToolName(name: string): boolean {
+  return DESKTOP_ALLOWED_HOST_TOOL_PREFIXES.some((prefix) =>
+    name.startsWith(prefix)
+  );
+}
+
 export function isToolAllowedForEnvironment(
   toolName: string,
   environment: ToolEnvironmentMode,
 ): boolean {
   if (environment === "both") return true;
   if (environment === "desktop") {
-    return !toolName.startsWith(HOST_TOOL_PREFIX);
+    return (
+      !toolName.startsWith(HOST_TOOL_PREFIX) ||
+      isStructuredHostControlToolName(toolName)
+    );
   }
   return !isDesktopScopedToolName(toolName);
 }

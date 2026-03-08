@@ -20,6 +20,8 @@ import {
   handleOkResult,
   isToolResult,
   normalizeHandleIdentity,
+  normalizeResourceEnvelope,
+  type StructuredHandleResourceEnvelope,
 } from "./handle-contract.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -38,13 +40,21 @@ const BROWSER_SESSION_DETERMINISTIC_FLAGS = [
 ];
 
 type BrowserSessionState = "running" | "stopped" | "failed";
-type BrowserSessionArtifactKind = "download" | "screenshot" | "pdf";
+type BrowserSessionArtifactKind = "download" | "upload" | "screenshot" | "pdf";
+type BrowserSessionTransferKind = "download" | "upload";
+type BrowserSessionTransferState =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled";
 type BrowserSessionActionType =
   | "navigate"
   | "click"
   | "type"
   | "scroll"
   | "waitForSelector"
+  | "upload"
   | "screenshot"
   | "exportPdf";
 
@@ -54,6 +64,23 @@ interface BrowserSessionArtifact {
   readonly observedAt: number;
   readonly label?: string;
   readonly sizeBytes?: number;
+}
+
+interface BrowserSessionTransfer {
+  readonly transferId: string;
+  readonly sessionId: string;
+  readonly kind: BrowserSessionTransferKind;
+  readonly state: BrowserSessionTransferState;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly label?: string;
+  readonly idempotencyKey?: string;
+  readonly selector?: string;
+  readonly sourcePath?: string;
+  readonly artifactPath?: string;
+  readonly completedAt?: number;
+  readonly cancelledAt?: number;
+  readonly error?: string;
 }
 
 interface BrowserSessionRecord {
@@ -75,6 +102,8 @@ interface BrowserSessionRecord {
   updatedAt: number;
   lastActionAt?: number;
   artifacts: BrowserSessionArtifact[];
+  transfers: BrowserSessionTransfer[];
+  readonly resourceEnvelope?: StructuredHandleResourceEnvelope;
 }
 
 interface PersistedBrowserSessionRegistry {
@@ -98,6 +127,7 @@ interface PlaywrightBrowserContext {
 interface PlaywrightDownload {
   suggestedFilename(): string;
   saveAs(path: string): Promise<void>;
+  cancel?(): Promise<void>;
 }
 
 interface PlaywrightPage {
@@ -110,6 +140,10 @@ interface PlaywrightPage {
   pdf(options?: Record<string, unknown>): Promise<Buffer>;
   click(selector: string): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
+  setInputFiles?(
+    selector: string,
+    files: string | readonly string[],
+  ): Promise<void>;
   waitForSelector(
     selector: string,
     options?: { timeout?: number },
@@ -128,6 +162,44 @@ function sanitizeFilename(input: string): string {
 
 function cloneRecord(record: BrowserSessionRecord): BrowserSessionRecord {
   return JSON.parse(JSON.stringify(record)) as BrowserSessionRecord;
+}
+
+function isTransferState(value: unknown): value is BrowserSessionTransferState {
+  return (
+    value === "pending" ||
+    value === "in_progress" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "cancelled"
+  );
+}
+
+function normalizePersistedTransfers(
+  sessionId: string,
+  value: unknown,
+): BrowserSessionTransfer[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const transfers: BrowserSessionTransfer[] = [];
+  for (const entry of value) {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      typeof (entry as BrowserSessionTransfer).transferId !== "string" ||
+      ((entry as BrowserSessionTransfer).kind !== "download" &&
+        (entry as BrowserSessionTransfer).kind !== "upload") ||
+      !isTransferState((entry as BrowserSessionTransfer).state)
+    ) {
+      continue;
+    }
+    const transfer = entry as BrowserSessionTransfer;
+    transfers.push({
+      ...transfer,
+      sessionId,
+    });
+  }
+  return transfers;
 }
 
 function validateUrl(
@@ -250,6 +322,32 @@ function buildSessionResponse(
     ...(record.lastError ? { lastError: record.lastError } : {}),
     artifactCount: record.artifacts.length,
     artifacts: record.artifacts,
+    transferCount: record.transfers.length,
+    transfers: record.transfers,
+    ...(record.resourceEnvelope ? { resourceEnvelope: record.resourceEnvelope } : {}),
+    ...extra,
+  };
+}
+
+function buildTransferResponse(
+  transfer: BrowserSessionTransfer,
+  extra?: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    transferId: transfer.transferId,
+    sessionId: transfer.sessionId,
+    kind: transfer.kind,
+    state: transfer.state,
+    createdAt: transfer.createdAt,
+    updatedAt: transfer.updatedAt,
+    ...(transfer.label ? { label: transfer.label } : {}),
+    ...(transfer.idempotencyKey ? { idempotencyKey: transfer.idempotencyKey } : {}),
+    ...(transfer.selector ? { selector: transfer.selector } : {}),
+    ...(transfer.sourcePath ? { sourcePath: transfer.sourcePath } : {}),
+    ...(transfer.artifactPath ? { artifactPath: transfer.artifactPath } : {}),
+    ...(transfer.completedAt !== undefined ? { completedAt: transfer.completedAt } : {}),
+    ...(transfer.cancelledAt !== undefined ? { cancelledAt: transfer.cancelledAt } : {}),
+    ...(transfer.error ? { error: transfer.error } : {}),
     ...extra,
   };
 }
@@ -263,6 +361,10 @@ export class BrowserSessionManager {
   private persistChain: Promise<void> = Promise.resolve();
   private readonly records = new Map<string, BrowserSessionRecord>();
   private readonly runtimes = new Map<string, BrowserSessionRuntime>();
+  private readonly activeTransferCancels = new Map<
+    string,
+    () => Promise<void> | void
+  >();
 
   constructor(config?: {
     readonly registryPath?: string;
@@ -294,7 +396,16 @@ export class BrowserSessionManager {
           typeof entry?.artifactsDir === "string" &&
           typeof entry?.userDataDir === "string"
         ) {
-          this.records.set(entry.sessionId, cloneRecord(entry));
+          this.records.set(
+            entry.sessionId,
+            cloneRecord({
+              ...entry,
+              transfers: normalizePersistedTransfers(
+                entry.sessionId,
+                (entry as { transfers?: unknown }).transfers,
+              ),
+            } as BrowserSessionRecord),
+          );
         }
       }
     } catch (error) {
@@ -376,6 +487,67 @@ export class BrowserSessionManager {
     return record;
   }
 
+  private findTransferById(
+    transferId: string,
+  ): { record: BrowserSessionRecord; transfer: BrowserSessionTransfer } | undefined {
+    for (const record of this.records.values()) {
+      const transfer = record.transfers.find((entry) => entry.transferId === transferId);
+      if (transfer) {
+        return { record, transfer };
+      }
+    }
+    return undefined;
+  }
+
+  private findTransferByIdempotencyKey(
+    record: BrowserSessionRecord,
+    idempotencyKey: string,
+  ): BrowserSessionTransfer | undefined {
+    return record.transfers.find((entry) => entry.idempotencyKey === idempotencyKey);
+  }
+
+  private async resolveTransfer(
+    args: Record<string, unknown>,
+  ): Promise<{ record: BrowserSessionRecord; transfer: BrowserSessionTransfer } | ToolResult> {
+    await this.ensureLoaded();
+    const transferId = asTrimmedString(args.transferId);
+    if (transferId) {
+      const resolved = this.findTransferById(transferId);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    const record = await this.resolveRecord(args);
+    if (isToolResult(record)) {
+      return record;
+    }
+    const identity = normalizeHandleIdentity(
+      BROWSER_SESSION_FAMILY,
+      args.label,
+      args.idempotencyKey,
+    );
+    const label = identity.label;
+    const idempotencyKey = identity.idempotencyKey;
+    const transfer = idempotencyKey
+      ? this.findTransferByIdempotencyKey(record, idempotencyKey)
+      : label
+        ? record.transfers.find((entry) => entry.label === label)
+        : undefined;
+    if (!transfer) {
+      return handleErrorResult(
+        BROWSER_SESSION_FAMILY,
+        "browser_session.transfer_not_found",
+        "Browser transfer not found. Provide transferId or a previously used session + label/idempotencyKey.",
+        false,
+        undefined,
+        "lookup",
+        "not_found",
+      );
+    }
+    return { record, transfer };
+  }
+
   private async updateRecordFromPage(record: BrowserSessionRecord, page: PlaywrightPage): Promise<void> {
     record.currentUrl = page.url();
     try {
@@ -416,6 +588,30 @@ export class BrowserSessionManager {
     await this.persist();
   }
 
+  private async upsertTransfer(
+    record: BrowserSessionRecord,
+    transfer: BrowserSessionTransfer,
+  ): Promise<BrowserSessionTransfer> {
+    const existingIndex = record.transfers.findIndex(
+      (entry) => entry.transferId === transfer.transferId,
+    );
+    const nextTransfer = {
+      ...transfer,
+      sessionId: record.sessionId,
+      updatedAt: this.now(),
+    };
+    if (existingIndex >= 0) {
+      const nextTransfers = [...record.transfers];
+      nextTransfers.splice(existingIndex, 1, nextTransfer);
+      record.transfers = nextTransfers;
+    } else {
+      record.transfers = [nextTransfer, ...record.transfers];
+    }
+    record.updatedAt = nextTransfer.updatedAt;
+    await this.persist();
+    return nextTransfer;
+  }
+
   private attachDownloadListener(runtime: BrowserSessionRuntime): void {
     if (runtime.downloadListenerAttached || typeof runtime.page.on !== "function") {
       return;
@@ -425,18 +621,62 @@ export class BrowserSessionManager {
       void (async () => {
         const filename = sanitizeFilename(download.suggestedFilename());
         const downloadPath = join(runtime.record.downloadsDir, filename);
+        const transferId = `transfer_${randomUUID().slice(0, 8)}`;
+        await this.upsertTransfer(runtime.record, {
+          transferId,
+          sessionId: runtime.record.sessionId,
+          kind: "download",
+          state: "in_progress",
+          createdAt: this.now(),
+          updatedAt: this.now(),
+          artifactPath: downloadPath,
+          label: filename,
+        });
+        if (typeof download.cancel === "function") {
+          this.activeTransferCancels.set(transferId, () => download.cancel!());
+        }
         try {
           await mkdir(runtime.record.downloadsDir, { recursive: true });
           await download.saveAs(downloadPath);
           await this.recordArtifact(runtime.record, {
             kind: "download",
             path: downloadPath,
+            label: filename,
+          });
+          await this.upsertTransfer(runtime.record, {
+            transferId,
+            sessionId: runtime.record.sessionId,
+            kind: "download",
+            state: "completed",
+            createdAt: this.now(),
+            updatedAt: this.now(),
+            completedAt: this.now(),
+            artifactPath: downloadPath,
+            label: filename,
           });
         } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          const existing = this.findTransferById(transferId)?.transfer;
+          const cancelledAt = existing?.state === "cancelled" ? this.now() : undefined;
+          await this.upsertTransfer(runtime.record, {
+            transferId,
+            sessionId: runtime.record.sessionId,
+            kind: "download",
+            state: existing?.state === "cancelled" ? "cancelled" : "failed",
+            createdAt: existing?.createdAt ?? this.now(),
+            updatedAt: this.now(),
+            ...(cancelledAt !== undefined ? { cancelledAt } : {}),
+            artifactPath: downloadPath,
+            label: filename,
+            error: errorMessage,
+          });
           this.logger.warn("Failed to persist browser download artifact", {
             sessionId: runtime.record.sessionId,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage,
           });
+        } finally {
+          this.activeTransferCancels.delete(transferId);
         }
       })();
     });
@@ -520,6 +760,14 @@ export class BrowserSessionManager {
     if (isToolResult(viewport)) {
       return viewport;
     }
+    const resourceEnvelope = normalizeResourceEnvelope(
+      BROWSER_SESSION_FAMILY,
+      args.resourceEnvelope,
+      "start",
+    );
+    if (isToolResult(resourceEnvelope)) {
+      return resourceEnvelope;
+    }
     const label = identity.label;
     const idempotencyKey = identity.idempotencyKey;
     const matchesStartSpec = (record: BrowserSessionRecord): boolean =>
@@ -584,6 +832,8 @@ export class BrowserSessionManager {
       createdAt: this.now(),
       updatedAt: this.now(),
       artifacts: [],
+      transfers: [],
+      ...(resourceEnvelope ? { resourceEnvelope } : {}),
     };
     this.records.set(sessionId, record);
     const runtime = await this.ensureRuntime(record, toolConfig);
@@ -727,6 +977,127 @@ export class BrowserSessionManager {
           });
           break;
         }
+        case "upload": {
+          const selector = asTrimmedString(action.selector);
+          const singlePath = asTrimmedString(action.path);
+          const manyPaths = Array.isArray(action.paths)
+            ? action.paths.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+            : [];
+          const uploadPaths = singlePath ? [singlePath] : manyPaths;
+          if (!selector || uploadPaths.length === 0) {
+            return handleErrorResult(
+              BROWSER_SESSION_FAMILY,
+              "browser_session.invalid_action",
+              "upload actions require selector and path/paths",
+              false,
+              undefined,
+              "resume",
+            );
+          }
+          if (typeof runtime.page.setInputFiles !== "function") {
+            return handleErrorResult(
+              BROWSER_SESSION_FAMILY,
+              "browser_session.upload_unavailable",
+              "Browser runtime does not support upload actions",
+              false,
+              undefined,
+              "resume",
+              "environment_unavailable",
+            );
+          }
+          const uploadIdempotencyKey = asTrimmedString(action.idempotencyKey);
+          const uploadLabel =
+            asTrimmedString(action.label) ??
+            `upload-${results.length + 1}`;
+          const existingTransfer = uploadIdempotencyKey
+            ? this.findTransferByIdempotencyKey(resolved, uploadIdempotencyKey)
+            : undefined;
+          const uploadSpecMatches = (transfer: BrowserSessionTransfer): boolean =>
+            transfer.kind === "upload" &&
+            transfer.selector === selector &&
+            transfer.sourcePath === uploadPaths.join("\n");
+          if (existingTransfer) {
+            if (uploadSpecMatches(existingTransfer)) {
+              results.push({
+                type,
+                description: `Reused upload handle ${existingTransfer.transferId}.`,
+                transferId: existingTransfer.transferId,
+                reused: true,
+                state: existingTransfer.state,
+              });
+              break;
+            }
+            return handleErrorResult(
+              BROWSER_SESSION_FAMILY,
+              "browser_session.idempotency_conflict",
+              "A browser transfer already exists for that idempotencyKey.",
+              false,
+              { transferId: existingTransfer.transferId, state: existingTransfer.state },
+              "resume",
+            );
+          }
+          const transferId = `transfer_${randomUUID().slice(0, 8)}`;
+          const sourcePath = uploadPaths.join("\n");
+          await this.upsertTransfer(resolved, {
+            transferId,
+            sessionId: resolved.sessionId,
+            kind: "upload",
+            state: "in_progress",
+            createdAt: this.now(),
+            updatedAt: this.now(),
+            label: uploadLabel,
+            ...(uploadIdempotencyKey ? { idempotencyKey: uploadIdempotencyKey } : {}),
+            selector,
+            sourcePath,
+          });
+          try {
+            await runtime.page.setInputFiles(
+              selector,
+              uploadPaths.length === 1 ? uploadPaths[0] : uploadPaths,
+            );
+            await this.recordArtifact(resolved, {
+              kind: "upload",
+              path: uploadPaths[0],
+              label: uploadLabel,
+            });
+            const completedTransfer = await this.upsertTransfer(resolved, {
+              transferId,
+              sessionId: resolved.sessionId,
+              kind: "upload",
+              state: "completed",
+              createdAt: this.now(),
+              updatedAt: this.now(),
+              completedAt: this.now(),
+              label: uploadLabel,
+              ...(uploadIdempotencyKey ? { idempotencyKey: uploadIdempotencyKey } : {}),
+              selector,
+              sourcePath,
+              artifactPath: uploadPaths[0],
+            });
+            results.push({
+              type,
+              description: `Uploaded ${uploadPaths.length} file(s) into ${selector}.`,
+              transferId: completedTransfer.transferId,
+              artifactPath: uploadPaths[0],
+            });
+          } catch (error) {
+            await this.upsertTransfer(resolved, {
+              transferId,
+              sessionId: resolved.sessionId,
+              kind: "upload",
+              state: "failed",
+              createdAt: this.now(),
+              updatedAt: this.now(),
+              label: uploadLabel,
+              ...(uploadIdempotencyKey ? { idempotencyKey: uploadIdempotencyKey } : {}),
+              selector,
+              sourcePath,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
+          break;
+        }
         case "screenshot": {
           const artifactLabel = asTrimmedString(action.label) ?? `capture-${results.length + 1}`;
           const artifactPath = join(
@@ -835,11 +1206,72 @@ export class BrowserSessionManager {
     });
   }
 
+  async listTransfers(args: Record<string, unknown>): Promise<ToolResult> {
+    const resolved = await this.resolveRecord(args);
+    if (isToolResult(resolved)) {
+      return resolved;
+    }
+    return handleOkResult({
+      sessionId: resolved.sessionId,
+      ...(resolved.label ? { label: resolved.label } : {}),
+      transfers: resolved.transfers.map((transfer) => buildTransferResponse(transfer)),
+    });
+  }
+
+  async getTransferStatus(args: Record<string, unknown>): Promise<ToolResult> {
+    const resolved = await this.resolveTransfer(args);
+    if (isToolResult(resolved)) {
+      return resolved;
+    }
+    return handleOkResult(buildTransferResponse(resolved.transfer));
+  }
+
+  async cancelTransfer(args: Record<string, unknown>): Promise<ToolResult> {
+    const resolved = await this.resolveTransfer(args);
+    if (isToolResult(resolved)) {
+      return resolved;
+    }
+    const { record, transfer } = resolved;
+    if (
+      transfer.state === "completed" ||
+      transfer.state === "failed" ||
+      transfer.state === "cancelled"
+    ) {
+      return handleOkResult(buildTransferResponse(transfer, { cancelled: false }));
+    }
+    const cancel = this.activeTransferCancels.get(transfer.transferId);
+    if (cancel) {
+      try {
+        await cancel();
+      } catch (error) {
+        return handleErrorResult(
+          BROWSER_SESSION_FAMILY,
+          "browser_session.transfer_cancel_failed",
+          error instanceof Error ? error.message : String(error),
+          true,
+          { transferId: transfer.transferId },
+          "stop",
+          "stop_failed",
+        );
+      } finally {
+        this.activeTransferCancels.delete(transfer.transferId);
+      }
+    }
+    const updated = await this.upsertTransfer(record, {
+      ...transfer,
+      state: "cancelled",
+      cancelledAt: this.now(),
+      error: undefined,
+    });
+    return handleOkResult(buildTransferResponse(updated, { cancelled: true }));
+  }
+
   async closeAll(): Promise<void> {
     for (const runtime of this.runtimes.values()) {
       await runtime.context.close().catch(() => undefined);
     }
     this.runtimes.clear();
+    this.activeTransferCancels.clear();
   }
 
   async resetForTesting(): Promise<void> {
@@ -853,6 +1285,7 @@ export class BrowserSessionManager {
   resetForTestingSync(): void {
     this.records.clear();
     this.runtimes.clear();
+    this.activeTransferCancels.clear();
     this.loaded = false;
     this.persistChain = Promise.resolve();
     rmSync(this.rootDir, { recursive: true, force: true });
@@ -885,6 +1318,11 @@ function createBrowserSessionStartTool(
         idempotencyKey: {
           type: "string",
           description: "Optional idempotency key for deduplicating repeated start requests.",
+        },
+        resourceEnvelope: {
+          type: "object",
+          description:
+            "Optional resource budget contract: cpu, memoryMb, diskMb, network, wallClockMs, sandboxAffinity, environmentClass, enforcement.",
         },
       },
       required: ["url"],
@@ -934,7 +1372,7 @@ function createBrowserSessionResumeTool(
     name: "system.browserSessionResume",
     description:
       "Resume a durable browser session with an ordered list of actions. " +
-      "Supports navigate, click, type, scroll, waitForSelector, screenshot, and exportPdf.",
+      "Supports navigate, click, type, scroll, waitForSelector, upload, screenshot, and exportPdf.",
     inputSchema: {
       type: "object",
       properties: {
@@ -958,6 +1396,7 @@ function createBrowserSessionResumeTool(
                   "type",
                   "scroll",
                   "waitForSelector",
+                  "upload",
                   "screenshot",
                   "exportPdf",
                 ],
@@ -965,6 +1404,11 @@ function createBrowserSessionResumeTool(
               url: { type: "string" },
               selector: { type: "string" },
               text: { type: "string" },
+              path: { type: "string" },
+              paths: {
+                type: "array",
+                items: { type: "string" },
+              },
               x: { type: "number" },
               y: { type: "number" },
               waitMs: { type: "number" },
@@ -972,6 +1416,7 @@ function createBrowserSessionResumeTool(
               landscape: { type: "boolean" },
               margin: { type: "string" },
               label: { type: "string" },
+              idempotencyKey: { type: "string" },
             },
             required: ["type"],
           },
@@ -1041,6 +1486,83 @@ function createBrowserSessionArtifactsTool(
   };
 }
 
+function createBrowserSessionTransfersTool(
+  logger: Logger,
+  manager: BrowserSessionManager,
+): Tool {
+  return {
+    name: "system.browserSessionTransfers",
+    description:
+      "List durable browser transfer handles for a session, including download and upload progress, completion, failure, and cancellation state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "Browser sessionId from browserSessionStart." },
+        label: { type: "string", description: "Session handle label from browserSessionStart." },
+        idempotencyKey: {
+          type: "string",
+          description: "Idempotency key from browserSessionStart.",
+        },
+      },
+      required: [],
+    },
+    async execute(args): Promise<ToolResult> {
+      logger.debug("system.browserSessionTransfers");
+      return manager.listTransfers(args);
+    },
+  };
+}
+
+function createBrowserTransferStatusTool(
+  logger: Logger,
+  manager: BrowserSessionManager,
+): Tool {
+  return {
+    name: "system.browserTransferStatus",
+    description:
+      "Inspect a durable browser download/upload transfer handle by transferId or by session + label/idempotencyKey.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transferId: { type: "string" },
+        sessionId: { type: "string" },
+        label: { type: "string" },
+        idempotencyKey: { type: "string" },
+      },
+      required: [],
+    },
+    async execute(args): Promise<ToolResult> {
+      logger.debug("system.browserTransferStatus");
+      return manager.getTransferStatus(args);
+    },
+  };
+}
+
+function createBrowserTransferCancelTool(
+  logger: Logger,
+  manager: BrowserSessionManager,
+): Tool {
+  return {
+    name: "system.browserTransferCancel",
+    description:
+      "Cancel a durable browser transfer handle when the underlying runtime still supports cancellation. Terminal transfers remain idempotent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transferId: { type: "string" },
+        sessionId: { type: "string" },
+        label: { type: "string" },
+        idempotencyKey: { type: "string" },
+      },
+      required: [],
+    },
+    async execute(args): Promise<ToolResult> {
+      logger.debug("system.browserTransferCancel");
+      return manager.cancelTransfer(args);
+    },
+  };
+}
+
 export function createBrowserSessionTools(
   config: BrowserToolConfig,
   logger: Logger = silentLogger,
@@ -1052,6 +1574,9 @@ export function createBrowserSessionTools(
     createBrowserSessionResumeTool(config, logger, manager),
     createBrowserSessionStopTool(logger, manager),
     createBrowserSessionArtifactsTool(logger, manager),
+    createBrowserSessionTransfersTool(logger, manager),
+    createBrowserTransferStatusTool(logger, manager),
+    createBrowserTransferCancelTool(logger, manager),
   ];
 }
 

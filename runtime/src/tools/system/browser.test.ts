@@ -308,6 +308,7 @@ const mockPage = {
   pdf: vi.fn().mockResolvedValue(Buffer.from("fake-pdf-data")),
   click: vi.fn().mockResolvedValue(undefined),
   fill: vi.fn().mockResolvedValue(undefined),
+  setInputFiles: vi.fn().mockResolvedValue(undefined),
   evaluate: vi.fn().mockResolvedValue("eval-result"),
   waitForSelector: vi.fn().mockResolvedValue(undefined),
   close: vi.fn().mockResolvedValue(undefined),
@@ -413,6 +414,7 @@ beforeEach(() => {
   mockPage.pdf.mockClear().mockResolvedValue(Buffer.from("fake-pdf-data"));
   mockPage.click.mockClear();
   mockPage.fill.mockClear();
+  mockPage.setInputFiles.mockClear().mockResolvedValue(undefined);
   mockPage.evaluate.mockClear().mockResolvedValue("eval-result");
   mockPage.waitForSelector.mockClear();
   mockPage.close.mockClear();
@@ -494,9 +496,9 @@ describe("createBrowserTools", () => {
     ]);
   });
 
-  it("advanced mode creates 12 tools", () => {
+  it("advanced mode creates 15 tools", () => {
     const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
-    expect(tools).toHaveLength(12);
+    expect(tools).toHaveLength(15);
     expect(tools.map((t) => t.name)).toEqual([
       "system.browse",
       "system.extractLinks",
@@ -510,6 +512,9 @@ describe("createBrowserTools", () => {
       "system.browserSessionResume",
       "system.browserSessionStop",
       "system.browserSessionArtifacts",
+      "system.browserSessionTransfers",
+      "system.browserTransferStatus",
+      "system.browserTransferCancel",
     ]);
   });
 
@@ -1650,14 +1655,30 @@ describe("durable browser session tools", () => {
       handleIdField: "sessionId",
       runningState: "running",
       terminalState: "stopped",
+      resourceEnvelope: {
+        cpu: 1,
+        memoryMb: 256,
+        wallClockMs: 45_000,
+        environmentClass: "browser",
+        enforcement: "best_effort",
+      },
       buildStartArgs: ({ label, idempotencyKey }) => ({
         url: "https://example.com",
         label,
         idempotencyKey,
+        resourceEnvelope: {
+          cpu: 1,
+          memoryMb: 256,
+          wallClockMs: 45_000,
+          environmentClass: "browser",
+        },
       }),
       buildStatusArgs: ({ label, idempotencyKey }) => ({
         ...(label ? { label } : {}),
         ...(idempotencyKey ? { idempotencyKey } : {}),
+      }),
+      buildMissingStatusArgs: () => ({
+        label: "missing-browser-session-handle",
       }),
       buildStopArgs: ({ handleId, label, idempotencyKey }) => ({
         ...(handleId ? { sessionId: handleId } : {}),
@@ -1748,6 +1769,8 @@ describe("durable browser session tools", () => {
     const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
     const start = tools.find((t) => t.name === "system.browserSessionStart")!;
     const artifacts = tools.find((t) => t.name === "system.browserSessionArtifacts")!;
+    const transfers = tools.find((t) => t.name === "system.browserSessionTransfers")!;
+    const transferStatus = tools.find((t) => t.name === "system.browserTransferStatus")!;
     const started = JSON.parse(
       (
         await start.execute({
@@ -1776,6 +1799,146 @@ describe("durable browser session tools", () => {
       expect(artifactList.artifacts[0].kind).toBe("download");
       expect(artifactList.artifacts[0].path).toContain("report.pdf");
     });
+
+    const transferList = JSON.parse(
+      (
+        await transfers.execute({
+          sessionId: started.sessionId,
+        })
+      ).content,
+    );
+    expect(transferList.transfers[0].kind).toBe("download");
+    expect(transferList.transfers[0].state).toBe("completed");
+    expect(transferList.transfers[0].artifactPath).toContain("report.pdf");
+
+    const transfer = JSON.parse(
+      (
+        await transferStatus.execute({
+          transferId: transferList.transfers[0].transferId,
+        })
+      ).content,
+    );
+    expect(transfer.state).toBe("completed");
+    expect(transfer.kind).toBe("download");
+  });
+
+  it("creates durable upload transfer handles with idempotent replay semantics", async () => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const resume = tools.find((t) => t.name === "system.browserSessionResume")!;
+    const transferStatus = tools.find((t) => t.name === "system.browserTransferStatus")!;
+    const started = JSON.parse(
+      (
+        await start.execute({
+          url: "https://example.com",
+          label: "browser-upload",
+          resourceEnvelope: {
+            cpu: 1,
+            memoryMb: 256,
+            wallClockMs: 60_000,
+            network: "enabled",
+          },
+        })
+      ).content,
+    );
+
+    const first = JSON.parse(
+      (
+        await resume.execute({
+          sessionId: started.sessionId,
+          actions: [
+            {
+              type: "upload",
+              selector: "#file",
+              path: "/tmp/report.csv",
+              label: "report-upload",
+              idempotencyKey: "upload-report",
+            },
+          ],
+        })
+      ).content,
+    );
+
+    expect(mockPage.setInputFiles).toHaveBeenCalledWith("#file", "/tmp/report.csv");
+    expect(first.resourceEnvelope).toMatchObject({
+      cpu: 1,
+      memoryMb: 256,
+      wallClockMs: 60_000,
+      network: "enabled",
+    });
+    expect(first.actionResults[0].transferId).toMatch(/^transfer_/);
+
+    const second = JSON.parse(
+      (
+        await resume.execute({
+          sessionId: started.sessionId,
+          actions: [
+            {
+              type: "upload",
+              selector: "#file",
+              path: "/tmp/report.csv",
+              label: "report-upload",
+              idempotencyKey: "upload-report",
+            },
+          ],
+        })
+      ).content,
+    );
+
+    expect(second.actionResults[0].reused).toBe(true);
+    expect(second.actionResults[0].transferId).toBe(first.actionResults[0].transferId);
+
+    const transfer = JSON.parse(
+      (
+        await transferStatus.execute({
+          transferId: first.actionResults[0].transferId,
+        })
+      ).content,
+    );
+    expect(transfer.kind).toBe("upload");
+    expect(transfer.state).toBe("completed");
+    expect(transfer.artifactPath).toBe("/tmp/report.csv");
+  });
+
+  it("keeps browser transfer cancellation idempotent after terminal completion", async () => {
+    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const resume = tools.find((t) => t.name === "system.browserSessionResume")!;
+    const cancelTransfer = tools.find((t) => t.name === "system.browserTransferCancel")!;
+    const started = JSON.parse(
+      (
+        await start.execute({
+          url: "https://example.com",
+          label: "browser-upload-cancel",
+        })
+      ).content,
+    );
+
+    const resumed = JSON.parse(
+      (
+        await resume.execute({
+          sessionId: started.sessionId,
+          actions: [
+            {
+              type: "upload",
+              selector: "#file",
+              path: "/tmp/archive.zip",
+              idempotencyKey: "upload-archive",
+            },
+          ],
+        })
+      ).content,
+    );
+
+    const cancelled = JSON.parse(
+      (
+        await cancelTransfer.execute({
+          transferId: resumed.actionResults[0].transferId,
+        })
+      ).content,
+    );
+    expect(cancelled.state).toBe("completed");
+    expect(cancelled.cancelled).toBe(false);
   });
 
   it("releases runtime resources when a browser session is stopped", async () => {

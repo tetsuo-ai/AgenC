@@ -91,6 +91,13 @@ import { createHttpTools } from '../tools/system/http.js';
 import { createFilesystemTools } from '../tools/system/filesystem.js';
 import { createBrowserTools } from '../tools/system/browser.js';
 import { createProcessTools } from '../tools/system/process.js';
+import {
+  createRemoteJobTools,
+  SystemRemoteJobManager,
+} from '../tools/system/remote-job.js';
+import { createResearchTools } from '../tools/system/research.js';
+import { createSandboxTools } from '../tools/system/sandbox-handle.js';
+import { createServerTools } from '../tools/system/server.js';
 import { resolveBrowserToolMode } from './browser-tool-mode.js';
 import { createExecuteWithAgentTool } from './delegation-tool.js';
 import { SkillDiscovery } from '../skills/markdown/discovery.js';
@@ -1883,6 +1890,7 @@ export class DaemonManager {
   private _desktopRouterFactory: ((sessionId: string, allowedToolNames?: readonly string[]) => ToolHandler) | null = null;
   private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private _backgroundRunSupervisor: BackgroundRunSupervisor | null = null;
+  private _remoteJobManager: SystemRemoteJobManager | null = null;
   private _sessionModelInfo = new Map<string, {
     provider: string;
     model: string;
@@ -2680,6 +2688,23 @@ export class DaemonManager {
       }
     } else {
       this._backgroundRunSupervisor = null;
+    }
+    if (this._remoteJobManager) {
+      gateway.registerWebhookRoute({
+        method: 'POST',
+        path: '/webhooks/remote-job/:jobHandleId',
+        handler: async (req) => {
+          const response = await this._remoteJobManager!.handleWebhook({
+            jobHandleId: String(req.params?.jobHandleId ?? ''),
+            headers: req.headers,
+            body: req.body,
+          });
+          return {
+            status: response.status,
+            body: response.body,
+          };
+        },
+      });
     }
     this.attachSubAgentLifecycleBridge(webChat);
 
@@ -4397,6 +4422,27 @@ export class DaemonManager {
       maxTimeoutMs: config.desktop?.enabled ? 600_000 : undefined,
     }));
     registry.registerAll(createProcessTools({
+      logger: this.logger,
+      env: safeEnv,
+      denyExclusions,
+    }));
+    const remoteJobManager = new SystemRemoteJobManager({
+      logger: this.logger,
+      callbackBaseUrl: `http://127.0.0.1:${config.gateway.port}`,
+    });
+    this._remoteJobManager = remoteJobManager;
+    registry.registerAll(createRemoteJobTools({
+      logger: this.logger,
+      callbackBaseUrl: `http://127.0.0.1:${config.gateway.port}`,
+    }, remoteJobManager));
+    registry.registerAll(createResearchTools({
+      logger: this.logger,
+    }));
+    registry.registerAll(createSandboxTools({
+      logger: this.logger,
+      workspacePath: process.cwd(),
+    }));
+    registry.registerAll(createServerTools({
       logger: this.logger,
       env: safeEnv,
       denyExclusions,
@@ -7045,13 +7091,20 @@ export class DaemonManager {
     // Desktop-only mode: skip host tool descriptions entirely
     if (desktopEnabled && !isMac && environment === 'desktop') {
       return 'You are running inside a sandboxed desktop environment (Ubuntu/XFCE in Docker). ' +
-        'Use desktop.* tools for ALL operations — shell commands, file editing, GUI interaction.\n\n' +
+        'Use desktop.* tools for GUI work and container-local commands, and use the structured host control tools for durable orchestration.\n\n' +
         'PERSISTENT WORKSPACE:\n' +
         '- The host working directory is mounted read-write at `/workspace` inside the container.\n' +
         '- Create, edit, and run project files from `/workspace` so changes persist outside the sandbox.\n\n' +
+        'Structured host control tools:\n' +
+        '- system.sandboxStart / system.sandboxStatus / system.sandboxResume / system.sandboxStop — Manage durable code-execution sandbox environments with stable workspace and container identity. USE THESE when the user asks for an isolated sandbox/workspace/container workflow.\n' +
+        '- system.sandboxJobStart / system.sandboxJobStatus / system.sandboxJobResume / system.sandboxJobStop / system.sandboxJobLogs — Run durable jobs inside sandbox handles and inspect their logs.\n' +
+        '- system.processStart / system.processStatus / system.processResume / system.processStop / system.processLogs — Manage durable host background processes when the task is not GUI-local.\n' +
+        '- system.serverStart / system.serverStatus / system.serverResume / system.serverStop / system.serverLogs — Manage durable host HTTP service handles.\n' +
+        '- system.remoteJobStart / system.remoteJobStatus / system.remoteJobResume / system.remoteJobCancel / system.remoteJobArtifacts — Track durable remote MCP jobs.\n' +
+        '- system.researchStart / system.researchStatus / system.researchResume / system.researchUpdate / system.researchComplete / system.researchBlock / system.researchArtifacts / system.researchStop — Track durable research/report work.\n\n' +
         'Desktop tools:\n' +
-        '- desktop.bash — Run shell commands. THIS IS YOUR PRIMARY TOOL for scripting, package installation, and command execution.\n' +
-        '- desktop.process_start — Start a long-running background process with executable + args. USE THIS for servers, workers, and GUI apps you need to monitor or stop later. Supports idempotencyKey for safe retries.\n' +
+        '- desktop.bash — Run shell commands inside the CURRENT attached desktop sandbox. THIS IS YOUR PRIMARY TOOL for one-shot scripting, package installation, and command execution inside that sandbox.\n' +
+        '- desktop.process_start — Start a long-running background process INSIDE the current desktop sandbox. Use this for GUI apps and sandbox-local workers you need to monitor or stop later. Supports idempotencyKey for safe retries.\n' +
         '- desktop.process_status — Check managed process state and recent log output.\n' +
         '- desktop.process_stop — Stop a managed process by processId/idempotencyKey/label/pid.\n' +
         '- desktop.text_editor — View, create, and precisely edit files. Commands: view, create, str_replace, insert, undo_edit.\n' +
@@ -7076,6 +7129,8 @@ export class DaemonManager {
         '- To create/edit files: use desktop.text_editor as the default. Only fall back to shell-based file writes when an editor action cannot express the change.\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- For durable code-execution environments, isolated workspace/container jobs, or sandbox lifecycle management, prefer system.sandboxStart plus system.sandboxJob* tools over desktop.process_* or raw shell commands.\n' +
+        '- desktop.process_* manages processes inside the already-attached desktop sandbox. It does NOT replace system.sandbox* durable sandbox handles.\n' +
         '- For long-running/background processes you need to inspect or stop later, use desktop.process_start/status/stop instead of desktop.bash.\n' +
         '- desktop.process_start is structured exec only: command = one executable token/path, args = flat string array. Do NOT use bash -lc there.\n' +
         '- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails.\n' +
@@ -7105,7 +7160,13 @@ export class DaemonManager {
         '- system.processStatus — Check host process state and recent log output.\n' +
         '- system.processResume — Reattach to an existing host process handle and fetch current state.\n' +
         '- system.processStop — Stop a durable host process handle.\n' +
-        '- system.processLogs — Read persisted host process logs.\n\n' +
+        '- system.processLogs — Read persisted host process logs.\n' +
+        '- system.sandboxStart / system.sandboxStatus / system.sandboxResume / system.sandboxStop — Manage durable code-execution sandbox environments with stable workspace and container identity.\n' +
+        '- system.sandboxJobStart / system.sandboxJobStatus / system.sandboxJobResume / system.sandboxJobStop / system.sandboxJobLogs — Run durable jobs inside sandbox environments without falling back to raw docker shell heuristics.\n' +
+        '- system.remoteJobStart / system.remoteJobStatus / system.remoteJobResume / system.remoteJobCancel / system.remoteJobArtifacts — Track long-running remote MCP jobs with durable callback or polling handles instead of raw callback prose.\n' +
+        '- system.researchStart / system.researchStatus / system.researchResume / system.researchUpdate / system.researchComplete / system.researchBlock / system.researchArtifacts / system.researchStop — Track research/report work with durable progress, verifier state, and artifact handles.\n' +
+        '- system.serverStart — Start a durable host server handle with readiness probing and health metadata. USE THIS instead of raw shell for HTTP services you need to monitor.\n' +
+        '- system.serverStatus / system.serverResume / system.serverStop / system.serverLogs — Inspect, reattach, stop, and read logs for durable host server handles.\n\n' +
         '2. Desktop sandbox (Docker) — use desktop.* tools for tasks that need a visual desktop, browser, or GUI applications. ' +
         'This is a full Ubuntu/XFCE desktop. The user can watch via VNC.\n\n' +
         'Choose the right tools for the job. Use system.* tools for API calls, file I/O, and non-visual work. ' +
@@ -7142,7 +7203,11 @@ export class DaemonManager {
         '- To create/edit files: use desktop.text_editor as the default. Only fall back to shell-based file writes when an editor action cannot express the change.\n' +
         '- To install packages: desktop.bash with "pip install flask" or "sudo apt-get install -y pkg"\n' +
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
+        '- For durable code-execution environments, prefer system.sandboxStart plus system.sandboxJob* tools over raw docker shell commands.\n' +
+        '- For local HTTP services on the HOST, prefer system.serverStart/status/resume/stop/logs over system.bash + curl heuristics.\n' +
         '- For long-running/background processes on the HOST, use system.processStart/status/resume/stop/logs instead of system.bash.\n' +
+        '- For remote long-running jobs with callbacks or polling, use system.remoteJob* durable handles instead of relying on raw webhook text or ad hoc status prose.\n' +
+        '- For multi-step research/report work you need to resume or audit later, use system.research* durable handles instead of keeping progress only in chat summaries.\n' +
         '- system.processStart is structured exec only: command = one executable token/path, args = flat string array. Do NOT use shell snippets there.\n' +
         '- For long-running/background processes you need to inspect or stop later, use desktop.process_start/status/stop instead of desktop.bash.\n' +
         '- desktop.process_start is structured exec only: command = one executable token/path, args = flat string array. Do NOT use bash -lc there.\n' +
@@ -7369,6 +7434,7 @@ export class DaemonManager {
           host: baseUrl,
           timeoutMs,
           maxTokens,
+          statefulResponses,
           tools,
         });
       }

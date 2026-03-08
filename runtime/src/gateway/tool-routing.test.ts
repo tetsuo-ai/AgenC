@@ -53,6 +53,114 @@ const TOOLS: LLMTool[] = [
     "system.processLogs",
     "Read recent persisted logs for a durable host process handle",
   ),
+  makeTool(
+    "system.remoteJobStart",
+    "Register a durable remote MCP job handle with callback or polling state",
+  ),
+  makeTool(
+    "system.remoteJobStatus",
+    "Inspect a durable remote MCP job handle",
+  ),
+  makeTool(
+    "system.remoteJobResume",
+    "Reattach to a durable remote MCP job handle",
+  ),
+  makeTool(
+    "system.remoteJobCancel",
+    "Cancel a durable remote MCP job handle",
+  ),
+  makeTool(
+    "system.remoteJobArtifacts",
+    "List durable artifacts for a remote MCP job handle",
+  ),
+  makeTool(
+    "system.researchStart",
+    "Create a durable research handle with source sets, verifier state, and artifact refs",
+  ),
+  makeTool(
+    "system.researchStatus",
+    "Inspect a durable research handle and verifier state",
+  ),
+  makeTool(
+    "system.researchResume",
+    "Resume a durable research handle",
+  ),
+  makeTool(
+    "system.researchUpdate",
+    "Update a durable research handle with progress and artifact refs",
+  ),
+  makeTool(
+    "system.researchComplete",
+    "Complete a durable research handle",
+  ),
+  makeTool(
+    "system.researchBlock",
+    "Mark a durable research handle blocked",
+  ),
+  makeTool(
+    "system.researchArtifacts",
+    "List durable research artifacts",
+  ),
+  makeTool(
+    "system.researchStop",
+    "Stop a durable research handle",
+  ),
+  makeTool(
+    "system.sandboxStart",
+    "Create a durable code-execution sandbox handle with stable workspace identity",
+  ),
+  makeTool(
+    "system.sandboxStatus",
+    "Inspect a durable sandbox handle",
+  ),
+  makeTool(
+    "system.sandboxResume",
+    "Reattach to a durable sandbox handle",
+  ),
+  makeTool(
+    "system.sandboxStop",
+    "Stop a durable sandbox handle",
+  ),
+  makeTool(
+    "system.sandboxJobStart",
+    "Start a durable sandbox job inside a sandbox handle",
+  ),
+  makeTool(
+    "system.sandboxJobStatus",
+    "Inspect a durable sandbox job handle",
+  ),
+  makeTool(
+    "system.sandboxJobResume",
+    "Resume a durable sandbox job handle",
+  ),
+  makeTool(
+    "system.sandboxJobStop",
+    "Stop a durable sandbox job handle",
+  ),
+  makeTool(
+    "system.sandboxJobLogs",
+    "Read logs for a durable sandbox job handle",
+  ),
+  makeTool(
+    "system.serverStart",
+    "Start a durable host server handle with readiness probing and health metadata",
+  ),
+  makeTool(
+    "system.serverStatus",
+    "Inspect a durable host server handle and recent log output",
+  ),
+  makeTool(
+    "system.serverResume",
+    "Reattach to a durable host server handle and fetch readiness state",
+  ),
+  makeTool(
+    "system.serverStop",
+    "Stop a durable host server handle",
+  ),
+  makeTool(
+    "system.serverLogs",
+    "Read persisted host server logs",
+  ),
   makeTool("execute_with_agent", "Delegate a child objective to a subagent"),
   makeTool("system.readFile", "Read a file"),
   makeTool("system.writeFile", "Write a file"),
@@ -184,6 +292,95 @@ describe("ToolRouter", () => {
     expect(decision.routedToolNames).toContain("system.browserSessionStart");
     expect(decision.routedToolNames).toContain("system.browserSessionResume");
     expect(decision.routedToolNames).toContain("system.browserSessionArtifacts");
+  });
+
+  it("prefers typed server handles for server monitoring tasks", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 10,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-server",
+      messageText:
+        "start a local server, monitor its health, read the logs, and stop it when done",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.serverStart");
+    expect(decision.expandedToolNames).toContain("system.serverStatus");
+    expect(decision.expandedToolNames).toContain("system.serverLogs");
+    expect(decision.expandedToolNames).toContain("system.serverStop");
+  });
+
+  it("routes durable remote job tools for callback or polling workflows", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 12,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-remote-job",
+      messageText:
+        "register a remote MCP job, wait for webhook callbacks, resume it later, and inspect returned artifacts",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.remoteJobStart");
+    expect(decision.expandedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.remoteJobStatus",
+        "system.remoteJobResume",
+        "system.remoteJobArtifacts",
+      ]),
+    );
+  });
+
+  it("routes durable research tools for resumable report workflows", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 12,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-research-handle",
+      messageText:
+        "start a research handle, track sources and notes, block it if evidence is missing, then complete the report with artifacts",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.researchStart");
+    expect(decision.expandedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.researchUpdate",
+        "system.researchArtifacts",
+        "system.researchComplete",
+      ]),
+    );
+  });
+
+  it("routes durable sandbox tools for isolated code-execution workflows", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 12,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-sandbox",
+      messageText:
+        "start an isolated sandbox environment, run a job inside the container workspace, inspect the logs, then stop the sandbox",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.sandboxStart");
+    expect(decision.expandedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.sandboxJobStart",
+        "system.sandboxJobStatus",
+        "system.sandboxJobLogs",
+        "system.sandboxStop",
+      ]),
+    );
   });
 
   it("keeps browser tab tools when the intent explicitly mentions tabs", () => {

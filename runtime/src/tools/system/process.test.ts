@@ -42,15 +42,31 @@ describe("system.process tools", () => {
       handleIdField: "processId",
       runningState: "running",
       terminalState: "exited",
+      resourceEnvelope: {
+        cpu: 1,
+        memoryMb: 128,
+        wallClockMs: 30_000,
+        environmentClass: "host",
+        enforcement: "best_effort",
+      },
       buildStartArgs: ({ label, idempotencyKey }) => ({
         command: "/bin/sleep",
         args: ["5"],
         label,
         idempotencyKey,
+        resourceEnvelope: {
+          cpu: 1,
+          memoryMb: 128,
+          wallClockMs: 30_000,
+          environmentClass: "host",
+        },
       }),
       buildStatusArgs: ({ label, idempotencyKey }) => ({
         ...(label ? { label } : {}),
         ...(idempotencyKey ? { idempotencyKey } : {}),
+      }),
+      buildMissingStatusArgs: () => ({
+        label: "missing-system-process-handle",
       }),
       buildStopArgs: ({ handleId, label, idempotencyKey }) => ({
         ...(handleId ? { processId: handleId } : {}),
@@ -131,6 +147,28 @@ describe("system.process tools", () => {
     expect(status.state).toBe("exited");
   });
 
+  it("surfaces immediate output for fast-exit commands without an external sleep", async () => {
+    const manager = createManager();
+
+    const started = JSON.parse((await manager.start({
+      command: "/bin/echo",
+      args: ["fast output"],
+      label: "echo-immediate",
+    })).content) as Record<string, unknown>;
+
+    const logs = JSON.parse((await manager.logs({
+      processId: started.processId,
+      waitForOutputMs: 250,
+    })).content) as Record<string, unknown>;
+    const status = JSON.parse((await manager.status({
+      processId: started.processId,
+    })).content) as Record<string, unknown>;
+
+    expect(String(logs.output)).toContain("fast output");
+    expect(logs.state).toBe("exited");
+    expect(status.state).toBe("exited");
+  });
+
   it("migrates persisted stopped state to exited on load", async () => {
     const manager = createManager();
     const rootDir = cleanup[cleanup.length - 1]!.rootDir;
@@ -181,6 +219,33 @@ describe("system.process tools", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("system_process.denied_command");
+  });
+
+  it("bypasses deny-prefix enforcement in unrestricted trusted mode", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "agenc-system-process-unrestricted-"));
+    const manager = new SystemProcessManager({
+      rootDir,
+      unrestricted: true,
+      logger: silentLogger,
+      defaultStopWaitMs: 250,
+    });
+    cleanup.push({ manager, rootDir });
+
+    const started = JSON.parse((await manager.start({
+      command: process.execPath,
+      args: ["-e", "setInterval(()=>{}, 1000);"],
+      label: "trusted-node",
+    })).content) as Record<string, unknown>;
+
+    expect(started.processId).toMatch(/^proc_/);
+    expect(started.state).toBe("running");
+
+    const stopped = JSON.parse((await manager.stop({
+      processId: String(started.processId),
+      waitMs: 250,
+    })).content) as Record<string, unknown>;
+
+    expect(stopped.state).toBe("exited");
   });
 
   it("reclaims a label once the previous process has exited", async () => {

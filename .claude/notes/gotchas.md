@@ -259,3 +259,9 @@
 - Legacy terminal states must be normalized at load boundaries, not only in one downstream parser. If persisted `stopped` records survive into live `system.processStatus` responses, the supervisor and the user-facing tool surface drift apart.
 - Live websocket validation for background runs should include a reconnect/history check. A background completion can legitimately arrive after the first client disconnects, so the operator-visible contract is not proven until the resumed session history shows the terminal update.
 - Desktop managed-process dedupe should prefer `idempotencyKey` over `label`, and label lookup should prefer running or most-recent records. Otherwise a stale exited desktop handle can shadow the live one and make `process_status` or `process_stop` hit the wrong process.
+
+## Phase 4-5 Completion Gotchas (2026-03-07)
+
+- Fast-exit durable jobs need bounded output-settle semantics in the handle layer itself. If `logs` trusts only an asynchronous child-exit callback, short-lived commands can still look `running` long enough for the agent to miss the only useful output.
+- Desktop-only mode should still expose structured host-side durable handles such as `system.sandbox*`, `system.process*`, `system.server*`, `system.remoteJob*`, and `system.research*`. Blocking every `system.*` tool forces the agent back onto desktop-shell/process fallbacks and breaks the typed-handle contract.
+- When the model invents a placeholder handle id on a `start` call, treat that token as the caller's idempotency handle instead of silently discarding it. Otherwise the subsequent `status`/`logs`/`stop` calls will reference a durable id the runtime never persisted even though the overall workflow is otherwise correct.

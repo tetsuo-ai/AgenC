@@ -21,6 +21,12 @@ import { validateToolCall } from "../types.js";
 import type { OllamaProviderConfig } from "./types.js";
 import { LLMProviderError, mapLLMError } from "../errors.js";
 import { ensureLazyImport } from "../lazy-import.js";
+import {
+  buildUnsupportedCompactionDiagnostics,
+  buildUnsupportedStatefulDiagnostics,
+  resolveLLMStatefulResponsesConfig,
+  type ResolvedLLMStatefulResponsesConfig,
+} from "../provider-capabilities.js";
 import { withTimeout } from "../timeout.js";
 import { validateToolTurnSequence } from "../tool-turn-validator.js";
 
@@ -33,6 +39,7 @@ export class OllamaProvider implements LLMProvider {
   private client: unknown | null = null;
   private readonly config: OllamaProviderConfig;
   private readonly tools: LLMTool[];
+  private readonly statefulConfig: ResolvedLLMStatefulResponsesConfig;
 
   constructor(config: OllamaProviderConfig) {
     this.config = {
@@ -41,6 +48,9 @@ export class OllamaProvider implements LLMProvider {
       host: config.host ?? DEFAULT_HOST,
     };
     this.tools = config.tools ?? [];
+    this.statefulConfig = resolveLLMStatefulResponsesConfig(
+      config.statefulResponses,
+    );
   }
 
   async chat(
@@ -56,7 +66,7 @@ export class OllamaProvider implements LLMProvider {
         this.config.timeoutMs,
         this.name,
       );
-      return this.parseResponse(response);
+      return this.parseResponse(response, options);
     } catch (err: unknown) {
       throw this.mapError(err);
     }
@@ -121,6 +131,7 @@ export class OllamaProvider implements LLMProvider {
         },
         model,
         finishReason,
+        ...this.buildUnsupportedDiagnostics(options),
       };
     } catch (err: unknown) {
       if (content.length > 0) {
@@ -138,6 +149,7 @@ export class OllamaProvider implements LLMProvider {
           finishReason: "error",
           error: mappedError,
           partial: true,
+          ...this.buildUnsupportedDiagnostics(options),
         };
       }
       throw this.mapError(err);
@@ -152,6 +164,18 @@ export class OllamaProvider implements LLMProvider {
     } catch {
       return false;
     }
+  }
+
+  getCapabilities() {
+    return {
+      provider: this.name,
+      stateful: {
+        assistantPhase: false,
+        previousResponseId: false,
+        opaqueCompaction: false,
+        deterministicFallback: true,
+      },
+    } as const;
   }
 
   private async ensureClient(): Promise<unknown> {
@@ -209,6 +233,25 @@ export class OllamaProvider implements LLMProvider {
     return params;
   }
 
+  private buildUnsupportedDiagnostics(
+    options?: LLMChatOptions,
+  ): Pick<LLMResponse, "stateful" | "compaction"> {
+    const hasSessionId =
+      typeof options?.stateful?.sessionId === "string" &&
+      options.stateful.sessionId.trim().length > 0;
+    return {
+      stateful: buildUnsupportedStatefulDiagnostics({
+        provider: this.name,
+        config: this.statefulConfig,
+        hasSessionId,
+      }),
+      compaction: buildUnsupportedCompactionDiagnostics({
+        provider: this.name,
+        config: this.statefulConfig,
+      }),
+    };
+  }
+
   private toOllamaMessage(msg: LLMMessage): Record<string, unknown> {
     if (msg.role === "tool") {
       let content: string;
@@ -230,7 +273,7 @@ export class OllamaProvider implements LLMProvider {
     return { role: msg.role, content: msg.content };
   }
 
-  private parseResponse(response: any): LLMResponse {
+  private parseResponse(response: any, options?: LLMChatOptions): LLMResponse {
     const message = response.message ?? {};
     const content = message.content ?? "";
 
@@ -260,6 +303,7 @@ export class OllamaProvider implements LLMProvider {
       usage,
       model: response.model ?? this.config.model,
       finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+      ...this.buildUnsupportedDiagnostics(options),
     };
   }
 

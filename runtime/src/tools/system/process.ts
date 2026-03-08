@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, openSync, closeSync, rmSync } from "node:fs";
 import { open as openFile, mkdir, readFile, rename, rm } from "node:fs/promises";
@@ -21,13 +21,18 @@ import {
   handleOkResult,
   isToolResult,
   normalizeHandleIdentity,
+  normalizeResourceEnvelope,
+  type StructuredHandleResourceEnvelope,
 } from "./handle-contract.js";
 
 const SYSTEM_PROCESS_ROOT = "/tmp/agenc-system-processes";
 const SYSTEM_PROCESS_SCHEMA_VERSION = 1;
 const DEFAULT_LOG_TAIL_BYTES = 4096;
+const DEFAULT_LOG_SETTLE_MS = 200;
+const DEFAULT_LOG_SETTLE_POLL_MS = 25;
 const DEFAULT_STOP_WAIT_MS = 5000;
 const MAX_LOG_TAIL_BYTES = 64 * 1024;
+const MAX_LOG_SETTLE_MS = 5_000;
 const SINGLE_EXECUTABLE_RE = /^[A-Za-z0-9_./+-]+$/;
 
 type SystemProcessState = "running" | "exited" | "failed";
@@ -41,6 +46,7 @@ interface SystemProcessRecord {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly logPath: string;
+  readonly resourceEnvelope?: StructuredHandleResourceEnvelope;
   pid: number;
   pgid: number;
   state: SystemProcessState;
@@ -60,6 +66,7 @@ interface PersistedSystemProcessRegistry {
 
 interface SystemProcessRuntime {
   readonly record: SystemProcessRecord;
+  readonly child: ChildProcess;
   exited: boolean;
 }
 
@@ -171,6 +178,7 @@ function buildProcessResponse(
     args: record.args,
     cwd: record.cwd,
     logPath: record.logPath,
+    ...(record.resourceEnvelope ? { resourceEnvelope: record.resourceEnvelope } : {}),
     pid: record.pid,
     pgid: record.pgid,
     state: record.state,
@@ -203,6 +211,10 @@ async function readTail(logPath: string, maxBytes: number): Promise<string> {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
 export class SystemProcessManager {
   private readonly rootDir: string;
   private readonly registryPath: string;
@@ -211,6 +223,8 @@ export class SystemProcessManager {
   private readonly env: Record<string, string>;
   private readonly defaultLogTailBytes: number;
   private readonly maxLogTailBytes: number;
+  private readonly defaultLogSettleMs: number;
+  private readonly maxLogSettleMs: number;
   private readonly defaultStopWaitMs: number;
   private readonly unrestricted: boolean;
   private readonly denySet: ReadonlySet<string>;
@@ -232,6 +246,8 @@ export class SystemProcessManager {
     this.env = buildEnv(config?.env);
     this.defaultLogTailBytes = config?.defaultLogTailBytes ?? DEFAULT_LOG_TAIL_BYTES;
     this.maxLogTailBytes = config?.maxLogTailBytes ?? MAX_LOG_TAIL_BYTES;
+    this.defaultLogSettleMs = config?.defaultLogSettleMs ?? DEFAULT_LOG_SETTLE_MS;
+    this.maxLogSettleMs = config?.maxLogSettleMs ?? MAX_LOG_SETTLE_MS;
     this.defaultStopWaitMs = config?.defaultStopWaitMs ?? DEFAULT_STOP_WAIT_MS;
     this.unrestricted = config?.unrestricted ?? false;
     this.denySet = this.unrestricted
@@ -399,8 +415,11 @@ export class SystemProcessManager {
   }
 
   private validateAllowed(command: string): ToolResult | null {
+    if (this.unrestricted) {
+      return null;
+    }
     const base = basename(command);
-    if (!this.unrestricted && DEFAULT_DENY_PREFIXES.some((prefix) => base.toLowerCase().startsWith(prefix))) {
+    if (DEFAULT_DENY_PREFIXES.some((prefix) => base.toLowerCase().startsWith(prefix))) {
       return handleErrorResult(
         SYSTEM_PROCESS_FAMILY,
         "system_process.denied_command",
@@ -458,7 +477,22 @@ export class SystemProcessManager {
   private async refreshRecordState(record: SystemProcessRecord): Promise<void> {
     if (record.state !== "running") return;
     const runtime = this.runtimes.get(record.processId);
-    if (runtime && !runtime.exited) {
+    if (runtime) {
+      const exitCode = runtime.child.exitCode;
+      const signal = runtime.child.signalCode;
+      if (runtime.exited || exitCode !== null || signal !== null) {
+        record.state = exitCode === 0 || signal === "SIGTERM" || signal === "SIGKILL"
+          ? "exited"
+          : "failed";
+        record.exitCode = exitCode;
+        record.signal = signal;
+        record.lastExitAt = this.now();
+        record.updatedAt = record.lastExitAt;
+        runtime.exited = true;
+        this.runtimes.delete(record.processId);
+        await this.persist();
+        return;
+      }
       return;
     }
     try {
@@ -496,11 +530,19 @@ export class SystemProcessManager {
     );
     const label = identity.label;
     const idempotencyKey = identity.idempotencyKey;
+    const resourceEnvelope = normalizeResourceEnvelope(
+      SYSTEM_PROCESS_FAMILY,
+      args.resourceEnvelope,
+      "start",
+    );
+    if (isToolResult(resourceEnvelope)) return resourceEnvelope;
 
     const matchesLaunchSpec = (record: SystemProcessRecord): boolean =>
       record.command === command &&
       JSON.stringify(record.args) === JSON.stringify(normalizedArgs) &&
-      record.cwd === cwd;
+      record.cwd === cwd &&
+      JSON.stringify(record.resourceEnvelope ?? null) ===
+        JSON.stringify(resourceEnvelope ?? null);
 
     const idempotentMatch = idempotencyKey
       ? this.findByIdempotencyKey(idempotencyKey)
@@ -570,6 +612,7 @@ export class SystemProcessManager {
       args: [...normalizedArgs],
       cwd,
       logPath,
+      ...(resourceEnvelope ? { resourceEnvelope } : {}),
       pid: -1,
       pgid: -1,
       state: "running",
@@ -605,6 +648,14 @@ export class SystemProcessManager {
         if (this.disposed) return;
         const current = this.records.get(processId);
         if (!current) return;
+        const runtime = this.runtimes.get(processId);
+        if (runtime) {
+          runtime.exited = true;
+        }
+        if (current.state !== "running") {
+          this.runtimes.delete(processId);
+          return;
+        }
         current.state = exitCode === 0 || signal === "SIGTERM" || signal === "SIGKILL"
           ? "exited"
           : "failed";
@@ -619,6 +670,14 @@ export class SystemProcessManager {
         if (this.disposed) return;
         const current = this.records.get(processId);
         if (!current) return;
+        const runtime = this.runtimes.get(processId);
+        if (runtime) {
+          runtime.exited = true;
+        }
+        if (current.state !== "running") {
+          this.runtimes.delete(processId);
+          return;
+        }
         current.state = "failed";
         current.lastError = error.message;
         current.lastExitAt = this.now();
@@ -631,6 +690,7 @@ export class SystemProcessManager {
       this.records.set(processId, record);
       this.runtimes.set(processId, {
         record,
+        child,
         exited: false,
       });
       await this.persist();
@@ -689,11 +749,28 @@ export class SystemProcessManager {
   async logs(args: Record<string, unknown>): Promise<ToolResult> {
     const record = await this.resolveRecord(args);
     if (isToolResult(record)) return record;
+    await this.refreshRecordState(record);
     const maxBytes = Math.min(
       asPositiveInt(args.maxBytes) ?? this.defaultLogTailBytes,
       this.maxLogTailBytes,
     );
-    const output = await readTail(record.logPath, maxBytes);
+    const waitForOutputMs = Math.min(
+      asPositiveInt(args.waitForOutputMs) ?? this.defaultLogSettleMs,
+      this.maxLogSettleMs,
+    );
+    let output = await readTail(record.logPath, maxBytes);
+    if (output.length === 0 && record.state === "running" && waitForOutputMs > 0) {
+      const deadline = Date.now() + waitForOutputMs;
+      while (Date.now() < deadline) {
+        const remainingMs = deadline - Date.now();
+        await sleep(Math.min(DEFAULT_LOG_SETTLE_POLL_MS, remainingMs));
+        await this.refreshRecordState(record);
+        output = await readTail(record.logPath, maxBytes);
+        if (output.length > 0 || record.state !== "running") {
+          break;
+        }
+      }
+    }
     return handleOkResult({
       processId: record.processId,
       ...(record.label ? { label: record.label } : {}),
@@ -853,6 +930,11 @@ export function createProcessTools(config?: SystemProcessToolConfig): Tool[] {
             type: "string",
             description: "Optional idempotency key for deduplicating repeated start requests.",
           },
+          resourceEnvelope: {
+            type: "object",
+            description:
+              "Optional resource budget contract: cpu, memoryMb, diskMb, network, wallClockMs, sandboxAffinity, environmentClass, enforcement.",
+          },
         },
         required: ["command"],
       },
@@ -927,6 +1009,11 @@ export function createProcessTools(config?: SystemProcessToolConfig): Tool[] {
             description: "Idempotency key from system.processStart.",
           },
           maxBytes: { type: "number", description: "Optional log tail size in bytes." },
+          waitForOutputMs: {
+            type: "number",
+            description:
+              "Optional bounded settle window in milliseconds to wait for fresh output from short-lived processes before returning logs.",
+          },
         },
       },
       execute: (args) => manager.logs(asObject(args) ?? {}),

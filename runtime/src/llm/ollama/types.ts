@@ -4,7 +4,10 @@
  * @module
  */
 
-import type { LLMProviderConfig } from "../types.js";
+import type {
+  LLMProviderConfig,
+  LLMStatefulResponsesConfig,
+} from "../types.js";
 
 /**
  * Configuration specific to the Ollama local inference provider.
@@ -18,4 +21,6 @@ export interface OllamaProviderConfig extends LLMProviderConfig {
   numCtx?: number;
   /** Number of GPU layers */
   numGpu?: number;
+  /** Optional runtime stateful/compaction policy for deterministic unsupported diagnostics. */
+  statefulResponses?: LLMStatefulResponsesConfig;
 }

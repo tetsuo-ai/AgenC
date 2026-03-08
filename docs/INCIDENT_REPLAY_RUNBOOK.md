@@ -85,6 +85,29 @@ Expected:
 
 - Runtime falls back deterministically (if configured) and does not silently reuse stale anchors.
 
+### 4b) Compacted run inspection template
+
+Use this when a long-running run resumes with missing facts, stale artifacts, or suspicious summary drift.
+
+Inspect the traced response and durable run state for:
+
+- `compaction.enabled`, `compaction.requested`, `compaction.active`
+- `compaction.fallbackReason`
+- `compaction.observedItemCount`
+- `compaction.latestItem`
+- `stateful.previousResponseId`
+- durable carry-forward counts for:
+  - `verifiedFacts`
+  - `artifacts`
+  - `memoryAnchors`
+  - `summaryHealth`
+
+Expected:
+
+- fact/artifact counts do not drop unexpectedly across compaction boundaries
+- `summaryHealth.status` only moves to `repairing` or `degraded` when drift was actually detected
+- provider continuation anchors (`previous_response_id` / opaque compaction items) line up with the latest persisted durable run snapshot
+
 ### 5) Trace capture template
 
 Enable:

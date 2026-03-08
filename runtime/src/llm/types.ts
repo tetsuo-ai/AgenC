@@ -103,7 +103,8 @@ export interface LLMRequestMetrics {
 export type LLMStatefulFallbackReason =
   | "missing_previous_response_id"
   | "provider_retrieval_failure"
-  | "state_reconciliation_mismatch";
+  | "state_reconciliation_mismatch"
+  | "unsupported";
 
 /**
  * Structured stateful event types for trace logging/diagnostics.
@@ -192,6 +193,51 @@ export interface LLMCompactionDiagnostics {
   readonly latestItem?: LLMCompactionItemRef;
   /** Fallback reason when compaction had to be disabled for the call. */
   readonly fallbackReason?: LLMCompactionFallbackReason;
+}
+
+/**
+ * Shared provider-managed stateful continuation controls.
+ *
+ * Providers may fully support these controls, ignore them with explicit
+ * unsupported diagnostics, or selectively support subsets such as
+ * `previous_response_id` without opaque compaction.
+ */
+export interface LLMStatefulResponsesConfig {
+  /** Enable session-scoped continuation using provider-managed response IDs. */
+  readonly enabled?: boolean;
+  /** Explicit `store` value sent to provider calls while stateful mode is enabled. */
+  readonly store?: boolean;
+  /** Retry once statelessly when continuation anchors are missing/mismatched/stale. */
+  readonly fallbackToStateless?: boolean;
+  /** Number of recent normalized turns used for reconciliation hashing. */
+  readonly reconciliationWindow?: number;
+  /** Optional provider-native opaque compaction controls. */
+  readonly compaction?: {
+    /** Enable provider-native server-side compaction. */
+    readonly enabled?: boolean;
+    /** Rendered-token threshold for provider compaction. */
+    readonly compactThreshold?: number;
+    /** Retry once without compaction if the provider rejects the field. */
+    readonly fallbackOnUnsupported?: boolean;
+  };
+}
+
+export interface LLMProviderStatefulCapabilities {
+  /** Provider supports assistant `phase` replay metadata. */
+  readonly assistantPhase: boolean;
+  /** Provider supports `previous_response_id` / equivalent continuation. */
+  readonly previousResponseId: boolean;
+  /** Provider supports opaque provider-managed compaction state. */
+  readonly opaqueCompaction: boolean;
+  /** Runtime can safely fall back to stateless replay for unsupported features. */
+  readonly deterministicFallback: boolean;
+}
+
+export interface LLMProviderCapabilities {
+  /** Provider name exposed by the adapter. */
+  readonly provider: string;
+  /** Stateful continuation and compaction feature support. */
+  readonly stateful: LLMProviderStatefulCapabilities;
 }
 
 /**
@@ -310,6 +356,8 @@ export interface LLMProvider {
     options?: LLMChatOptions,
   ): Promise<LLMResponse>;
   healthCheck(): Promise<boolean>;
+  /** Report provider-native continuation / compaction support. */
+  getCapabilities?(): LLMProviderCapabilities;
   /** Optional lifecycle hook for session-scoped provider state cleanup. */
   resetSessionState?(sessionId: string): void;
   /** Optional lifecycle hook to clear all provider-managed session state. */

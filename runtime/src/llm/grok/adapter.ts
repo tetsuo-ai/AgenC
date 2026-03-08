@@ -27,12 +27,16 @@ import type {
   StreamProgressCallback,
 } from "../types.js";
 import { validateToolCall } from "../types.js";
-import type { GrokProviderConfig, GrokStatefulResponsesConfig } from "./types.js";
 import { LLMProviderError, mapLLMError } from "../errors.js";
 import { ensureLazyImport } from "../lazy-import.js";
+import {
+  resolveLLMStatefulResponsesConfig,
+  type ResolvedLLMStatefulResponsesConfig,
+} from "../provider-capabilities.js";
 import { supportsGrokServerSideTools } from "../provider-native-search.js";
 import { withTimeout } from "../timeout.js";
 import { validateToolTurnSequence } from "../tool-turn-validator.js";
+import type { GrokProviderConfig } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
@@ -71,29 +75,13 @@ const PRIORITY_TOOL_NAMES = new Set([
 const VISION_MODELS_WITH_TOOLS = new Set([
   "grok-4-0709",
 ]);
-const DEFAULT_STATEFUL_RECONCILIATION_WINDOW = 48;
 const MAX_STATEFUL_RECONCILIATION_WINDOW = 256;
 const STATEFUL_HASH_VERSION = "v1";
-const DEFAULT_COMPACTION_FALLBACK_ON_UNSUPPORTED = true;
 
 interface StatefulSessionAnchor {
   responseId: string;
   reconciliationHash: string;
   updatedAt: number;
-}
-
-interface ResolvedStatefulConfig {
-  enabled: boolean;
-  store: boolean;
-  fallbackToStateless: boolean;
-  reconciliationWindow: number;
-  compaction: ResolvedCompactionConfig;
-}
-
-interface ResolvedCompactionConfig {
-  enabled: boolean;
-  compactThreshold?: number;
-  fallbackOnUnsupported: boolean;
 }
 
 function truncate(value: string, maxChars: number): string {
@@ -375,31 +363,6 @@ function computeReconciliationChain(
   }
 
   return { anchorHash: rolling, chain };
-}
-
-function resolveStatefulConfig(
-  config: GrokStatefulResponsesConfig | undefined,
-): ResolvedStatefulConfig {
-  const enabled = config?.enabled === true;
-  return {
-    enabled,
-    store: config?.store ?? enabled,
-    fallbackToStateless: config?.fallbackToStateless ?? true,
-    reconciliationWindow:
-      config?.reconciliationWindow ?? DEFAULT_STATEFUL_RECONCILIATION_WINDOW,
-    compaction: {
-      enabled: config?.compaction?.enabled === true,
-      compactThreshold:
-        typeof config?.compaction?.compactThreshold === "number" &&
-          Number.isFinite(config.compaction.compactThreshold) &&
-          config.compaction.compactThreshold > 0
-          ? Math.floor(config.compaction.compactThreshold)
-          : undefined,
-      fallbackOnUnsupported:
-        config?.compaction?.fallbackOnUnsupported ??
-        DEFAULT_COMPACTION_FALLBACK_ON_UNSUPPORTED,
-    },
-  };
 }
 
 function isContinuationRetrievalFailure(error: unknown): boolean {
@@ -692,7 +655,7 @@ export class GrokProvider implements LLMProvider {
   private readonly responseToolCharsByName = new Map<string, number>();
   private readonly webSearchTool?: Record<string, unknown>;
   private readonly toolChars: number;
-  private readonly statefulConfig: ResolvedStatefulConfig;
+  private readonly statefulConfig: ResolvedLLMStatefulResponsesConfig;
   private readonly statefulSessions = new Map<string, StatefulSessionAnchor>();
   private assistantPhaseSupported: boolean | undefined;
   private serverCompactionSupported: boolean | undefined;
@@ -705,7 +668,9 @@ export class GrokProvider implements LLMProvider {
       timeoutMs: normalizeTimeoutMs(config.timeoutMs),
       parallelToolCalls: config.parallelToolCalls ?? false,
     };
-    this.statefulConfig = resolveStatefulConfig(config.statefulResponses);
+    this.statefulConfig = resolveLLMStatefulResponsesConfig(
+      config.statefulResponses,
+    );
 
     // Build tools list — optionally inject web_search
     const rawTools = [...(config.tools ?? [])];
@@ -1051,6 +1016,18 @@ export class GrokProvider implements LLMProvider {
     } catch {
       return false;
     }
+  }
+
+  getCapabilities() {
+    return {
+      provider: this.name,
+      stateful: {
+        assistantPhase: true,
+        previousResponseId: true,
+        opaqueCompaction: true,
+        deterministicFallback: true,
+      },
+    } as const;
   }
 
   resetSessionState(sessionId: string): void {
