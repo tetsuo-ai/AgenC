@@ -304,6 +304,23 @@ describe("BackgroundRunStore", () => {
     });
   });
 
+  it("stores, reloads, and deletes terminal checkpoints for retry", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+    const run = makeRun({
+      state: "completed",
+      nextCheckAt: undefined,
+      nextHeartbeatAt: undefined,
+      lastWakeReason: "process_exit",
+    });
+
+    await store.saveCheckpoint(run);
+    expect(await store.loadCheckpoint(run.sessionId)).toEqual(run);
+
+    await store.deleteCheckpoint(run.sessionId);
+    expect(await store.loadCheckpoint(run.sessionId)).toBeUndefined();
+  });
+
   it("persists policy scope and extended budget counters across reload", async () => {
     const backend = new InMemoryBackend();
     const store = new BackgroundRunStore({ memoryBackend: backend });
@@ -1054,6 +1071,74 @@ describe("BackgroundRunStore", () => {
     expect(claim.item).toMatchObject({
       reason: "busy_retry",
       availableAt: 5,
+    });
+  });
+
+  it("prunes redundant queued dispatches for the same session while preserving the claimed item", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+
+    await store.heartbeatWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      maxConcurrentRuns: 1,
+      now: 1,
+    });
+
+    await store.enqueueDispatch({
+      sessionId: "session-1",
+      runId: "bg-test",
+      pool: "generic",
+      reason: "timer",
+      createdAt: 1,
+      availableAt: 1,
+      dedupeKey: "dispatch:bg-test:timer",
+    });
+    await store.enqueueDispatch({
+      sessionId: "session-1",
+      runId: "bg-test",
+      pool: "generic",
+      reason: "user_input",
+      createdAt: 2,
+      availableAt: 2,
+      dedupeKey: "dispatch:bg-test:user_input",
+    });
+    await store.enqueueDispatch({
+      sessionId: "session-2",
+      runId: "bg-test-2",
+      pool: "generic",
+      reason: "timer",
+      createdAt: 3,
+      availableAt: 3,
+      dedupeKey: "dispatch:bg-test-2:timer",
+    });
+
+    const claimed = await store.claimDispatchForWorker({
+      workerId: "worker-a",
+      pools: ["generic"],
+      now: 1,
+    });
+    expect(claimed.claimed).toBe(true);
+    expect(claimed.item?.sessionId).toBe("session-1");
+
+    const pruned = await store.pruneDispatchesForSession({
+      sessionId: "session-1",
+      excludeDispatchId: claimed.item?.id,
+      now: 4,
+    });
+    expect(pruned).toEqual({
+      removedCount: 1,
+      queueDepth: 2,
+    });
+
+    await store.completeDispatch({
+      dispatchId: claimed.item!.id,
+      workerId: "worker-a",
+      now: 5,
+    });
+    await expect(store.getDispatchStats()).resolves.toMatchObject({
+      totalQueued: 1,
+      totalClaimed: 0,
     });
   });
 

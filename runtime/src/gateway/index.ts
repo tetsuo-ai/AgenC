@@ -192,6 +192,37 @@ export {
   type ProgressTrackerConfig,
 } from "./progress.js";
 
+export type {
+  DurableSubrunAdmissionDecision,
+  DurableSubrunTreeNode,
+  DurableSubrunPlanStartResult,
+} from "./durable-subrun-orchestrator.js";
+export {
+  DurableSubrunOrchestrator,
+  redundancyPatternProvenUseful,
+} from "./durable-subrun-orchestrator.js";
+
+export type {
+  AutonomyRolloutFeature,
+  AutonomyIncidentScenario,
+  AutonomyRolloutDocRef,
+  AutonomyDrillCheck,
+  AutonomyRolloutManifest,
+  AutonomyObservedSloMetrics,
+  AutonomyRolloutViolation,
+  AutonomyExternalGate,
+  AutonomyCanaryDecision,
+  AutonomyRolloutEvaluation,
+  AutonomyRolloutEvaluationInput,
+} from "./autonomy-rollout.js";
+export {
+  AUTONOMY_ROLLOUT_MANIFEST_SCHEMA_VERSION,
+  parseAutonomyRolloutManifest,
+  buildObservedAutonomySloMetrics,
+  evaluateAutonomyRolloutReadiness,
+  evaluateAutonomyCanaryAdmission,
+} from "./autonomy-rollout.js";
+
 // Voice Bridge (xAI Realtime)
 export { VoiceBridge, type VoiceBridgeConfig } from "./voice-bridge.js";
 

@@ -50,10 +50,22 @@ class FastSubAgentManager {
     const id = `sub-${++this.seq}`;
     this.results.set(id, {
       sessionId: id,
-      output: JSON.stringify({ status: "ok", task: config.task.slice(0, 24) }),
+      output: JSON.stringify({
+        status: "ok",
+        task: config.task.slice(0, 24),
+        coverage: ["runtime learning hooks"],
+      }),
       success: true,
       durationMs: 15,
-      toolCalls: [],
+      toolCalls: [
+        {
+          name: "system.readFile",
+          args: { path: "runtime/src/llm/delegation-learning.ts" },
+          result: '{"path":"runtime/src/llm/delegation-learning.ts","content":"coverage: runtime learning hooks"}',
+          isError: false,
+          durationMs: 5,
+        },
+      ],
       tokenUsage: {
         promptTokens: 40,
         completionTokens: 20,

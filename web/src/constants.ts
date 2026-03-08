@@ -52,6 +52,10 @@ export {
   WS_DESKTOP_DESTROY,
   WS_DESKTOP_DESTROYED,
   WS_DESKTOP_ERROR,
+  WS_RUNS_LIST,
+  WS_RUN_INSPECT,
+  WS_RUN_CONTROL,
+  WS_RUN_UPDATED,
   WS_APPROVAL_REQUEST,
   WS_AGENT_STATUS,
 } from '../../runtime/src/channels/webchat/protocol.ts';

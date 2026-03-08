@@ -30,6 +30,7 @@ describe('useAgentStatus', () => {
           controlPlanePort: 4000,
           agentName: 'alpha',
           backgroundRuns: {
+            multiAgentEnabled: true,
             activeTotal: 1,
             queuedSignalsTotal: 0,
             stateCounts: {
@@ -59,6 +60,7 @@ describe('useAgentStatus', () => {
 
     expect(result.current.status?.state).toBe('running');
     expect(result.current.status?.agentName).toBe('alpha');
+    expect(result.current.status?.backgroundRuns?.multiAgentEnabled).toBe(true);
     expect(result.current.status?.backgroundRuns?.activeTotal).toBe(1);
   });
 });

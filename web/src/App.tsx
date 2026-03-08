@@ -21,6 +21,7 @@ import { useWallet } from './hooks/useWallet';
 import { useActivityFeed } from './hooks/useActivityFeed';
 import { useAgents } from './hooks/useAgents';
 import { useDesktop } from './hooks/useDesktop';
+import { useRuns } from './hooks/useRuns';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { BBSHeader } from './components/BBSHeader';
 import { BBSMenuBar } from './components/BBSMenuBar';
@@ -33,6 +34,7 @@ import { SkillsView } from './components/skills/SkillsView';
 import { TasksView } from './components/tasks/TasksView';
 import { MemoryView } from './components/memory/MemoryView';
 import { ActivityFeedView } from './components/activity/ActivityFeedView';
+import { RunDashboardView } from './components/runs/RunDashboardView';
 import { SettingsView } from './components/settings/SettingsView';
 import { PaymentView } from './components/payment/PaymentView';
 import { DesktopView } from './components/desktop/DesktopView';
@@ -121,6 +123,7 @@ export default function App() {
   const activityFeed = useActivityFeed({ send, connected });
   const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
   const desktop = useDesktop({ send, connected });
+  const runs = useRuns({ send, connected }) as WithHandler<ReturnType<typeof useRuns>>;
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
   const prevVncUrl = useRef<string | null>(null);
   const suppressNextVoiceTranscript = useRef(false);
@@ -178,6 +181,7 @@ export default function App() {
     activityFeed.handleMessage(msg);
     agentsData.handleMessage(msg);
     desktop.handleMessage(msg);
+    runs.handleMessage(msg);
 
     const payload = (msg.payload ?? {}) as Record<string, unknown>;
     if (msg.type === WS_VOICE_DELEGATION) {
@@ -271,6 +275,22 @@ export default function App() {
             <AgentStatusView
               status={agentStatus.status}
               onRefresh={agentStatus.refresh}
+            />
+          )}
+          {currentView === 'runs' && (
+            <RunDashboardView
+              runs={runs.runs}
+              selectedRun={runs.selectedRun}
+              selectedSessionId={runs.selectedSessionId}
+              loading={runs.loading}
+              error={runs.error}
+              browserNotificationsEnabled={runs.browserNotificationsEnabled}
+              notificationPermission={runs.notificationPermission}
+              onSelectRun={runs.setSelectedSessionId}
+              onRefresh={runs.refresh}
+              onInspect={runs.inspect}
+              onControl={runs.control}
+              onEnableBrowserNotifications={runs.enableBrowserNotifications}
             />
           )}
           {currentView === 'skills' && (

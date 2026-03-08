@@ -26,10 +26,23 @@ import { startReplaySpan } from "../replay/trace.js";
 import {
   AGENT_RUN_SCHEMA_VERSION,
   assertAgentRunStateTransition,
+  assertValidAgentRunContract,
   inferAgentRunDomain,
   isAgentRunDomain,
   isTerminalAgentRunState,
 } from "./agent-run-contract.js";
+import {
+  buildBackgroundRunExplanation,
+  type BackgroundRunControlAction,
+  type BackgroundRunOperatorDetail,
+  type BackgroundRunEventRecord,
+  type BackgroundRunOperatorSummary,
+} from "./background-run-operator.js";
+import { BackgroundRunNotifier } from "./background-run-notifier.js";
+import {
+  assertValidBackgroundRunLineage,
+  type BackgroundRunLineage,
+} from "./subrun-contract.js";
 import {
   BackgroundRunStore,
   DEFAULT_BACKGROUND_RUN_MAX_CYCLES,
@@ -255,6 +268,7 @@ interface ActiveBackgroundRun {
   observedTargets: BackgroundRunObservedTarget[];
   watchRegistrations: BackgroundRunWatchRegistration[];
   internalHistory: LLMMessage[];
+  lineage?: BackgroundRunLineage;
   preferredWorkerId?: string;
   workerAffinityKey?: string;
   leaseOwnerId?: string;
@@ -298,11 +312,18 @@ export interface BackgroundRunSupervisorConfig {
   readonly now?: () => number;
   readonly workerPools?: readonly BackgroundRunWorkerPool[];
   readonly workerMaxConcurrentRuns?: number;
+  readonly notifier?: BackgroundRunNotifier;
 }
 
 interface StartBackgroundRunParams {
   readonly sessionId: string;
   readonly objective: string;
+  readonly options?: {
+    readonly silent?: boolean;
+    readonly contract?: BackgroundRunContract;
+    readonly seedHistory?: readonly LLMMessage[];
+    readonly lineage?: BackgroundRunLineage;
+  };
 }
 
 interface PreparedCycleContext {
@@ -438,6 +459,49 @@ function inferManagedProcessPolicyMode(objective: string): "none" | "until_exit"
 
 function getManagedProcessPolicyMode(run: ActiveBackgroundRun): "none" | "until_exit" | "keep_running" | "restart_on_exit" {
   return getManagedProcessPolicy(run).mode;
+}
+
+function getScopedAllowedTools(
+  run: ActiveBackgroundRun,
+): readonly string[] | undefined {
+  const tools = run.lineage?.scope.allowedTools;
+  if (!tools || tools.length === 0) {
+    return undefined;
+  }
+  return [...new Set(tools.filter((tool) => tool.trim().length > 0))];
+}
+
+function applyRunToolScopeDecision(params: {
+  readonly allowedTools: readonly string[] | undefined;
+  readonly toolRoutingDecision: ToolRoutingDecision | undefined;
+}): {
+  readonly routedToolNames: readonly string[];
+  readonly expandedToolNames: readonly string[];
+} | undefined {
+  const { allowedTools, toolRoutingDecision } = params;
+  if (!allowedTools || allowedTools.length === 0) {
+    return toolRoutingDecision
+      ? {
+        routedToolNames: toolRoutingDecision.routedToolNames,
+        expandedToolNames: toolRoutingDecision.expandedToolNames,
+      }
+      : undefined;
+  }
+  if (!toolRoutingDecision) {
+    return {
+      routedToolNames: allowedTools,
+      expandedToolNames: allowedTools,
+    };
+  }
+  const allowed = new Set(allowedTools);
+  const routed = toolRoutingDecision.routedToolNames.filter((tool) => allowed.has(tool));
+  const expanded = toolRoutingDecision.expandedToolNames.filter((tool) => allowed.has(tool));
+  const routedToolNames = routed.length > 0 ? routed : allowedTools;
+  const expandedToolNames = expanded.length > 0 ? expanded : routedToolNames;
+  return {
+    routedToolNames,
+    expandedToolNames,
+  };
 }
 
 function getWakeEventDomain(
@@ -977,6 +1041,16 @@ function upsertWatchRegistration(
 function clearRunBlockers(run: ActiveBackgroundRun): void {
   run.blocker = undefined;
   run.approvalState = { status: "none" };
+}
+
+function normalizeOperatorStringList(
+  value: readonly string[] | undefined,
+  fallback: readonly string[],
+): string[] {
+  const normalized = (value ?? [])
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return normalized.length > 0 ? normalized : [...fallback];
 }
 
 function resolveWorkerPool(
@@ -2943,6 +3017,7 @@ function toPersistedRun(run: ActiveBackgroundRun): PersistedBackgroundRun {
     observedTargets: [...run.observedTargets],
     watchRegistrations: [...run.watchRegistrations],
     internalHistory: trimHistory([...run.internalHistory]),
+    lineage: run.lineage,
     preferredWorkerId: run.preferredWorkerId,
     workerAffinityKey: run.workerAffinityKey,
     leaseOwnerId: run.leaseOwnerId,
@@ -3013,6 +3088,7 @@ function toActiveRun(run: PersistedBackgroundRun): ActiveBackgroundRun {
     observedTargets: [...run.observedTargets],
     watchRegistrations: [...run.watchRegistrations],
     internalHistory: [...run.internalHistory],
+    lineage: run.lineage,
     preferredWorkerId: run.preferredWorkerId,
     workerAffinityKey: run.workerAffinityKey,
     leaseOwnerId: run.leaseOwnerId,
@@ -3020,6 +3096,79 @@ function toActiveRun(run: PersistedBackgroundRun): ActiveBackgroundRun {
     timer: null,
     heartbeatTimer: null,
     abortController: null,
+  };
+}
+
+function toOperatorEventRecords(
+  entries: readonly import("../memory/types.js").MemoryEntry[],
+): BackgroundRunEventRecord[] {
+  return entries.map((entry) => ({
+    summary: entry.content,
+    timestamp: entry.timestamp,
+    eventType:
+      typeof entry.metadata?.eventType === "string"
+        ? entry.metadata.eventType
+        : undefined,
+    data:
+      entry.metadata && typeof entry.metadata === "object"
+        ? { ...entry.metadata }
+        : {},
+  }));
+}
+
+function toOperatorSummary(params: {
+  snapshot: BackgroundRunRecentSnapshot;
+  contract?: BackgroundRunContract;
+  blocker?: BackgroundRunBlockerState;
+  approvalState?: BackgroundRunApprovalState;
+  checkpointAvailable: boolean;
+  now?: number;
+}): BackgroundRunOperatorSummary {
+  const explanation = buildBackgroundRunExplanation({
+    state: params.snapshot.state,
+    blocker: params.blocker,
+    approval: params.approvalState ?? { status: "none" },
+    nextCheckAt: params.snapshot.nextCheckAt,
+    nextHeartbeatAt: params.snapshot.nextHeartbeatAt,
+    lastWakeReason: params.snapshot.lastWakeReason,
+    requiresUserStop:
+      params.contract?.requiresUserStop ?? params.snapshot.requiresUserStop,
+    now: params.now,
+  });
+
+  return {
+    runId: params.snapshot.runId,
+    sessionId: params.snapshot.sessionId,
+    objective: params.snapshot.objective,
+    state: params.snapshot.state,
+    currentPhase: explanation.currentPhase,
+    explanation: explanation.explanation,
+    unsafeToContinue: explanation.unsafeToContinue,
+    createdAt: params.snapshot.createdAt,
+    updatedAt: params.snapshot.updatedAt,
+    lastVerifiedAt: params.snapshot.lastVerifiedAt,
+    nextCheckAt: params.snapshot.nextCheckAt,
+    nextHeartbeatAt: params.snapshot.nextHeartbeatAt,
+    cycleCount: params.snapshot.cycleCount,
+    contractKind: params.snapshot.contractKind,
+    contractDomain: params.contract?.domain ?? "generic",
+    requiresUserStop:
+      params.contract?.requiresUserStop ?? params.snapshot.requiresUserStop,
+    pendingSignals: params.snapshot.pendingSignals,
+    watchCount: params.snapshot.watchCount,
+    fenceToken: params.snapshot.fenceToken,
+    lastUserUpdate: params.snapshot.lastUserUpdate,
+    lastToolEvidence: params.snapshot.lastToolEvidence,
+    lastWakeReason: params.snapshot.lastWakeReason,
+    carryForwardSummary: params.snapshot.carryForwardSummary,
+    blockerSummary: params.snapshot.blockerSummary,
+    approvalRequired:
+      params.approvalState?.status === "waiting" ||
+      params.blocker?.requiresApproval === true,
+    approvalState: params.approvalState?.status ?? "none",
+    preferredWorkerId: params.snapshot.preferredWorkerId,
+    workerAffinityKey: params.snapshot.workerAffinityKey,
+    checkpointAvailable: params.checkpointAvailable,
   };
 }
 
@@ -3131,6 +3280,7 @@ export class BackgroundRunSupervisor {
   private readonly policyEngine?: PolicyEngine;
   private readonly resolvePolicyScope?: BackgroundRunSupervisorConfig["resolvePolicyScope"];
   private readonly telemetry?: TelemetryCollector;
+  private readonly notifier?: BackgroundRunNotifier;
   private readonly wakeBus: BackgroundRunWakeBus;
   private readonly logger: Logger;
   private readonly instanceId: string;
@@ -3163,6 +3313,7 @@ export class BackgroundRunSupervisor {
     this.policyEngine = config.policyEngine;
     this.resolvePolicyScope = config.resolvePolicyScope;
     this.telemetry = config.telemetry;
+    this.notifier = config.notifier;
     this.logger = config.logger ?? silentLogger;
     this.instanceId =
       config.instanceId ??
@@ -3242,6 +3393,115 @@ export class BackgroundRunSupervisor {
     return this.runStore.loadRecentSnapshot(sessionId);
   }
 
+  async loadRunRecord(
+    sessionId: string,
+  ): Promise<PersistedBackgroundRun | undefined> {
+    const active = this.activeRuns.get(sessionId);
+    if (active) {
+      return toPersistedRun(active);
+    }
+    const persisted = await this.runStore.loadRun(sessionId);
+    if (persisted) {
+      return persisted;
+    }
+    return this.runStore.loadCheckpoint(sessionId);
+  }
+
+  async listRunRecords(): Promise<readonly PersistedBackgroundRun[]> {
+    const [persisted, checkpoints] = await Promise.all([
+      this.runStore.listRuns(),
+      this.runStore.listCheckpoints(),
+    ]);
+    const bySessionId = new Map<string, PersistedBackgroundRun>();
+    for (const run of persisted) {
+      bySessionId.set(run.sessionId, run);
+    }
+    for (const run of checkpoints) {
+      if (!bySessionId.has(run.sessionId)) {
+        bySessionId.set(run.sessionId, run);
+      }
+    }
+    for (const run of this.activeRuns.values()) {
+      bySessionId.set(run.sessionId, toPersistedRun(run));
+    }
+    return [...bySessionId.values()];
+  }
+
+  async updateRunLineage(
+    sessionId: string,
+    lineage: BackgroundRunLineage,
+  ): Promise<void> {
+    assertValidBackgroundRunLineage(lineage);
+    const active = this.activeRuns.get(sessionId);
+    if (active) {
+      active.lineage = lineage;
+      active.updatedAt = this.now();
+      await this.persistRun(active, {
+        type: "subrun_joined",
+        summary: truncate(`Updated durable run lineage for ${active.id}.`, 200),
+        timestamp: this.now(),
+        data: {
+          role: lineage.role,
+          rootRunId: lineage.rootRunId,
+          parentRunId: lineage.parentRunId,
+          childRunIds: [...lineage.childRunIds],
+        },
+      });
+      return;
+    }
+    const persisted = await this.runStore.loadRun(sessionId);
+    if (!persisted) {
+      throw new Error(`Background run "${sessionId}" not found`);
+    }
+    const updatedRun: PersistedBackgroundRun = {
+      ...persisted,
+      lineage,
+      updatedAt: this.now(),
+    };
+    await this.runStore.saveRun(updatedRun);
+    await this.runStore.saveRecentSnapshot(
+      toRecentSnapshot(toActiveRun(updatedRun), await this.runStore.getQueuedWakeEventCount(sessionId)),
+    );
+    await this.runStore.appendEvent(updatedRun, {
+      type: "subrun_joined",
+      summary: truncate(`Updated durable run lineage for ${updatedRun.id}.`, 200),
+      timestamp: this.now(),
+      data: {
+        role: lineage.role,
+        rootRunId: lineage.rootRunId,
+        parentRunId: lineage.parentRunId,
+        childRunIds: [...lineage.childRunIds],
+      },
+    });
+  }
+
+  async appendRunEvent(
+    sessionId: string,
+    event: BackgroundRunEvent,
+  ): Promise<void> {
+    const active = this.activeRuns.get(sessionId);
+    if (active) {
+      await this.persistRun(active, event);
+      return;
+    }
+    const persisted = await this.loadRunRecord(sessionId);
+    if (!persisted) {
+      throw new Error(`Background run "${sessionId}" not found`);
+    }
+    await this.runStore.appendEvent(persisted, event);
+    if (this.notifier?.isEnabled()) {
+      const detail = await this.getOperatorDetail(sessionId, 1);
+      if (detail) {
+        await this.notifier.notify({
+          occurredAt: event.timestamp,
+          internalEventType: event.type,
+          summary: event.summary,
+          run: detail,
+        });
+      }
+    }
+  }
+
   getFleetStatusSnapshot(): BackgroundRunFleetStatusSnapshot {
     const stateCounts: Record<BackgroundRunState, number> = {
       pending: 0,
@@ -3278,6 +3538,146 @@ export class BackgroundRunSupervisor {
       queuedSignalsTotal,
       recentAlerts: [...this.recentAlerts],
     };
+  }
+
+  async listOperatorSummaries(
+    sessionIds?: readonly string[],
+  ): Promise<readonly BackgroundRunOperatorSummary[]> {
+    const filter = sessionIds ? new Set(sessionIds) : undefined;
+    const [recentSnapshots, persistedRuns] = await Promise.all([
+      this.runStore.listRecentSnapshots(),
+      this.runStore.listRuns(),
+    ]);
+    const sessionIdSet = new Set<string>();
+    for (const snapshot of recentSnapshots) {
+      if (!filter || filter.has(snapshot.sessionId)) {
+        sessionIdSet.add(snapshot.sessionId);
+      }
+    }
+    for (const run of persistedRuns) {
+      if (!filter || filter.has(run.sessionId)) {
+        sessionIdSet.add(run.sessionId);
+      }
+    }
+    for (const sessionId of this.activeRuns.keys()) {
+      if (!filter || filter.has(sessionId)) {
+        sessionIdSet.add(sessionId);
+      }
+    }
+
+    const details = await Promise.all(
+      [...sessionIdSet].map(async (sessionId) => {
+        const detail = await this.getOperatorDetail(sessionId);
+        return detail;
+      }),
+    );
+    return details
+      .filter(
+        (detail): detail is BackgroundRunOperatorDetail => detail !== undefined,
+      )
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  async getOperatorDetail(
+    sessionId: string,
+    eventLimit = 16,
+  ): Promise<BackgroundRunOperatorDetail | undefined> {
+    const activeRun = this.activeRuns.get(sessionId);
+    const [persistedRun, checkpoint, recentSnapshot] = await Promise.all([
+      activeRun ? Promise.resolve<PersistedBackgroundRun | undefined>(toPersistedRun(activeRun)) : this.runStore.loadRun(sessionId),
+      this.runStore.loadCheckpoint(sessionId),
+      activeRun
+        ? Promise.resolve<BackgroundRunRecentSnapshot | undefined>(
+          toRecentSnapshot(activeRun, this.wakeBus.getQueuedCount(sessionId)),
+        )
+        : this.runStore.loadRecentSnapshot(sessionId),
+    ]);
+    const durableRun = activeRun
+      ? toPersistedRun(activeRun)
+      : persistedRun ?? checkpoint;
+    const snapshot =
+      recentSnapshot ??
+      (durableRun ? toRecentSnapshot(toActiveRun(durableRun), 0) : undefined);
+    if (!durableRun || !snapshot) {
+      return undefined;
+    }
+    const eventEntries = await this.runStore.listEvents(durableRun.id, eventLimit);
+    const summary = toOperatorSummary({
+      snapshot,
+      contract: durableRun.contract,
+      blocker: durableRun.blocker,
+      approvalState: durableRun.approvalState,
+      checkpointAvailable: checkpoint !== undefined,
+      now: this.now(),
+    });
+
+    return {
+      ...summary,
+      policyScope: durableRun.policyScope,
+      contract: durableRun.contract,
+      blocker: durableRun.blocker,
+      approval: durableRun.approvalState,
+      budget: durableRun.budgetState,
+      compaction: durableRun.compaction,
+      artifacts: durableRun.carryForward?.artifacts ?? [],
+      observedTargets: durableRun.observedTargets,
+      watchRegistrations: durableRun.watchRegistrations,
+      recentEvents: toOperatorEventRecords(eventEntries),
+    };
+  }
+
+  async applyOperatorControl(
+    action: BackgroundRunControlAction,
+  ): Promise<BackgroundRunOperatorDetail | undefined> {
+    switch (action.action) {
+      case "pause":
+        await this.pauseRun(action.sessionId, action.reason);
+        break;
+      case "resume":
+        await this.resumeRun(action.sessionId, action.reason);
+        break;
+      case "cancel":
+        await this.cancelRun(action.sessionId, action.reason);
+        break;
+      case "edit_objective":
+        await this.updateRunObjective(
+          action.sessionId,
+          action.objective,
+          action.reason,
+        );
+        break;
+      case "amend_constraints":
+        await this.amendRunConstraints(
+          action.sessionId,
+          action.constraints,
+          action.reason,
+        );
+        break;
+      case "adjust_budget":
+        await this.adjustRunBudget(
+          action.sessionId,
+          action.budget,
+          action.reason,
+        );
+        break;
+      case "force_compact":
+        await this.forceCompactRun(action.sessionId, action.reason);
+        break;
+      case "reassign_worker":
+        await this.reassignRunWorker(
+          action.sessionId,
+          action.worker,
+          action.reason,
+        );
+        break;
+      case "retry_from_checkpoint":
+        await this.retryRunFromCheckpoint(action.sessionId, action.reason);
+        break;
+      case "verification_override":
+        await this.applyVerificationOverride(action.sessionId, action.override);
+        break;
+    }
+    return this.getOperatorDetail(action.sessionId);
   }
 
   private isActiveRun(run: ActiveBackgroundRun): boolean {
@@ -3660,6 +4060,11 @@ export class BackgroundRunSupervisor {
         });
         return;
       }
+      await this.runStore.pruneDispatchesForSession({
+        sessionId: item.sessionId,
+        excludeDispatchId: item.id,
+        now: this.now(),
+      });
       run.preferredWorkerId = this.instanceId;
       run.workerAffinityKey = resolveWorkerAffinityKey(run);
       await this.persistRun(run);
@@ -3917,9 +4322,14 @@ export class BackgroundRunSupervisor {
 
   async startRun(params: StartBackgroundRunParams): Promise<BackgroundRunStatusSnapshot> {
     await this.cancelRun(params.sessionId, "Replaced by a new background run.");
+    await this.runStore.deleteCheckpoint(params.sessionId);
+    if (params.options?.lineage) {
+      assertValidBackgroundRunLineage(params.options.lineage);
+    }
 
     const now = this.now();
-    const contract = await this.planRunContract(params.objective);
+    const contract =
+      params.options?.contract ?? await this.planRunContract(params.objective);
     const run: ActiveBackgroundRun = {
       version: AGENT_RUN_SCHEMA_VERSION,
       id: `bg-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -3950,8 +4360,13 @@ export class BackgroundRunSupervisor {
       nextCheckAt: undefined,
       nextHeartbeatAt: undefined,
       internalHistory: [
-        ...(this.seedHistoryForSession?.(params.sessionId)?.slice(-6) ?? []),
+        ...(
+          params.options?.seedHistory?.slice(-6) ??
+          this.seedHistoryForSession?.(params.sessionId)?.slice(-6) ??
+          []
+        ),
       ],
+      lineage: params.options?.lineage,
       preferredWorkerId: this.instanceId,
       workerAffinityKey: `session:${params.sessionId}`,
       leaseOwnerId: undefined,
@@ -3977,14 +4392,16 @@ export class BackgroundRunSupervisor {
       summary: truncate(`Background run started: ${run.objective}`, 200),
     });
 
-    await this.publishUpdate(
-      params.sessionId,
-      "Started a background run for this session. I’ll keep working and send updates here until it completes or you tell me to stop.",
-    );
-    run.lastUserUpdate = truncate(
-      "Started a background run for this session. I’ll keep working and send updates here until it completes or you tell me to stop.",
-      MAX_USER_UPDATE_CHARS,
-    );
+    if (!params.options?.silent) {
+      await this.publishUpdate(
+        params.sessionId,
+        "Started a background run for this session. I’ll keep working and send updates here until it completes or you tell me to stop.",
+      );
+      run.lastUserUpdate = truncate(
+        "Started a background run for this session. I’ll keep working and send updates here until it completes or you tell me to stop.",
+        MAX_USER_UPDATE_CHARS,
+      );
+    }
     run.budgetState = {
       ...run.budgetState,
       firstAcknowledgedAt: run.budgetState.firstAcknowledgedAt ?? this.now(),
@@ -3999,15 +4416,17 @@ export class BackgroundRunSupervisor {
       firstAcknowledgedAt - run.createdAt,
       run,
     );
-    await this.persistRun(run, {
-      type: "user_update",
-      summary: run.lastUserUpdate,
-      timestamp: this.now(),
-      data: {
-        kind: "ack",
-        verified: false,
-      },
-    });
+    if (!params.options?.silent && run.lastUserUpdate) {
+      await this.persistRun(run, {
+        type: "user_update",
+        summary: run.lastUserUpdate,
+        timestamp: this.now(),
+        data: {
+          kind: "ack",
+          verified: false,
+        },
+      });
+    }
     this.updateActiveGauge();
     await this.enqueueDispatchForSession({
       sessionId: params.sessionId,
@@ -4315,6 +4734,7 @@ export class BackgroundRunSupervisor {
         persistedRun.preferredWorkerId = this.instanceId;
         persistedRun.workerAffinityKey = resolveWorkerAffinityKey(persistedRun);
         recordRunActivity(persistedRun, persistedRun.updatedAt, "progress");
+        await this.runStore.saveCheckpoint(toPersistedRun(persistedRun));
         await this.runStore.deleteRun(sessionId);
         await this.runStore.saveRecentSnapshot(toRecentSnapshot(persistedRun, 0));
         this.forgetStatusSnapshot(sessionId);
@@ -4356,6 +4776,7 @@ export class BackgroundRunSupervisor {
       recordRunActivity(run, run.updatedAt, "progress");
       this.activeRuns.delete(sessionId);
       this.forgetStatusSnapshot(sessionId);
+      await this.runStore.saveCheckpoint(toPersistedRun(run));
       await this.runStore.deleteRun(sessionId);
       await this.runStore.saveRecentSnapshot(
         toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
@@ -4387,6 +4808,483 @@ export class BackgroundRunSupervisor {
     } finally {
       this.terminatingSessions.delete(sessionId);
     }
+  }
+
+  async updateRunObjective(
+    sessionId: string,
+    objective: string,
+    reason = "Updated the run objective.",
+  ): Promise<boolean> {
+    const nextObjective = objective.trim();
+    if (nextObjective.length === 0) {
+      return false;
+    }
+    const nextContract = await this.planRunContract(nextObjective);
+    const now = this.now();
+    const updateMessage = truncate(
+      `${reason} Objective is now: ${nextObjective}`,
+      MAX_USER_UPDATE_CHARS,
+    );
+    const apply = (run: ActiveBackgroundRun): void => {
+      run.objective = nextObjective;
+      run.contract = nextContract;
+      run.updatedAt = now;
+      run.lastWakeReason = "user_input";
+      run.lastUserUpdate = updateMessage;
+      run.lastHeartbeatContent = undefined;
+      clearRunBlockers(run);
+      run.budgetState = {
+        ...run.budgetState,
+        nextCheckIntervalMs: nextContract.nextCheckMs,
+        heartbeatIntervalMs: nextContract.heartbeatMs,
+        maxIdleMs: nextContract.requiresUserStop
+          ? undefined
+          : run.budgetState.maxIdleMs ?? DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
+      };
+      run.preferredWorkerId = this.instanceId;
+      run.workerAffinityKey = resolveWorkerAffinityKey(run);
+      recordRunActivity(run, now, "progress");
+    };
+    const run = this.activeRuns.get(sessionId);
+    if (run) {
+      apply(run);
+      await this.persistRun(run, {
+        type: "run_objective_updated",
+        summary: truncate(`Background run objective updated: ${nextObjective}`, 200),
+        timestamp: now,
+        data: { reason },
+      });
+      await this.publishUpdate(sessionId, updateMessage);
+      if (run.state !== "running" && run.state !== "paused") {
+        await this.enqueueDispatchForSession({
+          sessionId,
+          reason: "user_input",
+          availableAt: now,
+          preferredWorkerId: run.preferredWorkerId,
+        });
+      }
+      return true;
+    }
+
+    const lease = await this.runStore.claimLease(sessionId, this.instanceId, now);
+    if (!lease.claimed || !lease.run) {
+      return false;
+    }
+    const persistedRun = toActiveRun(lease.run);
+    apply(persistedRun);
+    await this.runStore.releaseLease(sessionId, this.instanceId, now, {
+      ...toPersistedRun(persistedRun),
+    });
+    await this.runStore.saveRecentSnapshot(toRecentSnapshot(persistedRun, 0));
+    this.rememberStatusSnapshot(persistedRun, 0);
+    await this.runStore.appendEvent(toPersistedRun(persistedRun), {
+      type: "run_objective_updated",
+      summary: truncate(`Background run objective updated: ${nextObjective}`, 200),
+      timestamp: now,
+      data: { reason },
+    });
+    await this.publishUpdate(sessionId, updateMessage);
+    if (persistedRun.state !== "paused") {
+      await this.enqueueDispatchForSession({
+        sessionId,
+        reason: "user_input",
+        availableAt: now,
+        preferredWorkerId: persistedRun.preferredWorkerId,
+      });
+    }
+    return true;
+  }
+
+  async amendRunConstraints(
+    sessionId: string,
+    constraints: {
+      readonly successCriteria?: readonly string[];
+      readonly completionCriteria?: readonly string[];
+      readonly blockedCriteria?: readonly string[];
+      readonly nextCheckMs?: number;
+      readonly heartbeatMs?: number;
+      readonly requiresUserStop?: boolean;
+    },
+    reason = "Updated the run constraints.",
+  ): Promise<boolean> {
+    const now = this.now();
+    const apply = (run: ActiveBackgroundRun): void => {
+      const nextContract: BackgroundRunContract = {
+        ...run.contract,
+        successCriteria: normalizeOperatorStringList(
+          constraints.successCriteria,
+          run.contract.successCriteria,
+        ),
+        completionCriteria: normalizeOperatorStringList(
+          constraints.completionCriteria,
+          run.contract.completionCriteria,
+        ),
+        blockedCriteria: normalizeOperatorStringList(
+          constraints.blockedCriteria,
+          run.contract.blockedCriteria,
+        ),
+        nextCheckMs: clampPollIntervalMs(
+          constraints.nextCheckMs ?? run.contract.nextCheckMs,
+        ),
+        heartbeatMs:
+          constraints.heartbeatMs !== undefined
+            ? normalizePositiveInteger(constraints.heartbeatMs) ??
+              run.contract.heartbeatMs
+            : run.contract.heartbeatMs,
+        requiresUserStop:
+          constraints.requiresUserStop ?? run.contract.requiresUserStop,
+      };
+      assertValidAgentRunContract(nextContract, "amendRunConstraints");
+      run.contract = nextContract;
+      run.updatedAt = now;
+      run.lastWakeReason = "user_input";
+      run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+      run.lastHeartbeatContent = undefined;
+      clearRunBlockers(run);
+      run.budgetState = {
+        ...run.budgetState,
+        nextCheckIntervalMs: nextContract.nextCheckMs,
+        heartbeatIntervalMs: nextContract.heartbeatMs,
+        maxIdleMs: nextContract.requiresUserStop
+          ? undefined
+          : run.budgetState.maxIdleMs ?? DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
+      };
+      recordRunActivity(run, now, "progress");
+    };
+    const run = this.activeRuns.get(sessionId);
+    if (run) {
+      apply(run);
+      await this.persistRun(run, {
+        type: "run_contract_amended",
+        summary: truncate(`Background run constraints updated: ${reason}`, 200),
+        timestamp: now,
+      });
+      await this.publishUpdate(sessionId, truncate(reason, MAX_USER_UPDATE_CHARS));
+      if (run.state !== "running" && run.state !== "paused") {
+        await this.enqueueDispatchForSession({
+          sessionId,
+          reason: "user_input",
+          availableAt: now,
+          preferredWorkerId: run.preferredWorkerId,
+        });
+      }
+      return true;
+    }
+
+    const lease = await this.runStore.claimLease(sessionId, this.instanceId, now);
+    if (!lease.claimed || !lease.run) {
+      return false;
+    }
+    const persistedRun = toActiveRun(lease.run);
+    apply(persistedRun);
+    await this.runStore.releaseLease(sessionId, this.instanceId, now, {
+      ...toPersistedRun(persistedRun),
+    });
+    await this.runStore.saveRecentSnapshot(toRecentSnapshot(persistedRun, 0));
+    this.rememberStatusSnapshot(persistedRun, 0);
+    await this.runStore.appendEvent(toPersistedRun(persistedRun), {
+      type: "run_contract_amended",
+      summary: truncate(`Background run constraints updated: ${reason}`, 200),
+      timestamp: now,
+    });
+    await this.publishUpdate(sessionId, truncate(reason, MAX_USER_UPDATE_CHARS));
+    if (persistedRun.state !== "paused") {
+      await this.enqueueDispatchForSession({
+        sessionId,
+        reason: "user_input",
+        availableAt: now,
+        preferredWorkerId: persistedRun.preferredWorkerId,
+      });
+    }
+    return true;
+  }
+
+  async adjustRunBudget(
+    sessionId: string,
+    budget: {
+      readonly maxRuntimeMs?: number;
+      readonly maxCycles?: number;
+      readonly maxIdleMs?: number;
+    },
+    reason = "Adjusted the run budget.",
+  ): Promise<boolean> {
+    const now = this.now();
+    const apply = (run: ActiveBackgroundRun): void => {
+      run.updatedAt = now;
+      run.lastWakeReason = "user_input";
+      run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+      run.budgetState = {
+        ...run.budgetState,
+        maxRuntimeMs:
+          normalizePositiveInteger(budget.maxRuntimeMs) ??
+          run.budgetState.maxRuntimeMs,
+        maxCycles:
+          normalizePositiveInteger(budget.maxCycles) ?? run.budgetState.maxCycles,
+        maxIdleMs:
+          budget.maxIdleMs !== undefined
+            ? normalizePositiveInteger(budget.maxIdleMs) ??
+              run.budgetState.maxIdleMs
+            : run.budgetState.maxIdleMs,
+      };
+      recordRunActivity(run, now, "progress");
+    };
+    const run = this.activeRuns.get(sessionId);
+    if (run) {
+      apply(run);
+      await this.persistRun(run, {
+        type: "run_budget_adjusted",
+        summary: truncate(`Background run budget adjusted: ${reason}`, 200),
+        timestamp: now,
+        data: { ...budget },
+      });
+      await this.publishUpdate(sessionId, truncate(reason, MAX_USER_UPDATE_CHARS));
+      return true;
+    }
+
+    const lease = await this.runStore.claimLease(sessionId, this.instanceId, now);
+    if (!lease.claimed || !lease.run) {
+      return false;
+    }
+    const persistedRun = toActiveRun(lease.run);
+    apply(persistedRun);
+    await this.runStore.releaseLease(sessionId, this.instanceId, now, {
+      ...toPersistedRun(persistedRun),
+    });
+    await this.runStore.saveRecentSnapshot(toRecentSnapshot(persistedRun, 0));
+    this.rememberStatusSnapshot(persistedRun, 0);
+    await this.runStore.appendEvent(toPersistedRun(persistedRun), {
+      type: "run_budget_adjusted",
+      summary: truncate(`Background run budget adjusted: ${reason}`, 200),
+      timestamp: now,
+      data: { ...budget },
+    });
+    await this.publishUpdate(sessionId, truncate(reason, MAX_USER_UPDATE_CHARS));
+    return true;
+  }
+
+  async forceCompactRun(
+    sessionId: string,
+    reason = "Forced a carry-forward refresh for this run.",
+  ): Promise<boolean> {
+    const now = this.now();
+    const run = this.activeRuns.get(sessionId);
+    if (run) {
+      await this.refreshCarryForwardState({ run, force: true });
+      run.updatedAt = now;
+      run.lastWakeReason = "user_input";
+      run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+      await this.persistRun(run, {
+        type: "run_compaction_forced",
+        summary: truncate(reason, 200),
+        timestamp: now,
+      });
+      await this.publishUpdate(sessionId, run.lastUserUpdate);
+      return true;
+    }
+
+    const lease = await this.runStore.claimLease(sessionId, this.instanceId, now);
+    if (!lease.claimed || !lease.run) {
+      return false;
+    }
+    const persistedRun = toActiveRun(lease.run);
+    await this.refreshCarryForwardState({ run: persistedRun, force: true });
+    persistedRun.updatedAt = now;
+    persistedRun.lastWakeReason = "user_input";
+    persistedRun.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+    await this.runStore.releaseLease(sessionId, this.instanceId, now, {
+      ...toPersistedRun(persistedRun),
+    });
+    await this.runStore.saveRecentSnapshot(toRecentSnapshot(persistedRun, 0));
+    this.rememberStatusSnapshot(persistedRun, 0);
+    await this.runStore.appendEvent(toPersistedRun(persistedRun), {
+      type: "run_compaction_forced",
+      summary: truncate(reason, 200),
+      timestamp: now,
+    });
+    await this.publishUpdate(sessionId, persistedRun.lastUserUpdate);
+    return true;
+  }
+
+  async reassignRunWorker(
+    sessionId: string,
+    worker: {
+      readonly preferredWorkerId?: string;
+      readonly workerAffinityKey?: string;
+    },
+    reason = "Updated worker assignment for this run.",
+  ): Promise<boolean> {
+    const now = this.now();
+    const apply = (run: ActiveBackgroundRun): void => {
+      run.updatedAt = now;
+      run.lastWakeReason = "user_input";
+      run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+      run.preferredWorkerId = worker.preferredWorkerId?.trim() || undefined;
+      run.workerAffinityKey =
+        worker.workerAffinityKey?.trim() || resolveWorkerAffinityKey(run);
+      recordRunActivity(run, now, "progress");
+    };
+    const run = this.activeRuns.get(sessionId);
+    if (run) {
+      apply(run);
+      await this.persistRun(run, {
+        type: "run_worker_reassigned",
+        summary: truncate(reason, 200),
+        timestamp: now,
+        data: {
+          preferredWorkerId: run.preferredWorkerId,
+          workerAffinityKey: run.workerAffinityKey,
+        },
+      });
+      await this.publishUpdate(sessionId, run.lastUserUpdate ?? truncate(reason, MAX_USER_UPDATE_CHARS));
+      if (run.state !== "running" && run.state !== "paused") {
+        await this.enqueueDispatchForSession({
+          sessionId,
+          reason: "user_input",
+          availableAt: now,
+          preferredWorkerId: run.preferredWorkerId,
+        });
+      }
+      return true;
+    }
+
+    const lease = await this.runStore.claimLease(sessionId, this.instanceId, now);
+    if (!lease.claimed || !lease.run) {
+      return false;
+    }
+    const persistedRun = toActiveRun(lease.run);
+    apply(persistedRun);
+    await this.runStore.releaseLease(sessionId, this.instanceId, now, {
+      ...toPersistedRun(persistedRun),
+    });
+    await this.runStore.saveRecentSnapshot(toRecentSnapshot(persistedRun, 0));
+    this.rememberStatusSnapshot(persistedRun, 0);
+    await this.runStore.appendEvent(toPersistedRun(persistedRun), {
+      type: "run_worker_reassigned",
+      summary: truncate(reason, 200),
+      timestamp: now,
+      data: {
+        preferredWorkerId: persistedRun.preferredWorkerId,
+        workerAffinityKey: persistedRun.workerAffinityKey,
+      },
+    });
+    await this.publishUpdate(sessionId, persistedRun.lastUserUpdate ?? truncate(reason, MAX_USER_UPDATE_CHARS));
+    if (persistedRun.state !== "paused") {
+      await this.enqueueDispatchForSession({
+        sessionId,
+        reason: "user_input",
+        availableAt: now,
+        preferredWorkerId: persistedRun.preferredWorkerId,
+      });
+    }
+    return true;
+  }
+
+  async retryRunFromCheckpoint(
+    sessionId: string,
+    reason = "Retrying the run from its last durable checkpoint.",
+  ): Promise<boolean> {
+    const now = this.now();
+    const checkpoint =
+      (await this.runStore.loadRun(sessionId)) ??
+      (await this.runStore.loadCheckpoint(sessionId));
+    if (!checkpoint) {
+      return false;
+    }
+
+    const run = toActiveRun(checkpoint);
+    run.state = "working";
+    run.updatedAt = now;
+    run.nextCheckAt = undefined;
+    run.nextHeartbeatAt = undefined;
+    run.lastWakeReason = "user_input";
+    run.lastHeartbeatContent = undefined;
+    run.lastUserUpdate = truncate(reason, MAX_USER_UPDATE_CHARS);
+    run.pendingSignals = [];
+    run.leaseOwnerId = undefined;
+    run.leaseExpiresAt = undefined;
+    run.preferredWorkerId = this.instanceId;
+    run.workerAffinityKey = resolveWorkerAffinityKey(run);
+    clearRunBlockers(run);
+    recordRunActivity(run, now, "progress");
+
+    await this.persistRun(run, {
+      type: "run_retried",
+      summary: truncate(`Background run retried: ${reason}`, 200),
+      timestamp: now,
+    });
+    await this.runStore.saveCheckpoint(toPersistedRun(run));
+    await this.publishUpdate(sessionId, run.lastUserUpdate);
+    await this.enqueueDispatchForSession({
+      sessionId,
+      reason: "recovery",
+      availableAt: now,
+      preferredWorkerId: run.preferredWorkerId,
+    });
+    return true;
+  }
+
+  async applyVerificationOverride(
+    sessionId: string,
+    override: {
+      readonly mode: "continue" | "complete" | "fail";
+      readonly reason: string;
+      readonly userUpdate?: string;
+    },
+  ): Promise<boolean> {
+    const summary = truncate(
+      `Operator verification override (${override.mode}): ${override.reason}`,
+      200,
+    );
+    if (override.mode === "continue") {
+      const retried = await this.retryRunFromCheckpoint(
+        sessionId,
+        override.userUpdate ??
+          `Operator override: continue. ${override.reason}`,
+      );
+      if (retried) {
+        const detail = await this.getOperatorDetail(sessionId);
+        const runId = detail?.runId;
+        if (runId) {
+          const runRef = {
+            id: runId,
+            sessionId,
+          };
+          await this.runStore.appendEvent(runRef, {
+            type: "run_verification_overridden",
+            summary,
+            timestamp: this.now(),
+            data: { mode: override.mode },
+          });
+        }
+      }
+      return retried;
+    }
+
+    const activeRun = this.activeRuns.get(sessionId);
+    const checkpoint =
+      activeRun
+        ? undefined
+        : (await this.runStore.loadRun(sessionId)) ??
+          (await this.runStore.loadCheckpoint(sessionId));
+    const run = activeRun ?? (checkpoint ? toActiveRun(checkpoint) : undefined);
+    if (!run) {
+      return false;
+    }
+    await this.runStore.appendEvent(toPersistedRun(run), {
+      type: "run_verification_overridden",
+      summary,
+      timestamp: this.now(),
+      data: { mode: override.mode },
+    });
+    await this.finishRun(run, {
+      state: override.mode === "complete" ? "completed" : "failed",
+      userUpdate:
+        override.userUpdate ??
+        `Operator override recorded: ${override.reason}`,
+      internalSummary: summary,
+      shouldNotifyUser: true,
+    });
+    return true;
   }
 
   async shutdown(): Promise<void> {
@@ -4766,11 +5664,15 @@ export class BackgroundRunSupervisor {
         actorResult = nativeCycle.actorResult;
         decision = toDecisionFromDomainVerification(nativeCycle.verification);
       } else {
-        const toolRoutingDecision = this.buildToolRoutingDecision?.(
+        const baseToolRoutingDecision = this.buildToolRoutingDecision?.(
           sessionId,
           actorPrompt,
           run.internalHistory,
         );
+        const toolRoutingDecision = applyRunToolScopeDecision({
+          allowedTools: getScopedAllowedTools(run),
+          toolRoutingDecision: baseToolRoutingDecision,
+        });
         const abortSignal = run.abortController?.signal;
         if (!abortSignal) {
           throw new Error("Background cycle missing abort signal");
@@ -5317,13 +6219,30 @@ export class BackgroundRunSupervisor {
   ): Promise<void> {
     refreshDerivedBudgetState(run);
     this.resolveRunPolicyScope(run);
-    this.rememberStatusSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId));
-    await this.runStore.saveRun(toPersistedRun(run));
-    await this.runStore.saveRecentSnapshot(
-      toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
-    );
+    const queuedSignals = this.wakeBus.getQueuedCount(run.sessionId);
+    const persistedRun = toPersistedRun(run);
+    const recentSnapshot = toRecentSnapshot(run, queuedSignals);
+    this.rememberStatusSnapshot(run, queuedSignals);
+    await this.runStore.saveRun(persistedRun);
+    await this.runStore.saveRecentSnapshot(recentSnapshot);
     if (event) {
-      await this.runStore.appendEvent(toPersistedRun(run), event);
+      await this.runStore.appendEvent(persistedRun, event);
+      if (this.notifier?.isEnabled()) {
+        const summary = toOperatorSummary({
+          snapshot: recentSnapshot,
+          contract: persistedRun.contract,
+          blocker: persistedRun.blocker,
+          approvalState: persistedRun.approvalState,
+          checkpointAvailable: false,
+          now: this.now(),
+        });
+        await this.notifier.notify({
+          occurredAt: event.timestamp,
+          internalEventType: event.type,
+          summary: event.summary,
+          run: summary,
+        });
+      }
     }
   }
 
@@ -5463,6 +6382,7 @@ export class BackgroundRunSupervisor {
     }
     this.activeRuns.delete(run.sessionId);
     this.forgetStatusSnapshot(run.sessionId);
+    await this.runStore.saveCheckpoint(toPersistedRun(run));
     await this.runStore.saveRecentSnapshot(
       toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
     );
@@ -5499,6 +6419,25 @@ export class BackgroundRunSupervisor {
             }
           : undefined,
     });
+    if (this.notifier?.isEnabled()) {
+      const summary = toOperatorSummary({
+        snapshot: toRecentSnapshot(run, this.wakeBus.getQueuedCount(run.sessionId)),
+        contract: run.contract,
+        blocker: run.blocker,
+        approvalState: run.approvalState,
+        checkpointAvailable: true,
+        now: this.now(),
+      });
+      await this.notifier.notify({
+        occurredAt: this.now(),
+        internalEventType: eventType,
+        summary: truncate(
+          `Background run ${decision.state}: ${decision.internalSummary}`,
+          200,
+        ),
+        run: summary,
+      });
+    }
     const latencyMs = Math.max(0, run.updatedAt - run.createdAt);
     this.recordRunTelemetry(
       TELEMETRY_METRIC_NAMES.BACKGROUND_RUN_LATENCY_MS,

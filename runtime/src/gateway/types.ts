@@ -503,6 +503,81 @@ export interface GatewaySocialConfig {
   reputationEnabled?: boolean;
 }
 
+export type GatewayBackgroundRunNotificationEvent =
+  | "run_started"
+  | "run_updated"
+  | "run_blocked"
+  | "run_completed"
+  | "run_failed"
+  | "run_cancelled"
+  | "run_controlled";
+
+export type GatewayBackgroundRunNotificationSinkType =
+  | "webhook"
+  | "slack_webhook"
+  | "discord_webhook"
+  | "email_webhook"
+  | "mobile_push_webhook";
+
+export interface GatewayBackgroundRunNotificationSink {
+  readonly id: string;
+  readonly type: GatewayBackgroundRunNotificationSinkType;
+  readonly url: string;
+  readonly enabled?: boolean;
+  readonly events?: readonly GatewayBackgroundRunNotificationEvent[];
+  readonly sessionIds?: readonly string[];
+  readonly headers?: Record<string, string>;
+  readonly signingSecret?: string;
+  readonly recipient?: string;
+}
+
+export interface GatewayBackgroundRunNotificationConfig {
+  readonly enabled?: boolean;
+  readonly sinks?: readonly GatewayBackgroundRunNotificationSink[];
+}
+
+export interface GatewayAutonomyFeatureFlags {
+  readonly backgroundRuns?: boolean;
+  readonly multiAgent?: boolean;
+  readonly notifications?: boolean;
+  readonly replayGates?: boolean;
+  readonly canaryRollout?: boolean;
+}
+
+export interface GatewayAutonomyKillSwitches {
+  readonly backgroundRuns?: boolean;
+  readonly multiAgent?: boolean;
+  readonly notifications?: boolean;
+  readonly replayGates?: boolean;
+  readonly canaryRollout?: boolean;
+}
+
+export interface GatewayAutonomySloTargets {
+  readonly runStartLatencyMs?: number;
+  readonly updateCadenceMs?: number;
+  readonly completionAccuracyRate?: number;
+  readonly recoverySuccessRate?: number;
+  readonly stopLatencyMs?: number;
+  readonly eventLossRate?: number;
+}
+
+export interface GatewayAutonomyCanaryConfig {
+  readonly enabled?: boolean;
+  readonly tenantAllowList?: readonly string[];
+  readonly featureAllowList?: readonly string[];
+  readonly domainAllowList?: readonly string[];
+  readonly percentage?: number;
+}
+
+export interface GatewayAutonomyConfig {
+  readonly enabled?: boolean;
+  readonly featureFlags?: GatewayAutonomyFeatureFlags;
+  readonly killSwitches?: GatewayAutonomyKillSwitches;
+  readonly notifications?: GatewayBackgroundRunNotificationConfig;
+  readonly slo?: GatewayAutonomySloTargets;
+  readonly canary?: GatewayAutonomyCanaryConfig;
+}
+
 export interface GatewayConfig {
   gateway: GatewayBindConfig;
   agent: GatewayAgentConfig;
@@ -525,6 +600,8 @@ export interface GatewayConfig {
   marketplace?: GatewayMarketplaceConfig;
   /** Social module: discovery, messaging, feed, reputation, collaboration */
   social?: GatewaySocialConfig;
+  /** Runtime autonomy controls, notifications, and rollout policy. */
+  autonomy?: GatewayAutonomyConfig;
 }
 
 // ============================================================================
@@ -573,6 +650,7 @@ export interface GatewayBackgroundRunMetrics {
 }
 
 export interface GatewayBackgroundRunStatus {
+  readonly multiAgentEnabled: boolean;
   readonly activeTotal: number;
   readonly queuedSignalsTotal: number;
   readonly stateCounts: Record<

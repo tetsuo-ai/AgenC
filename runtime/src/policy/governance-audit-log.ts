@@ -29,7 +29,8 @@ export type GovernanceAuditEventType =
   | "approval.escalated"
   | "approval.resolved"
   | "credential.issued"
-  | "credential.revoked";
+  | "credential.revoked"
+  | "run.controlled";
 
 export interface GovernanceAuditEvent {
   type: GovernanceAuditEventType;

@@ -217,6 +217,15 @@ jobs:
             --fail-fast-harmful-delegation-rate "${PIPELINE_FAIL_FAST_HARMFUL_DELEGATION_RATE}" \
             --fail-fast-runaway-cap-hit-rate "${PIPELINE_FAIL_FAST_RUNAWAY_CAP_HIT_RATE}"
 
+      - name: Enforce autonomy rollout gates
+        run: |
+          npx tsx runtime/scripts/check-autonomy-rollout-gates.ts \
+            --config runtime/benchmarks/autonomy-gateway.ci.json \
+            --artifact runtime/benchmarks/artifacts/background-run-quality.ci.json \
+            --delegation-artifact runtime/benchmarks/artifacts/delegation-benchmark.latest.json \
+            --manifest docs/autonomy-runtime-rollout.manifest.json \
+            --mode limited
+
       - name: Upload reliability artifacts
         uses: actions/upload-artifact@v4
         with:

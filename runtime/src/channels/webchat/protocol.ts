@@ -79,6 +79,12 @@ export const WS_DESKTOP_DESTROY = "desktop.destroy" as const;
 export const WS_DESKTOP_DESTROYED = "desktop.destroyed" as const;
 export const WS_DESKTOP_ERROR = "desktop.error" as const;
 
+// Durable runs
+export const WS_RUNS_LIST = "runs.list" as const;
+export const WS_RUN_INSPECT = "run.inspect" as const;
+export const WS_RUN_CONTROL = "run.control" as const;
+export const WS_RUN_UPDATED = "run.updated" as const;
+
 // Approval
 export const WS_APPROVAL_REQUEST = "approval.request" as const;
 

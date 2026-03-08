@@ -1917,6 +1917,118 @@ describe("DaemonManager", () => {
       }),
     );
   });
+
+  it("audits operator background-run controls through the governance log", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const applyOperatorControl = vi.fn().mockResolvedValue({
+      runId: "run-session-owned",
+      sessionId: "session-owned",
+      objective: "Watch the managed process.",
+      state: "paused",
+      currentPhase: "paused",
+      explanation:
+        "Run is paused by an operator and will not make progress until resumed.",
+      unsafeToContinue: false,
+      createdAt: 1,
+      updatedAt: 2,
+      cycleCount: 1,
+      contractKind: "finite",
+      contractDomain: "generic",
+      requiresUserStop: false,
+      pendingSignals: 0,
+      watchCount: 1,
+      fenceToken: 1,
+      approvalRequired: false,
+      approvalState: "none",
+      checkpointAvailable: true,
+      contract: {
+        domain: "generic",
+        kind: "finite",
+        successCriteria: ["Observe completion."],
+        completionCriteria: ["Verify terminal evidence."],
+        blockedCriteria: ["Missing evidence."],
+        nextCheckMs: 4_000,
+        heartbeatMs: 12_000,
+        requiresUserStop: false,
+        managedProcessPolicy: { mode: "none" },
+      },
+      approval: { status: "none", summary: undefined },
+      budget: {
+        runtimeStartedAt: 1,
+        lastActivityAt: 2,
+        lastProgressAt: 2,
+        totalTokens: 4,
+        lastCycleTokens: 2,
+        managedProcessCount: 1,
+        maxRuntimeMs: 60_000,
+        maxCycles: 32,
+        maxIdleMs: 10_000,
+        nextCheckIntervalMs: 4_000,
+        heartbeatIntervalMs: 12_000,
+        firstAcknowledgedAt: 1,
+        firstVerifiedUpdateAt: 2,
+        stopRequestedAt: undefined,
+      },
+      compaction: {
+        lastCompactedAt: undefined,
+        lastCompactedCycle: 0,
+        refreshCount: 0,
+        lastHistoryLength: 4,
+        lastMilestoneAt: undefined,
+        lastCompactionReason: undefined,
+        repairCount: 0,
+        lastProviderAnchorAt: undefined,
+      },
+      artifacts: [],
+      observedTargets: [],
+      watchRegistrations: [],
+      recentEvents: [],
+      policyScope: {
+        tenantId: "tenant-a",
+        projectId: "project-x",
+        runId: "run-session-owned",
+      },
+    });
+    const appendGovernanceAuditEvent = vi.fn().mockResolvedValue(undefined);
+
+    (dm as any)._backgroundRunSupervisor = { applyOperatorControl };
+    (dm as any).appendGovernanceAuditEvent = appendGovernanceAuditEvent;
+
+    const detail = await (dm as any).controlOwnedBackgroundRun({
+      action: {
+        action: "pause",
+        sessionId: "session-owned",
+        reason: "operator pause",
+      },
+      actor: "operator-1",
+      channel: "webchat",
+    });
+
+    expect(detail?.sessionId).toBe("session-owned");
+    expect(applyOperatorControl).toHaveBeenCalledWith({
+      action: "pause",
+      sessionId: "session-owned",
+      reason: "operator pause",
+    });
+    expect(appendGovernanceAuditEvent).toHaveBeenCalledWith({
+      type: "run.controlled",
+      actor: "webchat:operator-1",
+      subject: "session-owned",
+      scope: {
+        tenantId: "tenant-a",
+        projectId: "project-x",
+        runId: "run-session-owned",
+        sessionId: "session-owned",
+        channel: "webchat",
+      },
+      payload: {
+        action: "pause",
+        state: "paused",
+        currentPhase: "paused",
+        unsafeToContinue: false,
+      },
+    });
+  });
 });
 
 // ============================================================================

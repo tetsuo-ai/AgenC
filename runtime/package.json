@@ -41,6 +41,7 @@
     "benchmark:background-runs": "npx tsx scripts/run-background-run-quality.ts",
     "benchmark:background-runs:ci": "npx tsx scripts/run-background-run-quality.ts --output benchmarks/artifacts/background-run-quality.ci.json",
     "benchmark:background-runs:gates": "npx tsx scripts/check-background-run-gates.ts",
+    "autonomy:rollout:gates": "npx tsx scripts/check-autonomy-rollout-gates.ts --mode limited",
     "benchmark:delegation": "npx tsx scripts/run-delegation-benchmarks.ts --output benchmarks/artifacts/delegation-benchmark.latest.json",
     "benchmark:delegation:ci": "npx tsx scripts/run-pipeline-quality.ts --output benchmarks/artifacts/delegation-quality.ci.json --desktop-runs 0 --delegation-k 2",
     "benchmark:delegation:gates": "npx tsx scripts/check-pipeline-gates.ts --artifact benchmarks/artifacts/delegation-quality.ci.json",
@@ -81,10 +82,12 @@
     "ws": "^8.0.0"
   },
   "overrides": {
+    "express-rate-limit": "^8.2.2",
     "matrix-js-sdk": "^38.2.0",
     "undici": "^6.23.0"
   },
   "resolutions": {
+    "express-rate-limit": "^8.2.2",
     "matrix-js-sdk": "^38.2.0",
     "undici": "^6.23.0"
   },
