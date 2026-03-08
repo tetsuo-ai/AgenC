@@ -7,30 +7,27 @@
 import { existsSync } from "fs";
 import { readdir, readFile } from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCommand } from "@agenc/runtime";
 import { toolTextResponse, withToolErrorResponse } from "./response.js";
 
-const MODULE_DIR =
-  typeof __dirname !== "undefined"
-    ? __dirname
-    : path.dirname(fileURLToPath(import.meta.url));
+const MODULE_DIR = typeof __dirname !== "undefined" ? __dirname : process.cwd();
 
 /** Root of the AgenC repository (parent of mcp/).
  *  When bundled into dist/index.cjs, __dirname is mcp/dist/ (2 up).
  *  When running from source, __dirname is mcp/src/tools/ (4 up).
  *  We detect by checking if Anchor.toml exists at the resolved path. */
 function findProjectRoot(): string {
+  const cwd = process.cwd();
+  if (existsSync(path.join(cwd, "Anchor.toml"))) return cwd;
   // Try bundled path first (mcp/dist/ -> 2 up)
   const bundled = path.resolve(MODULE_DIR, "..", "..");
   if (existsSync(path.join(bundled, "Anchor.toml"))) return bundled;
   // Try source path (mcp/src/tools/ -> 4 up)
   const source = path.resolve(MODULE_DIR, "..", "..", "..", "..");
   if (existsSync(path.join(source, "Anchor.toml"))) return source;
-  // Fallback to cwd
-  return process.cwd();
+  return cwd;
 }
 const PROJECT_ROOT = findProjectRoot();
 // Security: Only pass necessary env vars to test child processes.
