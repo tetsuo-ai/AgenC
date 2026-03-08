@@ -632,6 +632,47 @@ function validateLlmStatefulResponsesSection(
   ) {
     errors.push("llm.statefulResponses.fallbackToStateless must be a boolean");
   }
+
+  const compactionValue = statefulResponsesValue.compaction;
+  if (compactionValue === undefined) {
+    return;
+  }
+  if (!isRecord(compactionValue)) {
+    errors.push("llm.statefulResponses.compaction must be an object");
+    return;
+  }
+
+  if (
+    compactionValue.enabled !== undefined &&
+    typeof compactionValue.enabled !== "boolean"
+  ) {
+    errors.push("llm.statefulResponses.compaction.enabled must be a boolean");
+  }
+  if (compactionValue.compactThreshold !== undefined) {
+    requireIntRange(
+      compactionValue.compactThreshold,
+      "llm.statefulResponses.compaction.compactThreshold",
+      1,
+      Number.MAX_SAFE_INTEGER,
+      errors,
+    );
+  }
+  if (
+    compactionValue.fallbackOnUnsupported !== undefined &&
+    typeof compactionValue.fallbackOnUnsupported !== "boolean"
+  ) {
+    errors.push(
+      "llm.statefulResponses.compaction.fallbackOnUnsupported must be a boolean",
+    );
+  }
+  if (
+    compactionValue.enabled === true &&
+    compactionValue.compactThreshold === undefined
+  ) {
+    errors.push(
+      "llm.statefulResponses.compaction.compactThreshold is required when compaction.enabled is true",
+    );
+  }
 }
 
 function validateLlmToolRoutingSection(

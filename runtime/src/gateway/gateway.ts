@@ -5,6 +5,7 @@
  * @module
  */
 
+import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { safeStringify } from "../tools/types.js";
@@ -29,6 +30,7 @@ import {
   GatewayConnectionError,
 } from "./errors.js";
 import { verifyToken } from "./jwt.js";
+import { WebhookRouteRegistry, type WebhookRoute } from "./webhooks.js";
 import {
   ConfigWatcher,
   diffGatewayConfig,
@@ -56,8 +58,9 @@ interface WsWebSocketServer {
 
 interface WsModule {
   WebSocketServer: new (opts: {
-    port: number;
+    port?: number;
     host?: string;
+    server?: HttpServer;
   }) => WsWebSocketServer;
 }
 
@@ -87,6 +90,7 @@ export class Gateway {
 
   private startedAt = 0;
   private wss: WsWebSocketServer | null = null;
+  private httpServer: HttpServer | null = null;
   private configWatcher: ConfigWatcher | null = null;
   private readonly channels = new Map<string, ChannelHandle>();
   private readonly listeners = new Map<
@@ -97,6 +101,7 @@ export class Gateway {
   private readonly wsClients = new Map<string, WsWebSocket>();
   private readonly authenticatedClients = new Set<string>();
   private webChatHandler: WebChatHandler | null = null;
+  private readonly webhookRoutes = new WebhookRouteRegistry();
 
   constructor(config: GatewayConfig, options?: GatewayOptions) {
     this._config = config;
@@ -206,6 +211,15 @@ export class Gateway {
     this.webChatHandler = handler;
   }
 
+  registerWebhookRoute(route: WebhookRoute): void {
+    if (!this.webhookRoutes.add(route)) {
+      throw new GatewayValidationError(
+        "webhook.path",
+        `Webhook route "${route.method} ${route.path}" is already registered`,
+      );
+    }
+  }
+
   // --------------------------------------------------------------------------
   // Channel Registry
   // --------------------------------------------------------------------------
@@ -312,6 +326,119 @@ export class Gateway {
   // WebSocket Control Plane
   // --------------------------------------------------------------------------
 
+  private async handleHttpRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const method = (request.method ?? "GET").toUpperCase();
+    const requestUrl = new URL(
+      request.url ?? "/",
+      `http://${request.headers.host ?? "127.0.0.1"}`,
+    );
+    const match = this.webhookRoutes.match(method, requestUrl.pathname);
+    if (!match) {
+      response.statusCode = 404;
+      response.setHeader("content-type", "application/json");
+      response.end(safeStringify({ error: "Not found" }));
+      return;
+    }
+
+    try {
+      const body = await this.readHttpRequestBody(request);
+      const headers = Object.fromEntries(
+        Object.entries(request.headers).map(([key, value]) => [
+          key.toLowerCase(),
+          Array.isArray(value) ? value.join(", ") : (value ?? ""),
+        ]),
+      );
+      const query: Record<string, string> = {};
+      for (const [key, value] of requestUrl.searchParams.entries()) {
+        query[key] = value;
+      }
+      const webhookResponse = await match.route.handler({
+        method,
+        path: requestUrl.pathname,
+        headers,
+        body,
+        query,
+        params: match.params,
+        remoteAddress: request.socket.remoteAddress,
+      });
+      this.sendHttpResponse(response, webhookResponse.status, webhookResponse.body, webhookResponse.headers);
+    } catch (error) {
+      if (error instanceof GatewayValidationError) {
+        this.sendHttpResponse(response, 400, { error: error.message });
+        return;
+      }
+      this.logger.error("HTTP webhook handling failed:", error);
+      this.sendHttpResponse(response, 500, { error: "Internal server error" });
+    }
+  }
+
+  private async readHttpRequestBody(request: IncomingMessage): Promise<unknown> {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    const MAX_BODY_BYTES = 1_048_576;
+
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.byteLength;
+      if (totalBytes > MAX_BODY_BYTES) {
+        throw new GatewayValidationError(
+          "webhook.body",
+          `Webhook body exceeds ${MAX_BODY_BYTES} bytes`,
+        );
+      }
+      chunks.push(buffer);
+    }
+
+    const rawBody = Buffer.concat(chunks).toString("utf8");
+    if (rawBody.trim().length === 0) {
+      return {};
+    }
+
+    const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
+    if (contentType.includes("application/json")) {
+      try {
+        return JSON.parse(rawBody) as unknown;
+      } catch {
+        throw new GatewayValidationError("webhook.body", "Invalid JSON body");
+      }
+    }
+
+    return rawBody;
+  }
+
+  private sendHttpResponse(
+    response: ServerResponse,
+    status: number,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): void {
+    response.statusCode = status;
+    for (const [key, value] of Object.entries(headers ?? {})) {
+      response.setHeader(key, value);
+    }
+
+    if (body === undefined) {
+      response.end();
+      return;
+    }
+
+    if (typeof body === "string" || Buffer.isBuffer(body)) {
+      if (!response.hasHeader("content-type")) {
+        response.setHeader("content-type", "text/plain; charset=utf-8");
+      }
+      response.end(body);
+      return;
+    }
+
+    if (!response.hasHeader("content-type")) {
+      response.setHeader("content-type", "application/json");
+    }
+    response.end(safeStringify(body));
+  }
+
   private async startControlPlane(): Promise<void> {
     const wsMod = await ensureLazyModule<WsModule>(
       "ws",
@@ -328,9 +455,26 @@ export class Gateway {
       );
     }
 
+    this.httpServer = createServer((request, response) => {
+      void this.handleHttpRequest(request, response);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => {
+        this.httpServer?.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = (): void => {
+        this.httpServer?.off("error", onError);
+        resolve();
+      };
+      this.httpServer!.once("error", onError);
+      this.httpServer!.once("listening", onListening);
+      this.httpServer!.listen(port, host);
+    });
+
     this.wss = new wsMod.WebSocketServer({
-      port,
-      host,
+      server: this.httpServer,
     });
 
     this.wss.on("connection", (...args: unknown[]) => {
@@ -399,8 +543,23 @@ export class Gateway {
       }
       this.authenticatedClients.clear();
 
+      const finalize = (): void => {
+        const server = this.httpServer;
+        this.httpServer = null;
+        if (!server) {
+          resolve();
+          return;
+        }
+        server.close((err) => {
+          if (err) {
+            this.logger.error("Error closing HTTP server:", err);
+          }
+          resolve();
+        });
+      };
+
       if (!this.wss) {
-        resolve();
+        finalize();
         return;
       }
 
@@ -409,7 +568,7 @@ export class Gateway {
           this.logger.error("Error closing WebSocket server:", err);
         }
         this.wss = null;
-        resolve();
+        finalize();
       });
     });
   }

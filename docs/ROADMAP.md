@@ -3,6 +3,7 @@
 **Prepared for:** Pump Fun Build in Public Hackathon
 **Date:** February 2026
 **Scope:** Software and protocol only (no hardware/OS)
+**Related document:** For the runtime-specific autonomy and durable-task roadmap, see [../TODO.MD](../TODO.MD).
 
 ---
 

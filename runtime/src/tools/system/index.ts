@@ -31,6 +31,11 @@ export {
 } from "./bash.js";
 
 export {
+  createProcessTools,
+  SystemProcessManager,
+} from "./process.js";
+
+export {
   type BashToolConfig,
   type BashToolInput,
   type BashExecutionResult,
@@ -40,4 +45,5 @@ export {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
   DANGEROUS_SHELL_PATTERNS,
+  type SystemProcessToolConfig,
 } from "./types.js";

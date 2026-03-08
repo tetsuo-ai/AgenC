@@ -33,6 +33,26 @@ const TOOLS: LLMTool[] = [
     "desktop.process_stop",
     "Stop a managed background process by processId, label, or pid",
   ),
+  makeTool(
+    "system.processStart",
+    "Start a durable host process handle and return processId, pid, pgid, and logPath",
+  ),
+  makeTool(
+    "system.processStatus",
+    "Inspect a durable host process handle and recent log output",
+  ),
+  makeTool(
+    "system.processResume",
+    "Reattach to a durable host process handle and return current state plus recent log output",
+  ),
+  makeTool(
+    "system.processStop",
+    "Stop a durable host process handle by processId or label",
+  ),
+  makeTool(
+    "system.processLogs",
+    "Read recent persisted logs for a durable host process handle",
+  ),
   makeTool("execute_with_agent", "Delegate a child objective to a subagent"),
   makeTool("system.readFile", "Read a file"),
   makeTool("system.writeFile", "Write a file"),
@@ -44,6 +64,26 @@ const TOOLS: LLMTool[] = [
   makeTool("playwright.browser_click", "Click browser element"),
   makeTool("playwright.browser_snapshot", "Read browser page content"),
   makeTool("playwright.browser_tabs", "List open browser tabs"),
+  makeTool(
+    "system.browserSessionStart",
+    "Start a durable browser session handle and return a stable sessionId",
+  ),
+  makeTool(
+    "system.browserSessionStatus",
+    "Inspect a durable browser session handle and current page state",
+  ),
+  makeTool(
+    "system.browserSessionResume",
+    "Resume a durable browser session with actions like navigate, click, type, screenshot, and exportPdf",
+  ),
+  makeTool(
+    "system.browserSessionArtifacts",
+    "List durable browser session artifacts such as downloads and screenshots",
+  ),
+  makeTool(
+    "system.browserSessionStop",
+    "Stop a durable browser session handle",
+  ),
   makeTool("agenc.createTask", "Create on-chain task"),
   makeTool("agenc.getTask", "Read task details"),
   makeTool("mcp.doom.start_game", "Start a Doom scenario"),
@@ -113,13 +153,37 @@ describe("ToolRouter", () => {
     });
 
     expect(decision.routedToolNames).toContain("playwright.browser_navigate");
-    expect(decision.routedToolNames).toContain("playwright.browser_snapshot");
+    expect(
+      decision.expandedToolNames.some((name) =>
+        name === "playwright.browser_snapshot" ||
+        name === "system.browserSessionStatus" ||
+        name === "system.browserSessionArtifacts"
+      ),
+    ).toBe(true);
     const tabIndex = decision.routedToolNames.indexOf("playwright.browser_tabs");
     if (tabIndex >= 0) {
       expect(
         decision.routedToolNames.indexOf("playwright.browser_navigate"),
       ).toBeLessThan(tabIndex);
     }
+  });
+
+  it("routes durable browser session tools when the prompt names handle-based browser work", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 10,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-browser-session",
+      messageText:
+        "Use system.browserSessionStart, browserSessionResume, and browserSessionArtifacts to capture a screenshot artifact from a browser session",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.browserSessionStart");
+    expect(decision.routedToolNames).toContain("system.browserSessionResume");
+    expect(decision.routedToolNames).toContain("system.browserSessionArtifacts");
   });
 
   it("keeps browser tab tools when the intent explicitly mentions tabs", () => {
@@ -310,6 +374,26 @@ describe("ToolRouter", () => {
     expect(decision.routedToolNames).toContain("desktop.process_start");
     expect(decision.routedToolNames).toContain("desktop.process_status");
     expect(decision.expandedToolNames).toContain("desktop.process_stop");
+  });
+
+  it("pins host process tools when the prompt explicitly names the durable handle family", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 12,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-host-process",
+      messageText:
+        "Use system.processStart, system.processStatus, system.processResume, system.processLogs, and system.processStop for a durable host process handle",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.processStart");
+    expect(decision.routedToolNames).toContain("system.processStatus");
+    expect(decision.routedToolNames).toContain("system.processResume");
+    expect(decision.routedToolNames).toContain("system.processLogs");
+    expect(decision.routedToolNames).toContain("system.processStop");
   });
 
   it("prefers the Doom MCP stop tool over generic process stop tools", () => {

@@ -21,6 +21,7 @@ import type {
   BashToolInput,
   BashExecutionResult,
 } from "./types.js";
+import { tokenizeShellCommand } from "./command-line.js";
 import {
   DEFAULT_DENY_LIST,
   DEFAULT_DENY_PREFIXES,
@@ -214,109 +215,6 @@ function isShellModeCommand(
 ): boolean {
   if (args !== undefined) return false;
   return SHELL_OPERATOR_RE.test(command) || /\s/.test(command);
-}
-
-/**
- * Tokenize a shell command string while preserving shell operators.
- * Used to extract executable candidates for policy checks in shell mode.
- */
-function tokenizeShellCommand(command: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | null = null;
-  let escaping = false;
-
-  const pushCurrent = () => {
-    if (current.length > 0) {
-      tokens.push(current);
-      current = "";
-    }
-  };
-
-  const pushOperator = (operator: string) => {
-    pushCurrent();
-    tokens.push(operator);
-  };
-
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i];
-
-    if (escaping) {
-      current += ch;
-      escaping = false;
-      continue;
-    }
-
-    if (quote !== null) {
-      if (ch === quote) {
-        quote = null;
-        continue;
-      }
-      if (quote === '"' && ch === "\\" && i + 1 < command.length) {
-        i += 1;
-        current += command[i];
-        continue;
-      }
-      current += ch;
-      continue;
-    }
-
-    if (ch === "\\" && i + 1 < command.length) {
-      escaping = true;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      quote = ch;
-      continue;
-    }
-
-    if (ch === "\n") {
-      pushOperator(";");
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      pushCurrent();
-      continue;
-    }
-
-    if (
-      ch === "|" ||
-      ch === "&" ||
-      ch === ";" ||
-      ch === "<" ||
-      ch === ">" ||
-      ch === "(" ||
-      ch === ")" ||
-      ch === "`"
-    ) {
-      const next = command[i + 1] ?? "";
-      const pair = ch + next;
-      if (
-        pair === "||" ||
-        pair === "&&" ||
-        pair === ">>" ||
-        pair === "<<" ||
-        pair === ">&" ||
-        pair === "<&" ||
-        pair === ">|"
-      ) {
-        pushOperator(pair);
-        i += 1;
-        continue;
-      }
-      pushOperator(ch);
-      continue;
-    }
-
-    current += ch;
-  }
-
-  if (escaping) {
-    current += "\\";
-  }
-  pushCurrent();
-
-  return tokens;
 }
 
 const DYNAMIC_SHELL_EXECUTABLE_REASON =

@@ -187,7 +187,7 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
   },
   {
     "name": "process_start",
-    "description": "Start a long-running background process with a real executable plus args. Use this instead of bash for servers, background workers, and GUI apps that you need to inspect or stop later. Returns a stable processId, pid/pgid, logPath, and current state. Shell wrappers like bash -lc are rejected.",
+    "description": "Start a long-running background process with a real executable plus args. Use this instead of bash for servers, background workers, and GUI apps that you need to inspect or stop later. Returns a stable processId, pid/pgid, logPath, and current state, and supports idempotent retries via idempotencyKey. Shell wrappers like bash -lc are rejected.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -215,7 +215,11 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
         },
         "label": {
           "type": "string",
-          "description": "Optional idempotency label. If a running process with the same label exists, it is returned instead of spawning a duplicate."
+          "description": "Stable human-readable handle label. Reuse it to find or stop the same logical process later."
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "description": "Optional idempotency key for deduplicating repeated process_start requests."
         },
         "logPath": {
           "type": "string",
@@ -229,7 +233,7 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
   },
   {
     "name": "process_status",
-    "description": "Get the status of a managed background process started with process_start. Prefer processId from the start result; label or pid are fallbacks. Returns running/exited state, pid/pgid, logPath, and recent output tail.",
+    "description": "Get the status of a managed background process started with process_start. Prefer processId from the start result; idempotencyKey, label, or pid are fallbacks. Returns running/exited state, pid/pgid, logPath, and recent output tail.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -240,6 +244,10 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
         "label": {
           "type": "string",
           "description": "Fallback lookup label when processId is unavailable."
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "description": "Fallback idempotency key when processId is unavailable."
         },
         "pid": {
           "type": "number",
@@ -251,7 +259,7 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
   },
   {
     "name": "process_stop",
-    "description": "Stop a managed background process started with process_start. Sends a signal to the process group, waits for exit, and escalates to SIGKILL if needed. Prefer processId from the start result; label or pid are fallbacks.",
+    "description": "Stop a managed background process started with process_start. Sends a signal to the process group, waits for exit, and escalates to SIGKILL if needed. Prefer processId from the start result; idempotencyKey, label, or pid are fallbacks.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -262,6 +270,10 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
         "label": {
           "type": "string",
           "description": "Fallback lookup label when processId is unavailable."
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "description": "Fallback idempotency key when processId is unavailable."
         },
         "pid": {
           "type": "number",

@@ -421,6 +421,24 @@ describe("delegation-validation", () => {
     ]);
   });
 
+  it("maps generic workspace validation capabilities onto system.bash when desktop shell is unavailable", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task: "workspace_validation",
+        objective: "Run git status --short in the workspace and confirm the command succeeds",
+        requiredToolCapabilities: ["workspace", "command_execution"],
+        acceptanceCriteria: ["The git status command exits successfully"],
+      },
+      parentAllowedTools: ["system.bash"],
+      availableTools: ["system.bash"],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual(["system.bash"]);
+    expect(resolved.semanticFallback).toEqual(["system.bash"]);
+    expect(resolved.blockedReason).toBeUndefined();
+  });
+
   it("prefers provider-native web search over browser tools for research child scope", () => {
     const resolved = resolveDelegatedChildToolScope({
       spec: {

@@ -19,6 +19,12 @@ Architecture reference for the AgenC protocol — designed to provide implementa
 | [runtime-layers.md](runtime-layers.md) | 7-layer module dependency diagram for the runtime |
 | [interfaces.md](interfaces.md) | Class diagrams for 10 key interfaces |
 
+### Architecture Decisions
+
+| Document | Description |
+|----------|-------------|
+| [adr/adr-001-durable-task-runtime.md](adr/adr-001-durable-task-runtime.md) | Canonical durable task runtime contract, lifecycle semantics, and invariants |
+
 ### Flow Diagrams
 
 | Document | Description |

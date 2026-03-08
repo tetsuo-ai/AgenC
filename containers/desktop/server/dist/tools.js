@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { readFile, writeFile, unlink, mkdir, stat, access, open as openFile, rename, } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { resolveValidatedTextEditorPath } from "./textEditorPath.js";
 const DISPLAY = process.env.DISPLAY ?? ":1";
 const EXEC_TIMEOUT_MS = 30_000;
@@ -178,6 +178,9 @@ async function ensureManagedProcessRegistryLoaded() {
             managedProcesses.set(record.processId, {
                 processId: record.processId,
                 label: typeof record.label === "string" ? record.label : undefined,
+                idempotencyKey: typeof record.idempotencyKey === "string"
+                    ? record.idempotencyKey
+                    : undefined,
                 command: record.command,
                 args: record.args.filter((arg) => typeof arg === "string"),
                 cwd: record.cwd,
@@ -196,6 +199,17 @@ async function ensureManagedProcessRegistryLoaded() {
                 envKeys: Array.isArray(record.envKeys)
                     ? record.envKeys.filter((key) => typeof key === "string")
                     : undefined,
+                launchFingerprint: typeof record.launchFingerprint === "string" &&
+                    record.launchFingerprint.length > 0
+                    ? record.launchFingerprint
+                    : buildManagedProcessLaunchFingerprint({
+                        command: record.command,
+                        args: record.args.filter((arg) => typeof arg === "string"),
+                        cwd: record.cwd,
+                        envKeys: Array.isArray(record.envKeys)
+                            ? record.envKeys.filter((key) => typeof key === "string")
+                            : undefined,
+                    }),
             });
         }
     }
@@ -360,6 +374,12 @@ function normalizeManagedProcessLabel(input) {
     const trimmed = input.trim();
     return trimmed.length > 0 ? trimmed : undefined;
 }
+function normalizeManagedProcessIdempotencyKey(input) {
+    if (typeof input !== "string")
+        return undefined;
+    const trimmed = input.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
 function normalizeManagedProcessLogPath(input, processId) {
     if (typeof input === "string" && input.trim().length > 0) {
         const logPath = input.trim();
@@ -369,6 +389,15 @@ function normalizeManagedProcessLogPath(input, processId) {
         return logPath;
     }
     return `${MANAGED_PROCESS_DIR}/${processId}.log`;
+}
+function buildManagedProcessLaunchFingerprint(params) {
+    const payload = JSON.stringify({
+        command: params.command,
+        args: [...params.args],
+        cwd: params.cwd,
+        envKeys: params.envKeys ? [...params.envKeys].sort() : [],
+    });
+    return createHash("sha256").update(payload).digest("hex");
 }
 function normalizeChromiumProcessArgs(command, args) {
     if (!CHROMIUM_PROCESS_COMMANDS.has(commandBasename(command))) {
@@ -450,15 +479,28 @@ async function refreshManagedProcessRecord(record) {
     await persistManagedProcessRegistry();
     return nextRecord;
 }
-function findManagedProcessRecordByLabel(label) {
+function compareManagedProcessRecency(left, right) {
+    if (left.state === "running" && right.state !== "running")
+        return -1;
+    if (left.state !== "running" && right.state === "running")
+        return 1;
+    const leftUpdatedAt = left.endedAt ?? left.startedAt;
+    const rightUpdatedAt = right.endedAt ?? right.startedAt;
+    return rightUpdatedAt - leftUpdatedAt;
+}
+function findManagedProcessRecord(predicate) {
     return Array.from(managedProcesses.values())
-        .filter((record) => record.label === label)
-        .sort((a, b) => b.startedAt - a.startedAt)[0];
+        .filter(predicate)
+        .sort(compareManagedProcessRecency)[0];
+}
+function findManagedProcessRecordByLabel(label) {
+    return findManagedProcessRecord((record) => record.label === label);
+}
+function findManagedProcessRecordByIdempotencyKey(idempotencyKey) {
+    return findManagedProcessRecord((record) => record.idempotencyKey === idempotencyKey);
 }
 function findManagedProcessRecordByPid(pid) {
-    return Array.from(managedProcesses.values())
-        .filter((record) => record.pid === pid)
-        .sort((a, b) => b.startedAt - a.startedAt)[0];
+    return findManagedProcessRecord((record) => record.pid === pid);
 }
 async function resolveManagedProcessRecord(args) {
     await ensureManagedProcessRegistryLoaded();
@@ -468,12 +510,18 @@ async function resolveManagedProcessRecord(args) {
     const label = typeof args.label === "string" && args.label.trim().length > 0
         ? args.label.trim()
         : undefined;
+    const idempotencyKey = typeof args.idempotencyKey === "string" && args.idempotencyKey.trim().length > 0
+        ? args.idempotencyKey.trim()
+        : undefined;
     const pid = typeof args.pid === "number" && Number.isFinite(args.pid)
         ? Math.floor(args.pid)
         : undefined;
     let record;
     if (processId) {
         record = managedProcesses.get(processId);
+    }
+    else if (idempotencyKey) {
+        record = findManagedProcessRecordByIdempotencyKey(idempotencyKey);
     }
     else if (label) {
         record = findManagedProcessRecordByLabel(label);
@@ -482,7 +530,7 @@ async function resolveManagedProcessRecord(args) {
         record = findManagedProcessRecordByPid(pid);
     }
     else {
-        throw new Error("processId, label, or pid is required");
+        throw new Error("processId, idempotencyKey, label, or pid is required");
     }
     if (!record) {
         throw new Error("Managed process not found");
@@ -524,6 +572,9 @@ async function finalizeManagedProcessExit(processId, exitCode, signal) {
         payload: {
             processId: exitedRecord.processId,
             ...(exitedRecord.label ? { label: exitedRecord.label } : {}),
+            ...(exitedRecord.idempotencyKey
+                ? { idempotencyKey: exitedRecord.idempotencyKey }
+                : {}),
             pid: exitedRecord.pid,
             pgid: exitedRecord.pgid,
             state: exitedRecord.state,
@@ -545,6 +596,7 @@ function buildManagedProcessResponse(record, recentOutput, extra) {
     return {
         processId: record.processId,
         ...(record.label ? { label: record.label } : {}),
+        ...(record.idempotencyKey ? { idempotencyKey: record.idempotencyKey } : {}),
         command: record.command,
         args: record.args,
         cwd: record.cwd,
@@ -878,20 +930,47 @@ async function processStart(args) {
         const cwd = await resolveManagedProcessCwd(args.cwd);
         const env = normalizeManagedProcessEnv(args.env);
         const label = normalizeManagedProcessLabel(args.label);
-        if (label) {
-            const existing = findManagedProcessRecordByLabel(label);
+        const idempotencyKey = normalizeManagedProcessIdempotencyKey(args.idempotencyKey);
+        const processId = `proc_${randomUUID().slice(0, 8)}`;
+        const logPath = normalizeManagedProcessLogPath(args.logPath, processId);
+        const envKeys = env ? Object.keys(env).sort() : undefined;
+        const launchFingerprint = buildManagedProcessLaunchFingerprint({
+            command,
+            args: normalizedArgs,
+            cwd,
+            envKeys,
+        });
+        const matchesLaunchSpec = (record) => record.launchFingerprint === launchFingerprint;
+        if (idempotencyKey) {
+            const existing = findManagedProcessRecordByIdempotencyKey(idempotencyKey);
             if (existing) {
                 const refreshed = await refreshManagedProcessRecord(existing);
-                if (refreshed.state === "running") {
+                if (matchesLaunchSpec(refreshed) && refreshed.state === "running") {
                     const recentOutput = await readFileTail(refreshed.logPath);
                     return ok(buildManagedProcessResponse(refreshed, recentOutput, {
                         reused: true,
                     }));
                 }
+                return fail("A managed process already exists for that idempotencyKey.");
             }
         }
-        const processId = `proc_${randomUUID().slice(0, 8)}`;
-        const logPath = normalizeManagedProcessLogPath(args.logPath, processId);
+        if (label) {
+            const existing = findManagedProcessRecordByLabel(label);
+            if (existing) {
+                const refreshed = await refreshManagedProcessRecord(existing);
+                if (refreshed.idempotencyKey === idempotencyKey &&
+                    matchesLaunchSpec(refreshed) &&
+                    refreshed.state === "running") {
+                    const recentOutput = await readFileTail(refreshed.logPath);
+                    return ok(buildManagedProcessResponse(refreshed, recentOutput, {
+                        reused: true,
+                    }));
+                }
+                if (refreshed.state === "running") {
+                    return fail("A managed process already exists for that label.");
+                }
+            }
+        }
         await mkdir(dirname(logPath), { recursive: true });
         await mkdir(MANAGED_PROCESS_DIR, { recursive: true });
         const stdoutFd = openSync(logPath, "a");
@@ -910,6 +989,7 @@ async function processStart(args) {
             const record = {
                 processId,
                 ...(label ? { label } : {}),
+                ...(idempotencyKey ? { idempotencyKey } : {}),
                 command,
                 args: normalizedArgs,
                 cwd,
@@ -918,7 +998,8 @@ async function processStart(args) {
                 pgid: child.pid,
                 state: "running",
                 startedAt: Date.now(),
-                ...(env ? { envKeys: Object.keys(env).sort() } : {}),
+                ...(envKeys ? { envKeys } : {}),
+                launchFingerprint,
             };
             managedProcesses.set(processId, record);
             await persistManagedProcessRegistry();
@@ -1516,7 +1597,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "process_start",
-        description: "Start a long-running background process with a real executable plus args. Use this instead of bash for servers, background workers, and GUI apps that you need to inspect or stop later. Returns a stable processId, pid/pgid, logPath, and current state. Shell wrappers like bash -lc are rejected.",
+        description: "Start a long-running background process with a real executable plus args. Use this instead of bash for servers, background workers, and GUI apps that you need to inspect or stop later. Returns a stable processId, pid/pgid, logPath, and current state, and supports idempotent retries via idempotencyKey. Shell wrappers like bash -lc are rejected.",
         inputSchema: {
             type: "object",
             properties: {
@@ -1540,7 +1621,11 @@ export const TOOL_DEFINITIONS = [
                 },
                 label: {
                     type: "string",
-                    description: "Optional idempotency label. If a running process with the same label exists, it is returned instead of spawning a duplicate.",
+                    description: "Stable human-readable handle label. Reuse it to find or stop the same logical process later.",
+                },
+                idempotencyKey: {
+                    type: "string",
+                    description: "Optional idempotency key for deduplicating repeated process_start requests.",
                 },
                 logPath: {
                     type: "string",
@@ -1552,7 +1637,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "process_status",
-        description: "Get the status of a managed background process started with process_start. Prefer processId from the start result; label or pid are fallbacks. Returns running/exited state, pid/pgid, logPath, and recent output tail.",
+        description: "Get the status of a managed background process started with process_start. Prefer processId from the start result; idempotencyKey, label, or pid are fallbacks. Returns running/exited state, pid/pgid, logPath, and recent output tail.",
         inputSchema: {
             type: "object",
             properties: {
@@ -1563,6 +1648,10 @@ export const TOOL_DEFINITIONS = [
                 label: {
                     type: "string",
                     description: "Fallback lookup label when processId is unavailable.",
+                },
+                idempotencyKey: {
+                    type: "string",
+                    description: "Fallback idempotency key when processId is unavailable.",
                 },
                 pid: {
                     type: "number",
@@ -1574,7 +1663,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "process_stop",
-        description: "Stop a managed background process started with process_start. Sends a signal to the process group, waits for exit, and escalates to SIGKILL if needed. Prefer processId from the start result; label or pid are fallbacks.",
+        description: "Stop a managed background process started with process_start. Sends a signal to the process group, waits for exit, and escalates to SIGKILL if needed. Prefer processId from the start result; idempotencyKey, label, or pid are fallbacks.",
         inputSchema: {
             type: "object",
             properties: {
@@ -1585,6 +1674,10 @@ export const TOOL_DEFINITIONS = [
                 label: {
                     type: "string",
                     description: "Fallback lookup label when processId is unavailable.",
+                },
+                idempotencyKey: {
+                    type: "string",
+                    description: "Fallback idempotency key when processId is unavailable.",
                 },
                 pid: {
                     type: "number",

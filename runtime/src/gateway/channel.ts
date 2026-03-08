@@ -3,8 +3,8 @@
  *
  * Defines the contract that all channel plugins (Telegram, Discord, etc.)
  * implement to bridge external messaging platforms to the Gateway. Includes
- * the ChannelContext provided during initialization, a WebhookRouter for
- * HTTP endpoint registration, and a PluginCatalog for channel management.
+ * the ChannelContext provided during initialization and a PluginCatalog for
+ * channel lifecycle management.
  *
  * @module
  */
@@ -15,84 +15,21 @@ import type { GatewayMessage, OutboundMessage } from "./message.js";
 import type { SlashCommandContext } from "./commands.js";
 import type { HookDispatcher } from "./hooks.js";
 import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
+import {
+  WebhookRouter,
+  type WebhookRoute,
+} from "./webhooks.js";
 
-// ============================================================================
-// Webhook Router
-// ============================================================================
-
-/** HTTP method for webhook routes. */
-export type WebhookMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
-
-/** A registered webhook route. */
-export interface WebhookRoute {
-  readonly method: WebhookMethod;
-  readonly path: string;
-  readonly handler: WebhookHandler;
-}
-
-/** Webhook request passed to handlers. */
-export interface WebhookRequest {
-  readonly method: string;
-  readonly path: string;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly body: unknown;
-  readonly query: Readonly<Record<string, string>>;
-}
-
-/** Webhook response returned by handlers. */
-export interface WebhookResponse {
-  readonly status: number;
-  readonly headers?: Record<string, string>;
-  readonly body?: unknown;
-}
-
-/** Handler function for a webhook route. */
-export type WebhookHandler = (req: WebhookRequest) => Promise<WebhookResponse>;
-
-/**
- * Router for registering channel-specific HTTP webhook endpoints.
- *
- * Channel plugins use this to register webhook handlers (e.g. Telegram
- * webhook updates, Discord interactions endpoint). The gateway exposes
- * these routes on its HTTP server.
- */
-export class WebhookRouter {
-  private readonly _routes: WebhookRoute[] = [];
-  private readonly prefix: string;
-
-  constructor(channelName: string) {
-    this.prefix = `/webhooks/${channelName}`;
-  }
-
-  /** Register a route. Path is auto-prefixed with /webhooks/{channelName}. */
-  route(method: WebhookMethod, path: string, handler: WebhookHandler): void {
-    this._routes.push({
-      method,
-      path: this.prefix + path,
-      handler,
-    });
-  }
-
-  /** Shorthand for POST routes (most common for webhooks). */
-  post(path: string, handler: WebhookHandler): void {
-    this.route("POST", path, handler);
-  }
-
-  /** Shorthand for GET routes (used for webhook verification). */
-  get(path: string, handler: WebhookHandler): void {
-    this.route("GET", path, handler);
-  }
-
-  /** All registered routes (returns a shallow copy). */
-  get routes(): ReadonlyArray<WebhookRoute> {
-    return [...this._routes];
-  }
-
-  /** @internal Route access for PluginCatalog aggregation (avoids copy). */
-  get routesInternal(): ReadonlyArray<WebhookRoute> {
-    return this._routes;
-  }
-}
+export {
+  WebhookRouteRegistry,
+  WebhookRouter,
+  type WebhookHandler,
+  type WebhookMethod,
+  type WebhookRequest,
+  type WebhookResponse,
+  type WebhookRoute,
+  type WebhookRouteMatch,
+} from "./webhooks.js";
 
 // ============================================================================
 // Reaction Event

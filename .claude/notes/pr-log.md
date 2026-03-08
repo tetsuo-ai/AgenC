@@ -1,3 +1,10 @@
+## PR [pending]: durable task runtime foundation and phase 5 contract hardening
+- **Date:** 2026-03-07
+- **Files changed:** `runtime/src/gateway/{agent-run-contract.ts,background-run-store.ts,background-run-supervisor.ts,background-run-wake-bus.ts,background-run-wake-adapters.ts,run-domains.ts,webhooks.ts,daemon.ts,gateway.ts,channel.ts}`, `runtime/src/tools/system/{process.ts,browser-session.ts,handle-contract.ts,command-line.ts}`, `containers/desktop/server/src/tools.ts`, `runtime/src/desktop/tool-definitions.ts`, related tests under `runtime/src/**` and `containers/desktop/server/src/*.test.ts`, plus `docs/architecture/README.md`, `docs/ROADMAP.md`, `docs/RUNTIME_API.md`, and `.claude/notes/*`.
+- **What worked:** The runtime now has a durable run contract, persisted kernel state, an event-driven wake plane, typed run domains, provider compaction hooks, and hardened long-lived tool contracts across host, browser, and desktop process handles. Recovery, control, and verification semantics are materially stronger, and the desktop managed-process surface now matches the host/browser idempotency model instead of drifting on `label`-only retries.
+- **What didn't:** The autonomy roadmap is still not complete. Phase 5 still has broader product-surface work left for downloads/uploads, web servers, remote MCP jobs, sandboxes, research handles, universal compliance suites, resource envelopes, and structured error taxonomy across every long-lived tool family.
+- **Rule added to CLAUDE.md:** no
+
 ## PR [pending]: durable task runtime operator-signal and carry-forward hardening
 - **Date:** 2026-03-06
 - **Files changed:** `runtime/src/gateway/background-run-store.ts`, `runtime/src/gateway/background-run-store.test.ts`, `runtime/src/gateway/background-run-supervisor.ts`, `runtime/src/gateway/background-run-supervisor.test.ts`, `runtime/src/gateway/daemon.ts`, `runtime/src/utils/keyed-async-queue.ts`, `runtime/src/utils/keyed-async-queue.test.ts`, `.claude/notes/gotchas.md`, `.claude/notes/pr-log.md`, `.claude/notes/techdebt-2026-03-06-durable-task-runtime-phase3.md`

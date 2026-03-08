@@ -92,6 +92,15 @@ export interface GatewayLLMConfig {
     store?: boolean;
     /** Retry once statelessly when continuation anchors are missing/mismatched/stale. */
     fallbackToStateless?: boolean;
+    /** Optional server-side Responses API compaction controls. */
+    compaction?: {
+      /** Enable provider-native server-side compaction. */
+      enabled?: boolean;
+      /** Rendered-token threshold for provider compaction. */
+      compactThreshold?: number;
+      /** Retry once without compaction if the provider rejects the field. */
+      fallbackOnUnsupported?: boolean;
+    };
   };
   /** Optional Phase 6 dynamic tool-routing controls. */
   toolRouting?: {

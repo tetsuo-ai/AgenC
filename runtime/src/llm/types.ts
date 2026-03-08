@@ -13,6 +13,14 @@
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
 /**
+ * Assistant message phase for long-running/tool-heavy flows.
+ *
+ * Preserved in local history so providers that support phase-aware replay can
+ * distinguish working commentary from the completed answer.
+ */
+export type LLMAssistantPhase = "commentary" | "final_answer";
+
+/**
  * A content part for multimodal messages (OpenAI/Grok-compatible format).
  */
 export type LLMContentPart =
@@ -29,6 +37,8 @@ export type LLMContentPart =
 export interface LLMMessage {
   role: MessageRole;
   content: string | LLMContentPart[];
+  /** Optional assistant phase metadata for phase-aware replay/continuation. */
+  phase?: LLMAssistantPhase;
   /** For assistant messages that request tool execution */
   toolCalls?: LLMToolCall[];
   /** For tool result messages — the ID of the tool call being responded to */
@@ -140,11 +150,71 @@ export interface LLMStatefulDiagnostics {
 }
 
 /**
+ * Provider-native compaction fallback reasons when an opaque server-side
+ * compaction mode cannot stay enabled for a request.
+ */
+export type LLMCompactionFallbackReason =
+  | "unsupported"
+  | "request_rejected";
+
+/**
+ * Opaque provider compaction item metadata.
+ *
+ * The runtime stores only identifiers/digests needed for tracing and replay;
+ * the payload itself stays provider-owned and out-of-band.
+ */
+export interface LLMCompactionItemRef {
+  /** Provider-emitted item type, e.g. `compaction` or equivalent. */
+  readonly type: string;
+  /** Provider-emitted item identifier when available. */
+  readonly id?: string;
+  /** Stable digest over the opaque item for replay/debug correlation. */
+  readonly digest: string;
+}
+
+/**
+ * Per-call diagnostics for provider-native context compaction.
+ */
+export interface LLMCompactionDiagnostics {
+  /** True when provider-native compaction is enabled in config for this call. */
+  readonly enabled: boolean;
+  /** True when the initial request attempted provider-native compaction. */
+  readonly requested: boolean;
+  /** True when the final request sent to the provider still included compaction. */
+  readonly active: boolean;
+  /** Provider-specific compaction mode used for the call. */
+  readonly mode: "server_side_context_management";
+  /** Configured compaction threshold sent to the provider. */
+  readonly threshold: number;
+  /** Number of opaque compaction items observed in the provider response. */
+  readonly observedItemCount: number;
+  /** Latest opaque compaction item returned by the provider, if any. */
+  readonly latestItem?: LLMCompactionItemRef;
+  /** Fallback reason when compaction had to be disabled for the call. */
+  readonly fallbackReason?: LLMCompactionFallbackReason;
+}
+
+/**
+ * Persisted provider-managed continuation anchor.
+ *
+ * Stored by the runtime so a daemon restart can restore provider-native
+ * continuation state instead of falling back to stateless replay.
+ */
+export interface LLMStatefulResumeAnchor {
+  /** Response ID that should be used as `previous_response_id` when resuming. */
+  readonly previousResponseId: string;
+  /** Provider reconciliation hash captured when the anchor was created. */
+  readonly reconciliationHash?: string;
+}
+
+/**
  * Optional stateful continuation hints passed to provider calls.
  */
 export interface LLMChatStatefulOptions {
   /** Session key used by providers to scope response-id anchors. */
   readonly sessionId: string;
+  /** Persisted continuation anchor restored by the runtime after restart. */
+  readonly resumeAnchor?: LLMStatefulResumeAnchor;
 }
 
 /**
@@ -195,6 +265,8 @@ export interface LLMResponse {
   requestMetrics?: LLMRequestMetrics;
   /** Stateful continuation diagnostics, when supported by the provider. */
   stateful?: LLMStatefulDiagnostics;
+  /** Provider-native compaction diagnostics, when supported by the provider. */
+  compaction?: LLMCompactionDiagnostics;
   /** Provider-side evidence from built-in/server-side tools. */
   providerEvidence?: LLMProviderEvidence;
   finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "error";

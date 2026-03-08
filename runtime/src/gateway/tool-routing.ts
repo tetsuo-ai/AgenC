@@ -102,6 +102,23 @@ const PROCESS_TERMS = new Set([
   "worker",
 ]);
 
+const PROCESS_START_TOOL_NAMES = new Set([
+  "desktop.process_start",
+  "system.processStart",
+]);
+
+const PROCESS_STATUS_TOOL_NAMES = new Set([
+  "desktop.process_status",
+  "system.processStatus",
+  "system.processResume",
+  "system.processLogs",
+]);
+
+const PROCESS_STOP_TOOL_NAMES = new Set([
+  "desktop.process_stop",
+  "system.processStop",
+]);
+
 const PROCESS_START_TERMS = new Set([
   "background",
   "launch",
@@ -182,6 +199,11 @@ const LOW_SIGNAL_BROWSER_TOOL_NAMES = new Set([
 ]);
 
 const HIGH_SIGNAL_BROWSER_TOOL_NAMES = new Set([
+  "system.browserSessionStart",
+  "system.browserSessionStatus",
+  "system.browserSessionResume",
+  "system.browserSessionArtifacts",
+  "system.browserSessionStop",
   "mcp.browser.browser_navigate",
   "mcp.browser.browser_snapshot",
   "mcp.browser.browser_click",
@@ -199,11 +221,14 @@ const HIGH_SIGNAL_BROWSER_TOOL_NAMES = new Set([
 ]);
 
 const PRIMARY_BROWSER_START_TOOL_NAMES = new Set([
+  "system.browserSessionStart",
   "mcp.browser.browser_navigate",
   "playwright.browser_navigate",
 ]);
 
 const PRIMARY_BROWSER_READ_TOOL_NAMES = new Set([
+  "system.browserSessionStatus",
+  "system.browserSessionArtifacts",
   "mcp.browser.browser_snapshot",
   "mcp.browser.browser_run_code",
   "mcp.browser.browser_evaluate",
@@ -335,12 +360,18 @@ export interface RouteToolParams {
   readonly history: readonly LLMMessage[];
 }
 
+interface ExplicitToolMention {
+  readonly toolName: string;
+  readonly fullVariants: readonly string[];
+  readonly shortVariants: readonly string[];
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
 function toTerms(value: string): string[] {
-  const lower = value.toLowerCase();
+  const lower = value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
   const matches = lower.match(TOKEN_RE) ?? [];
   const unique = new Set<string>();
   for (const raw of matches) {
@@ -350,6 +381,15 @@ function toTerms(value: string): string[] {
     unique.add(term);
   }
   return Array.from(unique);
+}
+
+function normalizeToolMention(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function jaccardSimilarity(a: readonly string[], b: readonly string[]): number {
@@ -476,6 +516,8 @@ export class ToolRouter {
   private readonly logger: Logger;
   private readonly config: NormalizedRoutingConfig;
   private readonly indexedTools: IndexedTool[];
+  private readonly explicitMentions: ExplicitToolMention[];
+  private readonly shortVariantOwners: Map<string, readonly string[]>;
   private readonly allToolNames: string[];
   private readonly fullSchemaChars: number;
   private readonly cache = new Map<string, CachedIntentRoute>();
@@ -500,6 +542,34 @@ export class ToolRouter {
         schemaChars: JSON.stringify(tool).length,
       };
     });
+    const shortVariantOwners = new Map<string, string[]>();
+    this.explicitMentions = this.indexedTools.map((tool) => {
+      const shortName = tool.name.slice(tool.name.lastIndexOf(".") + 1);
+      const fullVariants = new Set<string>([
+        tool.name.toLowerCase(),
+        normalizeToolMention(tool.name),
+      ]);
+      const shortVariants = new Set<string>([
+        shortName.toLowerCase(),
+        normalizeToolMention(shortName),
+      ]);
+      for (const variant of shortVariants) {
+        const owners = shortVariantOwners.get(variant) ?? [];
+        owners.push(tool.name);
+        shortVariantOwners.set(variant, owners);
+      }
+      return {
+        toolName: tool.name,
+        fullVariants: Array.from(fullVariants),
+        shortVariants: Array.from(shortVariants),
+      };
+    });
+    this.shortVariantOwners = new Map(
+      Array.from(shortVariantOwners.entries()).map(([variant, owners]) => [
+        variant,
+        Array.from(new Set(owners)).sort(),
+      ]),
+    );
     this.allToolNames = this.indexedTools.map((tool) => tool.name);
     this.fullSchemaChars = this.indexedTools.reduce(
       (sum, tool) => sum + tool.schemaChars,
@@ -529,6 +599,7 @@ export class ToolRouter {
     }
 
     const intentTerms = this.extractIntentTerms(params.messageText, params.history);
+    const explicitToolMentions = this.extractExplicitToolMentions(params.messageText);
     const clusterKey = intentTerms.slice(0, 6).join("|") || "general";
     const now = Date.now();
     const cached = this.cache.get(params.sessionId);
@@ -579,8 +650,12 @@ export class ToolRouter {
       }
     }
 
-    const scored = this.scoreTools(intentTerms);
-    const routedToolNames = this.selectRoutedTools(scored, requiredFamilies);
+    const scored = this.scoreTools(intentTerms, explicitToolMentions);
+    const routedToolNames = this.selectRoutedTools(
+      scored,
+      requiredFamilies,
+      explicitToolMentions,
+    );
     const expandedToolNames = this.selectExpandedTools(scored, routedToolNames);
     const confidence = this.estimateConfidence(scored, intentTerms, routedToolNames);
 
@@ -665,7 +740,49 @@ export class ToolRouter {
     return Array.from(terms).sort();
   }
 
-  private scoreTools(intentTerms: readonly string[]): Array<{ tool: IndexedTool; score: number }> {
+  private extractExplicitToolMentions(messageText: string): Set<string> {
+    const lowered = messageText.toLowerCase();
+    const normalized = normalizeToolMention(messageText);
+    const mentioned = new Set<string>();
+
+    for (const candidate of this.explicitMentions) {
+      for (const variant of candidate.fullVariants) {
+        if (!variant) continue;
+        if (
+          lowered.includes(variant) ||
+          normalized.includes(variant)
+        ) {
+          mentioned.add(candidate.toolName);
+          break;
+        }
+      }
+    }
+
+    for (const candidate of this.explicitMentions) {
+      if (mentioned.has(candidate.toolName)) continue;
+      for (const variant of candidate.shortVariants) {
+        if (!variant) continue;
+        const owners = this.shortVariantOwners.get(variant) ?? [];
+        if (owners.length !== 1 || owners[0] !== candidate.toolName) {
+          continue;
+        }
+        if (
+          lowered.includes(variant) ||
+          normalized.includes(variant)
+        ) {
+          mentioned.add(candidate.toolName);
+          break;
+        }
+      }
+    }
+
+    return mentioned;
+  }
+
+  private scoreTools(
+    intentTerms: readonly string[],
+    explicitToolMentions: ReadonlySet<string>,
+  ): Array<{ tool: IndexedTool; score: number }> {
     const hasShellIntent = intentTerms.some((term) => SHELL_TERMS.has(term));
     const hasProcessIntent = intentTerms.some((term) => PROCESS_TERMS.has(term));
     const wantsProcessStart = intentTerms.some((term) => PROCESS_START_TERMS.has(term));
@@ -689,19 +806,29 @@ export class ToolRouter {
         if (tool.descriptionTerms.has(term)) score += 1;
       }
 
+      if (explicitToolMentions.has(tool.name)) {
+        score += 40;
+      }
+
       if (hasShellIntent && (tool.name === "system.bash" || tool.name === "desktop.bash")) {
         score += 4;
       }
-      if (hasProcessIntent && tool.name.startsWith("desktop.process_")) {
+      if (
+        hasProcessIntent &&
+        (
+          tool.name.startsWith("desktop.process_") ||
+          tool.name.startsWith("system.process")
+        )
+      ) {
         score += 10;
       }
-      if (wantsProcessStart && tool.name === "desktop.process_start") {
+      if (wantsProcessStart && PROCESS_START_TOOL_NAMES.has(tool.name)) {
         score += 12;
       }
-      if (wantsProcessStatus && tool.name === "desktop.process_status") {
+      if (wantsProcessStatus && PROCESS_STATUS_TOOL_NAMES.has(tool.name)) {
         score += 12;
       }
-      if (wantsProcessStop && tool.name === "desktop.process_stop") {
+      if (wantsProcessStop && PROCESS_STOP_TOOL_NAMES.has(tool.name)) {
         score += 12;
       }
       if (hasDoomIntent && tool.name.startsWith("mcp.doom.")) {
@@ -746,6 +873,7 @@ export class ToolRouter {
         if (
           tool.family === "playwright" ||
           tool.name.startsWith("system.browse") ||
+          tool.name.startsWith("system.browserSession") ||
           tool.family === "mcp.browser"
         ) {
           score += 2;
@@ -801,38 +929,68 @@ export class ToolRouter {
   private selectRoutedTools(
     scored: ReadonlyArray<{ tool: IndexedTool; score: number }>,
     requiredFamilies: ReadonlySet<string>,
+    explicitToolMentions: ReadonlySet<string>,
   ): string[] {
     const selected = new Set<string>();
     const familyCounts = new Map<string, number>();
+    const hardPinnedToolNames = new Set<string>();
 
     for (const mandatoryTool of this.config.mandatoryTools) {
       if (!this.allToolNames.includes(mandatoryTool)) continue;
       selected.add(mandatoryTool);
+      hardPinnedToolNames.add(mandatoryTool);
       const family = familyFromToolName(mandatoryTool);
       familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
     }
 
     const maxTools = this.config.maxToolsPerTurn;
     const minTools = this.config.minToolsPerTurn;
+    const requiredFamilySelections = new Map<string, IndexedTool>();
+    for (const requiredFamily of requiredFamilies) {
+      const bestRequired = scored.find((entry) => entry.tool.family === requiredFamily);
+      if (!bestRequired) continue;
+      requiredFamilySelections.set(requiredFamily, bestRequired.tool);
+      hardPinnedToolNames.add(bestRequired.tool.name);
+    }
+    for (const mentionedTool of explicitToolMentions) {
+      if (this.allToolNames.includes(mentionedTool)) {
+        hardPinnedToolNames.add(mentionedTool);
+      }
+    }
+    const hardPinLimit = Math.min(
+      this.config.maxExpandedToolsPerTurn,
+      Math.max(maxTools, hardPinnedToolNames.size),
+    );
 
-    const tryAdd = (candidate: IndexedTool): void => {
+    const tryAdd = (
+      candidate: IndexedTool,
+      options?: { readonly limit?: number; readonly ignoreFamilyCap?: boolean },
+    ): void => {
       if (selected.has(candidate.name)) return;
-      if (selected.size >= maxTools) return;
+      const limit = options?.limit ?? maxTools;
+      if (selected.size >= limit) return;
 
       const familyCap = this.config.familyCaps[candidate.family] ??
         this.config.familyCaps.default ??
         DEFAULT_FAMILY_CAPS.default;
       const usedInFamily = familyCounts.get(candidate.family) ?? 0;
-      if (usedInFamily >= familyCap) return;
+      if (!options?.ignoreFamilyCap && usedInFamily >= familyCap) return;
 
       selected.add(candidate.name);
       familyCounts.set(candidate.family, usedInFamily + 1);
     };
 
-    for (const requiredFamily of requiredFamilies) {
-      const bestRequired = scored.find((entry) => entry.tool.family === requiredFamily);
-      if (!bestRequired) continue;
-      tryAdd(bestRequired.tool);
+    for (const bestRequired of requiredFamilySelections.values()) {
+      tryAdd(bestRequired, { limit: hardPinLimit });
+    }
+
+    for (const mentionedTool of explicitToolMentions) {
+      const explicitMatch = scored.find((entry) => entry.tool.name === mentionedTool);
+      if (!explicitMatch) continue;
+      tryAdd(explicitMatch.tool, {
+        limit: hardPinLimit,
+        ignoreFamilyCap: true,
+      });
     }
 
     for (const entry of scored) {

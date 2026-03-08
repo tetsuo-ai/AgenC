@@ -260,10 +260,40 @@ export {
   extractAmount,
 } from "./approvals.js";
 
+// Webhook routing
+export {
+  WebhookRouteRegistry,
+  WebhookRouter,
+  type WebhookRoute,
+  type WebhookRouteMatch,
+  type WebhookMethod,
+  type WebhookRequest,
+  type WebhookResponse,
+  type WebhookHandler,
+} from "./webhooks.js";
+
+// Run domains
+export {
+  createApprovalRunDomain,
+  createBrowserRunDomain,
+  createDesktopGuiRunDomain,
+  createGenericRunDomain,
+  createPipelineRunDomain,
+  createRemoteMcpRunDomain,
+  createResearchRunDomain,
+  createWorkspaceRunDomain,
+  verificationSupportsContinuation,
+  type RunDomain,
+  type RunDomainExecutionContext,
+  type RunDomainNativeCycleResult,
+  type RunDomainRun,
+  type RunDomainVerification,
+  type RunDomainVerifierState,
+} from "./run-domains.js";
+
 // Channel plugin (Phase 1.5)
 export {
   PluginCatalog,
-  WebhookRouter,
   BaseChannelPlugin,
   ChannelNameInvalidError,
   ChannelAlreadyRegisteredError,
@@ -271,11 +301,6 @@ export {
   type ChannelPlugin,
   type ChannelContext,
   type PluginCatalogConfig,
-  type WebhookRoute,
-  type WebhookMethod,
-  type WebhookRequest,
-  type WebhookResponse,
-  type WebhookHandler,
   type ReactionEvent,
 } from "./channel.js";
 

@@ -6,6 +6,7 @@ import {
 } from "./background-run-control.js";
 import type { BackgroundRunRecentSnapshot } from "./background-run-store.js";
 import type { BackgroundRunStatusSnapshot } from "./background-run-supervisor.js";
+import { AGENT_RUN_SCHEMA_VERSION } from "./agent-run-contract.js";
 
 function makeActiveSnapshot(
   overrides: Partial<BackgroundRunStatusSnapshot> = {},
@@ -25,6 +26,9 @@ function makeActiveSnapshot(
     lastWakeReason: "timer",
     pendingSignals: 1,
     carryForwardSummary: "Waiting for exit.",
+    blockerSummary: undefined,
+    watchCount: 1,
+    fenceToken: 1,
     ...overrides,
   };
 }
@@ -33,7 +37,7 @@ function makeRecentSnapshot(
   overrides: Partial<BackgroundRunRecentSnapshot> = {},
 ): BackgroundRunRecentSnapshot {
   return {
-    version: 1,
+    version: AGENT_RUN_SCHEMA_VERSION,
     runId: "bg_123",
     sessionId: "session-1",
     objective: "Monitor the process.",
@@ -51,6 +55,9 @@ function makeRecentSnapshot(
     lastWakeReason: "process_exit",
     pendingSignals: 0,
     carryForwardSummary: "Process observed exited.",
+    blockerSummary: undefined,
+    watchCount: 1,
+    fenceToken: 1,
     ...overrides,
   };
 }
