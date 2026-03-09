@@ -29,32 +29,39 @@ function makeTool(name: string): Tool {
 }
 
 describe("tool-environment-policy", () => {
-  it("keeps only structured durable host handles available in desktop mode", () => {
-    expect(isToolAllowedForEnvironment("system.bash", "desktop")).toBe(false);
-    expect(isToolAllowedForEnvironment("system.open", "desktop")).toBe(false);
-    expect(isToolAllowedForEnvironment("system.processStart", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.serverStart", "desktop")).toBe(true);
-    expect(
-      isToolAllowedForEnvironment("system.browserSessionStart", "desktop"),
-    ).toBe(true);
-    expect(isToolAllowedForEnvironment("system.remoteJobStart", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.researchStart", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.sandboxStart", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.sqliteSchema", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.sqliteQuery", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.pdfInfo", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.pdfExtractText", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.spreadsheetInfo", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.spreadsheetRead", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.officeDocumentInfo", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.officeDocumentExtractText", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.emailMessageInfo", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.emailMessageExtractText", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.calendarInfo", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("system.calendarRead", "desktop")).toBe(true);
-    expect(isToolAllowedForEnvironment("execute_with_agent", "desktop")).toBe(
-      true,
-    );
+  it("keeps only structured durable host control tools available in desktop mode", () => {
+    const allowed = [
+      "system.processStart",
+      "system.serverStart",
+      "system.browserSessionStart",
+      "system.remoteJobStart",
+      "system.researchStart",
+      "system.sandboxStart",
+      "execute_with_agent",
+    ];
+    const blocked = [
+      "system.bash",
+      "system.open",
+      "system.sqliteSchema",
+      "system.sqliteQuery",
+      "system.pdfInfo",
+      "system.pdfExtractText",
+      "system.spreadsheetInfo",
+      "system.spreadsheetRead",
+      "system.officeDocumentInfo",
+      "system.officeDocumentExtractText",
+      "system.emailMessageInfo",
+      "system.emailMessageExtractText",
+      "system.calendarInfo",
+      "system.calendarRead",
+    ];
+
+    for (const toolName of allowed) {
+      expect(isToolAllowedForEnvironment(toolName, "desktop")).toBe(true);
+    }
+    for (const toolName of blocked) {
+      expect(isToolAllowedForEnvironment(toolName, "desktop")).toBe(false);
+    }
   });
 
   it("keeps host-scoped browser session tools available outside desktop-only mode", () => {
@@ -81,12 +88,6 @@ describe("tool-environment-policy", () => {
 
     expect(filtered.map((tool) => tool.function.name)).toEqual([
       "system.sandboxStart",
-      "system.sqliteSchema",
-      "system.pdfInfo",
-      "system.spreadsheetInfo",
-      "system.officeDocumentInfo",
-      "system.emailMessageInfo",
-      "system.calendarInfo",
       "desktop.bash",
       "playwright.browser_navigate",
       "execute_with_agent",
@@ -124,12 +125,6 @@ describe("tool-environment-policy", () => {
       ], "desktop"),
     ).toEqual([
       "system.sandboxStart",
-      "system.sqliteSchema",
-      "system.pdfInfo",
-      "system.spreadsheetInfo",
-      "system.officeDocumentInfo",
-      "system.emailMessageInfo",
-      "system.calendarInfo",
       "desktop.bash",
       "mcp.browser.browser_snapshot",
       "execute_with_agent",
