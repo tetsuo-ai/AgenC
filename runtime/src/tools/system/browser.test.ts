@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   TEST_LOOPBACK_IP,
@@ -7,6 +8,10 @@ import {
 } from "./dnsTestFixtures.js";
 import { runDurableHandleContractSuite } from "./handle-contract.test-utils.js";
 import { silentLogger } from "../../utils/logger.js";
+
+const TEST_BROWSER_UPLOAD_ROOT = resolve(process.cwd(), "test-fixtures", "browser-uploads");
+const TEST_BROWSER_UPLOAD_REPORT = resolve(TEST_BROWSER_UPLOAD_ROOT, "report.csv");
+const TEST_BROWSER_UPLOAD_ARCHIVE = resolve(TEST_BROWSER_UPLOAD_ROOT, "archive.zip");
 
 vi.mock("node:dns/promises", () => ({
   lookup: vi.fn(),
@@ -1824,7 +1829,7 @@ describe("durable browser session tools", () => {
 
   it("creates durable upload transfer handles with idempotent replay semantics", async () => {
     const tools = createBrowserTools(
-      { mode: "advanced", allowedFileUploadPaths: ["/tmp"] },
+      { mode: "advanced", allowedFileUploadPaths: [TEST_BROWSER_UPLOAD_ROOT] },
       silentLogger,
     );
     const start = tools.find((t) => t.name === "system.browserSessionStart")!;
@@ -1853,7 +1858,7 @@ describe("durable browser session tools", () => {
             {
               type: "upload",
               selector: "#file",
-              path: "/tmp/report.csv",
+              path: TEST_BROWSER_UPLOAD_REPORT,
               label: "report-upload",
               idempotencyKey: "upload-report",
             },
@@ -1862,10 +1867,7 @@ describe("durable browser session tools", () => {
       ).content,
     );
 
-    expect(mockPage.setInputFiles).toHaveBeenCalledWith(
-      "#file",
-      expect.stringMatching(/\/tmp\/report\.csv$/),
-    );
+    expect(mockPage.setInputFiles).toHaveBeenCalledWith("#file", TEST_BROWSER_UPLOAD_REPORT);
     expect(first.resourceEnvelope).toMatchObject({
       cpu: 1,
       memoryMb: 256,
@@ -1882,7 +1884,7 @@ describe("durable browser session tools", () => {
             {
               type: "upload",
               selector: "#file",
-              path: "/tmp/report.csv",
+              path: TEST_BROWSER_UPLOAD_REPORT,
               label: "report-upload",
               idempotencyKey: "upload-report",
             },
@@ -1903,12 +1905,12 @@ describe("durable browser session tools", () => {
     );
     expect(transfer.kind).toBe("upload");
     expect(transfer.state).toBe("completed");
-    expect(transfer.artifactPath).toMatch(/\/tmp\/report\.csv$/);
+    expect(transfer.artifactPath).toBe(TEST_BROWSER_UPLOAD_REPORT);
   });
 
   it("keeps browser transfer cancellation idempotent after terminal completion", async () => {
     const tools = createBrowserTools(
-      { mode: "advanced", allowedFileUploadPaths: ["/tmp"] },
+      { mode: "advanced", allowedFileUploadPaths: [TEST_BROWSER_UPLOAD_ROOT] },
       silentLogger,
     );
     const start = tools.find((t) => t.name === "system.browserSessionStart")!;
@@ -1931,7 +1933,7 @@ describe("durable browser session tools", () => {
             {
               type: "upload",
               selector: "#file",
-              path: "/tmp/archive.zip",
+              path: TEST_BROWSER_UPLOAD_ARCHIVE,
               idempotencyKey: "upload-archive",
             },
           ],
@@ -1952,7 +1954,7 @@ describe("durable browser session tools", () => {
 
   it("rejects browser upload paths outside configured allowed roots", async () => {
     const tools = createBrowserTools(
-      { mode: "advanced", allowedFileUploadPaths: ["/tmp/workspace"] },
+      { mode: "advanced", allowedFileUploadPaths: [TEST_BROWSER_UPLOAD_ROOT] },
       silentLogger,
     );
     const start = tools.find((t) => t.name === "system.browserSessionStart")!;
