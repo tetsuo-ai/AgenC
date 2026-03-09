@@ -40,6 +40,18 @@ describe("tool-environment-policy", () => {
     expect(isToolAllowedForEnvironment("system.remoteJobStart", "desktop")).toBe(true);
     expect(isToolAllowedForEnvironment("system.researchStart", "desktop")).toBe(true);
     expect(isToolAllowedForEnvironment("system.sandboxStart", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.sqliteSchema", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.sqliteQuery", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.pdfInfo", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.pdfExtractText", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.spreadsheetInfo", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.spreadsheetRead", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.officeDocumentInfo", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.officeDocumentExtractText", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.emailMessageInfo", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.emailMessageExtractText", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.calendarInfo", "desktop")).toBe(true);
+    expect(isToolAllowedForEnvironment("system.calendarRead", "desktop")).toBe(true);
     expect(isToolAllowedForEnvironment("execute_with_agent", "desktop")).toBe(
       true,
     );
@@ -56,6 +68,12 @@ describe("tool-environment-policy", () => {
     const filtered = filterLlmToolsByEnvironment([
       makeLlmTool("system.bash"),
       makeLlmTool("system.sandboxStart"),
+      makeLlmTool("system.sqliteSchema"),
+      makeLlmTool("system.pdfInfo"),
+      makeLlmTool("system.spreadsheetInfo"),
+      makeLlmTool("system.officeDocumentInfo"),
+      makeLlmTool("system.emailMessageInfo"),
+      makeLlmTool("system.calendarInfo"),
       makeLlmTool("desktop.bash"),
       makeLlmTool("playwright.browser_navigate"),
       makeLlmTool("execute_with_agent"),
@@ -63,6 +81,12 @@ describe("tool-environment-policy", () => {
 
     expect(filtered.map((tool) => tool.function.name)).toEqual([
       "system.sandboxStart",
+      "system.sqliteSchema",
+      "system.pdfInfo",
+      "system.spreadsheetInfo",
+      "system.officeDocumentInfo",
+      "system.emailMessageInfo",
+      "system.calendarInfo",
       "desktop.bash",
       "playwright.browser_navigate",
       "execute_with_agent",
@@ -88,12 +112,24 @@ describe("tool-environment-policy", () => {
       filterToolNamesByEnvironment([
         "system.bash",
         "system.sandboxStart",
+        "system.sqliteSchema",
+        "system.pdfInfo",
+        "system.spreadsheetInfo",
+        "system.officeDocumentInfo",
+        "system.emailMessageInfo",
+        "system.calendarInfo",
         "desktop.bash",
         "mcp.browser.browser_snapshot",
         "execute_with_agent",
       ], "desktop"),
     ).toEqual([
       "system.sandboxStart",
+      "system.sqliteSchema",
+      "system.pdfInfo",
+      "system.spreadsheetInfo",
+      "system.officeDocumentInfo",
+      "system.emailMessageInfo",
+      "system.calendarInfo",
       "desktop.bash",
       "mcp.browser.browser_snapshot",
       "execute_with_agent",

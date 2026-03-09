@@ -589,11 +589,27 @@ The tool surface is intentionally split by environment:
 
 - `system.browserSession*` is host-scoped and only available when
   `desktop.environment` is `"host"` or `"both"`.
+- `system.sqlite*` and `system.pdf*` are host-scoped typed inspection tools for
+  local databases and documents. They stay available in desktop mode because
+  they are structured read-only host tools, not raw host mutation surfaces.
+- `system.spreadsheet*` is a host-scoped typed table/workbook inspection family
+  for local CSV/TSV/XLS/XLSX files and also remains available in desktop mode
+  for the same reason.
+- `system.officeDocument*` is a host-scoped typed office-document inspection
+  family for local DOCX/ODT files and also remains available in desktop mode
+  for the same reason.
+- `system.emailMessage*` and `system.calendar*` are host-scoped typed
+  productivity inspection families for local EML and ICS files and also remain
+  available in desktop mode for the same reason.
 - `mcp.browser.*` / `playwright.*` is desktop-scoped and remains the correct
   choice for visible browser automation inside the sandboxed desktop.
 
 If you run the gateway in `desktop`-only mode, the runtime will correctly filter
-`system.browserSession*` out of the LLM-visible tool set.
+raw host-mutation tools like `system.bash`, while still exposing structured
+host families such as `system.process*`, `system.server*`, `system.browserSession*`,
+`system.sqlite*`, `system.pdf*`, `system.spreadsheet*`,
+`system.officeDocument*`, `system.emailMessage*`, and `system.calendar*` when
+their contracts are safe for that mode.
 
 ### Profile Selection Guide
 

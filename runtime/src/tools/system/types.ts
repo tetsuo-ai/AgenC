@@ -181,6 +181,106 @@ export interface SystemSandboxToolConfig {
   readonly now?: () => number;
 }
 
+/**
+ * Configuration for typed SQLite inspection/query tools.
+ */
+export interface SystemSqliteToolConfig {
+  /** Allowed SQLite database path prefixes (required). */
+  readonly allowedPaths: readonly string[];
+  /** Maximum SQL text length accepted per query. */
+  readonly maxSqlChars?: number;
+  /** Default maximum rows returned from a query. */
+  readonly defaultMaxRows?: number;
+  /** Hard ceiling for maxRows overrides. */
+  readonly maxRowsCap?: number;
+  /** Maximum string/binary cell preview length. */
+  readonly maxCellChars?: number;
+  /** Logger for query execution and denials. */
+  readonly logger?: Logger;
+}
+
+/**
+ * Configuration for typed PDF inspection/extraction tools.
+ */
+export interface SystemPdfToolConfig {
+  /** Allowed PDF path prefixes (required). */
+  readonly allowedPaths: readonly string[];
+  /** Default subprocess timeout for pdfinfo/pdftotext. */
+  readonly timeoutMs?: number;
+  /** Maximum extracted text characters returned by default. */
+  readonly defaultMaxChars?: number;
+  /** Hard ceiling for maxChars overrides. */
+  readonly maxCharsCap?: number;
+  /** Logger for extraction and validation failures. */
+  readonly logger?: Logger;
+}
+
+/**
+ * Configuration for typed spreadsheet inspection/extraction tools.
+ */
+export interface SystemSpreadsheetToolConfig {
+  /** Allowed spreadsheet path prefixes (required). */
+  readonly allowedPaths: readonly string[];
+  /** Default subprocess timeout for spreadsheet parsing helpers. */
+  readonly timeoutMs?: number;
+  /** Default maximum rows returned from a spreadsheet read. */
+  readonly defaultMaxRows?: number;
+  /** Hard ceiling for maxRows overrides. */
+  readonly maxRowsCap?: number;
+  /** Maximum string cell preview length. */
+  readonly maxCellChars?: number;
+  /** Number of sample rows returned by spreadsheetInfo. */
+  readonly infoSampleRows?: number;
+  /** Logger for extraction and validation failures. */
+  readonly logger?: Logger;
+}
+
+/**
+ * Configuration for typed office-document inspection/extraction tools.
+ */
+export interface SystemOfficeDocumentToolConfig {
+  /** Allowed document path prefixes (required). */
+  readonly allowedPaths: readonly string[];
+  /** Default subprocess timeout for parsing/conversion helpers. */
+  readonly timeoutMs?: number;
+  /** Maximum extracted text characters returned by default. */
+  readonly defaultMaxChars?: number;
+  /** Hard ceiling for maxChars overrides. */
+  readonly maxCharsCap?: number;
+  /** Logger for extraction and validation failures. */
+  readonly logger?: Logger;
+}
+
+/**
+ * Configuration for typed email-message inspection/extraction tools.
+ */
+export interface SystemEmailMessageToolConfig {
+  /** Allowed email message path prefixes (required). */
+  readonly allowedPaths: readonly string[];
+  /** Default subprocess timeout for parsing helpers. */
+  readonly timeoutMs?: number;
+  /** Maximum extracted text characters returned by default. */
+  readonly defaultMaxChars?: number;
+  /** Hard ceiling for maxChars overrides. */
+  readonly maxCharsCap?: number;
+  /** Logger for extraction and validation failures. */
+  readonly logger?: Logger;
+}
+
+/**
+ * Configuration for typed calendar inspection/extraction tools.
+ */
+export interface SystemCalendarToolConfig {
+  /** Allowed calendar path prefixes (required). */
+  readonly allowedPaths: readonly string[];
+  /** Default maximum events returned by calendarRead. */
+  readonly defaultMaxEvents?: number;
+  /** Hard ceiling for maxEvents overrides. */
+  readonly maxEventsCap?: number;
+  /** Logger for extraction and validation failures. */
+  readonly logger?: Logger;
+}
+
 // ============================================================================
 // Shell mode safety types
 // ============================================================================

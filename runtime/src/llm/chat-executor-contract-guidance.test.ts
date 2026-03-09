@@ -170,6 +170,79 @@ describe("chat-executor-contract-guidance", () => {
     });
   });
 
+  it("routes typed calendar inspection turns to calendarInfo first", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Use the typed calendar tools to inspect this ics calendar invite, list the attendees, and read the scheduled meeting events.",
+      toolCalls: [],
+      allowedToolNames: ["desktop.bash", "system.calendarInfo", "system.calendarRead"],
+    });
+
+    expect(guidance).toEqual({
+      source: "typed-calendar",
+      runtimeInstruction:
+        "This typed calendar inspection is not complete yet. " +
+        "Start with `system.calendarInfo` so the answer is grounded in real metadata before you summarize or quote details.",
+      routedToolNames: ["system.calendarInfo"],
+      toolChoice: "required",
+      enforcement: {
+        mode: "block_other_tools",
+        message:
+          "This typed calendar inspection must begin with `system.calendarInfo`. " +
+          "Do not use `desktop.bash`, `desktop.text_editor`, `system.bash`, or ad hoc file parsing before the typed inspection path starts.",
+      },
+    });
+  });
+
+  it("routes typed calendar inspection turns to calendarRead after metadata", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "tool_followup",
+      messageText:
+        "Use the typed calendar tools to inspect this ics calendar invite, list the attendees, and read the scheduled meeting events.",
+      toolCalls: [
+        makeToolCall({
+          name: "system.calendarInfo",
+          result: JSON.stringify({ calendarName: "Team Calendar", eventCount: 2 }),
+        }),
+      ],
+      allowedToolNames: ["system.calendarInfo", "system.calendarRead"],
+    });
+
+    expect(guidance).toEqual({
+      source: "typed-calendar",
+      runtimeInstruction:
+        "Metadata alone is not enough for this typed calendar inspection. " +
+        "Call `system.calendarRead` before answering so the response includes grounded structured content, not just a metadata summary.",
+      routedToolNames: ["system.calendarRead"],
+      toolChoice: "required",
+      enforcement: {
+        mode: "block_other_tools",
+        message:
+          "This typed calendar inspection still requires `system.calendarRead`. " +
+          "Do not stop early or switch to shell/editor fallbacks while the typed read/extract step is still missing.",
+      },
+    });
+  });
+
+  it("blocks shell detours before typed calendar inspection metadata is loaded", () => {
+    const block = resolveToolContractExecutionBlock({
+      phase: "initial",
+      messageText:
+        "Use the typed calendar tools to inspect this ics calendar invite, list the attendees, and read the scheduled meeting events.",
+      toolCalls: [],
+      allowedToolNames: ["desktop.bash", "system.calendarInfo", "system.calendarRead"],
+      candidateToolName: "desktop.bash",
+    });
+
+    expect(block).toBe(
+      "This typed calendar inspection must begin with `system.calendarInfo`. " +
+      "Do not use `desktop.bash`, `desktop.text_editor`, `system.bash`, or ad hoc file parsing before the typed inspection path starts. " +
+      "Allowed now: `system.calendarInfo`. " +
+      "Do not use `desktop.bash` yet.",
+    );
+  });
+
   it("routes delegated implementation turns to an editor-first tool on initial guidance", () => {
     const guidance = resolveToolContractGuidance({
       phase: "initial",

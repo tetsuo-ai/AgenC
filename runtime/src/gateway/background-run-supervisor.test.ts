@@ -4013,6 +4013,238 @@ describe("background-run-supervisor", () => {
     );
   });
 
+  it("uses system.serverStart for native bootstrap when the objective is a readiness-checked local HTTP service", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content:
+          'Use `python3 -m http.server 8765` under the label autonomy-http and verify readiness on `http://127.0.0.1:8765/`.',
+        toolCalls: [],
+      }),
+    );
+    const nativeTools = createManagedProcessToolHandler({
+      surface: "host_server",
+      initialProcessId: "proc_server",
+      initialServerId: "server_http",
+      label: "autonomy-http",
+      command: "python3",
+      args: ["-m", "http.server", "8765"],
+      cwd: "/home/tetsuo/git/AgenC",
+      healthUrl: "http://127.0.0.1:8765/",
+      ready: true,
+    });
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce({
+            content:
+              '{"kind":"until_stopped","successCriteria":["start the typed server handle"],"completionCriteria":["only stop after explicit user stop"],"blockedCriteria":["server handle fails to start"],"nextCheckMs":4000,"heartbeatMs":15000,"requiresUserStop":true,"managedProcessPolicy":{"mode":"keep_running"}}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          })
+          .mockResolvedValueOnce({
+            content:
+              '{"summary":"HTTP server handle is running.","verifiedFacts":["Ready on http://127.0.0.1:8765/."],"openLoops":["Await explicit stop request."],"nextFocus":"Continue server supervision."}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          }),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => nativeTools.handler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-native-host-server-bootstrap",
+      objective:
+        "Start a durable background run that uses typed server handle tools to run `python3 -m http.server 8765` from `/home/tetsuo/git/AgenC` under the label autonomy-http. Verify readiness on `http://127.0.0.1:8765/` and keep supervising it.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await eventually(() => {
+      const snapshot = supervisor.getStatusSnapshot(
+        "session-native-host-server-bootstrap",
+      );
+      expect(snapshot?.state).toBe("working");
+      expect(nativeTools.handler).toHaveBeenNthCalledWith(
+        1,
+        "system.serverStart",
+        expect.objectContaining({
+          command: "python3",
+          args: ["-m", "http.server", "8765"],
+          label: "autonomy-http",
+          healthUrl: "http://127.0.0.1:8765/",
+          readyStatusCodes: [200],
+          readinessTimeoutMs: 10_000,
+        }),
+      );
+      expect(nativeTools.handler).toHaveBeenNthCalledWith(
+        2,
+        "system.serverStatus",
+        expect.objectContaining({
+          label: "autonomy-http",
+        }),
+      );
+    });
+  });
+
+  it("promotes a server objective onto typed server supervision when readiness verification is required", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Started the HTTP server process.",
+        toolCalls: [
+          {
+            name: "system.processStart",
+            args: {
+              command: "python3",
+              args: ["-m", "http.server", "8765"],
+              cwd: "/home/tetsuo/git/AgenC",
+              label: "autonomy-http",
+            },
+            result:
+              '{"processId":"proc_server","label":"autonomy-http","command":"python3","args":["-m","http.server","8765"],"cwd":"/home/tetsuo/git/AgenC","state":"running"}',
+            isError: false,
+            durationMs: 5,
+          },
+          {
+            name: "system.processStatus",
+            args: { label: "autonomy-http" },
+            result:
+              '{"processId":"proc_server","label":"autonomy-http","command":"python3","args":["-m","http.server","8765"],"cwd":"/home/tetsuo/git/AgenC","state":"running"}',
+            isError: false,
+            durationMs: 1,
+          },
+        ],
+      }),
+    );
+    const handler = vi.fn<ToolHandler>(async (name, args) => {
+      if (name === "system.processStop") {
+        return JSON.stringify({
+          processId: "proc_server",
+          label: "autonomy-http",
+          command: "python3",
+          args: ["-m", "http.server", "8765"],
+          cwd: "/home/tetsuo/git/AgenC",
+          state: "exited",
+          exitCode: 0,
+        });
+      }
+      if (name === "system.serverStart") {
+        return JSON.stringify({
+          serverId: "server_http",
+          processId: "proc_server_upgraded",
+          label: "autonomy-http",
+          idempotencyKey: "background-run:bg-0-xd2v6v:autonomy-http",
+          command: "python3",
+          args: ["-m", "http.server", "8765"],
+          cwd: "/home/tetsuo/git/AgenC",
+          healthUrl: "http://127.0.0.1:8765/",
+          host: "127.0.0.1",
+          port: 8765,
+          protocol: "http",
+          readyStatusCodes: [200],
+          readinessTimeoutMs: 10000,
+          state: "running",
+          ready: true,
+        });
+      }
+      if (name === "system.serverStatus") {
+        return JSON.stringify({
+          serverId: "server_http",
+          processId: "proc_server_upgraded",
+          label: "autonomy-http",
+          command: "python3",
+          args: ["-m", "http.server", "8765"],
+          cwd: "/home/tetsuo/git/AgenC",
+          healthUrl: "http://127.0.0.1:8765/",
+          host: "127.0.0.1",
+          port: 8765,
+          protocol: "http",
+          readyStatusCodes: [200],
+          readinessTimeoutMs: 10000,
+          state: "running",
+          ready: true,
+        });
+      }
+      throw new Error(`unexpected tool ${name}`);
+    });
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce({
+            content:
+              '{"kind":"until_stopped","successCriteria":["start the typed server handle"],"completionCriteria":["only stop after explicit user stop"],"blockedCriteria":["server handle fails to start"],"nextCheckMs":4000,"heartbeatMs":15000,"requiresUserStop":true,"managedProcessPolicy":{"mode":"keep_running"}}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          })
+          .mockResolvedValueOnce({
+            content:
+              '{"summary":"HTTP server handle is running.","verifiedFacts":["Ready on http://127.0.0.1:8765/."],"openLoops":["Await explicit stop request."],"nextFocus":"Continue server supervision."}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          }),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => handler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-server-upgrade",
+      objective:
+        "Start a durable background run that uses typed server handle tools to run `python3 -m http.server 8765` from `/home/tetsuo/git/AgenC` under the label autonomy-http. Verify readiness on `http://127.0.0.1:8765/` and keep supervising it.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await eventually(() => {
+      expect(handler).toHaveBeenCalledWith(
+        "system.serverStart",
+        expect.objectContaining({
+          command: "python3",
+          args: ["-m", "http.server", "8765"],
+          label: "autonomy-http",
+          healthUrl: "http://127.0.0.1:8765/",
+        }),
+      );
+      expect(handler).toHaveBeenCalledWith(
+        "system.serverStatus",
+        expect.objectContaining({ label: "autonomy-http" }),
+      );
+    });
+
+    await expect(
+      supervisor.getRecentSnapshot("session-server-upgrade"),
+    ).resolves.toMatchObject({
+      lastToolEvidence: expect.stringContaining("system.serverStart"),
+    });
+    await expect(
+      supervisor.getRecentSnapshot("session-server-upgrade"),
+    ).resolves.toMatchObject({
+      lastToolEvidence: expect.stringContaining("system.serverStatus"),
+    });
+  });
+
   it("wakes immediately on process_exit signals and restarts a managed process natively", async () => {
     const publishUpdate = vi.fn(async () => undefined);
     const execute = vi.fn().mockResolvedValueOnce(

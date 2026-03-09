@@ -165,6 +165,42 @@ const TOOLS: LLMTool[] = [
   makeTool("system.readFile", "Read a file"),
   makeTool("system.writeFile", "Write a file"),
   makeTool("system.listDir", "List files in directory"),
+  makeTool("system.pdfInfo", "Inspect PDF metadata such as pages, title, author, and encryption"),
+  makeTool("system.pdfExtractText", "Extract text from a local PDF document"),
+  makeTool("system.sqliteSchema", "Inspect SQLite tables, views, indexes, and columns"),
+  makeTool("system.sqliteQuery", "Run a read-only SQL query against a local SQLite database"),
+  makeTool(
+    "system.spreadsheetInfo",
+    "Inspect a local spreadsheet or CSV workbook and return sheet metadata and sample rows",
+  ),
+  makeTool(
+    "system.spreadsheetRead",
+    "Read structured rows from a local spreadsheet, workbook sheet, or CSV file",
+  ),
+  makeTool(
+    "system.officeDocumentInfo",
+    "Inspect a local DOCX or ODT office document and return metadata like title and creator",
+  ),
+  makeTool(
+    "system.officeDocumentExtractText",
+    "Extract text from a local DOCX or ODT office document",
+  ),
+  makeTool(
+    "system.emailMessageInfo",
+    "Inspect a local EML email message and return parsed headers, content types, and attachment summary",
+  ),
+  makeTool(
+    "system.emailMessageExtractText",
+    "Extract text from a local EML email message, preferring text/plain and falling back to stripped HTML",
+  ),
+  makeTool(
+    "system.calendarInfo",
+    "Inspect a local ICS calendar and return metadata such as calendar name, event count, and sample events",
+  ),
+  makeTool(
+    "system.calendarRead",
+    "Read structured VEVENT records from a local ICS calendar file with deterministic truncation",
+  ),
   makeTool("system.httpGet", "HTTP GET request"),
   makeTool("desktop.click", "Click on screen"),
   makeTool("desktop.type", "Type into focused element"),
@@ -292,6 +328,106 @@ describe("ToolRouter", () => {
     expect(decision.routedToolNames).toContain("system.browserSessionStart");
     expect(decision.routedToolNames).toContain("system.browserSessionResume");
     expect(decision.routedToolNames).toContain("system.browserSessionArtifacts");
+  });
+
+  it("prioritizes typed PDF tools for document extraction prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-pdf",
+      messageText: "extract text from this pdf report and inspect its metadata",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.pdfInfo");
+    expect(decision.routedToolNames).toContain("system.pdfExtractText");
+  });
+
+  it("prioritizes typed SQLite tools for database prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-sqlite",
+      messageText: "inspect the sqlite schema and query the database tables",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.sqliteSchema");
+    expect(decision.routedToolNames).toContain("system.sqliteQuery");
+  });
+
+  it("prioritizes typed spreadsheet tools for workbook prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-spreadsheet",
+      messageText:
+        "inspect this spreadsheet workbook, summarize the sheet headers, and read the csv rows",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.spreadsheetInfo");
+    expect(decision.routedToolNames).toContain("system.spreadsheetRead");
+  });
+
+  it("prioritizes typed office document tools for docx prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-office-doc",
+      messageText:
+        "inspect this docx office brief, extract the text, and summarize the document metadata",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.officeDocumentInfo");
+    expect(decision.routedToolNames).toContain("system.officeDocumentExtractText");
+  });
+
+  it("prioritizes typed email tools for eml prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-email",
+      messageText:
+        "inspect this eml email message, summarize the subject and sender, and extract the attachment-aware body text",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.emailMessageInfo");
+    expect(decision.routedToolNames).toContain("system.emailMessageExtractText");
+  });
+
+  it("prioritizes typed calendar tools for ics prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-calendar",
+      messageText:
+        "inspect this ics calendar invite, list the attendees, and read the scheduled meeting events",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("system.calendarInfo");
+    expect(decision.routedToolNames).toContain("system.calendarRead");
   });
 
   it("prefers typed server handles for server monitoring tasks", () => {
@@ -441,6 +577,68 @@ describe("ToolRouter", () => {
 
     expect(next.diagnostics.cacheHit).toBe(false);
     expect(next.diagnostics.invalidatedReason).toBe("explicit_redirect");
+  });
+
+  it("invalidates cached typed email routing when the next turn requests calendar tools", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+      minCacheConfidence: 0,
+    });
+
+    router.route({
+      sessionId: "s-email-calendar-pivot",
+      messageText:
+        "inspect this eml email message, summarize the subject and sender, and extract the body text",
+      history: [],
+    });
+
+    const next = router.route({
+      sessionId: "s-email-calendar-pivot",
+      messageText:
+        "use the typed calendar tools to inspect this ics calendar invite, list the attendees, and read the scheduled meeting events",
+      history: [
+        {
+          role: "user",
+          content:
+            "inspect this eml email message, summarize the subject and sender, and extract the body text",
+          toolCalls: undefined,
+        },
+      ],
+    });
+
+    expect(next.diagnostics.cacheHit).toBe(false);
+    expect(next.diagnostics.invalidatedReason).toBe("missing_required_tools");
+    expect(next.diagnostics.clusterKey).not.toContain("email");
+    expect(next.routedToolNames).toContain("system.calendarInfo");
+    expect(next.routedToolNames).toContain("system.calendarRead");
+  });
+
+  it("does not blend previous user terms into strong typed-domain prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+      minCacheConfidence: 0,
+    });
+
+    const decision = router.route({
+      sessionId: "s-strong-prompt",
+      messageText:
+        "use the typed calendar tools to inspect this ics calendar invite, list the attendees, and read the scheduled meeting events",
+      history: [
+        {
+          role: "user",
+          content:
+            "use the typed email message tools to inspect this eml email message and extract the body text",
+          toolCalls: undefined,
+        },
+      ],
+    });
+
+    expect(decision.diagnostics.clusterKey).toContain("calendar");
+    expect(decision.diagnostics.clusterKey).not.toContain("email");
+    expect(decision.routedToolNames).toContain("system.calendarInfo");
+    expect(decision.routedToolNames).toContain("system.calendarRead");
   });
 
   it("invalidates cached route when explicit tmux intent needs mcp.tmux family", () => {
