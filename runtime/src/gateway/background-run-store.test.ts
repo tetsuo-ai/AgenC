@@ -3,6 +3,7 @@ import { InMemoryBackend } from "../memory/in-memory/backend.js";
 import { AGENT_RUN_SCHEMA_VERSION } from "./agent-run-contract.js";
 import {
   BackgroundRunStore,
+  deriveDefaultBackgroundRunMaxCycles,
   type PersistedBackgroundRun,
 } from "./background-run-store.js";
 
@@ -414,7 +415,10 @@ describe("BackgroundRunStore", () => {
       }),
       budgetState: expect.objectContaining({
         maxRuntimeMs: 604_800_000,
-        maxCycles: 512,
+        maxCycles: deriveDefaultBackgroundRunMaxCycles({
+          maxRuntimeMs: 604_800_000,
+          nextCheckMs: 4_000,
+        }),
       }),
       compaction: expect.objectContaining({
         lastCompactedCycle: 1,
@@ -428,6 +432,15 @@ describe("BackgroundRunStore", () => {
       ],
       fenceToken: 1,
     });
+  });
+
+  it("scales default cycle budgets to the runtime budget instead of a fixed short cap", () => {
+    expect(
+      deriveDefaultBackgroundRunMaxCycles({
+        maxRuntimeMs: 7 * 24 * 60 * 60_000,
+        nextCheckMs: 8_000,
+      }),
+    ).toBeGreaterThan(512);
   });
 
   it("quarantines corrupt persisted records instead of surfacing partial state", async () => {
@@ -461,6 +474,29 @@ describe("BackgroundRunStore", () => {
     await expect(store.saveRun(run)).rejects.toThrow(
       "Stale BackgroundRun fence token 1; current token is 2",
     );
+  });
+
+  it("accepts forward fence-token writes for the same lease owner", async () => {
+    const backend = new InMemoryBackend();
+    const store = new BackgroundRunStore({ memoryBackend: backend });
+    const run = makeRun({
+      leaseOwnerId: "instance-a",
+      leaseExpiresAt: 20_000,
+    });
+
+    await store.saveRun(run);
+    await store.saveRun({
+      ...run,
+      fenceToken: 2,
+      updatedAt: 5_000,
+      lastUserUpdate: "Forward progress persisted.",
+    });
+
+    await expect(store.loadRun(run.sessionId)).resolves.toMatchObject({
+      fenceToken: 2,
+      leaseOwnerId: "instance-a",
+      lastUserUpdate: "Forward progress persisted.",
+    });
   });
 
   it("garbage collects expired leases, terminal snapshots, and old corrupt records", async () => {

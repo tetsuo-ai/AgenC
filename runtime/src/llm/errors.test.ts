@@ -5,8 +5,10 @@ import {
   LLMMessageValidationError,
   LLMProviderError,
   LLMRateLimitError,
+  LLMServerError,
   LLMTimeoutError,
   classifyLLMFailure,
+  mapLLMError,
 } from "./errors.js";
 
 describe("classifyLLMFailure", () => {
@@ -44,5 +46,18 @@ describe("classifyLLMFailure", () => {
 
   it("maps non-matching unknown errors to unknown", () => {
     expect(classifyLLMFailure(new Error("mystery failure"))).toBe("unknown");
+  });
+});
+
+describe("mapLLMError", () => {
+  it("maps transient provider outage text without status to server error", () => {
+    const mapped = mapLLMError(
+      "grok",
+      new Error("Service temporarily unavailable."),
+      30_000,
+    );
+
+    expect(mapped).toBeInstanceOf(LLMServerError);
+    expect((mapped as LLMServerError).statusCode).toBe(503);
   });
 });

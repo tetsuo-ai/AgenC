@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createExecutionTraceEventLogger,
   createProviderTraceEventLogger,
+  logStructuredTraceEvent,
 } from "./provider-trace-logger.js";
 
 describe("createProviderTraceEventLogger", () => {
@@ -159,6 +160,48 @@ describe("createProviderTraceEventLogger", () => {
     expect(line).toContain('"callPhase":"tool_followup"');
     expect(line).toContain('"mcp.doom.new_episode"');
     expect(line).not.toContain("[Object]");
+    const payloadArtifactMatch = line.match(
+      /"payloadArtifact":\{"path":"([^"]+)"/,
+    );
+    expect(payloadArtifactMatch?.[1]).toBeTruthy();
+    rmSync(payloadArtifactMatch![1], { force: true });
+  });
+
+  it("serializes structured runtime trace events as single-line JSON", () => {
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      setLevel: vi.fn(),
+    };
+
+    logStructuredTraceEvent({
+      logger,
+      traceLabel: "background_run.cycle",
+      traceId: "trace-3",
+      sessionId: "session-3",
+      eventType: "decision_resolved",
+      payload: {
+        decisionState: "blocked",
+        actor: {
+          present: true,
+          stopReason: "completed",
+        },
+      },
+      staticFields: {
+        runId: "bg-1",
+        cycleCount: 3,
+      },
+    });
+
+    expect(logger.info).toHaveBeenCalledOnce();
+    const line = logger.info.mock.calls[0]?.[0] as string;
+    expect(line).toContain("[trace] background_run.cycle.decision_resolved ");
+    expect(line).toContain('"traceId":"trace-3"');
+    expect(line).toContain('"runId":"bg-1"');
+    expect(line).toContain('"cycleCount":3');
+    expect(line).toContain('"decisionState":"blocked"');
     const payloadArtifactMatch = line.match(
       /"payloadArtifact":\{"path":"([^"]+)"/,
     );

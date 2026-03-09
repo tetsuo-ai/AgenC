@@ -3,6 +3,11 @@ import { mkdtemp, rm, readFile, writeFile, stat, mkdir, chmod } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const mockDesktopManagerStart = vi.fn(async () => {});
+const mockDesktopManagerStop = vi.fn(async () => {});
+const mockWatchdogStart = vi.fn();
+const mockWatchdogStop = vi.fn();
+
 // Provide real async utils (no dependency chain)
 vi.mock("../utils/async.js", () => ({
   sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -47,6 +52,20 @@ vi.mock("./config-watcher.js", () => ({
   getDefaultConfigPath: vi.fn(() => "/tmp/config.json"),
 }));
 
+vi.mock("../desktop/manager.js", () => ({
+  DesktopSandboxManager: vi.fn().mockImplementation(() => ({
+    start: mockDesktopManagerStart,
+    stop: mockDesktopManagerStop,
+  })),
+}));
+
+vi.mock("../desktop/health.js", () => ({
+  DesktopSandboxWatchdog: vi.fn().mockImplementation(() => ({
+    start: mockWatchdogStart,
+    stop: mockWatchdogStop,
+  })),
+}));
+
 import {
   getDefaultPidPath,
   writePidFile,
@@ -67,6 +86,7 @@ import {
   didEvalScriptPass,
   resolveBashToolEnv,
   resolveBashDenyExclusions,
+  resolveStructuredExecDenyExclusions,
   ensureChromiumCompatShims,
   ensureAgencRuntimeShim,
   DaemonManager,
@@ -531,6 +551,135 @@ describe("resolveBashDenyExclusions", () => {
   });
 });
 
+describe("resolveStructuredExecDenyExclusions", () => {
+  it("preserves shell exclusions and adds developer runtimes for linux desktop mode", () => {
+    const exclusions = resolveStructuredExecDenyExclusions(
+      { desktop: { enabled: true } as any },
+      "linux",
+    );
+    expect(exclusions).toEqual(
+      expect.arrayContaining(["curl", "wget", "node", "nodejs", "python", "python3"]),
+    );
+  });
+
+  it("returns undefined when desktop mode is disabled on linux", () => {
+    const exclusions = resolveStructuredExecDenyExclusions(
+      { desktop: { enabled: false } as any },
+      "linux",
+    );
+    expect(exclusions).toBeUndefined();
+  });
+});
+
+describe("buildDesktopContext", () => {
+  it("makes desktop-only host tool unavailability explicit", () => {
+    const manager = new DaemonManager({
+      configPath: "/tmp/agenc-test-config.json",
+    });
+
+    const context = (manager as any).buildDesktopContext({
+      desktop: {
+        enabled: true,
+        environment: "desktop",
+      },
+    });
+
+    expect(context).toContain(
+      "system.bash and other raw host `system.*` shell/file mutation tools are NOT available in desktop-only mode.",
+    );
+    expect(context).toContain(
+      "DO NOT silently substitute desktop.bash, browser tools, or another environment",
+    );
+  });
+});
+
+describe("webchat background-run routing", () => {
+  it("routes durable server prompts with natural until-stop phrasing into background supervision", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const startRun = vi.fn(async () => undefined);
+    const getStatusSnapshot = vi.fn(() => undefined);
+    const execute = vi.fn();
+    const session = { metadata: {} as Record<string, unknown> };
+    const webChat = {
+      send: vi.fn(async () => undefined),
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as any;
+    const commandRegistry = {
+      dispatch: vi.fn(async () => false),
+    } as any;
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const sessionMgr = {
+      getOrCreate: vi.fn(() => session),
+    } as any;
+    const memoryBackend = {
+      addEntry: vi.fn(async () => undefined),
+    } as any;
+
+    (dm as any).gateway = {
+      config: {
+        autonomy: {
+          enabled: true,
+          featureFlags: { backgroundRuns: true, canaryRollout: false },
+        },
+      },
+    };
+    (dm as any)._backgroundRunSupervisor = {
+      getStatusSnapshot,
+      startRun,
+    };
+
+    await (dm as any).handleWebChatInboundMessage(
+      {
+        sessionId: "session-background-server",
+        senderId: "operator-1",
+        channel: "webchat",
+        content:
+          "Start a durable HTTP server on port 8774 serving /home/tetsuo/git/AgenC. Use the typed server handle tools, verify it is ready, and keep it running until I tell you to stop.",
+      },
+      {
+        webChat,
+        commandRegistry,
+        getChatExecutor: () => ({ execute }),
+        getLoggingConfig: () => ({}),
+        hooks,
+        sessionMgr,
+        getSystemPrompt: () => "",
+        baseToolHandler: vi.fn(),
+        approvalEngine: undefined,
+        memoryBackend,
+        signals: {} as any,
+        sessionTokenBudget: 16_000,
+        contextWindowTokens: 64_000,
+      },
+    );
+
+    expect(commandRegistry.dispatch).toHaveBeenCalledOnce();
+    expect(hooks.dispatch).toHaveBeenCalledWith("message:inbound", {
+      sessionId: "session-background-server",
+      content:
+        "Start a durable HTTP server on port 8774 serving /home/tetsuo/git/AgenC. Use the typed server handle tools, verify it is ready, and keep it running until I tell you to stop.",
+      senderId: "operator-1",
+    });
+    expect(getStatusSnapshot).toHaveBeenCalledWith("session-background-server");
+    expect(memoryBackend.addEntry).toHaveBeenCalledWith({
+      sessionId: "session-background-server",
+      role: "user",
+      content:
+        "Start a durable HTTP server on port 8774 serving /home/tetsuo/git/AgenC. Use the typed server handle tools, verify it is ready, and keep it running until I tell you to stop.",
+    });
+    expect(startRun).toHaveBeenCalledWith({
+      sessionId: "session-background-server",
+      objective:
+        "Start a durable HTTP server on port 8774 serving /home/tetsuo/git/AgenC. Use the typed server handle tools, verify it is ready, and keep it running until I tell you to stop.",
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(webChat.send).not.toHaveBeenCalled();
+  });
+});
+
 describe("ensureChromiumCompatShims", () => {
   it("creates chromium and chromium-browser shims when only google-chrome exists", async () => {
     const tempHome = await mkdtemp(join(tmpdir(), "agenc-chromium-shim-"));
@@ -847,6 +996,12 @@ describe("DaemonManager", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "agenc-dm-test-"));
     vi.clearAllMocks();
+    mockDesktopManagerStart.mockReset();
+    mockDesktopManagerStop.mockReset();
+    mockWatchdogStart.mockReset();
+    mockWatchdogStop.mockReset();
+    mockDesktopManagerStart.mockResolvedValue(undefined);
+    mockDesktopManagerStop.mockResolvedValue(undefined);
     vi.mocked(loadGatewayConfig).mockResolvedValue({
       gateway: { port: 9000 },
       agent: { name: "test" },
@@ -941,6 +1096,32 @@ describe("DaemonManager", () => {
     });
 
     await dm.stop();
+  });
+
+  it("starts and stops the desktop watchdog when desktop sandboxes are enabled", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      desktop: {
+        enabled: true,
+        healthCheckIntervalMs: 15_000,
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "desktop-watchdog.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect(mockDesktopManagerStart).toHaveBeenCalledTimes(1);
+    expect(mockWatchdogStart).toHaveBeenCalledTimes(1);
+
+    await dm.stop();
+
+    expect(mockWatchdogStop).toHaveBeenCalledTimes(1);
+    expect(mockDesktopManagerStop).toHaveBeenCalledTimes(1);
   });
 
   it("registers execute_with_agent in the runtime tool registry", async () => {
@@ -2140,6 +2321,117 @@ describe("DaemonManager", () => {
         action: "pause",
         state: "paused",
         currentPhase: "paused",
+        unsafeToContinue: false,
+      },
+    });
+  });
+
+  it("audits operator stop controls through the governance log", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const applyOperatorControl = vi.fn().mockResolvedValue({
+      runId: "run-session-owned",
+      sessionId: "session-owned",
+      objective: "Stop the managed server when requested.",
+      state: "completed",
+      currentPhase: "completed",
+      explanation: "Run completed and the runtime recorded a terminal result.",
+      unsafeToContinue: false,
+      createdAt: 1,
+      updatedAt: 3,
+      cycleCount: 2,
+      contractKind: "until_stopped",
+      contractDomain: "managed_process",
+      requiresUserStop: true,
+      pendingSignals: 0,
+      watchCount: 1,
+      fenceToken: 1,
+      approvalRequired: false,
+      approvalState: "none",
+      checkpointAvailable: true,
+      contract: {
+        domain: "managed_process",
+        kind: "until_stopped",
+        successCriteria: ["Server is started."],
+        completionCriteria: ["Operator explicitly stops the server."],
+        blockedCriteria: ["Server stop fails."],
+        nextCheckMs: 4_000,
+        heartbeatMs: 12_000,
+        requiresUserStop: true,
+        managedProcessPolicy: { mode: "keep_running" },
+      },
+      approval: { status: "none", summary: undefined },
+      budget: {
+        runtimeStartedAt: 1,
+        lastActivityAt: 3,
+        lastProgressAt: 3,
+        totalTokens: 4,
+        lastCycleTokens: 2,
+        managedProcessCount: 1,
+        maxRuntimeMs: 60_000,
+        maxCycles: 32,
+        maxIdleMs: undefined,
+        nextCheckIntervalMs: 4_000,
+        heartbeatIntervalMs: 12_000,
+        firstAcknowledgedAt: 1,
+        firstVerifiedUpdateAt: 2,
+        stopRequestedAt: 3,
+      },
+      compaction: {
+        lastCompactedAt: undefined,
+        lastCompactedCycle: 0,
+        refreshCount: 0,
+        lastHistoryLength: 4,
+        lastMilestoneAt: undefined,
+        lastCompactionReason: undefined,
+        repairCount: 0,
+        lastProviderAnchorAt: undefined,
+      },
+      artifacts: [],
+      observedTargets: [],
+      watchRegistrations: [],
+      recentEvents: [],
+      policyScope: {
+        tenantId: "tenant-a",
+        projectId: "project-x",
+        runId: "run-session-owned",
+      },
+    });
+    const appendGovernanceAuditEvent = vi.fn().mockResolvedValue(undefined);
+
+    (dm as any)._backgroundRunSupervisor = { applyOperatorControl };
+    (dm as any).appendGovernanceAuditEvent = appendGovernanceAuditEvent;
+
+    const detail = await (dm as any).controlOwnedBackgroundRun({
+      action: {
+        action: "stop",
+        sessionId: "session-owned",
+        reason: "operator stop",
+      },
+      actor: "operator-1",
+      channel: "webchat",
+    });
+
+    expect(detail?.state).toBe("completed");
+    expect(applyOperatorControl).toHaveBeenCalledWith({
+      action: "stop",
+      sessionId: "session-owned",
+      reason: "operator stop",
+    });
+    expect(appendGovernanceAuditEvent).toHaveBeenCalledWith({
+      type: "run.controlled",
+      actor: "webchat:operator-1",
+      subject: "session-owned",
+      scope: {
+        tenantId: "tenant-a",
+        projectId: "project-x",
+        runId: "run-session-owned",
+        sessionId: "session-owned",
+        channel: "webchat",
+      },
+      payload: {
+        action: "stop",
+        state: "completed",
+        currentPhase: "completed",
         unsafeToContinue: false,
       },
     });

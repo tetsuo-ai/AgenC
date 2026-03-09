@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { executeTool } from "./tools.js";
-import { resolveValidatedTextEditorPath } from "./textEditorPath.js";
+import { getDefaultTextEditorAllowedRoots, resolveValidatedTextEditorPath, } from "./textEditorPath.js";
 async function withWorkspace(fn) {
     const workspacePath = await mkdtemp(join(tmpdir(), "agenc-text-editor-"));
     try {
@@ -67,4 +67,53 @@ test("text_editor rejects prefix confusion at the tool entrypoint", async () => 
     });
     assert.equal(result.isError, true);
     assert.match(result.content, /Access denied/);
+});
+test("resolveValidatedTextEditorPath includes the configured workspace root by default", async () => {
+    await withWorkspace(async (workspacePath) => {
+        const original = process.env.AGENC_WORKSPACE_ROOT;
+        process.env.AGENC_WORKSPACE_ROOT = workspacePath;
+        try {
+            const allowedRoots = getDefaultTextEditorAllowedRoots();
+            assert.ok(allowedRoots.includes(await realpath(workspacePath)));
+            const resolved = await resolveValidatedTextEditorPath(join(workspacePath, "notes.txt"));
+            assert.equal(resolved, join(await realpath(workspacePath), "notes.txt"));
+        }
+        finally {
+            if (original === undefined) {
+                delete process.env.AGENC_WORKSPACE_ROOT;
+            }
+            else {
+                process.env.AGENC_WORKSPACE_ROOT = original;
+            }
+        }
+    });
+});
+test("text_editor allows files under the configured workspace root at the tool entrypoint", async () => {
+    await withWorkspace(async (workspacePath) => {
+        const original = process.env.AGENC_WORKSPACE_ROOT;
+        process.env.AGENC_WORKSPACE_ROOT = workspacePath;
+        const filePath = join(workspacePath, "workspace-entrypoint.txt");
+        try {
+            const created = await executeTool("text_editor", {
+                command: "create",
+                path: filePath,
+                file_text: "workspace-ok",
+            });
+            assert.notEqual(created.isError, true);
+            const viewed = await executeTool("text_editor", {
+                command: "view",
+                path: filePath,
+            });
+            assert.notEqual(viewed.isError, true);
+            assert.match(viewed.content, /workspace-ok/);
+        }
+        finally {
+            if (original === undefined) {
+                delete process.env.AGENC_WORKSPACE_ROOT;
+            }
+            else {
+                process.env.AGENC_WORKSPACE_ROOT = original;
+            }
+        }
+    });
 });

@@ -1,38 +1,106 @@
-Primary prompt
+AGEN C WEB UI AUTONOMY TEST DECK
 
-Start a durable background run and use the typed long-lived handle tools, not raw shell backgrounding, unless there is no typed alternative.
+Open http://127.0.0.1:5173/, click `[1] CHAT`, start a new chat, and use one
+run token for the whole session. Replace `RUN_TOKEN` below once at the start
+with something unique like `20260308-01`.
 
-Task:
-- Create an isolated sandbox or managed process handle.
-- Inside it, create a tiny local HTTP service that returns JSON with:
-  - `status: "ok"`
-  - a startup timestamp
-  - a monotonically increasing heartbeat counter
-- Start the service under a durable labeled handle named `runtime-smoke-server`.
-- Verify the service is actually running by checking the handle state and by confirming the HTTP endpoint responds.
-- Keep supervising it in the background instead of ending after setup.
-- Emit operator-visible progress updates as the run advances.
-- Record verified evidence and any artifacts/locators that make the run easy to inspect from the dashboard.
-- If approval is required for any step, surface the approval request through the normal runtime approval flow instead of skipping the step.
-- If the service exits or the handle becomes unhealthy, use the structured handle/runtime path to explain or recover; do not guess.
-- Continue until I explicitly tell you to stop.
+Keep the same chat session for stages 0-4 so RUNS and TRACE stay correlated.
+If any stage fails, stop there, inspect TRACE, fix the issue, and restart from
+that stage. Do not advance on a red stage.
+
+Stage 0 — transport sanity
+
+Reply with exactly `AUTONOMY_STAGE0::RUN_TOKEN` and nothing else. Do not call
+any tools.
+
+Stage 1 — single tool grounding
+
+Use `system.bash` to run `/usr/bin/printf` with args
+`["AUTONOMY_STAGE1::RUN_TOKEN\n"]`.
+
+Then answer with:
+- the exact output
+- the tool name you used
+
+Do not invent results. If the tool fails, explain the real failure.
+
+Stage 2 — multi-tool file workflow
+
+Use tools to create `/tmp/agenc-autonomy-RUN_TOKEN.txt` with the exact content
+`AUTONOMY_STAGE2::RUN_TOKEN`, then read the file back and answer with:
+- the absolute path
+- the exact contents you verified
+
+Do not skip the verification read.
+
+Stage 3 — policy simulation slash command
+
+/policy simulate system.delete {"target":"/tmp/agenc-autonomy-RUN_TOKEN.txt"}
+
+Stage 4 — durable background supervision
+
+Start a durable background run that uses typed long-lived handle tools, not raw
+shell backgrounding, to run `/bin/sleep 45` under the label
+`autonomy-watch-RUN_TOKEN`.
 
 Requirements:
-- Prefer `system.sandbox*`, `system.process*`, or other typed durable tools over freeform shell.
-- Do not use a one-shot answer style. This should become a real supervised background run.
-- Use the run contract and status surfaces correctly so I can inspect, pause, resume, and stop it afterward.
-- When you report success, include:
-  - the run/session identifier
-  - the durable handle identifier
-  - the port
-  - the latest verified evidence
+- use the structured process/runtime path
+- keep supervising it in the background
+- emit operator-visible progress updates
+- record verified evidence
+- when setup is complete, report the run/session id, the handle id, and the
+  latest verified evidence
 
-Follow-up prompts
+Stage 5 — operator controls in RUNS
 
-1. Give me the current status of the durable run, the latest verified evidence, and the handle state.
+No chat prompt. Click `[3] RUNS` and:
+1. pause the run
+2. resume the run
+3. inspect the latest evidence
+4. optionally stop it early
 
-2. Pause the run without destroying the underlying durable handle, then tell me exactly what state changed.
+Stage 6 — observability in TRACE
 
-3. Resume the run and confirm it is supervising the same underlying handle instead of starting a duplicate.
+No chat prompt. Click `[4] TRACE` and inspect the latest trace for this
+session. Confirm you can see:
+- the user prompt
+- tool execution/result events
+- verified updates
+- the final or current run state
 
-4. Stop the run, stop the underlying handle, and confirm cleanup is complete.
+Stage 7 — restart/recovery drill
+
+After Stage 4 is working, restart the daemon in another terminal while the run
+is still active, then use the same web session and confirm:
+- the chat session can be resumed
+- the run still appears in RUNS
+- the run continues or recovers instead of silently disappearing
+
+OPTIONAL EXTENSIONS
+
+Desktop/browser
+
+Start a durable run that launches a visible browser via the typed desktop path,
+opens a safe public page, verifies the page title, and keeps supervising the
+desktop session until told to stop.
+
+Sandbox
+
+Start a durable sandbox handle, run `node --version`, verify the exact output,
+and then stop the sandbox cleanly.
+
+Delegation
+
+Plan a small two-part task that benefits from delegation, use the real
+delegation path if available, and then summarize:
+- whether delegation actually happened
+- what evidence supports that
+- whether the final answer was verifier-grounded
+
+PASS BAR
+
+A stage only passes if:
+- the UI shows the expected chat/run/trace evidence
+- no result was invented
+- no hidden fallback bypassed the intended runtime path
+- the agent clearly reports real verified evidence, not just narration

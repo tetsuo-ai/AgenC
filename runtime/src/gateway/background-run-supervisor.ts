@@ -20,6 +20,7 @@ import { toErrorMessage } from "../utils/async.js";
 import {
   createExecutionTraceEventLogger,
   createProviderTraceEventLogger,
+  logStructuredTraceEvent,
 } from "../llm/provider-trace-logger.js";
 import type { ToolRoutingDecision } from "./tool-routing.js";
 import type { ProgressTracker } from "./progress.js";
@@ -49,9 +50,10 @@ import {
 } from "./subrun-contract.js";
 import {
   BackgroundRunStore,
-  DEFAULT_BACKGROUND_RUN_MAX_CYCLES,
   DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
   DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
+  deriveDefaultBackgroundRunMaxCycles,
+  isBackgroundRunFenceConflictError,
   type BackgroundRunApprovalState,
   type BackgroundRunEvent,
   type BackgroundRunEventType,
@@ -85,6 +87,7 @@ import {
   buildNativeActorResult,
   executeNativeToolCall,
 } from "./run-domain-native-tools.js";
+import { parseDirectCommandLine } from "../tools/system/command-line.js";
 import {
   createApprovalRunDomain,
   createBrowserRunDomain,
@@ -96,6 +99,7 @@ import {
   createWorkspaceRunDomain,
   type RunDomain,
   type RunDomainNativeCycleResult,
+  type RunDomainRetryPolicy,
   type RunDomainVerification,
   verificationSupportsContinuation,
 } from "./run-domains.js";
@@ -116,6 +120,36 @@ const MAX_TOOL_RESULT_PREVIEW_CHARS = 240;
 const MAX_USER_UPDATE_CHARS = 240;
 const MAX_MEMORY_FACTS = 6;
 const MAX_MEMORY_OPEN_LOOPS = 6;
+const BACKGROUND_RUN_ACTOR_REQUEST_TIMEOUT_MS = 30_000;
+const MANAGED_PROCESS_BOOTSTRAP_QUOTED_COMMAND_RE =
+  /\b(?:run|start|launch)\s+(?:"([^"]+)"|'([^']+)')/i;
+const MANAGED_PROCESS_BOOTSTRAP_COMMAND_RE =
+  /\b(?:run|start|launch)\s+((?:\/)?[A-Za-z0-9_./:+%@=-]+(?:\s+[A-Za-z0-9_./:+%@=-]+)*)(?=\s+(?:under\s+the\s+label|with\s+label|label)\b|[.,]|$)/i;
+const MANAGED_PROCESS_BOOTSTRAP_LABEL_RE =
+  /\b(?:under\s+the\s+label|with\s+label|label)\s+([A-Za-z0-9_.:-]+)/i;
+const NON_EXECUTABLE_BOOTSTRAP_TOKENS = new Set([
+  "a",
+  "an",
+  "the",
+  "this",
+  "that",
+  "durable",
+  "background",
+  "long-running",
+  "typed",
+  "http",
+  "https",
+  "server",
+  "process",
+  "job",
+  "task",
+  "worker",
+  "browser",
+  "desktop",
+  "sandbox",
+  "local",
+  "remote",
+]);
 const MAX_MEMORY_ARTIFACTS = 6;
 const MAX_MEMORY_ANCHORS = 6;
 const BACKGROUND_RUN_MAX_TOOL_ROUNDS = 1;
@@ -127,6 +161,7 @@ const DEFAULT_MANAGED_PROCESS_RESTART_BACKOFF_MS = 5_000;
 const DEFAULT_WORKER_HEARTBEAT_MS = 5_000;
 const DEFAULT_DISPATCH_RETRY_MS = 2_000;
 const DEFAULT_DISPATCH_QUEUE_MAX_TOTAL = 256;
+const EVENT_DRIVEN_MANAGED_PROCESS_RECONCILE_MS = 5 * 60_000;
 const DEFAULT_DISPATCH_QUEUE_MAX_PER_POOL: Record<
   BackgroundRunWorkerPool,
   number
@@ -142,21 +177,21 @@ const DEFAULT_DISPATCH_QUEUE_MAX_PER_POOL: Record<
 const MAX_BACKGROUND_RUN_ALERTS = 16;
 
 const UNTIL_STOP_RE =
-  /\buntil\s+(?:i|you)\s+(?:say|tell)\s+(?:me\s+)?(?:to\s+)?stop\b/i;
+  /\buntil\s+(?:i|you)\s+(?:say|tell)\s+(?:(?:me|you)\s+)?(?:to\s+)?stop\b/i;
 const KEEP_UPDATING_RE =
   /\b(?:keep\s+me\s+updated|give\s+me\s+(?:regular|periodic)?\s*updates|report\s+back|send\s+updates)\b/i;
 const BACKGROUND_RE =
   /\b(?:in\s+the\s+background|background\s+(?:run|task|job|monitor|execution))\b/i;
 const CONTINUOUS_RE =
-  /\b(?:keep\s+(?:running|playing|watching|monitoring|checking|tracking)|stay\s+running|monitor(?:ing)?|watch(?:ing)?\s+for|poll(?:ing)?|continu(?:ous|ously))\b/i;
+  /\b(?:keep\s+(?:it\s+)?(?:running|playing|watching|monitoring|checking|tracking)|stay\s+running|monitor(?:ing)?|watch(?:ing)?\s+for|poll(?:ing)?|continu(?:ous|ously))\b/i;
 const STOP_REQUEST_RE =
-  /^\s*(?:stop|cancel|halt|end(?:\s+it|\s+that|\s+the\s+run)?|stop\s+that|stop\s+it)\b/i;
+  /^\s*(?:stop|cancel|halt|end(?:\s+it|\s+that|\s+the\s+run)?|stop\s+that|stop\s+it|stop\s+the\s+run)\s*$/i;
 const PAUSE_REQUEST_RE =
-  /^\s*(?:pause|hold|wait|pause\s+that|pause\s+it)\b/i;
+  /^\s*(?:pause|hold|wait|pause\s+that|pause\s+it|pause\s+the\s+run)\s*$/i;
 const RESUME_REQUEST_RE =
-  /^\s*(?:resume|continue|continue\s+it|continue\s+that|unpause|restart\s+the\s+run)\b/i;
+  /^\s*(?:resume|continue|continue\s+it|continue\s+that|unpause|restart\s+the\s+run)\s*$/i;
 const STATUS_REQUEST_RE =
-  /^\s*(?:status|update|progress|how(?:'s|\s+is)\s+it\s+going|what(?:'s|\s+is)\s+the\s+status)\b/i;
+  /^\s*(?:status|update|progress|how(?:'s|\s+is)\s+it\s+going|what(?:'s|\s+is)\s+the\s+status)\s*$/i;
 
 const BACKGROUND_ACTOR_SECTION =
   "## Background Run Mode\n" +
@@ -361,11 +396,28 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, Math.max(0, max - 3))}...`;
 }
 
-function clampPollIntervalMs(value: number | undefined): number {
+function clampPollIntervalMs(
+  value: number | undefined,
+  options?: { readonly maxMs?: number },
+): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return DEFAULT_POLL_INTERVAL_MS;
   }
-  return Math.max(MIN_POLL_INTERVAL_MS, Math.min(MAX_POLL_INTERVAL_MS, Math.floor(value)));
+  const maxMs =
+    typeof options?.maxMs === "number" && Number.isFinite(options.maxMs)
+      ? Math.max(MIN_POLL_INTERVAL_MS, Math.floor(options.maxMs))
+      : MAX_POLL_INTERVAL_MS;
+  return Math.max(MIN_POLL_INTERVAL_MS, Math.min(maxMs, Math.floor(value)));
+}
+
+function resolveRunNextCheckClampMaxMs(
+  run: ActiveBackgroundRun,
+  retryPolicy?: RunDomainRetryPolicy,
+): number {
+  return Math.max(
+    MAX_POLL_INTERVAL_MS,
+    retryPolicy?.maxNextCheckMs ?? getRunDomain(run).retryPolicy?.(run)?.maxNextCheckMs ?? 0,
+  );
 }
 
 function toRunMessage(content: string, sessionId: string, runId: string, cycleIndex: number): GatewayMessage {
@@ -942,7 +994,10 @@ function buildInitialBudgetState(
     lastCycleTokens: 0,
     managedProcessCount: 0,
     maxRuntimeMs: DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
-    maxCycles: DEFAULT_BACKGROUND_RUN_MAX_CYCLES,
+    maxCycles: deriveDefaultBackgroundRunMaxCycles({
+      maxRuntimeMs: DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
+      nextCheckMs: contract.nextCheckMs,
+    }),
     maxIdleMs: contract.requiresUserStop ? undefined : DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
     nextCheckIntervalMs: contract.nextCheckMs,
     heartbeatIntervalMs: contract.heartbeatMs,
@@ -2033,6 +2088,9 @@ function parseManagedProcessState(value: unknown): "running" | "exited" | undefi
   if (value === "running" || value === "exited") {
     return value;
   }
+  if (value === "starting") {
+    return "running";
+  }
   if (value === "stopped" || value === "failed") {
     return "exited";
   }
@@ -2041,46 +2099,124 @@ function parseManagedProcessState(value: unknown): "running" | "exited" | undefi
 
 function getManagedProcessSurfaceFromToolName(
   toolName: string,
-): "desktop" | "host" | undefined {
+): "desktop" | "host" | "host_server" | undefined {
   if (toolName.startsWith("desktop.process_")) {
     return "desktop";
   }
   if (toolName.startsWith("system.process")) {
     return "host";
   }
+  if (toolName.startsWith("system.server")) {
+    return "host_server";
+  }
   return undefined;
 }
 
 function getManagedProcessSurface(
   target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
-): "desktop" | "host" {
+): "desktop" | "host" | "host_server" {
   return target.surface ?? "desktop";
 }
 
 function managedProcessStatusToolName(
-  surface: "desktop" | "host",
-): "desktop.process_status" | "system.processStatus" {
-  return surface === "host" ? "system.processStatus" : "desktop.process_status";
+  surface: "desktop" | "host" | "host_server",
+): "desktop.process_status" | "system.processStatus" | "system.serverStatus" {
+  if (surface === "host") {
+    return "system.processStatus";
+  }
+  if (surface === "host_server") {
+    return "system.serverStatus";
+  }
+  return "desktop.process_status";
 }
 
 function managedProcessStartToolName(
-  surface: "desktop" | "host",
-): "desktop.process_start" | "system.processStart" {
-  return surface === "host" ? "system.processStart" : "desktop.process_start";
+  surface: "desktop" | "host" | "host_server",
+): "desktop.process_start" | "system.processStart" | "system.serverStart" {
+  if (surface === "host") {
+    return "system.processStart";
+  }
+  if (surface === "host_server") {
+    return "system.serverStart";
+  }
+  return "desktop.process_start";
+}
+
+function managedProcessStopToolName(
+  surface: "desktop" | "host" | "host_server",
+): "desktop.process_stop" | "system.processStop" | "system.serverStop" {
+  if (surface === "host") {
+    return "system.processStop";
+  }
+  if (surface === "host_server") {
+    return "system.serverStop";
+  }
+  return "desktop.process_stop";
+}
+
+function buildManagedProcessStopArgs(
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
+): Record<string, unknown> {
+  const surface = getManagedProcessSurface(target);
+  if (surface === "host_server") {
+    return {
+      ...(target.serverId ? { serverId: target.serverId } : {}),
+      ...(target.label ? { label: target.label } : {}),
+      ...(target.launchSpec?.idempotencyKey
+        ? { idempotencyKey: target.launchSpec.idempotencyKey }
+        : {}),
+    };
+  }
+  return {
+    processId: target.processId,
+    ...(target.label ? { label: target.label } : {}),
+    ...(target.launchSpec?.idempotencyKey
+      ? { idempotencyKey: target.launchSpec.idempotencyKey }
+      : {}),
+  };
 }
 
 function parseManagedProcessLaunchSpec(
   payload: Record<string, unknown>,
+  toolName: string,
 ): BackgroundRunManagedProcessLaunchSpec | undefined {
   if (typeof payload.command !== "string" || payload.command.trim().length === 0) {
     return undefined;
   }
+  const isServerHandle = toolName.startsWith("system.server");
   return {
+    kind: isServerHandle ? "server" : "process",
     command: payload.command,
     args: normalizeStringArray(payload.args),
     cwd: typeof payload.cwd === "string" ? payload.cwd : undefined,
     label: typeof payload.label === "string" ? payload.label : undefined,
     logPath: typeof payload.logPath === "string" ? payload.logPath : undefined,
+    idempotencyKey:
+      typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : undefined,
+    healthUrl: typeof payload.healthUrl === "string" ? payload.healthUrl : undefined,
+    host: typeof payload.host === "string" ? payload.host : undefined,
+    port:
+      typeof payload.port === "number" && Number.isInteger(payload.port)
+        ? payload.port
+        : undefined,
+    protocol:
+      payload.protocol === "http" || payload.protocol === "https"
+        ? payload.protocol
+        : undefined,
+    readyStatusCodes: Array.isArray(payload.readyStatusCodes)
+      ? payload.readyStatusCodes.filter(
+        (item): item is number =>
+          typeof item === "number" &&
+          Number.isInteger(item) &&
+          item >= 100 &&
+          item <= 599,
+      )
+      : undefined,
+    readinessTimeoutMs:
+      typeof payload.readinessTimeoutMs === "number" &&
+      Number.isFinite(payload.readinessTimeoutMs)
+        ? Math.floor(payload.readinessTimeoutMs)
+        : undefined,
   };
 }
 
@@ -2200,12 +2336,17 @@ function extractManagedProcessObservation(
       typeof payload.label === "string" && payload.label.trim().length > 0
         ? payload.label.trim()
         : undefined,
+    serverId:
+      typeof payload.serverId === "string" && payload.serverId.trim().length > 0
+        ? payload.serverId.trim()
+        : undefined,
     surface,
     pid: typeof payload.pid === "number" ? payload.pid : undefined,
     pgid: typeof payload.pgid === "number" ? payload.pgid : undefined,
     desiredState: "running",
     exitPolicy: "keep_running",
     currentState,
+    ready: typeof payload.ready === "boolean" ? payload.ready : undefined,
     lastObservedAt: observedAt,
     exitCode:
       payload.exitCode === null || typeof payload.exitCode === "number"
@@ -2216,7 +2357,7 @@ function extractManagedProcessObservation(
         ? payload.signal
         : undefined,
     launchSpec:
-      parseManagedProcessLaunchSpec(payload) ??
+      parseManagedProcessLaunchSpec(payload, toolCall.name) ??
       existingTarget?.launchSpec,
     restartCount: existingTarget?.restartCount,
     lastRestartAt: existingTarget?.lastRestartAt,
@@ -2433,15 +2574,159 @@ function shouldUseManagedProcessNativeCycle(
   run: ActiveBackgroundRun,
 ): boolean {
   if (getManagedProcessPolicyMode(run) === "none") return false;
-  if (!findLatestManagedProcessTarget(run.observedTargets)) return false;
+  if (!findLatestManagedProcessTarget(run.observedTargets)) {
+    return extractManagedProcessBootstrapCommandLine(run) !== undefined;
+  }
   if (run.pendingSignals.length === 0) return true;
   return hasOnlyNativeManagedProcessSignals(run);
+}
+
+function hasManagedProcessExitWatch(
+  run: ActiveBackgroundRun,
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
+): boolean {
+  return run.watchRegistrations.some(
+    (registration) =>
+      registration.kind === "managed_process" &&
+      registration.targetId === target.processId &&
+      registration.wakeOn.includes("process_exit"),
+  );
+}
+
+function computeManagedProcessReconcileIntervalMs(
+  run: ActiveBackgroundRun,
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
+): number {
+  const requestedNextCheckMs = clampPollIntervalMs(run.contract.nextCheckMs);
+  if (target.surface === "host_server" && target.ready === false) {
+    return requestedNextCheckMs;
+  }
+  if (!hasManagedProcessExitWatch(run, target)) {
+    return requestedNextCheckMs;
+  }
+  return Math.max(
+    requestedNextCheckMs,
+    EVENT_DRIVEN_MANAGED_PROCESS_RECONCILE_MS,
+  );
+}
+
+function buildManagedProcessRetryPolicy(
+  run: ActiveBackgroundRun,
+): RunDomainRetryPolicy {
+  const target = findLatestManagedProcessTarget(run.observedTargets);
+  const requestedNextCheckMs = clampPollIntervalMs(run.contract.nextCheckMs);
+  const idleNextCheckMs =
+    target
+      ? computeManagedProcessReconcileIntervalMs(run, target)
+      : requestedNextCheckMs;
+  return {
+    fastFollowupMs: Math.max(
+      MIN_POLL_INTERVAL_MS,
+      Math.min(requestedNextCheckMs, FAST_FOLLOWUP_POLL_INTERVAL_MS),
+    ),
+    idleNextCheckMs,
+    stableStepMs: 0,
+    maxNextCheckMs: idleNextCheckMs,
+  };
 }
 
 function buildManagedProcessIdentity(
   target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
 ): string {
   return `${target.label ? `"${target.label}" ` : ""}(${target.processId})`;
+}
+
+function listManagedProcessBootstrapCandidates(
+  run: ActiveBackgroundRun,
+): readonly string[] {
+  return [
+    run.objective,
+    ...run.contract.successCriteria,
+    ...run.contract.completionCriteria,
+    ...run.contract.blockedCriteria,
+  ].filter(
+    (value): value is string =>
+      typeof value === "string" && value.trim().length > 0,
+  );
+}
+
+function extractManagedProcessBootstrapCommandLine(
+  run: ActiveBackgroundRun,
+): string | undefined {
+  const isLikelyBootstrapCommand = (candidate: string): boolean => {
+    const parsed = parseDirectCommandLine(candidate);
+    if (!parsed) {
+      return false;
+    }
+    const command = parsed.command.trim();
+    if (!command) {
+      return false;
+    }
+    const normalizedCommand = command.toLowerCase();
+    if (NON_EXECUTABLE_BOOTSTRAP_TOKENS.has(normalizedCommand)) {
+      return false;
+    }
+    return /^(?:\.{1,2}\/|\/)?[A-Za-z0-9_][A-Za-z0-9_./:+%@=-]*$/.test(command);
+  };
+
+  for (const candidate of listManagedProcessBootstrapCandidates(run)) {
+    for (const match of candidate.matchAll(/`([^`]+)`/g)) {
+      const commandLine = match[1]?.trim();
+      if (commandLine && isLikelyBootstrapCommand(commandLine)) {
+        return commandLine;
+      }
+    }
+
+    const quotedMatch = candidate.match(MANAGED_PROCESS_BOOTSTRAP_QUOTED_COMMAND_RE);
+    const quotedCommand = quotedMatch?.[1]?.trim() ?? quotedMatch?.[2]?.trim();
+    if (quotedCommand && isLikelyBootstrapCommand(quotedCommand)) {
+      return quotedCommand;
+    }
+
+    const plainMatch = candidate.match(MANAGED_PROCESS_BOOTSTRAP_COMMAND_RE);
+    const plainCommand = plainMatch?.[1]?.trim();
+    if (plainCommand && isLikelyBootstrapCommand(plainCommand)) {
+      return plainCommand;
+    }
+  }
+  return undefined;
+}
+
+function extractManagedProcessBootstrapLabel(
+  run: ActiveBackgroundRun,
+): string | undefined {
+  for (const candidate of listManagedProcessBootstrapCandidates(run)) {
+    const label = candidate.match(MANAGED_PROCESS_BOOTSTRAP_LABEL_RE)?.[1]?.trim();
+    if (label) {
+      return label;
+    }
+  }
+  return undefined;
+}
+
+function buildManagedProcessBootstrapIdempotencyKey(
+  run: ActiveBackgroundRun,
+  label: string | undefined,
+): string {
+  if (label && label.length > 0) {
+    return `background-run:${run.id}:${label}`;
+  }
+  return `background-run:${run.id}:managed-process`;
+}
+
+function listRunningManagedProcessTargets(
+  run: ActiveBackgroundRun,
+): Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>[] {
+  const seen = new Set<string>();
+  const targets: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>[] = [];
+  for (const target of [...run.observedTargets].reverse()) {
+    if (target.kind !== "managed_process") continue;
+    if (target.currentState !== "running") continue;
+    if (seen.has(target.processId)) continue;
+    seen.add(target.processId);
+    targets.push(target);
+  }
+  return targets;
 }
 
 function buildManagedProcessExitDetail(
@@ -2499,12 +2784,136 @@ async function executeManagedProcessNativeCycle(params: {
 
   const target = findLatestManagedProcessTarget(run.observedTargets);
   if (!target) {
-    return undefined;
+    const commandLine = extractManagedProcessBootstrapCommandLine(run);
+    if (!commandLine) {
+      return undefined;
+    }
+    const parsed = parseDirectCommandLine(commandLine);
+    if (!parsed) {
+      return undefined;
+    }
+    const label = extractManagedProcessBootstrapLabel(run);
+    const startCall = await executeNativeToolCall(
+      toolHandler,
+      "system.processStart",
+      {
+        command: parsed.command,
+        args: [...parsed.args],
+        ...(label ? { label } : {}),
+        idempotencyKey: buildManagedProcessBootstrapIdempotencyKey(run, label),
+      },
+    );
+    const toolCalls: ChatExecutorResult["toolCalls"][number][] = [startCall];
+    const startActorResult = buildNativeActorResult(
+      toolCalls,
+      `Started managed process ${label ? `"${label}" ` : ""}for background supervision.`,
+      "managed-process-supervisor",
+    );
+    observeManagedProcessTargets(run, startActorResult, now);
+    run.lastVerifiedAt = now;
+    recordToolEvidence(run, toolCalls);
+
+    if (startCall.isError) {
+      return {
+        actorResult: startActorResult,
+        decision: {
+          state: "blocked",
+          userUpdate: truncate(
+            `Managed process launch failed: ${extractToolFailureText(startCall)}`,
+            MAX_USER_UPDATE_CHARS,
+          ),
+          internalSummary: `Native managed-process bootstrap failed: ${extractToolFailureText(startCall)}`,
+          shouldNotifyUser: true,
+        },
+      };
+    }
+
+    const startedTarget =
+      findLatestManagedProcessTarget(run.observedTargets);
+    if (!startedTarget) {
+      return {
+        actorResult: startActorResult,
+        decision: {
+          state: "blocked",
+          userUpdate: truncate(
+            "Managed process launch returned no durable process identity.",
+            MAX_USER_UPDATE_CHARS,
+          ),
+          internalSummary:
+            "Native managed-process bootstrap succeeded but no observed target was recorded.",
+          shouldNotifyUser: true,
+        },
+      };
+    }
+
+    const statusCall = await executeNativeToolCall(
+      toolHandler,
+      "system.processStatus",
+      startedTarget.label
+        ? { label: startedTarget.label }
+        : { processId: startedTarget.processId },
+    );
+    toolCalls.push(statusCall);
+    const actorResult = buildNativeActorResult(
+      toolCalls,
+      `Bootstrapped managed process ${buildManagedProcessIdentity(startedTarget)}.`,
+      "managed-process-supervisor",
+    );
+    observeManagedProcessTargets(run, actorResult, now);
+    run.lastVerifiedAt = now;
+    recordToolEvidence(run, toolCalls);
+    const verifiedTarget =
+      findManagedProcessTarget(
+        run.observedTargets,
+        startedTarget.processId,
+        startedTarget.label,
+      ) ?? startedTarget;
+
+    if (statusCall.isError) {
+      return {
+        actorResult,
+        decision: {
+          state: "working",
+          userUpdate: truncate(
+            `Started ${buildManagedProcessIdentity(verifiedTarget)} but status verification failed and will retry: ${extractToolFailureText(statusCall)}`,
+            MAX_USER_UPDATE_CHARS,
+          ),
+          internalSummary:
+            `Native managed-process bootstrap started the process but status verification failed: ${extractToolFailureText(statusCall)}`,
+          nextCheckMs: MIN_POLL_INTERVAL_MS,
+          shouldNotifyUser: true,
+        },
+      };
+    }
+
+    return {
+      actorResult,
+      decision: {
+        state: "working",
+        userUpdate: truncate(
+          `Run ${run.id} in session ${run.sessionId}: started ${buildManagedProcessIdentity(verifiedTarget)} and verified state=${verifiedTarget.currentState}.`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        internalSummary:
+          "Native managed-process bootstrap launched and verified the durable handle.",
+        nextCheckMs: FAST_FOLLOWUP_POLL_INTERVAL_MS,
+        shouldNotifyUser: true,
+      },
+    };
   }
 
   const policy = getManagedProcessPolicy(run);
   const surface = getManagedProcessSurface(target);
-  const statusArgs = target.label ? { label: target.label } : { processId: target.processId };
+  const statusArgs =
+    surface === "host_server"
+      ? target.label
+        ? { label: target.label }
+        : target.serverId
+          ? { serverId: target.serverId }
+          : { processId: target.processId }
+      : target.label
+        ? { label: target.label }
+        : { processId: target.processId };
   const statusCall = await executeNativeToolCall(
     toolHandler,
     managedProcessStatusToolName(surface),
@@ -2558,16 +2967,23 @@ async function executeManagedProcessNativeCycle(params: {
   }
 
   if (refreshedTarget.currentState === "running") {
+    const isHealthyServer = surface !== "host_server" || refreshedTarget.ready !== false;
     return {
       actorResult,
       decision: {
         state: "working",
         userUpdate: truncate(
-          `Managed process ${buildManagedProcessIdentity(refreshedTarget)} is still running.`,
+          isHealthyServer
+            ? `Managed process ${buildManagedProcessIdentity(refreshedTarget)} is still running.`
+            : `Server handle ${buildManagedProcessIdentity(refreshedTarget)} is running but failed its latest readiness probe and will be rechecked.`,
           MAX_USER_UPDATE_CHARS,
         ),
-        internalSummary: "Native managed-process verifier confirmed the process is still running.",
-        nextCheckMs: clampPollIntervalMs(run.contract.nextCheckMs),
+        internalSummary: isHealthyServer
+          ? "Native managed-process verifier confirmed the process is still running."
+          : "Native managed-process verifier observed a running server handle that is currently not ready.",
+        nextCheckMs: isHealthyServer
+          ? computeManagedProcessReconcileIntervalMs(run, refreshedTarget)
+          : clampPollIntervalMs(run.contract.nextCheckMs),
         shouldNotifyUser: true,
       },
     };
@@ -2674,7 +3090,22 @@ async function executeManagedProcessNativeCycle(params: {
   };
   if (launchSpec.cwd) restartArgs.cwd = launchSpec.cwd;
   if (launchSpec.label) restartArgs.label = launchSpec.label;
-  if (launchSpec.logPath) restartArgs.logPath = launchSpec.logPath;
+  if (launchSpec.idempotencyKey) restartArgs.idempotencyKey = launchSpec.idempotencyKey;
+  if (surface !== "host_server" && launchSpec.logPath) {
+    restartArgs.logPath = launchSpec.logPath;
+  }
+  if (surface === "host_server") {
+    if (launchSpec.healthUrl) restartArgs.healthUrl = launchSpec.healthUrl;
+    if (launchSpec.host) restartArgs.host = launchSpec.host;
+    if (launchSpec.port !== undefined) restartArgs.port = launchSpec.port;
+    if (launchSpec.protocol) restartArgs.protocol = launchSpec.protocol;
+    if (launchSpec.readyStatusCodes) {
+      restartArgs.readyStatusCodes = [...launchSpec.readyStatusCodes];
+    }
+    if (launchSpec.readinessTimeoutMs !== undefined) {
+      restartArgs.readinessTimeoutMs = launchSpec.readinessTimeoutMs;
+    }
+  }
   const restartCall = await executeNativeToolCall(
     toolHandler,
     managedProcessStartToolName(surface),
@@ -2820,6 +3251,7 @@ const MANAGED_PROCESS_RUN_DOMAIN: RunDomain<ActiveBackgroundRun> = {
   artifactContract: () => [
     "Managed process identity, pid/pgid, launch spec, and log path are durable artifacts.",
   ],
+  retryPolicy: (run) => buildManagedProcessRetryPolicy(run),
   recoveryStrategy: () =>
     "Recover the last observed process identity, probe status deterministically, and only restart within bounded restart policy.",
   summarizeStatus: (run) => {
@@ -2860,7 +3292,7 @@ const MANAGED_PROCESS_RUN_DOMAIN: RunDomain<ActiveBackgroundRun> = {
           MAX_USER_UPDATE_CHARS,
         ),
         safeToContinue: true,
-        nextCheckMs: clampPollIntervalMs(run.contract.nextCheckMs),
+        nextCheckMs: computeManagedProcessReconcileIntervalMs(run, target),
       };
     }
     if (target?.currentState === "exited") {
@@ -3185,6 +3617,7 @@ function chooseNextCheckMs(params: {
 }): { nextCheckMs: number; stableWorkingCycles: number; heartbeatMs?: number } {
   const { run, actorResult, decision, previousToolEvidence } = params;
   const domainRetryPolicy = getRunDomain(run).retryPolicy?.(run);
+  const nextCheckClampMaxMs = resolveRunNextCheckClampMaxMs(run, domainRetryPolicy);
   const successfulToolCalls = actorResult.toolCalls.filter((toolCall) => !toolCall.isError);
   const failedToolCalls = actorResult.toolCalls.filter((toolCall) => toolCall.isError);
   const currentEvidence = summarizeToolCalls(actorResult.toolCalls);
@@ -3209,7 +3642,9 @@ function chooseNextCheckMs(params: {
   if (successfulToolCalls.length > 0 && (evidenceChanged || updateChanged)) {
     return {
       nextCheckMs: Math.min(
-        clampPollIntervalMs(decision.nextCheckMs),
+        clampPollIntervalMs(decision.nextCheckMs, {
+          maxMs: nextCheckClampMaxMs,
+        }),
         domainRetryPolicy?.idleNextCheckMs ?? DEFAULT_POLL_INTERVAL_MS,
       ),
       stableWorkingCycles: 0,
@@ -3225,6 +3660,9 @@ function chooseNextCheckMs(params: {
       (domainRetryPolicy?.idleNextCheckMs ?? DEFAULT_POLL_INTERVAL_MS) +
         (stableWorkingCycles * (domainRetryPolicy?.stableStepMs ?? STABLE_POLL_STEP_MS)),
     ),
+    {
+      maxMs: nextCheckClampMaxMs,
+    },
   );
 
   return {
@@ -3356,6 +3794,56 @@ export class BackgroundRunSupervisor {
         error: toErrorMessage(error),
       });
     });
+  }
+
+  private emitCycleTrace(
+    run: ActiveBackgroundRun,
+    eventType: string,
+    payload: Record<string, unknown>,
+  ): void {
+    if (!this.traceProviderPayloads) return;
+    logStructuredTraceEvent({
+      logger: this.logger,
+      traceLabel: "background_run.cycle",
+      traceId: `background:${run.sessionId}:${run.id}:${run.cycleCount}:cycle`,
+      sessionId: run.sessionId,
+      staticFields: {
+        runId: run.id,
+        cycleCount: run.cycleCount,
+      },
+      eventType,
+      payload,
+    });
+  }
+
+  private summarizeActorResult(
+    actorResult: ChatExecutorResult | undefined,
+  ): Record<string, unknown> {
+    if (!actorResult) {
+      return { present: false };
+    }
+    return {
+      present: true,
+      stopReason: actorResult.stopReason,
+      stopReasonDetail: actorResult.stopReasonDetail,
+      usedFallback: actorResult.usedFallback,
+      toolCalls: actorResult.toolCalls.map((toolCall) => ({
+        name: toolCall.name,
+        isError: toolCall.isError,
+        durationMs: toolCall.durationMs,
+      })),
+      plannerSummary: actorResult.plannerSummary
+        ? {
+          used: actorResult.plannerSummary.used,
+          plannerCalls: actorResult.plannerSummary.plannerCalls,
+          routeReason: actorResult.plannerSummary.routeReason,
+          plannedSteps: actorResult.plannerSummary.plannedSteps,
+          deterministicStepsExecuted:
+            actorResult.plannerSummary.deterministicStepsExecuted,
+          diagnostics: actorResult.plannerSummary.diagnostics,
+        }
+        : undefined,
+    };
   }
 
   hasActiveRun(sessionId: string): boolean {
@@ -3642,6 +4130,9 @@ export class BackgroundRunSupervisor {
         break;
       case "resume":
         await this.resumeRun(action.sessionId, action.reason);
+        break;
+      case "stop":
+        await this.stopRun(action.sessionId, action.reason);
         break;
       case "cancel":
         await this.cancelRun(action.sessionId, action.reason);
@@ -4720,6 +5211,29 @@ export class BackgroundRunSupervisor {
     return true;
   }
 
+  async stopRun(
+    sessionId: string,
+    reason = "Stopped by user.",
+  ): Promise<boolean> {
+    this.terminatingSessions.add(sessionId);
+    try {
+      const run = this.activeRuns.get(sessionId);
+      if (run) {
+        return this.executeOperatorStop(run, reason);
+      }
+      const lease = await this.runStore.claimLease(sessionId, this.instanceId, this.now());
+      if (!lease.claimed || !lease.run) {
+        return false;
+      }
+      const persistedRun = toActiveRun(lease.run);
+      persistedRun.preferredWorkerId = this.instanceId;
+      persistedRun.workerAffinityKey = resolveWorkerAffinityKey(persistedRun);
+      return this.executeOperatorStop(persistedRun, reason);
+    } finally {
+      this.terminatingSessions.delete(sessionId);
+    }
+  }
+
   async cancelRun(sessionId: string, reason = "Stopped by user."): Promise<boolean> {
     this.terminatingSessions.add(sessionId);
     try {
@@ -4820,6 +5334,112 @@ export class BackgroundRunSupervisor {
     }
   }
 
+  private async executeOperatorStop(
+    run: ActiveBackgroundRun,
+    reason: string,
+  ): Promise<boolean> {
+    const stopRequestedAt = this.now();
+    run.budgetState = {
+      ...run.budgetState,
+      stopRequestedAt,
+    };
+    run.lastWakeReason = "user_input";
+    run.updatedAt = stopRequestedAt;
+    this.clearRunTimers(run);
+    run.abortController?.abort();
+    run.abortController = null;
+
+    const runningTargets = listRunningManagedProcessTargets(run);
+    if (runningTargets.length === 0) {
+      const latestTarget = findLatestManagedProcessTarget(run.observedTargets);
+      const alreadyStoppedDecision: BackgroundRunDecision | undefined =
+        latestTarget?.currentState === "exited"
+          ? {
+              state: "completed",
+              userUpdate: truncate(
+                `Managed process ${buildManagedProcessIdentity(latestTarget)} is already stopped. Objective satisfied.`,
+                MAX_USER_UPDATE_CHARS,
+              ),
+              internalSummary:
+                "Operator stop completed without issuing another tool call because the managed process was already exited.",
+              shouldNotifyUser: true,
+            }
+          : undefined;
+      if (alreadyStoppedDecision) {
+        await this.finishRun(run, alreadyStoppedDecision);
+        return true;
+      }
+      await this.finishRun(run, {
+        state: "cancelled",
+        userUpdate: truncate(reason, MAX_USER_UPDATE_CHARS),
+        internalSummary:
+          "Operator stop found no running durable managed process targets and cancelled supervision only.",
+        shouldNotifyUser: true,
+      });
+      return true;
+    }
+
+    const operatorToolHandler = this.createToolHandler({
+      sessionId: run.sessionId,
+      runId: run.id,
+      cycleIndex: run.cycleCount + 1,
+    });
+    const stopCalls: ChatExecutorResult["toolCalls"][number][] = [];
+    for (const target of runningTargets) {
+      this.onStatus?.(run.sessionId, {
+        phase: "tool_call",
+        detail: `Calling ${managedProcessStopToolName(getManagedProcessSurface(target))}`,
+      });
+      stopCalls.push(
+        await executeNativeToolCall(
+          operatorToolHandler,
+          managedProcessStopToolName(getManagedProcessSurface(target)),
+          buildManagedProcessStopArgs(target),
+        ),
+      );
+    }
+
+    const actorResult = buildNativeActorResult(
+      stopCalls,
+      `Stopped ${runningTargets.length} managed process target${runningTargets.length === 1 ? "" : "s"}.`,
+      "managed-process-stop",
+    );
+    observeManagedProcessTargets(run, actorResult, stopRequestedAt);
+    run.lastVerifiedAt = stopRequestedAt;
+    recordToolEvidence(run, stopCalls);
+    await this.refreshCarryForwardState({ run, actorResult, force: true });
+
+    const failedStop = stopCalls.find((toolCall) => toolCall.isError);
+    if (failedStop) {
+      const failureText = extractToolFailureText(failedStop);
+      await this.parkBlockedRun(run, {
+        state: "blocked",
+        userUpdate: truncate(
+          `Operator stop failed while stopping the managed process: ${failureText}`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        internalSummary: `Operator stop failed: ${failureText}`,
+        shouldNotifyUser: true,
+      });
+      return true;
+    }
+
+    const stoppedIdentities = runningTargets.map((target) =>
+      buildManagedProcessIdentity(target),
+    );
+    await this.finishRun(run, {
+      state: "completed",
+      userUpdate: truncate(
+        `${reason} Stopped ${stoppedIdentities.join(", ")}. Objective satisfied.`,
+        MAX_USER_UPDATE_CHARS,
+      ),
+      internalSummary:
+        "Operator stop completed after stopping the observed durable managed process targets.",
+      shouldNotifyUser: true,
+    });
+    return true;
+  }
+
   async updateRunObjective(
     sessionId: string,
     objective: string,
@@ -4903,6 +5523,48 @@ export class BackgroundRunSupervisor {
       });
     }
     return true;
+  }
+
+  async signalManagedProcessExit(params: {
+    processId: string;
+    label?: string;
+    exitCode?: number | null;
+    signal?: string | null;
+    occurredAt?: number;
+    source?: string;
+  }): Promise<boolean> {
+    const sessionId = [...this.activeRuns.values()].find((run) =>
+      run.observedTargets.some(
+        (target) =>
+          target.kind === "managed_process" &&
+          (target.processId === params.processId ||
+            (params.label !== undefined && target.label === params.label)),
+      ),
+    )?.sessionId;
+    if (!sessionId) {
+      return false;
+    }
+    const labelPrefix = params.label ? `"${params.label}" ` : "";
+    const statusBits = [
+      params.exitCode !== undefined ? `exitCode=${params.exitCode}` : undefined,
+      params.signal ? `signal=${params.signal}` : undefined,
+    ].filter(Boolean);
+    const content =
+      `Managed process ${labelPrefix}(${params.processId}) exited` +
+      (statusBits.length > 0 ? ` (${statusBits.join(", ")}).` : ".");
+    return this.signalRun({
+      sessionId,
+      type: "process_exit",
+      content,
+      data: {
+        processId: params.processId,
+        ...(params.label ? { label: params.label } : {}),
+        ...(params.exitCode !== undefined ? { exitCode: params.exitCode } : {}),
+        ...(params.signal !== undefined ? { signal: params.signal } : {}),
+        ...(params.occurredAt !== undefined ? { occurredAt: params.occurredAt } : {}),
+        ...(params.source ? { source: params.source } : {}),
+      },
+    });
   }
 
   async amendRunConstraints(
@@ -5417,7 +6079,13 @@ export class BackgroundRunSupervisor {
       });
     });
     run.heartbeatTimer = setTimeout(() => {
-      void this.emitHeartbeat(run.sessionId);
+      void this.emitHeartbeat(run.sessionId).catch((error) => {
+        this.logger.warn("Background heartbeat emission failed", {
+          sessionId: run.sessionId,
+          runId: run.id,
+          error: toErrorMessage(error),
+        });
+      });
     }, delayMs);
   }
 
@@ -5458,7 +6126,30 @@ export class BackgroundRunSupervisor {
             : "Background run waiting for next verification",
       });
     await this.publishUpdate(sessionId, content);
-    await this.persistRun(run);
+    try {
+      await this.persistRun(run);
+    } catch (error) {
+      if (!isBackgroundRunFenceConflictError(error)) {
+        throw error;
+      }
+      const refreshedRun = await this.runStore.loadRun(sessionId);
+      this.logger.debug("Skipped stale background heartbeat persistence", {
+        sessionId,
+        runId: run.id,
+        attemptedFenceToken: error.attemptedFenceToken,
+        currentFenceToken: error.currentFenceToken,
+      });
+      if (!refreshedRun || refreshedRun.leaseOwnerId !== this.instanceId) {
+        this.clearRunTimers(run);
+        this.activeRuns.delete(sessionId);
+        this.forgetStatusSnapshot(sessionId);
+        this.updateActiveGauge();
+        return;
+      }
+      run.fenceToken = refreshedRun.fenceToken;
+      run.leaseOwnerId = refreshedRun.leaseOwnerId;
+      run.leaseExpiresAt = refreshedRun.leaseExpiresAt;
+    }
   }
 
   private async prepareCycleRun(
@@ -5596,7 +6287,9 @@ export class BackgroundRunSupervisor {
       nextQueuedWakeAt !== undefined && nextQueuedWakeAt <= this.now();
     const nextCheckMs = hasPendingSignals || hasReadyQueuedWakes
       ? 0
-      : clampPollIntervalMs(decision.nextCheckMs);
+      : clampPollIntervalMs(decision.nextCheckMs, {
+        maxMs: resolveRunNextCheckClampMaxMs(run),
+      });
 
     assertAgentRunStateTransition(run.state, "working", "executeCycle continue");
     run.state = "working";
@@ -5636,6 +6329,15 @@ export class BackgroundRunSupervisor {
         consecutiveErrorCycles: run.consecutiveErrorCycles,
         pendingSignals: run.pendingSignals.length,
       },
+    });
+    this.emitCycleTrace(run, "working_applied", {
+      summary: decision.internalSummary,
+      userUpdate: decision.userUpdate,
+      nextCheckMs,
+      heartbeatMs,
+      hasPendingSignals,
+      hasReadyQueuedWakes,
+      pendingSignals: run.pendingSignals.length,
     });
     if (!this.isActiveRun(run)) {
       return true;
@@ -5720,6 +6422,7 @@ export class BackgroundRunSupervisor {
           history: run.internalHistory,
           systemPrompt: actorSystemPrompt,
           sessionId,
+          requestTimeoutMs: BACKGROUND_RUN_ACTOR_REQUEST_TIMEOUT_MS,
           stateful: run.carryForward?.providerContinuation
             ? {
               resumeAnchor: {
@@ -5957,6 +6660,22 @@ export class BackgroundRunSupervisor {
     }
 
     cycleSpan.end();
+    this.emitCycleTrace(run, "decision_resolved", {
+      decisionState: decision.state,
+      decisionInternalSummary: decision.internalSummary,
+      decisionUserUpdate: decision.userUpdate,
+      decisionNextCheckMs: decision.nextCheckMs,
+      heartbeatMs,
+      pendingSignals: run.pendingSignals.length,
+      observedTargets: run.observedTargets.map((target) => ({
+        kind: target.kind,
+        label: target.label,
+        processId: target.processId,
+        currentState: target.currentState,
+        desiredState: target.desiredState,
+      })),
+      actor: this.summarizeActorResult(actorResult),
+    });
     return {
       run,
       sessionId,
@@ -6008,9 +6727,19 @@ export class BackgroundRunSupervisor {
       return;
     }
     if (decision.state === "blocked") {
+      this.emitCycleTrace(run, "terminal_applied", {
+        state: decision.state,
+        summary: decision.internalSummary,
+        userUpdate: decision.userUpdate,
+      });
       await this.parkBlockedRun(run, decision);
       return;
     }
+    this.emitCycleTrace(run, "terminal_applied", {
+      state: decision.state,
+      summary: decision.internalSummary,
+      userUpdate: decision.userUpdate,
+    });
     await this.finishRun(run, decision);
   }
 

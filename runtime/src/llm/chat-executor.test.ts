@@ -302,6 +302,28 @@ describe("ChatExecutor", () => {
       expect(result.usedFallback).toBe(true);
     });
 
+    it("falls back on transient provider outage text without status", async () => {
+      const primary = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockRejectedValue(new Error("Service temporarily unavailable.")),
+      });
+      const secondary = createMockProvider("secondary");
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        retryPolicyMatrix: {
+          provider_error: { maxRetries: 0 },
+        },
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.provider).toBe("secondary");
+      expect(result.usedFallback).toBe(true);
+      expect((primary.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect((secondary.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
+    });
+
     it("all providers fail — throws last error", async () => {
       const primary = createMockProvider("primary", {
         chat: vi
@@ -4273,6 +4295,162 @@ describe("ChatExecutor", () => {
       });
       expect(defaultToolHandler).not.toHaveBeenCalled();
       expect(result.stopReason).toBe("completed");
+    });
+
+    it("emits planner lifecycle and deterministic pipeline execution trace events", async () => {
+      const events: Array<Record<string, unknown>> = [];
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "restart_server",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "stop_server",
+                  step_type: "deterministic_tool",
+                  tool: "system.serverStop",
+                  args: { label: "svc" },
+                },
+                {
+                  name: "start_server",
+                  step_type: "deterministic_tool",
+                  depends_on: ["stop_server"],
+                  tool: "system.serverStart",
+                  args: { command: "python3", args: ["-m", "http.server", "8774"] },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockImplementation(
+          async (
+            pipeline: { id: string },
+            _startFrom?: number,
+            options?: {
+              onEvent?: (event: {
+                type: string;
+                pipelineId: string;
+                stepName?: string;
+                stepIndex?: number;
+                tool?: string;
+                args?: Record<string, unknown>;
+                durationMs?: number;
+                result?: string;
+              }) => void;
+            },
+          ) => {
+            options?.onEvent?.({
+              type: "step_started",
+              pipelineId: pipeline.id,
+              stepName: "stop_server",
+              stepIndex: 0,
+              tool: "system.serverStop",
+              args: { label: "svc" },
+            });
+            options?.onEvent?.({
+              type: "step_finished",
+              pipelineId: pipeline.id,
+              stepName: "stop_server",
+              stepIndex: 0,
+              tool: "system.serverStop",
+              args: { label: "svc" },
+              durationMs: 5,
+              result: '{"state":"stopped"}',
+            });
+            return {
+              status: "completed",
+              context: {
+                results: {
+                  stop_server: '{"state":"stopped"}',
+                  start_server: '{"state":"running"}',
+                },
+              },
+              completedSteps: 2,
+              totalSteps: 2,
+            };
+          },
+        ),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First stop the server, then restart it on port 8774 and verify the result.",
+          ),
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "planner_plan_parsed",
+            phase: "planner",
+            payload: expect.objectContaining({
+              deterministicSteps: 2,
+              routeReason: "restart_server",
+            }),
+          }),
+          expect.objectContaining({
+            type: "planner_pipeline_started",
+            phase: "planner",
+            payload: expect.objectContaining({
+              deterministicSteps: expect.arrayContaining([
+                expect.objectContaining({ name: "stop_server", tool: "system.serverStop" }),
+                expect.objectContaining({ name: "start_server", tool: "system.serverStart" }),
+              ]),
+            }),
+          }),
+          expect.objectContaining({
+            type: "tool_dispatch_started",
+            phase: "planner",
+            payload: expect.objectContaining({
+              stepName: "stop_server",
+              tool: "system.serverStop",
+            }),
+          }),
+          expect.objectContaining({
+            type: "tool_dispatch_finished",
+            phase: "planner",
+            payload: expect.objectContaining({
+              stepName: "stop_server",
+              tool: "system.serverStop",
+              isError: false,
+            }),
+          }),
+          expect.objectContaining({
+            type: "planner_pipeline_finished",
+            phase: "planner",
+            payload: expect.objectContaining({
+              status: "completed",
+              completedSteps: 2,
+              totalSteps: 2,
+            }),
+          }),
+          expect.objectContaining({
+            type: "planner_path_finished",
+            phase: "planner",
+            payload: expect.objectContaining({
+              handled: true,
+              deterministicStepsExecuted: 2,
+            }),
+          }),
+        ]),
+      );
     });
 
     it("applies bandit arm tuning and records parent trajectory rewards", async () => {

@@ -143,3 +143,70 @@ export function createExecutionTraceEventLogger(params: {
     logger.info(line);
   };
 }
+
+export function logStructuredTraceEvent(params: {
+  logger: Logger;
+  traceLabel: string;
+  traceId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  sessionId?: string;
+  callIndex?: number;
+  callPhase?: string;
+  level?: "info" | "warn" | "error";
+  maxChars?: number;
+  staticFields?: Record<string, unknown>;
+}): void {
+  const {
+    logger,
+    traceLabel,
+    traceId,
+    eventType,
+    payload,
+    sessionId,
+    callIndex,
+    callPhase,
+    level = "info",
+    maxChars = DEFAULT_MAX_CHARS,
+    staticFields,
+  } = params;
+  const eventName = `${traceLabel}.${eventType}`;
+  const payloadArtifact = persistTracePayloadArtifact({
+    traceId,
+    eventName,
+    payload,
+  });
+  const preview = {
+    traceId,
+    ...(sessionId ? { sessionId } : {}),
+    ...(staticFields ?? {}),
+    ...(callIndex !== undefined ? { callIndex } : {}),
+    ...(callPhase !== undefined ? { callPhase } : {}),
+    payloadPreview: summarizeTracePayloadForPreview(payload, maxChars),
+    ...(payloadArtifact ? { payloadArtifact } : {}),
+  };
+  recordObservabilityTraceEvent({
+    eventName,
+    level: level === "warn" ? "info" : level,
+    traceId,
+    sessionId,
+    channel: deriveTraceChannel(traceLabel),
+    callIndex,
+    callPhase,
+    payloadPreview: preview,
+    rawPayload: payload,
+    artifact: payloadArtifact,
+  });
+  const line =
+    `[trace] ${eventName} ` +
+    formatProviderTracePayloadForLog(preview, maxChars);
+  if (level === "error") {
+    logger.error(line);
+    return;
+  }
+  if (level === "warn") {
+    logger.warn(line);
+    return;
+  }
+  logger.info(line);
+}

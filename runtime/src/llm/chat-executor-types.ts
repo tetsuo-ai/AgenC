@@ -103,6 +103,11 @@ export type ChatExecutionTraceEventType =
   | "completion_gate_checked"
   | "contract_guidance_resolved"
   | "model_call_prepared"
+  | "planner_path_finished"
+  | "planner_pipeline_finished"
+  | "planner_pipeline_started"
+  | "planner_plan_parsed"
+  | "planner_refinement_requested"
   | "route_expanded"
   | "tool_arguments_invalid"
   | "tool_dispatch_finished"
@@ -134,6 +139,8 @@ export interface ChatExecuteParams {
   readonly toolBudgetPerRequest?: number;
   /** Per-call model recall budget (calls after the first) — overrides the constructor default. */
   readonly maxModelRecallsPerRequest?: number;
+  /** Per-call end-to-end timeout in milliseconds — overrides the constructor default. */
+  readonly requestTimeoutMs?: number;
   /** Optional per-turn tool-routing subset and expansion policy. */
   readonly toolRouting?: {
     /** Initial routed subset for this turn. */
@@ -630,6 +637,7 @@ export interface ExecutionContext {
   readonly effectiveToolBudget: number;
   readonly effectiveMaxModelRecalls: number;
   readonly effectiveFailureBudget: number;
+  readonly effectiveRequestTimeoutMs: number;
   readonly startTime: number;
   readonly requestDeadlineAt: number;
   readonly parentTurnId: string;
@@ -743,6 +751,7 @@ export function buildDefaultExecutionContext(
     effectiveToolBudget: config.toolBudgetPerRequest,
     effectiveMaxModelRecalls: config.maxModelRecallsPerRequest,
     effectiveFailureBudget: config.maxFailureBudgetPerRequest,
+    effectiveRequestTimeoutMs: config.requestTimeoutMs,
     startTime,
     requestDeadlineAt: startTime + config.requestTimeoutMs,
     parentTurnId: `parent:${params.sessionId}:${startTime}`,

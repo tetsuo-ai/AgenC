@@ -185,6 +185,175 @@ export function reconcileDirectShellObservationContent(
   return content;
 }
 
+const SIMPLE_CAT_PATH_RE = /^cat\s+(["']?)(\/[^"'`\n\r;&|]+)\1$/i;
+const SHELL_WRITE_REDIRECT_RE = />>?\s*(["']?)(\/[^"'`\n\r;&|]+)\1/;
+
+function extractBashCommand(toolCall: ToolCallRecord): string | undefined {
+  if (toolCall.name !== "desktop.bash" && toolCall.name !== "system.bash") {
+    return undefined;
+  }
+  if (
+    !toolCall.args ||
+    typeof toolCall.args !== "object" ||
+    Array.isArray(toolCall.args)
+  ) {
+    return undefined;
+  }
+  const command = (toolCall.args as { command?: unknown }).command;
+  return typeof command === "string" ? command.trim() : undefined;
+}
+
+interface VerifiedFileReadObservation {
+  readonly path: string;
+  readonly contents: string;
+}
+
+function extractVerifiedFileReadObservation(
+  toolCalls: readonly ToolCallRecord[],
+): VerifiedFileReadObservation | undefined {
+  for (let index = toolCalls.length - 1; index >= 0; index -= 1) {
+    const readCall = toolCalls[index];
+    const command = extractBashCommand(readCall);
+    if (!command) continue;
+    const catMatch = SIMPLE_CAT_PATH_RE.exec(command);
+    if (!catMatch) continue;
+    if (didToolCallFail(readCall.isError, readCall.result)) continue;
+
+    const parsed = parseToolResultObject(readCall.result);
+    const contents =
+      parsed && typeof parsed.stdout === "string" ? parsed.stdout : "";
+    if (contents.length === 0) continue;
+
+    const path = catMatch[2]!;
+    const hasWriteEvidence = toolCalls.slice(0, index).some((toolCall) => {
+      if (didToolCallFail(toolCall.isError, toolCall.result)) {
+        return false;
+      }
+      if (
+        toolCall.name === "desktop.text_editor" &&
+        toolCall.args &&
+        typeof toolCall.args === "object" &&
+        !Array.isArray(toolCall.args)
+      ) {
+        const args = toolCall.args as {
+          command?: unknown;
+          path?: unknown;
+        };
+        return args.command === "create" && args.path === path;
+      }
+
+      const writeCommand = extractBashCommand(toolCall);
+      if (!writeCommand) return false;
+      const redirectMatch = SHELL_WRITE_REDIRECT_RE.exec(writeCommand);
+      if (!redirectMatch) return false;
+      return redirectMatch[2] === path;
+    });
+
+    if (!hasWriteEvidence) continue;
+
+    return {
+      path,
+      contents: contents.trimEnd(),
+    };
+  }
+
+  return undefined;
+}
+
+export function reconcileVerifiedFileWorkflowContent(
+  content: string,
+  toolCalls: readonly ToolCallRecord[],
+): string {
+  if (!content || toolCalls.length < 2) return content;
+  const observation = extractVerifiedFileReadObservation(toolCalls);
+  if (!observation) return content;
+
+  const trimmed = content.trim();
+  const hasExactPath = trimmed.includes(observation.path);
+  const hasExactContents = trimmed.includes(observation.contents);
+  if (hasExactPath && hasExactContents) {
+    return content;
+  }
+
+  if (hasExactContents || isLowInformationCompletion(trimmed)) {
+    return `${observation.path}\n${observation.contents}`;
+  }
+
+  return content;
+}
+
+function extractExactResponseLiteral(messageText: string): string | undefined {
+  const directiveMatch =
+    /\b(?:return|reply|respond|output)(?:\s+with)?\s+exactly\s+/i.exec(
+      messageText,
+    );
+  if (!directiveMatch) {
+    return undefined;
+  }
+
+  const remainder = messageText
+    .slice(directiveMatch.index + directiveMatch[0].length)
+    .trim();
+  if (!remainder) {
+    return undefined;
+  }
+
+  const openingQuote = remainder[0];
+  const quotePairs = new Map<string, string>([
+    ['"', '"'],
+    ["'", "'"],
+    ["`", "`"],
+    ["“", "”"],
+  ]);
+  const closingQuote = quotePairs.get(openingQuote);
+  if (closingQuote) {
+    const closingIndex = remainder.indexOf(closingQuote, 1);
+    if (closingIndex > 1) {
+      return remainder.slice(1, closingIndex).trim();
+    }
+    return undefined;
+  }
+
+  const bareMatch = /^([A-Za-z0-9:_./-]+)/.exec(remainder);
+  if (bareMatch?.[1]) {
+    return bareMatch[1].trim();
+  }
+
+  return undefined;
+}
+
+export function reconcileExactResponseContract(
+  content: string,
+  toolCalls: readonly ToolCallRecord[],
+  messageText: string,
+): string {
+  if (!content) return content;
+  const literal = extractExactResponseLiteral(messageText);
+  if (!literal) return content;
+
+  const trimmed = content.trim();
+  if (trimmed === literal) {
+    return content;
+  }
+
+  if (trimmed.includes(literal)) {
+    return literal;
+  }
+
+  const verifiedFile = extractVerifiedFileReadObservation(toolCalls);
+  if (verifiedFile?.contents === literal) {
+    return literal;
+  }
+
+  const simpleShellOutput =
+    toolCalls.length === 1 ? extractShellOutputText(toolCalls[0]!) : undefined;
+  if (simpleShellOutput?.trim() === literal) {
+    return literal;
+  }
+
+  return content;
+}
+
 export function reconcileStructuredToolOutcome(
   content: string,
   toolCalls: readonly ToolCallRecord[],

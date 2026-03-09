@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatBackgroundRunAdmissionDenied,
   formatBackgroundRunStatus,
   formatInactiveBackgroundRunStatus,
   formatInactiveBackgroundRunStop,
@@ -98,5 +99,20 @@ describe("background-run-control", () => {
     expect(message).toContain("No active background run to stop.");
     expect(message).toContain("Last run: failed");
     expect(message).toContain("Last changed: ~4s ago");
+  });
+
+  it("formats explicit admission denial replies for supervised runs", () => {
+    const message = formatBackgroundRunAdmissionDenied(
+      "Autonomy runtime is disabled.",
+    );
+
+    expect(message).toContain(
+      "Unable to start a durable background run for this session.",
+    );
+    expect(message).toContain("Reason: Autonomy runtime is disabled.");
+    expect(message).toContain("did not fall back to a one-shot chat turn");
+    expect(message).toContain(
+      "enable gateway autonomy/backgroundRuns for this runtime",
+    );
   });
 });

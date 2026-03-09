@@ -233,6 +233,40 @@ describe("DesktopSandboxManager", () => {
       );
       expect(rmCalls.length).toBe(1);
     });
+
+    it("removes Docker-unhealthy managed containers instead of recovering them", async () => {
+      mockDockerSuccess({
+        ps: "deadbeef1234\n",
+        inspectFull: JSON.stringify([
+          {
+            Id: "deadbeef1234",
+            Name: "/agenc-desktop-sess1",
+            Config: {
+              Env: ["DESKTOP_AUTH_TOKEN=recoveredtoken"],
+              Labels: { "session-id": "sess1" },
+            },
+            State: {
+              Running: true,
+              Status: "running",
+              Health: {
+                Status: "unhealthy",
+              },
+            },
+            NetworkSettings: { Ports: {} },
+          },
+        ]),
+      });
+      manager = new DesktopSandboxManager(makeConfig());
+      await manager.start();
+
+      expect(manager.activeCount).toBe(0);
+      expect(mockFetch).not.toHaveBeenCalled();
+      const rmCalls = mockExecFile.mock.calls.filter(
+        (c: unknown[]) =>
+          (c[1] as string[])[0] === "rm" && (c[1] as string[])[1] === "-f",
+      );
+      expect(rmCalls.length).toBe(1);
+    });
   });
 
   describe("create()", () => {
@@ -419,6 +453,97 @@ describe("DesktopSandboxManager", () => {
       await expect(manager.create({ sessionId: "sess2" })).rejects.toThrow(
         DesktopSandboxPoolExhaustedError,
       );
+    });
+
+    it("reclaims unhealthy tracked capacity before throwing pool exhaustion", async () => {
+      mockExecFile.mockImplementation(
+        (
+          cmd: string,
+          args: string[],
+          _opts: unknown,
+          cb: (err: Error | null, stdout: string, stderr: string) => void,
+        ) => {
+          if (cmd !== "docker") {
+            cb(new Error(`unexpected cmd: ${cmd}`), "", "");
+            return;
+          }
+          const subCommand = args[0];
+          if (subCommand === "info") {
+            cb(null, "ok", "");
+            return;
+          }
+          if (subCommand === "ps") {
+            cb(null, "", "");
+            return;
+          }
+          if (subCommand === "run") {
+            containerIdCounter++;
+            cb(null, `ctr${String(containerIdCounter).padStart(9, "0")}ff\n`, "");
+            return;
+          }
+          if (subCommand === "inspect" && args[1] === "ctr000000001") {
+            cb(
+              null,
+              JSON.stringify([
+                {
+                  Id: "ctr000000001",
+                  Name: "/agenc-desktop-sess1",
+                  Config: {
+                    Env: ["DESKTOP_AUTH_TOKEN=recoveredtoken"],
+                    Labels: { "session-id": "sess1" },
+                  },
+                  State: {
+                    Running: true,
+                    Status: "running",
+                    Health: {
+                      Status: "unhealthy",
+                    },
+                  },
+                  NetworkSettings: {
+                    Ports: {
+                      "6080/tcp": [{ HostIp: "127.0.0.1", HostPort: "32768" }],
+                      "9990/tcp": [{ HostIp: "127.0.0.1", HostPort: "32769" }],
+                    },
+                  },
+                },
+              ]),
+              "",
+            );
+            return;
+          }
+          if (subCommand === "inspect" && args.indexOf("--format") !== -1) {
+            const port1 = 32768 + containerIdCounter * 2;
+            const port2 = port1 + 1;
+            cb(
+              null,
+              `{"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port1}"}],"9990/tcp":[{"HostIp":"127.0.0.1","HostPort":"${port2}"}]}`,
+              "",
+            );
+            return;
+          }
+          if (subCommand === "rm") {
+            cb(null, "", "");
+            return;
+          }
+          cb(null, "", "");
+        },
+      );
+      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ status: "ok" }) });
+
+      manager = new DesktopSandboxManager(makeConfig({ maxConcurrent: 1 }));
+      await manager.start();
+      const first = await manager.create({ sessionId: "sess1" });
+
+      const second = await manager.create({ sessionId: "sess2" });
+
+      expect(second.containerId).not.toBe(first.containerId);
+      expect(manager.getHandleBySession("sess1")).toBeUndefined();
+      expect(manager.getHandleBySession("sess2")?.containerId).toBe(second.containerId);
+      const rmCalls = mockExecFile.mock.calls.filter(
+        (c: unknown[]) =>
+          (c[1] as string[])[0] === "rm" && (c[1] as string[])[1] === "-f",
+      );
+      expect(rmCalls.length).toBeGreaterThanOrEqual(1);
     });
 
     it("throws LifecycleError for invalid maxMemory override", async () => {
