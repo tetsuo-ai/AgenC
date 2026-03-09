@@ -9,7 +9,7 @@ describe("resolveGatewayStatefulResponses", () => {
     expect(resolved.usedDefaults).toBe(true);
     expect(resolved.config).toEqual({
       enabled: true,
-      store: false,
+      store: true,
       fallbackToStateless: true,
       compaction: {
         enabled: true,
@@ -30,10 +30,29 @@ describe("resolveGatewayStatefulResponses", () => {
     expect(resolved.usedDefaults).toBe(true);
     expect(resolved.config).toEqual({
       enabled: true,
-      store: false,
+      store: true,
       fallbackToStateless: true,
       compaction: {
         enabled: false,
+        compactThreshold: 16_000,
+        fallbackOnUnsupported: true,
+      },
+    });
+  });
+
+  it("preserves explicit Grok store=false overrides", () => {
+    const resolved = resolveGatewayStatefulResponses("grok", {
+      enabled: true,
+      store: false,
+    });
+
+    expect(resolved.usedDefaults).toBe(true);
+    expect(resolved.config).toEqual({
+      enabled: true,
+      store: false,
+      fallbackToStateless: true,
+      compaction: {
+        enabled: true,
         compactThreshold: 16_000,
         fallbackOnUnsupported: true,
       },

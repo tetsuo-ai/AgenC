@@ -247,6 +247,26 @@ describe("chat-executor-text", () => {
     expect(content).toBe("AUTONOMY_STAGE0::SMOKE");
   });
 
+  it("preserves unquoted exact-output contracts with delimiters like equals and pipe", () => {
+    const content = reconcileExactResponseContract(
+      "TOKEN=BLACK-CIRCUIT-91|CODE=ORBITAL-SHARD",
+      [],
+      "Return exactly TOKEN=BLACK-CIRCUIT-91|CODE=ORBITAL-SHARD with no extra text.",
+    );
+
+    expect(content).toBe("TOKEN=BLACK-CIRCUIT-91|CODE=ORBITAL-SHARD");
+  });
+
+  it("preserves unquoted exact-output contracts with spaces", () => {
+    const content = reconcileExactResponseContract(
+      "terminal check complete",
+      [],
+      "Reply with exactly terminal check complete and nothing else.",
+    );
+
+    expect(content).toBe("terminal check complete");
+  });
+
   it("replaces low-information partial timeout completions with a failure fallback", () => {
     const content = reconcileTerminalFailureContent({
       content: "Completed execute_with_agent\nCompleted execute_with_agent",

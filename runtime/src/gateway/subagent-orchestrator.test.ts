@@ -1469,6 +1469,58 @@ describe("SubAgentOrchestrator", () => {
     expect(taskPrompt).toContain("Assigned phase only: design_research");
   });
 
+  it("sanitizes compact required-orchestration prompts without parentheses or backticks", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(5, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => ["desktop.bash"],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-parent-sanitize-compact:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "recover_marker",
+          stepType: "subagent_task",
+          objective:
+            "Recover the earlier continuity marker from parent conversation context only.",
+          inputContract: "Return the marker only",
+          acceptanceCriteria: ["Recover the exact prior marker from context only"],
+          requiredToolCapabilities: ["context_retrieval"],
+          contextRequirements: ["parent conversation history"],
+          maxBudgetHint: "minimal",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest:
+          "Sub-agent orchestration plan required: 1. recover_marker: recover marker from context only. 2. echo_marker: print it once. Final deliverables: recovered marker, printed output, known limitations.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const result = await orchestrator.execute(pipeline);
+
+    expect(result.status).toBe("completed");
+    const taskPrompt = manager.spawnCalls[0]?.task ?? "";
+    expect(taskPrompt).not.toContain("Sub-agent orchestration plan required:");
+    expect(taskPrompt).not.toContain("echo_marker");
+    expect(taskPrompt).toContain("Assigned phase only: recover_marker");
+  });
+
   it("adds semantic fallback tools for implementation steps when planner capabilities are unusable", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
@@ -1635,6 +1687,64 @@ describe("SubAgentOrchestrator", () => {
     expect(result.status).toBe("failed");
     expect(result.error).toContain("No permitted child tools remain");
     expect(manager.spawnCalls).toHaveLength(0);
+  });
+
+  it("allows context-only subagent steps to run without tools when policy scope resolves no explicit tools", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(20, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 10,
+      childToolAllowlistStrategy: "inherit_intersection",
+      allowedParentTools: ["desktop.bash", "desktop.text_editor"],
+      resolveAvailableToolNames: () => ["desktop.bash", "desktop.text_editor"],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-context-only:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerContext: {
+        history: [{
+          role: "user",
+          content:
+            "Memory continuity M1. Memorize token OBSIDIAN-LATTICE-44 and checksum 7A91-KAPPA for a later exact recall.",
+        }],
+      },
+      plannerSteps: [
+        {
+          name: "recover_marker",
+          stepType: "subagent_task",
+          objective:
+            "Recover the earlier continuity marker from parent conversation context only; do not invent missing facts",
+          inputContract: "Provided recent conversation context and partial response",
+          acceptanceCriteria: [
+            "Recover the exact prior marker from context only",
+          ],
+          requiredToolCapabilities: ["context_retrieval"],
+          contextRequirements: ["parent_conversation_context"],
+          maxBudgetHint: "minimal",
+          canRunParallel: false,
+        },
+      ],
+    };
+
+    const result = await orchestrator.execute(pipeline);
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls[0]?.tools).toEqual([]);
+    expect(manager.spawnCalls[0]?.task).toContain(
+      "Allowed tools (policy-scoped): none. Complete this phase from curated parent context, memory, and dependency outputs only.",
+    );
+    expect(manager.spawnCalls[0]?.task).toContain("OBSIDIAN-LATTICE-44");
   });
 
   it("fails fast when browser-grounded work is left with only low-signal tab inspection tools", async () => {

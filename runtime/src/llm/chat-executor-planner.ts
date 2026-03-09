@@ -140,6 +140,33 @@ export function assessPlannerDecision(
     reasons.push("prior_no_progress_signal");
   }
 
+  const isExactResponseTurn = isDialogueOnlyExactResponseTurn(messageText);
+  if (isExactResponseTurn) {
+    return {
+      score,
+      shouldPlan: false,
+      reason: "exact_response_turn",
+    };
+  }
+
+  const isDialogueMemoryTurn = isDialogueOnlyMemoryTurn(messageText);
+  if (isDialogueMemoryTurn) {
+    return {
+      score,
+      shouldPlan: false,
+      reason: "dialogue_memory_turn",
+    };
+  }
+
+  const isDialogueRecallTurn = isDialogueOnlyRecallTurn(messageText);
+  if (isDialogueRecallTurn) {
+    return {
+      score,
+      shouldPlan: false,
+      reason: "dialogue_recall_turn",
+    };
+  }
+
   const directFastPath =
     score < 3 ||
     normalized.trim().length < 20 ||
@@ -150,6 +177,39 @@ export function assessPlannerDecision(
     shouldPlan: !directFastPath,
     reason: reasons.length > 0 ? reasons.join("+") : "direct_fast_path",
   };
+}
+
+const EXACT_RESPONSE_CUE_RE =
+  /\b(?:return|reply|respond|output)(?:\s+with)?\s+exactly\b/i;
+const DIALOGUE_MEMORY_CUE_RE =
+  /\b(?:memorize|remember|keep in mind|later recall|for later recall|recall later)\b/i;
+const DIALOGUE_RECALL_CUE_RE =
+  /\b(?:recall|remember|repeat|return|what(?:'s| is| were| did))\b/i;
+const DIALOGUE_RECALL_REFERENCE_CUE_RE =
+  /\b(?:from (?:test|earlier|before|above|prior|previous)|(?:you|i) (?:stored|memorized|remembered|told)|those facts|these facts|the facts|last turn|prior turn|previous turn|continuity test)\b/i;
+const EXPLICIT_ENV_ACTION_CUE_RE =
+  /\b(?:use|call|invoke|run|start|stop|create|write|edit|save|open|navigate|click|search|browse|inspect|read|check|verify|delegate|spawn|launch|post|publish|deploy|install|build|implement|refactor|migrate)\b[\s\S]{0,48}\b(?:tool|tools|desktop|system|mcp|browser|bash|command|terminal|file|files|server|process|service|sub[\s-]?agent|task|api|endpoint|project|tests?)\b/i;
+
+function isDialogueOnlyExactResponseTurn(messageText: string): boolean {
+  return (
+    EXACT_RESPONSE_CUE_RE.test(messageText) &&
+    !EXPLICIT_ENV_ACTION_CUE_RE.test(messageText)
+  );
+}
+
+function isDialogueOnlyMemoryTurn(messageText: string): boolean {
+  return (
+    DIALOGUE_MEMORY_CUE_RE.test(messageText) &&
+    !EXPLICIT_ENV_ACTION_CUE_RE.test(messageText)
+  );
+}
+
+function isDialogueOnlyRecallTurn(messageText: string): boolean {
+  return (
+    DIALOGUE_RECALL_CUE_RE.test(messageText) &&
+    DIALOGUE_RECALL_REFERENCE_CUE_RE.test(messageText) &&
+    !EXPLICIT_ENV_ACTION_CUE_RE.test(messageText)
+  );
 }
 
 // ============================================================================
@@ -268,9 +328,9 @@ export interface ExplicitSubagentOrchestrationRequirements {
 }
 
 const REQUIRED_SUBAGENT_PLAN_MARKER_RE =
-  /sub-agent orchestration plan\s*\((?:required|mandatory)\)\s*:/i;
+  /sub-agent orchestration plan(?:\s*\((?:required|mandatory)\)|\s+(?:required|mandatory))\s*:/i;
 const REQUIRED_SUBAGENT_STEP_NAME_RE =
-  /(?:^|\s)(\d+)[\).:]\s*`([^`]+)`/g;
+  /(?:^|\s)(\d+)[\).:]\s*(?:`([^`]+)`|([A-Za-z0-9_-]+))/g;
 const REQUIRED_DELIVERABLE_CUE_RE =
   /\b(final deliverables|how to play|known limitations|architecture summary)\b/i;
 
@@ -284,15 +344,17 @@ export function extractExplicitSubagentOrchestrationRequirements(
   const steps: ExplicitSubagentOrchestrationRequirementStep[] = [];
   const seen = new Set<string>();
   const itemMatches = section.matchAll(
-    /(\d+)[\).:]\s*`([^`]+)`\s*:\s*([\s\S]*?)(?=(?:\s+\d+[\).:]\s*`)|$)/g,
+    /(\d+)[\).:]\s*(?:`([^`]+)`|([A-Za-z0-9_-]+))\s*:\s*([\s\S]*?)(?=(?:\s+\d+[\).:]\s*(?:`[^`]+`|[A-Za-z0-9_-]+)\s*:)|$)/g,
   );
   for (const match of itemMatches) {
-    const normalizedName = sanitizePlannerStepName(match[2] ?? "");
+    const normalizedName = sanitizePlannerStepName(
+      match[2] ?? match[3] ?? "",
+    );
     if (normalizedName.length === 0 || seen.has(normalizedName)) continue;
     seen.add(normalizedName);
     steps.push({
       name: normalizedName,
-      description: normalizeExplicitRequirementDescription(match[3] ?? ""),
+      description: normalizeExplicitRequirementDescription(match[4] ?? ""),
     });
   }
 
@@ -301,7 +363,9 @@ export function extractExplicitSubagentOrchestrationRequirements(
     REQUIRED_SUBAGENT_STEP_NAME_RE.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = REQUIRED_SUBAGENT_STEP_NAME_RE.exec(section)) !== null) {
-      const normalizedName = sanitizePlannerStepName(match[2] ?? "");
+      const normalizedName = sanitizePlannerStepName(
+        match[2] ?? match[3] ?? "",
+      );
       if (normalizedName.length === 0 || seen.has(normalizedName)) continue;
       seen.add(normalizedName);
       stepNames.push(normalizedName);

@@ -226,27 +226,46 @@ function normalizeMessageForReconciliation(message: LLMMessage): unknown {
   return normalized;
 }
 
+function isReconciliationRelevantMessage(message: LLMMessage): boolean {
+  // Stateful continuation should follow the stable user/assistant/tool lineage.
+  // Dynamic system injections (memory, progress, runtime hints) can vary between
+  // turns without invalidating the provider's previous_response_id anchor.
+  return message.role !== "system";
+}
+
 export function computeReconciliationChain(
   messages: readonly LLMMessage[],
   windowSize: number,
-): { anchorHash: string; chain: string[] } {
+): {
+  anchorHash: string;
+  chain: string[];
+  messageCountUsed: number;
+  source: "non_system_messages" | "all_messages";
+} {
   const boundedWindowSize = Math.min(
     MAX_STATEFUL_RECONCILIATION_WINDOW,
     Math.max(1, Math.floor(windowSize)),
   );
-  const start = Math.max(0, messages.length - boundedWindowSize);
-  const window = messages.slice(start);
+  const relevantMessages = messages.filter(isReconciliationRelevantMessage);
+  const sourceWindow =
+    relevantMessages.length > 0 ? relevantMessages : messages;
   let rolling = hashText(`agenc:grok:stateful:${STATEFUL_HASH_VERSION}:root`);
-  const chain: string[] = [];
+  const fullChain: string[] = [];
 
-  for (const message of window) {
+  for (const message of sourceWindow) {
     const normalized = normalizeMessageForReconciliation(message);
     const turnHash = hashText(stableStringify(normalized));
     rolling = hashText(`${rolling}|${turnHash}`);
-    chain.push(rolling);
+    fullChain.push(rolling);
   }
 
-  return { anchorHash: rolling, chain };
+  return {
+    anchorHash: rolling,
+    chain: fullChain.slice(-boundedWindowSize),
+    messageCountUsed: sourceWindow.length,
+    source:
+      relevantMessages.length > 0 ? "non_system_messages" : "all_messages",
+  };
 }
 
 export function isContinuationRetrievalFailure(error: unknown): boolean {

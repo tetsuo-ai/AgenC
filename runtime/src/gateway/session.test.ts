@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   SessionManager,
+  SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY,
+  SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY,
   deriveSessionId,
   type SessionConfig,
   type SessionCompactionHookPayload,
@@ -181,6 +183,27 @@ describe("SessionManager", () => {
       expect(session.metadata.key).toBe("value");
     });
 
+    it("clears only stateful continuation metadata on reset", () => {
+      const session = manager.getOrCreate(makeParams());
+      session.history.push(msg("user", "hello"));
+      session.metadata.key = "value";
+      session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY] = {
+        previousResponseId: "resp_1",
+        reconciliationHash: "hash_1",
+      };
+      session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] = true;
+
+      manager.reset(session.id);
+
+      expect(session.metadata.key).toBe("value");
+      expect(
+        session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY],
+      ).toBeUndefined();
+      expect(
+        session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
+      ).toBeUndefined();
+    });
+
     it("returns false for unknown session", () => {
       expect(manager.reset("nonexistent")).toBe(false);
     });
@@ -238,6 +261,32 @@ describe("SessionManager", () => {
     });
   });
 
+  describe("replaceHistory", () => {
+    it("clears only stateful continuation metadata when replacing history", () => {
+      const session = manager.getOrCreate(makeParams());
+      session.metadata.key = "value";
+      session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY] = {
+        previousResponseId: "resp_2",
+        reconciliationHash: "hash_2",
+      };
+      session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] = true;
+
+      const replaced = manager.replaceHistory(session.id, [
+        msg("user", "fresh"),
+      ]);
+
+      expect(replaced).toBe(true);
+      expect(session.history).toEqual([msg("user", "fresh")]);
+      expect(session.metadata.key).toBe("value");
+      expect(
+        session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY],
+      ).toBeUndefined();
+      expect(
+        session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
+      ).toBeUndefined();
+    });
+  });
+
   // --- compact -------------------------------------------------------------
 
   describe("compact", () => {
@@ -275,6 +324,9 @@ describe("SessionManager", () => {
       expect(session.history[0].content).toContain(
         "5 earlier messages removed",
       );
+      expect(
+        session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
+      ).toBe(true);
     });
 
     it("'summarize' with summarizer calls callback", async () => {

@@ -89,6 +89,8 @@ import {
   resolveStructuredExecDenyExclusions,
   ensureChromiumCompatShims,
   ensureAgencRuntimeShim,
+  resolveSessionStatefulContinuation,
+  persistSessionStatefulContinuation,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
@@ -99,8 +101,14 @@ import { loadGatewayConfig } from "./config-watcher.js";
 import { WorkspaceValidationError } from "./workspace.js";
 import { ToolRouter } from "./tool-routing.js";
 import type { ToolCallRecord } from "../llm/chat-executor.js";
+import type { ChatExecutorResult } from "../llm/chat-executor.js";
 import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
 import { resolveToolContractExecutionBlock } from "../llm/chat-executor-contract-guidance.js";
+import {
+  SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY,
+  SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY,
+  type Session,
+} from "./session.js";
 
 // ============================================================================
 // Command availability classifier
@@ -164,6 +172,191 @@ describe("sanitizeToolResultTextForTrace", () => {
     expect(sanitized).toContain("[terminal capture omitted");
     expect(sanitized).not.toContain("\u001b[");
     expect(sanitized).not.toContain("AGEN C LIVE");
+  });
+});
+
+describe("resolveSessionStatefulContinuation", () => {
+  function createResult(
+    overrides: Partial<ChatExecutorResult> = {},
+  ): ChatExecutorResult {
+    return {
+      content: "ok",
+      provider: "grok",
+      usedFallback: false,
+      toolCalls: [],
+      tokenUsage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      callUsage: [],
+      durationMs: 10,
+      compacted: false,
+      stopReason: "completed",
+      ...overrides,
+    };
+  }
+
+  it("persists the latest lineage-preserving stateful anchor", () => {
+    const result = createResult({
+      callUsage: [
+        {
+          callIndex: 1,
+          phase: "initial",
+          provider: "grok",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          beforeBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          afterBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          statefulDiagnostics: {
+            enabled: true,
+            attempted: true,
+            continued: true,
+            store: true,
+            fallbackToStateless: true,
+            responseId: "resp-next",
+            reconciliationHash: "hash-next",
+            events: [],
+          },
+        },
+      ],
+    });
+
+    expect(resolveSessionStatefulContinuation(result)).toEqual({
+      mode: "persist",
+      anchor: {
+        previousResponseId: "resp-next",
+        reconciliationHash: "hash-next",
+      },
+    });
+  });
+
+  it("clears stale anchors after planner-driven turns", () => {
+    const result = createResult({
+      callUsage: [
+        {
+          callIndex: 1,
+          phase: "planner",
+          provider: "grok",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          beforeBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          afterBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+        },
+        {
+          callIndex: 2,
+          phase: "planner_synthesis",
+          provider: "grok",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          beforeBudget: {
+            messageCount: 4,
+            systemMessages: 3,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 200,
+            systemPromptChars: 120,
+          },
+          afterBudget: {
+            messageCount: 4,
+            systemMessages: 3,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 200,
+            systemPromptChars: 120,
+          },
+        },
+      ],
+    });
+
+    expect(resolveSessionStatefulContinuation(result)).toEqual({
+      mode: "clear",
+    });
+  });
+
+  it("clears persisted session metadata when planner turns break lineage", () => {
+    const session: Session = {
+      id: "session-1",
+      workspaceId: "workspace-1",
+      history: [],
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      metadata: {
+        [SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY]: {
+          previousResponseId: "resp-prev",
+          reconciliationHash: "hash-prev",
+        },
+        [SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY]: true,
+      },
+    };
+    const result = createResult({
+      callUsage: [
+        {
+          callIndex: 1,
+          phase: "planner",
+          provider: "grok",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          beforeBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          afterBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+        },
+      ],
+    });
+
+    persistSessionStatefulContinuation(session, result);
+
+    expect(
+      session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY],
+    ).toBeUndefined();
+    expect(
+      session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
+    ).toBeUndefined();
   });
 });
 

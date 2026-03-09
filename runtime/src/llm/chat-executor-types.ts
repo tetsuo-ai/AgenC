@@ -160,6 +160,7 @@ export interface ChatExecuteParams {
   /** Optional provider-managed continuation hints restored by the runtime. */
   readonly stateful?: {
     readonly resumeAnchor?: LLMStatefulResumeAnchor;
+    readonly historyCompacted?: boolean;
   };
   /** Optional provider-payload tracing hooks for incident diagnostics. */
   readonly trace?: {

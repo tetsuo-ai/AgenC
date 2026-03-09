@@ -189,6 +189,7 @@ interface SubagentContextDiagnostics {
     readonly parentPolicyAllowed: readonly string[];
     readonly parentPolicyForbidden: readonly string[];
     readonly resolved: readonly string[];
+    readonly allowsToollessExecution: boolean;
     readonly semanticFallback: readonly string[];
     readonly removedLowSignalBrowserTools: readonly string[];
     readonly removedByPolicy: readonly string[];
@@ -236,7 +237,7 @@ const FILE_URL_RE = /\bfile:\/\/[^\s"'`)]+/gi;
 const ABSOLUTE_PATH_RE =
   /(^|[\s"'`])((?:\/home|\/Users|\/root|\/etc|\/var|\/opt|\/srv|\/tmp)\/[^\s"'`]+)/g;
 const SUBAGENT_ORCHESTRATION_SECTION_RE =
-  /\bsub-agent orchestration plan\s*\((?:required|mandatory)\)\s*:[\s\S]*$/i;
+  /\bsub-agent orchestration plan(?:\s*\((?:required|mandatory)\)|\s+(?:required|mandatory))\s*:[\s\S]*$/i;
 
 const SUBAGENT_RETRY_POLICY: Readonly<
   Record<SubagentFailureClass, SubagentRetryRule>
@@ -906,7 +907,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         stopReasonHint: "validation_error",
       };
     }
-    if (toolScope.allowedTools.length === 0) {
+    if (toolScope.allowedTools.length === 0 && !toolScope.allowsToollessExecution) {
       return {
         status: "failed",
         error:
@@ -1750,6 +1751,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     results: Readonly<Record<string, string>>,
     toolScope: {
       allowedTools: readonly string[];
+      allowsToollessExecution: boolean;
       semanticFallback: readonly string[];
       removedLowSignalBrowserTools: readonly string[];
       removedByPolicy: readonly string[];
@@ -1818,11 +1820,15 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           `Context requirements:\n${step.contextRequirements.map((item) => `- ${this.redactSensitiveData(item)}`).join("\n")}`,
         );
       }
-      if (step.requiredToolCapabilities.length > 0) {
+      if (toolScope.allowedTools.length > 0) {
         sections.push(
-          `Required tool capabilities (policy-scoped):\n${
+          `Allowed tools (policy-scoped):\n${
             toolScope.allowedTools.map((item) => `- ${item}`).join("\n")
           }`,
+        );
+      } else if (toolScope.allowsToollessExecution) {
+        sections.push(
+          "Allowed tools (policy-scoped): none. Complete this phase from curated parent context, memory, and dependency outputs only.",
         );
       }
       if (historySection.lines.length > 0) {
@@ -1879,6 +1885,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         parentPolicyAllowed: [...toolScope.parentPolicyAllowed],
         parentPolicyForbidden: [...this.forbiddenParentTools],
         resolved: [...toolScope.allowedTools],
+        allowsToollessExecution: toolScope.allowsToollessExecution,
         semanticFallback: [...toolScope.semanticFallback],
         removedLowSignalBrowserTools: [
           ...toolScope.removedLowSignalBrowserTools,
@@ -1909,6 +1916,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     pipeline: Pipeline,
   ): {
     allowedTools: readonly string[];
+    allowsToollessExecution: boolean;
     semanticFallback: readonly string[];
     removedLowSignalBrowserTools: readonly string[];
     blockedReason?: string;
@@ -1927,7 +1935,6 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         inputContract: step.inputContract,
         acceptanceCriteria: step.acceptanceCriteria,
         requiredToolCapabilities: step.requiredToolCapabilities,
-        tools: step.requiredToolCapabilities,
       },
       requestedTools: step.requiredToolCapabilities,
       parentAllowedTools: parentPolicyAllowed,
@@ -1939,6 +1946,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
     return {
       allowedTools: resolvedScope.allowedTools,
+      allowsToollessExecution: resolvedScope.allowsToollessExecution,
       semanticFallback: resolvedScope.semanticFallback,
       removedLowSignalBrowserTools: resolvedScope.removedLowSignalBrowserTools,
       blockedReason: resolvedScope.blockedReason,

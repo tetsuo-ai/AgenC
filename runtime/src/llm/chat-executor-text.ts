@@ -20,7 +20,6 @@ import {
   REPETITIVE_LINE_MIN_COUNT,
   REPETITIVE_LINE_MIN_REPEATS,
   REPETITIVE_LINE_MAX_UNIQUE_RATIO,
-  MAX_HISTORY_MESSAGES,
   MAX_HISTORY_MESSAGE_CHARS,
   MAX_TOOL_RESULT_CHARS,
   MAX_TOOL_RESULT_FIELD_CHARS,
@@ -314,9 +313,15 @@ function extractExactResponseLiteral(messageText: string): string | undefined {
     return undefined;
   }
 
-  const bareMatch = /^([A-Za-z0-9:_./-]+)/.exec(remainder);
-  if (bareMatch?.[1]) {
-    return bareMatch[1].trim();
+  const unquoted = remainder
+    .replace(/\s+/g, " ")
+    .replace(
+      /\s+(?:and|with)\s+(?:nothing\s+else|no\s+extra\s+(?:text|words)|no\s+other\s+text)\b[\s\S]*$/i,
+      "",
+    )
+    .trim();
+  if (unquoted.length > 0) {
+    return unquoted;
   }
 
   return undefined;
@@ -793,8 +798,7 @@ export function estimatePromptShape(
 // ============================================================================
 
 export function normalizeHistory(history: readonly LLMMessage[]): LLMMessage[] {
-  const recent = history.slice(-MAX_HISTORY_MESSAGES);
-  return recent.map((entry) => {
+  return history.map((entry) => {
     const sanitizedToolCalls = sanitizeToolCallsForReplay(
       entry.toolCalls,
     );

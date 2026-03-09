@@ -88,6 +88,7 @@ import type {
   ToolHandler,
   StreamProgressCallback,
   LLMMessage,
+  LLMStatefulResumeAnchor,
 } from "../llm/types.js";
 import { type Tool } from "../tools/types.js";
 import { classifyLLMFailure } from "../llm/errors.js";
@@ -115,6 +116,8 @@ import type {
   MemoryRetriever,
   ToolCallRecord,
   ChatToolRoutingSummary,
+  ChatExecuteParams,
+  ChatExecutorResult,
 } from "../llm/chat-executor.js";
 import {
   DelegationBanditPolicyTuner,
@@ -171,7 +174,12 @@ import { DailyLogManager, CuratedMemoryManager } from "../memory/structured.js";
 import { UnifiedTelemetryCollector } from "../telemetry/collector.js";
 import type { TelemetrySnapshot } from "../telemetry/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
-import { SessionManager } from "./session.js";
+import {
+  SessionManager,
+  SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY,
+  SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY,
+  type Session,
+} from "./session.js";
 import {
   WorkspaceLoader,
   getDefaultWorkspacePath,
@@ -276,6 +284,114 @@ function chooseDoomResolutionForDisplay(width: number, height: number): string {
   if (width >= 1024 && height >= 768) return "RES_1024X768";
   if (width >= 800 && height >= 600) return "RES_800X600";
   return "RES_640X480";
+}
+
+function isStatefulResumeAnchor(
+  value: unknown,
+): value is LLMStatefulResumeAnchor {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.previousResponseId !== "string") return false;
+  if (candidate.previousResponseId.trim().length === 0) return false;
+  if (
+    candidate.reconciliationHash !== undefined &&
+    typeof candidate.reconciliationHash !== "string"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function buildSessionStatefulOptions(
+  session: Session,
+): ChatExecuteParams["stateful"] | undefined {
+  const resumeAnchorCandidate =
+    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
+  const resumeAnchor = isStatefulResumeAnchor(resumeAnchorCandidate)
+    ? resumeAnchorCandidate
+    : undefined;
+  const historyCompacted =
+    session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] === true;
+  if (!resumeAnchor && !historyCompacted) return undefined;
+  return {
+    ...(resumeAnchor ? { resumeAnchor } : {}),
+    ...(historyCompacted ? { historyCompacted: true } : {}),
+  };
+}
+
+const SESSION_STATEFUL_LINEAGE_PHASES = new Set([
+  "initial",
+  "tool_followup",
+  "evaluator_retry",
+]);
+
+const SESSION_STATEFUL_NON_LINEAGE_PHASES = new Set([
+  "planner",
+  "planner_verifier",
+  "planner_synthesis",
+]);
+
+export function resolveSessionStatefulContinuation(
+  result: ChatExecutorResult,
+):
+  | {
+    readonly mode: "persist";
+    readonly anchor: LLMStatefulResumeAnchor;
+  }
+  | {
+    readonly mode: "clear";
+  }
+  | {
+    readonly mode: "noop";
+  } {
+  if (result.callUsage.length === 0) {
+    return { mode: "noop" };
+  }
+
+  const containsNonLineagePhase = result.callUsage.some((entry) =>
+    SESSION_STATEFUL_NON_LINEAGE_PHASES.has(entry.phase)
+  );
+  if (containsNonLineagePhase) {
+    return { mode: "clear" };
+  }
+
+  const latestLineageDiagnostics = [...result.callUsage]
+    .reverse()
+    .find((entry) => SESSION_STATEFUL_LINEAGE_PHASES.has(entry.phase))
+    ?.statefulDiagnostics;
+  const responseId = latestLineageDiagnostics?.responseId?.trim();
+  const reconciliationHash =
+    latestLineageDiagnostics?.reconciliationHash?.trim();
+  if (responseId && responseId.length > 0) {
+    return {
+      mode: "persist",
+      anchor: {
+        previousResponseId: responseId,
+        ...(reconciliationHash ? { reconciliationHash } : {}),
+      },
+    };
+  }
+
+  return { mode: "clear" };
+}
+
+export function persistSessionStatefulContinuation(
+  session: Session,
+  result: ChatExecutorResult,
+): void {
+  const continuation = resolveSessionStatefulContinuation(result);
+  if (continuation.mode === "noop") {
+    return;
+  }
+  if (continuation.mode === "persist") {
+    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY] =
+      continuation.anchor;
+    delete session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY];
+    return;
+  }
+
+  delete session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
+  delete session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY];
 }
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
@@ -3867,6 +3983,7 @@ export class DaemonManager {
           sessionId: msg.sessionId,
           baseSessionHandler,
         });
+        const sessionStateful = buildSessionStatefulOptions(session);
 
         const result = await chatExecutor.execute({
           message: msg,
@@ -3874,6 +3991,7 @@ export class DaemonManager {
           systemPrompt,
           sessionId: msg.sessionId,
           toolHandler,
+          ...(sessionStateful ? { stateful: sessionStateful } : {}),
           toolRouting: toolRoutingDecision
             ? {
                 routedToolNames: toolRoutingDecision.routedToolNames,
@@ -4005,6 +4123,7 @@ export class DaemonManager {
           });
         }
 
+        persistSessionStatefulContinuation(session, result);
         sessionMgr.appendMessage(session.id, {
           role: "user",
           content: msg.content,
@@ -4243,6 +4362,7 @@ export class DaemonManager {
           sessionId: msg.sessionId,
           baseSessionHandler,
         });
+        const sessionStateful = buildSessionStatefulOptions(session);
 
         const result = await chatExecutor.execute({
           message: msg,
@@ -4250,6 +4370,7 @@ export class DaemonManager {
           systemPrompt,
           sessionId: msg.sessionId,
           toolHandler,
+          ...(sessionStateful ? { stateful: sessionStateful } : {}),
           toolRouting: toolRoutingDecision
             ? {
                 routedToolNames: toolRoutingDecision.routedToolNames,
@@ -4353,6 +4474,7 @@ export class DaemonManager {
           });
         }
 
+        persistSessionStatefulContinuation(session, result);
         sessionMgr.appendMessage(session.id, {
           role: "user",
           content: msg.content,
@@ -8678,6 +8800,7 @@ export class DaemonManager {
 
       // Create an AbortController so the user can cancel mid-execution
       const abortController = webChat.createAbortController(msg.sessionId);
+      const sessionStateful = buildSessionStatefulOptions(session);
 
       const result = await chatExecutor.execute({
         message: msg,
@@ -8687,6 +8810,7 @@ export class DaemonManager {
         toolHandler: sessionToolHandler,
         onStreamChunk: sessionStreamCallback,
         signal: abortController.signal,
+        ...(sessionStateful ? { stateful: sessionStateful } : {}),
         toolRouting: toolRoutingDecision
           ? {
               routedToolNames: toolRoutingDecision.routedToolNames,
@@ -8827,6 +8951,7 @@ export class DaemonManager {
         });
       }
 
+      persistSessionStatefulContinuation(session, result);
       // If ChatExecutor compacted context, also trim session history
       if (result.compacted) {
         void sessionMgr.compact(session.id);
