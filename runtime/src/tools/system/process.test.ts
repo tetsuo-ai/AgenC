@@ -239,6 +239,84 @@ describe("system.process tools", () => {
     expect(status.state).toBe("exited");
   });
 
+  it("fails closed for persisted running handles that lack identity metadata", async () => {
+    const manager = createManager();
+    const rootDir = cleanup[cleanup.length - 1]!.rootDir;
+
+    await writeFile(
+      join(rootDir, "registry.json"),
+      JSON.stringify({
+        version: 1,
+        processes: [
+          {
+            version: 1,
+            processId: "proc_missing_identity",
+            label: "legacy-running",
+            command: "/bin/sleep",
+            args: ["5"],
+            cwd: "/tmp",
+            logPath: join(rootDir, "proc_missing_identity", "process.log"),
+            pid: process.pid,
+            pgid: process.pid,
+            state: "running",
+            createdAt: 1,
+            updatedAt: 2,
+            startedAt: 1,
+          },
+        ],
+      }),
+      "utf8",
+    );
+
+    const status = JSON.parse((await manager.status({
+      processId: "proc_missing_identity",
+    })).content) as Record<string, unknown>;
+
+    expect(status.state).toBe("exited");
+    expect(String(status.lastError)).toMatch(/missing persisted identity metadata/i);
+  });
+
+  it("does not treat a mismatched live pid as the original managed process", async () => {
+    const manager = createManager();
+    const rootDir = cleanup[cleanup.length - 1]!.rootDir;
+
+    await writeFile(
+      join(rootDir, "registry.json"),
+      JSON.stringify({
+        version: 1,
+        processes: [
+          {
+            version: 1,
+            processId: "proc_stale_identity",
+            label: "stale-running",
+            command: "/bin/sleep",
+            args: ["5"],
+            cwd: "/tmp",
+            logPath: join(rootDir, "proc_stale_identity", "process.log"),
+            pid: process.pid,
+            pgid: process.pid,
+            processStartToken: "stale-start-token",
+            processBootId: "stale-boot-id",
+            state: "running",
+            createdAt: 1,
+            updatedAt: 2,
+            startedAt: 1,
+          },
+        ],
+      }),
+      "utf8",
+    );
+
+    const stopped = JSON.parse((await manager.stop({
+      processId: "proc_stale_identity",
+      waitMs: 100,
+    })).content) as Record<string, unknown>;
+
+    expect(stopped.state).toBe("exited");
+    expect(stopped.stopped).toBe(false);
+    expect(String(stopped.lastError)).toMatch(/identity mismatch/i);
+  });
+
   it("rejects denied commands", async () => {
     const manager = createManager();
 

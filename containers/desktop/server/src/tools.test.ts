@@ -240,3 +240,73 @@ test("managed-process registry writes are serialized and stay valid on overlappi
     await rm(logDir, { recursive: true, force: true });
   }
 });
+
+test("process_status fails closed for legacy running records without identity metadata", async () => {
+  const processId = `proc_legacy_${Date.now().toString(36)}`;
+
+  try {
+    await __managedProcessTestHooks.reset();
+    __managedProcessTestHooks.seed([
+      {
+        processId,
+        label: "legacy-running",
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000);"],
+        cwd: process.cwd(),
+        logPath: join(tmpdir(), `${processId}.log`),
+        pid: process.pid,
+        pgid: process.pid,
+        state: "running",
+        startedAt: Date.now(),
+        launchFingerprint: "legacy-fingerprint",
+      },
+    ]);
+
+    const status = await executeTool("process_status", {
+      processId,
+    });
+    assert.notEqual(status.isError, true);
+    const payload = JSON.parse(status.content) as Record<string, unknown>;
+    assert.equal(payload.state, "exited");
+    assert.equal(payload.running, false);
+  } finally {
+    await __managedProcessTestHooks.reset();
+  }
+});
+
+test("process_stop does not signal a stale handle after identity mismatch", async () => {
+  const processId = `proc_stale_${Date.now().toString(36)}`;
+
+  try {
+    await __managedProcessTestHooks.reset();
+    __managedProcessTestHooks.seed([
+      {
+        processId,
+        label: "stale-running",
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000);"],
+        cwd: process.cwd(),
+        logPath: join(tmpdir(), `${processId}.log`),
+        pid: process.pid,
+        pgid: process.pid,
+        processStartToken: "stale-start-token",
+        processBootId: "stale-boot-id",
+        state: "running",
+        startedAt: Date.now(),
+        launchFingerprint: "stale-fingerprint",
+      },
+    ]);
+
+    const stopped = await executeTool("process_stop", {
+      processId,
+      gracePeriodMs: 100,
+    });
+    assert.notEqual(stopped.isError, true);
+    const payload = JSON.parse(stopped.content) as Record<string, unknown>;
+    assert.equal(payload.state, "exited");
+    assert.equal(payload.stopped, false);
+    assert.equal(payload.alreadyExited, true);
+  } finally {
+    await __managedProcessTestHooks.reset();
+  }
+});
