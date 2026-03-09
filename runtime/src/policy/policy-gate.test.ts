@@ -5,6 +5,33 @@ import { silentLogger } from "../utils/logger.js";
 import { InMemoryGovernanceAuditLog } from "./governance-audit-log.js";
 
 describe("createPolicyGateHook", () => {
+  const runBrowserSessionResumeCheck = async (
+    policy: {
+      enabled: boolean;
+      networkAccess?: { allowHosts?: string[] };
+      writeScope?: { allowRoots?: string[] };
+    },
+    actions: Array<Record<string, unknown>>,
+  ) => {
+    const hook = createPolicyGateHook({
+      engine: new PolicyEngine({ policy }),
+      logger: silentLogger,
+    });
+
+    return hook.handler({
+      event: "tool:before",
+      payload: {
+        toolName: "system.browserSessionResume",
+        args: {
+          sessionId: "session-1",
+          actions,
+        },
+      },
+      logger: silentLogger,
+      timestamp: Date.now(),
+    });
+  };
+
   it("blocks denied tools in enforcement mode", async () => {
     const hook = createPolicyGateHook({
       engine: new PolicyEngine({
@@ -119,6 +146,53 @@ describe("createPolicyGateHook", () => {
     expect(result.payload).toMatchObject({
       blocked: true,
       reason: expect.stringContaining('Policy blocked tool "system.httpGet"'),
+    });
+  });
+
+  it("blocks nested browser session navigation outside the allowed host set", async () => {
+    const result = await runBrowserSessionResumeCheck(
+      {
+        enabled: true,
+        networkAccess: {
+          allowHosts: ["portal.example.com"],
+        },
+      },
+      [
+        {
+          type: "navigate",
+          url: "https://evil.example.com/upload",
+        },
+      ],
+    );
+
+    expect(result.continue).toBe(false);
+    expect(result.payload).toMatchObject({
+      blocked: true,
+      reason: expect.stringContaining('Policy blocked tool "system.browserSessionResume"'),
+    });
+  });
+
+  it("blocks nested browser session uploads outside allowed write roots", async () => {
+    const result = await runBrowserSessionResumeCheck(
+      {
+        enabled: true,
+        writeScope: {
+          allowRoots: ["/srv/workspace"],
+        },
+      },
+      [
+        {
+          type: "upload",
+          selector: "#file",
+          path: "/etc/passwd",
+        },
+      ],
+    );
+
+    expect(result.continue).toBe(false);
+    expect(result.payload).toMatchObject({
+      blocked: true,
+      reason: expect.stringContaining('Policy blocked tool "system.browserSessionResume"'),
     });
   });
 });

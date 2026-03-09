@@ -1823,7 +1823,10 @@ describe("durable browser session tools", () => {
   });
 
   it("creates durable upload transfer handles with idempotent replay semantics", async () => {
-    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const tools = createBrowserTools(
+      { mode: "advanced", allowedFileUploadPaths: ["/tmp"] },
+      silentLogger,
+    );
     const start = tools.find((t) => t.name === "system.browserSessionStart")!;
     const resume = tools.find((t) => t.name === "system.browserSessionResume")!;
     const transferStatus = tools.find((t) => t.name === "system.browserTransferStatus")!;
@@ -1859,7 +1862,10 @@ describe("durable browser session tools", () => {
       ).content,
     );
 
-    expect(mockPage.setInputFiles).toHaveBeenCalledWith("#file", "/tmp/report.csv");
+    expect(mockPage.setInputFiles).toHaveBeenCalledWith(
+      "#file",
+      expect.stringMatching(/\/tmp\/report\.csv$/),
+    );
     expect(first.resourceEnvelope).toMatchObject({
       cpu: 1,
       memoryMb: 256,
@@ -1897,11 +1903,14 @@ describe("durable browser session tools", () => {
     );
     expect(transfer.kind).toBe("upload");
     expect(transfer.state).toBe("completed");
-    expect(transfer.artifactPath).toBe("/tmp/report.csv");
+    expect(transfer.artifactPath).toMatch(/\/tmp\/report\.csv$/);
   });
 
   it("keeps browser transfer cancellation idempotent after terminal completion", async () => {
-    const tools = createBrowserTools({ mode: "advanced" }, silentLogger);
+    const tools = createBrowserTools(
+      { mode: "advanced", allowedFileUploadPaths: ["/tmp"] },
+      silentLogger,
+    );
     const start = tools.find((t) => t.name === "system.browserSessionStart")!;
     const resume = tools.find((t) => t.name === "system.browserSessionResume")!;
     const cancelTransfer = tools.find((t) => t.name === "system.browserTransferCancel")!;
@@ -1939,6 +1948,39 @@ describe("durable browser session tools", () => {
     );
     expect(cancelled.state).toBe("completed");
     expect(cancelled.cancelled).toBe(false);
+  });
+
+  it("rejects browser upload paths outside configured allowed roots", async () => {
+    const tools = createBrowserTools(
+      { mode: "advanced", allowedFileUploadPaths: ["/tmp/workspace"] },
+      silentLogger,
+    );
+    const start = tools.find((t) => t.name === "system.browserSessionStart")!;
+    const resume = tools.find((t) => t.name === "system.browserSessionResume")!;
+    const started = JSON.parse(
+      (
+        await start.execute({
+          url: "https://example.com",
+          label: "browser-upload-denied",
+        })
+      ).content,
+    );
+
+    const result = await resume.execute({
+      sessionId: started.sessionId,
+      actions: [
+        {
+          type: "upload",
+          selector: "#file",
+          path: "/etc/passwd",
+        },
+      ],
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error.code).toBe("browser_session.upload_path_denied");
+    expect(mockPage.setInputFiles).not.toHaveBeenCalledWith("#file", "/etc/passwd");
   });
 
   it("releases runtime resources when a browser session is stopped", async () => {

@@ -6196,7 +6196,13 @@ export class DaemonManager {
     );
     const browserToolMode = await resolveBrowserToolMode(this.logger);
     registry.registerAll(
-      createBrowserTools({ mode: browserToolMode }, this.logger),
+      createBrowserTools(
+        {
+          mode: browserToolMode,
+          allowedFileUploadPaths: allowedFilesystemPaths,
+        },
+        this.logger,
+      ),
     );
     registry.register(createExecuteWithAgentTool());
     const walletResult = await this.loadWallet(config);

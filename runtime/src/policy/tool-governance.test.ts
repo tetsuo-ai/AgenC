@@ -63,6 +63,31 @@ describe("tool-governance", () => {
     });
   });
 
+  it("captures nested browser session action hosts and upload paths", () => {
+    const action = buildToolPolicyAction({
+      toolName: "system.browserSessionResume",
+      args: {
+        sessionId: "session-1",
+        actions: [
+          {
+            type: "navigate",
+            url: "https://portal.example.com/upload",
+          },
+          {
+            type: "upload",
+            selector: "#file",
+            path: "/srv/workspace/report.csv",
+          },
+        ],
+      },
+    });
+
+    expect(action.metadata).toMatchObject({
+      networkHosts: ["portal.example.com"],
+      writePaths: ["/srv/workspace/report.csv"],
+    });
+  });
+
   it("infers write access for non-read tool names", () => {
     expect(inferToolAccess("system.processStart")).toBe("write");
   });

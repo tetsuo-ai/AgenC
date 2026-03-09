@@ -32,6 +32,7 @@ const WRITE_PATH_ARG_KEYS = [
   "cwd",
   "workdir",
 ] as const;
+const BROWSER_SESSION_RESUME_TOOL = "system.browserSessionResume";
 
 function collectStringValues(
   value: unknown,
@@ -48,10 +49,53 @@ function collectStringValues(
   }
 }
 
-function extractNetworkHosts(args: Record<string, unknown>): string[] | undefined {
+function getBrowserSessionResumeActions(
+  args: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const actions = args.actions;
+  if (!Array.isArray(actions)) {
+    return [];
+  }
+  return actions.filter(
+    (action): action is Record<string, unknown> =>
+      typeof action === "object" && action !== null && !Array.isArray(action),
+  );
+}
+
+function collectBrowserSessionResumeHosts(
+  args: Record<string, unknown>,
+  into: Set<string>,
+): void {
+  for (const action of getBrowserSessionResumeActions(args)) {
+    if (action.type === "navigate") {
+      collectStringValues(action.url, into);
+    }
+  }
+}
+
+function collectBrowserSessionResumeUploadPaths(
+  args: Record<string, unknown>,
+  into: Set<string>,
+): void {
+  for (const action of getBrowserSessionResumeActions(args)) {
+    if (action.type !== "upload") {
+      continue;
+    }
+    collectStringValues(action.path, into);
+    collectStringValues(action.paths, into);
+  }
+}
+
+function extractNetworkHosts(
+  toolName: string,
+  args: Record<string, unknown>,
+): string[] | undefined {
   const urls = new Set<string>();
   for (const key of URL_ARG_KEYS) {
     collectStringValues(args[key], urls);
+  }
+  if (toolName === BROWSER_SESSION_RESUME_TOOL) {
+    collectBrowserSessionResumeHosts(args, urls);
   }
   const hosts = new Set<string>();
   for (const candidate of urls) {
@@ -64,10 +108,16 @@ function extractNetworkHosts(args: Record<string, unknown>): string[] | undefine
   return hosts.size > 0 ? [...hosts] : undefined;
 }
 
-function extractWritePaths(args: Record<string, unknown>): string[] | undefined {
+function extractWritePaths(
+  toolName: string,
+  args: Record<string, unknown>,
+): string[] | undefined {
   const paths = new Set<string>();
   for (const key of WRITE_PATH_ARG_KEYS) {
     collectStringValues(args[key], paths);
+  }
+  if (toolName === BROWSER_SESSION_RESUME_TOOL) {
+    collectBrowserSessionResumeUploadPaths(args, paths);
   }
   if (paths.size === 0) {
     return undefined;
@@ -90,8 +140,8 @@ export function classifyToolGovernance(
   args: Record<string, unknown> = {},
 ): ToolGovernanceClassification {
   const access = inferToolAccess(toolName);
-  const networkHosts = extractNetworkHosts(args);
-  const writePaths = extractWritePaths(args);
+  const networkHosts = extractNetworkHosts(toolName, args);
+  const writePaths = extractWritePaths(toolName, args);
   const metadata: Record<string, unknown> = {
     args,
     ...(networkHosts ? { networkHosts } : {}),
