@@ -319,16 +319,101 @@ function buildSessionStatefulOptions(
   };
 }
 
+const WEB_SESSION_RUNTIME_STATE_KEY_PREFIX = "webchat:runtime-state:";
+
+interface PersistedWebSessionRuntimeState {
+  readonly version: 1;
+  readonly statefulResumeAnchor?: LLMStatefulResumeAnchor;
+  readonly statefulHistoryCompacted?: boolean;
+}
+
+function webSessionRuntimeStateKey(webSessionId: string): string {
+  return `${WEB_SESSION_RUNTIME_STATE_KEY_PREFIX}${webSessionId}`;
+}
+
+function cloneResumeAnchor(
+  anchor: LLMStatefulResumeAnchor,
+): LLMStatefulResumeAnchor {
+  return {
+    previousResponseId: anchor.previousResponseId,
+    ...(anchor.reconciliationHash
+      ? { reconciliationHash: anchor.reconciliationHash }
+      : {}),
+  };
+}
+
+function buildPersistedWebSessionRuntimeState(
+  session: Session,
+): PersistedWebSessionRuntimeState | undefined {
+  const resumeAnchorCandidate =
+    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
+  const resumeAnchor = isStatefulResumeAnchor(resumeAnchorCandidate)
+    ? cloneResumeAnchor(resumeAnchorCandidate)
+    : undefined;
+  const historyCompacted =
+    session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] === true;
+  if (!resumeAnchor && !historyCompacted) return undefined;
+  return {
+    version: 1,
+    ...(resumeAnchor ? { statefulResumeAnchor: resumeAnchor } : {}),
+    ...(historyCompacted ? { statefulHistoryCompacted: true } : {}),
+  };
+}
+
+function coercePersistedWebSessionRuntimeState(
+  value: unknown,
+): PersistedWebSessionRuntimeState | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.version !== 1) return undefined;
+  const resumeAnchor = isStatefulResumeAnchor(candidate.statefulResumeAnchor)
+    ? cloneResumeAnchor(candidate.statefulResumeAnchor)
+    : undefined;
+  const historyCompacted = candidate.statefulHistoryCompacted === true;
+  if (!resumeAnchor && !historyCompacted) return undefined;
+  return {
+    version: 1,
+    ...(resumeAnchor ? { statefulResumeAnchor: resumeAnchor } : {}),
+    ...(historyCompacted ? { statefulHistoryCompacted: true } : {}),
+  };
+}
+
+export async function persistWebSessionRuntimeState(
+  memoryBackend: MemoryBackend,
+  webSessionId: string,
+  session: Session,
+): Promise<void> {
+  const persisted = buildPersistedWebSessionRuntimeState(session);
+  const key = webSessionRuntimeStateKey(webSessionId);
+  if (!persisted) {
+    await memoryBackend.delete(key);
+    return;
+  }
+  await memoryBackend.set(key, persisted);
+}
+
+export async function hydrateWebSessionRuntimeState(
+  memoryBackend: MemoryBackend,
+  webSessionId: string,
+  session: Session,
+): Promise<void> {
+  const persisted = coercePersistedWebSessionRuntimeState(
+    await memoryBackend.get(webSessionRuntimeStateKey(webSessionId)),
+  );
+  if (!persisted) return;
+  if (persisted.statefulResumeAnchor) {
+    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY] =
+      cloneResumeAnchor(persisted.statefulResumeAnchor);
+  }
+  if (persisted.statefulHistoryCompacted) {
+    session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] = true;
+  }
+}
+
 const SESSION_STATEFUL_LINEAGE_PHASES = new Set([
   "initial",
   "tool_followup",
   "evaluator_retry",
-]);
-
-const SESSION_STATEFUL_NON_LINEAGE_PHASES = new Set([
-  "planner",
-  "planner_verifier",
-  "planner_synthesis",
 ]);
 
 export function resolveSessionStatefulContinuation(
@@ -348,16 +433,15 @@ export function resolveSessionStatefulContinuation(
     return { mode: "noop" };
   }
 
-  const containsNonLineagePhase = result.callUsage.some((entry) =>
-    SESSION_STATEFUL_NON_LINEAGE_PHASES.has(entry.phase)
-  );
-  if (containsNonLineagePhase) {
-    return { mode: "clear" };
-  }
-
   const latestLineageDiagnostics = [...result.callUsage]
     .reverse()
-    .find((entry) => SESSION_STATEFUL_LINEAGE_PHASES.has(entry.phase))
+    .find((entry) => {
+      if (!SESSION_STATEFUL_LINEAGE_PHASES.has(entry.phase)) {
+        return false;
+      }
+      const responseId = entry.statefulDiagnostics?.responseId?.trim();
+      return typeof responseId === "string" && responseId.length > 0;
+    })
     ?.statefulDiagnostics;
   const responseId = latestLineageDiagnostics?.responseId?.trim();
   const reconciliationHash =
@@ -1170,7 +1254,7 @@ function createDelegatingSubAgentLLMProvider(
   };
 }
 
-function resolveSessionTokenBudget(
+export function resolveSessionTokenBudget(
   llmConfig: GatewayLLMConfig | undefined,
   contextWindowTokens?: number,
 ): number {
@@ -1182,7 +1266,12 @@ function resolveSessionTokenBudget(
   }
   const inferredContextWindow =
     contextWindowTokens ?? inferContextWindowTokens(llmConfig);
-  if (inferredContextWindow !== undefined) return inferredContextWindow;
+  if (inferredContextWindow !== undefined) {
+    // Huge context windows preserve correctness but destroy latency if we defer
+    // local compaction until the provider limit. Cap the implicit budget to the
+    // operational default unless the user explicitly overrides it.
+    return Math.min(inferredContextWindow, DEFAULT_SESSION_TOKEN_BUDGET);
+  }
   return DEFAULT_SESSION_TOKEN_BUDGET;
 }
 
@@ -5998,6 +6087,14 @@ export class DaemonManager {
         error: toErrorMessage(error),
       });
     });
+    await memoryBackend
+      .delete(webSessionRuntimeStateKey(webSessionId))
+      .catch((error) => {
+        this.logger.debug("Failed to delete web session runtime state", {
+          sessionId: webSessionId,
+          error: toErrorMessage(error),
+        });
+      });
 
     await this.cleanupDesktopSessionResources(webSessionId);
   }
@@ -6040,6 +6137,7 @@ export class DaemonManager {
       .filter((entry) => entry.role !== "tool")
       .map((entry) => entryToMessage(entry));
     sessionMgr.replaceHistory(historySessionId, history);
+    await hydrateWebSessionRuntimeState(memoryBackend, webSessionId, session);
   }
 
   private async cleanupDesktopSessionResources(
@@ -8960,8 +9058,9 @@ export class DaemonManager {
       persistSessionStatefulContinuation(session, result);
       // If ChatExecutor compacted context, also trim session history
       if (result.compacted) {
-        void sessionMgr.compact(session.id);
+        await sessionMgr.compact(session.id);
       }
+      await persistWebSessionRuntimeState(memoryBackend, msg.sessionId, session);
 
       signals.signalIdle(msg.sessionId);
       sessionMgr.appendMessage(session.id, {

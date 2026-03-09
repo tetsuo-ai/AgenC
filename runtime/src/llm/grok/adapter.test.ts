@@ -1349,6 +1349,91 @@ describe("GrokProvider", () => {
     expect(second.stateful?.responseId).toBe("resp_2");
   });
 
+  it("keeps previous_response_id continuity across a tool turn and the next user turn", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_tool_initial",
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_1",
+              name: "desktop.bash",
+              arguments: '{"command":"echo TOKEN=ONYX-SHARD-58"}',
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_tool_followup",
+          output_text: "TOKEN=ONYX-SHARD-58",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_tool_next",
+          output_text: "confirmed",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    const first = await provider.chat(
+      [{ role: "user", content: "find the token" }],
+      { stateful: { sessionId: "sess-tool-turn" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "user", content: "find the token" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "desktop.bash",
+              arguments: '{"command":"echo TOKEN=ONYX-SHARD-58"}',
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: '{"stdout":"TOKEN=ONYX-SHARD-58\\n","exitCode":0}',
+          toolCallId: "call_1",
+          toolName: "desktop.bash",
+        },
+      ],
+      { stateful: { sessionId: "sess-tool-turn" } },
+    );
+    const third = await provider.chat(
+      [
+        { role: "user", content: "find the token" },
+        { role: "assistant", content: "TOKEN=ONYX-SHARD-58" },
+        { role: "user", content: "repeat the token" },
+      ],
+      { stateful: { sessionId: "sess-tool-turn" } },
+    );
+
+    expect(first.finishReason).toBe("tool_calls");
+    expect(second.content).toBe("TOKEN=ONYX-SHARD-58");
+    expect(mockCreate.mock.calls[1][0].previous_response_id).toBe(
+      "resp_tool_initial",
+    );
+    expect(mockCreate.mock.calls[2][0].previous_response_id).toBe(
+      "resp_tool_followup",
+    );
+    expect(third.stateful?.continued).toBe(true);
+    expect(third.stateful?.fallbackReason).toBeUndefined();
+  });
+
   it("requests server-side compaction when configured", async () => {
     mockCreate.mockResolvedValueOnce(makeCompletion({ id: "resp_compact_req" }));
 
@@ -1705,7 +1790,7 @@ describe("GrokProvider", () => {
       [
         { role: "system", content: "You are helpful." },
         { role: "user", content: "hello" },
-        { role: "assistant", content: "hello back" },
+        { role: "assistant", content: "First" },
         { role: "user", content: "continue" },
       ],
       { stateful: { sessionId: "sess-stale" } },

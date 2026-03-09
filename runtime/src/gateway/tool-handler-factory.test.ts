@@ -1065,6 +1065,70 @@ describe("createSessionToolHandler", () => {
     );
   });
 
+  it("reuses the latest child session and strips leaked recall answers from execute_with_agent", async () => {
+    const subAgentManager = {
+      findLatestSuccessfulSessionId: vi.fn(() => "subagent:child-memory"),
+      spawn: vi.fn(async () => "subagent:child-memory"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-memory",
+        output: "TOKEN=NEON-AXIS-17",
+        success: true,
+        durationMs: 35,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-memory",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 50,
+        task: "Recall the memorized token",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    await handler("execute_with_agent", {
+      task:
+        "Subagent continuity test S2. Recall memorized token from test S1 which is NEON-AXIS-17. Without extra words return exactly TOKEN=NEON-AXIS-17. Return exactly the child answer.",
+      continuationSessionId: "u1-test-session",
+      objective:
+        "Return exactly the memorized token from S1 as TOKEN=NEON-AXIS-17 with no extra text",
+      inputContract: "No external input; recall from prior S1",
+      acceptanceCriteria: [
+        "output is exactly TOKEN=NEON-AXIS-17 or equivalent without extra words",
+      ],
+    });
+
+    expect(subAgentManager.findLatestSuccessfulSessionId).toHaveBeenCalledWith(
+      "session-parent",
+    );
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionId: "session-parent",
+        continuationSessionId: "subagent:child-memory",
+      }),
+    );
+    const spawnConfig = subAgentManager.spawn.mock.calls[0]?.[0] as {
+      task: string;
+      prompt: string;
+    };
+    expect(spawnConfig.task).not.toContain("NEON-AXIS-17");
+    expect(spawnConfig.prompt).not.toContain("NEON-AXIS-17");
+  });
+
   it("returns failure when delegated output includes unresolved denied commands", async () => {
     const lifecycleEvents: Array<Record<string, unknown>> = [];
     const subAgentManager = {

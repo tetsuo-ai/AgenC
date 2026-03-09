@@ -40,6 +40,7 @@ import {
   buildProviderTraceErrorPayload,
   buildToolSelectionTraceContext,
   cloneProviderTracePayload,
+  computePersistedResponseReconciliationHash,
   computeReconciliationChain,
   extractCompactionItemRefs,
   extractTraceToolNames,
@@ -912,6 +913,7 @@ export class GrokProvider implements LLMProvider {
     compactionDiagnostics?: LLMCompactionDiagnostics;
     sessionId?: string;
     reconciliationHash?: string;
+    requestMessages?: readonly LLMMessage[];
     assistantPhaseEnabled: boolean;
   } {
     const assistantPhaseEnabled =
@@ -1074,6 +1076,7 @@ export class GrokProvider implements LLMProvider {
       toolSelection: built.toolSelection,
       sessionId,
       reconciliationHash: reconciliation.anchorHash,
+      requestMessages: messages,
       compactionDiagnostics,
       assistantPhaseEnabled,
       statefulDiagnostics: {
@@ -1100,6 +1103,7 @@ export class GrokProvider implements LLMProvider {
     plan: {
       sessionId?: string;
       reconciliationHash?: string;
+      requestMessages?: readonly LLMMessage[];
       statefulDiagnostics?: LLMStatefulDiagnostics;
     },
     response: LLMResponse,
@@ -1107,12 +1111,26 @@ export class GrokProvider implements LLMProvider {
     if (!plan.statefulDiagnostics?.enabled) return;
     const sessionId = plan.sessionId;
     const responseId = response.stateful?.responseId;
-    const reconciliationHash = plan.reconciliationHash;
+    const reconciliationHash =
+      plan.requestMessages &&
+      plan.requestMessages.length > 0
+        ? computePersistedResponseReconciliationHash(
+          plan.requestMessages,
+          response,
+          this.statefulConfig.reconciliationWindow,
+        )
+        : plan.reconciliationHash;
     if (!sessionId || !responseId || !reconciliationHash) {
       if (sessionId) {
         this.statefulSessions.delete(sessionId);
       }
       return;
+    }
+    if (response.stateful) {
+      response.stateful = {
+        ...response.stateful,
+        reconciliationHash,
+      };
     }
     this.statefulSessions.set(sessionId, {
       responseId,

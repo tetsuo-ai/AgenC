@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import type {
   LLMCompactionItemRef,
   LLMMessage,
+  LLMResponse,
   LLMTool,
   LLMToolChoice,
 } from "../types.js";
@@ -211,7 +212,7 @@ function normalizeMessageForReconciliation(message: LLMMessage): unknown {
     role: message.role,
     content: normalizeHashContent(message.content),
   };
-  if (message.phase) normalized.phase = message.phase;
+  if (message.phase === "commentary") normalized.phase = message.phase;
   if (message.toolCallId) normalized.toolCallId = message.toolCallId;
   if (message.toolName) normalized.toolName = message.toolName;
   if (message.toolCalls && message.toolCalls.length > 0) {
@@ -231,6 +232,19 @@ function isReconciliationRelevantMessage(message: LLMMessage): boolean {
   // Dynamic system injections (memory, progress, runtime hints) can vary between
   // turns without invalidating the provider's previous_response_id anchor.
   return message.role !== "system";
+}
+
+function isPersistedSessionHistoryMessage(message: LLMMessage): boolean {
+  if (message.role === "system" || message.role === "tool") {
+    return false;
+  }
+  if (message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0) {
+    return false;
+  }
+  if (message.role === "assistant" && message.phase === "commentary") {
+    return false;
+  }
+  return true;
 }
 
 export function computeReconciliationChain(
@@ -266,6 +280,21 @@ export function computeReconciliationChain(
     source:
       relevantMessages.length > 0 ? "non_system_messages" : "all_messages",
   };
+}
+
+export function computePersistedResponseReconciliationHash(
+  messages: readonly LLMMessage[],
+  response: Pick<LLMResponse, "content" | "finishReason" | "toolCalls">,
+  windowSize: number,
+): string {
+  const persistedMessages = messages.filter(isPersistedSessionHistoryMessage);
+  if (response.finishReason !== "tool_calls") {
+    persistedMessages.push({
+      role: "assistant",
+      content: response.content,
+    });
+  }
+  return computeReconciliationChain(persistedMessages, windowSize).anchorHash;
 }
 
 export function isContinuationRetrievalFailure(error: unknown): boolean {

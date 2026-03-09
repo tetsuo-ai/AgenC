@@ -467,5 +467,26 @@ describe("MemoryIngestionEngine", () => {
       await hooks[2].handler(afterCtx);
       expect(compactSpy).toHaveBeenCalledWith("sess-1", "kept");
     });
+
+    it("session compact hook silently skips after-phase compactions without a generated summary", async () => {
+      const engine = createEngine();
+      const compactSpy = vi
+        .spyOn(engine, "processCompaction")
+        .mockResolvedValue(undefined);
+      const hooks = createIngestionHooks(engine, logger);
+
+      const afterCtx = createHookContext("session:compact", {
+        sessionId: "sess-1",
+        phase: "after",
+        result: {
+          summaryGenerated: false,
+        },
+      });
+
+      await hooks[2].handler(afterCtx);
+
+      expect(compactSpy).not.toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
   });
 });

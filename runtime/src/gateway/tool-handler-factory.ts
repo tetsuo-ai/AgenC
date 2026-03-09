@@ -47,6 +47,11 @@ const MIN_DELEGATION_TIMEOUT_MS = 60_000;
 const MAX_DELEGATION_TIMEOUT_MS = 3_600_000;
 const DELEGATION_FAILURE_SIGNAL_RE =
   /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
+const CHILD_MEMORY_RECALL_RE =
+  /\b(?:child agent|sub-?agent|memor(?:ized|y)|remember|recall|previous|prior|earlier|from test|later recall)\b/i;
+const CHILD_MEMORY_STORE_RE =
+  /\b(?:memorize|store|save|remember)\b.*\b(?:later|future)\b|\bfor later recall\b/i;
+const DELEGATION_SECRET_LITERAL_RE = /\b[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+\b/g;
 const DOOM_TOOL_PREFIX = 'mcp.doom.';
 const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
   "system.makeDir": "system.mkdir",
@@ -197,6 +202,80 @@ function buildDelegatedChildPrompt(input: ExecuteWithAgentInput): string {
   }
 
   return `Task: ${input.task}\nObjective: ${objective}`;
+}
+
+function shouldReusePriorChildSession(input: ExecuteWithAgentInput): boolean {
+  const combined = [
+    input.task,
+    input.objective,
+    input.inputContract,
+    input.acceptanceCriteria?.join("\n"),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+
+  return CHILD_MEMORY_RECALL_RE.test(combined) &&
+    !CHILD_MEMORY_STORE_RE.test(input.task);
+}
+
+function sanitizeDelegatedRecallText(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const sanitized = text.replace(DELEGATION_SECRET_LITERAL_RE, "...");
+  return sanitized.trim().length > 0 ? sanitized : undefined;
+}
+
+function sanitizeDelegatedRecallInput(
+  input: ExecuteWithAgentInput,
+): ExecuteWithAgentInput {
+  if (!shouldReusePriorChildSession(input)) return input;
+
+  const task = sanitizeDelegatedRecallText(input.task) ?? input.task;
+  const objective = sanitizeDelegatedRecallText(input.objective);
+  const inputContract = sanitizeDelegatedRecallText(input.inputContract);
+  const acceptanceCriteria = input.acceptanceCriteria
+    ?.map((criterion) => sanitizeDelegatedRecallText(criterion))
+    .filter((criterion): criterion is string => Boolean(criterion));
+
+  return {
+    task,
+    ...(objective ? { objective } : {}),
+    ...(input.continuationSessionId
+      ? { continuationSessionId: input.continuationSessionId }
+      : {}),
+    ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.tools ? { tools: input.tools } : {}),
+    ...(input.requiredToolCapabilities
+      ? { requiredToolCapabilities: input.requiredToolCapabilities }
+      : {}),
+    ...(inputContract ? { inputContract } : {}),
+    ...(acceptanceCriteria && acceptanceCriteria.length > 0
+      ? { acceptanceCriteria }
+      : {}),
+    ...(typeof input.spawnDecisionScore === "number"
+      ? { spawnDecisionScore: input.spawnDecisionScore }
+      : {}),
+  };
+}
+
+function resolveRecallContinuationSessionId(
+  input: ExecuteWithAgentInput,
+  parentSessionId: string,
+  subAgentManager: DelegationSubAgentManager,
+): string | undefined {
+  const explicit = input.continuationSessionId?.trim();
+  if (explicit && isSubAgentSessionId(explicit)) {
+    const info = subAgentManager.getInfo(explicit);
+    const result = subAgentManager.getResult(explicit);
+    if (
+      info?.parentSessionId === parentSessionId &&
+      info.status === "completed" &&
+      result?.success
+    ) {
+      return explicit;
+    }
+  }
+
+  return subAgentManager.findLatestSuccessfulSessionId?.(parentSessionId);
 }
 
 type DelegationContext = NonNullable<
@@ -498,7 +577,7 @@ async function executeDelegationTool(params: {
     return JSON.stringify({ error: parsedInput.error });
   }
 
-  const input = parsedInput.value;
+  const input = sanitizeDelegatedRecallInput(parsedInput.value);
   const scopeAssessment = assessDelegationScope(input);
   if (!scopeAssessment.ok) {
     lifecycleEmitter?.emit({
@@ -569,10 +648,16 @@ async function executeDelegationTool(params: {
   }
   let childSessionId: string;
   try {
+    const continuationSessionId = shouldReusePriorChildSession(input)
+      ? resolveRecallContinuationSessionId(input, sessionId, subAgentManager)
+      : input.continuationSessionId;
     childSessionId = await subAgentManager.spawn({
       parentSessionId: sessionId,
       task: childPrompt,
       prompt: childPrompt,
+      ...(continuationSessionId
+        ? { continuationSessionId }
+        : {}),
       ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       tools: resolvedChildScope.allowedTools,
       ...(input.requiredToolCapabilities

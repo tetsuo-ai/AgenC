@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildToolExecutionGroundingMessage,
+  generateFallbackContent,
   reconcileDirectShellObservationContent,
   reconcileExactResponseContract,
   reconcileVerifiedFileWorkflowContent,
   reconcileTerminalFailureContent,
+  summarizeToolCalls,
 } from "./chat-executor-text.js";
 
 describe("chat-executor-text", () => {
@@ -265,6 +267,76 @@ describe("chat-executor-text", () => {
     );
 
     expect(content).toBe("terminal check complete");
+  });
+
+  it("recovers exact-output contracts from successful delegated child output", () => {
+    const content = reconcileExactResponseContract(
+      "Completed execute_with_agent",
+      [
+        {
+          name: "execute_with_agent",
+          args: {
+            task: "Recall the token",
+          },
+          result: JSON.stringify({
+            status: "completed",
+            success: true,
+            output: "TOKEN=IVORY-CIRCUIT-92",
+            subagentSessionId: "subagent:memory",
+            toolCalls: [],
+          }),
+          isError: false,
+          durationMs: 12,
+        },
+      ],
+      "Reply with exactly TOKEN=IVORY-CIRCUIT-92 and nothing else.",
+    );
+
+    expect(content).toBe("TOKEN=IVORY-CIRCUIT-92");
+  });
+
+  it("uses successful delegated child output in fallback summaries", () => {
+    const content = summarizeToolCalls([
+      {
+        name: "execute_with_agent",
+        args: {
+          task: "Recall the token",
+        },
+        result: JSON.stringify({
+          status: "completed",
+          success: true,
+          output: "TOKEN=IVORY-CIRCUIT-92",
+          subagentSessionId: "subagent:memory",
+          toolCalls: [],
+        }),
+        isError: false,
+        durationMs: 12,
+      },
+    ]);
+
+    expect(content).toBe("TOKEN=IVORY-CIRCUIT-92");
+  });
+
+  it("propagates delegated child output from generateFallbackContent", () => {
+    const content = generateFallbackContent([
+      {
+        name: "execute_with_agent",
+        args: {
+          task: "Recall the token",
+        },
+        result: JSON.stringify({
+          status: "completed",
+          success: true,
+          output: "TOKEN=IVORY-CIRCUIT-92",
+          subagentSessionId: "subagent:memory",
+          toolCalls: [],
+        }),
+        isError: false,
+        durationMs: 12,
+      },
+    ]);
+
+    expect(content).toBe("TOKEN=IVORY-CIRCUIT-92");
   });
 
   it("replaces low-information partial timeout completions with a failure fallback", () => {

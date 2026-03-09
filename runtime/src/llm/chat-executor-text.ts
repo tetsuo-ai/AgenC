@@ -153,6 +153,30 @@ function extractShellOutputText(toolCall: ToolCallRecord): string | undefined {
   return undefined;
 }
 
+function extractDelegatedToolOutput(
+  toolCall: ToolCallRecord,
+): string | undefined {
+  if (toolCall.name !== "execute_with_agent") {
+    return undefined;
+  }
+  if (didToolCallFail(toolCall.isError, toolCall.result)) {
+    return undefined;
+  }
+
+  const parsed = parseToolResultObject(toolCall.result);
+  if (!parsed) return undefined;
+  if (parsed.success === false || parsed.unresolvedToolFailures === true) {
+    return undefined;
+  }
+
+  const output =
+    typeof parsed.output === "string" ? parsed.output.trim() : "";
+  if (!output || isLowInformationCompletion(output)) {
+    return undefined;
+  }
+  return output;
+}
+
 export function reconcileDirectShellObservationContent(
   content: string,
   toolCalls: readonly ToolCallRecord[],
@@ -353,6 +377,12 @@ export function reconcileExactResponseContract(
   const simpleShellOutput =
     toolCalls.length === 1 ? extractShellOutputText(toolCalls[0]!) : undefined;
   if (simpleShellOutput?.trim() === literal) {
+    return literal;
+  }
+
+  const delegatedOutput =
+    toolCalls.length === 1 ? extractDelegatedToolOutput(toolCalls[0]!) : undefined;
+  if (delegatedOutput === literal) {
     return literal;
   }
 
@@ -839,6 +869,47 @@ export function normalizeHistory(history: readonly LLMMessage[]): LLMMessage[] {
   });
 }
 
+function extractStatefulReconciliationText(
+  content: string | LLMContentPart[],
+): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    .map((part) => part.text)
+    .join(" ");
+}
+
+export function toStatefulReconciliationMessage(
+  message: LLMMessage,
+): LLMMessage {
+  const sanitizedToolCalls = sanitizeToolCallsForReplay(
+    message.toolCalls,
+  );
+  const baseMessage = sanitizedToolCalls
+    ? { ...message, toolCalls: sanitizedToolCalls }
+    : message;
+
+  if (message.role === "tool") {
+    return {
+      ...baseMessage,
+      content: prepareToolResultForPrompt(
+        extractStatefulReconciliationText(message.content),
+      ).text,
+    };
+  }
+
+  return {
+    ...baseMessage,
+    content: extractStatefulReconciliationText(message.content),
+  };
+}
+
+export function normalizeHistoryForStatefulReconciliation(
+  history: readonly LLMMessage[],
+): LLMMessage[] {
+  return history.map((entry) => toStatefulReconciliationMessage(entry));
+}
+
 // ============================================================================
 // Tool call serialization
 // ============================================================================
@@ -1191,6 +1262,7 @@ export function appendUserMessage(
   messages: LLMMessage[],
   sections: PromptBudgetSection[],
   message: GatewayMessage,
+  reconciliationMessages?: LLMMessage[],
 ): void {
   const imageAttachments = (message.attachments ?? []).filter(
     (a) => a.data && a.mimeType.startsWith("image/"),
@@ -1217,6 +1289,11 @@ export function appendUserMessage(
     messages.push({ role: "user", content: trimmedUserText });
     sections.push("user");
   }
+
+  reconciliationMessages?.push({
+    role: "user",
+    content: message.content,
+  });
 }
 
 // ============================================================================
@@ -1316,6 +1393,15 @@ export function summarizeToolCalls(
       }
     } else if (tc.name === "system.notification") {
       summaries.push("Notification sent");
+    } else if (tc.name === "execute_with_agent") {
+      const delegatedOutput = extractDelegatedToolOutput(tc);
+      if (delegatedOutput) {
+        summaries.push(
+          delegatedOutput.slice(0, MAX_RESULT_PREVIEW_CHARS),
+        );
+      } else {
+        summaries.push(`Completed ${tc.name}`);
+      }
     } else {
       summaries.push(`Completed ${tc.name}`);
     }
