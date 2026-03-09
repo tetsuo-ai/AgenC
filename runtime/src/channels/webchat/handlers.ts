@@ -1161,20 +1161,26 @@ export async function handleObservabilityLogs(
   send: SendFn,
   request: HandlerRequestContext,
 ): Promise<void> {
-  if (!deps.getObservabilityLogTail) {
+  if (!deps.getObservabilityLogTail || !deps.getObservabilityTrace) {
     send({ type: 'error', error: 'Observability API not available', id });
     return;
   }
-  const traceId = typeof payload?.traceId === 'string' ? payload.traceId.trim() : undefined;
-  if (traceId && deps.getObservabilityTrace) {
-    const detail = await deps.getObservabilityTrace(traceId);
-    if (
-      detail?.summary.sessionId &&
-      !request.isSessionOwned(detail.summary.sessionId)
-    ) {
-      send({ type: 'error', error: 'Not authorized for target session trace data', id });
-      return;
-    }
+  const traceId = typeof payload?.traceId === 'string' ? payload.traceId.trim() : '';
+  if (!traceId) {
+    send({ type: 'error', error: 'Missing traceId in payload', id });
+    return;
+  }
+  const detail = await deps.getObservabilityTrace(traceId);
+  if (!detail) {
+    send({ type: 'error', error: `Observability trace "${traceId}" not found`, id });
+    return;
+  }
+  if (
+    detail.summary.sessionId &&
+    !request.isSessionOwned(detail.summary.sessionId)
+  ) {
+    send({ type: 'error', error: 'Not authorized for target session trace data', id });
+    return;
   }
   await safeAsync(send, id, 'error', 'Failed to read daemon logs', async () => {
     const logs = await deps.getObservabilityLogTail!({

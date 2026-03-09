@@ -1,5 +1,5 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import { safeStringify } from "../tools/types.js";
 import { ensureLazyModule } from "../utils/lazy-import.js";
@@ -410,7 +410,7 @@ export class SqliteObservabilityStore {
           : line.trim().length > 0,
       );
     return {
-      path: this.daemonLogPath,
+      path: basename(this.daemonLogPath),
       lines: filtered.slice(-lineLimit),
     };
   }
