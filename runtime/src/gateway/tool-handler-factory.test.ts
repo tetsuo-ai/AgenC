@@ -1655,6 +1655,72 @@ describe("createSessionToolHandler", () => {
     );
   });
 
+  it("keeps the explicit execute_with_agent delegation spec while promoting an objective-rich child prompt", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:spawned"),
+      getResult: vi
+        .fn()
+        .mockReturnValueOnce(null)
+        .mockReturnValue({
+          sessionId: "subagent:spawned",
+          output:
+            'Risk: Stateful compaction can silently fall back without an operator-visible mismatch note. Reference: docs/RUNTIME_API.md "Stateful Response Compaction".',
+          success: true,
+          durationMs: 25,
+          toolCalls: [{
+            name: "desktop.text_editor",
+            args: {
+              command: "view",
+              path: "docs/RUNTIME_API.md",
+              view_range: [1, 120],
+            },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 5,
+          }],
+          tokenUsage: undefined,
+          providerName: "mock",
+          stopReason: "completed",
+        }),
+      getInfo: vi.fn(() => ({ status: "completed" })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.text_editor", "web_search"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections",
+      objective:
+        'Read docs/RUNTIME_API.md (full path /workspace/docs/RUNTIME_API.md). Focus ONLY on "Delegation Runtime Surface" and "Stateful Response Compaction" sections. Identify exactly one autonomy-validation risk/mismatch with a direct reference.',
+      acceptanceCriteria: ["one specific risk or mismatch identified"],
+    });
+    expect(typeof result).toBe("string");
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: expect.stringContaining("/workspace/docs/RUNTIME_API.md"),
+        prompt: expect.stringContaining("/workspace/docs/RUNTIME_API.md"),
+        tools: ["desktop.text_editor"],
+        delegationSpec: expect.objectContaining({
+          task:
+            "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections",
+          objective:
+            'Read docs/RUNTIME_API.md (full path /workspace/docs/RUNTIME_API.md). Focus ONLY on "Delegation Runtime Surface" and "Stateful Response Compaction" sections. Identify exactly one autonomy-validation risk/mismatch with a direct reference.',
+        }),
+      }),
+    );
+  });
+
   it("returns structured error when execute_with_agent spawn fails", async () => {
     const sentMessages: ControlResponse[] = [];
     const send = vi.fn((msg: ControlResponse): void => {

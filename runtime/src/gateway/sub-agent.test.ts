@@ -1264,6 +1264,29 @@ describe("SubAgentManager", () => {
       expect(userMsg!.content).toBe("analyze data");
     });
 
+    it("prefers prompt over task for user message content when provided", async () => {
+      const mockContext = makeMockContext();
+      const chatSpy = mockContext.llmProvider.chat as ReturnType<typeof vi.fn>;
+      const manager = new SubAgentManager(
+        makeManagerConfig({ createContext: vi.fn(async () => mockContext) }),
+      );
+
+      await manager.spawn({
+        parentSessionId: "p",
+        task: "inspect docs",
+        prompt:
+          "Task: inspect docs\nObjective: Read /workspace/docs/RUNTIME_API.md and extract one risk.",
+      });
+      await settle();
+
+      const messages = chatSpy.mock.calls[0][0] as LLMMessage[];
+      const userMsg = messages.find((m) => m.role === "user");
+      expect(userMsg).toBeDefined();
+      expect(userMsg!.content).toBe(
+        "Task: inspect docs\nObjective: Read /workspace/docs/RUNTIME_API.md and extract one risk.",
+      );
+    });
+
     it("does not call destroyContext when createContext fails", async () => {
       const destroyContext = vi.fn(async () => {});
       const createContext = vi.fn(async () => {

@@ -128,6 +128,7 @@ export type SubAgentStatus =
 export interface SubAgentConfig {
   readonly parentSessionId: string;
   readonly task: string;
+  readonly prompt?: string;
   readonly timeoutMs?: number;
   readonly workspace?: string;
   readonly tools?: readonly string[];
@@ -544,7 +545,7 @@ export class SubAgentManager {
         senderId: handle.parentSessionId,
         senderName: "sub-agent",
         sessionId: handle.sessionId,
-        content: handle.task,
+        content: handle.config.prompt ?? handle.task,
         scope: "dm",
       });
 

@@ -4,6 +4,10 @@ import { safeStringify } from "../tools/types.js";
 const BASE64_DATA_URL_PREFIX = /^data:([^;,]+)?;base64,/i;
 const BASE64_BLOCK_PATTERN =
   /^(?:[A-Za-z0-9+/]{4}){256,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const ANSI_ESCAPE_PATTERN = /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const DISALLOWED_CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
+const REPLACEMENT_CHAR_PATTERN = /\uFFFD/g;
+const BOX_DRAWING_CHAR_PATTERN = /[╭╮╰╯│─┌┐└┘├┤┬┴┼═║╔╗╚╝]/g;
 
 const DEFAULT_PREVIEW_MAX_CHARS = 20_000;
 const DEFAULT_PREVIEW_MAX_DEPTH = 4;
@@ -34,6 +38,43 @@ export interface TracePreviewSerializationOptions {
 function truncateTraceText(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars)}... [truncated ${value.length - maxChars} chars]`;
+}
+
+function countMatches(value: string, pattern: RegExp): number {
+  return value.match(pattern)?.length ?? 0;
+}
+
+function buildShaDigest(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function inspectTraceText(value: string): {
+  cleaned: string;
+  ansiEscapes: number;
+  controlChars: number;
+  replacementChars: number;
+  frameChars: number;
+  lineCount: number;
+  hasWhitespaceRun: boolean;
+} {
+  const ansiEscapes = countMatches(value, ANSI_ESCAPE_PATTERN);
+  const withoutAnsi = value.replace(ANSI_ESCAPE_PATTERN, "");
+  const controlChars = countMatches(
+    withoutAnsi,
+    DISALLOWED_CONTROL_CHAR_PATTERN,
+  );
+  const replacementChars = countMatches(withoutAnsi, REPLACEMENT_CHAR_PATTERN);
+  const frameChars = countMatches(withoutAnsi, BOX_DRAWING_CHAR_PATTERN);
+  const cleaned = withoutAnsi.replace(DISALLOWED_CONTROL_CHAR_PATTERN, " ");
+  return {
+    cleaned,
+    ansiEscapes,
+    controlChars,
+    replacementChars,
+    frameChars,
+    lineCount: cleaned.length === 0 ? 0 : cleaned.split(/\r?\n/).length,
+    hasWhitespaceRun: / {24,}/.test(cleaned),
+  };
 }
 
 function summarizeBinaryStringForArtifact(
@@ -88,6 +129,68 @@ function summarizeBinaryStringForPreview(
   }
 
   return undefined;
+}
+
+function summarizeSpecialTextForPreview(
+  value: string,
+): Record<string, unknown> | undefined {
+  const inspection = inspectTraceText(value);
+  if (
+    value.includes("\0") ||
+    inspection.controlChars >= 8 ||
+    (inspection.controlChars >= 2 && value.length >= 128) ||
+    (inspection.replacementChars >= 8 && value.length >= 128)
+  ) {
+    return {
+      artifactType: "binary_like_text",
+      digest: buildShaDigest(value),
+      chars: value.length,
+      lines: inspection.lineCount,
+      controlChars: inspection.controlChars,
+      replacementChars: inspection.replacementChars,
+      externalized: true,
+    };
+  }
+
+  if (
+    inspection.ansiEscapes > 0 &&
+    (value.length >= 256 ||
+      inspection.lineCount > 4 ||
+      inspection.frameChars >= 4 ||
+      inspection.hasWhitespaceRun)
+  ) {
+    return {
+      artifactType: "terminal_capture",
+      digest: buildShaDigest(value),
+      chars: value.length,
+      lines: inspection.lineCount,
+      ansiEscapes: inspection.ansiEscapes,
+      frameChars: inspection.frameChars,
+      externalized: true,
+    };
+  }
+
+  return undefined;
+}
+
+function formatTraceTextSummaryForSnippet(
+  summary: Record<string, unknown>,
+): string {
+  const digest =
+    typeof summary.digest === "string" ? ` ${summary.digest}` : "";
+  if (summary.artifactType === "terminal_capture") {
+    return `[terminal capture omitted${digest} lines:${summary.lines ?? "?"} ansiEscapes:${summary.ansiEscapes ?? 0} chars:${summary.chars ?? "?"}]`;
+  }
+  if (summary.artifactType === "binary_like_text") {
+    return `[binary-like text omitted${digest} controlChars:${summary.controlChars ?? 0} chars:${summary.chars ?? "?"}]`;
+  }
+  if (summary.artifactType === "image_data_url") {
+    return `[image data url omitted${digest} bytes:${summary.bytes ?? "?"}]`;
+  }
+  if (summary.artifactType === "base64_blob") {
+    return `[base64 blob omitted${digest} chars:${summary.chars ?? "?"}]`;
+  }
+  return safeStringify(summary);
 }
 
 function toSerializableError(error: Error): Record<string, unknown> {
@@ -185,7 +288,24 @@ export function summarizeTraceTextForPreview(
   value: string,
   maxChars: number,
 ): unknown {
-  return summarizeBinaryStringForPreview(value) ?? truncateTraceText(value, maxChars);
+  return (
+    summarizeBinaryStringForPreview(value) ??
+    summarizeSpecialTextForPreview(value) ??
+    truncateTraceText(inspectTraceText(value).cleaned, maxChars)
+  );
+}
+
+export function sanitizeTraceTextForLogSnippet(
+  value: string,
+  maxChars = DEFAULT_PREVIEW_MAX_CHARS,
+): string {
+  const preview =
+    summarizeBinaryStringForPreview(value) ??
+    summarizeSpecialTextForPreview(value);
+  if (preview) {
+    return formatTraceTextSummaryForSnippet(preview);
+  }
+  return truncateTraceText(inspectTraceText(value).cleaned, maxChars);
 }
 
 export function summarizeTracePayloadForPreview(

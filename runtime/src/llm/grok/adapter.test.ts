@@ -165,7 +165,7 @@ describe("GrokProvider", () => {
     expect(params.tools[0].name).toBe("system.bash");
   });
 
-  it("passes tool_choice through to the Responses API when provided", async () => {
+  it("normalizes required single-tool choice to a named function for the Responses API", async () => {
     mockCreate.mockResolvedValueOnce(makeCompletion());
 
     const provider = new GrokProvider({
@@ -191,7 +191,10 @@ describe("GrokProvider", () => {
     );
 
     const params = mockCreate.mock.calls[0][0];
-    expect(params.tool_choice).toBe("required");
+    expect(params.tool_choice).toEqual({
+      type: "function",
+      name: "system.bash",
+    });
   });
 
   it("captures selected tools and tool_choice in request metrics", async () => {
@@ -239,7 +242,7 @@ describe("GrokProvider", () => {
       requestedToolNames: ["system.bash"],
       missingRequestedToolNames: [],
       toolResolution: "subset_exact",
-      toolChoice: "required",
+      toolChoice: "function:system.bash",
       store: false,
     });
   });
@@ -323,7 +326,10 @@ describe("GrokProvider", () => {
         toolResolution: "subset_exact",
       },
       payload: {
-        tool_choice: "required",
+        tool_choice: {
+          type: "function",
+          name: "system.bash",
+        },
       },
     });
     expect((events[0].payload as { tools?: Array<{ name?: string }> }).tools?.[0]?.name).toBe(
@@ -388,6 +394,65 @@ describe("GrokProvider", () => {
         toolResolution: "fallback_full_catalog_no_matches",
         providerCatalogToolCount: 1,
       },
+    });
+  });
+
+  it("preserves explicitly routed tools even when they were dropped from the slimmed full catalog", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const bulkySystemTools: LLMTool[] = Array.from({ length: 180 }, (_, index) => ({
+      type: "function",
+      function: {
+        name: `system.tool_${String(index).padStart(3, "0")}`,
+        description: `tool ${index} ` + "x".repeat(240),
+        parameters: {
+          type: "object",
+          properties: {
+            payload: {
+              type: "string",
+              description: "y".repeat(500),
+            },
+          },
+        },
+      },
+    }));
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        ...bulkySystemTools,
+        {
+          type: "function",
+          function: {
+            name: "mcp.doom.start_game",
+            description: "start doom",
+            parameters: {
+              type: "object",
+              properties: {
+                scenario: { type: "string" },
+                async_player: { type: "boolean" },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const response = await provider.chat(
+      [{ role: "user", content: "start doom" }],
+      { toolRouting: { allowedToolNames: ["mcp.doom.start_game"] } },
+    );
+
+    const params = mockCreate.mock.calls[0][0];
+    expect(params.tools).toBeDefined();
+    expect(params.tools).toHaveLength(1);
+    expect(params.tools[0].name).toBe("mcp.doom.start_game");
+    expect(response.requestMetrics).toMatchObject({
+      toolCount: 1,
+      toolNames: ["mcp.doom.start_game"],
+      requestedToolNames: ["mcp.doom.start_game"],
+      missingRequestedToolNames: [],
+      toolResolution: "subset_exact",
     });
   });
 

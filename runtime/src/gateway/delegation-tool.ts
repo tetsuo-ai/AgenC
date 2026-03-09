@@ -66,7 +66,7 @@ export function parseExecuteWithAgentInput(
   args: Record<string, unknown>,
 ): ParseExecuteWithAgentResult {
   const objective = toNonEmptyString(args.objective);
-  const task = objective ?? toNonEmptyString(args.task);
+  const task = toNonEmptyString(args.task) ?? objective;
   if (!task) {
     return {
       ok: false,

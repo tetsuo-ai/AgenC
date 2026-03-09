@@ -79,6 +79,15 @@ const FILE_ARTIFACT_RE =
   /(?:^|[\s`'"])(?:\/[^\s`'"]+|\.{1,2}\/[^\s`'"]+|[a-z0-9_.-]+\.[a-z0-9]{1,10})(?=$|[\s`'"])/i;
 const EXPLICIT_FILE_ARTIFACT_RE =
   /(?:^|[\s`'"])(?:\/[^\s`'"]*?\.[a-z0-9]{1,10}|\.{1,2}\/[^\s`'"]*?\.[a-z0-9]{1,10}|[a-z0-9_.-]+\.[a-z0-9]{1,10})(?=$|[\s`'"])/i;
+const LOCAL_FILE_REFERENCE_RE =
+  /(?:^|[\s`'"])(?:\/[^\s`'"]+|\.{1,2}\/[^\s`'"]+|(?:[a-z0-9_.-]+\/)+[a-z0-9_.-]+|(?:ag(?:ent)?s|readme)\.md|[a-z0-9_.-]+\.(?:md|txt|json|js|jsx|ts|tsx|py|rs|go|toml|ya?ml|html?|css))(?=$|[\s`'"])/i;
+const LOCAL_FILE_BROWSER_OVERRIDE_RE =
+  /\b(?:localhost|127\.0\.0\.1|about:blank|browser|playwright|mcp\.browser|chromium|navigate|snapshot|click|type|hover|scroll|fill|select|console|network|playtest|qa|end-to-end|e2e|url|web(?:site|page)?)\b/i;
+const NEGATED_BROWSER_REQUIREMENT_RE =
+  /\b(?:no|non|without|avoid(?:ing)?|exclude(?:d|ing)?)\s+(?:any\s+|the\s+)?(?:browser(?:-grounded)?(?:\s+tools?)?|mcp\.browser|playwright)\b/gi;
+const DO_NOT_USE_BROWSER_RE =
+  /\bdo\s+not\s+use\s+(?:any\s+|the\s+)?(?:browser(?:-grounded)?(?:\s+tools?)?|mcp\.browser|playwright)\b/gi;
+const ONLY_NON_BROWSER_TOOLS_RE = /\bonly\s+non-browser\s+tools?\b/gi;
 const SHELL_FILE_WRITE_RE =
   /\b(?:cat|tee|touch|cp|mv|install)\b|(?:^|[^>])>{1,2}\s*\S/i;
 const SHELL_SCAFFOLD_RE =
@@ -128,10 +137,16 @@ const BROWSER_INTERACTION_TOOL_NAMES = new Set([
   "playwright.browser_network_requests",
   "playwright.browser_console_messages",
 ]);
-const FILE_MUTATION_TOOL_NAMES = new Set([
+const EXPLICIT_FILE_MUTATION_TOOL_NAMES = new Set([
   "system.writeFile",
   "system.appendFile",
+  "mcp.neovim.vim_buffer_save",
+  "mcp.neovim.vim_search_replace",
+]);
+const LOCAL_FILE_INSPECTION_TOOL_NAMES = new Set([
   "desktop.text_editor",
+  "system.readFile",
+  "system.listDir",
   "mcp.neovim.vim_edit",
   "mcp.neovim.vim_buffer_save",
   "mcp.neovim.vim_search_replace",
@@ -196,6 +211,13 @@ const INITIAL_FILE_MUTATION_TOOL_NAMES = [
   "mcp.neovim.vim_search_replace",
   "mcp.neovim.vim_buffer_save",
 ] as const;
+const INITIAL_FILE_INSPECTION_TOOL_NAMES = [
+  "desktop.text_editor",
+  "system.readFile",
+  "mcp.neovim.vim_edit",
+  "mcp.neovim.vim_buffer_save",
+  "mcp.neovim.vim_search_replace",
+] as const;
 
 function normalizeToolNames(toolNames: readonly string[] | undefined): string[] {
   return [
@@ -254,6 +276,23 @@ function collectDelegationPrimaryText(spec: DelegationContractSpec): string {
     .join(" ");
 }
 
+function stripNegativeBrowserLanguage(value: string): string {
+  return value
+    .replace(NEGATED_BROWSER_REQUIREMENT_RE, " ")
+    .replace(DO_NOT_USE_BROWSER_RE, " ")
+    .replace(ONLY_NON_BROWSER_TOOLS_RE, " ");
+}
+
+function hasPositiveBrowserGroundingCue(value: string): boolean {
+  if (value.trim().length === 0) return false;
+  return BROWSER_GROUNDED_TASK_RE.test(stripNegativeBrowserLanguage(value));
+}
+
+function hasExplicitBrowserInteractionCue(value: string): boolean {
+  if (value.trim().length === 0) return false;
+  return LOCAL_FILE_BROWSER_OVERRIDE_RE.test(stripNegativeBrowserLanguage(value));
+}
+
 function classifyDelegatedTaskIntent(
   spec: DelegationContractSpec,
 ): "research" | "implementation" | "validation" | "documentation" | "other" {
@@ -275,6 +314,12 @@ function isBrowserToolName(toolName: string): boolean {
     toolName.startsWith("playwright.");
 }
 
+function specTargetsLocalFiles(spec: DelegationContractSpec): boolean {
+  const combined = collectDelegationStepText(spec);
+  if (!LOCAL_FILE_REFERENCE_RE.test(combined)) return false;
+  return !NON_BLANK_BROWSER_TARGET_RE.test(combined);
+}
+
 function pruneDelegatedToolsByIntent(
   spec: DelegationContractSpec,
   tools: readonly string[],
@@ -283,11 +328,23 @@ function pruneDelegatedToolsByIntent(
   const taskIntent = classifyDelegatedTaskIntent(spec);
   const requireBrowser = specRequiresMeaningfulBrowserEvidence(spec);
   const requireFileMutation = specRequiresFileMutationEvidence(spec);
+  const localFileInspectionTask = specTargetsLocalFiles(spec);
   const hasPreferredImplementationEditor = normalized.some((toolName) =>
     PREFERRED_IMPLEMENTATION_EDITOR_TOOL_NAMES.has(toolName)
   );
+  const localFileInspectionTools = normalized.filter((toolName) =>
+    LOCAL_FILE_INSPECTION_TOOL_NAMES.has(toolName)
+  );
 
   const filtered = normalized.filter((toolName) => {
+    if (
+      localFileInspectionTask &&
+      !requireBrowser &&
+      localFileInspectionTools.length > 0
+    ) {
+      return LOCAL_FILE_INSPECTION_TOOL_NAMES.has(toolName);
+    }
+
     if (taskIntent === "research") {
       if (PREFERRED_PROVIDER_NATIVE_RESEARCH_TOOL_NAMES.has(toolName)) {
         return true;
@@ -380,7 +437,7 @@ export function specRequiresFileMutationEvidence(
   const taskIntent = classifyDelegatedTaskIntent(spec);
   if (
     [...(spec.requiredToolCapabilities ?? []), ...(spec.tools ?? [])].some((toolName) =>
-      FILE_MUTATION_TOOL_NAMES.has(toolName.trim())
+      EXPLICIT_FILE_MUTATION_TOOL_NAMES.has(toolName.trim())
     )
   ) {
     return true;
@@ -525,11 +582,25 @@ export function hasToolCallFileMutationEvidence(
     return false;
   }
 
-  if (FILE_MUTATION_TOOL_NAMES.has(toolCall.name.trim())) {
+  const normalizedToolName = toolCall.name.trim();
+  if (EXPLICIT_FILE_MUTATION_TOOL_NAMES.has(normalizedToolName)) {
     return true;
   }
 
-  if (toolCall.name === "execute_with_agent") {
+  if (normalizedToolName === "desktop.text_editor") {
+    const command =
+      typeof toolCall.args === "object" &&
+        toolCall.args !== null &&
+        !Array.isArray(toolCall.args) &&
+        typeof (toolCall.args as { command?: unknown }).command === "string"
+        ? (toolCall.args as { command: string }).command.trim().toLowerCase()
+        : "";
+    return command === "create" ||
+      command === "str_replace" ||
+      command === "insert";
+  }
+
+  if (normalizedToolName === "execute_with_agent") {
     if (typeof toolCall.result !== "string" || toolCall.result.trim().length === 0) {
       return false;
     }
@@ -541,7 +612,7 @@ export function hasToolCallFileMutationEvidence(
   }
 
   return (
-    (toolCall.name === "system.bash" || toolCall.name === "desktop.bash") &&
+    (normalizedToolName === "system.bash" || normalizedToolName === "desktop.bash") &&
     hasShellFileMutationArgs(toolCall.args)
   );
 }
@@ -740,19 +811,34 @@ export function specRequiresSuccessfulToolEvidence(
 export function specRequiresMeaningfulBrowserEvidence(
   spec: DelegationContractSpec,
 ): boolean {
-  if ((spec.requiredToolCapabilities ?? []).some((capability) => {
+  const stepText = collectDelegationStepText(spec);
+  const explicitTools = normalizeToolNames([
+    ...(spec.tools ?? []),
+    ...(spec.requiredToolCapabilities ?? []),
+  ]);
+  const hasExplicitBrowserTool = explicitTools.some((capability) => {
     const normalized = capability.trim().toLowerCase();
     return normalized.startsWith("mcp.browser.") ||
       normalized.startsWith("playwright.");
-  })) {
+  });
+  if (hasExplicitBrowserTool) {
     return true;
   }
-  const stepText = collectDelegationStepText(spec);
+  const hasExplicitLocalFileInspectionTool = explicitTools.some((toolName) =>
+    LOCAL_FILE_INSPECTION_TOOL_NAMES.has(toolName)
+  );
+  if (
+    specTargetsLocalFiles(spec) &&
+    !hasExplicitBrowserInteractionCue(stepText) &&
+    (hasExplicitLocalFileInspectionTool || !hasExplicitBrowserTool)
+  ) {
+    return false;
+  }
   const taskIntent = classifyDelegatedTaskIntent(spec);
-  if (BROWSER_GROUNDED_TASK_RE.test(stepText)) return true;
+  if (hasPositiveBrowserGroundingCue(stepText)) return true;
   return (
     (taskIntent === "research" || taskIntent === "validation") &&
-    BROWSER_GROUNDED_TASK_RE.test(collectDelegationContextText(spec))
+    hasPositiveBrowserGroundingCue(collectDelegationContextText(spec))
   );
 }
 
@@ -828,6 +914,7 @@ export function resolveDelegatedChildToolScope(params: {
   const taskIntent = classifyDelegatedTaskIntent(params.spec);
   const requireBrowser = specRequiresMeaningfulBrowserEvidence(params.spec);
   const requireFileMutation = specRequiresFileMutationEvidence(params.spec);
+  const localFileInspectionTask = specTargetsLocalFiles(params.spec);
 
   const addCandidate = (
     toolName: string,
@@ -880,7 +967,14 @@ export function resolveDelegatedChildToolScope(params: {
     addSemanticFallback("system.bash");
   };
 
-  if (requireBrowser || taskIntent === "research") {
+  if (localFileInspectionTask && !requireBrowser && !requireFileMutation) {
+    addSemanticFallback("desktop.text_editor");
+    addSemanticFallback("system.readFile");
+    addSemanticFallback("mcp.neovim.vim_edit");
+    addSemanticFallback("mcp.neovim.vim_buffer_save");
+  }
+
+  if ((requireBrowser || taskIntent === "research") && !localFileInspectionTask) {
     addSemanticFallback(PROVIDER_NATIVE_WEB_SEARCH_TOOL);
     addSemanticFallback("mcp.browser.browser_navigate");
     addSemanticFallback("mcp.browser.browser_snapshot");
@@ -941,6 +1035,7 @@ export function resolveDelegatedInitialToolChoiceToolName(
   const requireBrowser = specRequiresMeaningfulBrowserEvidence(spec);
   const requireFileMutation = specRequiresFileMutationEvidence(spec);
   const setupHeavy = isSetupHeavyDelegatedTask(spec);
+  const localFileInspectionTask = specTargetsLocalFiles(spec);
 
   if (setupHeavy) {
     return INITIAL_SETUP_TOOL_NAMES.find((toolName) =>
@@ -953,6 +1048,12 @@ export function resolveDelegatedInitialToolChoiceToolName(
     taskIntent !== "validation"
   ) {
     return INITIAL_FILE_MUTATION_TOOL_NAMES.find((toolName) =>
+      normalizedTools.includes(toolName)
+    );
+  }
+
+  if (localFileInspectionTask && !requireBrowser) {
+    return INITIAL_FILE_INSPECTION_TOOL_NAMES.find((toolName) =>
       normalizedTools.includes(toolName)
     );
   }
@@ -994,7 +1095,7 @@ export function resolveDelegatedCorrectionToolChoiceToolNames(
       return [preferredEditor];
     }
     const systemFileWriteTool = normalizedTools.find((toolName) =>
-      FILE_MUTATION_TOOL_NAMES.has(toolName)
+      EXPLICIT_FILE_MUTATION_TOOL_NAMES.has(toolName)
     );
     if (systemFileWriteTool) {
       return [systemFileWriteTool];

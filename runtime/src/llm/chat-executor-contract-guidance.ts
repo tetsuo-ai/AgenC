@@ -213,10 +213,9 @@ function resolveDoomToolContractGuidance(
   );
   if (!gap) return undefined;
 
-  const routedToolNames = gap.preferredToolNames.filter(
-    (toolName) =>
-      input.allowedToolNames.length === 0 ||
-      input.allowedToolNames.includes(toolName),
+  const routedToolNames = resolvePreferredContractTools(
+    gap.preferredToolNames,
+    input.allowedToolNames,
   );
   const enforcement =
     gap.code === "missing_launch"
@@ -242,6 +241,24 @@ function resolveDoomToolContractGuidance(
     toolChoice: "required",
     ...(enforcement ? { enforcement } : {}),
   };
+}
+
+function resolvePreferredContractTools(
+  preferredToolNames: readonly string[],
+  allowedToolNames: readonly string[],
+): readonly string[] {
+  for (const toolName of preferredToolNames) {
+    if (
+      allowedToolNames.length === 0 ||
+      allowedToolNames.includes(toolName)
+    ) {
+      return [toolName];
+    }
+  }
+
+  return preferredToolNames.filter(
+    (toolName) => allowedToolNames.includes(toolName),
+  );
 }
 
 function resolveTypedArtifactContractGuidance(

@@ -1394,6 +1394,402 @@ describe("ChatExecutor", () => {
       });
     });
 
+    it("records normalized async Doom launches as evidence for autonomous follow-up routing", async () => {
+      const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
+        if (name === "mcp.doom.start_game") {
+          return safeJson({
+            status: "running",
+            god_mode_enabled: true,
+            scenario: args.scenario,
+          });
+        }
+        if (name === "mcp.doom.set_objective") {
+          return safeJson({ status: "objective_set" });
+        }
+        if (name === "mcp.doom.get_situation_report") {
+          return safeJson({
+            executor_state: "running",
+            god_mode_enabled: true,
+          });
+        }
+        return safeJson({ name, args });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({
+                    scenario: "defend_the_center",
+                    god_mode: true,
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-objective",
+                  name: "mcp.doom.set_objective",
+                  arguments: safeJson({ objective_type: "hold_position" }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-report",
+                  name: "mcp.doom.get_situation_report",
+                  arguments: safeJson({}),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "Doom is running in async defend-the-center mode with god mode enabled.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: [
+          "mcp.doom.start_game",
+          "mcp.doom.set_objective",
+          "mcp.doom.get_situation_report",
+        ],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Start Doom in god mode, defend the center, and keep playing until I tell you to stop.",
+          ),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toContain("Doom is running");
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        1,
+        "mcp.doom.start_game",
+        expect.objectContaining({
+          scenario: "defend_the_center",
+          god_mode: true,
+          async_player: true,
+          window_visible: true,
+          render_hud: true,
+        }),
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        2,
+        "mcp.doom.set_objective",
+        { objective_type: "hold_position" },
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        3,
+        "mcp.doom.get_situation_report",
+        {},
+      );
+      expect(result.toolCalls[0]?.args).toEqual(
+        expect.objectContaining({
+          async_player: true,
+          god_mode: true,
+          scenario: "defend_the_center",
+        }),
+      );
+
+      const secondOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1]?.[1] as LLMChatOptions | undefined;
+      expect(secondOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.set_objective",
+      ]);
+
+      const thirdOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[1] as LLMChatOptions | undefined;
+      expect(thirdOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.get_situation_report",
+      ]);
+
+      const fourthOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[3]?.[1] as LLMChatOptions | undefined;
+      expect(fourthOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.get_situation_report",
+      ]);
+    });
+
+    it("keeps Doom contract-required tools available even when the generic routed subset omits them", async () => {
+      const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
+        if (name === "mcp.doom.start_game") {
+          return safeJson({
+            status: "running",
+            god_mode_enabled: true,
+            scenario: args.scenario,
+          });
+        }
+        if (name === "mcp.doom.set_objective") {
+          return safeJson({ status: "objective_set", objective_type: "hold_position" });
+        }
+        if (name === "mcp.doom.get_situation_report") {
+          return safeJson({
+            executor_state: "fighting",
+            god_mode_enabled: true,
+            objectives: [{ type: "hold_position" }],
+          });
+        }
+        return safeJson({ name, args });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({
+                    scenario: "defend_the_center",
+                    god_mode: true,
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-objective",
+                  name: "mcp.doom.set_objective",
+                  arguments: safeJson({ objective_type: "hold_position" }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-report",
+                  name: "mcp.doom.get_situation_report",
+                  arguments: safeJson({}),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "Doom is running in async hold-position defense mode with god mode enabled.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: [
+          "desktop.bash",
+          "mcp.doom.start_game",
+          "mcp.doom.set_objective",
+          "mcp.doom.get_situation_report",
+        ],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Start Doom in god mode, defend the center, and keep playing until I tell you to stop.",
+          ),
+          toolRouting: {
+            routedToolNames: [
+              "desktop.bash",
+              "mcp.doom.start_game",
+              "mcp.doom.get_situation_report",
+            ],
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toContain("hold-position defense");
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        1,
+        "mcp.doom.start_game",
+        expect.objectContaining({
+          scenario: "defend_the_center",
+          god_mode: true,
+          async_player: true,
+        }),
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        2,
+        "mcp.doom.set_objective",
+        { objective_type: "hold_position" },
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        3,
+        "mcp.doom.get_situation_report",
+        {},
+      );
+
+      const firstOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[1] as LLMChatOptions | undefined;
+      expect(firstOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.start_game",
+      ]);
+
+      const secondOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1]?.[1] as LLMChatOptions | undefined;
+      expect(secondOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.set_objective",
+      ]);
+
+      const thirdOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[1] as LLMChatOptions | undefined;
+      expect(thirdOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.get_situation_report",
+      ]);
+
+      const fourthOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[3]?.[1] as LLMChatOptions | undefined;
+      expect(fourthOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.get_situation_report",
+      ]);
+    });
+
+    it("uses non-stream chat for deterministic single-tool Doom follow-ups and streams only the final answer", async () => {
+      const onStreamChunk = vi.fn();
+      const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
+        if (name === "mcp.doom.start_game") {
+          return safeJson({
+            status: "running",
+            god_mode_enabled: true,
+            scenario: args.scenario,
+          });
+        }
+        if (name === "mcp.doom.set_objective") {
+          return safeJson({ status: "objective_set", objective_type: "hold_position" });
+        }
+        if (name === "mcp.doom.get_situation_report") {
+          return safeJson({
+            executor_state: "running",
+            god_mode_enabled: true,
+          });
+        }
+        return safeJson({ name, args });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({
+                    scenario: "defend_the_center",
+                    god_mode: true,
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-objective",
+                  name: "mcp.doom.set_objective",
+                  arguments: safeJson({ objective_type: "hold_position" }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-report",
+                  name: "mcp.doom.get_situation_report",
+                  arguments: safeJson({}),
+                },
+              ],
+            }),
+          ),
+        chatStream: vi.fn().mockResolvedValue(
+          mockResponse({
+            content:
+              "Doom is running in async defend-the-center mode with god mode enabled.",
+          }),
+        ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        onStreamChunk,
+        allowedTools: [
+          "mcp.doom.start_game",
+          "mcp.doom.set_objective",
+          "mcp.doom.get_situation_report",
+          "mcp.doom.get_state",
+        ],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Start Doom in god mode, defend the center, and keep playing until I tell you to stop.",
+          ),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(provider.chat).toHaveBeenCalledTimes(3);
+      expect(provider.chatStream).toHaveBeenCalledTimes(1);
+
+      const thirdOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[1] as LLMChatOptions | undefined;
+      expect(thirdOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.get_situation_report",
+      ]);
+
+      const finalOptions = (provider.chatStream as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[2] as LLMChatOptions | undefined;
+      expect(finalOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.get_situation_report",
+      ]);
+    });
+
     it("ends a Doom tool round after failed start_game so dependent calls do not run", async () => {
       const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
         if (name === "mcp.doom.start_game") {
@@ -1591,21 +1987,17 @@ describe("ChatExecutor", () => {
 
       expect(result.stopReason).toBe("completed");
       expect(result.content).toBe("God mode is enabled and Doom is running.");
-      expect(toolHandler).toHaveBeenNthCalledWith(
-        1,
-        "mcp.doom.set_god_mode",
-        { enabled: true },
-      );
-      expect(toolHandler).toHaveBeenNthCalledWith(2, "mcp.doom.start_game", {
-        screen_resolution: "RES_1280X720",
-        window_visible: true,
-        render_hud: true,
-      });
-      expect(toolHandler).toHaveBeenNthCalledWith(
-        3,
-        "mcp.doom.set_god_mode",
-        { enabled: true },
-      );
+      expect(toolHandler.mock.calls).toEqual([
+        [
+          "mcp.doom.start_game",
+          {
+            screen_resolution: "RES_1280X720",
+            window_visible: true,
+            render_hud: true,
+          },
+        ],
+        ["mcp.doom.set_god_mode", { enabled: true }],
+      ]);
 
       const firstOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
         .calls[0]?.[1] as LLMChatOptions | undefined;

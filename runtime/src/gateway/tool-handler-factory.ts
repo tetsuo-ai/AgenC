@@ -17,6 +17,7 @@ import type { HookDispatcher } from './hooks.js';
 import type { ApprovalEngine } from './approvals.js';
 import {
   EXECUTE_WITH_AGENT_TOOL_NAME,
+  type ExecuteWithAgentInput,
   parseExecuteWithAgentInput,
 } from './delegation-tool.js';
 import {
@@ -187,6 +188,15 @@ function normalizeDelegationTimeoutMs(
     MAX_DELEGATION_TIMEOUT_MS,
     Math.max(MIN_DELEGATION_TIMEOUT_MS, rounded),
   );
+}
+
+function buildDelegatedChildPrompt(input: ExecuteWithAgentInput): string {
+  const objective = input.objective?.trim();
+  if (!objective || objective === input.task) {
+    return input.task;
+  }
+
+  return `Task: ${input.task}\nObjective: ${objective}`;
 }
 
 type DelegationContext = NonNullable<
@@ -515,6 +525,7 @@ async function executeDelegationTool(params: {
     });
   }
   const objective = input.objective ?? input.task;
+  const childPrompt = buildDelegatedChildPrompt(input);
   const effectiveTimeoutMs = normalizeDelegationTimeoutMs(input.timeoutMs);
   const resolvedChildScope = resolveDelegatedChildToolScope({
     spec: input,
@@ -560,7 +571,8 @@ async function executeDelegationTool(params: {
   try {
     childSessionId = await subAgentManager.spawn({
       parentSessionId: sessionId,
-      task: input.task,
+      task: childPrompt,
+      prompt: childPrompt,
       ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       tools: resolvedChildScope.allowedTools,
       ...(input.requiredToolCapabilities

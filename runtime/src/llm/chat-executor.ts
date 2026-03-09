@@ -118,6 +118,12 @@ import {
   MAX_COMPACT_INPUT,
 } from "./chat-executor-constants.js";
 import {
+  buildRequiredToolEvidenceRetryInstruction,
+  resolveCorrectionAllowedToolNames,
+  resolveExecutionToolContractGuidance,
+  validateRequiredToolEvidence,
+} from "./chat-executor-contract-flow.js";
+import {
   didToolCallFail,
   resolveRetryPolicyMatrix,
   enrichToolResultMetadata,
@@ -130,6 +136,29 @@ import {
   buildToolLoopRecoveryMessages,
   buildRoutingExpansionMessage,
 } from "./chat-executor-tool-utils.js";
+import { inferDoomTurnContract } from "./chat-executor-doom.js";
+import {
+  applyActiveRoutedToolNames,
+  buildActiveRoutedToolSet,
+  resolveEffectiveRoutedToolNames,
+} from "./chat-executor-routing-state.js";
+
+function shouldBypassStreamingForForcedSingleToolTurn(
+  options: LLMChatOptions | undefined,
+): boolean {
+  if (!options?.toolRouting?.allowedToolNames) {
+    return false;
+  }
+  if (options.toolRouting.allowedToolNames.length !== 1) {
+    return false;
+  }
+  if (options.toolChoice === "required") {
+    return true;
+  }
+  return typeof options.toolChoice === "object" &&
+    options.toolChoice !== null &&
+    options.toolChoice.type === "function";
+}
 
 function mergeProviderEvidence(
   current: LLMProviderEvidence | undefined,
@@ -201,14 +230,6 @@ import {
   parseSubagentVerifierDecision,
   mergeSubagentVerifierDecisions,
 } from "./chat-executor-verifier.js";
-import {
-  getMissingSuccessfulToolEvidenceMessage,
-  validateDelegatedOutputContract,
-} from "../utils/delegation-validation.js";
-import {
-  type ToolContractGuidancePhase,
-  resolveToolContractGuidance,
-} from "./chat-executor-contract-guidance.js";
 // ---------------------------------------------------------------------------
 // Re-exports — preserve backward-compatible import paths for consumers
 // ---------------------------------------------------------------------------
@@ -555,13 +576,6 @@ export class ChatExecutor {
     return ctx.requestDeadlineAt - Date.now();
   }
 
-  private getAllowedToolNamesForEvidence(ctx: ExecutionContext): readonly string[] {
-    if (ctx.activeRoutedToolNames.length > 0) {
-      return ctx.activeRoutedToolNames;
-    }
-    return this.allowedTools ? [...this.allowedTools] : [];
-  }
-
   private emitExecutionTrace(
     ctx: ExecutionContext,
     event: ChatExecutionTraceEvent,
@@ -660,7 +674,7 @@ export class ChatExecutor {
   private resolveActiveToolContractGuidance(
     ctx: ExecutionContext,
     input?: {
-      readonly phase?: ToolContractGuidancePhase;
+      readonly phase?: "initial" | "tool_followup" | "correction";
       readonly allowedToolNames?: readonly string[];
       readonly validationCode?: DelegationOutputValidationCode;
     },
@@ -670,13 +684,11 @@ export class ChatExecutor {
     readonly routedToolNames?: readonly string[];
     readonly toolChoice: LLMToolChoice;
   } | undefined {
-    return resolveToolContractGuidance({
-      phase: input?.phase ?? "tool_followup",
-      messageText: ctx.messageText,
-      toolCalls: ctx.allToolCalls,
-      allowedToolNames:
-        input?.allowedToolNames ?? this.getAllowedToolNamesForEvidence(ctx),
-      requiredToolEvidence: ctx.requiredToolEvidence,
+    return resolveExecutionToolContractGuidance({
+      ctx,
+      allowedTools: this.allowedTools ?? undefined,
+      phase: input?.phase,
+      allowedToolNames: input?.allowedToolNames,
       validationCode: input?.validationCode,
     });
   }
@@ -700,22 +712,10 @@ export class ChatExecutor {
 
     let retried = false;
     while (ctx.response?.finishReason !== "tool_calls") {
-      const responseContent =
-        typeof ctx.response?.content === "string" ? ctx.response.content : "";
-      const contractValidation = ctx.requiredToolEvidence.delegationSpec
-        ? validateDelegatedOutputContract({
-          spec: ctx.requiredToolEvidence.delegationSpec,
-          output: responseContent,
-          toolCalls: ctx.allToolCalls,
-          providerEvidence: ctx.providerEvidence,
-        })
-        : undefined;
-      const missingEvidenceMessage = contractValidation?.error ??
-        getMissingSuccessfulToolEvidenceMessage(
-          ctx.allToolCalls,
-          ctx.requiredToolEvidence.delegationSpec,
-          ctx.providerEvidence,
-        );
+      const {
+        contractValidation,
+        missingEvidenceMessage,
+      } = validateRequiredToolEvidence({ ctx });
       if (!missingEvidenceMessage) {
         this.emitExecutionTrace(ctx, {
           type: "completion_gate_checked",
@@ -751,48 +751,15 @@ export class ChatExecutor {
         return "failed";
       }
 
-      const correctionAllowedTools = this.allowedTools
-        ? [...this.allowedTools]
-        : this.getAllowedToolNamesForEvidence(ctx);
-      const allowedToolSummary = correctionAllowedTools.length > 0
-        ? ` Allowed tools: ${correctionAllowedTools.join(", ")}.`
-        : "";
-      const correctionLines = [
-        "Tool-grounded evidence is required for this delegated task.",
-        "Before answering, call one or more allowed tools and base the answer on those results.",
-        "Do not answer from memory or restate the plan.",
-      ];
-      if (
-        contractValidation?.code === "low_signal_browser_evidence" ||
-        /browser-grounded evidence/i.test(missingEvidenceMessage)
-      ) {
-        correctionLines.push(
-          "Use concrete non-blank URLs or localhost targets with browser navigation plus snapshot/run_code. `browser_tabs` and about:blank state checks do not count.",
-        );
-      }
-      if (
-        contractValidation?.code === "expected_json_object" ||
-        contractValidation?.code === "empty_structured_payload"
-      ) {
-        correctionLines.push(
-          "Your final answer must be a single JSON object only, with no markdown fences or prose around it.",
-        );
-      }
-      if (
-        contractValidation?.code === "missing_file_mutation_evidence" ||
-        /file creation\/edit evidence|file mutation tools/i.test(
-          missingEvidenceMessage,
-        )
-      ) {
-        correctionLines.push(
-          "Create or edit the required files with the allowed file-mutation tools before answering, and name those files in the final output.",
-        );
-      }
-      const retryInstruction =
-        "Delegated output validation failed. " +
-        `${missingEvidenceMessage}. ` +
-        correctionLines.join(" ") +
-        allowedToolSummary;
+      const correctionAllowedTools = resolveCorrectionAllowedToolNames(
+        ctx.activeRoutedToolNames,
+        this.allowedTools ?? undefined,
+      );
+      const retryInstruction = buildRequiredToolEvidenceRetryInstruction({
+        missingEvidenceMessage,
+        validationCode: contractValidation?.code,
+        allowedToolNames: correctionAllowedTools,
+      });
 
       if (
         typeof ctx.response?.content === "string" &&
@@ -895,11 +862,13 @@ export class ChatExecutor {
     if (this.checkRequestTimeout(ctx, `${input.phase} model call`)) {
       return undefined;
     }
-    const effectiveRoutedToolNames = input.routedToolNames !== undefined
-      ? input.routedToolNames
-      : ctx.toolRouting
-      ? ctx.activeRoutedToolNames
-      : (this.allowedTools ? [...this.allowedTools] : undefined);
+    const effectiveRoutedToolNames = resolveEffectiveRoutedToolNames({
+      requestedRoutedToolNames: input.routedToolNames,
+      hasToolRouting: Boolean(ctx.toolRouting),
+      activeRoutedToolNames: ctx.activeRoutedToolNames,
+      allowedTools: this.allowedTools ?? undefined,
+    });
+    applyActiveRoutedToolNames(ctx, effectiveRoutedToolNames);
     const groundingMessage =
       input.phase === "tool_followup" || input.phase === "planner_synthesis"
         ? buildToolExecutionGroundingMessage({
@@ -1570,9 +1539,9 @@ export class ChatExecutor {
 
       rounds++;
       const roundToolCallStart = ctx.allToolCalls.length;
-      loopState.activeRoutedToolSet = ctx.activeRoutedToolNames.length > 0
-        ? new Set(ctx.activeRoutedToolNames)
-        : null;
+      loopState.activeRoutedToolSet = buildActiveRoutedToolSet(
+        ctx.activeRoutedToolNames,
+      );
       loopState.expandAfterRound = false;
 
       this.pushMessage(
@@ -1631,7 +1600,7 @@ export class ChatExecutor {
       if (loopState.expandAfterRound && ctx.expandedRoutedToolNames.length > 0) {
         const previousRoutedToolNames = [...ctx.activeRoutedToolNames];
         ctx.routedToolsExpanded = true;
-        ctx.activeRoutedToolNames = ctx.expandedRoutedToolNames;
+        applyActiveRoutedToolNames(ctx, ctx.expandedRoutedToolNames);
         this.emitExecutionTrace(ctx, {
           type: "route_expanded",
           phase: "tool_followup",
@@ -1831,7 +1800,16 @@ export class ChatExecutor {
       });
       return "skip";
     }
-    const args = normalizeToolCallArguments(toolCall.name, parseResult.args);
+    let args = normalizeToolCallArguments(toolCall.name, parseResult.args);
+    if (toolCall.name === "mcp.doom.start_game") {
+      const doomTurnContract = inferDoomTurnContract(ctx.messageText);
+      if (
+        doomTurnContract?.requiresAutonomousPlay &&
+        args.async_player !== true
+      ) {
+        args = { ...args, async_player: true };
+      }
+    }
     this.emitExecutionTrace(ctx, {
       type: "tool_dispatch_started",
       phase: "tool_followup",
@@ -2782,7 +2760,10 @@ export class ChatExecutor {
       let attempts = 0;
       while (true) {
         try {
-          const providerCall = onStreamChunk
+          const shouldStream =
+            onStreamChunk !== undefined &&
+            !shouldBypassStreamingForForcedSingleToolTurn(chatOptions);
+          const providerCall = shouldStream
             ? provider.chatStream(
               boundedMessages,
               onStreamChunk,
