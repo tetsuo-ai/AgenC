@@ -5,6 +5,7 @@ import type { ChatSessionInfo } from '../hooks/useChat';
 import type { AgentInfo } from '../types';
 import { LLM_PROVIDERS } from '../constants/llm';
 import { openExternalUrl } from '../utils/external';
+import { getSecretInputValue, resolveSecretPatchValue } from '../utils/secretInput';
 
 type Tab = 'main' | 'settings' | 'payment';
 const TABS: Tab[] = ['main', 'settings', 'payment'];
@@ -337,7 +338,7 @@ type LLMProviderValue = typeof LLM_PROVIDERS[number]['value'];
 
 interface LLMSettingsProps {
   provider: string;
-  apiKey: string;
+  apiKey: string | null;
   model: string;
   configApiKey: string;
   ollamaModels: string[];
@@ -391,9 +392,9 @@ function LLMSettings({ provider, apiKey, model, configApiKey, ollamaModels, olla
           <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-2">API Key</div>
           <input
             type="password"
-            value={apiKey || configApiKey}
+            value={getSecretInputValue(apiKey, configApiKey)}
             onChange={(e) => { onApiKeyChange(e.target.value); markDirty(); }}
-            onFocus={() => { if (!apiKey) onApiKeyChange(''); }}
+            onFocus={() => { if (apiKey === null) onApiKeyChange(''); }}
             placeholder="Enter x.ai API key"
             className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
           />
@@ -433,7 +434,7 @@ interface VoiceSettingsProps {
   voiceEnabled: boolean;
   voiceMode: 'vad' | 'push-to-talk';
   voiceName: VoiceName;
-  voiceApiKey: string;
+  voiceApiKey: string | null;
   useCustomVoiceKey: boolean;
   configVoiceApiKey: string;
   onVoiceEnabledChange: (v: boolean) => void;
@@ -491,9 +492,9 @@ function VoiceSettings({ voiceEnabled, voiceMode, voiceName, voiceApiKey, useCus
           <div>
             <input
               type="password"
-              value={voiceApiKey || configVoiceApiKey}
+              value={getSecretInputValue(voiceApiKey, configVoiceApiKey)}
               onChange={(e) => { onVoiceApiKeyChange(e.target.value); markDirty(); }}
-              onFocus={() => { if (!voiceApiKey) onVoiceApiKeyChange(''); }}
+              onFocus={() => { if (voiceApiKey === null) onVoiceApiKeyChange(''); }}
               placeholder="Enter voice API key (x.ai)"
               className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
             />
@@ -517,12 +518,12 @@ function SettingsTab({ settings, autoApprove, onAutoApproveChange }: { settings:
   const { settings: config, loaded, saving, lastError, save, ollamaModels, ollamaError, fetchOllamaModels } = settings;
 
   const [provider, setProvider] = useState(config.llm.provider);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState<string | null>(null);
   const [model, setModel] = useState(config.llm.model);
   const [voiceEnabled, setVoiceEnabled] = useState(config.voice.enabled);
   const [voiceMode, setVoiceMode] = useState(config.voice.mode);
   const [voiceName, setVoiceName] = useState<VoiceName>(config.voice.voice);
-  const [voiceApiKey, setVoiceApiKey] = useState('');
+  const [voiceApiKey, setVoiceApiKey] = useState<string | null>(null);
   const [useCustomVoiceKey, setUseCustomVoiceKey] = useState(!!config.voice.apiKey);
   const [memoryBackend, setMemoryBackend] = useState(config.memory.backend);
   const [rpcCluster, setRpcCluster] = useState<'devnet' | 'mainnet' | 'custom'>(
@@ -544,10 +545,12 @@ function SettingsTab({ settings, autoApprove, onAutoApproveChange }: { settings:
   useEffect(() => {
     if (!loaded) return;
     setProvider(config.llm.provider);
+    setApiKey(null);
     setModel(config.llm.model);
     setVoiceEnabled(config.voice.enabled);
     setVoiceMode(config.voice.mode);
     setVoiceName(config.voice.voice);
+    setVoiceApiKey(null);
     setUseCustomVoiceKey(!!config.voice.apiKey);
     setMemoryBackend(config.memory.backend);
     setRpcCluster(config.connection.rpcUrl.includes('mainnet') ? 'mainnet' : 'devnet');
@@ -563,7 +566,7 @@ function SettingsTab({ settings, autoApprove, onAutoApproveChange }: { settings:
       const match = LLM_PROVIDERS.find((lp) => lp.value === p);
       if (match) setModel(match.defaultModel);
     }
-    setApiKey('');
+    setApiKey(null);
     markDirty();
   };
 
@@ -577,15 +580,15 @@ function SettingsTab({ settings, autoApprove, onAutoApproveChange }: { settings:
         provider,
         model,
         baseUrl,
-        apiKey: apiKey && !apiKey.startsWith('****') ? apiKey : config.llm.apiKey,
+        apiKey: resolveSecretPatchValue(apiKey, config.llm.apiKey),
       },
       voice: {
         enabled: voiceEnabled,
         mode: voiceMode,
         voice: voiceName,
-        apiKey: useCustomVoiceKey && voiceApiKey && !voiceApiKey.startsWith('****')
-          ? voiceApiKey
-          : useCustomVoiceKey ? config.voice.apiKey : '',
+        apiKey: useCustomVoiceKey
+          ? resolveSecretPatchValue(voiceApiKey, config.voice.apiKey)
+          : '',
       },
       memory: { backend: memoryBackend },
       connection: { rpcUrl },

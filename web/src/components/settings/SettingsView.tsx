@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GatewaySettings, UseSettingsReturn, VoiceName, EnvironmentMode } from '../../hooks/useSettings';
 import { LLM_PROVIDERS } from '../../constants/llm';
+import { getSecretInputValue, resolveSecretPatchValue } from '../../utils/secretInput';
 
 interface SettingsViewProps {
   settings: UseSettingsReturn;
@@ -21,7 +22,7 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
   } = settings;
 
   const [provider, setProvider] = useState(config.llm.provider);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState<string | null>(null);
   const [model, setModel] = useState(config.llm.model);
   const [voiceEnabled, setVoiceEnabled] = useState(config.voice.enabled);
   const [voiceMode, setVoiceMode] = useState(config.voice.mode);
@@ -51,6 +52,7 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
   useEffect(() => {
     if (!loaded) return;
     setProvider(config.llm.provider);
+    setApiKey(null);
     setModel(config.llm.model);
     setVoiceEnabled(config.voice.enabled);
     setVoiceMode(config.voice.mode);
@@ -74,7 +76,7 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
     } else if (match) {
       setModel(match.defaultModel);
     }
-    setApiKey('');
+    setApiKey(null);
     markDirty();
   };
 
@@ -88,7 +90,7 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
         provider,
         model,
         baseUrl,
-        apiKey: apiKey && !apiKey.startsWith('****') ? apiKey : config.llm.apiKey,
+        apiKey: resolveSecretPatchValue(apiKey, config.llm.apiKey),
       },
       voice: {
         enabled: voiceEnabled,
@@ -194,13 +196,13 @@ export function SettingsView({ settings, autoApprove = false, onAutoApproveChang
             >
               <input
                 type="password"
-                value={apiKey || config.llm.apiKey}
+                value={getSecretInputValue(apiKey, config.llm.apiKey)}
                 onChange={(event) => {
                   setApiKey(event.target.value);
                   markDirty();
                 }}
                 onFocus={() => {
-                  if (!apiKey) setApiKey('');
+                  if (apiKey === null) setApiKey('');
                 }}
                 placeholder="enter provider api key"
                 className="w-full border border-bbs-border bg-bbs-dark px-3 py-3 text-sm text-bbs-white outline-none placeholder:text-bbs-gray focus:border-bbs-purple-dim"
