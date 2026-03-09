@@ -247,6 +247,46 @@ describe("GrokProvider", () => {
     });
   });
 
+  it("treats an empty routed allowlist as no attached tools", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    const response = await provider.chat(
+      [{ role: "user", content: "reply with exactly ACK" }],
+      {
+        toolRouting: { allowedToolNames: [] },
+        toolChoice: "none",
+      },
+    );
+
+    const params = mockCreate.mock.calls.at(-1)?.[0];
+    expect(params.tools).toBeUndefined();
+    expect(response.requestMetrics).toMatchObject({
+      toolCount: 0,
+      toolNames: [],
+      requestedToolNames: [],
+      toolResolution: "all_tools_empty_filter",
+      toolsAttached: false,
+      store: false,
+    });
+  });
+
   it("normalizes forced function tool_choice for the Responses API", async () => {
     mockCreate.mockResolvedValueOnce(makeCompletion());
 
@@ -1564,9 +1604,66 @@ describe("GrokProvider", () => {
     const secondParams = mockCreate.mock.calls[1][0];
     expect(secondParams.previous_response_id).toBeUndefined();
     expect(second.stateful?.fallbackReason).toBe("state_reconciliation_mismatch");
+    expect(second.stateful?.previousReconciliationHash).toBeDefined();
+    expect(second.stateful?.reconciliationMessageCount).toBe(1);
+    expect(second.stateful?.reconciliationSource).toBe("non_system_messages");
+    expect(second.stateful?.anchorMatched).toBe(false);
     expect(second.stateful?.events?.some((event) =>
       event.type === "state_reconciliation_mismatch"
     )).toBe(true);
+  });
+
+  it("trusts a known local compaction boundary and keeps previous_response_id", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_compacted_1",
+          output_text: "Stored",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_compacted_2",
+          output_text: "Resumed after compaction",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "first turn" },
+      ],
+      { stateful: { sessionId: "sess-compacted-trust" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "[Compacted: 51 earlier messages removed]" },
+        { role: "user", content: "follow up after local compaction" },
+      ],
+      {
+        stateful: {
+          sessionId: "sess-compacted-trust",
+          historyCompacted: true,
+        },
+      },
+    );
+
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(secondParams.previous_response_id).toBe("resp_compacted_1");
+    expect(second.stateful?.continued).toBe(true);
+    expect(second.stateful?.anchorMatched).toBe(false);
+    expect(second.stateful?.historyCompacted).toBe(true);
+    expect(second.stateful?.compactedHistoryTrusted).toBe(true);
+    expect(second.stateful?.fallbackReason).toBeUndefined();
   });
 
   it("retries stateless when previous_response_id retrieval fails", async () => {
@@ -1713,5 +1810,112 @@ describe("GrokProvider", () => {
     expect(params.previous_response_id).toBe("resp_anchor");
     expect(response.stateful?.continued).toBe(true);
     expect(response.stateful?.responseId).toBe("resp_resumed");
+  });
+
+  it("continues statefully across changing system context injections", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_dynamic_1",
+          output_text: "Stored",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_dynamic_2",
+          output_text: "BLACK-ORBIT|8771|SIGMA-42",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "# Agent Configuration\nstatic prompt" },
+        { role: "user", content: "Stateful continuity test A3" },
+      ],
+      { stateful: { sessionId: "sess-dynamic-context" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "# Agent Configuration\nstatic prompt" },
+        { role: "system", content: "## Recent Progress\nupdated working summary" },
+        { role: "user", content: "Stateful continuity test A3" },
+        { role: "assistant", content: "Stored", phase: "final_answer" },
+        { role: "user", content: "Stateful continuity test B3" },
+      ],
+      { stateful: { sessionId: "sess-dynamic-context" } },
+    );
+
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(secondParams.previous_response_id).toBe("resp_dynamic_1");
+    expect(second.stateful?.continued).toBe(true);
+    expect(second.stateful?.anchorMatched).toBe(true);
+    expect(second.stateful?.reconciliationMessageCount).toBe(3);
+    expect(second.stateful?.fallbackReason).toBeUndefined();
+  });
+
+  it("uses reconciliationMessages when prompt budgeting trims the provider payload", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_trim_1",
+          output_text: "Stored",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_trim_2",
+          output_text: "Resumed",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "# Agent Configuration\nstatic prompt" },
+        { role: "user", content: "Stateful continuity test A5" },
+      ],
+      { stateful: { sessionId: "sess-trimmed-reconciliation" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "# Agent Configuration\nstatic prompt" },
+        { role: "user", content: "Stateful continuity test B5" },
+      ],
+      {
+        stateful: {
+          sessionId: "sess-trimmed-reconciliation",
+          reconciliationMessages: [
+            { role: "system", content: "# Agent Configuration\nstatic prompt" },
+            { role: "user", content: "Stateful continuity test A5" },
+            { role: "assistant", content: "Stored", phase: "final_answer" },
+            { role: "user", content: "Stateful continuity test B5" },
+          ],
+        },
+      },
+    );
+
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(secondParams.previous_response_id).toBe("resp_trim_1");
+    expect(second.stateful?.continued).toBe(true);
+    expect(second.stateful?.anchorMatched).toBe(true);
+    expect(second.stateful?.reconciliationMessageCount).toBe(3);
+    expect(second.stateful?.fallbackReason).toBeUndefined();
   });
 });

@@ -3862,7 +3862,12 @@ describe("ChatExecutor", () => {
       expect(provider.chatStream).toHaveBeenCalledWith(
         expect.any(Array),
         perCallCallback,
-        { stateful: { sessionId: "session-1" } },
+        expect.objectContaining({
+          stateful: expect.objectContaining({
+            sessionId: "session-1",
+            reconciliationMessages: expect.any(Array),
+          }),
+        }),
       );
       expect(provider.chat).not.toHaveBeenCalled();
     });
@@ -3877,7 +3882,12 @@ describe("ChatExecutor", () => {
       expect(provider.chatStream).toHaveBeenCalledWith(
         expect.any(Array),
         perCallCallback,
-        { stateful: { sessionId: "session-1" } },
+        expect.objectContaining({
+          stateful: expect.objectContaining({
+            sessionId: "session-1",
+            reconciliationMessages: expect.any(Array),
+          }),
+        }),
       );
       expect(provider.chat).not.toHaveBeenCalled();
     });
@@ -3895,7 +3905,12 @@ describe("ChatExecutor", () => {
       expect(provider.chatStream).toHaveBeenCalledWith(
         expect.any(Array),
         constructorCallback,
-        { stateful: { sessionId: "session-1" } },
+        expect.objectContaining({
+          stateful: expect.objectContaining({
+            sessionId: "session-1",
+            reconciliationMessages: expect.any(Array),
+          }),
+        }),
       );
       expect(provider.chat).not.toHaveBeenCalled();
     });
@@ -3940,13 +3955,23 @@ describe("ChatExecutor", () => {
         1,
         expect.any(Array),
         perCallCallback,
-        { stateful: { sessionId: "session-1" } },
+        expect.objectContaining({
+          stateful: expect.objectContaining({
+            sessionId: "session-1",
+            reconciliationMessages: expect.any(Array),
+          }),
+        }),
       );
       expect(provider.chatStream).toHaveBeenNthCalledWith(
         2,
         expect.any(Array),
         perCallCallback,
-        { stateful: { sessionId: "session-1" } },
+        expect.objectContaining({
+          stateful: expect.objectContaining({
+            sessionId: "session-1",
+            reconciliationMessages: expect.any(Array),
+          }),
+        }),
       );
     });
   });
@@ -4193,6 +4218,134 @@ describe("ChatExecutor", () => {
       expect(result.callUsage.map((entry) => entry.phase)).toEqual(["planner"]);
       expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
       expect(result.plannerSummary?.used).toBe(true);
+    });
+
+    it("keeps exact-response turns on the direct no-tool path even with noisy autonomy keywords", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "ACK-13",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["desktop.text_editor", "execute_with_agent"],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          history: [
+            { role: "tool", content: "{\"output\":\"ok\"}", toolName: "desktop.text_editor" },
+            { role: "tool", content: "{\"output\":\"ok\"}", toolName: "desktop.text_editor" },
+            { role: "tool", content: "{\"output\":\"ok\"}", toolName: "desktop.text_editor" },
+            { role: "tool", content: "{\"output\":\"ok\"}", toolName: "desktop.text_editor" },
+          ],
+          toolRouting: {
+            routedToolNames: ["desktop.text_editor", "execute_with_agent"],
+            expandedToolNames: ["desktop.text_editor", "execute_with_agent"],
+          },
+          message: createMessage(
+            "Compaction single-line turn 13. Reply with exactly ACK-13 and nothing else. autonomy-stateful-compaction-delegation-routing-evidence-daemon-log-verification-signal-bus-terminal-uplink-protocol-runtime",
+          ),
+        }),
+      );
+
+      expect(result.content).toBe("ACK-13");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["initial"]);
+      expect(result.plannerSummary?.used).toBe(false);
+      expect(result.plannerSummary?.routeReason).toBe("exact_response_turn");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolChoice: "none",
+        toolRouting: { allowedToolNames: [] },
+      });
+    });
+
+    it("suppresses tools for dialogue-memory turns instead of persisting them via desktop mutation", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "STORED-A",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["desktop.text_editor", "execute_with_agent"],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["desktop.text_editor", "execute_with_agent"],
+            expandedToolNames: ["desktop.text_editor", "execute_with_agent"],
+          },
+          message: createMessage(
+            "Stateful continuity test A. Memorize exactly these facts for later recall: codename=BLACK-ORBIT, port=8771, checksum=SIGMA-42. Reply with exactly STORED-A.",
+          ),
+        }),
+      );
+
+      expect(result.content).toBe("STORED-A");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["initial"]);
+      expect(result.plannerSummary?.used).toBe(false);
+      expect(result.plannerSummary?.routeReason).toBe("exact_response_turn");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolChoice: "none",
+        toolRouting: { allowedToolNames: [] },
+      });
+    });
+
+    it("keeps dialogue recall turns on the direct no-tool path", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "BLACK-ORBIT|8771|SIGMA-42",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["desktop.text_editor", "execute_with_agent"],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          history: [
+            {
+              role: "user",
+              content:
+                "Stateful continuity test A3. Memorize exactly these facts for later recall: codename=BLACK-ORBIT, port=8771, checksum=SIGMA-42. Reply with exactly STORED-A3.",
+            },
+            { role: "assistant", content: "STORED-A3" },
+          ],
+          toolRouting: {
+            routedToolNames: ["desktop.text_editor", "execute_with_agent"],
+            expandedToolNames: ["desktop.text_editor", "execute_with_agent"],
+          },
+          message: createMessage(
+            "Stateful continuity test B3. Without extra words, return codename|port|checksum from test A3.",
+          ),
+        }),
+      );
+
+      expect(result.content).toBe("BLACK-ORBIT|8771|SIGMA-42");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["initial"]);
+      expect(result.plannerSummary?.used).toBe(false);
+      expect(result.plannerSummary?.routeReason).toBe("dialogue_recall_turn");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolChoice: "none",
+        toolRouting: { allowedToolNames: [] },
+      });
     });
 
     it("routes high-complexity turns through deterministic planner/executor path", async () => {
@@ -5330,9 +5483,19 @@ describe("ChatExecutor", () => {
 
       const result = await executor.execute(
         createParams({
-          message: createMessage(
-            "First analyze timeout clusters across CI logs, then cross-check source hotspots, then synthesize a remediation summary with evidence.",
-          ),
+          sessionId: "planner-verifier-boundary",
+          message: {
+            ...createMessage(
+              "First analyze timeout clusters across CI logs, then cross-check source hotspots, then synthesize a remediation summary with evidence.",
+            ),
+            sessionId: "planner-verifier-boundary",
+          },
+          stateful: {
+            resumeAnchor: {
+              previousResponseId: "resp-prev",
+              reconciliationHash: "hash-prev",
+            },
+          },
         }),
       );
 
@@ -5351,6 +5514,15 @@ describe("ChatExecutor", () => {
       });
       expect(result.content).toContain("[source:delegate_a]");
       expect(result.stopReason).toBe("completed");
+      const verifierOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1]?.[1] as LLMChatOptions | undefined;
+      const retryVerifierOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[1] as LLMChatOptions | undefined;
+      const synthesisOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[3]?.[1] as LLMChatOptions | undefined;
+      expect(verifierOptions?.stateful).toBeUndefined();
+      expect(retryVerifierOptions?.stateful).toBeUndefined();
+      expect(synthesisOptions?.stateful).toBeUndefined();
     });
 
     it("adds provenance citations when synthesis output omits explicit child source tags", async () => {
@@ -8104,8 +8276,62 @@ describe("ChatExecutor", () => {
 
       expect(provider.chat).toHaveBeenCalledWith(
         expect.any(Array),
-        { stateful: { sessionId: "stateful-session" } },
+        expect.objectContaining({
+          stateful: expect.objectContaining({
+            sessionId: "stateful-session",
+            reconciliationMessages: expect.any(Array),
+          }),
+        }),
       );
+    });
+
+    it("passes the full normalized history into reconciliationMessages", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "ok",
+            stateful: {
+              enabled: true,
+              attempted: false,
+              continued: false,
+              store: true,
+              fallbackToStateless: true,
+              events: [],
+            },
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+      const history = Array.from({ length: 24 }, (_, index) => ({
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `history-${index}`,
+      })) as LLMMessage[];
+
+      await executor.execute(
+        createParams({
+          history,
+          sessionId: "stateful-history-window",
+          message: {
+            ...createMessage("continue"),
+            sessionId: "stateful-history-window",
+          },
+        }),
+      );
+
+      const options = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+      const reconciliationMessages = options?.stateful?.reconciliationMessages as
+        | LLMMessage[]
+        | undefined;
+      expect(reconciliationMessages).toBeDefined();
+      expect(reconciliationMessages).toHaveLength(26);
+      expect(reconciliationMessages?.[1]).toMatchObject({
+        role: "user",
+        content: "history-0",
+      });
+      expect(reconciliationMessages?.at(-1)).toMatchObject({
+        role: "user",
+        content: "continue",
+      });
     });
 
     it("passes persisted stateful resume anchors through provider calls", async () => {
@@ -8145,16 +8371,94 @@ describe("ChatExecutor", () => {
 
       expect(provider.chat).toHaveBeenCalledWith(
         expect.any(Array),
-        {
-          stateful: {
+        expect.objectContaining({
+          stateful: expect.objectContaining({
             sessionId: "stateful-resume",
+            reconciliationMessages: expect.any(Array),
             resumeAnchor: {
               previousResponseId: "resp_prev",
               reconciliationHash: "hash-prev",
             },
-          },
-        },
+          }),
+        }),
       );
+    });
+
+    it("does not pass session stateful options into planner synthesis calls", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "deterministic_summary",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "prep",
+                    step_type: "deterministic_tool",
+                    tool: "system.bash",
+                    args: { command: "echo", args: ["ok"] },
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "final synthesized answer",
+              stateful: {
+                enabled: false,
+                attempted: false,
+                continued: false,
+                store: true,
+                fallbackToStateless: true,
+                events: [],
+              },
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: { results: {} },
+          completedSteps: 1,
+          totalSteps: 1,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("ok"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          sessionId: "planner-stateful-boundary",
+          message: {
+            ...createMessage(
+              "First run setup checks, then delegate deeper research, then synthesize results.",
+            ),
+            sessionId: "planner-stateful-boundary",
+          },
+          stateful: {
+            resumeAnchor: {
+              previousResponseId: "resp-prev",
+              reconciliationHash: "hash-prev",
+            },
+          },
+        }),
+      );
+
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner_synthesis",
+      ]);
+
+      const synthesisOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1]?.[1] as LLMChatOptions | undefined;
+      expect(synthesisOptions?.stateful).toBeUndefined();
     });
 
     it("aggregates stateful fallback reason counters in result summary", async () => {

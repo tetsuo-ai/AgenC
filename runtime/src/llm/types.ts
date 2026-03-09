@@ -156,6 +156,24 @@ export interface LLMStatefulDiagnostics {
   readonly responseId?: string;
   /** Reconciliation anchor hash for this call (provider-defined). */
   readonly reconciliationHash?: string;
+  /** Previous reconciliation anchor restored from local/provider session state. */
+  readonly previousReconciliationHash?: string;
+  /** Number of messages used to compute the reconciliation chain for this call. */
+  readonly reconciliationMessageCount?: number;
+  /** Which message set was used to build the reconciliation chain. */
+  readonly reconciliationSource?: "non_system_messages" | "all_messages";
+  /** Whether the restored anchor hash matched the current reconciliation chain. */
+  readonly anchorMatched?: boolean;
+  /**
+   * True when the runtime compacted local history after the previous anchor was
+   * recorded, so a mismatch can be expected.
+   */
+  readonly historyCompacted?: boolean;
+  /**
+   * True when continuation proceeded despite a mismatch because the runtime
+   * trusted its own compaction boundary.
+   */
+  readonly compactedHistoryTrusted?: boolean;
   /** Fallback reason when continuation was bypassed or retried statelessly. */
   readonly fallbackReason?: LLMStatefulFallbackReason;
   /** Structured trace events emitted during stateful decisioning. */
@@ -273,6 +291,19 @@ export interface LLMChatStatefulOptions {
   readonly sessionId: string;
   /** Persisted continuation anchor restored by the runtime after restart. */
   readonly resumeAnchor?: LLMStatefulResumeAnchor;
+  /**
+   * True when the local session manager compacted history after the previous
+   * anchor was recorded.
+   */
+  readonly historyCompacted?: boolean;
+  /**
+   * Full local dialogue lineage used only for reconciliation hashing.
+   *
+   * This lets the runtime keep provider prompt payloads budgeted/truncated
+   * while still validating `previous_response_id` against the complete local
+   * conversation state.
+   */
+  readonly reconciliationMessages?: readonly LLMMessage[];
 }
 
 /**

@@ -10,6 +10,18 @@
 import { createHash } from "node:crypto";
 import type { LLMMessage } from "../llm/types.js";
 
+export const SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY =
+  "statefulResumeAnchor";
+export const SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY =
+  "statefulHistoryCompacted";
+
+export function clearStatefulContinuationMetadata(
+  metadata: Record<string, unknown>,
+): void {
+  delete metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
+  delete metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY];
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -293,6 +305,7 @@ export class SessionManager {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     session.history = [];
+    clearStatefulContinuationMetadata(session.metadata);
     session.lastActiveAt = Date.now();
     return true;
   }
@@ -328,6 +341,7 @@ export class SessionManager {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     session.history = [...history];
+    clearStatefulContinuationMetadata(session.metadata);
     session.lastActiveAt = Date.now();
     return true;
   }
@@ -452,6 +466,10 @@ export class SessionManager {
             break;
           }
         }
+      }
+
+      if (result.messagesRemoved > 0) {
+        session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] = true;
       }
 
       await this.emitCompactionHook({

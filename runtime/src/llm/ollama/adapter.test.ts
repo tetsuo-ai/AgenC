@@ -234,6 +234,40 @@ describe("OllamaProvider", () => {
     });
   });
 
+  it("treats an empty routed allowlist as no attached tools", async () => {
+    mockChat.mockResolvedValueOnce(makeResponse());
+
+    const provider = new OllamaProvider({
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "lookup",
+            description: "Look up info",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+    });
+
+    const result = await provider.chat(
+      [{ role: "user", content: "test" }],
+      {
+        toolRouting: { allowedToolNames: [] },
+      },
+    );
+
+    expect(result.requestMetrics).toMatchObject({
+      toolCount: 0,
+      toolNames: [],
+      requestedToolNames: [],
+      missingRequestedToolNames: [],
+      toolResolution: "all_tools_empty_filter",
+      toolsAttached: false,
+      stream: undefined,
+    });
+  });
+
   it("emits provider request and response trace events when enabled", async () => {
     mockChat.mockResolvedValueOnce(makeResponse());
 

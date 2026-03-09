@@ -160,6 +160,12 @@ function shouldBypassStreamingForForcedSingleToolTurn(
     options.toolChoice.type === "function";
 }
 
+function shouldUseSessionStatefulContinuationForPhase(
+  phase: ChatCallUsageRecord["phase"],
+): boolean {
+  return phase === "initial" || phase === "tool_followup";
+}
+
 function mergeProviderEvidence(
   current: LLMProviderEvidence | undefined,
   incoming: LLMProviderEvidence | undefined,
@@ -825,6 +831,7 @@ export class ChatExecutor {
         onStreamChunk: ctx.activeStreamCallback,
         statefulSessionId: ctx.sessionId,
         statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+        statefulHistoryCompacted: ctx.stateful?.historyCompacted,
         toolChoice: correctionContractGuidance?.toolChoice ?? "required",
         ...((correctionContractGuidance?.routedToolNames?.length ?? 0) > 0
           ? {
@@ -850,6 +857,7 @@ export class ChatExecutor {
       onStreamChunk?: StreamProgressCallback;
       statefulSessionId?: string;
       statefulResumeAnchor?: LLMStatefulResumeAnchor;
+      statefulHistoryCompacted?: boolean;
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
       budgetReason: string;
@@ -868,6 +876,8 @@ export class ChatExecutor {
       activeRoutedToolNames: ctx.activeRoutedToolNames,
       allowedTools: this.allowedTools ?? undefined,
     });
+    const allowStatefulContinuation =
+      shouldUseSessionStatefulContinuationForPhase(input.phase);
     applyActiveRoutedToolNames(ctx, effectiveRoutedToolNames);
     const groundingMessage =
       input.phase === "tool_followup" || input.phase === "planner_synthesis"
@@ -908,9 +918,12 @@ export class ChatExecutor {
         effectiveCallSections,
         {
           requestDeadlineAt: ctx.requestDeadlineAt,
-          ...(input.statefulSessionId
+          ...(allowStatefulContinuation && input.statefulSessionId
             ? {
               statefulSessionId: input.statefulSessionId,
+              ...(input.statefulHistoryCompacted
+                ? { statefulHistoryCompacted: true }
+                : {}),
               ...(input.statefulResumeAnchor
                 ? { statefulResumeAnchor: input.statefulResumeAnchor }
                 : {}),
@@ -1052,6 +1065,7 @@ export class ChatExecutor {
       callSections: verifierSections,
       statefulSessionId: ctx.sessionId,
       statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+      statefulHistoryCompacted: ctx.stateful?.historyCompacted,
       budgetReason:
         "Planner verifier blocked by max model recalls per request budget",
     });
@@ -1406,6 +1420,7 @@ export class ChatExecutor {
           {
             statefulSessionId: ctx.sessionId,
             statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+            statefulHistoryCompacted: ctx.stateful?.historyCompacted,
             ...(ctx.toolRouting
               ? { routedToolNames: ctx.activeRoutedToolNames }
               : {}),
@@ -1448,6 +1463,11 @@ export class ChatExecutor {
   }
 
   private async executeToolCallLoop(ctx: ExecutionContext): Promise<void> {
+    const suppressToolsForDialogueTurn =
+      !ctx.plannerDecision.shouldPlan &&
+      (ctx.plannerDecision.reason === "exact_response_turn" ||
+        ctx.plannerDecision.reason === "dialogue_memory_turn" ||
+        ctx.plannerDecision.reason === "dialogue_recall_turn");
     const initialContractGuidance = this.resolveActiveToolContractGuidance(ctx, {
       phase: "initial",
     });
@@ -1475,9 +1495,14 @@ export class ChatExecutor {
     }
     const initialToolChoice =
       initialContractGuidance?.toolChoice ??
-      (ctx.requiredToolEvidence ? "required" : undefined);
+      (ctx.requiredToolEvidence
+        ? "required"
+        : suppressToolsForDialogueTurn
+          ? "none"
+          : undefined);
     const initialRoutedToolNames =
-      initialContractGuidance?.routedToolNames;
+      initialContractGuidance?.routedToolNames ??
+      (suppressToolsForDialogueTurn ? [] : undefined);
     ctx.response = await this.callModelForPhase(ctx, {
       phase: "initial",
       callMessages: ctx.messages,
@@ -1485,6 +1510,7 @@ export class ChatExecutor {
       onStreamChunk: ctx.activeStreamCallback,
       statefulSessionId: ctx.sessionId,
       statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+      statefulHistoryCompacted: ctx.stateful?.historyCompacted,
       ...((initialToolChoice !== undefined || initialRoutedToolNames !== undefined)
         ? {
           ...(initialToolChoice !== undefined
@@ -1662,6 +1688,7 @@ export class ChatExecutor {
         onStreamChunk: ctx.activeStreamCallback,
         statefulSessionId: ctx.sessionId,
         statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+        statefulHistoryCompacted: ctx.stateful?.historyCompacted,
         ...(followupContractGuidance
           ? {
             toolChoice: followupContractGuidance.toolChoice,
@@ -2470,6 +2497,7 @@ export class ChatExecutor {
             onStreamChunk: ctx.activeStreamCallback,
             statefulSessionId: ctx.sessionId,
             statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+            statefulHistoryCompacted: ctx.stateful?.historyCompacted,
             budgetReason:
               "Planner synthesis blocked by max model recalls per request budget",
           });
@@ -2675,6 +2703,7 @@ export class ChatExecutor {
     options?: {
       statefulSessionId?: string;
       statefulResumeAnchor?: LLMStatefulResumeAnchor;
+      statefulHistoryCompacted?: boolean;
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
       requestDeadlineAt?: number;
@@ -2697,9 +2726,9 @@ export class ChatExecutor {
     const hasStatefulSessionId = Boolean(options?.statefulSessionId);
     const hasStatefulResumeAnchor =
       hasStatefulSessionId && options?.statefulResumeAnchor !== undefined;
-    const hasRoutedToolNames = Boolean(
-      options?.routedToolNames && options.routedToolNames.length > 0,
-    );
+    const hasStatefulHistoryCompacted =
+      hasStatefulSessionId && options?.statefulHistoryCompacted === true;
+    const hasRoutedToolNames = options?.routedToolNames !== undefined;
     const hasToolChoice = options?.toolChoice !== undefined;
     const hasProviderTrace =
       options?.trace?.includeProviderPayloads === true ||
@@ -2711,6 +2740,10 @@ export class ChatExecutor {
             ? {
               stateful: {
                 sessionId: String(options?.statefulSessionId),
+                reconciliationMessages: messages,
+                ...(hasStatefulHistoryCompacted
+                  ? { historyCompacted: true }
+                  : {}),
                 ...(hasStatefulResumeAnchor
                   ? { resumeAnchor: options?.statefulResumeAnchor }
                   : {}),

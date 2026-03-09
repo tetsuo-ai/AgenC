@@ -475,7 +475,7 @@ export class OllamaProvider implements LLMProvider {
   ): ToolSelectionDiagnostics {
     const providerCatalogToolCount = this.tools.length;
     const providerCatalogToolNames = this.tools.map((tool) => tool.function.name);
-    if (!allowedToolNames || allowedToolNames.length === 0) {
+    if (allowedToolNames === undefined) {
       return {
         tools: this.tools,
         requestedToolNames: [],
@@ -487,6 +487,18 @@ export class OllamaProvider implements LLMProvider {
       };
     }
 
+    if (allowedToolNames.length === 0) {
+      return {
+        tools: [],
+        requestedToolNames: [],
+        resolvedToolNames: [],
+        missingRequestedToolNames: [],
+        providerCatalogToolCount,
+        toolResolution: "all_tools_empty_filter",
+        toolsAttached: false,
+      };
+    }
+
     const allowed = new Set(
       allowedToolNames
         .map((name) => name.trim())
@@ -494,13 +506,13 @@ export class OllamaProvider implements LLMProvider {
     );
     if (allowed.size === 0) {
       return {
-        tools: this.tools,
+        tools: [],
         requestedToolNames: [],
-        resolvedToolNames: providerCatalogToolNames,
+        resolvedToolNames: [],
         missingRequestedToolNames: [],
         providerCatalogToolCount,
         toolResolution: "all_tools_empty_filter",
-        toolsAttached: true,
+        toolsAttached: false,
       };
     }
 

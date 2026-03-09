@@ -54,6 +54,44 @@ describe("grok adapter utils", () => {
     );
   });
 
+  it("ignores dynamic system injections when hashing reconciliation state", () => {
+    const first: LLMMessage[] = [
+      { role: "system", content: "base prompt" },
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ];
+    const second: LLMMessage[] = [
+      { role: "system", content: "base prompt updated" },
+      { role: "system", content: "<memory>fresh working summary</memory>" },
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ];
+
+    expect(computeReconciliationChain(first, 8)).toEqual(
+      computeReconciliationChain(second, 8),
+    );
+  });
+
+  it("keeps recent anchors matchable after the reconciliation window shifts", () => {
+    const first: LLMMessage[] = Array.from({ length: 50 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `turn-${index}`,
+    }));
+    const second: LLMMessage[] = [
+      ...first,
+      { role: "assistant", content: "turn-50" },
+      { role: "user", content: "turn-51" },
+    ];
+
+    const firstChain = computeReconciliationChain(first, 48);
+    const secondChain = computeReconciliationChain(second, 48);
+
+    expect(secondChain.chain).toContain(firstChain.anchorHash);
+    expect(firstChain.messageCountUsed).toBe(50);
+    expect(secondChain.messageCountUsed).toBe(52);
+    expect(firstChain.source).toBe("non_system_messages");
+  });
+
   it("collapses oversized tool schemas to an open object", () => {
     const hugeProperties = Object.fromEntries(
       Array.from({ length: 400 }, (_, index) => [

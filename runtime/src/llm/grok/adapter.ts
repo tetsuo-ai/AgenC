@@ -966,11 +966,13 @@ export class GrokProvider implements LLMProvider {
     const events: LLMStatefulEvent[] = [
       ...(overrides?.inheritedEvents ?? []),
     ];
-    const continuationTurn = messages.some(
+    const reconciliationMessages =
+      options?.stateful?.reconciliationMessages ?? messages;
+    const continuationTurn = reconciliationMessages.some(
       (message) => message.role === "assistant" || message.role === "tool",
     );
     const reconciliation = computeReconciliationChain(
-      messages,
+      reconciliationMessages,
       this.statefulConfig.reconciliationWindow,
     );
     const persistedResumeAnchor = options?.stateful?.resumeAnchor;
@@ -990,6 +992,9 @@ export class GrokProvider implements LLMProvider {
     let continued = false;
     let previousResponseId: string | undefined;
     let fallbackReason = overrides?.fallbackReason;
+    let anchorMatched: boolean | undefined;
+    const historyCompacted = options?.stateful?.historyCompacted === true;
+    let compactedHistoryTrusted = false;
 
     if (!forceStateless && anchor?.responseId) {
       attempted = true;
@@ -998,9 +1003,16 @@ export class GrokProvider implements LLMProvider {
         detail: `session=${sessionId}`,
       });
 
-      if (reconciliation.chain.includes(anchor.reconciliationHash)) {
+      anchorMatched = reconciliation.chain.includes(anchor.reconciliationHash);
+      if (anchorMatched) {
         continued = true;
         appendStatefulEvent(events, "stateful_continuation_success");
+      } else if (historyCompacted) {
+        continued = true;
+        compactedHistoryTrusted = true;
+        appendStatefulEvent(events, "stateful_continuation_success", {
+          detail: `session=${sessionId}; trusted_compacted_history=true`,
+        });
       } else {
         fallbackReason = "state_reconciliation_mismatch";
         appendStatefulEvent(events, "state_reconciliation_mismatch", {
@@ -1073,6 +1085,12 @@ export class GrokProvider implements LLMProvider {
         previousResponseId: continued ? previousResponseId : undefined,
         fallbackReason,
         reconciliationHash: reconciliation.anchorHash,
+        previousReconciliationHash: anchor?.reconciliationHash,
+        reconciliationMessageCount: reconciliation.messageCountUsed,
+        reconciliationSource: reconciliation.source,
+        anchorMatched,
+        historyCompacted,
+        compactedHistoryTrusted,
         events,
       },
     };
@@ -1258,7 +1276,7 @@ export class GrokProvider implements LLMProvider {
   ): ToolSelectionDiagnostics {
     const providerCatalogToolCount = this.responseTools.length;
     const providerCatalogToolNames = extractTraceToolNames(this.responseTools);
-    if (!allowedToolNames || allowedToolNames.length === 0) {
+    if (allowedToolNames === undefined) {
       return {
         tools: this.responseTools,
         chars: this.toolChars,
@@ -1271,6 +1289,20 @@ export class GrokProvider implements LLMProvider {
       };
     }
 
+    if (allowedToolNames.length === 0) {
+      return {
+        tools: [],
+        chars: 0,
+        requestedToolNames: [],
+        resolvedToolNames: [],
+        missingRequestedToolNames: [],
+        providerCatalogToolCount,
+        toolResolution: "all_tools_empty_filter",
+        toolsAttached: false,
+        toolSuppressionReason: "empty_allowlist",
+      };
+    }
+
     const allowed = new Set(
       allowedToolNames
         .map((name) => name.trim())
@@ -1278,14 +1310,15 @@ export class GrokProvider implements LLMProvider {
     );
     if (allowed.size === 0) {
       return {
-        tools: this.responseTools,
-        chars: this.toolChars,
+        tools: [],
+        chars: 0,
         requestedToolNames: [],
-        resolvedToolNames: providerCatalogToolNames,
+        resolvedToolNames: [],
         missingRequestedToolNames: [],
         providerCatalogToolCount,
         toolResolution: "all_tools_empty_filter",
         toolsAttached: false,
+        toolSuppressionReason: "empty_allowlist",
       };
     }
 

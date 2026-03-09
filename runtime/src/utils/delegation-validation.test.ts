@@ -471,6 +471,28 @@ describe("delegation-validation", () => {
     expect(resolved.blockedReason).toBeUndefined();
   });
 
+  it("allows toolless execution for context-only recall steps with abstract capabilities", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task: "recover_marker",
+        objective:
+          "Recover the earlier continuity marker from parent conversation context only; do not invent missing facts",
+        inputContract: "Provided recent conversation context and partial response",
+        acceptanceCriteria: ["Recover the exact prior marker from context only"],
+        requiredToolCapabilities: ["context_retrieval"],
+      },
+      requestedTools: ["context_retrieval"],
+      parentAllowedTools: ["desktop.bash", "desktop.text_editor"],
+      availableTools: ["desktop.bash", "desktop.text_editor"],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual([]);
+    expect(resolved.allowsToollessExecution).toBe(true);
+    expect(resolved.blockedReason).toBeUndefined();
+    expect(resolved.semanticFallback).toEqual([]);
+  });
+
   it("prefers provider-native web search over browser tools for research child scope", () => {
     const resolved = resolveDelegatedChildToolScope({
       spec: {

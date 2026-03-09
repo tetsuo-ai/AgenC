@@ -64,6 +64,7 @@ export interface ResolvedDelegatedChildToolScope
   readonly removedByPolicy: readonly string[];
   readonly removedAsDelegationTools: readonly string[];
   readonly removedAsUnknownTools: readonly string[];
+  readonly allowsToollessExecution: boolean;
 }
 
 const EMPTY_DELEGATION_OUTPUT_VALUES = new Set(["null", "undefined", "{}", "[]"]);
@@ -218,6 +219,8 @@ const INITIAL_FILE_INSPECTION_TOOL_NAMES = [
   "mcp.neovim.vim_buffer_save",
   "mcp.neovim.vim_search_replace",
 ] as const;
+const CONTEXT_ONLY_CAPABILITY_RE =
+  /\b(?:context|history|memory|conversation|recall|retrieve|retrieval|prior|previous)\b/i;
 
 function normalizeToolNames(toolNames: readonly string[] | undefined): string[] {
   return [
@@ -237,6 +240,12 @@ function looksLikeExplicitDelegatedToolName(toolName: string): boolean {
     normalized.startsWith("desktop") ||
     normalized.startsWith("system") ||
     normalized.startsWith("mcp");
+}
+
+function isContextOnlyCapabilityName(capability: string): boolean {
+  if (looksLikeExplicitDelegatedToolName(capability)) return false;
+  const normalized = capability.trim().replace(/[_-]+/g, " ");
+  return CONTEXT_ONLY_CAPABILITY_RE.test(normalized);
 }
 
 function extractExplicitDelegatedToolNames(
@@ -915,6 +924,8 @@ export function resolveDelegatedChildToolScope(params: {
   const requireBrowser = specRequiresMeaningfulBrowserEvidence(params.spec);
   const requireFileMutation = specRequiresFileMutationEvidence(params.spec);
   const localFileInspectionTask = specTargetsLocalFiles(params.spec);
+  const contextOnlyCapabilityRequest =
+    requested.length > 0 && requested.every(isContextOnlyCapabilityName);
 
   const addCandidate = (
     toolName: string,
@@ -995,7 +1006,7 @@ export function resolveDelegatedChildToolScope(params: {
     addSemanticFallback("mcp.browser.browser_run_code");
   }
 
-  if (allowedTools.length === 0) {
+  if (allowedTools.length === 0 && !contextOnlyCapabilityRequest) {
     addShellSemanticFallback();
   }
 
@@ -1010,19 +1021,24 @@ export function resolveDelegatedChildToolScope(params: {
   const profiledSemanticFallback = semanticFallback.filter((toolName) =>
     profiledAllowedTools.includes(toolName)
   );
+  const allowsToollessExecution =
+    profiledAllowedTools.length === 0 &&
+    !specRequiresSuccessfulToolEvidence(params.spec) &&
+    !refined.blockedReason;
 
   return {
     allowedTools: profiledAllowedTools,
     removedLowSignalBrowserTools: refined.removedLowSignalBrowserTools,
     blockedReason:
       refined.blockedReason ??
-      (profiledAllowedTools.length === 0
+      (!allowsToollessExecution && profiledAllowedTools.length === 0
         ? "No permitted child tools remain after policy scoping"
         : undefined),
     semanticFallback: profiledSemanticFallback,
     removedByPolicy,
     removedAsDelegationTools,
     removedAsUnknownTools,
+    allowsToollessExecution,
   };
 }
 

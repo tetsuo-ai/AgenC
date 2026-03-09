@@ -475,6 +475,12 @@ function summarizeStatefulDiagnosticsForTrace(
     previousResponseId: diagnostics.previousResponseId,
     responseId: diagnostics.responseId,
     reconciliationHash: diagnostics.reconciliationHash,
+    previousReconciliationHash: diagnostics.previousReconciliationHash,
+    reconciliationMessageCount: diagnostics.reconciliationMessageCount,
+    reconciliationSource: diagnostics.reconciliationSource,
+    anchorMatched: diagnostics.anchorMatched,
+    historyCompacted: diagnostics.historyCompacted,
+    compactedHistoryTrusted: diagnostics.compactedHistoryTrusted,
     fallbackReason: diagnostics.fallbackReason,
     events: diagnostics.events,
   };
