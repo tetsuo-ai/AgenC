@@ -72,10 +72,17 @@ function formatStateTag(state: string): string {
 }
 
 export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
+  const titleLabel = 'AGENT STATUS';
+
   if (!status) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 bg-bbs-black px-6 font-mono">
-        <div className="text-xs tracking-[0.25em] text-bbs-purple">A G E N T   S T A T U S</div>
+        <div
+          aria-label={titleLabel}
+          className="text-xs tracking-[0.42em] text-bbs-purple whitespace-nowrap"
+        >
+          {titleLabel}
+        </div>
         <div className="text-bbs-pink text-xs whitespace-nowrap">[{String.fromCharCode(0x2588).repeat(10)}{String.fromCharCode(0x2591).repeat(18)}] BOOTING</div>
         <div className="text-xs text-bbs-gray">connecting to agent runtime...</div>
       </div>
@@ -102,7 +109,12 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-bbs-purple text-xs shrink-0">SYS&gt;</span>
           <div className="min-w-0">
-            <div className="text-xs font-bold tracking-[0.18em] text-bbs-white uppercase">Agent Status</div>
+            <div
+              aria-label={titleLabel}
+              className="text-xs font-bold tracking-[0.32em] text-bbs-white uppercase whitespace-nowrap"
+            >
+              {titleLabel}
+            </div>
             <div className="text-[11px] text-bbs-gray truncate">runtime health, channels, and background run signals</div>
           </div>
         </div>
