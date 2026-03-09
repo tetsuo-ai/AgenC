@@ -28,6 +28,36 @@ function hasSqliteDependency(): boolean {
 
 const sqliteDescribe = hasSqliteDependency() ? describe : describe.skip;
 
+function createService(logContents = ""): ObservabilityService {
+  const daemonLogPath = join(tempDir, "daemon.log");
+  writeFileSync(daemonLogPath, logContents, "utf8");
+  return new ObservabilityService({
+    dbPath: join(tempDir, "observability.sqlite"),
+    daemonLogPath,
+  });
+}
+
+async function expectCompletedTraceState(
+  service: ObservabilityService,
+  traceId: string,
+  lastEventName: string,
+): Promise<void> {
+  const traces = await service.listTraces();
+  expect(traces).toHaveLength(1);
+  expect(traces[0]?.traceId).toBe(traceId);
+  expect(traces[0]?.status).toBe("completed");
+
+  const detail = await service.getTrace(traceId);
+  expect(detail?.summary.status).toBe("completed");
+  expect(detail?.summary.lastEventName).toBe(lastEventName);
+  expect(detail?.completeness.complete).toBe(true);
+
+  const summary = await service.getSummary();
+  expect(summary.traces.total).toBe(1);
+  expect(summary.traces.completed).toBe(1);
+  expect(summary.traces.open).toBe(0);
+}
+
 sqliteDescribe("ObservabilityService", () => {
   it("persists trace events and returns summaries/details", async () => {
     const artifact = persistTracePayloadArtifact({
@@ -36,13 +66,7 @@ sqliteDescribe("ObservabilityService", () => {
       payload: { payload: { ok: true } },
     });
     expect(artifact?.path).toBeTruthy();
-    const logPath = join(tempDir, "daemon.log");
-    writeFileSync(logPath, "line-1\nline-2 trace-1\n", "utf8");
-
-    const service = new ObservabilityService({
-      dbPath: join(tempDir, "observability.sqlite"),
-      daemonLogPath: logPath,
-    });
+    const service = createService("line-1\nline-2 trace-1\n");
 
     service.recordEvent({
       eventName: "webchat.inbound",
@@ -87,11 +111,7 @@ sqliteDescribe("ObservabilityService", () => {
   });
 
   it("marks traces incomplete when no terminal event is recorded", async () => {
-    const service = new ObservabilityService({
-      dbPath: join(tempDir, "observability.sqlite"),
-      daemonLogPath: join(tempDir, "daemon.log"),
-    });
-    writeFileSync(join(tempDir, "daemon.log"), "", "utf8");
+    const service = createService();
 
     service.recordEvent({
       eventName: "webchat.inbound",
@@ -109,11 +129,7 @@ sqliteDescribe("ObservabilityService", () => {
   });
 
   it("treats handled slash-command traces as completed terminal traces", async () => {
-    const service = new ObservabilityService({
-      dbPath: join(tempDir, "observability.sqlite"),
-      daemonLogPath: join(tempDir, "daemon.log"),
-    });
-    writeFileSync(join(tempDir, "daemon.log"), "", "utf8");
+    const service = createService();
     const now = Date.now();
 
     service.recordEvent({
@@ -141,30 +157,17 @@ sqliteDescribe("ObservabilityService", () => {
       payloadPreview: { command: "/policy simulate system.delete {}" },
     });
 
-    const traces = await service.listTraces();
-    expect(traces).toHaveLength(1);
-    expect(traces[0]?.traceId).toBe("trace-command");
-    expect(traces[0]?.status).toBe("completed");
-
-    const detail = await service.getTrace("trace-command");
-    expect(detail?.summary.status).toBe("completed");
-    expect(detail?.summary.lastEventName).toBe("webchat.command.handled");
-    expect(detail?.completeness.complete).toBe(true);
-
-    const summary = await service.getSummary();
-    expect(summary.traces.total).toBe(1);
-    expect(summary.traces.completed).toBe(1);
-    expect(summary.traces.open).toBe(0);
+    await expectCompletedTraceState(
+      service,
+      "trace-command",
+      "webchat.command.handled",
+    );
 
     await service.close();
   });
 
   it("treats working background cycle traces as completed cycle traces", async () => {
-    const service = new ObservabilityService({
-      dbPath: join(tempDir, "observability.sqlite"),
-      daemonLogPath: join(tempDir, "daemon.log"),
-    });
-    writeFileSync(join(tempDir, "daemon.log"), "", "utf8");
+    const service = createService();
     const now = Date.now();
 
     service.recordEvent({
@@ -186,30 +189,17 @@ sqliteDescribe("ObservabilityService", () => {
       payloadPreview: { summary: "Managed process is still running." },
     });
 
-    const traces = await service.listTraces();
-    expect(traces).toHaveLength(1);
-    expect(traces[0]?.traceId).toBe("trace-background-cycle");
-    expect(traces[0]?.status).toBe("completed");
-
-    const detail = await service.getTrace("trace-background-cycle");
-    expect(detail?.summary.status).toBe("completed");
-    expect(detail?.summary.lastEventName).toBe("background_run.cycle.working_applied");
-    expect(detail?.completeness.complete).toBe(true);
-
-    const summary = await service.getSummary();
-    expect(summary.traces.total).toBe(1);
-    expect(summary.traces.completed).toBe(1);
-    expect(summary.traces.open).toBe(0);
+    await expectCompletedTraceState(
+      service,
+      "trace-background-cycle",
+      "background_run.cycle.working_applied",
+    );
 
     await service.close();
   });
 
   it("filters trace listings and summaries by session scope", async () => {
-    const service = new ObservabilityService({
-      dbPath: join(tempDir, "observability.sqlite"),
-      daemonLogPath: join(tempDir, "daemon.log"),
-    });
-    writeFileSync(join(tempDir, "daemon.log"), "", "utf8");
+    const service = createService();
     const now = Date.now();
 
     service.recordEvent({
