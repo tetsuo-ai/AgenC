@@ -373,7 +373,10 @@ export default function App() {
           )}
         </main>
 
-        <BBSStatusBar />
+        <BBSStatusBar
+          activeNetwork={walletInfo.wallet?.network ?? walletInfo.wallet?.rpcUrl ?? null}
+          targetNetwork={gatewaySettings.settings.connection.rpcUrl}
+        />
 
         {selectedApproval && (
           <ApprovalDialog
