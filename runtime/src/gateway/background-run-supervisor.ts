@@ -17,6 +17,10 @@ import type { GatewayMessage } from "./message.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
+import {
+  createExecutionTraceEventLogger,
+  createProviderTraceEventLogger,
+} from "../llm/provider-trace-logger.js";
 import type { ToolRoutingDecision } from "./tool-routing.js";
 import type { ProgressTracker } from "./progress.js";
 import type { PolicyDecision, PolicyEngine, PolicyEvaluationScope } from "../policy/index.js";
@@ -313,6 +317,7 @@ export interface BackgroundRunSupervisorConfig {
   readonly workerPools?: readonly BackgroundRunWorkerPool[];
   readonly workerMaxConcurrentRuns?: number;
   readonly notifier?: BackgroundRunNotifier;
+  readonly traceProviderPayloads?: boolean;
 }
 
 interface StartBackgroundRunParams {
@@ -3283,6 +3288,7 @@ export class BackgroundRunSupervisor {
   private readonly notifier?: BackgroundRunNotifier;
   private readonly wakeBus: BackgroundRunWakeBus;
   private readonly logger: Logger;
+  private readonly traceProviderPayloads: boolean;
   private readonly instanceId: string;
   private readonly now: () => number;
   private readonly workerPools: readonly BackgroundRunWorkerPool[];
@@ -3315,6 +3321,7 @@ export class BackgroundRunSupervisor {
     this.telemetry = config.telemetry;
     this.notifier = config.notifier;
     this.logger = config.logger ?? silentLogger;
+    this.traceProviderPayloads = config.traceProviderPayloads ?? false;
     this.instanceId =
       config.instanceId ??
       `background-supervisor-${Math.random().toString(36).slice(2, 10)}`;
@@ -4329,7 +4336,10 @@ export class BackgroundRunSupervisor {
 
     const now = this.now();
     const contract =
-      params.options?.contract ?? await this.planRunContract(params.objective);
+      params.options?.contract ?? await this.planRunContract(
+        params.objective,
+        params.sessionId,
+      );
     const run: ActiveBackgroundRun = {
       version: AGENT_RUN_SCHEMA_VERSION,
       id: `bg-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -4819,7 +4829,7 @@ export class BackgroundRunSupervisor {
     if (nextObjective.length === 0) {
       return false;
     }
-    const nextContract = await this.planRunContract(nextObjective);
+    const nextContract = await this.planRunContract(nextObjective, sessionId);
     const now = this.now();
     const updateMessage = truncate(
       `${reason} Objective is now: ${nextObjective}`,
@@ -5653,6 +5663,34 @@ export class BackgroundRunSupervisor {
     let actorResult: ChatExecutorResult | undefined;
     let decision: BackgroundRunDecision;
     let heartbeatMs: number | undefined;
+    const actorTrace =
+      this.traceProviderPayloads
+        ? {
+          includeProviderPayloads: true as const,
+          onProviderTraceEvent: createProviderTraceEventLogger({
+            logger: this.logger,
+            traceLabel: "background_run.provider",
+            traceId: `background:${sessionId}:${run.id}:${run.cycleCount}:actor`,
+            sessionId,
+            staticFields: {
+              runId: run.id,
+              cycleCount: run.cycleCount,
+              phase: "actor",
+            },
+          }),
+          onExecutionTraceEvent: createExecutionTraceEventLogger({
+            logger: this.logger,
+            traceLabel: "background_run.executor",
+            traceId: `background:${sessionId}:${run.id}:${run.cycleCount}:actor`,
+            sessionId,
+            staticFields: {
+              runId: run.id,
+              cycleCount: run.cycleCount,
+              phase: "actor",
+            },
+          }),
+        }
+        : undefined;
 
     try {
       const previousToolEvidence = run.lastToolEvidence;
@@ -5707,6 +5745,7 @@ export class BackgroundRunSupervisor {
               expandOnMiss: true,
             }
             : undefined,
+          ...(actorTrace ? { trace: actorTrace } : {}),
         });
 
         run.internalHistory = trimHistory([
@@ -5993,6 +6032,25 @@ export class BackgroundRunSupervisor {
     actorResult: ChatExecutorResult,
   ): Promise<BackgroundRunDecision | undefined> {
     try {
+      const providerTrace =
+        this.traceProviderPayloads
+          ? {
+            trace: {
+              includeProviderPayloads: true as const,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: this.logger,
+                traceLabel: "background_run.provider",
+                traceId: `background:${run.sessionId}:${run.id}:${run.cycleCount}:decision`,
+                sessionId: run.sessionId,
+                staticFields: {
+                  runId: run.id,
+                  cycleCount: run.cycleCount,
+                  phase: "decision",
+                },
+              }),
+            },
+          }
+          : undefined;
       const response = await this.supervisorLlm.chat([
         { role: "system", content: DECISION_SYSTEM_PROMPT },
         {
@@ -6006,6 +6064,7 @@ export class BackgroundRunSupervisor {
         },
       ], {
         toolChoice: "none",
+        ...(providerTrace ?? {}),
       });
       return parseDecision(response.content);
     } catch (error) {
@@ -6041,6 +6100,25 @@ export class BackgroundRunSupervisor {
     let finalReason: CarryForwardRefreshReason = refreshReason;
 
     try {
+      const providerTrace =
+        this.traceProviderPayloads
+          ? {
+            trace: {
+              includeProviderPayloads: true as const,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: this.logger,
+                traceLabel: "background_run.provider",
+                traceId: `background:${run.sessionId}:${run.id}:${run.cycleCount}:carry_forward`,
+                sessionId: run.sessionId,
+                staticFields: {
+                  runId: run.id,
+                  cycleCount: run.cycleCount,
+                  phase: "carry_forward",
+                },
+              }),
+            },
+          }
+          : undefined;
       const response = await this.supervisorLlm.chat([
         { role: "system", content: CARRY_FORWARD_SYSTEM_PROMPT },
         {
@@ -6058,6 +6136,7 @@ export class BackgroundRunSupervisor {
         },
       ], {
         toolChoice: "none",
+        ...(providerTrace ?? {}),
       });
       const parsed =
         parseCarryForwardState(response.content, now) ??
@@ -6195,13 +6274,34 @@ export class BackgroundRunSupervisor {
     }
   }
 
-  private async planRunContract(objective: string): Promise<BackgroundRunContract> {
+  private async planRunContract(
+    objective: string,
+    sessionId?: string,
+  ): Promise<BackgroundRunContract> {
     try {
+      const providerTrace =
+        this.traceProviderPayloads
+          ? {
+            trace: {
+              includeProviderPayloads: true as const,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: this.logger,
+                traceLabel: "background_run.provider",
+                traceId: `background:${sessionId ?? "unscoped"}:contract:${Date.now()}`,
+                ...(sessionId ? { sessionId } : {}),
+                staticFields: {
+                  phase: "contract",
+                },
+              }),
+            },
+          }
+          : undefined;
       const response = await this.supervisorLlm.chat([
         { role: "system", content: CONTRACT_SYSTEM_PROMPT },
         { role: "user", content: buildContractPrompt(objective) },
       ], {
         toolChoice: "none",
+        ...(providerTrace ?? {}),
       });
       return parseContract(response.content, objective) ?? buildFallbackContract(objective);
     } catch (error) {

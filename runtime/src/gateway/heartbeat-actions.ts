@@ -24,6 +24,7 @@ import type { TaskScanner } from "../autonomous/scanner.js";
 import type { MemoryBackend } from "../memory/types.js";
 import { entryToMessage } from "../memory/types.js";
 import type { LLMProvider } from "../llm/types.js";
+import { createProviderTraceEventLogger } from "../llm/provider-trace-logger.js";
 
 // ============================================================================
 // Quiet result helpers
@@ -88,6 +89,8 @@ export interface SummaryActionConfig {
   lookbackMs?: number;
   /** Max entries to feed the summarizer (default: 50). */
   maxEntries?: number;
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 const DEFAULT_LOOKBACK_MS = 86_400_000;
@@ -128,7 +131,22 @@ export function createSummaryAction(
             role: "user",
             content: `Summarize this conversation:\n\n${formatted}`,
           },
-        ]);
+        ], config.traceProviderPayloads === true
+          ? {
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: context.logger,
+                traceLabel: "heartbeat.provider",
+                traceId: `heartbeat:${sessionId}:summary:${Date.now()}`,
+                sessionId,
+                staticFields: {
+                  phase: "summary",
+                },
+              }),
+            },
+          }
+          : undefined);
 
         if (!response.content) return QUIET;
 
@@ -242,6 +260,8 @@ export interface ProactiveCommsActionConfig {
   lookbackMs?: number;
   /** Max entries to evaluate (default: 20). */
   maxEntries?: number;
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 const PROACTIVE_LOOKBACK_MS = 3_600_000;
@@ -285,7 +305,21 @@ export function createProactiveCommsAction(
             role: "user",
             content: `Recent activity:\n${formatted}\n\nShould I proactively message users?`,
           },
-        ]);
+        ], config.traceProviderPayloads === true
+          ? {
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: context.logger,
+                traceLabel: "heartbeat.provider",
+                traceId: `heartbeat:proactive:${Date.now()}`,
+                staticFields: {
+                  phase: "proactive_comms",
+                },
+              }),
+            },
+          }
+          : undefined);
 
         if (
           !response.content ||
@@ -316,6 +350,7 @@ export interface DefaultHeartbeatActionsConfig {
   connection: Connection;
   wallet: PublicKey;
   sessionId: string;
+  traceProviderPayloads?: boolean;
 }
 
 export function createDefaultHeartbeatActions(
@@ -327,6 +362,7 @@ export function createDefaultHeartbeatActions(
       memory: config.memory,
       llm: config.llm,
       sessionId: config.sessionId,
+      traceProviderPayloads: config.traceProviderPayloads,
     }),
     createPortfolioAction({
       connection: config.connection,

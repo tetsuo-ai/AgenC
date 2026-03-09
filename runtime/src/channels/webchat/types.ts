@@ -15,6 +15,14 @@ import type {
   BackgroundRunOperatorDetail,
   BackgroundRunOperatorSummary,
 } from "../../gateway/background-run-operator.js";
+import type {
+  ObservabilityArtifactResponse,
+  ObservabilityLogResponse,
+  ObservabilitySummary,
+  ObservabilityTraceDetail,
+  ObservabilityTraceQuery,
+  ObservabilityTraceSummary,
+} from "../../observability/types.js";
 
 import type {
   ChatCancelledPayload,
@@ -118,6 +126,27 @@ export interface WebChatDeps {
       };
     };
   }>;
+  /** Optional observability summary query helper. */
+  getObservabilitySummary?: (
+    windowMs?: number,
+  ) => Promise<ObservabilitySummary | undefined>;
+  /** Optional observability trace listing helper. */
+  listObservabilityTraces?: (
+    query?: ObservabilityTraceQuery,
+  ) => Promise<readonly ObservabilityTraceSummary[] | undefined>;
+  /** Optional observability trace detail helper. */
+  getObservabilityTrace?: (
+    traceId: string,
+  ) => Promise<ObservabilityTraceDetail | null | undefined>;
+  /** Optional observability artifact read helper. */
+  getObservabilityArtifact?: (
+    path: string,
+  ) => Promise<ObservabilityArtifactResponse | undefined>;
+  /** Optional daemon log tail helper. */
+  getObservabilityLogTail?: (params: {
+    readonly lines?: number;
+    readonly traceId?: string;
+  }) => Promise<ObservabilityLogResponse | undefined>;
 }
 
 // ============================================================================
@@ -307,6 +336,39 @@ export interface RunInspectRequest {
 export interface RunControlRequest {
   type: "run.control";
   payload: BackgroundRunControlAction;
+  id?: string;
+}
+
+export interface ObservabilitySummaryRequest {
+  type: "observability.summary";
+  payload?: { windowMs?: number };
+  id?: string;
+}
+
+export interface ObservabilityTracesRequest {
+  type: "observability.traces";
+  payload?: ObservabilityTraceQuery;
+  id?: string;
+}
+
+export interface ObservabilityTraceRequest {
+  type: "observability.trace";
+  payload: { traceId: string };
+  id?: string;
+}
+
+export interface ObservabilityArtifactRequest {
+  type: "observability.artifact";
+  payload: { traceId: string; path: string };
+  id?: string;
+}
+
+export interface ObservabilityLogsRequest {
+  type: "observability.logs";
+  payload?: {
+    lines?: number;
+    traceId?: string;
+  };
   id?: string;
 }
 
@@ -550,6 +612,36 @@ export interface RunInspectResponse {
 export interface RunUpdatedResponse {
   type: "run.updated";
   payload: BackgroundRunOperatorDetail;
+  id?: string;
+}
+
+export interface ObservabilitySummaryResponse {
+  type: "observability.summary";
+  payload: ObservabilitySummary;
+  id?: string;
+}
+
+export interface ObservabilityTracesResponse {
+  type: "observability.traces";
+  payload: readonly ObservabilityTraceSummary[];
+  id?: string;
+}
+
+export interface ObservabilityTraceResponse {
+  type: "observability.trace";
+  payload: ObservabilityTraceDetail;
+  id?: string;
+}
+
+export interface ObservabilityArtifactResponseMessage {
+  type: "observability.artifact";
+  payload: ObservabilityArtifactResponse;
+  id?: string;
+}
+
+export interface ObservabilityLogsResponse {
+  type: "observability.logs";
+  payload: ObservabilityLogResponse;
   id?: string;
 }
 

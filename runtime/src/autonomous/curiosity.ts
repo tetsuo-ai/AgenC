@@ -16,6 +16,10 @@ import type {
 } from "../gateway/heartbeat.js";
 import type { ChatExecutor } from "../llm/chat-executor.js";
 import type { ToolHandler } from "../llm/types.js";
+import {
+  createExecutionTraceEventLogger,
+  createProviderTraceEventLogger,
+} from "../llm/provider-trace-logger.js";
 import type { MemoryBackend } from "../memory/types.js";
 import type { ProactiveCommunicator } from "../gateway/proactive.js";
 import type { GoalManager } from "./goal-manager.js";
@@ -44,6 +48,8 @@ export interface CuriosityConfig {
   maxResearchPerCycle?: number;
   /** Optional: bridge noteworthy findings into the goal queue. */
   goalManager?: GoalManager;
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 // ============================================================================
@@ -97,6 +103,32 @@ export function createCuriosityAction(config: CuriosityConfig): HeartbeatAction 
           topicIndex++;
 
           const sessionId = `curiosity:${Date.now()}`;
+          const researchTrace =
+            config.traceProviderPayloads === true
+              ? {
+                includeProviderPayloads: true as const,
+                onProviderTraceEvent: createProviderTraceEventLogger({
+                  logger: context.logger,
+                  traceLabel: "curiosity.provider",
+                  traceId: `${sessionId}:research`,
+                  sessionId,
+                  staticFields: {
+                    phase: "research",
+                    topic,
+                  },
+                }),
+                onExecutionTraceEvent: createExecutionTraceEventLogger({
+                  logger: context.logger,
+                  traceLabel: "curiosity.executor",
+                  traceId: `${sessionId}:research`,
+                  sessionId,
+                  staticFields: {
+                    phase: "research",
+                    topic,
+                  },
+                }),
+              }
+              : undefined;
 
           // Research the topic using ChatExecutor with tools
           const result = await chatExecutor.execute({
@@ -112,6 +144,7 @@ export function createCuriosityAction(config: CuriosityConfig): HeartbeatAction 
             systemPrompt,
             sessionId,
             toolHandler,
+            ...(researchTrace ? { trace: researchTrace } : {}),
           });
 
           if (!result.content || result.content.length < 50) continue;
@@ -136,9 +169,36 @@ export function createCuriosityAction(config: CuriosityConfig): HeartbeatAction 
           // Evaluate noteworthiness
           let isNoteworthy = false;
           try {
+            const evalSessionId = `curiosity-eval:${Date.now()}`;
+            const evaluationTrace =
+              config.traceProviderPayloads === true
+                ? {
+                  includeProviderPayloads: true as const,
+                  onProviderTraceEvent: createProviderTraceEventLogger({
+                    logger: context.logger,
+                    traceLabel: "curiosity.provider",
+                    traceId: `${evalSessionId}:evaluate`,
+                    sessionId: evalSessionId,
+                    staticFields: {
+                      phase: "evaluate",
+                      topic,
+                    },
+                  }),
+                  onExecutionTraceEvent: createExecutionTraceEventLogger({
+                    logger: context.logger,
+                    traceLabel: "curiosity.executor",
+                    traceId: `${evalSessionId}:evaluate`,
+                    sessionId: evalSessionId,
+                    staticFields: {
+                      phase: "evaluate",
+                      topic,
+                    },
+                  }),
+                }
+                : undefined;
             const evalResult = await chatExecutor.execute({
               message: createGatewayMessage({
-                sessionId: `curiosity-eval:${Date.now()}`,
+                sessionId: evalSessionId,
                 senderId: "curiosity-module",
                 senderName: "Curiosity",
                 content: EVALUATE_PROMPT + result.content,
@@ -147,8 +207,9 @@ export function createCuriosityAction(config: CuriosityConfig): HeartbeatAction 
               }),
               history: [],
               systemPrompt: "You are a concise evaluator. Return only valid JSON.",
-              sessionId: `curiosity-eval:${Date.now()}`,
+              sessionId: evalSessionId,
               toolHandler,
+              ...(evaluationTrace ? { trace: evaluationTrace } : {}),
             });
 
             if (evalResult.content) {

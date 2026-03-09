@@ -201,6 +201,131 @@ describe("OllamaProvider", () => {
     });
   });
 
+  it("records request metrics for routed Ollama tools", async () => {
+    mockChat.mockResolvedValueOnce(makeResponse());
+
+    const provider = new OllamaProvider({
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "lookup",
+            description: "Look up info",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+    });
+
+    const result = await provider.chat(
+      [{ role: "user", content: "test" }],
+      {
+        toolRouting: { allowedToolNames: ["lookup"] },
+      },
+    );
+
+    expect(result.requestMetrics).toMatchObject({
+      toolCount: 1,
+      toolNames: ["lookup"],
+      requestedToolNames: ["lookup"],
+      missingRequestedToolNames: [],
+      toolResolution: "subset_exact",
+      stream: undefined,
+    });
+  });
+
+  it("emits provider request and response trace events when enabled", async () => {
+    mockChat.mockResolvedValueOnce(makeResponse());
+
+    const events: Array<Record<string, unknown>> = [];
+    const provider = new OllamaProvider({
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "lookup",
+            description: "Look up info",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "test" }],
+      {
+        toolRouting: { allowedToolNames: ["lookup"] },
+        trace: {
+          includeProviderPayloads: true,
+          onProviderTraceEvent: (event) => {
+            events.push(event as unknown as Record<string, unknown>);
+          },
+        },
+      },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      kind: "request",
+      transport: "chat",
+      provider: "ollama",
+      context: {
+        requestedToolNames: ["lookup"],
+        resolvedToolNames: ["lookup"],
+        missingRequestedToolNames: [],
+        toolResolution: "subset_exact",
+        providerCatalogToolCount: 1,
+      },
+      payload: {
+        model: "llama3",
+      },
+    });
+    expect(events[1]).toMatchObject({
+      kind: "response",
+      transport: "chat",
+      provider: "ollama",
+      payload: {
+        model: "llama3",
+      },
+    });
+    expect((events[1].payload as { message?: { content?: string } }).message?.content).toBe(
+      "Hello!",
+    );
+  });
+
+  it("records tool-resolution fallback when routed Ollama tools cannot be resolved", async () => {
+    mockChat.mockResolvedValueOnce(makeResponse());
+
+    const provider = new OllamaProvider({
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "lookup",
+            description: "Look up info",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+    });
+
+    const result = await provider.chat(
+      [{ role: "user", content: "test" }],
+      {
+        toolRouting: { allowedToolNames: ["mcp.doom.start_game"] },
+      },
+    );
+
+    expect(result.requestMetrics).toMatchObject({
+      toolCount: 1,
+      toolNames: ["lookup"],
+      requestedToolNames: ["mcp.doom.start_game"],
+      missingRequestedToolNames: ["mcp.doom.start_game"],
+      toolResolution: "fallback_full_catalog_no_matches",
+      providerCatalogToolCount: 1,
+    });
+  });
+
   it("returns explicit unsupported diagnostics for stateful continuation and compaction", async () => {
     mockChat.mockResolvedValueOnce(makeResponse());
 

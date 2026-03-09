@@ -14,6 +14,10 @@
 
 import type { ChatExecutor, ToolCallRecord } from "../llm/chat-executor.js";
 import type { ToolHandler, LLMProvider } from "../llm/types.js";
+import {
+  createExecutionTraceEventLogger,
+  createProviderTraceEventLogger,
+} from "../llm/provider-trace-logger.js";
 import type { Tool } from "../tools/types.js";
 import type { MemoryBackend } from "../memory/types.js";
 import type { ApprovalEngine } from "../gateway/approvals.js";
@@ -50,6 +54,8 @@ export interface DesktopExecutorConfig {
   maxConsecutiveFailures?: number;
   /** Screenshot quality for verification captures (default: "medium"). */
   screenshotQuality?: "low" | "medium" | "high";
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 export type GoalStatus =
@@ -164,6 +170,7 @@ export class DesktopExecutor {
   private readonly maxSteps: number;
   private readonly maxConsecutiveFailures: number;
   private readonly screenshotQuality: "low" | "medium" | "high";
+  private readonly traceProviderPayloads: boolean;
 
   private _isRunning = false;
   private _cancelled = false;
@@ -180,6 +187,7 @@ export class DesktopExecutor {
     this.maxSteps = config.maxSteps ?? 20;
     this.maxConsecutiveFailures = config.maxConsecutiveFailures ?? 3;
     this.screenshotQuality = config.screenshotQuality ?? "medium";
+    this.traceProviderPayloads = config.traceProviderPayloads ?? false;
   }
 
   get isRunning(): boolean {
@@ -188,6 +196,52 @@ export class DesktopExecutor {
 
   cancel(): void {
     this._cancelled = true;
+  }
+
+  private buildProviderTraceOptions(params: {
+    goalId: string;
+    sessionId: string;
+    stage: "plan" | "act" | "verify";
+    traceId: string;
+    stepNumber?: number;
+  }): {
+    includeProviderPayloads: true;
+    onProviderTraceEvent: ReturnType<typeof createProviderTraceEventLogger>;
+    onExecutionTraceEvent: ReturnType<typeof createExecutionTraceEventLogger>;
+  } | undefined {
+    if (!this.traceProviderPayloads) {
+      return undefined;
+    }
+
+    return {
+      includeProviderPayloads: true,
+      onProviderTraceEvent: createProviderTraceEventLogger({
+        logger: this.logger,
+        traceLabel: "desktop_executor.provider",
+        traceId: params.traceId,
+        sessionId: params.sessionId,
+        staticFields: {
+          goalId: params.goalId,
+          stage: params.stage,
+          ...(params.stepNumber !== undefined
+            ? { stepNumber: params.stepNumber }
+            : {}),
+        },
+      }),
+      onExecutionTraceEvent: createExecutionTraceEventLogger({
+        logger: this.logger,
+        traceLabel: "desktop_executor.executor",
+        traceId: params.traceId,
+        sessionId: params.sessionId,
+        staticFields: {
+          goalId: params.goalId,
+          stage: params.stage,
+          ...(params.stepNumber !== undefined
+            ? { stepNumber: params.stepNumber }
+            : {}),
+        },
+      }),
+    };
   }
 
   async executeGoal(
@@ -230,7 +284,12 @@ export class DesktopExecutor {
         `(click, type, scroll, etc.). Return ONLY a JSON array of step objects:\n` +
         `[{"action": "click|type|scroll|open|navigate", "description": "what to do"}]\n\n` +
         `Keep the plan concise (max 10 steps). If the goal is already achieved, return [].`;
-
+      const planTrace = this.buildProviderTraceOptions({
+        goalId,
+        sessionId,
+        stage: "plan",
+        traceId: `${sessionId}:plan:${planStart}`,
+      });
       const planResult = await this.chatExecutor.execute({
         message: makeMessage(planPrompt, sessionId),
         history: [],
@@ -238,6 +297,7 @@ export class DesktopExecutor {
           "You are an autonomous desktop action planner. Return only valid JSON.",
         sessionId,
         toolHandler: this.toolHandler,
+        ...(planTrace ? { trace: planTrace } : {}),
       });
 
       // Parse plan steps
@@ -333,7 +393,13 @@ export class DesktopExecutor {
           `Description: ${planStep.description}\n\n` +
           `Use the available desktop tools (click, type, scroll, etc.) to perform this action. ` +
           `Describe what you did.`;
-
+        const actTrace = this.buildProviderTraceOptions({
+          goalId,
+          sessionId,
+          stage: "act",
+          traceId: `${sessionId}:act:${stepNumber}:${actStart}`,
+          stepNumber,
+        });
         let actResult;
         try {
           actResult = await this.chatExecutor.execute({
@@ -343,6 +409,7 @@ export class DesktopExecutor {
               "You are a desktop automation agent. Execute the requested action using available tools.",
             sessionId,
             toolHandler: this.toolHandler,
+            ...(actTrace ? { trace: actTrace } : {}),
           });
         } catch (err) {
           steps.push({
@@ -383,10 +450,17 @@ export class DesktopExecutor {
             `Here is the current desktop state:\n${verifyScreenshot.content}\n\n` +
             `Did the action succeed? Respond with JSON only:\n` +
             `{"success": true/false, "confidence": 0.0-1.0, "description": "what you observe"}`;
-
           const verifyResult = await this.llm.chat([
             { role: "user", content: verifyPrompt },
-          ]);
+          ], {
+            trace: this.buildProviderTraceOptions({
+              goalId,
+              sessionId,
+              stage: "verify",
+              traceId: `${sessionId}:verify:${stepNumber}:${verifyStart}`,
+              stepNumber,
+            }),
+          });
 
           verification = parseVerification(verifyResult.content);
         } catch {

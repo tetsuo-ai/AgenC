@@ -144,7 +144,8 @@ Enable:
       "includeHistory": true,
       "includeSystemPrompt": true,
       "includeToolArgs": true,
-      "includeToolResults": true
+      "includeToolResults": true,
+      "includeProviderPayloads": true
     }
   }
 }
@@ -154,6 +155,13 @@ Capture one `traceId`-correlated chain:
 
 - `*.inbound`
 - `*.chat.request`
+- `*.executor.model_call_prepared`
+- `*.executor.contract_guidance_resolved`
+- `*.executor.tool_rejected` / `*.executor.tool_arguments_invalid`
+- `*.executor.tool_dispatch_started` / `*.executor.tool_dispatch_finished`
+- `*.executor.route_expanded`
+- `*.executor.completion_gate_checked`
+- `*.provider.request` / `*.provider.response` / `*.provider.error`
 - `*.tool.call`/`*.tool.result`/`*.tool.error`
 - `*.chat.response`
 

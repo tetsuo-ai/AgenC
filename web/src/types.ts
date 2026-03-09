@@ -14,6 +14,15 @@ import type {
   BackgroundRunOperatorDetail,
   BackgroundRunOperatorSummary,
 } from '../../runtime/src/gateway/background-run-operator.ts';
+import type {
+  ObservabilityArtifactResponse,
+  ObservabilityEventRecord,
+  ObservabilityLogResponse,
+  ObservabilitySummary,
+  ObservabilityTraceDetail,
+  ObservabilityTraceStatus,
+  ObservabilityTraceSummary,
+} from '../../runtime/src/observability/types.ts';
 
 // ============================================================================
 // Connection State
@@ -276,6 +285,18 @@ export type RunDetail = BackgroundRunOperatorDetail;
 export type RunControlAction = BackgroundRunControlAction;
 
 // ============================================================================
+// Observability
+// ============================================================================
+
+export type TraceSummary = ObservabilityTraceSummary;
+export type TraceDetail = ObservabilityTraceDetail;
+export type TraceEvent = ObservabilityEventRecord;
+export type TraceStatus = ObservabilityTraceStatus | 'all';
+export type TraceSummaryMetrics = ObservabilitySummary;
+export type TraceArtifact = ObservabilityArtifactResponse;
+export type TraceLogTail = ObservabilityLogResponse;
+
+// ============================================================================
 // WebSocket Message Envelope
 // ============================================================================
 
@@ -326,4 +347,15 @@ export type VoiceMode = 'vad' | 'push-to-talk';
 // Navigation
 // ============================================================================
 
-export type ViewId = 'chat' | 'status' | 'runs' | 'skills' | 'tasks' | 'memory' | 'activity' | 'desktop' | 'settings' | 'payment';
+export type ViewId =
+  | 'chat'
+  | 'status'
+  | 'runs'
+  | 'observability'
+  | 'skills'
+  | 'tasks'
+  | 'memory'
+  | 'activity'
+  | 'desktop'
+  | 'settings'
+  | 'payment';

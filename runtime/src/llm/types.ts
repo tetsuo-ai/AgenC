@@ -93,8 +93,20 @@ export interface LLMRequestMetrics {
   textParts: number;
   imageParts: number;
   toolCount: number;
+  toolNames: readonly string[];
+  requestedToolNames?: readonly string[];
+  missingRequestedToolNames?: readonly string[];
+  toolResolution?: string;
+  providerCatalogToolCount?: number;
+  toolsAttached?: boolean;
+  toolSuppressionReason?: string;
+  toolChoice?: string;
   toolSchemaChars: number;
   serializedChars: number;
+  previousResponseId?: string;
+  store?: boolean;
+  parallelToolCalls?: boolean;
+  stream?: boolean;
 }
 
 /**
@@ -274,6 +286,32 @@ export interface LLMChatToolRoutingOptions {
   readonly allowedToolNames?: readonly string[];
 }
 
+export interface LLMProviderTraceEvent {
+  readonly kind: "request" | "response" | "error";
+  readonly transport: "chat" | "chat_stream";
+  readonly provider: string;
+  readonly model?: string;
+  readonly callIndex?: number;
+  readonly callPhase?:
+    | "compaction"
+    | "initial"
+    | "planner"
+    | "planner_verifier"
+    | "planner_synthesis"
+    | "tool_followup"
+    | "evaluator"
+    | "evaluator_retry";
+  readonly payload: Record<string, unknown>;
+  readonly context?: Record<string, unknown>;
+}
+
+export interface LLMChatTraceOptions {
+  /** Emit raw provider request/response/error payloads through the trace callback. */
+  readonly includeProviderPayloads?: boolean;
+  /** Callback invoked with provider-native request/response/error payloads. */
+  readonly onProviderTraceEvent?: (event: LLMProviderTraceEvent) => void;
+}
+
 /**
  * Provider-agnostic tool-choice directive for one model call.
  */
@@ -293,6 +331,7 @@ export interface LLMChatOptions {
   readonly stateful?: LLMChatStatefulOptions;
   readonly toolRouting?: LLMChatToolRoutingOptions;
   readonly toolChoice?: LLMToolChoice;
+  readonly trace?: LLMChatTraceOptions;
 }
 
 export interface LLMProviderEvidence {

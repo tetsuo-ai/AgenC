@@ -27,6 +27,10 @@ import type { MemoryBackend } from "../memory/types.js";
 import { createGatewayMessage } from "./message.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import { buildChatUsagePayload } from "./chat-usage.js";
+import {
+  createExecutionTraceEventLogger,
+  createProviderTraceEventLogger,
+} from "../llm/provider-trace-logger.js";
 import type { DelegationToolCompositionResolver } from "./delegation-runtime.js";
 import {
   createExecuteWithAgentTool,
@@ -162,6 +166,8 @@ export interface VoiceBridgeConfig {
   contextWindowTokens?: number;
   /** Live delegation runtime dependencies used by tool-handler composition. */
   delegation?: DelegationToolCompositionResolver;
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 interface ActiveSession {
@@ -532,6 +538,33 @@ export class VoiceBridge {
       const delegationToolHandler = this.buildSessionToolHandler(sessionId, send);
 
       const chatExecutor = this.requireChatExecutor();
+      const traceId = `voice:${clientId}:${sessionId}:${Date.now()}`;
+      const providerTrace =
+        this.config.traceProviderPayloads === true && this.logger
+          ? {
+            includeProviderPayloads: true as const,
+            onProviderTraceEvent: createProviderTraceEventLogger({
+              logger: this.logger,
+              traceLabel: "voice.provider",
+              traceId,
+              sessionId,
+              staticFields: {
+                clientId,
+                phase: "delegation",
+              },
+            }),
+            onExecutionTraceEvent: createExecutionTraceEventLogger({
+              logger: this.logger,
+              traceLabel: "voice.executor",
+              traceId,
+              sessionId,
+              staticFields: {
+                clientId,
+                phase: "delegation",
+              },
+            }),
+          }
+          : undefined;
       const result = await chatExecutor.execute({
         message: gatewayMsg,
         history,
@@ -543,6 +576,7 @@ export class VoiceBridge {
         // chat panel provide progress instead.
         maxToolRounds: MAX_DELEGATION_TOOL_ROUNDS,
         signal: abortController.signal,
+        ...(providerTrace ? { trace: providerTrace } : {}),
       });
 
       // Persist results to session history and memory

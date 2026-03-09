@@ -85,6 +85,13 @@ export const WS_RUN_INSPECT = "run.inspect" as const;
 export const WS_RUN_CONTROL = "run.control" as const;
 export const WS_RUN_UPDATED = "run.updated" as const;
 
+// Observability
+export const WS_OBSERVABILITY_SUMMARY = "observability.summary" as const;
+export const WS_OBSERVABILITY_TRACES = "observability.traces" as const;
+export const WS_OBSERVABILITY_TRACE = "observability.trace" as const;
+export const WS_OBSERVABILITY_ARTIFACT = "observability.artifact" as const;
+export const WS_OBSERVABILITY_LOGS = "observability.logs" as const;
+
 // Approval
 export const WS_APPROVAL_REQUEST = "approval.request" as const;
 

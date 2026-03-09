@@ -23,6 +23,7 @@ import type {
 } from "./structured.js";
 import { NoopEntityExtractor } from "./structured.js";
 import type { LLMProvider, LLMMessage } from "../llm/types.js";
+import { createProviderTraceEventLogger } from "../llm/provider-trace-logger.js";
 import type { HookHandler, HookContext, HookResult } from "../gateway/hooks.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
@@ -48,6 +49,7 @@ export interface IngestionConfig {
   /** Maximum chars retained for generated/session summaries before indexing. */
   readonly maxSummaryChars?: number;
   readonly logger?: Logger;
+  readonly traceProviderPayloads?: boolean;
 }
 
 // ============================================================================
@@ -177,6 +179,7 @@ export class MemoryIngestionEngine {
   private readonly dedupRecentEntries: number;
   private readonly maxSummaryChars: number;
   private readonly logger: Logger;
+  private readonly traceProviderPayloads: boolean;
 
   constructor(config: IngestionConfig) {
     this.embeddingProvider = config.embeddingProvider;
@@ -194,6 +197,7 @@ export class MemoryIngestionEngine {
       config.dedupRecentEntries ?? DEFAULT_DEDUP_RECENT_ENTRIES;
     this.maxSummaryChars = config.maxSummaryChars ?? DEFAULT_MAX_SUMMARY_CHARS;
     this.logger = config.logger ?? silentLogger;
+    this.traceProviderPayloads = config.traceProviderPayloads ?? false;
   }
 
   /**
@@ -333,7 +337,22 @@ export class MemoryIngestionEngine {
         const response = await this.llmProvider.chat([
           { role: "system", content: SUMMARY_PROMPT },
           { role: "user", content: conversationText },
-        ]);
+        ], this.traceProviderPayloads
+          ? {
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: this.logger,
+                traceLabel: "memory_ingestion.provider",
+                traceId: `memory-ingestion:${sessionId}:session_end`,
+                sessionId,
+                staticFields: {
+                  phase: "session_end_summary",
+                },
+              }),
+            },
+          }
+          : undefined);
         summary = normalizeSummary(response.content, this.maxSummaryChars);
 
         // Store summary with embedding in vector store

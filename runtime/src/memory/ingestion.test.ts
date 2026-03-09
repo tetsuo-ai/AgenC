@@ -12,7 +12,12 @@ import type {
   EntityExtractor,
   StructuredMemoryEntry,
 } from "./structured.js";
-import type { LLMProvider, LLMMessage, LLMResponse } from "../llm/types.js";
+import type {
+  LLMProvider,
+  LLMMessage,
+  LLMResponse,
+  LLMChatOptions,
+} from "../llm/types.js";
 import type { HookContext } from "../gateway/hooks.js";
 import type { Logger } from "../utils/logger.js";
 import type { MemoryEntry } from "./types.js";
@@ -106,7 +111,7 @@ function createMockLLMProvider(): LLMProvider {
   return {
     name: "test-llm",
     chat: vi
-      .fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .fn<[LLMMessage[], LLMChatOptions?], Promise<LLMResponse>>()
       .mockResolvedValue(response),
     chatStream: vi.fn().mockResolvedValue(response),
     healthCheck: vi.fn().mockResolvedValue(true),
@@ -327,6 +332,21 @@ describe("MemoryIngestionEngine", () => {
 
       expect(result.summary).toBe("");
       expect(llmProvider.chat).not.toHaveBeenCalled();
+    });
+
+    it("passes provider trace options to session-end summarization when enabled", async () => {
+      const engine = createEngine({ traceProviderPayloads: true });
+      await engine.processSessionEnd("sess-1", sampleHistory);
+
+      expect(llmProvider.chat).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          trace: expect.objectContaining({
+            includeProviderPayloads: true,
+            onProviderTraceEvent: expect.any(Function),
+          }),
+        }),
+      );
     });
   });
 

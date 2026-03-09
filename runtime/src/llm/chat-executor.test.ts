@@ -1627,6 +1627,47 @@ describe("ChatExecutor", () => {
       ]);
     });
 
+    it("passes provider trace callbacks through with logical call metadata", async () => {
+      const providerTraceEvents: unknown[] = [];
+      const provider = createMockProvider("primary", {
+        chat: vi.fn(async (_messages, options) => {
+          options?.trace?.onProviderTraceEvent?.({
+            kind: "request",
+            transport: "chat",
+            provider: "primary",
+            model: "mock-model",
+            payload: { tool_choice: "required" },
+          });
+          return mockResponse();
+        }),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      await executor.execute(
+        createParams({
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) => providerTraceEvents.push(event),
+          },
+        }),
+      );
+
+      const options = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0][1] as LLMChatOptions | undefined;
+      expect(options?.trace?.includeProviderPayloads).toBe(true);
+      expect(providerTraceEvents).toEqual([
+        {
+          kind: "request",
+          transport: "chat",
+          provider: "primary",
+          model: "mock-model",
+          callIndex: 1,
+          callPhase: "initial",
+          payload: { tool_choice: "required" },
+        },
+      ]);
+    });
+
     it("passes allowedTools to provider chat options when no routing subset is active", async () => {
       const provider = createMockProvider("primary");
       const executor = new ChatExecutor({
@@ -1696,6 +1737,121 @@ describe("ChatExecutor", () => {
         expanded: true,
       });
       expect(toolHandler).not.toHaveBeenCalled();
+    });
+
+    it("emits execution trace events for routed misses and route expansion", async () => {
+      const events: Array<Record<string, unknown>> = [];
+      const toolHandler = vi.fn().mockResolvedValue("unused");
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "system.httpGet",
+                  arguments: '{"url":"https://example.com"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "done" })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["system.bash"],
+            expandedToolNames: ["system.bash", "system.httpGet"],
+            expandOnMiss: true,
+          },
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+        }),
+      );
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "model_call_prepared",
+            phase: "initial",
+            payload: expect.objectContaining({
+              routedToolNames: ["system.bash"],
+            }),
+          }),
+          expect.objectContaining({
+            type: "tool_rejected",
+            phase: "tool_followup",
+            payload: expect.objectContaining({
+              tool: "system.httpGet",
+              routingMiss: true,
+              expandAfterRound: true,
+            }),
+          }),
+          expect.objectContaining({
+            type: "route_expanded",
+            phase: "tool_followup",
+            payload: expect.objectContaining({
+              previousRoutedToolNames: ["system.bash"],
+              nextRoutedToolNames: ["system.bash", "system.httpGet"],
+            }),
+          }),
+        ]),
+      );
+    });
+
+    it("emits completion-gate retry and failure events when required tool evidence is missing", async () => {
+      const events: Array<Record<string, unknown>> = [];
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(mockResponse({ content: "plan", finishReason: "stop" }))
+          .mockResolvedValueOnce(mockResponse({ content: "still no tools", finishReason: "stop" })),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: {
+            maxCorrectionAttempts: 1,
+            delegationSpec: {
+              tools: ["system.bash"],
+            },
+          },
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("validation_error");
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "initial",
+            payload: expect.objectContaining({
+              decision: "retry",
+            }),
+          }),
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "initial",
+            payload: expect.objectContaining({
+              decision: "fail",
+            }),
+          }),
+        ]),
+      );
     });
 
     it("invalid JSON args handled gracefully", async () => {
@@ -2872,6 +3028,77 @@ describe("ChatExecutor", () => {
       expect(executor.getSessionTokenUsage("session-1")).toBe(20);
     });
 
+    it("emits provider trace events for pre-execution compaction calls", async () => {
+      const traceEvents: unknown[] = [];
+      let invocation = 0;
+      const provider = createMockProvider("primary", {
+        chat: vi.fn(async (_messages, options) => {
+          invocation += 1;
+          options?.trace?.onProviderTraceEvent?.({
+            kind: "request",
+            transport: "chat",
+            provider: "primary",
+            model: "mock-model",
+            payload: { observed: true, invocation },
+          });
+          if (invocation <= 2) {
+            return mockResponse({
+              usage: { promptTokens: 500, completionTokens: 500, totalTokens: 1000 },
+            });
+          }
+          if (invocation === 3) {
+            return mockResponse({ content: "Summary of conversation" });
+          }
+          return mockResponse({
+            content: "response after compaction",
+            usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+          });
+        }),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        sessionTokenBudget: 1500,
+      });
+
+      await executor.execute(
+        createParams({
+          history: buildLongHistory(10),
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) => traceEvents.push(event),
+          },
+        }),
+      );
+      await executor.execute(
+        createParams({
+          history: buildLongHistory(10),
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) => traceEvents.push(event),
+          },
+        }),
+      );
+      await executor.execute(
+        createParams({
+          history: buildLongHistory(10),
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) => traceEvents.push(event),
+          },
+        }),
+      );
+
+      expect(traceEvents).toContainEqual({
+        kind: "request",
+        transport: "chat",
+        provider: "primary",
+        model: "mock-model",
+        callIndex: 0,
+        callPhase: "compaction",
+        payload: { observed: true, invocation: 3 },
+      });
+    });
+
     it("invokes onCompaction callback", async () => {
       const onCompaction = vi.fn();
       const provider = createMockProvider("primary", {
@@ -3350,6 +3577,53 @@ describe("ChatExecutor", () => {
       expect(result.evaluation!.passed).toBe(true);
       expect(result.evaluation!.retryCount).toBe(0);
       expect(result.evaluation!.feedback).toBe("clear and accurate");
+    });
+
+    it("emits provider trace events for evaluator calls", async () => {
+      const traceEvents: unknown[] = [];
+      let invocation = 0;
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn(async (_messages, options) => {
+            invocation += 1;
+            options?.trace?.onProviderTraceEvent?.({
+              kind: "request",
+              transport: "chat",
+              provider: "primary",
+              model: "mock-model",
+              payload: { observed: true, invocation },
+            });
+            return mockResponse({
+              content:
+                invocation === 1
+                  ? "good answer"
+                  : '{"score": 0.9, "feedback": "clear and accurate"}',
+            });
+          }),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        evaluator: { minScore: 0.7 },
+      });
+
+      await executor.execute(
+        createParams({
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) => traceEvents.push(event),
+          },
+        }),
+      );
+
+      expect(traceEvents).toContainEqual({
+        kind: "request",
+        transport: "chat",
+        provider: "primary",
+        model: "mock-model",
+        callIndex: 2,
+        callPhase: "evaluator",
+        payload: { observed: true, invocation: 2 },
+      });
     });
 
     it("retries when below threshold then passes", async () => {

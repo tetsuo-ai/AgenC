@@ -970,6 +970,7 @@ describe("config loading", () => {
             includeSystemPrompt: true,
             includeToolArgs: true,
             includeToolResults: true,
+            includeProviderPayloads: true,
             maxChars: 12_000,
           },
         },
@@ -987,6 +988,7 @@ describe("config loading", () => {
           level: "debug",
           trace: {
             enabled: "yes" as unknown as boolean,
+            includeProviderPayloads: "yes" as unknown as boolean,
             maxChars: 100,
           },
         },
@@ -995,6 +997,9 @@ describe("config loading", () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("logging.trace.enabled must be a boolean");
+    expect(result.errors).toContain(
+      "logging.trace.includeProviderPayloads must be a boolean",
+    );
     expect(result.errors).toContain(
       "logging.trace.maxChars must be an integer between 256 and 200000",
     );

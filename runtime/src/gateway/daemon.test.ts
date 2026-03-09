@@ -62,6 +62,7 @@ import {
   summarizeToolFailureForLog,
   summarizeToolResultForTrace,
   summarizeLLMFailureForSurface,
+  formatTracePayloadForLog,
   formatEvalScriptReply,
   didEvalScriptPass,
   resolveBashToolEnv,
@@ -77,6 +78,9 @@ import { LLMTimeoutError, LLMAuthenticationError } from "../llm/errors.js";
 import { loadGatewayConfig } from "./config-watcher.js";
 import { WorkspaceValidationError } from "./workspace.js";
 import { ToolRouter } from "./tool-routing.js";
+import type { ToolCallRecord } from "../llm/chat-executor.js";
+import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
+import { resolveToolContractExecutionBlock } from "../llm/chat-executor-contract-guidance.js";
 
 // ============================================================================
 // Command availability classifier
@@ -406,6 +410,7 @@ describe("resolveTraceLoggingConfig", () => {
     expect(resolved.includeSystemPrompt).toBe(true);
     expect(resolved.includeToolArgs).toBe(true);
     expect(resolved.includeToolResults).toBe(true);
+    expect(resolved.includeProviderPayloads).toBe(false);
     expect(resolved.maxChars).toBe(20_000);
   });
 
@@ -420,6 +425,35 @@ describe("resolveTraceLoggingConfig", () => {
       trace: { enabled: true, maxChars: 9_999_999 },
     });
     expect(high.maxChars).toBe(200_000);
+
+    const explicit = resolveTraceLoggingConfig({
+      trace: { enabled: true, includeProviderPayloads: true },
+    });
+    expect(explicit.includeProviderPayloads).toBe(true);
+  });
+});
+
+describe("formatTracePayloadForLog", () => {
+  it("serializes nested payloads as JSON instead of util.inspect objects", () => {
+    const formatted = formatTracePayloadForLog({
+      traceId: "trace-1",
+      callUsage: [
+        {
+          providerRequestMetrics: {
+            toolNames: ["mcp.doom.start_game"],
+            toolChoice: "required",
+          },
+          nested: {
+            ok: true,
+          },
+        },
+      ],
+    });
+
+    expect(formatted).toContain('"traceId":"trace-1"');
+    expect(formatted).toContain('"toolChoice":"required"');
+    expect(formatted).toContain('"ok":true');
+    expect(formatted).not.toContain("[Object]");
   });
 });
 
@@ -1003,6 +1037,87 @@ describe("DaemonManager", () => {
     expect((dm as any).getAdvertisedToolNames()).toEqual([
       "desktop.bash",
     ]);
+  });
+
+  it("blocks desktop bash detours before Doom launch evidence exists in webchat turns", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const baseToolHandler = vi.fn(async (name: string) => {
+      if (name === "mcp.doom.start_game") {
+        return JSON.stringify({ status: "running" });
+      }
+      return JSON.stringify({ stdout: "ok", stderr: "", exitCode: 0 });
+    });
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as any;
+    const toolCalls: ToolCallRecord[] = [];
+
+    const handler = (dm as any).createWebChatSessionToolHandler({
+      sessionId: "session-doom",
+      webChat,
+      hooks,
+      baseToolHandler,
+      traceLabel: "webchat",
+      traceConfig: { enabled: false },
+      traceId: "trace-doom",
+      beforeHandle: (toolName: string) => {
+        const block = resolveToolContractExecutionBlock({
+          phase: toolCalls.length === 0 ? "initial" : "tool_followup",
+          messageText:
+            "I want you to play doom on defend the center with godmode on so i can watch in a desktop container.",
+          toolCalls,
+          allowedToolNames: ["desktop.bash", "mcp.doom.start_game"],
+          candidateToolName: toolName,
+        });
+        return block ? JSON.stringify({ error: block }) : undefined;
+      },
+      onToolEnd: (
+        toolName: string,
+        args: Record<string, unknown>,
+        result: string,
+        durationMs: number,
+      ) => {
+        toolCalls.push({
+          name: toolName,
+          args,
+          result,
+          isError: didToolCallFail(false, result),
+          durationMs,
+        });
+      },
+    });
+
+    const blocked = await handler("desktop.bash", { command: "which doom" });
+    expect(JSON.parse(blocked)).toEqual({
+      error:
+        "This Doom turn must begin with `mcp.doom.start_game`. " +
+        "Do not launch or inspect Doom with `desktop.bash`, `desktop.process_start`, `system.bash`, or direct binary commands before the MCP launch succeeds. " +
+        "Allowed now: `mcp.doom.start_game`. " +
+        "Do not use `desktop.bash` yet.",
+    });
+    expect(baseToolHandler).not.toHaveBeenCalled();
+
+    await handler("mcp.doom.start_game", {
+      scenario: "defend_the_center",
+      async_player: true,
+    });
+    await handler("desktop.bash", { command: "echo ok" });
+
+    expect(baseToolHandler).toHaveBeenNthCalledWith(
+      1,
+      "mcp.doom.start_game",
+      expect.objectContaining({
+        scenario: "defend_the_center",
+        async_player: true,
+      }),
+    );
+    expect(baseToolHandler).toHaveBeenNthCalledWith(2, "desktop.bash", {
+      command: "echo ok",
+    });
   });
 
   it("adds provider-native web_search to research routing but not interactive browser routing", () => {

@@ -17,6 +17,7 @@ import type {
   HeartbeatResult,
 } from "../gateway/heartbeat.js";
 import type { LLMProvider } from "../llm/types.js";
+import { createProviderTraceEventLogger } from "../llm/provider-trace-logger.js";
 import type { MemoryBackend } from "../memory/types.js";
 import { entryToMessage } from "../memory/types.js";
 
@@ -37,6 +38,8 @@ export interface MetaPlannerConfig {
   lookbackMs?: number;
   /** KV key prefix for stored goals (default: "goal:"). */
   keyPrefix?: string;
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 export interface GeneratedGoal {
@@ -186,7 +189,22 @@ export function createMetaPlannerAction(
               `Recent Activity:\n${activitySummary}\n\n` +
               `Generate up to ${maxGoals} new strategic goals.`,
           },
-        ]);
+        ], config.traceProviderPayloads === true
+          ? {
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: context.logger,
+                traceLabel: "meta_planner.provider",
+                traceId: `meta-planner:${Date.now()}`,
+                staticFields: {
+                  phase: "planning",
+                  entryCount: entries.length,
+                },
+              }),
+            },
+          }
+          : undefined);
 
         if (!response.content) {
           return { hasOutput: false, quiet: true };

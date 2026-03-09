@@ -476,11 +476,26 @@ Use during incident triage. This profile prioritizes observability and reproduci
       "includeSystemPrompt": true,
       "includeToolArgs": true,
       "includeToolResults": true,
+      "includeProviderPayloads": true,
       "maxChars": 20000
     }
   }
 }
 ```
+
+With `logging.trace.enabled=true`, daemon trace logs emit single-line JSON `*.executor.*` events that record the authoritative in-memory execution ledger for each turn: model-call preparation, contract guidance resolution, rejected tool calls, tool dispatch start/finish, route expansion, and completion-gate decisions.
+
+With `logging.trace.includeProviderPayloads=true`, daemon trace logs also emit `*.provider.request`, `*.provider.response`, and `*.provider.error` events that contain the exact provider payloads after runtime routing/tool-choice shaping. Those request events now include tool-selection context such as requested tool names, resolved tool names, missing routed tools, and the resolution strategy actually used at the provider boundary. Use payload capture only during triage; it duplicates prompt content and can make logs large quickly.
+
+The runtime also persists those trace events into the local observability store at `~/.agenc/observability.sqlite`. The WebChat operator surface can query that store through:
+
+- `observability.summary`
+- `observability.traces`
+- `observability.trace`
+- `observability.artifact`
+- `observability.logs`
+
+These queries power the WebChat `TRACE` view, which combines summary metrics, trace timelines, exact artifact payloads under `~/.agenc/trace-payloads/`, and trace-filtered daemon log slices without requiring operators to grep raw logs first.
 
 ### Profile 4: Delegation SOTA (subagent orchestration + policy learning)
 

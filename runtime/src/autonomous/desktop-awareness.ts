@@ -11,6 +11,7 @@
 import type { HeartbeatAction, HeartbeatContext, HeartbeatResult } from "../gateway/heartbeat.js";
 import type { MemoryBackend } from "../memory/types.js";
 import type { LLMProvider } from "../llm/types.js";
+import { createProviderTraceEventLogger } from "../llm/provider-trace-logger.js";
 import type { Tool } from "../tools/types.js";
 
 export interface DesktopAwarenessConfig {
@@ -24,6 +25,8 @@ export interface DesktopAwarenessConfig {
   memory: MemoryBackend;
   /** Screenshot quality. Default: 'low' */
   screenshotQuality?: "low" | "medium" | "high";
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 const DESKTOP_SESSION_ID = "desktop-awareness";
@@ -71,7 +74,22 @@ export function createDesktopAwarenessAction(
 
         const llmResult = await llm.chat([
           { role: "user", content: analysisPrompt },
-        ]);
+        ], config.traceProviderPayloads === true
+          ? {
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: context.logger,
+                traceLabel: "desktop_awareness.provider",
+                traceId: `${DESKTOP_SESSION_ID}:${Date.now()}`,
+                sessionId: DESKTOP_SESSION_ID,
+                staticFields: {
+                  phase: "analysis",
+                },
+              }),
+            },
+          }
+          : undefined);
 
         const analysis = llmResult.content ?? "Unable to analyze desktop.";
 

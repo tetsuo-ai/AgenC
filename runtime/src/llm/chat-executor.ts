@@ -70,6 +70,7 @@ import type {
   SkillInjector,
   MemoryRetriever,
   ToolCallRecord,
+  ChatExecutionTraceEvent,
   ChatExecuteParams,
   ChatPromptShape,
   ChatCallUsageRecord,
@@ -541,6 +542,13 @@ export class ChatExecutor {
     return this.allowedTools ? [...this.allowedTools] : [];
   }
 
+  private emitExecutionTrace(
+    ctx: ExecutionContext,
+    event: ChatExecutionTraceEvent,
+  ): void {
+    ctx.trace?.onExecutionTraceEvent?.(event);
+  }
+
   private maybePushRuntimeInstruction(
     ctx: ExecutionContext,
     content: string,
@@ -589,7 +597,18 @@ export class ChatExecutor {
     ctx: ExecutionContext,
     phase: "initial" | "tool_followup",
   ): Promise<"continue" | "failed" | "not_required"> {
-    if (!ctx.requiredToolEvidence) return "not_required";
+    if (!ctx.requiredToolEvidence) {
+      this.emitExecutionTrace(ctx, {
+        type: "completion_gate_checked",
+        phase,
+        callIndex: ctx.callIndex,
+        payload: {
+          decision: "not_required",
+          finishReason: ctx.response?.finishReason,
+        },
+      });
+      return "not_required";
+    }
 
     let retried = false;
     while (ctx.response?.finishReason !== "tool_calls") {
@@ -610,6 +629,16 @@ export class ChatExecutor {
           ctx.providerEvidence,
         );
       if (!missingEvidenceMessage) {
+        this.emitExecutionTrace(ctx, {
+          type: "completion_gate_checked",
+          phase,
+          callIndex: ctx.callIndex,
+          payload: {
+            decision: retried ? "accept_after_retry" : "accept",
+            finishReason: ctx.response?.finishReason,
+            correctionAttempts: ctx.requiredToolEvidenceCorrectionAttempts,
+          },
+        });
         return retried ? "continue" : "not_required";
       }
 
@@ -617,6 +646,18 @@ export class ChatExecutor {
         ctx.requiredToolEvidenceCorrectionAttempts >=
         ctx.requiredToolEvidence.maxCorrectionAttempts
       ) {
+        this.emitExecutionTrace(ctx, {
+          type: "completion_gate_checked",
+          phase,
+          callIndex: ctx.callIndex,
+          payload: {
+            decision: "fail",
+            finishReason: ctx.response?.finishReason,
+            correctionAttempts: ctx.requiredToolEvidenceCorrectionAttempts,
+            missingEvidenceMessage,
+            validationCode: contractValidation?.code,
+          },
+        });
         this.setStopReason(ctx, "validation_error", missingEvidenceMessage);
         ctx.finalContent = missingEvidenceMessage;
         return "failed";
@@ -682,6 +723,19 @@ export class ChatExecutor {
       );
       ctx.requiredToolEvidenceCorrectionAttempts += 1;
       retried = true;
+      this.emitExecutionTrace(ctx, {
+        type: "completion_gate_checked",
+        phase,
+        callIndex: ctx.callIndex,
+        payload: {
+          decision: "retry",
+          finishReason: ctx.response?.finishReason,
+          correctionAttempts: ctx.requiredToolEvidenceCorrectionAttempts,
+          missingEvidenceMessage,
+          validationCode: contractValidation?.code,
+          allowedToolNames: correctionAllowedTools,
+        },
+      });
 
       const correctionContractGuidance = this.resolveActiveToolContractGuidance(
         ctx,
@@ -691,6 +745,24 @@ export class ChatExecutor {
           validationCode: contractValidation?.code,
         },
       );
+      if (correctionContractGuidance) {
+        this.emitExecutionTrace(ctx, {
+          type: "contract_guidance_resolved",
+          phase,
+          callIndex: ctx.callIndex + 1,
+          payload: {
+            source: correctionContractGuidance.source,
+            routedToolNames: correctionContractGuidance.routedToolNames ?? [],
+            toolChoice:
+              typeof correctionContractGuidance.toolChoice === "string"
+                ? correctionContractGuidance.toolChoice
+                : correctionContractGuidance.toolChoice.name,
+            hasRuntimeInstruction: Boolean(
+              correctionContractGuidance.runtimeInstruction,
+            ),
+          },
+        });
+      }
       const nextResponse = await this.callModelForPhase(ctx, {
         phase,
         callMessages: ctx.messages,
@@ -753,6 +825,24 @@ export class ChatExecutor {
     const effectiveCallSections = groundingMessage && input.callSections
       ? [...input.callSections, "system_runtime" as const]
       : input.callSections;
+    this.emitExecutionTrace(ctx, {
+      type: "model_call_prepared",
+      phase: input.phase,
+      callIndex: ctx.callIndex + 1,
+      payload: {
+        routedToolNames: effectiveRoutedToolNames ?? [],
+        toolChoice:
+          input.toolChoice === undefined
+            ? undefined
+            : typeof input.toolChoice === "string"
+            ? input.toolChoice
+            : input.toolChoice.name,
+        messageCount: effectiveCallMessages.length,
+        groundingMessageAdded: Boolean(groundingMessage),
+        activeRouteMisses: ctx.routedToolMisses,
+        routedToolsExpanded: ctx.routedToolsExpanded,
+      },
+    });
     let next: FallbackResult;
     try {
       next = await this.callWithFallback(
@@ -773,6 +863,13 @@ export class ChatExecutor {
             : {}),
           ...(input.toolChoice !== undefined
             ? { toolChoice: input.toolChoice }
+            : {}),
+          ...(ctx.trace
+            ? {
+              trace: ctx.trace,
+              callIndex: ctx.callIndex + 1,
+              callPhase: input.phase,
+            }
             : {}),
         },
       );
@@ -954,7 +1051,7 @@ export class ChatExecutor {
       const used = this.sessionTokens.get(sessionId) ?? 0;
       if (used >= this.sessionTokenBudget) {
         try {
-          history = await this.compactHistory(history, sessionId);
+          history = await this.compactHistory(history, sessionId, params.trace);
           this.resetSessionTokens(sessionId);
           compacted = true;
         } catch {
@@ -981,6 +1078,7 @@ export class ChatExecutor {
         streamCallback: params.onStreamChunk ?? this.onStreamChunk,
         toolRouting: params.toolRouting,
         stateful: params.stateful,
+        trace: params.trace,
         requiredToolEvidence: params.requiredToolEvidence,
         initialRoutedToolNames,
         expandedRoutedToolNames,
@@ -1168,7 +1266,12 @@ export class ChatExecutor {
         break;
       }
 
-      const evalResult = await this.evaluateResponse(currentContent, ctx.messageText);
+      const evalResult = await this.evaluateResponse(
+        currentContent,
+        ctx.messageText,
+        ctx.trace,
+        ctx.callIndex + 1,
+      );
       ctx.modelCalls++;
       if (evalResult.usedFallback) ctx.usedFallback = true;
       this.accumulateUsage(ctx.cumulativeUsage, evalResult.response.usage);
@@ -1234,6 +1337,13 @@ export class ChatExecutor {
             ...(ctx.toolRouting
               ? { routedToolNames: ctx.activeRoutedToolNames }
               : {}),
+            ...(ctx.trace
+              ? {
+                trace: ctx.trace,
+                callIndex: ctx.callIndex + 1,
+                callPhase: "evaluator_retry" as const,
+              }
+              : {}),
           },
         );
       } catch (error) {
@@ -1269,6 +1379,22 @@ export class ChatExecutor {
     const initialContractGuidance = this.resolveActiveToolContractGuidance(ctx, {
       phase: "initial",
     });
+    if (initialContractGuidance) {
+      this.emitExecutionTrace(ctx, {
+        type: "contract_guidance_resolved",
+        phase: "initial",
+        callIndex: ctx.callIndex + 1,
+        payload: {
+          source: initialContractGuidance.source,
+          routedToolNames: initialContractGuidance.routedToolNames ?? [],
+          toolChoice:
+            typeof initialContractGuidance.toolChoice === "string"
+              ? initialContractGuidance.toolChoice
+              : initialContractGuidance.toolChoice.name,
+          hasRuntimeInstruction: Boolean(initialContractGuidance.runtimeInstruction),
+        },
+      });
+    }
     if (initialContractGuidance?.runtimeInstruction) {
       this.maybePushRuntimeInstruction(
         ctx,
@@ -1400,8 +1526,19 @@ export class ChatExecutor {
 
       // Routing expansion on miss.
       if (loopState.expandAfterRound && ctx.expandedRoutedToolNames.length > 0) {
+        const previousRoutedToolNames = [...ctx.activeRoutedToolNames];
         ctx.routedToolsExpanded = true;
         ctx.activeRoutedToolNames = ctx.expandedRoutedToolNames;
+        this.emitExecutionTrace(ctx, {
+          type: "route_expanded",
+          phase: "tool_followup",
+          callIndex: ctx.callIndex + 1,
+          payload: {
+            previousRoutedToolNames,
+            nextRoutedToolNames: ctx.activeRoutedToolNames,
+            routedToolMisses: ctx.routedToolMisses,
+          },
+        });
         const updatedHintCount = ctx.messageSections.filter(
           (s) => s === "system_runtime",
         ).length;
@@ -1420,6 +1557,24 @@ export class ChatExecutor {
           phase: "tool_followup",
         },
       );
+      if (followupContractGuidance) {
+        this.emitExecutionTrace(ctx, {
+          type: "contract_guidance_resolved",
+          phase: "tool_followup",
+          callIndex: ctx.callIndex + 1,
+          payload: {
+            source: followupContractGuidance.source,
+            routedToolNames: followupContractGuidance.routedToolNames ?? [],
+            toolChoice:
+              typeof followupContractGuidance.toolChoice === "string"
+                ? followupContractGuidance.toolChoice
+                : followupContractGuidance.toolChoice.name,
+            hasRuntimeInstruction: Boolean(
+              followupContractGuidance.runtimeInstruction,
+            ),
+          },
+        });
+      }
       if (followupContractGuidance?.runtimeInstruction) {
         this.maybePushRuntimeInstruction(
           ctx,
@@ -1506,6 +1661,20 @@ export class ChatExecutor {
       ctx.routedToolsExpanded,
     );
     if (permission.errorResult) {
+      this.emitExecutionTrace(ctx, {
+        type: "tool_rejected",
+        phase: "tool_followup",
+        callIndex: ctx.callIndex,
+        payload: {
+          tool: toolCall.name,
+          routingMiss: permission.routingMiss === true,
+          expandAfterRound: permission.expandAfterRound === true,
+          activeRoutedToolNames: loopState.activeRoutedToolSet
+            ? [...loopState.activeRoutedToolSet]
+            : [],
+          error: permission.errorResult,
+        },
+      });
       if (permission.routingMiss) ctx.routedToolMisses++;
       this.pushMessage(
         ctx,
@@ -1530,6 +1699,16 @@ export class ChatExecutor {
     // Parse arguments.
     const parseResult = parseToolCallArguments(toolCall);
     if (!parseResult.ok) {
+      this.emitExecutionTrace(ctx, {
+        type: "tool_arguments_invalid",
+        phase: "tool_followup",
+        callIndex: ctx.callIndex,
+        payload: {
+          tool: toolCall.name,
+          error: parseResult.error,
+          rawArguments: toolCall.arguments,
+        },
+      });
       this.pushMessage(
         ctx,
         {
@@ -1550,6 +1729,15 @@ export class ChatExecutor {
       return "skip";
     }
     const args = normalizeToolCallArguments(toolCall.name, parseResult.args);
+    this.emitExecutionTrace(ctx, {
+      type: "tool_dispatch_started",
+      phase: "tool_followup",
+      callIndex: ctx.callIndex,
+      payload: {
+        tool: toolCall.name,
+        args,
+      },
+    });
 
     // Execute tool with retry.
     const exec = await executeToolWithRetry(
@@ -1598,6 +1786,19 @@ export class ChatExecutor {
       result,
       isError: exec.toolFailed,
       durationMs: exec.durationMs,
+    });
+    this.emitExecutionTrace(ctx, {
+      type: "tool_dispatch_finished",
+      phase: "tool_followup",
+      callIndex: ctx.callIndex,
+      payload: {
+        tool: toolCall.name,
+        args,
+        durationMs: exec.durationMs,
+        isError: exec.toolFailed,
+        timedOut: exec.timedOut,
+        result,
+      },
     });
 
     if (ctx.failedToolCalls > ctx.effectiveFailureBudget) {
@@ -2259,6 +2460,9 @@ export class ChatExecutor {
       statefulResumeAnchor?: LLMStatefulResumeAnchor;
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
+      trace?: ChatExecuteParams["trace"];
+      callIndex?: number;
+      callPhase?: ChatCallUsageRecord["phase"];
     },
   ): Promise<FallbackResult> {
     const beforeBudget = estimatePromptShape(messages);
@@ -2279,8 +2483,11 @@ export class ChatExecutor {
       options?.routedToolNames && options.routedToolNames.length > 0,
     );
     const hasToolChoice = options?.toolChoice !== undefined;
+    const hasProviderTrace =
+      options?.trace?.includeProviderPayloads === true ||
+      options?.trace?.onProviderTraceEvent !== undefined;
     const chatOptions: LLMChatOptions | undefined =
-      hasStatefulSessionId || hasRoutedToolNames || hasToolChoice
+      hasStatefulSessionId || hasRoutedToolNames || hasToolChoice || hasProviderTrace
         ? {
           ...(hasStatefulSessionId
             ? {
@@ -2296,6 +2503,29 @@ export class ChatExecutor {
             ? { toolRouting: { allowedToolNames: options?.routedToolNames } }
             : {}),
           ...(hasToolChoice ? { toolChoice: options?.toolChoice } : {}),
+          ...(hasProviderTrace
+            ? {
+              trace: {
+                includeProviderPayloads:
+                  options?.trace?.includeProviderPayloads === true,
+                ...(options?.trace?.onProviderTraceEvent
+                  ? {
+                    onProviderTraceEvent: (event) => {
+                      options.trace?.onProviderTraceEvent?.({
+                        ...event,
+                        ...(options.callIndex !== undefined
+                          ? { callIndex: options.callIndex }
+                          : {}),
+                        ...(options.callPhase !== undefined
+                          ? { callPhase: options.callPhase }
+                          : {}),
+                      });
+                    },
+                  }
+                  : {}),
+              },
+            }
+            : {}),
         }
         : undefined;
     let lastError: Error | undefined;
@@ -2681,6 +2911,8 @@ export class ChatExecutor {
   private async evaluateResponse(
     content: string,
     userMessage: string,
+    trace?: ChatExecuteParams["trace"],
+    nextCallIndex?: number,
   ): Promise<{
     score: number;
     feedback: string;
@@ -2700,7 +2932,15 @@ export class ChatExecutor {
           role: "user",
           content: `User request: ${userMessage.slice(0, MAX_EVAL_USER_CHARS)}\n\nResponse: ${content.slice(0, MAX_EVAL_RESPONSE_CHARS)}`,
         },
-      ]);
+      ], undefined, undefined, {
+        ...(trace
+          ? {
+            trace,
+            callIndex: nextCallIndex,
+            callPhase: "evaluator" as const,
+          }
+          : {}),
+      });
     } catch (error) {
       throw this.annotateFailureError(error, "response evaluation").error;
     }
@@ -2754,6 +2994,7 @@ export class ChatExecutor {
   private async compactHistory(
     history: readonly LLMMessage[],
     sessionId: string,
+    trace?: ChatExecuteParams["trace"],
   ): Promise<LLMMessage[]> {
     if (history.length <= 5) return [...history];
 
@@ -2792,7 +3033,15 @@ export class ChatExecutor {
             "Omit pleasantries and redundant exchanges. Output only the summary.",
         },
         { role: "user", content: historyText },
-      ]);
+      ], undefined, undefined, {
+        ...(trace
+          ? {
+            trace,
+            callIndex: 0,
+            callPhase: "compaction" as const,
+          }
+          : {}),
+      });
     } catch (error) {
       throw this.annotateFailureError(error, "history compaction").error;
     }

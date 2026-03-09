@@ -13,6 +13,7 @@ import type {
   LLMCompactionDiagnostics,
   LLMCompactionFallbackReason,
   LLMCompactionItemRef,
+  LLMProviderTraceEvent,
   LLMToolChoice,
   LLMProvider,
   LLMMessage,
@@ -36,6 +37,7 @@ import {
 import { supportsGrokServerSideTools } from "../provider-native-search.js";
 import { withTimeout } from "../timeout.js";
 import { validateToolTurnSequence } from "../tool-turn-validator.js";
+import { safeStringify } from "../../tools/types.js";
 import type { GrokProviderConfig } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
@@ -70,6 +72,25 @@ const PRIORITY_TOOL_NAMES = new Set([
   "desktop.mouse_move",
   "desktop.scroll",
 ]);
+
+type ToolResolutionStrategy =
+  | "all_tools_no_filter"
+  | "all_tools_empty_filter"
+  | "subset_exact"
+  | "subset_partial"
+  | "fallback_full_catalog_no_matches";
+
+interface ToolSelectionDiagnostics {
+  readonly tools: Record<string, unknown>[];
+  readonly chars: number;
+  readonly requestedToolNames: readonly string[];
+  readonly resolvedToolNames: readonly string[];
+  readonly missingRequestedToolNames: readonly string[];
+  readonly providerCatalogToolCount: number;
+  readonly toolResolution: ToolResolutionStrategy;
+  readonly toolsAttached: boolean;
+  readonly toolSuppressionReason?: string;
+}
 
 /** Vision models known to support function-calling alongside image understanding. */
 const VISION_MODELS_WITH_TOOLS = new Set([
@@ -214,6 +235,7 @@ function isPromptOverflowErrorMessage(message: string): boolean {
 
 function collectParamDiagnostics(
   params: Record<string, unknown>,
+  selection?: ToolSelectionDiagnostics,
 ): LLMRequestMetrics {
   const messages = Array.isArray(params.messages)
     ? (params.messages as Array<Record<string, unknown>>)
@@ -227,6 +249,7 @@ function collectParamDiagnostics(
   const tools = Array.isArray(params.tools)
     ? (params.tools as unknown[])
     : [];
+  const toolNames = extractTraceToolNames(tools);
 
   let totalContentChars = 0;
   let maxMessageChars = 0;
@@ -287,9 +310,143 @@ function collectParamDiagnostics(
     textParts,
     imageParts,
     toolCount: tools.length,
+    toolNames,
+    requestedToolNames: selection?.requestedToolNames,
+    missingRequestedToolNames: selection?.missingRequestedToolNames,
+    toolResolution: selection?.toolResolution,
+    providerCatalogToolCount: selection?.providerCatalogToolCount,
+    toolsAttached: selection?.toolsAttached,
+    toolSuppressionReason: selection?.toolSuppressionReason,
+    toolChoice: summarizeTraceToolChoice(params.tool_choice),
     toolSchemaChars,
     serializedChars,
+    previousResponseId:
+      typeof params.previous_response_id === "string"
+        ? String(params.previous_response_id)
+        : undefined,
+    store: typeof params.store === "boolean" ? params.store : undefined,
+    parallelToolCalls:
+      typeof params.parallel_tool_calls === "boolean"
+        ? params.parallel_tool_calls
+        : undefined,
+    stream: typeof params.stream === "boolean" ? params.stream : undefined,
   };
+}
+
+function extractTraceToolNames(tools: readonly unknown[]): string[] {
+  const names: string[] = [];
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object" || Array.isArray(tool)) continue;
+    const record = tool as Record<string, unknown>;
+    if (typeof record.name === "string" && record.name.trim().length > 0) {
+      names.push(record.name.trim());
+      continue;
+    }
+    if (
+      record.function &&
+      typeof record.function === "object" &&
+      !Array.isArray(record.function) &&
+      typeof (record.function as Record<string, unknown>).name === "string"
+    ) {
+      names.push(String((record.function as Record<string, unknown>).name).trim());
+      continue;
+    }
+    if (typeof record.type === "string" && record.type.trim().length > 0) {
+      names.push(record.type.trim());
+    }
+  }
+  return names;
+}
+
+function summarizeTraceToolChoice(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    record.type === "function" &&
+    typeof record.name === "string" &&
+    record.name.trim().length > 0
+  ) {
+    return `function:${record.name.trim()}`;
+  }
+  try {
+    return safeStringify(record);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
+function buildToolSelectionTraceContext(
+  selection: ToolSelectionDiagnostics,
+  toolChoice: LLMToolChoice | undefined,
+): Record<string, unknown> {
+  return {
+    requestedToolNames: selection.requestedToolNames,
+    resolvedToolNames: selection.resolvedToolNames,
+    missingRequestedToolNames: selection.missingRequestedToolNames,
+    toolResolution: selection.toolResolution,
+    providerCatalogToolCount: selection.providerCatalogToolCount,
+    toolsAttached: selection.toolsAttached,
+    ...(selection.toolSuppressionReason
+      ? { toolSuppressionReason: selection.toolSuppressionReason }
+      : {}),
+    requestedToolChoice:
+      typeof toolChoice === "string"
+        ? toolChoice
+        : toolChoice?.name,
+  };
+}
+
+function cloneProviderTracePayload(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(safeStringify(value)) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildProviderTraceErrorPayload(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    const payload: Record<string, unknown> = {
+      name: error.name,
+      message: error.message,
+    };
+    if (error.stack) payload.stack = error.stack;
+    const code = (error as { code?: unknown }).code;
+    if (
+      typeof code === "string" ||
+      typeof code === "number" ||
+      typeof code === "boolean"
+    ) {
+      payload.code = code;
+    }
+    const status = (error as { status?: unknown }).status;
+    if (
+      typeof status === "string" ||
+      typeof status === "number" ||
+      typeof status === "boolean"
+    ) {
+      payload.status = status;
+    }
+    return payload;
+  }
+  return { error: String(error) };
+}
+
+function emitProviderTraceEvent(
+  options: LLMChatOptions | undefined,
+  event: LLMProviderTraceEvent,
+): void {
+  options?.trace?.onProviderTraceEvent?.(event);
 }
 
 function hashText(value: string): string {
@@ -703,26 +860,59 @@ export class GrokProvider implements LLMProvider {
     let plan = this.buildRequestPlan(messages, options);
 
     const run = async (activePlan: ReturnType<GrokProvider["buildRequestPlan"]>) => {
-      const response = await withTimeout(
-        async (signal) =>
-          (client as any).responses.create(activePlan.params, { signal }),
-        this.config.timeoutMs,
-        this.name,
-      );
-      const parsed = this.parseResponse(
-        response,
-        activePlan.requestMetrics,
-        activePlan.statefulDiagnostics,
-        activePlan.compactionDiagnostics,
-      );
-      if (activePlan.assistantPhaseEnabled) {
-        this.assistantPhaseSupported = true;
+      emitProviderTraceEvent(options, {
+        kind: "request",
+        transport: "chat",
+        provider: this.name,
+        model: String(activePlan.params.model ?? this.config.model),
+        payload:
+          cloneProviderTracePayload(activePlan.params) ??
+          { error: "provider_request_trace_unavailable" },
+        context: buildToolSelectionTraceContext(
+          activePlan.toolSelection,
+          options?.toolChoice,
+        ),
+      });
+      try {
+        const response = await withTimeout(
+          async (signal) =>
+            (client as any).responses.create(activePlan.params, { signal }),
+          this.config.timeoutMs,
+          this.name,
+        );
+        emitProviderTraceEvent(options, {
+          kind: "response",
+          transport: "chat",
+          provider: this.name,
+          model: String(response?.model ?? activePlan.params.model ?? this.config.model),
+          payload:
+            cloneProviderTracePayload(response) ??
+            { error: "provider_response_trace_unavailable" },
+        });
+        const parsed = this.parseResponse(
+          response,
+          activePlan.requestMetrics,
+          activePlan.statefulDiagnostics,
+          activePlan.compactionDiagnostics,
+        );
+        if (activePlan.assistantPhaseEnabled) {
+          this.assistantPhaseSupported = true;
+        }
+        if (activePlan.compactionDiagnostics?.active) {
+          this.serverCompactionSupported = true;
+        }
+        this.persistStatefulAnchor(activePlan, parsed);
+        return parsed;
+      } catch (error) {
+        emitProviderTraceEvent(options, {
+          kind: "error",
+          transport: "chat",
+          provider: this.name,
+          model: String(activePlan.params.model ?? this.config.model),
+          payload: buildProviderTraceErrorPayload(error),
+        });
+        throw error;
       }
-      if (activePlan.compactionDiagnostics?.active) {
-        this.serverCompactionSupported = true;
-      }
-      this.persistStatefulAnchor(activePlan, parsed);
-      return parsed;
     };
 
     while (true) {
@@ -791,7 +981,7 @@ export class GrokProvider implements LLMProvider {
     const client = await this.ensureClient();
     let plan = this.buildRequestPlan(messages, options);
     let params: Record<string, unknown> = { ...plan.params, stream: true };
-    let requestMetrics = collectParamDiagnostics(params);
+    let requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
     let statefulDiagnostics = plan.statefulDiagnostics;
     let compactionDiagnostics = plan.compactionDiagnostics;
     let content = "";
@@ -808,6 +998,19 @@ export class GrokProvider implements LLMProvider {
     try {
       let stream: AsyncIterable<any>;
       while (true) {
+        emitProviderTraceEvent(options, {
+          kind: "request",
+          transport: "chat_stream",
+          provider: this.name,
+          model: String(params.model ?? this.config.model),
+          payload:
+            cloneProviderTracePayload(params) ??
+            { error: "provider_request_trace_unavailable" },
+          context: buildToolSelectionTraceContext(
+            plan.toolSelection,
+            options?.toolChoice,
+          ),
+        });
         try {
           stream = await withTimeout(
             async (signal) =>
@@ -834,7 +1037,7 @@ export class GrokProvider implements LLMProvider {
               compactionFallbackReason: compactionDiagnostics?.fallbackReason,
             });
             params = { ...plan.params, stream: true };
-            requestMetrics = collectParamDiagnostics(params);
+            requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
             statefulDiagnostics = plan.statefulDiagnostics;
             compactionDiagnostics = plan.compactionDiagnostics;
             continue;
@@ -853,7 +1056,7 @@ export class GrokProvider implements LLMProvider {
               compactionFallbackReason: "request_rejected",
             });
             params = { ...plan.params, stream: true };
-            requestMetrics = collectParamDiagnostics(params);
+            requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
             statefulDiagnostics = plan.statefulDiagnostics;
             compactionDiagnostics = plan.compactionDiagnostics;
             continue;
@@ -869,7 +1072,7 @@ export class GrokProvider implements LLMProvider {
               compactionFallbackReason: compactionDiagnostics?.fallbackReason,
             });
             params = { ...plan.params, stream: true };
-            requestMetrics = collectParamDiagnostics(params);
+            requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
             statefulDiagnostics = plan.statefulDiagnostics;
             compactionDiagnostics = plan.compactionDiagnostics;
             continue;
@@ -912,6 +1115,15 @@ export class GrokProvider implements LLMProvider {
 
         if (event.type === "response.completed") {
           const response = event.response ?? {};
+          emitProviderTraceEvent(options, {
+            kind: "response",
+            transport: "chat_stream",
+            provider: this.name,
+            model: String(response.model ?? model),
+            payload:
+              cloneProviderTracePayload(response) ??
+              { error: "provider_response_trace_unavailable" },
+          });
           model = String(response.model ?? model);
           usage = this.parseUsage(response);
           providerEvidence = this.extractProviderEvidence(
@@ -954,6 +1166,15 @@ export class GrokProvider implements LLMProvider {
             event.response && typeof event.response === "object"
               ? (event.response as Record<string, unknown>)
               : {};
+          emitProviderTraceEvent(options, {
+            kind: "error",
+            transport: "chat_stream",
+            provider: this.name,
+            model: String(failedResponse.model ?? model),
+            payload:
+              cloneProviderTracePayload(failedResponse) ??
+              { error: "provider_error_trace_unavailable" },
+          });
           finishReason = "error";
           responseError =
             this.extractResponseError(failedResponse, "error") ??
@@ -982,6 +1203,13 @@ export class GrokProvider implements LLMProvider {
       this.persistStatefulAnchor(plan, parsed);
       return parsed;
     } catch (err: unknown) {
+      emitProviderTraceEvent(options, {
+        kind: "error",
+        transport: "chat_stream",
+        provider: this.name,
+        model,
+        payload: buildProviderTraceErrorPayload(err),
+      });
       const mappedError = this.mapError(err);
       this.logPromptOverflowDiagnostics(mappedError, params);
       if (content.length > 0) {
@@ -1052,6 +1280,7 @@ export class GrokProvider implements LLMProvider {
   ): {
     params: Record<string, unknown>;
     requestMetrics: LLMRequestMetrics;
+    toolSelection: ToolSelectionDiagnostics;
     statefulDiagnostics?: LLMStatefulDiagnostics;
     compactionDiagnostics?: LLMCompactionDiagnostics;
     sessionId?: string;
@@ -1083,17 +1312,25 @@ export class GrokProvider implements LLMProvider {
       : undefined;
     const sessionId = options?.stateful?.sessionId?.trim();
     if (!this.statefulConfig.enabled || !sessionId) {
-      const params = this.buildParams(messages, {
+      const toolSelection = this.resolveResponseTools(
+        options?.toolRouting?.allowedToolNames,
+      );
+      const built = this.buildParams(messages, {
         store: false,
         allowedToolNames: options?.toolRouting?.allowedToolNames,
         toolChoice: options?.toolChoice,
         assistantPhaseEnabled,
         contextManagementCompactThreshold:
           compactionActive ? this.statefulConfig.compaction.compactThreshold : undefined,
+        toolSelection,
       });
       return {
-        params,
-        requestMetrics: collectParamDiagnostics(params),
+        params: built.params,
+        requestMetrics: collectParamDiagnostics(
+          built.params,
+          built.toolSelection,
+        ),
+        toolSelection: built.toolSelection,
         compactionDiagnostics,
         assistantPhaseEnabled,
       };
@@ -1175,7 +1412,10 @@ export class GrokProvider implements LLMProvider {
       });
     }
 
-    const params = this.buildParams(messages, {
+    const toolSelection = this.resolveResponseTools(
+      options?.toolRouting?.allowedToolNames,
+    );
+    const built = this.buildParams(messages, {
       store: this.statefulConfig.store,
       previousResponseId: continued ? previousResponseId : undefined,
       allowedToolNames: options?.toolRouting?.allowedToolNames,
@@ -1183,11 +1423,16 @@ export class GrokProvider implements LLMProvider {
       assistantPhaseEnabled,
       contextManagementCompactThreshold:
         compactionActive ? this.statefulConfig.compaction.compactThreshold : undefined,
+      toolSelection,
     });
 
     return {
-      params,
-      requestMetrics: collectParamDiagnostics(params),
+      params: built.params,
+      requestMetrics: collectParamDiagnostics(
+        built.params,
+        built.toolSelection,
+      ),
+      toolSelection: built.toolSelection,
       sessionId,
       reconciliationHash: reconciliation.anchorHash,
       compactionDiagnostics,
@@ -1264,8 +1509,12 @@ export class GrokProvider implements LLMProvider {
       toolChoice?: LLMToolChoice;
       assistantPhaseEnabled?: boolean;
       contextManagementCompactThreshold?: number;
+      toolSelection?: ToolSelectionDiagnostics;
     },
-  ): Record<string, unknown> {
+  ): {
+    params: Record<string, unknown>;
+    toolSelection: ToolSelectionDiagnostics;
+  } {
     const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
     validateToolTurnSequence(messages, { providerName: this.name });
 
@@ -1347,7 +1596,10 @@ export class GrokProvider implements LLMProvider {
         compact_threshold: options.contextManagementCompactThreshold,
       };
     }
-    const selectedTools = this.resolveResponseTools(options?.allowedToolNames);
+    const selectedTools = {
+      ...(options?.toolSelection ??
+        this.resolveResponseTools(options?.allowedToolNames)),
+    };
     // Enable tools unless the vision model is known to not support them.
     if (selectedTools.tools.length > 0) {
       const hasToolResults = messages.some((m) => m.role === "tool");
@@ -1356,20 +1608,36 @@ export class GrokProvider implements LLMProvider {
         (!hasToolResults || selectedTools.chars <= MAX_TOOL_SCHEMA_CHARS_FOLLOWUP)
       ) {
         params.tools = selectedTools.tools;
+        selectedTools.toolsAttached = true;
         params.parallel_tool_calls = this.config.parallelToolCalls;
         if (options?.toolChoice !== undefined) {
           params.tool_choice = normalizeResponsesToolChoice(options.toolChoice);
         }
+      } else if (hasImages && !VISION_MODELS_WITH_TOOLS.has(visionModel)) {
+        selectedTools.toolSuppressionReason = "vision_model_without_tool_support";
+      } else if (hasToolResults) {
+        selectedTools.toolSuppressionReason = "followup_tool_schema_limit";
       }
     }
-    return params;
+    return { params, toolSelection: selectedTools };
   }
 
   private resolveResponseTools(
     allowedToolNames?: readonly string[],
-  ): { tools: Record<string, unknown>[]; chars: number } {
+  ): ToolSelectionDiagnostics {
+    const providerCatalogToolCount = this.responseTools.length;
+    const providerCatalogToolNames = extractTraceToolNames(this.responseTools);
     if (!allowedToolNames || allowedToolNames.length === 0) {
-      return { tools: this.responseTools, chars: this.toolChars };
+      return {
+        tools: this.responseTools,
+        chars: this.toolChars,
+        requestedToolNames: [],
+        resolvedToolNames: providerCatalogToolNames,
+        missingRequestedToolNames: [],
+        providerCatalogToolCount,
+        toolResolution: "all_tools_no_filter",
+        toolsAttached: false,
+      };
     }
 
     const allowed = new Set(
@@ -1378,9 +1646,19 @@ export class GrokProvider implements LLMProvider {
         .filter((name) => name.length > 0),
     );
     if (allowed.size === 0) {
-      return { tools: this.responseTools, chars: this.toolChars };
+      return {
+        tools: this.responseTools,
+        chars: this.toolChars,
+        requestedToolNames: [],
+        resolvedToolNames: providerCatalogToolNames,
+        missingRequestedToolNames: [],
+        providerCatalogToolCount,
+        toolResolution: "all_tools_empty_filter",
+        toolsAttached: false,
+      };
     }
 
+    const requestedToolNames = [...allowed];
     const selected: Record<string, unknown>[] = [];
     let chars = 0;
     for (const tool of this.tools) {
@@ -1397,11 +1675,35 @@ export class GrokProvider implements LLMProvider {
       chars += JSON.stringify(this.webSearchTool).length;
     }
 
+    const resolvedToolNames = extractTraceToolNames(selected);
+    const missingRequestedToolNames = requestedToolNames.filter((name) =>
+      !resolvedToolNames.includes(name)
+    );
+
     if (selected.length === 0) {
-      return { tools: this.responseTools, chars: this.toolChars };
+      return {
+        tools: this.responseTools,
+        chars: this.toolChars,
+        requestedToolNames,
+        resolvedToolNames: providerCatalogToolNames,
+        missingRequestedToolNames: requestedToolNames,
+        providerCatalogToolCount,
+        toolResolution: "fallback_full_catalog_no_matches",
+        toolsAttached: false,
+      };
     }
 
-    return { tools: selected, chars };
+    return {
+      tools: selected,
+      chars,
+      requestedToolNames,
+      resolvedToolNames,
+      missingRequestedToolNames,
+      providerCatalogToolCount,
+      toolResolution:
+        missingRequestedToolNames.length > 0 ? "subset_partial" : "subset_exact",
+      toolsAttached: false,
+    };
   }
 
   private toOpenAIMessage(

@@ -22,6 +22,7 @@ import { useActivityFeed } from './hooks/useActivityFeed';
 import { useAgents } from './hooks/useAgents';
 import { useDesktop } from './hooks/useDesktop';
 import { useRuns } from './hooks/useRuns';
+import { useObservability } from './hooks/useObservability';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { BBSHeader } from './components/BBSHeader';
 import { BBSMenuBar } from './components/BBSMenuBar';
@@ -34,6 +35,7 @@ import { SkillsView } from './components/skills/SkillsView';
 import { TasksView } from './components/tasks/TasksView';
 import { MemoryView } from './components/memory/MemoryView';
 import { ActivityFeedView } from './components/activity/ActivityFeedView';
+import { ObservabilityView } from './components/observability/ObservabilityView';
 import { RunDashboardView } from './components/runs/RunDashboardView';
 import { SettingsView } from './components/settings/SettingsView';
 import { PaymentView } from './components/payment/PaymentView';
@@ -124,6 +126,9 @@ export default function App() {
   const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
   const desktop = useDesktop({ send, connected });
   const runs = useRuns({ send, connected }) as WithHandler<ReturnType<typeof useRuns>>;
+  const observability = useObservability({ send, connected }) as WithHandler<
+    ReturnType<typeof useObservability>
+  >;
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
   const prevVncUrl = useRef<string | null>(null);
   const suppressNextVoiceTranscript = useRef(false);
@@ -182,6 +187,7 @@ export default function App() {
     agentsData.handleMessage(msg);
     desktop.handleMessage(msg);
     runs.handleMessage(msg);
+    observability.handleMessage(msg);
 
     const payload = (msg.payload ?? {}) as Record<string, unknown>;
     if (msg.type === WS_VOICE_DELEGATION) {
@@ -291,6 +297,27 @@ export default function App() {
               onInspect={runs.inspect}
               onControl={runs.control}
               onEnableBrowserNotifications={runs.enableBrowserNotifications}
+            />
+          )}
+          {currentView === 'observability' && (
+            <ObservabilityView
+              summary={observability.summary}
+              traces={observability.traces}
+              selectedTraceId={observability.selectedTraceId}
+              selectedTrace={observability.selectedTrace}
+              selectedEventId={observability.selectedEventId}
+              selectedEvent={observability.selectedEvent}
+              artifact={observability.artifact}
+              logs={observability.logs}
+              loading={observability.loading}
+              error={observability.error}
+              search={observability.search}
+              status={observability.status}
+              onSearchChange={observability.setSearch}
+              onStatusChange={observability.setStatus}
+              onSelectTrace={observability.setSelectedTraceId}
+              onSelectEvent={observability.setSelectedEventId}
+              onRefresh={observability.refresh}
             />
           )}
           {currentView === 'skills' && (

@@ -1,0 +1,38 @@
+Primary prompt
+
+Start a durable background run and use the typed long-lived handle tools, not raw shell backgrounding, unless there is no typed alternative.
+
+Task:
+- Create an isolated sandbox or managed process handle.
+- Inside it, create a tiny local HTTP service that returns JSON with:
+  - `status: "ok"`
+  - a startup timestamp
+  - a monotonically increasing heartbeat counter
+- Start the service under a durable labeled handle named `runtime-smoke-server`.
+- Verify the service is actually running by checking the handle state and by confirming the HTTP endpoint responds.
+- Keep supervising it in the background instead of ending after setup.
+- Emit operator-visible progress updates as the run advances.
+- Record verified evidence and any artifacts/locators that make the run easy to inspect from the dashboard.
+- If approval is required for any step, surface the approval request through the normal runtime approval flow instead of skipping the step.
+- If the service exits or the handle becomes unhealthy, use the structured handle/runtime path to explain or recover; do not guess.
+- Continue until I explicitly tell you to stop.
+
+Requirements:
+- Prefer `system.sandbox*`, `system.process*`, or other typed durable tools over freeform shell.
+- Do not use a one-shot answer style. This should become a real supervised background run.
+- Use the run contract and status surfaces correctly so I can inspect, pause, resume, and stop it afterward.
+- When you report success, include:
+  - the run/session identifier
+  - the durable handle identifier
+  - the port
+  - the latest verified evidence
+
+Follow-up prompts
+
+1. Give me the current status of the durable run, the latest verified evidence, and the handle state.
+
+2. Pause the run without destroying the underlying durable handle, then tell me exactly what state changed.
+
+3. Resume the run and confirm it is supervising the same underlying handle instead of starting a duplicate.
+
+4. Stop the run, stop the underlying handle, and confirm cleanup is complete.

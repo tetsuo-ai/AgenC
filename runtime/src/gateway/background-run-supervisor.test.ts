@@ -394,6 +394,67 @@ describe("background-run-supervisor", () => {
     expect(remainingMs).toBeLessThanOrEqual(4_000);
   });
 
+  it("passes provider trace options to actor and supervisor calls when enabled", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "Cycle complete",
+      })
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi.fn(async () => ({
+        content:
+          '{"state":"completed","userUpdate":"Done.","internalSummary":"verified completion","shouldNotifyUser":true}',
+        toolCalls: [],
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        model: "supervisor-model",
+        finishReason: "stop",
+      })),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+      traceProviderPayloads: true,
+    });
+
+    await supervisor.startRun({
+      sessionId: "trace-session",
+      objective: "Check status until you are done.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await eventually(() => {
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trace: expect.objectContaining({
+          includeProviderPayloads: true,
+          onProviderTraceEvent: expect.any(Function),
+          onExecutionTraceEvent: expect.any(Function),
+        }),
+      }),
+    );
+    expect(supervisorLlm.chat).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        toolChoice: "none",
+        trace: expect.objectContaining({
+          includeProviderPayloads: true,
+          onProviderTraceEvent: expect.any(Function),
+        }),
+      }),
+    );
+  });
+
   it("fans durable lifecycle events out to configured notification sinks", async () => {
     const publishUpdate = vi.fn(async () => undefined);
     const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }));

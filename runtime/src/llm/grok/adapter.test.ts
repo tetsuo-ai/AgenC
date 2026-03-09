@@ -194,6 +194,56 @@ describe("GrokProvider", () => {
     expect(params.tool_choice).toBe("required");
   });
 
+  it("captures selected tools and tool_choice in request metrics", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "system.httpGet",
+            description: "http get",
+            parameters: {
+              type: "object",
+              properties: { url: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    const response = await provider.chat(
+      [{ role: "user", content: "inspect the repo" }],
+      {
+        toolRouting: { allowedToolNames: ["system.bash"] },
+        toolChoice: "required",
+      },
+    );
+
+    expect(response.requestMetrics).toMatchObject({
+      toolCount: 1,
+      toolNames: ["system.bash"],
+      requestedToolNames: ["system.bash"],
+      missingRequestedToolNames: [],
+      toolResolution: "subset_exact",
+      toolChoice: "required",
+      store: false,
+    });
+  });
+
   it("normalizes forced function tool_choice for the Responses API", async () => {
     mockCreate.mockResolvedValueOnce(makeCompletion());
 
@@ -223,6 +273,121 @@ describe("GrokProvider", () => {
     expect(params.tool_choice).toEqual({
       type: "function",
       name: "mcp.browser.browser_navigate",
+    });
+  });
+
+  it("emits raw provider request and response trace events when enabled", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const events: Array<Record<string, unknown>> = [];
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "inspect the repo" }],
+      {
+        toolRouting: { allowedToolNames: ["system.bash"] },
+        toolChoice: "required",
+        trace: {
+          includeProviderPayloads: true,
+          onProviderTraceEvent: (event) => {
+            events.push(event as unknown as Record<string, unknown>);
+          },
+        },
+      },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      kind: "request",
+      transport: "chat",
+      provider: "grok",
+      context: {
+        requestedToolNames: ["system.bash"],
+        resolvedToolNames: ["system.bash"],
+        missingRequestedToolNames: [],
+        toolResolution: "subset_exact",
+      },
+      payload: {
+        tool_choice: "required",
+      },
+    });
+    expect((events[0].payload as { tools?: Array<{ name?: string }> }).tools?.[0]?.name).toBe(
+      "system.bash",
+    );
+    expect(events[1]).toMatchObject({
+      kind: "response",
+      transport: "chat",
+      provider: "grok",
+    });
+    expect((events[1].payload as { output_text?: string }).output_text).toBe("Hello!");
+  });
+
+  it("records provider tool-resolution fallback when routed tools cannot be resolved", async () => {
+    mockCreate.mockResolvedValueOnce(makeCompletion());
+
+    const events: Array<Record<string, unknown>> = [];
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "system.bash",
+            description: "run command",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    const response = await provider.chat(
+      [{ role: "user", content: "inspect the repo" }],
+      {
+        toolRouting: { allowedToolNames: ["mcp.doom.start_game"] },
+        trace: {
+          includeProviderPayloads: true,
+          onProviderTraceEvent: (event) => {
+            events.push(event as unknown as Record<string, unknown>);
+          },
+        },
+      },
+    );
+
+    expect(response.requestMetrics).toMatchObject({
+      toolCount: 1,
+      toolNames: ["system.bash"],
+      requestedToolNames: ["mcp.doom.start_game"],
+      missingRequestedToolNames: ["mcp.doom.start_game"],
+      toolResolution: "fallback_full_catalog_no_matches",
+      providerCatalogToolCount: 1,
+    });
+    expect(events[0]).toMatchObject({
+      kind: "request",
+      context: {
+        requestedToolNames: ["mcp.doom.start_game"],
+        resolvedToolNames: ["system.bash"],
+        missingRequestedToolNames: ["mcp.doom.start_game"],
+        toolResolution: "fallback_full_catalog_no_matches",
+        providerCatalogToolCount: 1,
+      },
     });
   });
 
