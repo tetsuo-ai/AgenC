@@ -5295,6 +5295,10 @@ export class DaemonManager {
       void this._hookDispatcher.dispatch("session:compact", {
         sessionId,
         summary,
+        phase: "after",
+        result: {
+          summaryGenerated: true,
+        },
         source: "budget",
       });
     }

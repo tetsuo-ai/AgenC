@@ -25,3 +25,10 @@
 - **What worked:** Verified parent and subagent provider continuity from `~/.agenc/daemon.log`, fixed false-positive compaction-ingestion warnings for manual `session:compact` after-phase payloads without generated summaries, and kept compacted parent and child recall stable in live replay.
 - **What didn't:** The runtime still relies on very large gateway/LLM files for this flow, so indefinite-run regression work remains slower and riskier than it should be.
 - **Rule added to CLAUDE.md:** no
+
+## PR #[local]: runtime endurance gate hardening
+- **Date:** 2026-03-09
+- **Files changed:** package.json, yarn.lock, runtime/package.json, runtime/yarn.lock, runtime/src/gateway/daemon.ts, runtime/src/llm/{chat-executor-text,chat-executor-text.test}.ts, runtime/src/memory/{ingestion,ingestion.test}.ts
+- **What worked:** Hardened exact-response parsing for parent/child endurance prompts, normalized budget-compaction ingestion events, refreshed runtime `file:../sdk` dependencies before build/typecheck/test, and aligned the repo-root `@solana/spl-token` pin so the desktop tool-definition gate uses a healthy Solana dependency graph.
+- **What didn't:** Endurance coverage is still mostly driven by live daemon-log replays rather than a dedicated automated long-run suite, so multi-hour regression confidence still depends on active operator validation.
+- **Rule added to CLAUDE.md:** no

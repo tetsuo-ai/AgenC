@@ -307,15 +307,17 @@ export function reconcileVerifiedFileWorkflowContent(
 
 function extractExactResponseLiteral(messageText: string): string | undefined {
   const directiveMatch =
-    /\b(?:return|reply|respond|output)(?:\s+with)?\s+exactly\s+/i.exec(
+    /\b(?:return|reply|respond|output|answer)(?:\s+with)?\s+exactly(?:\s+as)?\s+/i.exec(
       messageText,
     );
-  if (!directiveMatch) {
+  const exactlyAsMatch = /\bexactly\s+as\s+/i.exec(messageText);
+  const anchorMatch = directiveMatch ?? exactlyAsMatch;
+  if (!anchorMatch) {
     return undefined;
   }
 
   const remainder = messageText
-    .slice(directiveMatch.index + directiveMatch[0].length)
+    .slice(anchorMatch.index + anchorMatch[0].length)
     .trim();
   if (!remainder) {
     return undefined;
@@ -343,6 +345,7 @@ function extractExactResponseLiteral(messageText: string): string | undefined {
       /\s+(?:and|with)\s+(?:nothing\s+else|no\s+extra\s+(?:text|words)|no\s+other\s+text)\b[\s\S]*$/i,
       "",
     )
+    .replace(/[.!?]+$/, "")
     .trim();
   if (unquoted.length > 0) {
     return unquoted;
