@@ -488,5 +488,42 @@ describe("MemoryIngestionEngine", () => {
       expect(compactSpy).not.toHaveBeenCalled();
       expect(logger.warn).not.toHaveBeenCalled();
     });
+
+    it("session compact hook processes budget compactions with summary-only payloads", async () => {
+      const engine = createEngine();
+      const compactSpy = vi
+        .spyOn(engine, "processCompaction")
+        .mockResolvedValue(undefined);
+      const hooks = createIngestionHooks(engine, logger);
+
+      const budgetCtx = createHookContext("session:compact", {
+        sessionId: "sess-1",
+        summary: "budget summary",
+        source: "budget",
+      });
+
+      await hooks[2].handler(budgetCtx);
+
+      expect(compactSpy).toHaveBeenCalledWith("sess-1", "budget summary");
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it("session compact hook silently skips summary-less payloads without warning", async () => {
+      const engine = createEngine();
+      const compactSpy = vi
+        .spyOn(engine, "processCompaction")
+        .mockResolvedValue(undefined);
+      const hooks = createIngestionHooks(engine, logger);
+
+      const malformedCtx = createHookContext("session:compact", {
+        sessionId: "sess-1",
+        source: "budget",
+      });
+
+      await hooks[2].handler(malformedCtx);
+
+      expect(compactSpy).not.toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
   });
 });

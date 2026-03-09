@@ -394,13 +394,6 @@
   dependencies:
     buffer "~6.0.3"
 
-"@solana/codecs-core@2.0.0-preview.2":
-  version "2.0.0-preview.2"
-  resolved "https://registry.npmjs.org/@solana/codecs-core/-/codecs-core-2.0.0-preview.2.tgz"
-  integrity sha512-gLhCJXieSCrAU7acUJjbXl+IbGnqovvxQLlimztPoGgfLQ1wFYu+XJswrEVQqknZYK1pgxpxH3rZ+OKFs0ndQg==
-  dependencies:
-    "@solana/errors" "2.0.0-preview.2"
-
 "@solana/codecs-core@2.0.0-rc.1":
   version "2.0.0-rc.1"
   resolved "https://registry.npmjs.org/@solana/codecs-core/-/codecs-core-2.0.0-rc.1.tgz"
@@ -415,15 +408,6 @@
   dependencies:
     "@solana/errors" "2.3.0"
 
-"@solana/codecs-data-structures@2.0.0-preview.2":
-  version "2.0.0-preview.2"
-  resolved "https://registry.npmjs.org/@solana/codecs-data-structures/-/codecs-data-structures-2.0.0-preview.2.tgz"
-  integrity sha512-Xf5vIfromOZo94Q8HbR04TbgTwzigqrKII0GjYr21K7rb3nba4hUW2ir8kguY7HWFBcjHGlU5x3MevKBOLp3Zg==
-  dependencies:
-    "@solana/codecs-core" "2.0.0-preview.2"
-    "@solana/codecs-numbers" "2.0.0-preview.2"
-    "@solana/errors" "2.0.0-preview.2"
-
 "@solana/codecs-data-structures@2.0.0-rc.1":
   version "2.0.0-rc.1"
   resolved "https://registry.npmjs.org/@solana/codecs-data-structures/-/codecs-data-structures-2.0.0-rc.1.tgz"
@@ -432,14 +416,6 @@
     "@solana/codecs-core" "2.0.0-rc.1"
     "@solana/codecs-numbers" "2.0.0-rc.1"
     "@solana/errors" "2.0.0-rc.1"
-
-"@solana/codecs-numbers@2.0.0-preview.2":
-  version "2.0.0-preview.2"
-  resolved "https://registry.npmjs.org/@solana/codecs-numbers/-/codecs-numbers-2.0.0-preview.2.tgz"
-  integrity sha512-aLZnDTf43z4qOnpTcDsUVy1Ci9im1Md8thWipSWbE+WM9ojZAx528oAql+Cv8M8N+6ALKwgVRhPZkto6E59ARw==
-  dependencies:
-    "@solana/codecs-core" "2.0.0-preview.2"
-    "@solana/errors" "2.0.0-preview.2"
 
 "@solana/codecs-numbers@2.0.0-rc.1":
   version "2.0.0-rc.1"
@@ -457,15 +433,6 @@
     "@solana/codecs-core" "2.3.0"
     "@solana/errors" "2.3.0"
 
-"@solana/codecs-strings@2.0.0-preview.2":
-  version "2.0.0-preview.2"
-  resolved "https://registry.npmjs.org/@solana/codecs-strings/-/codecs-strings-2.0.0-preview.2.tgz"
-  integrity sha512-EgBwY+lIaHHgMJIqVOGHfIfpdmmUDNoNO/GAUGeFPf+q0dF+DtwhJPEMShhzh64X2MeCZcmSO6Kinx0Bvmmz2g==
-  dependencies:
-    "@solana/codecs-core" "2.0.0-preview.2"
-    "@solana/codecs-numbers" "2.0.0-preview.2"
-    "@solana/errors" "2.0.0-preview.2"
-
 "@solana/codecs-strings@2.0.0-rc.1":
   version "2.0.0-rc.1"
   resolved "https://registry.npmjs.org/@solana/codecs-strings/-/codecs-strings-2.0.0-rc.1.tgz"
@@ -474,17 +441,6 @@
     "@solana/codecs-core" "2.0.0-rc.1"
     "@solana/codecs-numbers" "2.0.0-rc.1"
     "@solana/errors" "2.0.0-rc.1"
-
-"@solana/codecs@2.0.0-preview.2":
-  version "2.0.0-preview.2"
-  resolved "https://registry.npmjs.org/@solana/codecs/-/codecs-2.0.0-preview.2.tgz"
-  integrity sha512-4HHzCD5+pOSmSB71X6w9ptweV48Zj1Vqhe732+pcAQ2cMNnN0gMPMdDq7j3YwaZDZ7yrILVV/3+HTnfT77t2yA==
-  dependencies:
-    "@solana/codecs-core" "2.0.0-preview.2"
-    "@solana/codecs-data-structures" "2.0.0-preview.2"
-    "@solana/codecs-numbers" "2.0.0-preview.2"
-    "@solana/codecs-strings" "2.0.0-preview.2"
-    "@solana/options" "2.0.0-preview.2"
 
 "@solana/codecs@2.0.0-rc.1":
   version "2.0.0-rc.1"
@@ -496,14 +452,6 @@
     "@solana/codecs-numbers" "2.0.0-rc.1"
     "@solana/codecs-strings" "2.0.0-rc.1"
     "@solana/options" "2.0.0-rc.1"
-
-"@solana/errors@2.0.0-preview.2":
-  version "2.0.0-preview.2"
-  resolved "https://registry.npmjs.org/@solana/errors/-/errors-2.0.0-preview.2.tgz"
-  integrity sha512-H2DZ1l3iYF5Rp5pPbJpmmtCauWeQXRJapkDg8epQ8BJ7cA2Ut/QEtC3CMmw/iMTcuS6uemFNLcWvlOfoQhvQuA==
-  dependencies:
-    chalk "^5.3.0"
-    commander "^12.0.0"
 
 "@solana/errors@2.0.0-rc.1":
   version "2.0.0-rc.1"
@@ -521,14 +469,6 @@
     chalk "^5.4.1"
     commander "^14.0.0"
 
-"@solana/options@2.0.0-preview.2":
-  version "2.0.0-preview.2"
-  resolved "https://registry.npmjs.org/@solana/options/-/options-2.0.0-preview.2.tgz"
-  integrity sha512-FAHqEeH0cVsUOTzjl5OfUBw2cyT8d5Oekx4xcn5hn+NyPAfQJgM3CEThzgRD6Q/4mM5pVUnND3oK/Mt1RzSE/w==
-  dependencies:
-    "@solana/codecs-core" "2.0.0-preview.2"
-    "@solana/codecs-numbers" "2.0.0-preview.2"
-
 "@solana/options@2.0.0-rc.1":
   version "2.0.0-rc.1"
   resolved "https://registry.npmjs.org/@solana/options/-/options-2.0.0-rc.1.tgz"
@@ -540,37 +480,29 @@
     "@solana/codecs-strings" "2.0.0-rc.1"
     "@solana/errors" "2.0.0-rc.1"
 
-"@solana/spl-token-group@^0.0.4":
-  version "0.0.4"
-  resolved "https://registry.npmjs.org/@solana/spl-token-group/-/spl-token-group-0.0.4.tgz"
-  integrity sha512-7+80nrEMdUKlK37V6kOe024+T7J4nNss0F8LQ9OOPYdWCCfJmsGUzVx2W3oeizZR4IHM6N4yC9v1Xqwc3BTPWw==
+"@solana/spl-token-group@^0.0.7":
+  version "0.0.7"
+  resolved "https://registry.npmjs.org/@solana/spl-token-group/-/spl-token-group-0.0.7.tgz"
+  integrity sha512-V1N/iX7Cr7H0uazWUT2uk27TMqlqedpXHRqqAbVO2gvmJyT0E0ummMEAVQeXZ05ZhQ/xF39DLSdBp90XebWEug==
   dependencies:
-    "@solana/codecs" "2.0.0-preview.2"
-    "@solana/spl-type-length-value" "0.1.0"
+    "@solana/codecs" "2.0.0-rc.1"
 
-"@solana/spl-token-metadata@^0.1.4":
+"@solana/spl-token-metadata@^0.1.6":
   version "0.1.6"
   resolved "https://registry.npmjs.org/@solana/spl-token-metadata/-/spl-token-metadata-0.1.6.tgz"
   integrity sha512-7sMt1rsm/zQOQcUWllQX9mD2O6KhSAtY1hFR2hfFwgqfFWzSY9E9GDvFVNYUI1F0iQKcm6HmePU9QbKRXTEBiA==
   dependencies:
     "@solana/codecs" "2.0.0-rc.1"
 
-"@solana/spl-token@0.4.6":
-  version "0.4.6"
-  resolved "https://registry.npmjs.org/@solana/spl-token/-/spl-token-0.4.6.tgz"
-  integrity sha512-1nCnUqfHVtdguFciVWaY/RKcQz1IF4b31jnKgAmjU9QVN1q7dRUkTEWJZgTYIEtsULjVnC9jRqlhgGN39WbKKA==
+"@solana/spl-token@0.4.14":
+  version "0.4.14"
+  resolved "https://registry.npmjs.org/@solana/spl-token/-/spl-token-0.4.14.tgz"
+  integrity sha512-u09zr96UBpX4U685MnvQsNzlvw9TiY005hk1vJmJr7gMJldoPG1eYU5/wNEyOA5lkMLiR/gOi9SFD4MefOYEsA==
   dependencies:
     "@solana/buffer-layout" "^4.0.0"
     "@solana/buffer-layout-utils" "^0.2.0"
-    "@solana/spl-token-group" "^0.0.4"
-    "@solana/spl-token-metadata" "^0.1.4"
-    buffer "^6.0.3"
-
-"@solana/spl-type-length-value@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.npmjs.org/@solana/spl-type-length-value/-/spl-type-length-value-0.1.0.tgz"
-  integrity sha512-JBMGB0oR4lPttOZ5XiUGyvylwLQjt1CPJa6qQ5oM+MBCndfjz2TKKkw0eATlLLcYmq1jBVsNlJ2cD6ns2GR7lA==
-  dependencies:
+    "@solana/spl-token-group" "^0.0.7"
+    "@solana/spl-token-metadata" "^0.1.6"
     buffer "^6.0.3"
 
 "@solana/web3.js@>=1.90.0", "@solana/web3.js@^1.32.0", "@solana/web3.js@^1.69.0", "@solana/web3.js@^1.95.0", "@solana/web3.js@^1.98.4":

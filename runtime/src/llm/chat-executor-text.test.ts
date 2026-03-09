@@ -269,6 +269,26 @@ describe("chat-executor-text", () => {
     expect(content).toBe("terminal check complete");
   });
 
+  it("supports answer exactly directives and strips formatting drift", () => {
+    const content = reconcileExactResponseContract(
+      "**PARENT-STORED-P1**",
+      [],
+      "Parent endurance P1. Memorize token OBSIDIAN-SIGNAL-61 for later recall and answer exactly PARENT-STORED-P1.",
+    );
+
+    expect(content).toBe("PARENT-STORED-P1");
+  });
+
+  it("supports exact-as directives for recall prompts", () => {
+    const content = reconcileExactResponseContract(
+      "**TOKEN=OBSIDIAN-SIGNAL-61**",
+      [],
+      "After compaction, without extra words return the parent token from P1 exactly as TOKEN=OBSIDIAN-SIGNAL-61.",
+    );
+
+    expect(content).toBe("TOKEN=OBSIDIAN-SIGNAL-61");
+  });
+
   it("recovers exact-output contracts from successful delegated child output", () => {
     const content = reconcileExactResponseContract(
       "Completed execute_with_agent",
