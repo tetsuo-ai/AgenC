@@ -57,6 +57,17 @@ describe("delegation-tool", () => {
     );
   });
 
+  it("parses internal continuation session identifiers without exposing them in the tool schema", () => {
+    const parsed = parseExecuteWithAgentInput({
+      task: "continue the previous child",
+      continuationSessionId: "subagent:child-7",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.continuationSessionId).toBe("subagent:child-7");
+  });
+
   it("rejects missing task/objective", () => {
     const parsed = parseExecuteWithAgentInput({});
     expect(parsed.ok).toBe(false);
@@ -67,6 +78,9 @@ describe("delegation-tool", () => {
   it("creates a canonical execute_with_agent tool definition", async () => {
     const tool = createExecuteWithAgentTool();
     expect(tool.name).toBe(EXECUTE_WITH_AGENT_TOOL_NAME);
+    expect(tool.inputSchema.properties).not.toHaveProperty(
+      "continuationSessionId",
+    );
     const direct = await tool.execute({ task: "do work" });
     expect(direct.isError).toBe(true);
     expect(direct.content).toContain("session-scoped tool handler");

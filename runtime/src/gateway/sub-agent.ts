@@ -22,6 +22,7 @@ import type {
 import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
 import type {
   LLMProvider,
+  LLMMessage,
   LLMProviderEvidence,
   LLMUsage,
   ToolHandler,
@@ -129,6 +130,7 @@ export interface SubAgentConfig {
   readonly parentSessionId: string;
   readonly task: string;
   readonly prompt?: string;
+  readonly continuationSessionId?: string;
   readonly timeoutMs?: number;
   readonly workspace?: string;
   readonly tools?: readonly string[];
@@ -203,6 +205,7 @@ interface SubAgentHandle {
   readonly depth: number;
   readonly task: string;
   readonly config: SubAgentConfig;
+  history: LLMMessage[];
   readonly startedAt: number;
   status: SubAgentStatus;
   result: SubAgentResult | null;
@@ -285,16 +288,20 @@ export class SubAgentManager {
         `max concurrent sub-agents reached (${this.maxConcurrent})`,
       );
     }
+    const continuationHandle = this.resolveContinuationHandle(config);
     const parentDepth = this.resolveSessionDepth(config.parentSessionId);
-    const depth = parentDepth + 1;
-    if (depth > this.maxDepth) {
+    const depth = continuationHandle
+      ? continuationHandle.depth
+      : parentDepth + 1;
+    if (!continuationHandle && depth > this.maxDepth) {
       throw new SubAgentSpawnError(
         config.parentSessionId,
         `max sub-agent depth reached (${this.maxDepth})`,
       );
     }
 
-    const sessionId = `${SUB_AGENT_SESSION_PREFIX}${randomUUID()}`;
+    const sessionId = continuationHandle?.sessionId ??
+      `${SUB_AGENT_SESSION_PREFIX}${randomUUID()}`;
     const abortController = new AbortController();
 
     const handle: SubAgentHandle = {
@@ -303,6 +310,7 @@ export class SubAgentManager {
       depth,
       task: config.task,
       config,
+      history: continuationHandle ? [...continuationHandle.history] : [],
       startedAt: Date.now(),
       status: "running",
       result: null,
@@ -397,6 +405,35 @@ export class SubAgentManager {
       });
     }
     return infos;
+  }
+
+  findLatestSuccessfulSessionId(parentSessionId: string): string | undefined {
+    this.pruneTerminalHandles();
+    let latest:
+      | {
+        readonly sessionId: string;
+        readonly finishedAt: number;
+      }
+      | undefined;
+
+    for (const handle of this.handles.values()) {
+      if (
+        handle.parentSessionId !== parentSessionId ||
+        handle.status !== "completed" ||
+        !handle.result?.success
+      ) {
+        continue;
+      }
+      const finishedAt = handle.finishedAt ?? handle.startedAt;
+      if (!latest || finishedAt > latest.finishedAt) {
+        latest = {
+          sessionId: handle.sessionId,
+          finishedAt,
+        };
+      }
+    }
+
+    return latest?.sessionId;
   }
 
   async destroyAll(): Promise<void> {
@@ -582,7 +619,7 @@ export class SubAgentManager {
       const resultOrAbort = await raceAbort(
         executor.execute({
           message,
-          history: [],
+          history: handle.history,
           systemPrompt,
           sessionId: handle.sessionId,
           requiredToolEvidence: handle.config.requireToolCall
@@ -642,6 +679,14 @@ export class SubAgentManager {
         success || !enforcedStopReasonDetail
           ? resultOrAbort.content
           : enforcedStopReasonDetail;
+
+      if (success) {
+        handle.history = [
+          ...handle.history,
+          { role: "user", content: handle.config.prompt ?? handle.task },
+          { role: "assistant", content: output },
+        ];
+      }
 
       this.markTerminalState(handle, terminalStatus, {
         sessionId: handle.sessionId,
@@ -753,6 +798,34 @@ export class SubAgentManager {
     const existing = this.handles.get(sessionId);
     if (existing) return existing.depth;
     return sessionId.startsWith(SUB_AGENT_SESSION_PREFIX) ? 1 : 0;
+  }
+
+  private resolveContinuationHandle(
+    config: SubAgentConfig,
+  ): SubAgentHandle | undefined {
+    const continuationSessionId = config.continuationSessionId?.trim();
+    if (!continuationSessionId) return undefined;
+
+    const existing = this.handles.get(continuationSessionId);
+    if (!existing) {
+      throw new SubAgentSpawnError(
+        config.parentSessionId,
+        `continuationSessionId "${continuationSessionId}" was not found`,
+      );
+    }
+    if (existing.status === "running") {
+      throw new SubAgentSpawnError(
+        config.parentSessionId,
+        `continuationSessionId "${continuationSessionId}" is still running`,
+      );
+    }
+    if (existing.parentSessionId !== config.parentSessionId) {
+      throw new SubAgentSpawnError(
+        config.parentSessionId,
+        `continuationSessionId "${continuationSessionId}" belongs to a different parent session`,
+      );
+    }
+    return existing;
   }
 
   private composeToolHandler(

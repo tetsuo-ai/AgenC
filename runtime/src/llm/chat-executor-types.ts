@@ -660,6 +660,7 @@ export interface ExecutionContext {
   // --- Mutable accumulator state ---
   history: readonly LLMMessage[];
   messages: LLMMessage[];
+  reconciliationMessages: LLMMessage[];
   messageSections: PromptBudgetSection[];
   cumulativeUsage: LLMUsage;
   callUsage: ChatCallUsageRecord[];
@@ -782,6 +783,7 @@ export function buildDefaultExecutionContext(
     // --- Mutable accumulator state ---
     history: params.history,
     messages: [],
+    reconciliationMessages: [],
     messageSections: [],
     cumulativeUsage: {
       promptTokens: 0,

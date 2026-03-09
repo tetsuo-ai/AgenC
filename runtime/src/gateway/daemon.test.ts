@@ -91,9 +91,12 @@ import {
   ensureAgencRuntimeShim,
   resolveSessionStatefulContinuation,
   persistSessionStatefulContinuation,
+  persistWebSessionRuntimeState,
+  hydrateWebSessionRuntimeState,
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
+  resolveSessionTokenBudget,
 } from "./daemon.js";
 import type { PidFileInfo } from "./daemon.js";
 import { LLMTimeoutError, LLMAuthenticationError } from "../llm/errors.js";
@@ -109,6 +112,7 @@ import {
   SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY,
   type Session,
 } from "./session.js";
+import type { MemoryBackend } from "../memory/types.js";
 
 // ============================================================================
 // Command availability classifier
@@ -130,6 +134,32 @@ describe("isCommandUnavailableError", () => {
 
   it("returns false for non-availability errors", () => {
     expect(isCommandUnavailableError(new Error("HTTP 500"))).toBe(false);
+  });
+});
+
+describe("resolveSessionTokenBudget", () => {
+  it("caps inferred huge context windows at the operational default budget", () => {
+    expect(
+      resolveSessionTokenBudget(
+        {
+          provider: "grok",
+          model: "grok-4.20-experimental-beta-0304-reasoning",
+        } as any,
+        2_000_000,
+      ),
+    ).toBe(120_000);
+  });
+
+  it("keeps smaller inferred context windows when they are below the default cap", () => {
+    expect(
+      resolveSessionTokenBudget(
+        {
+          provider: "grok",
+          model: "small-context-model",
+        } as any,
+        64_000,
+      ),
+    ).toBe(64_000);
   });
 });
 
@@ -304,6 +334,119 @@ describe("resolveSessionStatefulContinuation", () => {
     });
   });
 
+  it("persists the latest lineage anchor after planner phases when a stored response follows", () => {
+    const result = createResult({
+      callUsage: [
+        {
+          callIndex: 1,
+          phase: "planner",
+          provider: "grok",
+          finishReason: "tool_calls",
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          beforeBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          afterBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+        },
+        {
+          callIndex: 2,
+          phase: "initial",
+          provider: "grok",
+          finishReason: "tool_calls",
+          usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+          beforeBudget: {
+            messageCount: 4,
+            systemMessages: 2,
+            userMessages: 2,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 200,
+            systemPromptChars: 100,
+          },
+          afterBudget: {
+            messageCount: 4,
+            systemMessages: 2,
+            userMessages: 2,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 200,
+            systemPromptChars: 100,
+          },
+          statefulDiagnostics: {
+            enabled: true,
+            attempted: false,
+            continued: false,
+            store: true,
+            fallbackToStateless: true,
+            responseId: "resp-initial",
+            reconciliationHash: "hash-initial",
+            fallbackReason: "missing_previous_response_id",
+            events: [],
+          },
+        },
+        {
+          callIndex: 3,
+          phase: "tool_followup",
+          provider: "grok",
+          finishReason: "stop",
+          usage: { promptTokens: 30, completionTokens: 15, totalTokens: 45 },
+          beforeBudget: {
+            messageCount: 6,
+            systemMessages: 3,
+            userMessages: 2,
+            assistantMessages: 1,
+            toolMessages: 0,
+            estimatedChars: 300,
+            systemPromptChars: 150,
+          },
+          afterBudget: {
+            messageCount: 6,
+            systemMessages: 3,
+            userMessages: 2,
+            assistantMessages: 1,
+            toolMessages: 0,
+            estimatedChars: 300,
+            systemPromptChars: 150,
+          },
+          statefulDiagnostics: {
+            enabled: true,
+            attempted: true,
+            continued: true,
+            store: true,
+            fallbackToStateless: true,
+            previousResponseId: "resp-initial",
+            responseId: "resp-followup",
+            reconciliationHash: "hash-followup",
+            previousReconciliationHash: "hash-initial",
+            events: [],
+          },
+        },
+      ],
+    });
+
+    expect(resolveSessionStatefulContinuation(result)).toEqual({
+      mode: "persist",
+      anchor: {
+        previousResponseId: "resp-followup",
+        reconciliationHash: "hash-followup",
+      },
+    });
+  });
+
   it("clears persisted session metadata when planner turns break lineage", () => {
     const session: Session = {
       id: "session-1",
@@ -357,6 +500,122 @@ describe("resolveSessionStatefulContinuation", () => {
     expect(
       session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
     ).toBeUndefined();
+  });
+});
+
+describe("webchat runtime state persistence", () => {
+  function createMemoryBackendStub(): MemoryBackend {
+    const kv = new Map<string, unknown>();
+    return {
+      name: "stub",
+      addEntry: vi.fn(async () => {
+        throw new Error("not implemented");
+      }),
+      getThread: vi.fn(async () => []),
+      query: vi.fn(async () => []),
+      deleteThread: vi.fn(async () => 0),
+      listSessions: vi.fn(async () => []),
+      set: vi.fn(async (key: string, value: unknown) => {
+        kv.set(key, JSON.parse(JSON.stringify(value)));
+      }),
+      get: vi.fn(async <T = unknown>(key: string) => {
+        const value = kv.get(key);
+        return value === undefined
+          ? undefined
+          : (JSON.parse(JSON.stringify(value)) as T);
+      }),
+      delete: vi.fn(async (key: string) => kv.delete(key)),
+      has: vi.fn(async (key: string) => kv.has(key)),
+      listKeys: vi.fn(async (prefix?: string) =>
+        [...kv.keys()].filter((key) => !prefix || key.startsWith(prefix))
+      ),
+      getDurability: vi.fn(() => ({
+        level: "sync",
+        supportsFlush: true,
+        description: "test",
+      })),
+      flush: vi.fn(async () => {}),
+      clear: vi.fn(async () => {
+        kv.clear();
+      }),
+      close: vi.fn(async () => {}),
+      healthCheck: vi.fn(async () => true),
+    };
+  }
+
+  function createSession(metadata: Record<string, unknown> = {}): Session {
+    return {
+      id: "session:test",
+      workspaceId: "default",
+      history: [],
+      createdAt: 0,
+      lastActiveAt: 0,
+      metadata,
+    };
+  }
+
+  it("persists and restores the stateful resume anchor for resumed webchat sessions", async () => {
+    const memoryBackend = createMemoryBackendStub();
+    const session = createSession({
+      [SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY]: {
+        previousResponseId: "resp-123",
+        reconciliationHash: "hash-123",
+      },
+      [SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY]: true,
+    });
+
+    await persistWebSessionRuntimeState(
+      memoryBackend,
+      "web-session-1",
+      session,
+    );
+
+    const hydrated = createSession();
+    await hydrateWebSessionRuntimeState(
+      memoryBackend,
+      "web-session-1",
+      hydrated,
+    );
+
+    expect(
+      hydrated.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY],
+    ).toEqual({
+      previousResponseId: "resp-123",
+      reconciliationHash: "hash-123",
+    });
+    expect(
+      hydrated.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
+    ).toBe(true);
+  });
+
+  it("clears persisted webchat runtime state when no stateful metadata remains", async () => {
+    const memoryBackend = createMemoryBackendStub();
+    const session = createSession({
+      [SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY]: {
+        previousResponseId: "resp-123",
+      },
+    });
+
+    await persistWebSessionRuntimeState(
+      memoryBackend,
+      "web-session-2",
+      session,
+    );
+    delete session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
+
+    await persistWebSessionRuntimeState(
+      memoryBackend,
+      "web-session-2",
+      session,
+    );
+
+    const hydrated = createSession();
+    await hydrateWebSessionRuntimeState(
+      memoryBackend,
+      "web-session-2",
+      hydrated,
+    );
+    expect(hydrated.metadata).toEqual({});
   });
 });
 

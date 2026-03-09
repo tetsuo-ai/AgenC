@@ -18,6 +18,7 @@ const DIRECT_EXECUTION_ERROR =
 export interface ExecuteWithAgentInput {
   readonly task: string;
   readonly objective?: string;
+  readonly continuationSessionId?: string;
   readonly timeoutMs?: number;
   readonly tools?: readonly string[];
   readonly requiredToolCapabilities?: readonly string[];
@@ -86,6 +87,9 @@ export function parseExecuteWithAgentInput(
     value: {
       task,
       objective,
+      continuationSessionId:
+        toNonEmptyString(args.continuationSessionId) ??
+        toNonEmptyString(args.subagentSessionId),
       timeoutMs: toOptionalTimeout(args.timeoutMs),
       tools,
       requiredToolCapabilities,

@@ -192,7 +192,9 @@ import {
   reconcileTerminalFailureContent,
   estimatePromptShape,
   normalizeHistory,
+  normalizeHistoryForStatefulReconciliation,
   sanitizeToolCallsForReplay,
+  toStatefulReconciliationMessage,
   buildPromptToolContent,
   appendUserMessage,
   generateFallbackContent,
@@ -533,8 +535,12 @@ export class ChatExecutor {
     ctx: ExecutionContext,
     nextMessage: LLMMessage,
     section: PromptBudgetSection,
+    reconciliationMessage?: LLMMessage,
   ): void {
     ctx.messages.push(nextMessage);
+    ctx.reconciliationMessages.push(
+      toStatefulReconciliationMessage(reconciliationMessage ?? nextMessage),
+    );
     ctx.messageSections.push(section);
   }
 
@@ -853,6 +859,7 @@ export class ChatExecutor {
     input: {
       phase: ChatCallUsageRecord["phase"];
       callMessages: readonly LLMMessage[];
+      callReconciliationMessages?: readonly LLMMessage[];
       callSections?: readonly PromptBudgetSection[];
       onStreamChunk?: StreamProgressCallback;
       statefulSessionId?: string;
@@ -921,6 +928,8 @@ export class ChatExecutor {
           ...(allowStatefulContinuation && input.statefulSessionId
             ? {
               statefulSessionId: input.statefulSessionId,
+              reconciliationMessages:
+                input.callReconciliationMessages ?? ctx.reconciliationMessages,
               ...(input.statefulHistoryCompacted
                 ? { statefulHistoryCompacted: true }
                 : {}),
@@ -1226,11 +1235,24 @@ export class ChatExecutor {
     }
 
     // Append history and user message
-    for (const historicalMessage of normalizeHistory(ctx.history)) {
-      this.pushMessage(ctx, historicalMessage, "history");
+    const normalizedHistory = normalizeHistory(ctx.history);
+    const reconciliationHistory =
+      normalizeHistoryForStatefulReconciliation(ctx.history);
+    for (let index = 0; index < normalizedHistory.length; index++) {
+      this.pushMessage(
+        ctx,
+        normalizedHistory[index]!,
+        "history",
+        reconciliationHistory[index],
+      );
     }
 
-    appendUserMessage(ctx.messages, ctx.messageSections, ctx.message);
+    appendUserMessage(
+      ctx.messages,
+      ctx.messageSections,
+      ctx.message,
+      ctx.reconciliationMessages,
+    );
 
     return ctx;
   }
@@ -1421,6 +1443,7 @@ export class ChatExecutor {
             statefulSessionId: ctx.sessionId,
             statefulResumeAnchor: ctx.stateful?.resumeAnchor,
             statefulHistoryCompacted: ctx.stateful?.historyCompacted,
+            reconciliationMessages: ctx.reconciliationMessages,
             ...(ctx.toolRouting
               ? { routedToolNames: ctx.activeRoutedToolNames }
               : {}),
@@ -2704,6 +2727,7 @@ export class ChatExecutor {
       statefulSessionId?: string;
       statefulResumeAnchor?: LLMStatefulResumeAnchor;
       statefulHistoryCompacted?: boolean;
+      reconciliationMessages?: readonly LLMMessage[];
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
       requestDeadlineAt?: number;
@@ -2740,7 +2764,8 @@ export class ChatExecutor {
             ? {
               stateful: {
                 sessionId: String(options?.statefulSessionId),
-                reconciliationMessages: messages,
+                reconciliationMessages:
+                  options?.reconciliationMessages ?? messages,
                 ...(hasStatefulHistoryCompacted
                   ? { historyCompacted: true }
                   : {}),

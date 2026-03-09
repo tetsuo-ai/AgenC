@@ -1145,6 +1145,91 @@ describe("SubAgentManager", () => {
       );
     });
 
+    it("reuses a terminal child session when continuationSessionId is provided", async () => {
+      const executeSpy = vi
+        .spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content: "CHILD-STORED-S1",
+          provider: "mock-llm",
+          usedFallback: false,
+          toolCalls: [],
+          tokenUsage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          callUsage: [],
+          durationMs: 10,
+          compacted: false,
+          stopReason: "completed",
+        } as any)
+        .mockResolvedValueOnce({
+          content: "TOKEN=NEON-AXIS-17",
+          provider: "mock-llm",
+          usedFallback: false,
+          toolCalls: [],
+          tokenUsage: { promptTokens: 12, completionTokens: 4, totalTokens: 16 },
+          callUsage: [],
+          durationMs: 12,
+          compacted: false,
+          stopReason: "completed",
+        } as any);
+      const manager = new SubAgentManager(makeManagerConfig());
+
+      try {
+        const firstSessionId = await manager.spawn({
+          parentSessionId: "parent-1",
+          task: "Store the token for later recall",
+          prompt: "Store the token for later recall",
+        });
+        await settle();
+
+        const secondSessionId = await manager.spawn({
+          parentSessionId: "parent-1",
+          task: "Recall the token",
+          prompt: "Recall the token",
+          continuationSessionId: firstSessionId,
+        });
+        await settle();
+
+        expect(secondSessionId).toBe(firstSessionId);
+        expect(executeSpy).toHaveBeenCalledTimes(2);
+        expect(executeSpy.mock.calls[1]?.[0]).toMatchObject({
+          sessionId: firstSessionId,
+          history: [
+            { role: "user", content: "Store the token for later recall" },
+            { role: "assistant", content: "CHILD-STORED-S1" },
+          ],
+        });
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("finds the latest successful child session for a parent", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-03-09T14:00:00.000Z"));
+        const manager = new SubAgentManager(makeManagerConfig());
+
+        const firstSessionId = await manager.spawn({
+          parentSessionId: "parent-1",
+          task: "First child",
+        });
+        await settle();
+
+        vi.setSystemTime(new Date("2026-03-09T14:00:01.000Z"));
+        const secondSessionId = await manager.spawn({
+          parentSessionId: "parent-1",
+          task: "Second child",
+        });
+        await settle();
+
+        expect(manager.findLatestSuccessfulSessionId("parent-1")).toBe(
+          secondSessionId,
+        );
+        expect(firstSessionId).not.toBe(secondSessionId);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("calls destroyContext after failure", async () => {
       const mockContext = makeMockContext();
       (mockContext.llmProvider.chat as any).mockRejectedValue(

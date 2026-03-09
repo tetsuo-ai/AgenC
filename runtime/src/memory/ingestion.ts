@@ -620,7 +620,26 @@ export function createIngestionHooks(
         }
 
         const { sessionId, summary } = ctx.payload;
-        if (typeof sessionId !== "string" || typeof summary !== "string") {
+        if (typeof sessionId !== "string") {
+          log.warn(
+            "memory-ingestion-compact: missing or invalid payload fields, skipping",
+          );
+          return { continue: true };
+        }
+
+        const result =
+          ctx.payload.result &&
+          typeof ctx.payload.result === "object" &&
+          !Array.isArray(ctx.payload.result)
+            ? (ctx.payload.result as Record<string, unknown>)
+            : undefined;
+        const summaryGenerated = result?.summaryGenerated === true;
+        if (typeof summary !== "string" || summary.trim().length === 0) {
+          // Local compaction frequently keeps a placeholder boundary without a
+          // generated summary. That is expected and should not pollute logs.
+          if (phase === "after" && !summaryGenerated) {
+            return { continue: true };
+          }
           log.warn(
             "memory-ingestion-compact: missing or invalid payload fields, skipping",
           );

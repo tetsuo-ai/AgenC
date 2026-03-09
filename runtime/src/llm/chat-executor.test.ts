@@ -4173,6 +4173,100 @@ describe("ChatExecutor", () => {
   });
 
   describe("phase 4 planner/executor and budgets", () => {
+    it("preserves delegated child outputs when planner execution completes without synthesis", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "context_packing",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "delegate_ci",
+                  step_type: "subagent_task",
+                  objective: "Cluster CI failures by root cause",
+                  input_contract: "Return grouped failures with evidence",
+                  acceptance_criteria: ["At least 2 clusters"],
+                  required_tool_capabilities: ["system.readFile"],
+                  context_requirements: ["ci_logs", "memory_semantic"],
+                  max_budget_hint: "10m",
+                  can_run_parallel: true,
+                },
+                {
+                  name: "delegate_mapping",
+                  step_type: "subagent_task",
+                  objective: "Map failure clusters to source hotspots",
+                  input_contract: "Return source candidates for each cluster",
+                  acceptance_criteria: ["At least 2 candidate files"],
+                  required_tool_capabilities: ["system.readFile"],
+                  context_requirements: ["ci_logs", "memory_semantic"],
+                  max_budget_hint: "10m",
+                  can_run_parallel: true,
+                  depends_on: ["delegate_ci"],
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              delegate_ci: safeJson({
+                status: "completed",
+                success: true,
+                subagentSessionId: "sub-ci",
+                output: "clustered failures",
+                toolCalls: [],
+              }),
+              delegate_mapping: safeJson({
+                status: "completed",
+                success: true,
+                subagentSessionId: "sub-map",
+                output: "mapped source hotspots",
+                toolCalls: [],
+              }),
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0.2,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First cluster CI failures from logs, then map likely source hotspots, and finally produce a consolidated remediation checklist with evidence.",
+          ),
+        }),
+      );
+
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.content).toContain("clustered failures");
+      expect(result.content).toContain("mapped source hotspots");
+      expect(result.content).not.toContain("Completed execute_with_agent");
+      expect(result.stopReason).toBe("completed");
+      expect(result.toolCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "execute_with_agent",
+          }),
+        ]),
+      );
+    });
+
     it("routes implementation-heavy build requests through planner even without numbered steps", async () => {
       const provider = createMockProvider("primary", {
         chat: vi.fn().mockResolvedValue(
@@ -8331,6 +8425,60 @@ describe("ChatExecutor", () => {
       expect(reconciliationMessages?.at(-1)).toMatchObject({
         role: "user",
         content: "continue",
+      });
+    });
+
+    it("preserves full history in reconciliationMessages when prompt replay truncates", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "ok",
+            stateful: {
+              enabled: true,
+              attempted: false,
+              continued: false,
+              store: true,
+              fallbackToStateless: true,
+              events: [],
+            },
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+      const longHistoryEntry = "history-" + "x".repeat(3_600);
+
+      await executor.execute(
+        createParams({
+          history: [
+            { role: "user", content: longHistoryEntry },
+            { role: "assistant", content: "stored" },
+          ],
+          sessionId: "stateful-long-history",
+          message: {
+            ...createMessage("continue"),
+            sessionId: "stateful-long-history",
+          },
+        }),
+      );
+
+      const callMessages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
+        | LLMMessage[]
+        | undefined;
+      const options = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+      const reconciliationMessages = options?.stateful?.reconciliationMessages as
+        | LLMMessage[]
+        | undefined;
+
+      expect(callMessages?.[1]).toMatchObject({
+        role: "user",
+      });
+      expect(typeof callMessages?.[1]?.content).toBe("string");
+      expect(String(callMessages?.[1]?.content)).toHaveLength(2_000);
+      expect(String(callMessages?.[1]?.content).endsWith("...")).toBe(true);
+
+      expect(reconciliationMessages?.[1]).toEqual({
+        role: "user",
+        content: longHistoryEntry,
       });
     });
 
