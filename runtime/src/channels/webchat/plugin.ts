@@ -31,6 +31,7 @@ import type { HandlerRequestContext } from "./handlers.js";
 import { matchesEventFilters } from "./protocol.js";
 import {
   WebChatSessionStore,
+  type PersistedWebChatOwnerCredential,
   type PersistedWebChatPolicyContext,
 } from "./session-store.js";
 
@@ -64,7 +65,7 @@ export class WebChatChannel
   private readonly clientSessions = new Map<string, string>();
   // sessionId → clientId reverse mapping (for send())
   private readonly sessionClients = new Map<string, string>();
-  // clientId → durable browser owner key, when provided by the web client
+  // clientId → server-authenticated durable owner key
   private readonly clientOwnerKeys = new Map<string, string>();
   // clientId → send function (for pushing messages to specific clients)
   private readonly clientSenders = new Map<string, SendFn>();
@@ -92,7 +93,10 @@ export class WebChatChannel
   constructor(deps: WebChatDeps, _config?: WebChatChannelConfig) {
     super();
     this.deps = deps;
-    this.sessionStore = deps.memoryBackend
+    this.sessionStore =
+      deps.memoryBackend &&
+      typeof deps.memoryBackend.get === "function" &&
+      typeof deps.memoryBackend.set === "function"
       ? new WebChatSessionStore({ memoryBackend: deps.memoryBackend })
       : undefined;
   }
@@ -236,7 +240,6 @@ export class WebChatChannel
 
     const id = typeof msg.id === "string" ? msg.id : undefined;
     let payload = msg.payload as Record<string, unknown> | undefined;
-    this.captureClientOwnerKey(clientId, payload);
 
     // Voice messages are routed to the voice bridge
     if (type.startsWith("voice.")) {
@@ -322,6 +325,7 @@ export class WebChatChannel
       const requestContext: HandlerRequestContext = {
         clientId,
         ownerKey: this.currentOwnerKey(clientId),
+        actorId: this.currentActorId(clientId),
         channel: this.name,
         activeSessionId: this.clientSessions.get(clientId),
         listOwnedSessionIds: () => this.listOwnedSessionIds(clientId),
@@ -454,91 +458,104 @@ export class WebChatChannel
       }
       return;
     }
+    this.withResolvedOwner(
+      clientId,
+      payload,
+      send,
+      (ownerKey) => {
+        const timestamp = Date.now();
+        const sessionId = this.ensureSession(clientId, ownerKey);
+        const policyContext =
+          this.parsePolicyContext(payload) ??
+          this.sessionPolicyContexts.get(sessionId);
 
-    const ownerKey = this.resolveOwnerKey(clientId, payload);
-    const timestamp = Date.now();
-    const sessionId = this.ensureSession(clientId, ownerKey);
-    const policyContext =
-      this.parsePolicyContext(payload) ?? this.sessionPolicyContexts.get(sessionId);
+        if (policyContext) {
+          this.sessionPolicyContexts.set(sessionId, policyContext);
+        }
 
-    if (policyContext) {
-      this.sessionPolicyContexts.set(sessionId, policyContext);
-    }
+        // Notify the client of its session ID (needed for desktop viewer matching)
+        send({ type: "chat.session", payload: { sessionId } });
 
-    // Notify the client of its session ID (needed for desktop viewer matching)
-    send({ type: 'chat.session', payload: { sessionId } });
+        // Store user message in history
+        this.appendHistory(sessionId, {
+          content: content as string,
+          sender: "user",
+          timestamp,
+        });
+        void this.persistSessionActivity(sessionId, {
+          content: content as string,
+          sender: "user",
+          timestamp,
+          ...(policyContext ? { policyContext } : {}),
+        });
 
-    // Store user message in history
-    this.appendHistory(sessionId, {
-      content: content as string,
-      sender: "user",
-      timestamp,
-    });
-    void this.persistSessionActivity(sessionId, {
-      content: content as string,
-      sender: "user",
-      timestamp,
-      ...(policyContext ? { policyContext } : {}),
-    });
+        // Convert base64 attachments from the WebSocket payload to MessageAttachment[]
+        let attachments: MessageAttachment[] | undefined;
+        if (hasAttachments) {
+          attachments = (rawAttachments as Array<Record<string, unknown>>)
+            .map((att): MessageAttachment | null => {
+              const filename =
+                typeof att.filename === "string" ? att.filename : undefined;
+              const mimeType =
+                typeof att.mimeType === "string"
+                  ? att.mimeType
+                  : "application/octet-stream";
+              const base64 = typeof att.data === "string" ? att.data : undefined;
+              const sizeBytes =
+                typeof att.sizeBytes === "number" ? att.sizeBytes : undefined;
 
-    // Convert base64 attachments from the WebSocket payload to MessageAttachment[]
-    let attachments: MessageAttachment[] | undefined;
-    if (hasAttachments) {
-      attachments = (rawAttachments as Array<Record<string, unknown>>)
-        .map((att): MessageAttachment | null => {
-          const filename =
-            typeof att.filename === "string" ? att.filename : undefined;
-          const mimeType =
-            typeof att.mimeType === "string"
-              ? att.mimeType
-              : "application/octet-stream";
-          const base64 = typeof att.data === "string" ? att.data : undefined;
-          const sizeBytes =
-            typeof att.sizeBytes === "number" ? att.sizeBytes : undefined;
+              let data: Uint8Array | undefined;
+              if (base64) {
+                try {
+                  const binary = Buffer.from(base64, "base64");
+                  data = new Uint8Array(binary);
+                } catch {
+                  return null;
+                }
+              }
 
-          let data: Uint8Array | undefined;
-          if (base64) {
-            try {
-              const binary = Buffer.from(base64, "base64");
-              data = new Uint8Array(binary);
-            } catch {
-              return null;
-            }
-          }
+              const type = mimeType.startsWith("image/")
+                ? "image"
+                : mimeType.startsWith("audio/")
+                  ? "audio"
+                  : "file";
 
-          const type = mimeType.startsWith("image/")
-            ? "image"
-            : mimeType.startsWith("audio/")
-              ? "audio"
-              : "file";
+              return { type, mimeType, data, filename, sizeBytes };
+            })
+            .filter((a): a is MessageAttachment => a !== null);
+        }
 
-          return { type, mimeType, data, filename, sizeBytes };
-        })
-        .filter((a): a is MessageAttachment => a !== null);
-    }
-
-    // Create a GatewayMessage and deliver to the Gateway pipeline
-    const gatewayMsg = createGatewayMessage({
-      channel: "webchat",
-      senderId: clientId,
-      senderName: `WebClient(${clientId})`,
-      sessionId,
-      content: content as string,
-      scope: "dm",
-      ...(policyContext ? { metadata: { policyContext } } : {}),
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    });
-    this.context.onMessage(gatewayMsg).catch((err) => {
-      this.context.logger.warn?.(
-        "WebChat: error delivering message to gateway:",
-        err,
-      );
-      send({
-        type: "error",
-        error: "Failed to process message",
-        id,
-      });
-    });
+        // Create a GatewayMessage and deliver to the Gateway pipeline
+        const gatewayMsg = createGatewayMessage({
+          channel: "webchat",
+          senderId: clientId,
+          senderName: `WebClient(${clientId})`,
+          sessionId,
+          content: content as string,
+          scope: "dm",
+          ...(policyContext ? { metadata: { policyContext } } : {}),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        });
+        this.context.onMessage(gatewayMsg).catch((err) => {
+          this.context.logger.warn?.(
+            "WebChat: error delivering message to gateway:",
+            err,
+          );
+          send({
+            type: "error",
+            error: "Failed to process message",
+            id,
+          });
+        });
+      },
+      (error) => {
+        send({
+          type: "error",
+          error: `Failed to process chat message: ${error.message}`,
+          id,
+        });
+      },
+    );
   }
 
   private handleChatNew(
@@ -559,10 +576,25 @@ export class WebChatChannel
       );
     }
 
-    const ownerKey = this.resolveOwnerKey(clientId, payload);
-    const sessionId = this.ensureSession(clientId, ownerKey, { forceNew: true });
-    send({ type: "chat.session", payload: { sessionId }, id });
-    send({ type: "chat.history", payload: [], id });
+    this.withResolvedOwner(
+      clientId,
+      payload,
+      send,
+      (ownerKey) => {
+        const sessionId = this.ensureSession(clientId, ownerKey, {
+          forceNew: true,
+        });
+        send({ type: "chat.session", payload: { sessionId }, id });
+        send({ type: "chat.history", payload: [], id });
+      },
+      (error) => {
+        send({
+          type: "error",
+          error: `Failed to start chat session: ${error.message}`,
+          id,
+        });
+      },
+    );
   }
 
   private handleChatHistory(
@@ -622,7 +654,7 @@ export class WebChatChannel
       return;
     }
 
-    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    const ownerKey = await this.resolveDurableOwner(clientId, payload, send);
     const authorized = await this.isAuthorizedSession(
       sessionId,
       ownerKey,
@@ -650,7 +682,7 @@ export class WebChatChannel
       return;
     }
 
-    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    const ownerKey = await this.resolveDurableOwner(clientId, payload, send);
     const authorized = await this.isAuthorizedSession(
       targetSessionId,
       ownerKey,
@@ -698,7 +730,7 @@ export class WebChatChannel
     id: string | undefined,
     send: SendFn,
   ): Promise<void> {
-    const ownerKey = this.resolveOwnerKey(clientId, payload);
+    const ownerKey = await this.resolveDurableOwner(clientId, payload, send);
     if (this.sessionStore && this.isDurableOwnerKey(ownerKey)) {
       const persistedSessions = await this.sessionStore.listSessionsForOwner(ownerKey);
       const sessions = persistedSessions
@@ -916,26 +948,98 @@ export class WebChatChannel
     return owned;
   }
 
-  private captureClientOwnerKey(
-    clientId: string,
-    payload: Record<string, unknown> | undefined,
-  ): void {
-    const clientKey =
-      typeof payload?.clientKey === "string" ? payload.clientKey.trim() : "";
-    if (clientKey.length === 0) return;
-    this.clientOwnerKeys.set(clientId, `web:${clientKey}`);
-  }
-
   private currentOwnerKey(clientId: string): string {
     return this.clientOwnerKeys.get(clientId) ?? `volatile:${clientId}`;
   }
 
-  private resolveOwnerKey(
+  private currentActorId(clientId: string): string {
+    return this.currentOwnerKey(clientId);
+  }
+
+  private isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+    return typeof (value as Promise<T> | undefined)?.then === "function";
+  }
+
+  private withResolvedOwner(
     clientId: string,
     payload: Record<string, unknown> | undefined,
-  ): string {
-    this.captureClientOwnerKey(clientId, payload);
-    return this.currentOwnerKey(clientId);
+    send: SendFn,
+    onResolved: (ownerKey: string) => void,
+    onRejected: (error: Error) => void,
+  ): void {
+    try {
+      const ownerKey = this.resolveDurableOwner(clientId, payload, send);
+      if (this.isPromiseLike(ownerKey)) {
+        void ownerKey.then(onResolved).catch((error) => {
+          onRejected(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+        return;
+      }
+      onResolved(ownerKey);
+    } catch (error) {
+      onRejected(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private issueDurableOwner(clientId: string, send: SendFn): string {
+    if (!this.sessionStore) {
+      return this.currentOwnerKey(clientId);
+    }
+
+    const issued = this.sessionStore.createOwnerCredential();
+    this.clientOwnerKeys.set(clientId, issued.credential.ownerKey);
+    send({
+      type: "chat.owner",
+      payload: {
+        ownerToken: issued.ownerToken,
+      },
+    });
+    this.persistOwnerCredential(clientId, issued.credential);
+    return issued.credential.ownerKey;
+  }
+
+  private persistOwnerCredential(
+    clientId: string,
+    credential: PersistedWebChatOwnerCredential,
+  ): void {
+    void this.sessionStore?.persistOwnerCredential(credential).catch((error) => {
+      this.context.logger.debug("Failed to persist webchat owner credential", {
+        clientId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  private resolveDurableOwner(
+    clientId: string,
+    payload: Record<string, unknown> | undefined,
+    send: SendFn,
+  ): string | Promise<string> {
+    const ownerToken =
+      typeof payload?.ownerToken === "string" ? payload.ownerToken.trim() : "";
+    const existingOwnerKey = this.clientOwnerKeys.get(clientId);
+
+    if (!this.sessionStore) {
+      return existingOwnerKey ?? this.currentOwnerKey(clientId);
+    }
+
+    if (ownerToken.length > 0) {
+      return this.sessionStore.resolveOwnerCredential(ownerToken).then((credential) => {
+        if (credential) {
+          this.clientOwnerKeys.set(clientId, credential.ownerKey);
+          return credential.ownerKey;
+        }
+        return existingOwnerKey ?? this.issueDurableOwner(clientId, send);
+      });
+    }
+
+    if (existingOwnerKey) {
+      return existingOwnerKey;
+    }
+
+    return this.issueDurableOwner(clientId, send);
   }
 
   private isDurableOwnerKey(ownerKey: string): boolean {
@@ -991,7 +1095,7 @@ export class WebChatChannel
     }
     const persisted = await this.sessionStore?.loadSession(sessionId);
     if (!persisted) {
-      return this.sessionHistory.has(sessionId);
+      return false;
     }
     this.sessionOwners.set(sessionId, persisted.ownerKey);
     return persisted.ownerKey === ownerKey;

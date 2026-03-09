@@ -15,6 +15,7 @@ import {
   WS_CHAT_TYPING,
   WS_CHAT_HISTORY,
   WS_CHAT_SESSION,
+  WS_CHAT_OWNER,
   WS_CHAT_NEW,
   WS_CHAT_RESUME,
   WS_CHAT_RESUMED,
@@ -78,6 +79,7 @@ interface UseChatOptions {
 }
 
 const WEBCHAT_CLIENT_KEY_STORAGE_KEY = 'agenc-webchat-client-key';
+const WEBCHAT_OWNER_TOKEN_STORAGE_KEY = 'agenc-webchat-owner-token';
 
 function createClientKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -97,6 +99,21 @@ function getOrCreateWebChatClientKey(): string {
   const next = createClientKey();
   window.localStorage.setItem(WEBCHAT_CLIENT_KEY_STORAGE_KEY, next);
   return next;
+}
+
+function getStoredWebChatOwnerToken(): string | null {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+  const existing = window.localStorage.getItem(WEBCHAT_OWNER_TOKEN_STORAGE_KEY);
+  return existing && existing.trim().length > 0 ? existing : null;
+}
+
+function persistWebChatOwnerToken(ownerToken: string): void {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  window.localStorage.setItem(WEBCHAT_OWNER_TOKEN_STORAGE_KEY, ownerToken);
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -255,18 +272,28 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   const msgCounterRef = useRef(0);
   const requestCounterRef = useRef(0);
   const clientKeyRef = useRef<string>(getOrCreateWebChatClientKey());
+  const ownerTokenRef = useRef<string | null>(getStoredWebChatOwnerToken());
 
   const nextRequestId = useCallback((prefix: string): string => {
     requestCounterRef.current += 1;
     return `${prefix}_${Date.now().toString(36)}_${requestCounterRef.current}`;
   }, []);
 
+  const authPayload = useCallback(
+    (extra?: Record<string, unknown>) => ({
+      clientKey: clientKeyRef.current,
+      ...(ownerTokenRef.current ? { ownerToken: ownerTokenRef.current } : {}),
+      ...(extra ?? {}),
+    }),
+    [],
+  );
+
   const refreshSessions = useCallback(() => {
     send({
       type: WS_CHAT_SESSIONS,
-      payload: { clientKey: clientKeyRef.current },
+      payload: authPayload(),
     });
-  }, [send]);
+  }, [authPayload, send]);
 
   // Fetch sessions when connected
   useEffect(() => {
@@ -276,9 +303,9 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   const resumeSession = useCallback((targetSessionId: string) => {
     send({
       type: WS_CHAT_RESUME,
-      payload: { sessionId: targetSessionId, clientKey: clientKeyRef.current },
+      payload: authPayload({ sessionId: targetSessionId }),
     });
-  }, [send]);
+  }, [authPayload, send]);
 
   const startNewChat = useCallback(() => {
     setMessages([]);
@@ -289,17 +316,17 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
     send({
       type: WS_CHAT_NEW,
       id: nextRequestId('chat_new'),
-      payload: { clientKey: clientKeyRef.current },
+      payload: authPayload(),
     });
-  }, [nextRequestId, send]);
+  }, [authPayload, nextRequestId, send]);
 
   const stopGeneration = useCallback(() => {
     send({
       type: WS_CHAT_CANCEL,
-      payload: { clientKey: clientKeyRef.current },
+      payload: authPayload(),
     });
     setIsTyping(false);
-  }, [send]);
+  }, [authPayload, send]);
 
   const injectMessage = useCallback((content: string, sender: 'user' | 'agent') => {
     const id = `${sender}_${++msgCounterRef.current}`;
@@ -327,10 +354,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
       send({
         type: WS_CHAT_MESSAGE,
         id: nextRequestId('chat_msg'),
-        payload: {
-          content,
-          clientKey: clientKeyRef.current,
-        },
+        payload: authPayload({ content }),
       });
       return;
     }
@@ -380,14 +404,13 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
       send({
         type: WS_CHAT_MESSAGE,
         id: nextRequestId('chat_msg'),
-        payload: {
+        payload: authPayload({
           content,
-          clientKey: clientKeyRef.current,
           attachments: results.map((r) => r.wire),
-        },
+        }),
       });
     });
-  }, [nextRequestId, send]);
+  }, [authPayload, nextRequestId, send]);
 
   const appendSubagentLifecycle = useCallback((event: ParsedSubagentEvent) => {
     setMessages((prev) => {
@@ -665,6 +688,17 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
 
+      case WS_CHAT_OWNER: {
+        const payload = (msg.payload ?? msg) as Record<string, unknown>;
+        const ownerToken =
+          typeof payload.ownerToken === 'string' ? payload.ownerToken : null;
+        if (ownerToken) {
+          ownerTokenRef.current = ownerToken;
+          persistWebChatOwnerToken(ownerToken);
+        }
+        break;
+      }
+
       case WS_CHAT_RESUMED: {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
         const resumedId = (payload.sessionId as string) ?? null;
@@ -673,7 +707,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         if (resumedId) {
           send({
             type: WS_CHAT_HISTORY,
-            payload: { clientKey: clientKeyRef.current },
+            payload: authPayload(),
           });
         }
         break;
@@ -818,7 +852,7 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
         break;
       }
     }
-  }, [send]);
+  }, [authPayload, send]);
 
   return {
     messages, sendMessage, stopGeneration, injectMessage, replaceLastUserMessage, isTyping, sessionId,
