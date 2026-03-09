@@ -68,6 +68,7 @@ export interface ResolvedDelegatedChildToolScope
 }
 
 const EMPTY_DELEGATION_OUTPUT_VALUES = new Set(["null", "undefined", "{}", "[]"]);
+const DELEGATION_MEMORIZED_TOKEN_PLACEHOLDER = "<memorized_token>";
 const DELEGATION_FILE_ACTION_RE =
   /\b(create|write|edit|save|scaffold|implement(?:ation)?|generate|modify|patch|update|add|build)\b/i;
 const DELEGATION_FILE_TARGET_RE =
@@ -440,6 +441,58 @@ export function extractDelegationTokens(value: string): string[] {
   return [...deduped];
 }
 
+function extractExactOutputExpectation(criterion: string): string | undefined {
+  const trimmed = criterion.trim().replace(/[.;:]+$/, "");
+  const patterns = [
+    /\b(?:child\s+)?(?:output|response|reply)\s+(?:is\s+)?exactly\s+(.+)$/i,
+    /\b(?:child\s+)?(?:responds?|replies?)\s+(?:with\s+)?exactly\s+(.+)$/i,
+    /^\s*exact(?:\s+output)?\s+(.+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(trimmed);
+    if (!match) continue;
+    const expected = match[1]
+      ?.replace(/\s+or\s+equivalent.*$/i, "")
+      .trim()
+      .replace(/^["'`]|["'`]$/g, "");
+    if (expected && expected.length > 0) {
+      return expected;
+    }
+  }
+  return undefined;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesExactOutputExpectation(
+  expected: string,
+  output: string,
+): boolean {
+  const normalizedOutput = output.trim().replace(/^["'`]|["'`]$/g, "");
+  if (normalizedOutput === expected) return true;
+  if (!expected.includes(DELEGATION_MEMORIZED_TOKEN_PLACEHOLDER)) {
+    return false;
+  }
+
+  const pattern = new RegExp(
+    `^${escapeRegex(expected).replace(
+      escapeRegex(DELEGATION_MEMORIZED_TOKEN_PLACEHOLDER),
+      "[A-Z0-9][A-Z0-9|=._:-]*(?:-[A-Z0-9|=._:-]+)*",
+    )}$`,
+  );
+  return pattern.test(normalizedOutput);
+}
+
+function shouldSkipAcceptanceEvidenceCriterion(criterion: string): boolean {
+  return (
+    /\b(?:no|without|do not|don't|never)\b/i.test(criterion) ||
+    /\b(?:single|one)\s+child\s+session\b/i.test(criterion) ||
+    /\b(?:child|same)\s+session\s+only\b/i.test(criterion)
+  );
+}
+
 export function specRequiresFileMutationEvidence(
   spec: DelegationContractSpec,
 ): boolean {
@@ -781,10 +834,29 @@ function validateAcceptanceCriteriaEvidence(
     return undefined;
   }
 
+  const remainingCriteria: string[] = [];
+  for (const criterion of spec.acceptanceCriteria ?? []) {
+    if (shouldSkipAcceptanceEvidenceCriterion(criterion)) {
+      continue;
+    }
+    const expected = extractExactOutputExpectation(criterion);
+    if (!expected) {
+      remainingCriteria.push(criterion);
+      continue;
+    }
+    if (!matchesExactOutputExpectation(expected, output)) {
+      return validationFailure(
+        "acceptance_evidence_missing",
+        "Acceptance criteria not evidenced in child output",
+        parsedOutput,
+      );
+    }
+  }
+
   const outputLower = output.toLowerCase();
-  const expectationTokens = spec.acceptanceCriteria
-    ?.flatMap((criterion) => extractDelegationTokens(criterion))
-    .slice(0, 24) ?? [];
+  const expectationTokens = remainingCriteria
+    .flatMap((criterion) => extractDelegationTokens(criterion))
+    .slice(0, 24);
   if (
     expectationTokens.length > 0 &&
     !expectationTokens.some((token) => outputLower.includes(token))

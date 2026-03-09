@@ -1100,7 +1100,7 @@ describe("createSessionToolHandler", () => {
       }),
     });
 
-    await handler("execute_with_agent", {
+    const result = await handler("execute_with_agent", {
       task:
         "Subagent continuity test S2. Recall memorized token from test S1 which is NEON-AXIS-17. Without extra words return exactly TOKEN=NEON-AXIS-17. Return exactly the child answer.",
       continuationSessionId: "u1-test-session",
@@ -1127,8 +1127,20 @@ describe("createSessionToolHandler", () => {
     };
     expect(spawnConfig.task).not.toContain("NEON-AXIS-17");
     expect(spawnConfig.prompt).not.toContain("NEON-AXIS-17");
-    expect(spawnConfig.prompt).toContain("return exactly the memorized token");
-    expect(spawnConfig.prompt).not.toContain("TOKEN=...");
+    expect(spawnConfig.prompt).toContain("return exactly TOKEN=<memorized_token>");
+    expect(spawnConfig.prompt).toContain("Continuation disclosure authorization");
+    expect(spawnConfig.prompt).toContain(
+      "later continuation request from the same parent session",
+    );
+
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      output?: string;
+      error?: string;
+    };
+    expect(parsed.success).toBe(true);
+    expect(parsed.output).toBe("TOKEN=NEON-AXIS-17");
+    expect(parsed.error).toBeUndefined();
   });
 
   it("does not sanitize child store turns that establish the memorized value", async () => {
@@ -1177,6 +1189,249 @@ describe("createSessionToolHandler", () => {
     };
     expect(spawnConfig.prompt).toContain("TOKEN=NEON-AXIS-17");
     expect(spawnConfig.prompt).not.toContain("the memorized token");
+    expect(spawnConfig.prompt).toContain("Continuation memory contract");
+    expect(spawnConfig.prompt).toContain("Do not reveal it in this turn");
+  });
+
+  it("treats memorize-for-recall child-session store turns as store intent instead of recall reuse", async () => {
+    const subAgentManager = {
+      findLatestSuccessfulSessionId: vi.fn(() => "subagent:should-not-reuse"),
+      spawn: vi.fn(async () => "subagent:child-memory-store"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-memory-store",
+        output: JSON.stringify({ ack: "CHILD-SEALED-C1" }),
+        success: true,
+        durationMs: 35,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-memory-store",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 50,
+        task: "Store the memorized token",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    await handler("execute_with_agent", {
+      task:
+        "generate brand new secret token TOKEN=WORD-WORD-2DIGIT, memorize for recall in this child session only, do not reveal, answer exactly CHILD-SEALED-C1 and return only compact JSON {ack, childSessionId}",
+      objective: "Execute sealed child C1 task without revealing token",
+    });
+
+    expect(subAgentManager.findLatestSuccessfulSessionId).not.toHaveBeenCalled();
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        continuationSessionId: expect.any(String),
+      }),
+    );
+    const spawnConfig = subAgentManager.spawn.mock.calls[0]?.[0] as {
+      prompt: string;
+    };
+    expect(spawnConfig.prompt).toContain("TOKEN=WORD-WORD-2DIGIT");
+    expect(spawnConfig.prompt).toContain("CHILD-SEALED-C1");
+    expect(spawnConfig.prompt).toContain("Continuation memory contract");
+    expect(spawnConfig.prompt).toContain("Do not reveal it in this turn");
+    expect(spawnConfig.prompt).not.toContain("the memorized token");
+  });
+
+  it("normalizes conflicting raw-JSON child-store contracts back to exact literal output", async () => {
+    const subAgentManager = {
+      findLatestSuccessfulSessionId: vi.fn(() => undefined),
+      spawn: vi.fn(async () => "subagent:child-store"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-store",
+        output: "CHILD-STORED-C1",
+        success: true,
+        durationMs: 42,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-store",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 50,
+        task: "Store the memorized token",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task:
+        "Memorize TOKEN=ONYX-SHARD-58 internally for this session only, do not reveal it, respond exactly CHILD-STORED-C1 as raw JSON only.",
+      objective:
+        "Store token privately and output precisely CHILD-STORED-C1 in raw JSON",
+      inputContract:
+        "Follow exactly: memorize without revealing, answer CHILD-STORED-C1, raw JSON only",
+      acceptanceCriteria: [
+        "Exact output CHILD-STORED-C1",
+        "No token revealed",
+        "Raw JSON response",
+      ],
+    });
+
+    const spawnConfig = subAgentManager.spawn.mock.calls[0]?.[0] as {
+      prompt: string;
+    };
+    expect(spawnConfig.prompt).toContain("CHILD-STORED-C1");
+    expect(spawnConfig.prompt).not.toContain("raw JSON");
+
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      output?: string;
+      error?: string;
+      validationCode?: string;
+    };
+    expect(parsed.success).toBe(true);
+    expect(parsed.output).toBe("CHILD-STORED-C1");
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.validationCode).toBeUndefined();
+  });
+
+  it("rewrites delegated structured childSessionId output to the real subagent handle", async () => {
+    const subAgentManager = {
+      findLatestSuccessfulSessionId: vi.fn(() => undefined),
+      spawn: vi.fn(async () => "subagent:child-real"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-real",
+        output: JSON.stringify({
+          ack: "CHILD-SEALED-C1",
+          childSessionId: "fake-child-handle",
+        }),
+        success: true,
+        durationMs: 40,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-real",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 50,
+        task: "Store the memorized token",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task:
+        "Return compact JSON with keys ack and childSessionId after storing the secret for later recall.",
+      objective:
+        "In the child agent only, memorize token TOKEN=NEON-AXIS-17 for later recall, do not reveal it now, and answer with JSON {ack, childSessionId}.",
+    });
+
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      output?: string;
+      subagentSessionId?: string;
+    };
+    expect(parsed.success).toBe(true);
+    expect(parsed.subagentSessionId).toBe("subagent:child-real");
+    expect(parsed.output).toBe(
+      JSON.stringify({
+        ack: "CHILD-SEALED-C1",
+        childSessionId: "subagent:child-real",
+      }),
+    );
+  });
+
+  it("rewrites embedded childSessionId JSON output to the real subagent handle", async () => {
+    const subAgentManager = {
+      findLatestSuccessfulSessionId: vi.fn(() => undefined),
+      spawn: vi.fn(async () => "subagent:child-real"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-real",
+        output: 'CHILD-SEALED-C1\n{"ack":true,"childSessionId":"fake-child-handle"}',
+        success: true,
+        durationMs: 40,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-real",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 50,
+        task: "Store the memorized token",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task:
+        "Return only compact JSON with keys ack and childSessionId after storing the secret for later recall.",
+      objective:
+        "In the child agent only, memorize token TOKEN=NEON-AXIS-17 for later recall, do not reveal it now, answer exactly CHILD-SEALED-C1, and return only compact JSON {ack, childSessionId}.",
+    });
+
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      output?: string;
+      subagentSessionId?: string;
+    };
+    expect(parsed.success).toBe(true);
+    expect(parsed.subagentSessionId).toBe("subagent:child-real");
+    expect(parsed.output).toBe(
+      JSON.stringify({
+        ack: true,
+        childSessionId: "subagent:child-real",
+      }),
+    );
   });
 
   it("returns failure when delegated output includes unresolved denied commands", async () => {

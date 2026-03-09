@@ -25,6 +25,23 @@ describe("delegation-validation", () => {
     expect(result.code).toBe("expected_json_object");
   });
 
+  it("accepts exact-output criteria that preserve memorized-token placeholders", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        objective:
+          "Return exactly TOKEN=<memorized_token> with no other text",
+        inputContract:
+          "follow exactly: no extra words, output only the token line",
+        acceptanceCriteria: [
+          "output exactly TOKEN=<memorized_token>",
+        ],
+      },
+      output: "TOKEN=ONYX-SHARD-58",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects exact-count acceptance criteria mismatches", () => {
     const result = validateDelegatedOutputContract({
       spec: {

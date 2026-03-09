@@ -4434,6 +4434,43 @@ describe("ChatExecutor", () => {
       });
     });
 
+    it("does not suppress tools for delegated child-memory turns that explicitly require execute_with_agent", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "{\"ack\":true,\"childSessionId\":\"subagent:child-1\"}",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["desktop.text_editor", "execute_with_agent"],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["desktop.text_editor", "execute_with_agent"],
+            expandedToolNames: ["desktop.text_editor", "execute_with_agent"],
+          },
+          message: createMessage(
+            "Use exactly one execute_with_agent child session. In that child, memorize token TOKEN=LUNAR-NOVA-88 for recall in this child session only, do not reveal it, answer exactly CHILD-STORED-F2, and return raw JSON only.",
+          ),
+        }),
+      );
+
+      expect(result.content).toBe("{\"ack\":true,\"childSessionId\":\"subagent:child-1\"}");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["initial"]);
+      expect(result.plannerSummary?.used).toBe(false);
+      expect(result.plannerSummary?.routeReason).not.toBe("dialogue_memory_turn");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolRouting: { allowedToolNames: ["desktop.text_editor", "execute_with_agent"] },
+      });
+    });
+
     it("keeps dialogue recall turns on the direct no-tool path", async () => {
       const provider = createMockProvider("primary", {
         chat: vi.fn().mockResolvedValue(
