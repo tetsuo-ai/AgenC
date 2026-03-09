@@ -538,7 +538,7 @@ export class SystemProcessManager {
       record.lastError = "Managed process handle is missing persisted identity metadata.";
     } else if (!snapshot) {
       record.lastError = "Managed process no longer exists.";
-    } else if (!snapshotRunning) {
+    } else if (snapshotRunning === false) {
       record.lastError = "Managed process is no longer running.";
     } else {
       record.lastError = "Managed process identity mismatch detected.";
