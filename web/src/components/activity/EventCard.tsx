@@ -5,30 +5,30 @@ interface EventCardProps {
   event: ActivityEvent;
 }
 
-const EVENT_META: Record<string, { icon: string; color: string; label: string }> = {
-  'chat.inbound': { icon: '↓', color: 'text-blue-500 bg-blue-500/10', label: 'Chat Inbound' },
-  'chat.response': { icon: '↑', color: 'text-emerald-500 bg-emerald-500/10', label: 'Chat Response' },
-  'tool.executed': { icon: '⚡', color: 'text-amber-500 bg-amber-500/10', label: 'Tool Executed' },
-  'task.created': { icon: '+', color: 'text-emerald-500 bg-emerald-500/10', label: 'Task Created' },
-  'task.cancelled': { icon: '×', color: 'text-red-500 bg-red-500/10', label: 'Task Cancelled' },
-  'subagents.planned': { icon: '⋯', color: 'text-blue-500 bg-blue-500/10', label: 'Subagent Planned' },
-  'subagents.spawned': { icon: '⧉', color: 'text-cyan-500 bg-cyan-500/10', label: 'Subagent Spawned' },
-  'subagents.started': { icon: '▶', color: 'text-amber-500 bg-amber-500/10', label: 'Subagent Started' },
-  'subagents.progress': { icon: '↻', color: 'text-amber-500 bg-amber-500/10', label: 'Subagent Progress' },
-  'subagents.tool.executing': { icon: '⚙', color: 'text-amber-500 bg-amber-500/10', label: 'Subagent Tool Start' },
-  'subagents.tool.result': { icon: '✓', color: 'text-emerald-500 bg-emerald-500/10', label: 'Subagent Tool Result' },
-  'subagents.completed': { icon: '✓', color: 'text-emerald-500 bg-emerald-500/10', label: 'Subagent Completed' },
-  'subagents.failed': { icon: '!', color: 'text-red-500 bg-red-500/10', label: 'Subagent Failed' },
-  'subagents.cancelled': { icon: '×', color: 'text-red-500 bg-red-500/10', label: 'Subagent Cancelled' },
-  'subagents.synthesized': { icon: 'Σ', color: 'text-violet-500 bg-violet-500/10', label: 'Delegation Synthesized' },
-  taskCreated: { icon: '+', color: 'text-emerald-500 bg-emerald-500/10', label: 'Task Created' },
-  taskCompleted: { icon: '✓', color: 'text-blue-500 bg-blue-500/10', label: 'Task Completed' },
-  taskCancelled: { icon: '×', color: 'text-red-500 bg-red-500/10', label: 'Task Cancelled' },
-  taskClaimed: { icon: '→', color: 'text-amber-500 bg-amber-500/10', label: 'Task Claimed' },
-  disputeInitiated: { icon: '!', color: 'text-red-500 bg-red-500/10', label: 'Dispute Initiated' },
-  disputeResolved: { icon: '✓', color: 'text-blue-500 bg-blue-500/10', label: 'Dispute Resolved' },
-  agentRegistered: { icon: '+', color: 'text-emerald-500 bg-emerald-500/10', label: 'Agent Registered' },
-  agentUpdated: { icon: '↻', color: 'text-amber-500 bg-amber-500/10', label: 'Agent Updated' },
+const EVENT_META: Record<string, { icon: string; tone: string; label: string }> = {
+  'chat.inbound': { icon: '↓', tone: 'text-bbs-cyan border-bbs-cyan/40', label: 'chat inbound' },
+  'chat.response': { icon: '↑', tone: 'text-bbs-green border-bbs-green/40', label: 'chat response' },
+  'tool.executed': { icon: '⚡', tone: 'text-bbs-yellow border-bbs-yellow/40', label: 'tool executed' },
+  'task.created': { icon: '+', tone: 'text-bbs-green border-bbs-green/40', label: 'task created' },
+  'task.cancelled': { icon: '×', tone: 'text-bbs-red border-bbs-red/40', label: 'task cancelled' },
+  'subagents.planned': { icon: '⋯', tone: 'text-bbs-cyan border-bbs-cyan/40', label: 'subagent planned' },
+  'subagents.spawned': { icon: '⧉', tone: 'text-bbs-cyan border-bbs-cyan/40', label: 'subagent spawned' },
+  'subagents.started': { icon: '▶', tone: 'text-bbs-yellow border-bbs-yellow/40', label: 'subagent started' },
+  'subagents.progress': { icon: '↻', tone: 'text-bbs-yellow border-bbs-yellow/40', label: 'subagent progress' },
+  'subagents.tool.executing': { icon: '⚙', tone: 'text-bbs-yellow border-bbs-yellow/40', label: 'subagent tool start' },
+  'subagents.tool.result': { icon: '✓', tone: 'text-bbs-green border-bbs-green/40', label: 'subagent tool result' },
+  'subagents.completed': { icon: '✓', tone: 'text-bbs-green border-bbs-green/40', label: 'subagent completed' },
+  'subagents.failed': { icon: '!', tone: 'text-bbs-red border-bbs-red/40', label: 'subagent failed' },
+  'subagents.cancelled': { icon: '×', tone: 'text-bbs-red border-bbs-red/40', label: 'subagent cancelled' },
+  'subagents.synthesized': { icon: 'Σ', tone: 'text-bbs-purple border-bbs-purple-dim', label: 'delegation synthesized' },
+  taskCreated: { icon: '+', tone: 'text-bbs-green border-bbs-green/40', label: 'task created' },
+  taskCompleted: { icon: '✓', tone: 'text-bbs-cyan border-bbs-cyan/40', label: 'task completed' },
+  taskCancelled: { icon: '×', tone: 'text-bbs-red border-bbs-red/40', label: 'task cancelled' },
+  taskClaimed: { icon: '→', tone: 'text-bbs-yellow border-bbs-yellow/40', label: 'task claimed' },
+  disputeInitiated: { icon: '!', tone: 'text-bbs-red border-bbs-red/40', label: 'dispute initiated' },
+  disputeResolved: { icon: '✓', tone: 'text-bbs-cyan border-bbs-cyan/40', label: 'dispute resolved' },
+  agentRegistered: { icon: '+', tone: 'text-bbs-green border-bbs-green/40', label: 'agent registered' },
+  agentUpdated: { icon: '↻', tone: 'text-bbs-yellow border-bbs-yellow/40', label: 'agent updated' },
 };
 
 function truncateId(id: string, len = 12): string {
@@ -38,27 +38,22 @@ function truncateId(id: string, len = 12): string {
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
+
   const handleCopy = () => {
     void navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
   return (
     <button
+      type="button"
       onClick={handleCopy}
-      className="ml-1.5 text-tetsuo-300 hover:text-accent transition-colors"
+      className="border border-bbs-border bg-bbs-black px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
       title="Copy to clipboard"
     >
-      {copied ? (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-emerald-500">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      ) : (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
-      )}
+      {copied ? '[copied]' : '[copy]'}
     </button>
   );
 }
@@ -70,7 +65,12 @@ export function EventCard({ event }: EventCardProps) {
     second: '2-digit',
   });
 
-  const meta = EVENT_META[event.eventType] ?? { icon: '•', color: 'text-accent bg-accent-bg', label: event.eventType };
+  const meta = EVENT_META[event.eventType] ?? {
+    icon: '•',
+    tone: 'text-bbs-purple border-bbs-purple-dim',
+    label: event.eventType,
+  };
+
   const {
     sessionId,
     parentSessionId,
@@ -85,91 +85,77 @@ export function EventCard({ event }: EventCardProps) {
   } = event.data as Record<string, string | number>;
   const effectiveTraceId = traceId ?? event.traceId;
   const effectiveParentTraceId = parentTraceId ?? event.parentTraceId;
-  const hasExtra = Object.keys(rest).length > 0;
+  const extraEntries = Object.entries(rest);
 
   return (
-    <div className="px-4 py-3 rounded-xl border border-tetsuo-200 bg-tetsuo-50 hover:border-tetsuo-300 transition-all duration-200 hover:shadow-sm">
-      {/* Header: badge + time */}
-      <div className="flex items-center justify-between gap-2">
-        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${meta.color}`}>
-          <span className="text-[11px]">{meta.icon}</span>
-          {meta.label}
-        </span>
-        <span className="text-[10px] text-tetsuo-400 font-mono shrink-0">{time}</span>
-      </div>
-
-      {/* Structured fields */}
-      <div className="mt-2 space-y-1.5">
-        {toolName && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Tool</span>
-            <span className="font-mono font-medium text-tetsuo-700">{String(toolName)}</span>
-            {durationMs != null && (
-              <span className="text-tetsuo-400 ml-auto">{Number(durationMs).toLocaleString()}ms</span>
-            )}
-          </div>
-        )}
-        {description && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Desc</span>
-            <span className="text-tetsuo-700 truncate">{String(description)}</span>
-          </div>
-        )}
-        {taskPda && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Task</span>
-            <span className="font-mono text-tetsuo-600 truncate">{truncateId(String(taskPda))}</span>
-            <CopyButton value={String(taskPda)} />
-          </div>
-        )}
-        {sessionId && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Session</span>
-            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(sessionId))}</span>
-            <CopyButton value={String(sessionId)} />
-          </div>
-        )}
-        {parentSessionId && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Parent</span>
-            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(parentSessionId))}</span>
-            <CopyButton value={String(parentSessionId)} />
-          </div>
-        )}
-        {subagentSessionId && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Child</span>
-            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(subagentSessionId))}</span>
-            <CopyButton value={String(subagentSessionId)} />
-          </div>
-        )}
-        {effectiveTraceId && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Trace</span>
-            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(effectiveTraceId), 8)}</span>
-            <CopyButton value={String(effectiveTraceId)} />
-          </div>
-        )}
-        {effectiveParentTraceId && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-tetsuo-400 shrink-0">Parent Trace</span>
-            <span className="font-mono text-tetsuo-500 truncate">{truncateId(String(effectiveParentTraceId), 8)}</span>
-            <CopyButton value={String(effectiveParentTraceId)} />
-          </div>
-        )}
-      </div>
-
-      {/* Extra fields as compact key-value */}
-      {hasExtra && (
-        <div className="mt-2 bg-tetsuo-100/50 rounded-lg px-2.5 py-2 space-y-1">
-          {Object.entries(rest).map(([key, val]) => (
-            <div key={key} className="flex items-center gap-2 text-[11px]">
-              <span className="text-tetsuo-400">{key}</span>
-              <span className="font-mono text-tetsuo-600 truncate">{typeof val === 'object' ? JSON.stringify(val) : String(val)}</span>
-            </div>
-          ))}
+    <article className="border border-bbs-border bg-bbs-dark px-4 py-4 transition-colors hover:border-bbs-purple-dim hover:bg-bbs-surface">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em]">
+          <span className={`border bg-bbs-black px-3 py-2 ${meta.tone}`}>
+            [{meta.icon} {meta.label}]
+          </span>
+          <span className="text-bbs-gray">{time}</span>
         </div>
-      )}
+        <span className="text-[10px] uppercase tracking-[0.16em] text-bbs-gray">{event.eventType}</span>
+      </div>
+
+      <div className="mt-4 grid gap-2 text-xs md:grid-cols-2">
+        {toolName ? (
+          <Field label="tool" value={String(toolName)} accent="text-bbs-yellow" extra={durationMs != null ? `${Number(durationMs).toLocaleString()}ms` : undefined} />
+        ) : null}
+        {description ? <Field label="desc" value={String(description)} /> : null}
+        {taskPda ? <Field label="task" value={truncateId(String(taskPda))} copyValue={String(taskPda)} /> : null}
+        {sessionId ? <Field label="session" value={truncateId(String(sessionId))} copyValue={String(sessionId)} /> : null}
+        {parentSessionId ? <Field label="parent" value={truncateId(String(parentSessionId))} copyValue={String(parentSessionId)} /> : null}
+        {subagentSessionId ? <Field label="child" value={truncateId(String(subagentSessionId))} copyValue={String(subagentSessionId)} /> : null}
+        {effectiveTraceId ? <Field label="trace" value={truncateId(String(effectiveTraceId), 8)} copyValue={String(effectiveTraceId)} /> : null}
+        {effectiveParentTraceId ? <Field label="parent trace" value={truncateId(String(effectiveParentTraceId), 8)} copyValue={String(effectiveParentTraceId)} /> : null}
+      </div>
+
+      {extraEntries.length > 0 ? (
+        <div className="mt-4 border border-bbs-border bg-bbs-black/40 px-3 py-3 text-xs text-bbs-lightgray">
+          <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">payload</div>
+          <div className="space-y-2">
+            {extraEntries.map(([key, value]) => (
+              <div key={key} className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+                <span className="text-bbs-gray">{key}</span>
+                <span className="break-words font-mono text-bbs-lightgray md:max-w-[65%]">
+                  {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function Field({
+  label,
+  value,
+  accent,
+  extra,
+  copyValue,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+  extra?: string;
+  copyValue?: string;
+}) {
+  return (
+    <div className="border border-bbs-border bg-bbs-black/40 px-3 py-3 text-bbs-lightgray">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">
+        <span>{label}</span>
+        {extra ? <span>{extra}</span> : null}
+      </div>
+      <div className={`mt-2 break-all text-sm ${accent ?? ''}`}>{value}</div>
+      {copyValue ? (
+        <div className="mt-2">
+          <CopyButton value={copyValue} />
+        </div>
+      ) : null}
     </div>
   );
 }

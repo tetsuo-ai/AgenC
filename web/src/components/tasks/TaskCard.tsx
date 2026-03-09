@@ -5,56 +5,69 @@ interface TaskCardProps {
   onCancel: (taskId: string) => void;
 }
 
-const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
-  open: { bg: 'bg-emerald-500/10', text: 'text-emerald-600', dot: 'bg-emerald-500' },
-  in_progress: { bg: 'bg-amber-500/10', text: 'text-amber-600', dot: 'bg-amber-500' },
-  completed: { bg: 'bg-blue-500/10', text: 'text-blue-600', dot: 'bg-blue-500' },
-  cancelled: { bg: 'bg-tetsuo-200/50', text: 'text-tetsuo-400', dot: 'bg-tetsuo-400' },
-  disputed: { bg: 'bg-red-500/10', text: 'text-red-600', dot: 'bg-red-500' },
+const STATUS_STYLES: Record<string, string> = {
+  open: 'border-bbs-green/40 text-bbs-green',
+  in_progress: 'border-bbs-yellow/40 text-bbs-yellow',
+  completed: 'border-bbs-cyan/40 text-bbs-cyan',
+  cancelled: 'border-bbs-border text-bbs-gray',
+  disputed: 'border-bbs-red/40 text-bbs-red',
 };
 
+function truncateId(value: string) {
+  return value.length > 18 ? `${value.slice(0, 18)}...` : value;
+}
+
 export function TaskCard({ task, onCancel }: TaskCardProps) {
-  const style = STATUS_STYLES[task.status.toLowerCase()] ?? STATUS_STYLES.open;
+  const statusKey = task.status.toLowerCase();
+  const statusClass = STATUS_STYLES[statusKey] ?? STATUS_STYLES.open;
+  const description = task.description?.trim() || 'untitled task';
 
   return (
-    <div className="px-4 py-3.5 rounded-xl border border-tetsuo-200 bg-tetsuo-50 hover:border-tetsuo-300 transition-all duration-200 hover:shadow-sm">
-      <div className="flex items-center justify-between gap-3">
+    <article className="border border-bbs-border bg-bbs-dark px-4 py-4 transition-colors hover:border-bbs-purple-dim hover:bg-bbs-surface">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
-          {task.description ? (
-            <div className="text-sm font-medium text-tetsuo-800 truncate">{task.description}</div>
-          ) : (
-            <div className="text-sm font-medium text-tetsuo-800 truncate font-mono">{task.id.slice(0, 16)}...</div>
-          )}
-          <div className="text-[10px] text-tetsuo-400 font-mono mt-0.5">{task.id.slice(0, 16)}...</div>
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">
+            <span className="text-bbs-purple">TASK&gt;</span>
+            <span className="text-bbs-lightgray">{truncateId(task.id)}</span>
+          </div>
+          <div className="mt-2 break-words text-sm font-bold uppercase tracking-[0.08em] text-bbs-white">
+            {description}
+          </div>
         </div>
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider shrink-0 ${style.bg} ${style.text}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-          {task.status}
+
+        <span className={`shrink-0 border px-3 py-2 text-[10px] uppercase tracking-[0.16em] ${statusClass}`}>
+          [{statusKey}]
         </span>
       </div>
-      <div className="mt-2.5 flex items-center gap-4 text-xs text-tetsuo-400">
-        {task.reward && (
-          <span className="flex items-center gap-1">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" /><path d="M12 18V6" /></svg>
-            {task.reward}
-          </span>
-        )}
-        {task.worker && (
-          <span className="flex items-center gap-1 font-mono">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-            {task.worker.slice(0, 8)}...
-          </span>
-        )}
+
+      <div className="mt-4 grid gap-2 text-xs text-bbs-gray md:grid-cols-3">
+        <div className="border border-bbs-border bg-bbs-black/40 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-bbs-gray">task id</div>
+          <div className="mt-1 break-all text-bbs-lightgray">{task.id}</div>
+        </div>
+
+        <div className="border border-bbs-border bg-bbs-black/40 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-bbs-gray">reward</div>
+          <div className="mt-1 text-bbs-lightgray">{task.reward ?? '--'}</div>
+        </div>
+
+        <div className="border border-bbs-border bg-bbs-black/40 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-bbs-gray">worker</div>
+          <div className="mt-1 break-all text-bbs-lightgray">{task.worker ?? '--'}</div>
+        </div>
       </div>
-      {task.status.toLowerCase() === 'open' && (
-        <button
-          onClick={() => onCancel(task.id)}
-          className="mt-3 flex items-center gap-1 text-xs text-red-500 hover:text-red-600 transition-colors"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
-          Cancel task
-        </button>
+
+      {statusKey === 'open' && (
+        <div className="mt-4 flex justify-start">
+          <button
+            type="button"
+            onClick={() => onCancel(task.id)}
+            className="border border-bbs-red/40 bg-bbs-black px-3 py-2 text-xs uppercase tracking-[0.14em] text-bbs-red transition-colors hover:text-bbs-white"
+          >
+            [cancel task]
+          </button>
+        </div>
       )}
-    </div>
+    </article>
   );
 }

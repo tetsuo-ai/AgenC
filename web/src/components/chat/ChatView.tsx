@@ -188,11 +188,11 @@ export function ChatView({
             className="max-w-[300px] w-full h-auto pixelated"
             style={{ imageRendering: 'auto' }}
           />
-          <div className={`text-sm tracking-[6px] font-bold ${connected ? 'text-bbs-green' : 'text-bbs-purple'}`}>
-            {splashLabel}
-          </div>
-          <div className="w-full max-w-md">
-            <div className="text-bbs-pink font-mono text-xs">
+          <div className="inline-flex flex-col items-center gap-2">
+            <div className={`text-sm tracking-[6px] font-bold text-center ${connected ? 'text-bbs-green' : 'text-bbs-purple'}`}>
+              {splashLabel}
+            </div>
+            <div className="text-bbs-pink font-mono text-xs text-center whitespace-nowrap">
               {connected
                 ? `[${'\u2588'.repeat(progressFilled)}${'\u2591'.repeat(progressEmpty)}] ${progressPercent}%`
                 : <>[<span className="animate-bbs-progress inline-block overflow-hidden whitespace-nowrap" style={{ maxWidth: '100%' }}>{'\u2588'.repeat(28)}</span>{'\u2591'.repeat(28)}]</>
