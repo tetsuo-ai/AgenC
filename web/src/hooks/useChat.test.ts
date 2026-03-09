@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import type { WSMessage } from "../types";
 import { useChat } from "./useChat";
+
+beforeEach(() => {
+  globalThis.localStorage.clear();
+});
 
 describe("useChat tool result matching", () => {
   it("matches tools.result to the exact toolCallId", () => {
@@ -232,6 +236,39 @@ describe("useChat tool result matching", () => {
 });
 
 describe("useChat session lifecycle", () => {
+  it("persists a server-issued owner token and reuses it in later requests", () => {
+    const send = vi.fn();
+    const { result } = renderHook(() => useChat({ send, connected: true }));
+
+    act(() => {
+      result.current.handleMessage({
+        type: "chat.owner",
+        payload: { ownerToken: "owner-token-123" },
+      } as WSMessage);
+    });
+
+    expect(globalThis.localStorage.getItem("agenc-webchat-owner-token")).toBe(
+      "owner-token-123",
+    );
+
+    send.mockClear();
+
+    act(() => {
+      result.current.startNewChat();
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "chat.new",
+        id: expect.any(String),
+        payload: {
+          clientKey: expect.any(String),
+          ownerToken: "owner-token-123",
+        },
+      }),
+    );
+  });
+
   it("startNewChat clears local state and requests a new server session", () => {
     const send = vi.fn();
     const { result } = renderHook(() => useChat({ send, connected: true }));

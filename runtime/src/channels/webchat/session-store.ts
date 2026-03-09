@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { MemoryBackend } from "../../memory/types.js";
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
@@ -6,6 +6,7 @@ import { KeyedAsyncQueue } from "../../utils/keyed-async-queue.js";
 
 const WEBCHAT_SESSION_KEY_PREFIX = "webchat:session:";
 const WEBCHAT_OWNER_INDEX_KEY_PREFIX = "webchat:owner:";
+const WEBCHAT_OWNER_TOKEN_KEY_PREFIX = "webchat:owner-token:";
 
 export interface PersistedWebChatSession {
   readonly version: 1;
@@ -28,6 +29,15 @@ export interface PersistedWebChatSessionMetadata {
   readonly policyContext?: PersistedWebChatPolicyContext;
 }
 
+export interface PersistedWebChatOwnerCredential {
+  readonly version: 1;
+  readonly tokenHash: string;
+  readonly ownerKey: string;
+  readonly actorId: string;
+  readonly issuedAt: number;
+  readonly lastSeenAt: number;
+}
+
 export interface WebChatSessionStoreConfig {
   readonly memoryBackend: MemoryBackend;
   readonly logger?: Logger;
@@ -44,6 +54,14 @@ function sessionKey(sessionId: string): string {
 function ownerIndexKey(ownerKey: string): string {
   const ownerHash = createHash("sha256").update(ownerKey).digest("hex");
   return `${WEBCHAT_OWNER_INDEX_KEY_PREFIX}${ownerHash}`;
+}
+
+function ownerTokenKey(tokenHash: string): string {
+  return `${WEBCHAT_OWNER_TOKEN_KEY_PREFIX}${tokenHash}`;
+}
+
+function hashOwnerToken(ownerToken: string): string {
+  return createHash("sha256").update(ownerToken).digest("hex");
 }
 
 function coerceSession(value: unknown): PersistedWebChatSession | undefined {
@@ -110,6 +128,31 @@ function coerceSessionMetadata(
   return { policyContext };
 }
 
+function coerceOwnerCredential(
+  value: unknown,
+): PersistedWebChatOwnerCredential | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (
+    raw.version !== 1 ||
+    typeof raw.tokenHash !== "string" ||
+    typeof raw.ownerKey !== "string" ||
+    typeof raw.actorId !== "string" ||
+    typeof raw.issuedAt !== "number" ||
+    typeof raw.lastSeenAt !== "number"
+  ) {
+    return undefined;
+  }
+  return {
+    version: 1,
+    tokenHash: raw.tokenHash,
+    ownerKey: raw.ownerKey,
+    actorId: raw.actorId,
+    issuedAt: raw.issuedAt,
+    lastSeenAt: raw.lastSeenAt,
+  };
+}
+
 function mergeSessionMetadata(
   current: PersistedWebChatSessionMetadata | undefined,
   update: PersistedWebChatSessionMetadata | undefined,
@@ -168,6 +211,76 @@ export class WebChatSessionStore {
   ): Promise<PersistedWebChatSession | undefined> {
     const value = await this.memoryBackend.get(sessionKey(sessionId));
     return coerceSession(value);
+  }
+
+  createOwnerCredential(params?: {
+    issuedAt?: number;
+  }): {
+    ownerToken: string;
+    credential: PersistedWebChatOwnerCredential;
+  } {
+    const issuedAt = params?.issuedAt ?? Date.now();
+    const ownerToken = `${randomUUID()}${randomUUID()}`;
+    const tokenHash = hashOwnerToken(ownerToken);
+    const credential: PersistedWebChatOwnerCredential = {
+      version: 1,
+      tokenHash,
+      ownerKey: `web:${tokenHash}`,
+      actorId: `web:${tokenHash}`,
+      issuedAt,
+      lastSeenAt: issuedAt,
+    };
+    return { ownerToken, credential };
+  }
+
+  async persistOwnerCredential(
+    credential: PersistedWebChatOwnerCredential,
+  ): Promise<void> {
+    await this.memoryBackend.set(
+      ownerTokenKey(credential.tokenHash),
+      cloneJson(credential),
+    );
+  }
+
+  async issueOwnerCredential(params?: {
+    issuedAt?: number;
+  }): Promise<{
+    ownerToken: string;
+    credential: PersistedWebChatOwnerCredential;
+  }> {
+    const issued = this.createOwnerCredential(params);
+    await this.persistOwnerCredential(issued.credential);
+    return issued;
+  }
+
+  async resolveOwnerCredential(
+    ownerToken: string,
+  ): Promise<PersistedWebChatOwnerCredential | undefined> {
+    const normalized = ownerToken.trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+    const tokenHash = hashOwnerToken(normalized);
+    const current = coerceOwnerCredential(
+      await this.memoryBackend.get(ownerTokenKey(tokenHash)),
+    );
+    if (!current) {
+      return undefined;
+    }
+    const lastSeenAt = Date.now();
+    if (current.lastSeenAt !== lastSeenAt) {
+      await this.memoryBackend.set(
+        ownerTokenKey(tokenHash),
+        cloneJson({
+          ...current,
+          lastSeenAt,
+        } satisfies PersistedWebChatOwnerCredential),
+      );
+    }
+    return {
+      ...current,
+      lastSeenAt,
+    };
   }
 
   async ensureSession(params: {

@@ -80,4 +80,23 @@ describe("WebChatSessionStore", () => {
       },
     });
   });
+
+  it("issues and resolves server-owned webchat owner credentials", async () => {
+    const backend = new InMemoryBackend();
+    const store = new WebChatSessionStore({ memoryBackend: backend });
+
+    const { ownerToken, credential } = await store.issueOwnerCredential({
+      issuedAt: 400,
+    });
+    const resolved = await store.resolveOwnerCredential(ownerToken);
+
+    expect(ownerToken).toMatch(
+      /^[0-9a-f-]{36}[0-9a-f-]{36}$/i,
+    );
+    expect(resolved).toMatchObject({
+      ownerKey: credential.ownerKey,
+      actorId: credential.actorId,
+      issuedAt: 400,
+    });
+  });
 });

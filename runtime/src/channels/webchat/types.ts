@@ -26,6 +26,7 @@ import type {
 
 import type {
   ChatCancelledPayload,
+  ChatOwnerPayload,
   ChatSessionPayload,
   ChatSessionsPayload,
   EventsEventPayload,
@@ -167,6 +168,7 @@ export interface ChatMessageRequest {
   payload: {
     content: string;
     clientKey?: string;
+    ownerToken?: string;
     policyContext?: {
       tenantId?: string;
       projectId?: string;
@@ -184,31 +186,31 @@ export interface ChatTypingRequest {
 
 export interface ChatHistoryRequest {
   type: "chat.history";
-  payload?: { limit?: number; clientKey?: string };
+  payload?: { limit?: number; clientKey?: string; ownerToken?: string };
   id?: string;
 }
 
 export interface ChatResumeRequest {
   type: "chat.resume";
-  payload: { sessionId: string; clientKey?: string };
+  payload: { sessionId: string; clientKey?: string; ownerToken?: string };
   id?: string;
 }
 
 export interface ChatNewRequest {
   type: "chat.new";
-  payload?: { clientKey?: string };
+  payload?: { clientKey?: string; ownerToken?: string };
   id?: string;
 }
 
 export interface ChatSessionsRequest {
   type: "chat.sessions";
-  payload?: { clientKey?: string };
+  payload?: { clientKey?: string; ownerToken?: string };
   id?: string;
 }
 
 export interface ChatCancelRequest {
   type: "chat.cancel";
-  payload?: { clientKey?: string };
+  payload?: { clientKey?: string; ownerToken?: string };
   id?: string;
 }
 
@@ -414,6 +416,12 @@ export interface ChatResumedResponse {
 export interface ChatSessionResponse {
   type: "chat.session";
   payload: ChatSessionPayload;
+  id?: string;
+}
+
+export interface ChatOwnerResponse {
+  type: "chat.owner";
+  payload: ChatOwnerPayload;
   id?: string;
 }
 

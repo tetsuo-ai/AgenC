@@ -81,6 +81,28 @@ function msg(type: string, payload?: unknown, id?: string): ControlMessage {
   return { type: type as ControlMessage["type"], payload, id };
 }
 
+function findResponse(
+  send: ReturnType<typeof vi.fn<(response: ControlResponse) => void>>,
+  type: string,
+  id?: string,
+): ControlResponse | undefined {
+  const match = send.mock.calls.find((call) => {
+    const response = call[0] as ControlResponse;
+    return response.type === type && (id === undefined || response.id === id);
+  });
+  return match?.[0] as ControlResponse | undefined;
+}
+
+function requireOwnerToken(
+  send: ReturnType<typeof vi.fn<(response: ControlResponse) => void>>,
+): string {
+  const response = findResponse(send, "chat.owner");
+  expect(response).toBeDefined();
+  const payload = response?.payload as Record<string, unknown> | undefined;
+  expect(payload?.ownerToken).toEqual(expect.any(String));
+  return payload?.ownerToken as string;
+}
+
 function openChatSession(
   channel: WebChatChannel,
   context: ChannelContext,
@@ -349,6 +371,9 @@ describe("WebChatChannel", () => {
         send,
       );
 
+      await vi.waitFor(() => expect(send).toHaveBeenCalled());
+      const ownerToken = requireOwnerToken(send);
+
       expect(context.onMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           metadata: {
@@ -386,7 +411,7 @@ describe("WebChatChannel", () => {
         "chat.resume",
         msg("chat.resume", {
           sessionId,
-          clientKey: "browser-tenant",
+          ownerToken,
         }),
         resumedSend,
       );
@@ -404,7 +429,7 @@ describe("WebChatChannel", () => {
         "chat.message",
         msg("chat.message", {
           content: "follow up",
-          clientKey: "browser-tenant",
+          ownerToken,
         }),
         resumedSend,
       );
@@ -883,7 +908,7 @@ describe("WebChatChannel", () => {
       expect((errorCall![0] as ControlResponse).error).toContain("Session");
     });
 
-    it("lists and resumes durable sessions across plugin restart with a stable client key", async () => {
+    it("lists and resumes durable sessions across plugin restart with a server-issued owner token", async () => {
       const memoryBackend = new InMemoryBackend();
       const send1 = vi.fn<(response: ControlResponse) => void>();
       deps = createDeps({ memoryBackend });
@@ -899,6 +924,7 @@ describe("WebChatChannel", () => {
         send1,
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
+      const ownerToken = requireOwnerToken(send1);
 
       const gatewayMsg = vi.mocked(context.onMessage).mock.calls[0][0];
       const sessionId = gatewayMsg.sessionId;
@@ -932,11 +958,36 @@ describe("WebChatChannel", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const sessionsCall = send2.mock.calls.find(
-        (call) => (call[0] as ControlResponse).type === "chat.sessions",
+      expect(findResponse(send2, "chat.sessions", "req-sessions")?.payload).toEqual([]);
+
+      channel2.handleMessage(
+        "client_2",
+        "chat.resume",
+        msg(
+          "chat.resume",
+          { sessionId, clientKey: "browser-1" },
+          "req-resume-replay",
+        ),
+        send2,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(findResponse(send2, "error", "req-resume-replay")?.error).toContain(
+        `Session "${sessionId}" not found`,
+      );
+
+      send2.mockClear();
+
+      channel2.handleMessage(
+        "client_2",
+        "chat.sessions",
+        msg("chat.sessions", { ownerToken }, "req-sessions"),
+        send2,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const sessionsCall = findResponse(send2, "chat.sessions", "req-sessions");
       expect(sessionsCall).toBeDefined();
-      expect((sessionsCall![0] as ControlResponse).payload).toEqual(
+      expect(sessionsCall?.payload).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ sessionId, messageCount: 1 }),
         ]),
@@ -947,7 +998,7 @@ describe("WebChatChannel", () => {
         "chat.resume",
         msg(
           "chat.resume",
-          { sessionId, clientKey: "browser-1" },
+          { sessionId, ownerToken },
           "req-resume",
         ),
         send2,
@@ -955,26 +1006,20 @@ describe("WebChatChannel", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(hydrateSessionContext).toHaveBeenCalledWith(sessionId);
-      const resumedCall = send2.mock.calls.find(
-        (call) => (call[0] as ControlResponse).type === "chat.resumed",
-      );
+      const resumedCall = findResponse(send2, "chat.resumed", "req-resume");
       expect(resumedCall).toBeDefined();
 
       channel2.handleMessage(
         "client_2",
         "chat.history",
-        msg("chat.history", { clientKey: "browser-1" }, "req-history"),
+        msg("chat.history", { ownerToken }, "req-history"),
         send2,
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const historyCall = send2.mock.calls.find(
-        (call) =>
-          (call[0] as ControlResponse).type === "chat.history" &&
-          (call[0] as ControlResponse).id === "req-history",
-      );
+      const historyCall = findResponse(send2, "chat.history", "req-history");
       expect(historyCall).toBeDefined();
-      expect((historyCall![0] as ControlResponse).payload).toEqual([
+      expect(historyCall?.payload).toEqual([
         expect.objectContaining({ content: "Hello", sender: "user" }),
         expect.objectContaining({
           content: "I am still working.",
@@ -1187,11 +1232,14 @@ describe("WebChatChannel", () => {
       });
     });
 
-    it("should handle approval.respond with resolver identity derived from the web client", async () => {
+    it("should handle approval.respond with a server-authenticated actor identity", async () => {
       const approvalEngine = {
         resolve: vi.fn(async () => true),
       } as unknown as NonNullable<WebChatDeps["approvalEngine"]>;
-      deps = createDeps({ approvalEngine });
+      deps = createDeps({
+        approvalEngine,
+        memoryBackend: new InMemoryBackend(),
+      });
       context = createContext();
       channel = new WebChatChannel(deps);
       await channel.initialize(context);
@@ -1199,6 +1247,7 @@ describe("WebChatChannel", () => {
 
       const send = vi.fn<(response: ControlResponse) => void>();
       const sessionId = openChatSession(channel, context, "client_1", send, "hello");
+      await vi.waitFor(() => expect(send).toHaveBeenCalled());
 
       channel.handleMessage(
         "client_1",
@@ -1223,9 +1272,9 @@ describe("WebChatChannel", () => {
       expect(approvalEngine.resolve).toHaveBeenCalledWith(
         "req-1",
         expect.objectContaining({
-          approvedBy: "volatile:client_1",
+          approvedBy: expect.stringMatching(/^web:/),
           resolver: expect.objectContaining({
-            actorId: "volatile:client_1",
+            actorId: expect.stringMatching(/^web:/),
             sessionId,
             channel: "webchat",
           }),

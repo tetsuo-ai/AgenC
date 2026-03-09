@@ -33,8 +33,10 @@ export type SendFn = (response: ControlResponse) => void;
 export interface HandlerRequestContext {
   /** Gateway-assigned websocket client id for this request. */
   clientId: string;
-  /** Stable owner key for the connected web client. */
+  /** Stable server-authenticated owner key for the connected web client. */
   ownerKey: string;
+  /** Stable server-authenticated actor id for audit and approvals. */
+  actorId: string;
   /** Logical channel name for the request. */
   channel: string;
   /** Active mapped chat session for this client, if any. */
@@ -492,9 +494,9 @@ export async function handleApprovalRespond(
   const resolved = await deps.approvalEngine.resolve(requestId, {
     requestId,
     disposition: approved ? 'yes' : 'no',
-    approvedBy: request.ownerKey,
+    approvedBy: request.actorId,
     resolver: {
-      actorId: request.ownerKey,
+      actorId: request.actorId,
       sessionId: request.activeSessionId,
       channel: request.channel,
       resolvedAt: Date.now(),
@@ -999,7 +1001,7 @@ export async function handleRunControl(
   await safeAsync(send, id, 'error', 'Failed to control background run', async () => {
     const detail = await deps.controlBackgroundRun!({
       action,
-      actor: request.ownerKey,
+      actor: request.actorId,
       channel: request.channel,
     });
     if (!detail) {

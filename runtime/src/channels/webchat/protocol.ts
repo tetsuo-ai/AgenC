@@ -22,6 +22,7 @@ export const WS_CHAT_MESSAGE = "chat.message" as const;
 export const WS_CHAT_TYPING = "chat.typing" as const;
 export const WS_CHAT_HISTORY = "chat.history" as const;
 export const WS_CHAT_SESSION = "chat.session" as const;
+export const WS_CHAT_OWNER = "chat.owner" as const;
 export const WS_CHAT_NEW = "chat.new" as const;
 export const WS_CHAT_RESUMED = "chat.resumed" as const;
 export const WS_CHAT_SESSIONS = "chat.sessions" as const;
@@ -104,6 +105,10 @@ export const WS_AGENT_STATUS = "agent.status" as const;
 
 export interface ChatSessionPayload {
   sessionId: string;
+}
+
+export interface ChatOwnerPayload {
+  ownerToken: string;
 }
 
 export interface ChatSessionSummary {
