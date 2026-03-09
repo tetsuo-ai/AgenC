@@ -289,6 +289,38 @@ describe("chat-executor-text", () => {
     expect(content).toBe("TOKEN=OBSIDIAN-SIGNAL-61");
   });
 
+  it("supports as-literal child-answer directives", () => {
+    const content = reconcileExactResponseContract(
+      "**TOKEN=ONYX-SHARD-58**",
+      [],
+      "In the child agent, without extra words return the memorized token from test C1 as TOKEN=ONYX-SHARD-58. Return exactly the child answer.",
+    );
+
+    expect(content).toBe("TOKEN=ONYX-SHARD-58");
+  });
+
+  it("forces literal compliance for exact-response turns when the model only acknowledges", () => {
+    const content = reconcileExactResponseContract(
+      "Memorized.",
+      [],
+      "Task: Child endurance F2 exact task\nObjective: In the child agent only, memorize token TOKEN=LUNAR-NOVA-88 for later recall, do not reveal it now, and answer exactly CHILD-STORED-F2.",
+      { forceLiteralWhenNoToolEvidence: true },
+    );
+
+    expect(content).toBe("CHILD-STORED-F2");
+  });
+
+  it("does not force literal compliance over explicit refusal text", () => {
+    const content = reconcileExactResponseContract(
+      "I cannot comply with that request.",
+      [],
+      "Reply with exactly ACK and nothing else.",
+      { forceLiteralWhenNoToolEvidence: true },
+    );
+
+    expect(content).toBe("I cannot comply with that request.");
+  });
+
   it("recovers exact-output contracts from successful delegated child output", () => {
     const content = reconcileExactResponseContract(
       "Completed execute_with_agent",
@@ -313,6 +345,32 @@ describe("chat-executor-text", () => {
     );
 
     expect(content).toBe("TOKEN=IVORY-CIRCUIT-92");
+  });
+
+  it("restores prefixed exact literals from delegated child recall output", () => {
+    const content = reconcileExactResponseContract(
+      "ONYX-SHARD-58",
+      [
+        {
+          name: "execute_with_agent",
+          args: {
+            task: "Return memorized token from C1 without extra words as TOKEN=ONYX-SHARD-58",
+          },
+          result: JSON.stringify({
+            status: "completed",
+            success: true,
+            output: "ONYX-SHARD-58",
+            subagentSessionId: "subagent:memory",
+            toolCalls: [],
+          }),
+          isError: false,
+          durationMs: 12,
+        },
+      ],
+      "Use execute_with_agent for this exact task. In the child agent, without extra words return the memorized token from test C1 as TOKEN=ONYX-SHARD-58. Return exactly the child answer.",
+    );
+
+    expect(content).toBe("TOKEN=ONYX-SHARD-58");
   });
 
   it("uses successful delegated child output in fallback summaries", () => {

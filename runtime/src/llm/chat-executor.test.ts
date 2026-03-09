@@ -4396,6 +4396,44 @@ describe("ChatExecutor", () => {
       });
     });
 
+    it("forces direct memory-turn literals when the provider only returns an acknowledgement", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "Memorized.",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["desktop.text_editor", "execute_with_agent"],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["desktop.text_editor", "execute_with_agent"],
+            expandedToolNames: ["desktop.text_editor", "execute_with_agent"],
+          },
+          message: createMessage(
+            "Child endurance F2 exact task. Memorize token TOKEN=LUNAR-NOVA-88 for later recall and answer exactly CHILD-STORED-F2.",
+          ),
+        }),
+      );
+
+      expect(result.content).toBe("CHILD-STORED-F2");
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["initial"]);
+      expect(result.plannerSummary?.used).toBe(false);
+      expect(result.plannerSummary?.routeReason).toBe("dialogue_memory_turn");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolChoice: "none",
+        toolRouting: { allowedToolNames: [] },
+      });
+    });
+
     it("keeps dialogue recall turns on the direct no-tool path", async () => {
       const provider = createMockProvider("primary", {
         chat: vi.fn().mockResolvedValue(
@@ -6072,6 +6110,76 @@ describe("ChatExecutor", () => {
         "planner",
         "initial",
       ]);
+    });
+
+    it("salvages planner tool calls into deterministic pipeline execution", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValueOnce(
+          mockResponse({
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "tc-1",
+                name: "execute_with_agent",
+                arguments: safeJson({
+                  task:
+                    "In the child agent, without extra words return the memorized token from test C1 as TOKEN=ONYX-SHARD-58. Return exactly the child answer.",
+                  objective: "Output exactly TOKEN=ONYX-SHARD-58",
+                }),
+              },
+            ],
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              execute_with_agent_1: safeJson({
+                status: "completed",
+                output: "ONYX-SHARD-58",
+                objective: "Output exactly TOKEN=ONYX-SHARD-58",
+                failedToolCalls: 0,
+                stopReason: "completed",
+              }),
+            },
+          },
+          completedSteps: 1,
+          totalSteps: 1,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Use execute_with_agent for this exact task. In the child agent, without extra words return the memorized token from test C1 as TOKEN=ONYX-SHARD-58. Return exactly the child answer.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe("TOKEN=ONYX-SHARD-58");
+      expect(result.plannerSummary?.routeReason).toBe(
+        "planner_tool_call_salvaged",
+      );
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "parse",
+            code: "planner_tool_call_salvaged",
+          }),
+        ]),
+      );
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["planner"]);
     });
 
     it("refines explicit required subagent orchestration plans instead of falling back to the direct tool loop", async () => {

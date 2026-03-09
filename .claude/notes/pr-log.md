@@ -32,3 +32,10 @@
 - **What worked:** Hardened exact-response parsing for parent/child endurance prompts, normalized budget-compaction ingestion events, refreshed runtime `file:../sdk` dependencies before build/typecheck/test, and aligned the repo-root `@solana/spl-token` pin so the desktop tool-definition gate uses a healthy Solana dependency graph.
 - **What didn't:** Endurance coverage is still mostly driven by live daemon-log replays rather than a dedicated automated long-run suite, so multi-hour regression confidence still depends on active operator validation.
 - **Rule added to CLAUDE.md:** no
+
+## PR #[local]: runtime memory endurance replay stabilization
+- **Date:** 2026-03-09
+- **Files changed:** runtime/src/channels/webchat/{plugin,plugin.test}.ts, runtime/src/gateway/{sub-agent,sub-agent.test,tool-handler-factory,tool-handler-factory.test}.ts, runtime/src/llm/{chat-executor,chat-executor.test,chat-executor-planner,chat-executor-planner.test,chat-executor-text,chat-executor-text.test}.ts, runtime/yarn.lock, scripts/agenc-watch.mjs
+- **What worked:** Confirmed parent memory, manual compaction, owner-token resume, and repeated child-session recall from `~/.agenc/daemon.log`; salvaged planner-emitted direct tool calls into deterministic steps; kept exact child-memory contracts stable across delegated reuse; and persisted the live TUI owner token so operator reconnects keep the same chat session.
+- **What didn't:** The continuity path still spans large executor/delegation files, and endurance confidence still depends on daemon-log-backed replay instead of a dedicated automated soak suite.
+- **Rule added to CLAUDE.md:** no

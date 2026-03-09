@@ -454,7 +454,11 @@ export class WebChatChannel
     if (id && this.isDuplicateMessageId(id)) {
       const existingSessionId = this.clientSessions.get(clientId);
       if (existingSessionId) {
-        send({ type: "chat.session", payload: { sessionId: existingSessionId } });
+        send({
+          type: "chat.session",
+          payload: { sessionId: existingSessionId },
+          id,
+        });
       }
       return;
     }
@@ -474,7 +478,7 @@ export class WebChatChannel
         }
 
         // Notify the client of its session ID (needed for desktop viewer matching)
-        send({ type: "chat.session", payload: { sessionId } });
+        send({ type: "chat.session", payload: { sessionId }, id });
 
         // Store user message in history
         this.appendHistory(sessionId, {

@@ -51,7 +51,10 @@ const CHILD_MEMORY_RECALL_RE =
   /\b(?:child agent|sub-?agent|memor(?:ized|y)|remember|recall|previous|prior|earlier|from test|later recall)\b/i;
 const CHILD_MEMORY_STORE_RE =
   /\b(?:memorize|store|save|remember)\b.*\b(?:later|future)\b|\bfor later recall\b/i;
+const DELEGATION_SECRET_ASSIGNMENT_RE =
+  /\b[A-Z_][A-Z0-9_]*=[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+\b/g;
 const DELEGATION_SECRET_LITERAL_RE = /\b[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+\b/g;
+const DELEGATION_SECRET_PLACEHOLDER = "the memorized token";
 const DOOM_TOOL_PREFIX = 'mcp.doom.';
 const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
   "system.makeDir": "system.mkdir",
@@ -215,12 +218,21 @@ function shouldReusePriorChildSession(input: ExecuteWithAgentInput): boolean {
     .join("\n");
 
   return CHILD_MEMORY_RECALL_RE.test(combined) &&
-    !CHILD_MEMORY_STORE_RE.test(input.task);
+    !CHILD_MEMORY_STORE_RE.test(combined);
 }
 
 function sanitizeDelegatedRecallText(text: string | undefined): string | undefined {
   if (!text) return undefined;
-  const sanitized = text.replace(DELEGATION_SECRET_LITERAL_RE, "...");
+  const sanitized = text
+    .replace(
+      DELEGATION_SECRET_ASSIGNMENT_RE,
+      DELEGATION_SECRET_PLACEHOLDER,
+    )
+    .replace(DELEGATION_SECRET_LITERAL_RE, DELEGATION_SECRET_PLACEHOLDER)
+    .replace(
+      /\bthe memorized token(?:\s+the memorized token)+\b/gi,
+      DELEGATION_SECRET_PLACEHOLDER,
+    );
   return sanitized.trim().length > 0 ? sanitized : undefined;
 }
 

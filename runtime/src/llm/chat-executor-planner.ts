@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { LLMMessage } from "./types.js";
+import type { LLMMessage, LLMToolCall } from "./types.js";
 import type {
   PromptBudgetSection,
 } from "./prompt-budget.js";
@@ -104,7 +104,7 @@ export function assessPlannerDecision(
   }
 
   const hasDelegationCue =
-    /\b(sub[\s-]?agent|delegate|delegation|parallel(?:ize|ism)?|fanout)\b/i.test(
+    /\b(sub[\s-]?agent|child agent|execute_with_agent|delegate|delegation|parallel(?:ize|ism)?|fanout)\b/i.test(
       messageText,
     );
   if (hasDelegationCue) {
@@ -1055,6 +1055,83 @@ export function parsePlannerPlan(
           : containsSynthesisStep || undefined,
       steps,
       edges,
+    },
+    diagnostics,
+  };
+}
+
+function parsePlannerToolCallArguments(
+  rawArguments: string,
+): Record<string, unknown> | undefined {
+  const parsed = parseJsonObjectFromText(rawArguments);
+  if (!parsed || Array.isArray(parsed)) return undefined;
+  return parsed as Record<string, unknown>;
+}
+
+export function salvagePlannerToolCallsAsPlan(
+  toolCalls: readonly LLMToolCall[],
+): PlannerParseResult {
+  const diagnostics: PlannerDiagnostic[] = [];
+  if (toolCalls.length === 0) {
+    return { diagnostics };
+  }
+
+  const steps: PlannerStepIntent[] = [];
+  for (const [index, toolCall] of toolCalls.entries()) {
+    const toolName =
+      typeof toolCall.name === "string" ? toolCall.name.trim() : "";
+    if (toolName.length === 0) {
+      diagnostics.push(
+        createPlannerDiagnostic(
+          "parse",
+          "missing_tool_name",
+          `Planner tool call at index ${index} is missing a tool name`,
+          { stepIndex: index },
+        ),
+      );
+      return { diagnostics };
+    }
+    const args = parsePlannerToolCallArguments(toolCall.arguments);
+    if (!args) {
+      diagnostics.push(
+        createPlannerDiagnostic(
+          "parse",
+          "invalid_tool_args",
+          `Planner tool call "${toolName}" has invalid arguments; expected a JSON object`,
+          { stepIndex: index, toolName },
+        ),
+      );
+      return { diagnostics };
+    }
+    steps.push({
+      name: sanitizePlannerStepName(
+        `${toolName.replace(/[^A-Za-z0-9_-]+/g, "_")}_${index + 1}`,
+      ),
+      stepType: "deterministic_tool",
+      tool: toolName,
+      args,
+      onError: "abort",
+    });
+  }
+
+  diagnostics.push(
+    createPlannerDiagnostic(
+      "parse",
+      "planner_tool_call_salvaged",
+      "Planner emitted direct tool calls instead of JSON; salvaging them as deterministic planner steps",
+      {
+        toolNames: toolCalls.map((toolCall) => toolCall.name).join(","),
+      },
+    ),
+  );
+
+  return {
+    plan: {
+      reason: "planner_tool_call_salvaged",
+      requiresSynthesis: false,
+      confidence: 0.5,
+      steps,
+      edges: [],
     },
     diagnostics,
   };
