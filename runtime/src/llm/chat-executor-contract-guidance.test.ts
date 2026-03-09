@@ -66,6 +66,43 @@ describe("chat-executor-contract-guidance", () => {
     });
   });
 
+  it("prefers get_situation_report for Doom async verification when multiple probes are allowed", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "tool_followup",
+      messageText:
+        "Start Doom in god mode, defend the center, and keep playing until I tell you to stop.",
+      toolCalls: [
+        makeToolCall({
+          name: "mcp.doom.start_game",
+          args: {
+            scenario: "defend_the_center",
+            async_player: true,
+            god_mode: true,
+          },
+          result: JSON.stringify({ status: "running", god_mode_enabled: true }),
+        }),
+        makeToolCall({
+          name: "mcp.doom.set_objective",
+          args: { objective_type: "hold_position" },
+          result: JSON.stringify({ status: "objective_set" }),
+        }),
+      ],
+      allowedToolNames: [
+        "mcp.doom.get_state",
+        "mcp.doom.get_situation_report",
+      ],
+    });
+
+    expect(guidance).toEqual({
+      source: "doom",
+      runtimeInstruction:
+        "Continuous autonomous play is still unverified. Call `mcp.doom.get_situation_report` or `mcp.doom.get_state` " +
+        "and confirm the live executor state before answering.",
+      routedToolNames: ["mcp.doom.get_situation_report"],
+      toolChoice: "required",
+    });
+  });
+
   it("blocks desktop/bash detours before the Doom launch contract is satisfied", () => {
     const block = resolveToolContractExecutionBlock({
       phase: "initial",
@@ -254,6 +291,41 @@ describe("chat-executor-contract-guidance", () => {
           task: "core_implementation",
           objective: "Implement the game files in the desktop workspace",
           inputContract: "JSON output with created files",
+        },
+      },
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-initial",
+      routedToolNames: ["desktop.text_editor"],
+      toolChoice: "required",
+    });
+  });
+
+  it("routes read-only delegated local docs review to desktop.text_editor instead of browser navigation", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections using only non-browser tools.",
+      toolCalls: [],
+      allowedToolNames: [
+        "desktop.text_editor",
+        "desktop.bash",
+        "mcp.browser.browser_navigate",
+      ],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task:
+            "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections using only non-browser tools. Return one short bullet with one autonomy risk.",
+          objective:
+            "Identify and output exactly one short bullet describing one autonomy risk from the sections",
+          inputContract: "Read-only access to docs/RUNTIME_API.md via text_editor",
+          acceptanceCriteria: [
+            "Exactly one short bullet output",
+            "No browser tools used",
+            "Risk tied to delegation or compaction",
+          ],
+          tools: ["desktop.text_editor", "desktop.bash"],
         },
       },
     });

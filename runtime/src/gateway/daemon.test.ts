@@ -148,6 +148,23 @@ describe("sanitizeToolResultTextForTrace", () => {
     expect(sanitized).toContain("(see image)");
     expect(sanitized).not.toContain("data:image/png;base64,");
   });
+
+  it("collapses ANSI-heavy terminal frames into a trace-safe placeholder", () => {
+    const raw = [
+      "\u001b[H\u001b[2J\u001b[38;5;239m╭──────────╮\u001b[0m",
+      "\u001b[38;5;239m│\u001b[0mAGEN C LIVE\u001b[38;5;239m│\u001b[0m",
+      "\u001b[38;5;239m│\u001b[0mSTATUS connecting…\u001b[38;5;239m│\u001b[0m",
+      "\u001b[38;5;239m╰──────────╯\u001b[0m",
+      " ".repeat(96),
+      " ".repeat(96),
+    ].join("\n");
+
+    const sanitized = sanitizeToolResultTextForTrace(raw);
+
+    expect(sanitized).toContain("[terminal capture omitted");
+    expect(sanitized).not.toContain("\u001b[");
+    expect(sanitized).not.toContain("AGEN C LIVE");
+  });
 });
 
 describe("summarizeToolFailureForLog", () => {
@@ -223,6 +240,24 @@ describe("summarizeToolFailureForLog", () => {
         "Return JSON only",
       ],
     });
+  });
+
+  it("sanitizes ANSI-rich tool failure payloads before logging them", () => {
+    const summary = summarizeToolFailureForLog({
+      name: "desktop.bash",
+      args: { command: "node scripts/agenc-watch.mjs" },
+      result: JSON.stringify({
+        error:
+          "\u001b[H\u001b[2J\u001b[38;5;239m╭──────────╮\u001b[0m\n\u001b[38;5;239m│\u001b[0mAGEN C LIVE\u001b[38;5;239m│\u001b[0m",
+      }),
+      isError: true,
+      durationMs: 8011,
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary?.error).toContain("[terminal capture omitted");
+    expect(summary?.error).not.toContain("\u001b[");
+    expect(summary?.error).not.toContain("AGEN C LIVE");
   });
 });
 
@@ -677,6 +712,87 @@ describe("webchat background-run routing", () => {
     });
     expect(execute).not.toHaveBeenCalled();
     expect(webChat.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps Doom until-stop prompts on the foreground Doom MCP path", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const startRun = vi.fn(async () => undefined);
+    const getStatusSnapshot = vi.fn(() => undefined);
+    const executeWebChatConversationTurn = vi
+      .spyOn(dm as any, "executeWebChatConversationTurn")
+      .mockResolvedValue(undefined);
+    const webChat = {
+      send: vi.fn(async () => undefined),
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+      createAbortController: vi.fn(() => new AbortController()),
+      clearAbortController: vi.fn(),
+    } as any;
+    const commandRegistry = {
+      dispatch: vi.fn(async () => false),
+    } as any;
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const sessionMgr = {
+      getOrCreate: vi.fn(() => ({ history: [] })),
+      appendMessage: vi.fn(),
+      compact: vi.fn(),
+    } as any;
+    const memoryBackend = {
+      addEntry: vi.fn(async () => undefined),
+    } as any;
+    const baseToolHandler = vi.fn(async () => JSON.stringify({ status: "running" }));
+
+    (dm as any).gateway = {
+      config: {
+        autonomy: {
+          enabled: true,
+          featureFlags: { backgroundRuns: true, canaryRollout: false },
+        },
+        desktop: {
+          resolution: {
+            width: 1024,
+            height: 768,
+          },
+        },
+      },
+    };
+    (dm as any)._backgroundRunSupervisor = {
+      getStatusSnapshot,
+      startRun,
+    };
+
+    await (dm as any).handleWebChatInboundMessage(
+      {
+        sessionId: "session-doom-until-stop",
+        senderId: "operator-1",
+        channel: "webchat",
+        content:
+          "Start Doom in a desktop container with god mode enabled, defend the center, and keep playing until I tell you to stop. Use the Doom MCP tools and verify that the game is running.",
+      },
+      {
+        webChat,
+        commandRegistry,
+        getChatExecutor: () => ({ execute: vi.fn() }),
+        getLoggingConfig: () => ({ enabled: false }),
+        hooks,
+        sessionMgr,
+        getSystemPrompt: () => "",
+        baseToolHandler,
+        approvalEngine: undefined,
+        memoryBackend,
+        signals: { signalThinking: vi.fn(), signalIdle: vi.fn() } as any,
+        sessionTokenBudget: 16_000,
+        contextWindowTokens: 64_000,
+      },
+    );
+
+    expect(commandRegistry.dispatch).toHaveBeenCalledOnce();
+    expect(getStatusSnapshot).toHaveBeenCalledWith("session-doom-until-stop");
+    expect(startRun).not.toHaveBeenCalled();
+    expect(memoryBackend.addEntry).not.toHaveBeenCalled();
+    expect(executeWebChatConversationTurn).toHaveBeenCalledOnce();
   });
 });
 

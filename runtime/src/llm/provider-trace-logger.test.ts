@@ -167,6 +167,60 @@ describe("createProviderTraceEventLogger", () => {
     rmSync(payloadArtifactMatch![1], { force: true });
   });
 
+  it("summarizes ANSI-heavy terminal payloads in the log preview while keeping the artifact payload", () => {
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      setLevel: vi.fn(),
+    };
+
+    const logEvent = createProviderTraceEventLogger({
+      logger,
+      traceLabel: "webchat.provider",
+      traceId: "trace-terminal",
+      sessionId: "session-terminal",
+    });
+
+    const terminalCapture = [
+      "\u001b[H\u001b[2J\u001b[38;5;239m╭──────────╮\u001b[0m",
+      "\u001b[38;5;239m│\u001b[0mAGEN C LIVE\u001b[38;5;239m│\u001b[0m",
+      "\u001b[38;5;239m│\u001b[0mSTATUS connecting…\u001b[38;5;239m│\u001b[0m",
+      "\u001b[38;5;239m╰──────────╯\u001b[0m",
+      " ".repeat(80),
+      " ".repeat(80),
+    ].join("\n");
+
+    logEvent({
+      kind: "response",
+      transport: "chat",
+      provider: "grok",
+      model: "grok-test",
+      payload: {
+        stdout: terminalCapture,
+      },
+    });
+
+    const line = logger.info.mock.calls[0]?.[0] as string;
+    expect(line).toContain('"artifactType":"terminal_capture"');
+    expect(line).not.toContain("\\u001b[H");
+    expect(line).not.toContain("AGEN C LIVE");
+
+    const payloadArtifactMatch = line.match(
+      /"payloadArtifact":\{"path":"([^"]+)"/,
+    );
+    expect(payloadArtifactMatch?.[1]).toBeTruthy();
+    const artifactPath = payloadArtifactMatch?.[1]!;
+    const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as {
+      payload: {
+        payload?: { stdout?: string };
+      };
+    };
+    expect(artifact.payload.payload?.stdout).toContain("\u001b[H");
+    rmSync(artifactPath, { force: true });
+  });
+
   it("serializes structured runtime trace events as single-line JSON", () => {
     const logger = {
       info: vi.fn(),

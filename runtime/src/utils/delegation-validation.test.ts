@@ -195,6 +195,22 @@ describe("delegation-validation", () => {
     })).toBe(false);
   });
 
+  it("does not treat negative browser exclusions on local docs review as browser-grounded", () => {
+    expect(specRequiresMeaningfulBrowserEvidence({
+      task:
+        "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections using only non-browser tools. Return one short bullet with one autonomy risk.",
+      objective:
+        "Identify and output exactly one short bullet describing one autonomy risk from the sections",
+      inputContract: "Read-only access to docs/RUNTIME_API.md via text_editor",
+      acceptanceCriteria: [
+        "Exactly one short bullet output",
+        "No browser tools used",
+        "Risk tied to delegation or compaction",
+      ],
+      tools: ["desktop.text_editor", "desktop.bash"],
+    })).toBe(false);
+  });
+
   it("does not let parent implementation instructions force file artifacts onto research steps", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -260,6 +276,22 @@ describe("delegation-validation", () => {
       inputContract: "Name the documentation files created",
       acceptanceCriteria: ["Create README.md", "Create docs/architecture.md"],
     })).toBe(true);
+  });
+
+  it("does not require file mutation evidence for read-only local docs review that allows desktop.text_editor", () => {
+    expect(specRequiresFileMutationEvidence({
+      task:
+        "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections using only non-browser tools. Return one short bullet with one autonomy risk.",
+      objective:
+        "Identify and output exactly one short bullet describing one autonomy risk from the sections",
+      inputContract: "Read-only access to docs/RUNTIME_API.md via text_editor",
+      acceptanceCriteria: [
+        "Exactly one short bullet output",
+        "No browser tools used",
+        "Risk tied to delegation or compaction",
+      ],
+      tools: ["desktop.text_editor", "desktop.bash"],
+    })).toBe(false);
   });
 
   it("flags unsupported narrative file claims without write evidence", () => {
@@ -468,6 +500,61 @@ describe("delegation-validation", () => {
     expect(resolved.semanticFallback).toEqual([PROVIDER_NATIVE_WEB_SEARCH_TOOL]);
   });
 
+  it("keeps local file inspection tools for repository docs review instead of switching to provider-native search", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task:
+          "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections",
+        objective:
+          "Extract key details from specified sections then pinpoint one autonomy-validation risk/mismatch with direct quote or reference.",
+      },
+      parentAllowedTools: [
+        "desktop.text_editor",
+        PROVIDER_NATIVE_WEB_SEARCH_TOOL,
+      ],
+      availableTools: [
+        "desktop.text_editor",
+        PROVIDER_NATIVE_WEB_SEARCH_TOOL,
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual(["desktop.text_editor"]);
+    expect(resolved.semanticFallback).toEqual(["desktop.text_editor"]);
+  });
+
+  it("keeps read-only local docs review scoped to desktop.text_editor even when browser tools are excluded in criteria", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task:
+          "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections using only non-browser tools. Return one short bullet with one autonomy risk.",
+        objective:
+          "Identify and output exactly one short bullet describing one autonomy risk from the sections",
+        inputContract: "Read-only access to docs/RUNTIME_API.md via text_editor",
+        acceptanceCriteria: [
+          "Exactly one short bullet output",
+          "No browser tools used",
+          "Risk tied to delegation or compaction",
+        ],
+        tools: ["desktop.text_editor", "desktop.bash"],
+      },
+      parentAllowedTools: [
+        "desktop.text_editor",
+        "desktop.bash",
+        "mcp.browser.browser_navigate",
+      ],
+      availableTools: [
+        "desktop.text_editor",
+        "desktop.bash",
+        "mcp.browser.browser_navigate",
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual(["desktop.text_editor"]);
+    expect(resolved.semanticFallback).toEqual(["desktop.text_editor"]);
+  });
+
   it("resolves a navigation-first initial tool choice for browser-grounded work", () => {
     const toolChoice = resolveDelegatedInitialToolChoiceToolName(
       {
@@ -498,6 +585,48 @@ describe("delegation-validation", () => {
     );
 
     expect(toolChoice).toBe(PROVIDER_NATIVE_WEB_SEARCH_TOOL);
+  });
+
+  it("resolves a local file inspection tool before provider-native search for repository docs review", () => {
+    const toolChoice = resolveDelegatedInitialToolChoiceToolName(
+      {
+        task:
+          "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections",
+        objective:
+          "Extract key details from specified sections then pinpoint one autonomy-validation risk/mismatch with direct quote or reference.",
+      },
+      [
+        "desktop.text_editor",
+        PROVIDER_NATIVE_WEB_SEARCH_TOOL,
+      ],
+    );
+
+    expect(toolChoice).toBe("desktop.text_editor");
+  });
+
+  it("resolves desktop.text_editor first for read-only local docs review even when browser use is explicitly forbidden", () => {
+    const toolChoice = resolveDelegatedInitialToolChoiceToolName(
+      {
+        task:
+          "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections using only non-browser tools. Return one short bullet with one autonomy risk.",
+        objective:
+          "Identify and output exactly one short bullet describing one autonomy risk from the sections",
+        inputContract: "Read-only access to docs/RUNTIME_API.md via text_editor",
+        acceptanceCriteria: [
+          "Exactly one short bullet output",
+          "No browser tools used",
+          "Risk tied to delegation or compaction",
+        ],
+        tools: ["desktop.text_editor", "desktop.bash"],
+      },
+      [
+        "desktop.text_editor",
+        "desktop.bash",
+        "mcp.browser.browser_navigate",
+      ],
+    );
+
+    expect(toolChoice).toBe("desktop.text_editor");
   });
 
   it("resolves an editor-first initial tool choice for implementation work", () => {
@@ -582,6 +711,36 @@ describe("delegation-validation", () => {
         name: "mcp.neovim.vim_buffer_save",
         args: { filename: "/workspace/neon-heist/index.html" },
         result: '{"ok":true}',
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts read-only local docs review backed by shell read evidence without requiring file edits", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task:
+          "Inspect docs/RUNTIME_API.md Delegation Runtime Surface and Stateful Response Compaction sections using only non-browser tools. Return one short bullet with one autonomy risk.",
+        objective:
+          "Identify and output exactly one short bullet describing one autonomy risk from the sections",
+        inputContract: "Read-only access to docs/RUNTIME_API.md via text_editor",
+        acceptanceCriteria: [
+          "Exactly one short bullet output",
+          "No browser tools used",
+          "Risk tied to delegation or compaction",
+        ],
+        tools: ["desktop.text_editor", "desktop.bash"],
+      },
+      output:
+        "- Adaptive delegation can still escalate autonomy if child caps drift from verifier-visible diagnostics.",
+      toolCalls: [{
+        name: "desktop.bash",
+        args: {
+          command:
+            "sed -n '/## Delegation Runtime Surface/,/## Stateful Response Compaction/p' docs/RUNTIME_API.md",
+        },
+        result: '{"stdout":"## Delegation Runtime Surface\\n...","stderr":"","exitCode":0}',
       }],
     });
 
