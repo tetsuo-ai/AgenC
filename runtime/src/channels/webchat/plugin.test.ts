@@ -1592,7 +1592,7 @@ describe("WebChatChannel", () => {
         body: { payload: { ok: true } },
       }));
       const getObservabilityLogTail = vi.fn(async () => ({
-        path: '/home/tetsuo/.agenc/daemon.log',
+        path: 'daemon.log',
         lines: [`${traceDetail.summary.traceId} line`],
       }));
       (channel as unknown as { deps: WebChatDeps }).deps = {
@@ -1708,6 +1708,7 @@ describe("WebChatChannel", () => {
             type: 'observability.logs',
             id: 'req-observability-logs',
             payload: expect.objectContaining({
+              path: 'daemon.log',
               lines: [`${traceDetail.summary.traceId} line`],
             }),
           }),
@@ -1847,6 +1848,79 @@ describe("WebChatChannel", () => {
         ),
       );
       expect(listObservabilityTraces).not.toHaveBeenCalled();
+    });
+
+    it('requires traceId for observability logs', async () => {
+      const getObservabilityTrace = vi.fn();
+      const getObservabilityLogTail = vi.fn();
+
+      deps = createDeps({ getObservabilityTrace, getObservabilityLogTail });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      openChatSession(channel, context, 'client_1', send, 'owned session');
+
+      channel.handleMessage(
+        'client_1',
+        'observability.logs',
+        msg('observability.logs', { lines: 50 }, 'req-observability-logs-missing-trace'),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'error',
+            id: 'req-observability-logs-missing-trace',
+            error: 'Missing traceId in payload',
+          }),
+        ),
+      );
+
+      expect(getObservabilityTrace).not.toHaveBeenCalled();
+      expect(getObservabilityLogTail).not.toHaveBeenCalled();
+    });
+
+    it('rejects observability logs for foreign traces', async () => {
+      const traceDetail = makeTraceDetail('foreign-session');
+      const getObservabilityTrace = vi.fn(async () => traceDetail);
+      const getObservabilityLogTail = vi.fn();
+
+      deps = createDeps({ getObservabilityTrace, getObservabilityLogTail });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      openChatSession(channel, context, 'client_1', send, 'owned session');
+
+      channel.handleMessage(
+        'client_1',
+        'observability.logs',
+        msg(
+          'observability.logs',
+          { traceId: traceDetail.summary.traceId, lines: 50 },
+          'req-observability-logs-foreign',
+        ),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'error',
+            id: 'req-observability-logs-foreign',
+            error: 'Not authorized for target session trace data',
+          }),
+        ),
+      );
+
+      expect(getObservabilityTrace).toHaveBeenCalledWith(traceDetail.summary.traceId);
+      expect(getObservabilityLogTail).not.toHaveBeenCalled();
     });
   });
 

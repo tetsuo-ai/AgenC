@@ -105,6 +105,7 @@ sqliteDescribe("ObservabilityService", () => {
     });
 
     const logs = await service.getLogTail({ lines: 10, traceId: "trace-1" });
+    expect(logs.path).toBe("daemon.log");
     expect(logs.lines).toEqual(["line-2 trace-1"]);
 
     await service.close();
@@ -194,7 +195,6 @@ sqliteDescribe("ObservabilityService", () => {
       "trace-background-cycle",
       "background_run.cycle.working_applied",
     );
-
     await service.close();
   });
 
