@@ -59,6 +59,11 @@ interface ToolContractGuidanceResolver {
 
 const TOOL_CONTRACT_GUIDANCE_RESOLVERS: readonly ToolContractGuidanceResolver[] = [
   {
+    name: "server-handle",
+    priority: 250,
+    resolve: resolveServerHandleContractGuidance,
+  },
+  {
     name: "delegation-correction",
     priority: 300,
     resolve: resolveDelegationCorrectionContractGuidance,
@@ -110,6 +115,80 @@ export function resolveToolContractExecutionBlock(
     `${guidance.enforcement.message} ` +
     `Allowed now: ${requiredSummary}. ` +
     `Do not use \`${input.candidateToolName}\` yet.`
+  );
+}
+
+function resolveServerHandleContractGuidance(
+  input: ToolContractGuidanceContext,
+): ToolContractGuidance | undefined {
+  if (!inferServerHandleTurn(input.messageText)) return undefined;
+
+  const hasServerStart = input.toolCalls.some(
+    (call) => call.name === "system.serverStart",
+  );
+  const hasServerVerification = input.toolCalls.some(
+    (call) =>
+      call.name === "system.serverStatus" || call.name === "system.serverResume",
+  );
+
+  if (!hasServerStart) {
+    const routedToolNames = ["system.serverStart"].filter((toolName) =>
+      input.allowedToolNames.length === 0 || input.allowedToolNames.includes(toolName)
+    );
+    if (routedToolNames.length === 0) return undefined;
+    return {
+      source: "server-handle",
+      runtimeInstruction:
+        "This durable server request must begin with `system.serverStart`. " +
+        "Use the typed server handle path first, then verify readiness before answering.",
+      routedToolNames,
+      toolChoice: "required",
+      enforcement: {
+        mode: "block_other_tools",
+        message:
+          "This server turn must begin with `system.serverStart`. " +
+          "Do not launch or probe the server with `desktop.bash`, `desktop.process_start`, `system.processStart`, or ad hoc shell commands before the typed server handle exists.",
+      },
+    };
+  }
+
+  if (!hasServerVerification) {
+    const routedToolNames = ["system.serverStatus", "system.serverResume"].filter(
+      (toolName) =>
+        input.allowedToolNames.length === 0 ||
+        input.allowedToolNames.includes(toolName),
+    );
+    if (routedToolNames.length === 0) return undefined;
+    return {
+      source: "server-handle",
+      runtimeInstruction:
+        "The server handle is started but not yet verified. " +
+        "Call `system.serverStatus` (or `system.serverResume`) and confirm readiness before claiming the server is running.",
+      routedToolNames,
+      toolChoice: "required",
+    };
+  }
+
+  return undefined;
+}
+
+function inferServerHandleTurn(messageText: string): boolean {
+  const lower = messageText.toLowerCase();
+  const mentionsServer =
+    /\b(server|http server|http service|service)\b/.test(lower) ||
+    lower.includes("server handle");
+  if (!mentionsServer) return false;
+
+  return (
+    lower.includes("durable") ||
+    lower.includes("typed server handle") ||
+    lower.includes("keep it running") ||
+    lower.includes("until i tell you to stop") ||
+    lower.includes("until i say stop") ||
+    lower.includes("verify it is ready") ||
+    lower.includes("verify readiness") ||
+    lower.includes("readiness") ||
+    /\bport\s+\d+\b/.test(lower)
   );
 }
 

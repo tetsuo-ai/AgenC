@@ -91,6 +91,11 @@ export type BackgroundRunControlAction =
     readonly reason?: string;
   }
   | {
+    readonly action: "stop";
+    readonly sessionId: string;
+    readonly reason?: string;
+  }
+  | {
     readonly action: "cancel";
     readonly sessionId: string;
     readonly reason?: string;

@@ -138,6 +138,8 @@ describe("system.server tools", () => {
 
     expect(started.serverId).toMatch(/^server_/);
     expect(started.processId).toMatch(/^proc_/);
+    expect(started.command).toBe(process.execPath);
+    expect(started.args).toEqual(buildNodeServerArgs(port).args);
     expect(started.state).toBe("running");
     expect(started.ready).toBe(true);
     expect(started.resourceEnvelope).toMatchObject({
@@ -151,6 +153,8 @@ describe("system.server tools", () => {
       label: "http-server",
     })).content) as Record<string, unknown>;
     expect(status.serverId).toBe(started.serverId);
+    expect(status.command).toBe(process.execPath);
+    expect(status.args).toEqual(buildNodeServerArgs(port).args);
     expect(status.ready).toBe(true);
     expect(status.lastStatusCode).toBe(200);
 
@@ -192,6 +196,39 @@ describe("system.server tools", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("system_server.health_url_blocked");
+  });
+
+  it("allows python3 servers when python3 is explicitly excluded from the structured deny list", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "agenc-system-server-python-"));
+    const manager = new SystemServerManager({
+      rootDir,
+      allowList: ["python3"],
+      denyExclusions: ["python3"],
+      logger: silentLogger,
+      defaultStopWaitMs: 250,
+      defaultReadinessTimeoutMs: 4_000,
+      healthTimeoutMs: 500,
+    });
+    cleanup.push(manager);
+    const port = reserveTestPort();
+
+    const started = JSON.parse((await manager.start({
+      command: "python3",
+      args: ["-m", "http.server", String(port), "--bind", "127.0.0.1"],
+      cwd: "/home/tetsuo/git/AgenC",
+      label: "python-http-server",
+      port,
+    })).content) as Record<string, unknown>;
+
+    expect(started.serverId).toMatch(/^server_/);
+    expect(started.state).toBe("running");
+    expect(started.ready).toBe(true);
+
+    const stopped = JSON.parse((await manager.stop({
+      serverId: String(started.serverId),
+      waitMs: 250,
+    })).content) as Record<string, unknown>;
+    expect(stopped.state).toBe("exited");
   });
 
   it("reattaches to a running server after manager restart", async () => {

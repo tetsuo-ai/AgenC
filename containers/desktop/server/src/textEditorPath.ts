@@ -1,12 +1,26 @@
 import { realpath } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
-export const DEFAULT_TEXT_EDITOR_ALLOWED_ROOTS = [
-  "/home/agenc",
-  "/tmp",
-] as const;
+export function getDefaultTextEditorAllowedRoots(): readonly string[] {
+  const roots = ["/home/agenc", "/tmp"];
+  const workspaceRoot = process.env.AGENC_WORKSPACE_ROOT?.trim();
+  if (
+    workspaceRoot &&
+    isAbsolute(workspaceRoot) &&
+    !roots.includes(workspaceRoot)
+  ) {
+    roots.unshift(resolve(workspaceRoot));
+  }
+  return roots;
+}
 
-const DEFAULT_TEXT_EDITOR_BASE_DIR = "/home/agenc";
+function getDefaultTextEditorBaseDir(): string {
+  const workspaceRoot = process.env.AGENC_WORKSPACE_ROOT?.trim();
+  if (workspaceRoot && isAbsolute(workspaceRoot)) {
+    return resolve(workspaceRoot);
+  }
+  return "/home/agenc";
+}
 
 interface TextEditorPathOptions {
   allowedRoots?: readonly string[];
@@ -18,10 +32,10 @@ export async function resolveValidatedTextEditorPath(
   options: TextEditorPathOptions = {},
 ): Promise<string> {
   const allowedRoots =
-    options.allowedRoots ?? DEFAULT_TEXT_EDITOR_ALLOWED_ROOTS;
+    options.allowedRoots ?? getDefaultTextEditorAllowedRoots();
   const candidatePath = resolveInputPath(
     inputPath,
-    options.baseDir ?? DEFAULT_TEXT_EDITOR_BASE_DIR,
+    options.baseDir ?? getDefaultTextEditorBaseDir(),
   );
   const resolvedRoots = await Promise.all(
     allowedRoots.map((root) => resolvePolicyRoot(root)),

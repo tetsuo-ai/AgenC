@@ -180,6 +180,28 @@ export interface PipelineExecutionOptions {
    * Use this to run pipelines with session-scoped routing (for example desktop-aware handlers).
    */
   readonly toolHandler?: ToolHandler;
+  /**
+   * Optional execution event hook for observability.
+   * Emits deterministic pipeline step start/finish and halt events.
+   */
+  readonly onEvent?: (event: PipelineExecutionEvent) => void;
+}
+
+export type PipelineExecutionEventType =
+  | "pipeline_halted"
+  | "step_finished"
+  | "step_started";
+
+export interface PipelineExecutionEvent {
+  readonly type: PipelineExecutionEventType;
+  readonly pipelineId: string;
+  readonly stepName?: string;
+  readonly stepIndex?: number;
+  readonly tool?: string;
+  readonly args?: Record<string, unknown>;
+  readonly durationMs?: number;
+  readonly result?: string;
+  readonly error?: string;
 }
 
 // ============================================================================
@@ -256,6 +278,15 @@ export class PipelineExecutor {
         if (step.requiresApproval && this.approvalEngine) {
           const rule = this.approvalEngine.requiresApproval(step.tool, step.args);
           if (rule) {
+            options?.onEvent?.({
+              type: "pipeline_halted",
+              pipelineId: pipeline.id,
+              stepName: step.name,
+              stepIndex: i,
+              tool: step.tool,
+              args: step.args,
+              error: `Approval required for tool "${step.tool}"`,
+            });
             await this.saveCheckpoint({
               pipelineId: pipeline.id,
               pipeline,
@@ -275,7 +306,28 @@ export class PipelineExecutor {
         }
 
         // Execute the tool and handle errors per step policy
+        options?.onEvent?.({
+          type: "step_started",
+          pipelineId: pipeline.id,
+          stepName: step.name,
+          stepIndex: i,
+          tool: step.tool,
+          args: step.args,
+        });
+        const stepStartedAt = Date.now();
         const stepResult = await this.executeStep(step, executionToolHandler);
+        options?.onEvent?.({
+          type: "step_finished",
+          pipelineId: pipeline.id,
+          stepName: step.name,
+          stepIndex: i,
+          tool: step.tool,
+          args: step.args,
+          durationMs: Date.now() - stepStartedAt,
+          ...(stepResult.error
+            ? { error: stepResult.error }
+            : { result: stepResult.result }),
+        });
 
         if (stepResult.error) {
           const recovery = await this.handleStepError(

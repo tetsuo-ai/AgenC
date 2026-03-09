@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -16,7 +16,11 @@ import {
   isBackgroundRunStopRequest,
 } from "./background-run-supervisor.js";
 import { BackgroundRunNotifier } from "./background-run-notifier.js";
-import { BackgroundRunStore } from "./background-run-store.js";
+import {
+  BackgroundRunFenceConflictError,
+  BackgroundRunStore,
+  deriveDefaultBackgroundRunMaxCycles,
+} from "./background-run-store.js";
 import { AGENT_RUN_SCHEMA_VERSION } from "./agent-run-contract.js";
 
 function makeResult(
@@ -215,38 +219,67 @@ function makePersistedRunRecord(
 
 function createManagedProcessToolHandler(params?: {
   readonly initialProcessId?: string;
+  readonly initialServerId?: string;
   readonly label?: string;
   readonly command?: string;
   readonly args?: readonly string[];
   readonly cwd?: string;
-  readonly surface?: "desktop" | "host";
+  readonly surface?: "desktop" | "host" | "host_server";
+  readonly ready?: boolean;
+  readonly healthUrl?: string;
 }) {
   const state = {
     processId: params?.initialProcessId ?? "proc_watcher",
+    serverId: params?.initialServerId ?? "server_watcher",
     label: params?.label ?? "watcher",
     command: params?.command ?? "/bin/sleep",
     args: [...(params?.args ?? ["2"])],
     cwd: params?.cwd ?? "/tmp",
     surface: params?.surface ?? "desktop",
     currentState: "running" as "running" | "exited",
+    ready: params?.ready ?? true,
+    healthUrl: params?.healthUrl ?? "http://127.0.0.1:8765/",
     exitCode: 0 as number | null,
     restartCount: 0,
   };
 
-  const statusToolName =
-    state.surface === "host" ? "system.processStatus" : "desktop.process_status";
-  const startToolName =
-    state.surface === "host" ? "system.processStart" : "desktop.process_start";
+  const statusToolName = state.surface === "host"
+    ? "system.processStatus"
+    : state.surface === "host_server"
+      ? "system.serverStatus"
+      : "desktop.process_status";
+  const startToolName = state.surface === "host"
+    ? "system.processStart"
+    : state.surface === "host_server"
+      ? "system.serverStart"
+      : "desktop.process_start";
+  const stopToolName = state.surface === "host"
+    ? "system.processStop"
+    : state.surface === "host_server"
+      ? "system.serverStop"
+      : "desktop.process_stop";
 
   const handler = vi.fn<ToolHandler>(async (name, args) => {
     if (name === statusToolName) {
       return JSON.stringify({
+        ...(state.surface === "host_server" ? { serverId: state.serverId } : {}),
         processId: state.processId,
         label: state.label,
         command: state.command,
         args: state.args,
         cwd: state.cwd,
         state: state.currentState,
+        ...(state.surface === "host_server"
+          ? {
+              ready: state.ready,
+              healthUrl: state.healthUrl,
+              protocol: "http",
+              host: "127.0.0.1",
+              port: 8765,
+              readyStatusCodes: [200, 404],
+              readinessTimeoutMs: 10_000,
+            }
+          : {}),
         exitCode: state.currentState === "exited" ? state.exitCode : undefined,
       });
     }
@@ -265,14 +298,59 @@ function createManagedProcessToolHandler(params?: {
         : state.args;
       state.cwd = typeof args.cwd === "string" ? args.cwd : state.cwd;
       state.label = typeof args.label === "string" ? args.label : state.label;
+      if (typeof args.serverId === "string") {
+        state.serverId = args.serverId;
+      }
+      if (typeof args.healthUrl === "string") {
+        state.healthUrl = args.healthUrl;
+      }
+      state.ready = true;
       return JSON.stringify({
+        ...(state.surface === "host_server" ? { serverId: state.serverId } : {}),
         processId: state.processId,
         label: state.label,
         command: state.command,
         args: state.args,
         cwd: state.cwd,
         state: "running",
+        ...(state.surface === "host_server"
+          ? {
+              ready: true,
+              healthUrl: state.healthUrl,
+              protocol: "http",
+              host: "127.0.0.1",
+              port: 8765,
+              readyStatusCodes: [200, 404],
+              readinessTimeoutMs: 10_000,
+            }
+          : {}),
         started: true,
+      });
+    }
+    if (name === stopToolName) {
+      state.currentState = "exited";
+      state.exitCode = 0;
+      return JSON.stringify({
+        ...(state.surface === "host_server" ? { serverId: state.serverId } : {}),
+        processId: state.processId,
+        label: state.label,
+        command: state.command,
+        args: state.args,
+        cwd: state.cwd,
+        state: "exited",
+        exitCode: 0,
+        ...(state.surface === "host_server"
+          ? {
+              ready: false,
+              healthUrl: state.healthUrl,
+              protocol: "http",
+              host: "127.0.0.1",
+              port: 8765,
+              readyStatusCodes: [200, 404],
+              readinessTimeoutMs: 10_000,
+            }
+          : {}),
+        stopped: true,
       });
     }
     throw new Error(`unexpected tool ${name}`);
@@ -290,6 +368,7 @@ function createManagedProcessToolHandler(params?: {
     toolNames: {
       status: statusToolName,
       start: startToolName,
+      stop: stopToolName,
     },
   };
 }
@@ -300,10 +379,21 @@ describe("background-run-supervisor", () => {
     vi.setSystemTime(0);
   });
 
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("detects explicit long-running intent", () => {
     expect(
       inferBackgroundRunIntent(
         "Start Doom and keep playing until I tell you to stop.",
+      ),
+    ).toBe(true);
+    expect(
+      inferBackgroundRunIntent(
+        "Start a durable HTTP server on port 8774, keep it running until I tell you to stop, and verify it is ready.",
       ),
     ).toBe(true);
     expect(
@@ -313,10 +403,130 @@ describe("background-run-supervisor", () => {
     ).toBe(true);
     expect(inferBackgroundRunIntent("What is 2+2?")).toBe(false);
     expect(isBackgroundRunStopRequest("stop")).toBe(true);
+    expect(isBackgroundRunStopRequest("stop the server you just started")).toBe(
+      false,
+    );
     expect(isBackgroundRunStopRequest("pause")).toBe(false);
     expect(isBackgroundRunPauseRequest("pause")).toBe(true);
+    expect(isBackgroundRunPauseRequest("pause the server")).toBe(false);
     expect(isBackgroundRunResumeRequest("resume")).toBe(true);
+    expect(isBackgroundRunResumeRequest("resume the browser session")).toBe(
+      false,
+    );
     expect(isBackgroundRunStatusRequest("status")).toBe(true);
+    expect(
+      isBackgroundRunStatusRequest("what is the status of the server you started"),
+    ).toBe(false);
+  });
+
+  it("does not misparse natural-language durable server objectives as native process commands", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "HTTP server launched and verified.",
+        toolCalls: [
+          {
+            name: "system.serverStart",
+            args: {
+              command: "python3",
+              args: ["-m", "http.server", "8774", "--bind", "0.0.0.0"],
+              cwd: "/home/tetsuo/git/AgenC",
+              label: "AgenC-HTTP-Server",
+              idempotencyKey: "agenC-server-8774",
+              host: "0.0.0.0",
+              port: 8774,
+              protocol: "http",
+              healthPath: "/",
+              readyStatusCodes: [200],
+              readinessTimeoutMs: 30_000,
+            },
+            result: JSON.stringify({
+              serverId: "server_8774",
+              processId: "proc_8774",
+              label: "AgenC-HTTP-Server",
+              command: "python3",
+              args: ["-m", "http.server", "8774", "--bind", "0.0.0.0"],
+              cwd: "/home/tetsuo/git/AgenC",
+              state: "running",
+              ready: true,
+              healthUrl: "http://0.0.0.0:8774/",
+              protocol: "http",
+              host: "0.0.0.0",
+              port: 8774,
+              readyStatusCodes: [200],
+              readinessTimeoutMs: 30_000,
+            }),
+            isError: false,
+            durationMs: 12,
+          },
+          {
+            name: "system.serverStatus",
+            args: { serverId: "server_8774" },
+            result: JSON.stringify({
+              serverId: "server_8774",
+              processId: "proc_8774",
+              label: "AgenC-HTTP-Server",
+              command: "python3",
+              args: ["-m", "http.server", "8774", "--bind", "0.0.0.0"],
+              cwd: "/home/tetsuo/git/AgenC",
+              state: "running",
+              ready: true,
+              healthUrl: "http://0.0.0.0:8774/",
+              protocol: "http",
+              host: "0.0.0.0",
+              port: 8774,
+              readyStatusCodes: [200],
+              readinessTimeoutMs: 30_000,
+            }),
+            isError: false,
+            durationMs: 8,
+          },
+        ],
+      }),
+    );
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi.fn(async () => ({
+          content:
+            '{"state":"working","userUpdate":"HTTP server is running in the background.","internalSummary":"verified server start","nextCheckMs":10000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-natural-language-server",
+      objective:
+        "Start a durable HTTP server on port 8774 serving /home/tetsuo/git/AgenC. Use the typed server handle tools, verify it is ready, and keep it running until I tell you to stop.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await eventually(() => {
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    expect(execute.mock.calls[0]?.[0]?.message?.content).toContain("Cycle: 1");
+    expect(publishUpdate).toHaveBeenNthCalledWith(
+      1,
+      "session-natural-language-server",
+      expect.stringContaining("Started a background run"),
+    );
+    expect(publishUpdate).toHaveBeenNthCalledWith(
+      2,
+      "session-natural-language-server",
+      "HTTP server is running in the background.",
+    );
   });
 
   it("starts a run, executes a cycle, and keeps it working", async () => {
@@ -453,6 +663,102 @@ describe("background-run-supervisor", () => {
         }),
       }),
     );
+  });
+
+  it("emits background run cycle summary traces with planner details when tracing is enabled", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      setLevel: vi.fn(),
+    };
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "Cycle complete",
+        toolCalls: [
+          {
+            name: "system.processStatus",
+            args: { processId: "proc_trace" },
+            result: '{"processId":"proc_trace","state":"exited","exitCode":0}',
+            isError: false,
+            durationMs: 4,
+          },
+        ],
+        plannerSummary: {
+          enabled: true,
+          used: true,
+          routeReason: "restart_server",
+          complexityScore: 4,
+          plannerCalls: 1,
+          plannedSteps: 2,
+          deterministicStepsExecuted: 2,
+          estimatedRecallsAvoided: 1,
+        },
+      })
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["finish"],"completionCriteria":["verify completion"],"blockedCriteria":["actor failure"],"nextCheckMs":1000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"completed","userUpdate":"Completed.","internalSummary":"verified completion","shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Completed.","verifiedFacts":["Done."],"openLoops":[],"nextFocus":"None."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+      logger: logger as any,
+      traceProviderPayloads: true,
+    });
+
+    await supervisor.startRun({
+      sessionId: "trace-cycle-session",
+      objective: "Finish and report completion.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await eventually(() => {
+      expect(publishUpdate).toHaveBeenCalledWith(
+        "trace-cycle-session",
+        "Completed.",
+      );
+    });
+
+    const lines = logger.info.mock.calls
+      .map((call) => String(call[0]))
+      .join("\n");
+    expect(lines).toContain("[trace] background_run.cycle.decision_resolved ");
+    expect(lines).toContain('"routeReason":"restart_server"');
+    expect(lines).toContain("[trace] background_run.cycle.terminal_applied ");
   });
 
   it("fans durable lifecycle events out to configured notification sinks", async () => {
@@ -775,6 +1081,256 @@ describe("background-run-supervisor", () => {
     expect(cancelled).toBe(true);
     expect(supervisor.hasActiveRun("session-3")).toBe(false);
     expect(publishUpdate).toHaveBeenLastCalledWith("session-3", "Stopped by user.");
+  });
+
+  it("stops an active managed-process run through the typed stop tool", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const runStore = createRunStore();
+    const managedTools = createManagedProcessToolHandler({
+      surface: "host_server",
+      initialProcessId: "proc_server",
+      initialServerId: "server_server",
+      label: "watch-server",
+      command: "python3",
+      args: ["-m", "http.server", "8765"],
+      cwd: "/tmp",
+      ready: true,
+    });
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "Server is running.",
+        toolCalls: [
+          {
+            name: "system.serverStart",
+            args: {
+              command: "python3",
+              args: ["-m", "http.server", "8765"],
+              cwd: "/tmp",
+              label: "watch-server",
+              idempotencyKey: "server-start-1",
+            },
+            result: JSON.stringify({
+              serverId: "server_server",
+              processId: "proc_server",
+              label: "watch-server",
+              command: "python3",
+              args: ["-m", "http.server", "8765"],
+              cwd: "/tmp",
+              state: "running",
+              ready: true,
+              healthUrl: "http://127.0.0.1:8765/",
+              protocol: "http",
+              host: "127.0.0.1",
+              port: 8765,
+              readyStatusCodes: [200, 404],
+              readinessTimeoutMs: 10_000,
+            }),
+            isError: false,
+            durationMs: 10,
+          },
+        ],
+      }),
+    );
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce({
+            content:
+              '{"state":"working","userUpdate":"Server is running.","internalSummary":"running","nextCheckMs":4000,"shouldNotifyUser":true}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          })
+          .mockResolvedValueOnce({
+            content:
+              '{"summary":"Server running.","verifiedFacts":["Server handle server_server is running."],"openLoops":["Await explicit stop request."],"nextFocus":"Keep monitoring the server."}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          }),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: () => managedTools.handler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-stop",
+      objective: "Keep the server running until I tell you to stop.",
+      contract: {
+        domain: "managed_process",
+        kind: "until_stopped",
+        successCriteria: ["Server is started."],
+        completionCriteria: ["Operator explicitly stops the server."],
+        blockedCriteria: ["Server exits unexpectedly."],
+        nextCheckMs: 4_000,
+        heartbeatMs: 12_000,
+        requiresUserStop: true,
+        managedProcessPolicy: { mode: "keep_running" },
+      },
+    });
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-stop")).toMatchObject({
+        state: "working",
+      });
+    });
+
+    const detail = await supervisor.applyOperatorControl({
+      action: "stop",
+      sessionId: "session-stop",
+      reason: "operator stop",
+    });
+
+    expect(detail).toMatchObject({
+      sessionId: "session-stop",
+      state: "completed",
+      currentPhase: "completed",
+    });
+    expect(managedTools.handler).toHaveBeenCalledWith(
+      managedTools.toolNames.stop,
+      expect.objectContaining({
+        serverId: "server_server",
+        label: "watch-server",
+      }),
+    );
+    expect(supervisor.hasActiveRun("session-stop")).toBe(false);
+    await expect(supervisor.getRecentSnapshot("session-stop")).resolves.toMatchObject({
+      sessionId: "session-stop",
+      state: "completed",
+    });
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-stop",
+      expect.stringContaining("Objective satisfied."),
+    );
+  });
+
+  it("blocks the run when typed operator stop cannot stop the managed process", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const runStore = createRunStore();
+    const handler = vi.fn<ToolHandler>(async (name) => {
+      if (name === "system.processStop") {
+        throw new Error("permission denied");
+      }
+      return JSON.stringify({
+        processId: "proc_blocked",
+        label: "blocked-worker",
+        state: "running",
+        command: "/bin/sleep",
+        args: ["60"],
+        cwd: "/tmp",
+      });
+    });
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "Process started.",
+        toolCalls: [
+          {
+            name: "system.processStart",
+            args: {
+              command: "/bin/sleep",
+              args: ["60"],
+              cwd: "/tmp",
+              label: "blocked-worker",
+            },
+            result:
+              '{"processId":"proc_blocked","label":"blocked-worker","state":"running","command":"/bin/sleep","args":["60"],"cwd":"/tmp"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      }),
+    );
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce({
+            content:
+              '{"state":"working","userUpdate":"Process running.","internalSummary":"running","nextCheckMs":4000,"shouldNotifyUser":true}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          })
+          .mockResolvedValueOnce({
+            content:
+              '{"summary":"Process running.","verifiedFacts":["Managed process is running."],"openLoops":["Await explicit stop request."],"nextFocus":"Keep monitoring the process."}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          })
+          .mockResolvedValueOnce({
+            content:
+              '{"summary":"Stop failed.","verifiedFacts":["system.processStop failed with permission denied."],"openLoops":["Operator intervention required to stop blocked-worker."],"nextFocus":"Await intervention."}',
+            toolCalls: [],
+            usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            model: "supervisor-model",
+            finishReason: "stop",
+          }),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: () => handler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-stop-failure",
+      objective: "Keep the process alive until I tell you to stop.",
+      contract: {
+        domain: "managed_process",
+        kind: "until_stopped",
+        successCriteria: ["Process is started."],
+        completionCriteria: ["Operator explicitly stops the process."],
+        blockedCriteria: ["Process cannot be stopped."],
+        nextCheckMs: 4_000,
+        heartbeatMs: 12_000,
+        requiresUserStop: true,
+        managedProcessPolicy: { mode: "keep_running" },
+      },
+    });
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-stop-failure")).toMatchObject({
+        state: "working",
+      });
+    });
+
+    const detail = await supervisor.applyOperatorControl({
+      action: "stop",
+      sessionId: "session-stop-failure",
+      reason: "operator stop",
+    });
+
+    expect(detail).toMatchObject({
+      sessionId: "session-stop-failure",
+      state: "blocked",
+      currentPhase: "blocked",
+    });
+    expect(handler).toHaveBeenCalledWith(
+      "system.processStop",
+      expect.objectContaining({
+        processId: "proc_blocked",
+        label: "blocked-worker",
+      }),
+    );
+    expect(supervisor.hasActiveRun("session-stop-failure")).toBe(false);
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-stop-failure",
+      expect.stringContaining("Operator stop failed"),
+    );
   });
 
   it("exposes operator detail and persists objective, constraint, and budget interventions", async () => {
@@ -1240,6 +1796,75 @@ describe("background-run-supervisor", () => {
     await vi.advanceTimersByTimeAsync(0);
   });
 
+  it("suppresses stale fence-token heartbeat persistence conflicts without crashing the run", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const runStore = createRunStore();
+    const execute = vi.fn(async () =>
+      makeResult({
+        content: "monitoring",
+        stopReason: "completed",
+      }));
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm: {
+        name: "supervisor",
+        chat: vi.fn(async () => ({
+          content:
+            '{"state":"working","userUpdate":"watching","internalSummary":"watching","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })),
+        chatStream: vi.fn(),
+        healthCheck: vi.fn(async () => true),
+      },
+      getSystemPrompt: () => "base system prompt",
+      runStore,
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-heartbeat-fence-conflict",
+      objective: "Keep monitoring this in the background.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    const activeRun = (supervisor as any).activeRuns.get(
+      "session-heartbeat-fence-conflict",
+    );
+    expect(activeRun?.state).toBe("working");
+
+    const saveRunSpy = vi
+      .spyOn(runStore, "saveRun")
+      .mockRejectedValueOnce(
+        new BackgroundRunFenceConflictError({
+          attemptedFenceToken: activeRun.fenceToken,
+          currentFenceToken: activeRun.fenceToken + 1,
+        }),
+      );
+    const persistedRun = await runStore.loadRun("session-heartbeat-fence-conflict");
+    const loadRunSpy = vi.spyOn(runStore, "loadRun").mockResolvedValue({
+      ...persistedRun!,
+      fenceToken: activeRun.fenceToken + 1,
+      leaseOwnerId: activeRun.leaseOwnerId,
+      leaseExpiresAt: activeRun.leaseExpiresAt,
+    });
+
+    await expect(
+      (supervisor as any).emitHeartbeat("session-heartbeat-fence-conflict"),
+    ).resolves.toBeUndefined();
+
+    expect(saveRunSpy).toHaveBeenCalled();
+    expect(loadRunSpy).toHaveBeenCalledWith("session-heartbeat-fence-conflict");
+    expect(
+      supervisor.getStatusSnapshot("session-heartbeat-fence-conflict")?.state,
+    ).toBe("working");
+  });
+
   it("keeps until-stopped runs working even when the supervisor suggests completion", async () => {
     const publishUpdate = vi.fn(async () => undefined);
     const supervisor = new BackgroundRunSupervisor({
@@ -1537,7 +2162,10 @@ describe("background-run-supervisor", () => {
         }),
         budgetState: expect.objectContaining({
           maxRuntimeMs: 604_800_000,
-          maxCycles: 512,
+          maxCycles: deriveDefaultBackgroundRunMaxCycles({
+            maxRuntimeMs: 604_800_000,
+            nextCheckMs: 4000,
+          }),
           nextCheckIntervalMs: 4000,
         }),
         compaction: expect.objectContaining({
@@ -1558,7 +2186,10 @@ describe("background-run-supervisor", () => {
         state: "suspended",
         budgetState: expect.objectContaining({
           maxRuntimeMs: 604_800_000,
-          maxCycles: 512,
+          maxCycles: deriveDefaultBackgroundRunMaxCycles({
+            maxRuntimeMs: 604_800_000,
+            nextCheckMs: 4000,
+          }),
         }),
         watchRegistrations: [
           expect.objectContaining({
@@ -1642,7 +2273,10 @@ describe("background-run-supervisor", () => {
         }),
         budgetState: expect.objectContaining({
           maxRuntimeMs: 604_800_000,
-          maxCycles: 512,
+          maxCycles: deriveDefaultBackgroundRunMaxCycles({
+            maxRuntimeMs: 604_800_000,
+            nextCheckMs: 4000,
+          }),
         }),
         compaction: expect.objectContaining({
           lastHistoryLength: expect.any(Number),
@@ -2417,7 +3051,10 @@ describe("background-run-supervisor", () => {
         refreshCount: 2,
       }),
       budgetState: expect.objectContaining({
-        maxCycles: 512,
+        maxCycles: deriveDefaultBackgroundRunMaxCycles({
+          maxRuntimeMs: 604_800_000,
+          nextCheckMs: 4000,
+        }),
         nextCheckIntervalMs: 4000,
       }),
       fenceToken: expect.any(Number),
@@ -3060,6 +3697,322 @@ describe("background-run-supervisor", () => {
     );
   });
 
+  it("resolves a managed-process exit signal by process id without requiring the caller to know the session id", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValue(
+      makeResult({
+        content: "Watcher started.",
+        toolCalls: [
+          {
+            name: "desktop.process_start",
+            args: { label: "watcher" },
+            result:
+              '{"processId":"proc_watcher","label":"watcher","state":"running"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      }),
+    );
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["watch the process until it exits"],"completionCriteria":["observe the process exit"],"blockedCriteria":["missing process tooling"],"nextCheckMs":4000,"heartbeatMs":15000,"requiresUserStop":false}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Watcher is running.","internalSummary":"verified running","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Watcher is running until exit is observed.","verifiedFacts":["Watcher is running."],"openLoops":["Wait for process exit."],"nextFocus":"Observe exit state."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => vi.fn(async () => "ok"),
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-process-by-id",
+      objective: "Monitor this process in the background until it exits.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const signalled = await supervisor.signalManagedProcessExit({
+      processId: "proc_watcher",
+      label: "watcher",
+      exitCode: 0,
+      source: "test",
+    });
+
+    expect(signalled).toBe(true);
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-process-by-id")).toBeUndefined();
+    });
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-process-by-id",
+      'Managed process "watcher" (proc_watcher) exited (exitCode=0). Objective satisfied.',
+    );
+  });
+
+  it("keeps host managed-process runs on the event-driven reconcile interval after native verification", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "Host watcher started.",
+        toolCalls: [
+          {
+            name: "system.processStart",
+            args: {
+              command: "/bin/sleep",
+              args: ["20"],
+              cwd: "/tmp",
+              label: "host-watcher",
+            },
+            result:
+              '{"processId":"proc_watcher","label":"host-watcher","command":"/bin/sleep","args":["20"],"cwd":"/tmp","state":"running"}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      }),
+    );
+    const nativeTools = createManagedProcessToolHandler({
+      surface: "host",
+      label: "host-watcher",
+      args: ["20"],
+    });
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_condition","successCriteria":["watch the host process until it exits"],"completionCriteria":["observe the terminal state"],"blockedCriteria":["missing process tooling"],"nextCheckMs":4000,"heartbeatMs":15000,"requiresUserStop":false,"managedProcessPolicy":{"mode":"until_exit"}}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"Host watcher is running.","internalSummary":"verified running","nextCheckMs":4000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"Host watcher is running.","verifiedFacts":["Host watcher is running."],"openLoops":["Wait for process exit."],"nextFocus":"Observe exit state."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => nativeTools.handler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-host-process-event-interval",
+      objective: "Monitor the host watcher until it exits.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    await eventually(() => {
+      expect(nativeTools.handler).toHaveBeenCalledTimes(1);
+    });
+
+    const snapshot = supervisor.getStatusSnapshot("session-host-process-event-interval");
+    const remainingMs = (snapshot?.nextCheckAt ?? 0) - Date.now();
+    expect(snapshot?.state).toBe("working");
+    expect(remainingMs).toBeGreaterThanOrEqual(5 * 60_000);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(nativeTools.handler).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    nativeTools.markExited(0);
+    await supervisor.signalRun({
+      sessionId: "session-host-process-event-interval",
+      type: "process_exit",
+      content: 'Managed process "host-watcher" (proc_watcher) exited (exitCode=0).',
+      data: {
+        processId: "proc_watcher",
+        exitCode: 0,
+      },
+    });
+
+    await eventually(() => {
+      expect(supervisor.getStatusSnapshot("session-host-process-event-interval")).toBeUndefined();
+    });
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-host-process-event-interval",
+      'Managed process "host-watcher" (proc_watcher) exited (exitCode=0). Objective satisfied.',
+    );
+  });
+
+  it("keeps typed host-server runs on the event-driven reconcile interval after native verification", async () => {
+    const publishUpdate = vi.fn(async () => undefined);
+    const execute = vi.fn().mockResolvedValueOnce(
+      makeResult({
+        content: "HTTP server started.",
+        toolCalls: [
+          {
+            name: "system.serverStart",
+            args: {
+              command: "python3",
+              args: ["-m", "http.server", "8765"],
+              cwd: "/workspace",
+              label: "http-server",
+              idempotencyKey: "http-server-init",
+              port: 8765,
+              protocol: "http",
+              healthPath: "/",
+              readyStatusCodes: [200, 404],
+              readinessTimeoutMs: 10_000,
+            },
+            result:
+              '{"serverId":"server_http","processId":"proc_server","label":"http-server","idempotencyKey":"http-server-init","command":"python3","args":["-m","http.server","8765"],"cwd":"/workspace","healthUrl":"http://127.0.0.1:8765/","host":"127.0.0.1","port":8765,"protocol":"http","readyStatusCodes":[200,404],"readinessTimeoutMs":10000,"state":"running","ready":true}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      }),
+    );
+    const nativeTools = createManagedProcessToolHandler({
+      surface: "host_server",
+      initialProcessId: "proc_server",
+      initialServerId: "server_http",
+      label: "http-server",
+      command: "python3",
+      args: ["-m", "http.server", "8765"],
+      cwd: "/workspace",
+      healthUrl: "http://127.0.0.1:8765/",
+      ready: true,
+    });
+    const supervisorLlm: LLMProvider = {
+      name: "supervisor",
+      chat: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content:
+            '{"kind":"until_stopped","successCriteria":["start the typed server handle"],"completionCriteria":["only stop after explicit user stop"],"blockedCriteria":["server handle fails to start"],"nextCheckMs":10000,"heartbeatMs":30000,"requiresUserStop":true,"managedProcessPolicy":{"mode":"keep_running"}}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"state":"working","userUpdate":"HTTP server handle is running.","internalSummary":"verified server start","nextCheckMs":10000,"shouldNotifyUser":true}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content:
+            '{"summary":"HTTP server handle is running.","verifiedFacts":["HTTP server is listening on port 8765."],"openLoops":["Wait for stop or process exit."],"nextFocus":"Observe lifecycle events."}',
+          toolCalls: [],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          model: "supervisor-model",
+          finishReason: "stop",
+        }),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+    };
+
+    const supervisor = new BackgroundRunSupervisor({
+      chatExecutor: { execute } as any,
+      supervisorLlm,
+      getSystemPrompt: () => "base system prompt",
+      runStore: createRunStore(),
+      createToolHandler: (): ToolHandler => nativeTools.handler,
+      publishUpdate,
+    });
+
+    await supervisor.startRun({
+      sessionId: "session-host-server-event-interval",
+      objective:
+        "Use typed host-server supervision for this HTTP server and wait for a stop or exit event.",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    await eventually(() => {
+      expect(nativeTools.handler).toHaveBeenCalledTimes(1);
+    });
+
+    const snapshot = supervisor.getStatusSnapshot("session-host-server-event-interval");
+    const remainingMs = (snapshot?.nextCheckAt ?? 0) - Date.now();
+    expect(snapshot?.state).toBe("working");
+    expect(remainingMs).toBeGreaterThanOrEqual(5 * 60_000);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(nativeTools.handler).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    nativeTools.markExited(0);
+    await supervisor.signalRun({
+      sessionId: "session-host-server-event-interval",
+      type: "process_exit",
+      content: 'Managed process "http-server" (proc_server) exited (exitCode=0).',
+      data: {
+        processId: "proc_server",
+        exitCode: 0,
+      },
+    });
+
+    await eventually(() => {
+      expect(
+        supervisor.getStatusSnapshot("session-host-server-event-interval")?.state,
+      ).toBe("blocked");
+    });
+    expect(publishUpdate).toHaveBeenLastCalledWith(
+      "session-host-server-event-interval",
+      'Managed process "http-server" (proc_server) exited (exitCode=0). Restart is not configured, so the run is blocked until you give a new instruction.',
+    );
+  });
+
   it("wakes immediately on process_exit signals and restarts a managed process natively", async () => {
     const publishUpdate = vi.fn(async () => undefined);
     const execute = vi.fn().mockResolvedValueOnce(
@@ -3382,6 +4335,8 @@ describe("background-run-supervisor", () => {
     const snapshot = supervisor.getStatusSnapshot("session-native-probe");
     expect(snapshot?.state).toBe("working");
     expect(snapshot?.lastUserUpdate).toContain("still running");
+
+    await supervisor.shutdown();
   });
 
   it("rejects optimistic completion claims when the managed-process domain verifies the process is still running", async () => {

@@ -118,6 +118,9 @@ interface DockerInspectRecord {
     readonly Running?: boolean;
     readonly Status?: string;
     readonly StartedAt?: string;
+    readonly Health?: {
+      readonly Status?: string;
+    };
   };
   readonly HostConfig?: {
     readonly Memory?: number;
@@ -210,6 +213,19 @@ function parseInspectJson(stdout: string): DockerInspectRecord {
     throw new Error("docker inspect returned an invalid record");
   }
   return record as DockerInspectRecord;
+}
+
+function getDockerHealthStatus(
+  inspect: DockerInspectRecord,
+): string | undefined {
+  return inspect.State?.Health?.Status?.trim().toLowerCase();
+}
+
+function isRecoverableRunningContainer(inspect: DockerInspectRecord): boolean {
+  if (inspect.State?.Running !== true) {
+    return false;
+  }
+  return getDockerHealthStatus(inspect) !== "unhealthy";
 }
 
 function parseTimestamp(value: string | undefined): number | undefined {
@@ -385,6 +401,9 @@ export class DesktopSandboxManager {
   async create(
     options: CreateDesktopSandboxOptions,
   ): Promise<DesktopSandboxHandle> {
+    if (this.activeCount >= this.config.maxConcurrent) {
+      await this.reclaimCapacity();
+    }
     if (this.activeCount >= this.config.maxConcurrent) {
       throw new DesktopSandboxPoolExhaustedError(this.config.maxConcurrent);
     }
@@ -843,7 +862,13 @@ export class DesktopSandboxManager {
       return false;
     }
 
-    if (inspect.State?.Running !== true) {
+    if (!isRecoverableRunningContainer(inspect)) {
+      if (getDockerHealthStatus(inspect) === "unhealthy") {
+        this.logger.debug("Desktop container marked unhealthy by Docker health during recovery", {
+          containerId,
+          sessionId,
+        });
+      }
       return false;
     }
 
@@ -925,6 +950,39 @@ export class DesktopSandboxManager {
       `Recovered desktop sandbox ${containerId} for session ${sessionId} (API: ${ports.apiHostPort}, VNC: ${ports.vncHostPort})`,
     );
     return true;
+  }
+
+  private async reclaimCapacity(): Promise<void> {
+    const activeHandles = [...this.handles.values()].filter((handle) =>
+      isActiveStatus(handle.status),
+    );
+    for (const handle of activeHandles) {
+      const reclaim = await this.shouldReclaimTrackedContainer(handle.containerId);
+      if (!reclaim) {
+        continue;
+      }
+      this.logger.warn(
+        `Reclaiming unhealthy desktop sandbox ${handle.containerId} for session ${handle.sessionId}`,
+      );
+      await this.destroy(handle.containerId).catch((error) => {
+        this.logger.warn(
+          `Failed to reclaim desktop sandbox ${handle.containerId}: ${toErrorMessage(error)}`,
+        );
+      });
+    }
+  }
+
+  private async shouldReclaimTrackedContainer(
+    containerId: string,
+  ): Promise<boolean> {
+    let inspect: DockerInspectRecord;
+    try {
+      const { stdout } = await execFileAsync("docker", ["inspect", containerId]);
+      inspect = parseInspectJson(stdout);
+    } catch {
+      return true;
+    }
+    return !isRecoverableRunningContainer(inspect);
   }
 
   /** Force-remove a container by name or ID. Idempotent. */

@@ -76,3 +76,13 @@ export function formatInactiveBackgroundRunStop(
   if (lastChanged) lines.push(`Last changed: ${lastChanged}`);
   return lines.join("\n");
 }
+
+export function formatBackgroundRunAdmissionDenied(reason: string): string {
+  const normalizedReason = reason.trim() || "Background-run admission was denied.";
+  return [
+    "Unable to start a durable background run for this session.",
+    `Reason: ${normalizedReason}`,
+    "The runtime did not fall back to a one-shot chat turn because you explicitly requested supervised background execution.",
+    "Operator action: enable gateway autonomy/backgroundRuns for this runtime or retry with a normal one-shot request.",
+  ].join("\n");
+}

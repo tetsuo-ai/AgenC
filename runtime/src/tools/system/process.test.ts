@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createProcessTools, SystemProcessManager } from "./process.js";
 import { runDurableHandleContractSuite } from "./handle-contract.test-utils.js";
@@ -147,6 +147,36 @@ describe("system.process tools", () => {
     expect(status.state).toBe("exited");
   });
 
+  it("emits lifecycle callbacks when a managed host process exits", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "agenc-system-process-events-"));
+    const onLifecycleEvent = vi.fn(async () => undefined);
+    const manager = new SystemProcessManager({
+      rootDir,
+      allowList: ["/bin/echo", "echo"],
+      logger: silentLogger,
+      onLifecycleEvent,
+    });
+    cleanup.push({ manager, rootDir });
+
+    const started = JSON.parse((await manager.start({
+      command: "/bin/echo",
+      args: ["evented"],
+      label: "echo-evented",
+    })).content) as Record<string, unknown>;
+
+    await wait(75);
+
+    expect(onLifecycleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        processId: started.processId,
+        label: "echo-evented",
+        state: "exited",
+        exitCode: 0,
+        cause: "child_exit",
+      }),
+    );
+  });
+
   it("surfaces immediate output for fast-exit commands without an external sleep", async () => {
     const manager = createManager();
 
@@ -245,6 +275,33 @@ describe("system.process tools", () => {
       waitMs: 250,
     })).content) as Record<string, unknown>;
 
+    expect(stopped.state).toBe("exited");
+  });
+
+  it("allows python3 when explicitly excluded from the structured process deny list", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "agenc-system-process-python-"));
+    const manager = new SystemProcessManager({
+      rootDir,
+      allowList: ["python3"],
+      denyExclusions: ["python3"],
+      logger: silentLogger,
+      defaultStopWaitMs: 250,
+    });
+    cleanup.push({ manager, rootDir });
+
+    const started = JSON.parse((await manager.start({
+      command: "python3",
+      args: ["-c", "import time; time.sleep(5)"],
+      label: "python-sleep",
+    })).content) as Record<string, unknown>;
+
+    expect(started.processId).toMatch(/^proc_/);
+    expect(started.state).toBe("running");
+
+    const stopped = JSON.parse((await manager.stop({
+      processId: String(started.processId),
+      waitMs: 250,
+    })).content) as Record<string, unknown>;
     expect(stopped.state).toBe("exited");
   });
 

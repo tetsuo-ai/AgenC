@@ -26,6 +26,7 @@ import type { DelegationOutputValidationCode } from "../utils/delegation-validat
 import {
   LLMProviderError,
   LLMRateLimitError,
+  LLMTimeoutError,
   classifyLLMFailure,
 } from "./errors.js";
 import {
@@ -43,6 +44,7 @@ import type {
 } from "./policy.js";
 import type {
   Pipeline,
+  PipelineExecutionEvent,
   PipelinePlannerContext,
   PipelineResult,
 } from "../workflow/pipeline.js";
@@ -149,6 +151,8 @@ import {
   truncateText,
   sanitizeFinalContent,
   reconcileDirectShellObservationContent,
+  reconcileExactResponseContract,
+  reconcileVerifiedFileWorkflowContent,
   reconcileStructuredToolOutcome,
   reconcileTerminalFailureContent,
   estimatePromptShape,
@@ -445,6 +449,15 @@ export class ChatExecutor {
       ctx.finalContent,
       ctx.allToolCalls,
     );
+    ctx.finalContent = reconcileVerifiedFileWorkflowContent(
+      ctx.finalContent,
+      ctx.allToolCalls,
+    );
+    ctx.finalContent = reconcileExactResponseContract(
+      ctx.finalContent,
+      ctx.allToolCalls,
+      ctx.messageText,
+    );
     ctx.finalContent = reconcileStructuredToolOutcome(
       ctx.finalContent,
       ctx.allToolCalls,
@@ -509,13 +522,20 @@ export class ChatExecutor {
     }
   }
 
-  private timeoutDetail(stage: string): string {
-    return `Request exceeded end-to-end timeout (${this.requestTimeoutMs}ms) during ${stage}`;
+  private timeoutDetail(
+    stage: string,
+    requestTimeoutMs = this.requestTimeoutMs,
+  ): string {
+    return `Request exceeded end-to-end timeout (${requestTimeoutMs}ms) during ${stage}`;
   }
 
   private checkRequestTimeout(ctx: ExecutionContext, stage: string): boolean {
     if (this.getRemainingRequestMs(ctx) > 0) return false;
-    this.setStopReason(ctx, "timeout", this.timeoutDetail(stage));
+    this.setStopReason(
+      ctx,
+      "timeout",
+      this.timeoutDetail(stage, ctx.effectiveRequestTimeoutMs),
+    );
     return true;
   }
 
@@ -547,6 +567,74 @@ export class ChatExecutor {
     event: ChatExecutionTraceEvent,
   ): void {
     ctx.trace?.onExecutionTraceEvent?.(event);
+  }
+
+  private emitPlannerTrace(
+    ctx: ExecutionContext,
+    type:
+      | "planner_path_finished"
+      | "planner_pipeline_finished"
+      | "planner_pipeline_started"
+      | "planner_plan_parsed"
+      | "planner_refinement_requested",
+    payload: Record<string, unknown>,
+  ): void {
+    this.emitExecutionTrace(ctx, {
+      type,
+      phase: "planner",
+      callIndex: ctx.callIndex + 1,
+      payload,
+    });
+  }
+
+  private emitPipelineExecutionTrace(
+    ctx: ExecutionContext,
+    event: PipelineExecutionEvent,
+  ): void {
+    if (event.type === "step_started") {
+      this.emitExecutionTrace(ctx, {
+        type: "tool_dispatch_started",
+        phase: "planner",
+        callIndex: ctx.callIndex + 1,
+        payload: {
+          pipelineId: event.pipelineId,
+          stepName: event.stepName,
+          stepIndex: event.stepIndex,
+          tool: event.tool,
+          args: event.args,
+        },
+      });
+      return;
+    }
+    if (event.type === "step_finished") {
+      this.emitExecutionTrace(ctx, {
+        type: "tool_dispatch_finished",
+        phase: "planner",
+        callIndex: ctx.callIndex + 1,
+        payload: {
+          pipelineId: event.pipelineId,
+          stepName: event.stepName,
+          stepIndex: event.stepIndex,
+          tool: event.tool,
+          args: event.args,
+          durationMs: event.durationMs,
+          isError: typeof event.error === "string",
+          ...(typeof event.error === "string"
+            ? { error: event.error }
+            : { result: event.result }),
+        },
+      });
+      return;
+    }
+    this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
+      pipelineId: event.pipelineId,
+      halted: true,
+      stepName: event.stepName,
+      stepIndex: event.stepIndex,
+      tool: event.tool,
+      args: event.args,
+      error: event.error,
+    });
   }
 
   private maybePushRuntimeInstruction(
@@ -850,6 +938,7 @@ export class ChatExecutor {
         input.onStreamChunk,
         effectiveCallSections,
         {
+          requestDeadlineAt: ctx.requestDeadlineAt,
           ...(input.statefulSessionId
             ? {
               statefulSessionId: input.statefulSessionId,
@@ -910,7 +999,11 @@ export class ChatExecutor {
   ): Promise<PipelineResult | undefined> {
     const remainingMs = this.getRemainingRequestMs(ctx);
     if (remainingMs <= 0) {
-      this.setStopReason(ctx, "timeout", this.timeoutDetail("planner pipeline execution"));
+      this.setStopReason(
+        ctx,
+        "timeout",
+        this.timeoutDetail("planner pipeline execution", ctx.effectiveRequestTimeoutMs),
+      );
       return undefined;
     }
     const timeoutMessage = `planner pipeline timed out after ${remainingMs}ms`;
@@ -925,16 +1018,23 @@ export class ChatExecutor {
         this.pipelineExecutor!.execute(
           pipeline,
           0,
-          ctx.activeToolHandler
-            ? { toolHandler: ctx.activeToolHandler }
-            : undefined,
+          {
+            ...(ctx.activeToolHandler
+              ? { toolHandler: ctx.activeToolHandler }
+              : {}),
+            onEvent: (event) => this.emitPipelineExecutionTrace(ctx, event),
+          },
         ),
         timeoutPromise,
       ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message === timeoutMessage) {
-        this.setStopReason(ctx, "timeout", this.timeoutDetail("planner pipeline execution"));
+        this.setStopReason(
+          ctx,
+          "timeout",
+          this.timeoutDetail("planner pipeline execution", ctx.effectiveRequestTimeoutMs),
+        );
         return undefined;
       }
       const annotated = this.annotateFailureError(
@@ -1089,7 +1189,10 @@ export class ChatExecutor {
         toolBudgetPerRequest: effectiveToolBudget,
         maxModelRecallsPerRequest: effectiveMaxModelRecalls,
         maxFailureBudgetPerRequest: this.maxFailureBudgetPerRequest,
-        requestTimeoutMs: this.requestTimeoutMs,
+        requestTimeoutMs: Math.max(
+          1,
+          Math.floor(params.requestTimeoutMs ?? this.requestTimeoutMs),
+        ),
         providerName: this.providers[0]?.name ?? "unknown",
         plannerEnabled: this.plannerEnabled,
         subagentVerifierEnabled: this.subagentVerifierConfig.enabled,
@@ -1904,6 +2007,13 @@ export class ChatExecutor {
                 maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
               },
             });
+            this.emitPlannerTrace(ctx, "planner_refinement_requested", {
+              attempt: plannerAttempt,
+              nextAttempt: plannerAttempt + 1,
+              reason: "planner_required_orchestration_retry",
+              routeReason: "planner_required_orchestration_unmet",
+              diagnostics: plannerParse.diagnostics,
+            });
             continue;
           }
           ctx.plannerSummaryState.routeReason =
@@ -1917,10 +2027,26 @@ export class ChatExecutor {
             explicitOrchestrationRequirements,
             plannerParse.diagnostics,
           );
+          this.emitPlannerTrace(ctx, "planner_path_finished", {
+            plannerCalls: plannerAttempt,
+            routeReason: ctx.plannerSummaryState.routeReason,
+            stopReason: ctx.stopReason,
+            stopReasonDetail: ctx.stopReasonDetail,
+            diagnostics: ctx.plannerSummaryState.diagnostics,
+            handled: true,
+          });
           ctx.plannerHandled = true;
           return;
         }
         ctx.plannerSummaryState.routeReason = "planner_parse_failed";
+        this.emitPlannerTrace(ctx, "planner_path_finished", {
+          plannerCalls: plannerAttempt,
+          routeReason: ctx.plannerSummaryState.routeReason,
+          stopReason: ctx.stopReason,
+          stopReasonDetail: ctx.stopReasonDetail,
+          diagnostics: ctx.plannerSummaryState.diagnostics,
+          handled: false,
+        });
         return;
       }
 
@@ -1989,6 +2115,16 @@ export class ChatExecutor {
               maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
             },
           });
+          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
+            attempt: plannerAttempt,
+            nextAttempt: plannerAttempt + 1,
+            reason:
+              requiredOrchestrationDiagnostics.length > 0
+                ? "planner_required_orchestration_retry"
+                : "planner_refinement_retry",
+            graphDiagnostics,
+            requiredOrchestrationDiagnostics,
+          });
           continue;
         }
         if (requiredOrchestrationDiagnostics.length > 0) {
@@ -2003,6 +2139,14 @@ export class ChatExecutor {
             explicitOrchestrationRequirements!,
             requiredOrchestrationDiagnostics,
           );
+          this.emitPlannerTrace(ctx, "planner_path_finished", {
+            plannerCalls: plannerAttempt,
+            routeReason: ctx.plannerSummaryState.routeReason,
+            stopReason: ctx.stopReason,
+            stopReasonDetail: ctx.stopReasonDetail,
+            diagnostics: ctx.plannerSummaryState.diagnostics,
+            handled: true,
+          });
           ctx.plannerHandled = true;
           return;
         }
@@ -2010,6 +2154,24 @@ export class ChatExecutor {
       } else if (plannerPlan.reason) {
         ctx.plannerSummaryState.routeReason = plannerPlan.reason;
       }
+
+      this.emitPlannerTrace(ctx, "planner_plan_parsed", {
+        attempt: plannerAttempt,
+        routeReason: ctx.plannerSummaryState.routeReason,
+        requiresSynthesis: plannerPlan.requiresSynthesis === true,
+        totalSteps: plannerPlan.steps.length,
+        deterministicSteps: plannerPlan.steps.filter((step) =>
+          step.stepType === "deterministic_tool"
+        ).length,
+        subagentSteps: plannerPlan.steps.filter((step) =>
+          step.stepType === "subagent_task"
+        ).length,
+        synthesisSteps: plannerPlan.steps.filter((step) =>
+          step.stepType === "synthesis"
+        ).length,
+        graphDiagnostics,
+        requiredOrchestrationDiagnostics,
+      });
 
       ctx.plannerSummaryState.plannedSteps = plannerPlan.steps.length;
       ctx.plannedSubagentSteps = plannerPlan.steps.filter(
@@ -2122,6 +2284,14 @@ export class ChatExecutor {
           ctx.finalContent =
             `Planned ${deterministicSteps.length} deterministic steps, ` +
             `but request tool budget is ${ctx.effectiveToolBudget}.`;
+          this.emitPlannerTrace(ctx, "planner_path_finished", {
+            plannerCalls: plannerAttempt,
+            routeReason: ctx.plannerSummaryState.routeReason,
+            stopReason: ctx.stopReason,
+            stopReasonDetail: ctx.stopReasonDetail,
+            diagnostics: ctx.plannerSummaryState.diagnostics,
+            handled: true,
+          });
           ctx.plannerHandled = true;
           return;
         }
@@ -2142,6 +2312,19 @@ export class ChatExecutor {
           maxParallelism: this.delegationDecisionConfig.maxFanoutPerTurn,
           plannerContext: plannerExecutionContext,
         };
+
+        this.emitPlannerTrace(ctx, "planner_pipeline_started", {
+          attempt: plannerAttempt,
+          pipelineId: pipeline.id,
+          routeReason: ctx.plannerSummaryState.routeReason,
+          deterministicSteps: deterministicSteps.map((step) => ({
+            name: step.name,
+            tool: step.tool,
+            onError: step.onError ?? "abort",
+            maxRetries: step.maxRetries ?? 0,
+          })),
+          delegatedSteps: subagentSteps.map((step) => step.name),
+        });
 
         const shouldRunSubagentVerifier =
           subagentSteps.length > 0 &&
@@ -2202,7 +2385,45 @@ export class ChatExecutor {
               maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
             },
           });
+          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
+            attempt: plannerAttempt,
+            pipelineId: pipeline.id,
+            status: pipelineResult.status,
+            completedSteps: pipelineResult.completedSteps,
+            totalSteps: pipelineResult.totalSteps,
+            decomposition: pipelineResult.decomposition,
+            verificationDecision,
+          });
+          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
+            attempt: plannerAttempt,
+            nextAttempt: plannerAttempt + 1,
+            reason: "planner_runtime_refinement_retry",
+            decomposition: pipelineResult.decomposition,
+          });
           continue;
+        }
+
+        if (pipelineResult) {
+          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
+            attempt: plannerAttempt,
+            pipelineId: pipeline.id,
+            status: pipelineResult.status,
+            completedSteps: pipelineResult.completedSteps,
+            totalSteps: pipelineResult.totalSteps,
+            error: pipelineResult.error,
+            stopReasonHint: pipelineResult.stopReasonHint,
+            decomposition: pipelineResult.decomposition,
+            verificationDecision,
+          });
+        } else {
+          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
+            attempt: plannerAttempt,
+            pipelineId: pipeline.id,
+            status: "timeout",
+            stopReason: ctx.stopReason,
+            stopReasonDetail: ctx.stopReasonDetail,
+            verificationDecision,
+          });
         }
 
         if (pipelineResult) {
@@ -2231,7 +2452,7 @@ export class ChatExecutor {
           this.setStopReason(
             ctx,
             "timeout",
-            this.timeoutDetail("planner pipeline execution"),
+            this.timeoutDetail("planner pipeline execution", ctx.effectiveRequestTimeoutMs),
           );
         }
 
@@ -2295,6 +2516,16 @@ export class ChatExecutor {
               ctx.allToolCalls.filter((call) => !call.isError),
             );
         }
+        this.emitPlannerTrace(ctx, "planner_path_finished", {
+          plannerCalls: plannerAttempt,
+          routeReason: ctx.plannerSummaryState.routeReason,
+          stopReason: ctx.stopReason,
+          stopReasonDetail: ctx.stopReasonDetail,
+          diagnostics: ctx.plannerSummaryState.diagnostics,
+          handled: true,
+          deterministicStepsExecuted:
+            ctx.plannerSummaryState.deterministicStepsExecuted,
+        });
         ctx.plannerHandled = true;
         return;
       }
@@ -2307,6 +2538,14 @@ export class ChatExecutor {
           ctx.plannerSummaryState.routeReason = "planner_no_deterministic_steps";
         }
       }
+      this.emitPlannerTrace(ctx, "planner_path_finished", {
+        plannerCalls: plannerAttempt,
+        routeReason: ctx.plannerSummaryState.routeReason,
+        stopReason: ctx.stopReason,
+        stopReasonDetail: ctx.stopReasonDetail,
+        diagnostics: ctx.plannerSummaryState.diagnostics,
+        handled: false,
+      });
       return;
     }
   }
@@ -2460,6 +2699,7 @@ export class ChatExecutor {
       statefulResumeAnchor?: LLMStatefulResumeAnchor;
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
+      requestDeadlineAt?: number;
       trace?: ChatExecuteParams["trace"];
       callIndex?: number;
       callPhase?: ChatCallUsageRecord["phase"];
@@ -2542,15 +2782,35 @@ export class ChatExecutor {
       let attempts = 0;
       while (true) {
         try {
-          let response: LLMResponse;
-          if (onStreamChunk) {
-            response = await provider.chatStream(
+          const providerCall = onStreamChunk
+            ? provider.chatStream(
               boundedMessages,
               onStreamChunk,
               chatOptions,
-            );
+            )
+            : provider.chat(boundedMessages, chatOptions);
+          const remainingProviderMs = options?.requestDeadlineAt !== undefined
+            ? Math.max(1, options.requestDeadlineAt - Date.now())
+            : undefined;
+          let response: LLMResponse;
+          if (remainingProviderMs !== undefined) {
+            let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+            try {
+              response = await Promise.race([
+                providerCall,
+                new Promise<LLMResponse>((_, reject) => {
+                  timeoutHandle = setTimeout(() => {
+                    reject(new LLMTimeoutError(provider.name, remainingProviderMs));
+                  }, remainingProviderMs);
+                }),
+              ]);
+            } finally {
+              if (timeoutHandle !== undefined) {
+                clearTimeout(timeoutHandle);
+              }
+            }
           } else {
-            response = await provider.chat(boundedMessages, chatOptions);
+            response = await providerCall;
           }
 
           if (response.finishReason === "error") {

@@ -103,6 +103,73 @@ describe("chat-executor-contract-guidance", () => {
     expect(block).toBeUndefined();
   });
 
+  it("routes durable server turns to system.serverStart first", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Start a durable HTTP server on port 8781, verify it is ready, and keep it running until I tell you to stop.",
+      toolCalls: [],
+      allowedToolNames: ["desktop.bash", "system.serverStart", "system.serverStatus"],
+    });
+
+    expect(guidance).toEqual({
+      source: "server-handle",
+      runtimeInstruction:
+        "This durable server request must begin with `system.serverStart`. " +
+        "Use the typed server handle path first, then verify readiness before answering.",
+      routedToolNames: ["system.serverStart"],
+      toolChoice: "required",
+      enforcement: {
+        mode: "block_other_tools",
+        message:
+          "This server turn must begin with `system.serverStart`. " +
+          "Do not launch or probe the server with `desktop.bash`, `desktop.process_start`, `system.processStart`, or ad hoc shell commands before the typed server handle exists.",
+      },
+    });
+  });
+
+  it("blocks desktop shell detours before the server handle exists", () => {
+    const block = resolveToolContractExecutionBlock({
+      phase: "initial",
+      messageText:
+        "Start a durable HTTP server on port 8781, verify it is ready, and keep it running until I tell you to stop.",
+      toolCalls: [],
+      allowedToolNames: ["desktop.bash", "system.serverStart"],
+      candidateToolName: "desktop.bash",
+    });
+
+    expect(block).toBe(
+      "This server turn must begin with `system.serverStart`. " +
+      "Do not launch or probe the server with `desktop.bash`, `desktop.process_start`, `system.processStart`, or ad hoc shell commands before the typed server handle exists. " +
+      "Allowed now: `system.serverStart`. " +
+      "Do not use `desktop.bash` yet.",
+    );
+  });
+
+  it("routes durable server turns to system.serverStatus after launch", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "tool_followup",
+      messageText:
+        "Start a durable HTTP server on port 8781, verify it is ready, and keep it running until I tell you to stop.",
+      toolCalls: [
+        makeToolCall({
+          name: "system.serverStart",
+          result: JSON.stringify({ serverId: "server_123", state: "starting" }),
+        }),
+      ],
+      allowedToolNames: ["system.serverStart", "system.serverStatus", "system.serverResume"],
+    });
+
+    expect(guidance).toEqual({
+      source: "server-handle",
+      runtimeInstruction:
+        "The server handle is started but not yet verified. " +
+        "Call `system.serverStatus` (or `system.serverResume`) and confirm readiness before claiming the server is running.",
+      routedToolNames: ["system.serverStatus", "system.serverResume"],
+      toolChoice: "required",
+    });
+  });
+
   it("routes delegated implementation turns to an editor-first tool on initial guidance", () => {
     const guidance = resolveToolContractGuidance({
       phase: "initial",

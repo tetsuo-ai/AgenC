@@ -1331,6 +1331,29 @@ describe("WebChatChannel", () => {
 
       channel.handleMessage(
         "client_1",
+        "run.control",
+        msg(
+          "run.control",
+          { action: "stop", sessionId: ownedSessionId, reason: "operator stop" },
+          "req-run-stop",
+        ),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(controlBackgroundRun).toHaveBeenCalledWith({
+          action: {
+            action: "stop",
+            sessionId: ownedSessionId,
+            reason: "operator stop",
+          },
+          actor: "volatile:client_1",
+          channel: "webchat",
+        }),
+      );
+
+      channel.handleMessage(
+        "client_1",
         "run.inspect",
         msg("run.inspect", { sessionId: "foreign-session" }, "req-run-inspect-foreign"),
         send,

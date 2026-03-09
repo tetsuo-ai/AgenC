@@ -74,6 +74,27 @@ export interface SystemProcessToolConfig {
   readonly logger?: Logger;
   /** Time source override used by tests. */
   readonly now?: () => number;
+  /** Optional lifecycle callback for terminal state transitions. */
+  readonly onLifecycleEvent?: (event: SystemProcessLifecycleEvent) => void | Promise<void>;
+}
+
+export interface SystemProcessLifecycleEvent {
+  /** Durable handle identifier. */
+  readonly processId: string;
+  /** Optional stable label assigned at start time. */
+  readonly label?: string;
+  /** Optional idempotency key assigned at start time. */
+  readonly idempotencyKey?: string;
+  /** Terminal lifecycle state. */
+  readonly state: "exited" | "failed";
+  /** Best-effort exit code. */
+  readonly exitCode?: number | null;
+  /** Best-effort terminating signal. */
+  readonly signal?: string | null;
+  /** Timestamp when the transition was observed. */
+  readonly occurredAt: number;
+  /** Runtime path that observed the transition. */
+  readonly cause: "child_exit" | "child_error" | "stop";
 }
 
 /**

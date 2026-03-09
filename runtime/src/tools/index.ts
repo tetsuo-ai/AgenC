@@ -85,6 +85,7 @@ export {
   type BashToolInput,
   type BashExecutionResult,
   type DangerousShellPattern,
+  type SystemProcessLifecycleEvent,
   type SystemProcessToolConfig,
   type SystemRemoteJobToolConfig,
   type SystemResearchToolConfig,

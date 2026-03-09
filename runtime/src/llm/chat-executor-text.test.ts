@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildToolExecutionGroundingMessage,
   reconcileDirectShellObservationContent,
+  reconcileExactResponseContract,
+  reconcileVerifiedFileWorkflowContent,
   reconcileTerminalFailureContent,
 } from "./chat-executor-text.js";
 
@@ -112,6 +114,137 @@ describe("chat-executor-text", () => {
     );
 
     expect(content).toBe("Current directory: /workspace");
+  });
+
+  it("reconciles verified file workflow output when final synthesis mangles the absolute path", () => {
+    const content = reconcileVerifiedFileWorkflowContent(
+      "/ tmp/agenc-autonomy-LIVE.txt\nAUTONOMY_STAGE2::LIVE",
+      [
+        {
+          name: "desktop.bash",
+          args: {
+            command: "echo -n 'AUTONOMY_STAGE2::LIVE' > /tmp/agenc-autonomy-LIVE.txt",
+          },
+          result: JSON.stringify({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+          }),
+          isError: false,
+          durationMs: 5,
+        },
+        {
+          name: "desktop.bash",
+          args: {
+            command: "cat /tmp/agenc-autonomy-LIVE.txt",
+          },
+          result: JSON.stringify({
+            stdout: "AUTONOMY_STAGE2::LIVE",
+            stderr: "",
+            exitCode: 0,
+          }),
+          isError: false,
+          durationMs: 4,
+        },
+      ],
+    );
+
+    expect(content).toBe("/tmp/agenc-autonomy-LIVE.txt\nAUTONOMY_STAGE2::LIVE");
+  });
+
+  it("preserves verified file workflow output when the exact absolute path is already present", () => {
+    const content = reconcileVerifiedFileWorkflowContent(
+      "/tmp/agenc-autonomy-LIVE.txt\nAUTONOMY_STAGE2::LIVE",
+      [
+        {
+          name: "desktop.bash",
+          args: {
+            command: "echo -n 'AUTONOMY_STAGE2::LIVE' > /tmp/agenc-autonomy-LIVE.txt",
+          },
+          result: JSON.stringify({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+          }),
+          isError: false,
+          durationMs: 5,
+        },
+        {
+          name: "desktop.bash",
+          args: {
+            command: "cat /tmp/agenc-autonomy-LIVE.txt",
+          },
+          result: JSON.stringify({
+            stdout: "AUTONOMY_STAGE2::LIVE",
+            stderr: "",
+            exitCode: 0,
+          }),
+          isError: false,
+          durationMs: 4,
+        },
+      ],
+    );
+
+    expect(content).toBe("/tmp/agenc-autonomy-LIVE.txt\nAUTONOMY_STAGE2::LIVE");
+  });
+
+  it("enforces exact-output contracts when synthesis includes extra verified context", () => {
+    const content = reconcileExactResponseContract(
+      "/workspace/autonomy_stage2.txt\nAUTONOMY_STAGE2::FILE_OK",
+      [
+        {
+          name: "desktop.bash",
+          args: {
+            command: "printf 'AUTONOMY_STAGE2::FILE_OK\n' > /workspace/autonomy_stage2.txt",
+          },
+          result: JSON.stringify({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+          }),
+          isError: false,
+          durationMs: 5,
+        },
+        {
+          name: "desktop.bash",
+          args: {
+            command: "cat /workspace/autonomy_stage2.txt",
+          },
+          result: JSON.stringify({
+            stdout: "AUTONOMY_STAGE2::FILE_OK\n",
+            stderr: "",
+            exitCode: 0,
+          }),
+          isError: false,
+          durationMs: 4,
+        },
+      ],
+      "Create the file, verify it, and finally return exactly AUTONOMY_STAGE2::FILE_OK and nothing else.",
+    );
+
+    expect(content).toBe("AUTONOMY_STAGE2::FILE_OK");
+  });
+
+  it("enforces quoted exact-output contracts for direct shell observations", () => {
+    const content = reconcileExactResponseContract(
+      "Current token: AUTONOMY_STAGE0::SMOKE",
+      [
+        {
+          name: "desktop.bash",
+          args: { command: "printf 'AUTONOMY_STAGE0::SMOKE\n'" },
+          result: JSON.stringify({
+            stdout: "AUTONOMY_STAGE0::SMOKE\n",
+            stderr: "",
+            exitCode: 0,
+          }),
+          isError: false,
+          durationMs: 3,
+        },
+      ],
+      'Reply with exactly "AUTONOMY_STAGE0::SMOKE" and nothing else.',
+    );
+
+    expect(content).toBe("AUTONOMY_STAGE0::SMOKE");
   });
 
   it("replaces low-information partial timeout completions with a failure fallback", () => {

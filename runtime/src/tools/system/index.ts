@@ -65,6 +65,7 @@ export {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
   DANGEROUS_SHELL_PATTERNS,
+  type SystemProcessLifecycleEvent,
   type SystemProcessToolConfig,
   type SystemServerToolConfig,
   type SystemRemoteJobToolConfig,

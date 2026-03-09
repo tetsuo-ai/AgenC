@@ -2,15 +2,15 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, openSync, closeSync, rmSync } from "node:fs";
 import { open as openFile, mkdir, readFile, rename, rm } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
 import type { Tool, ToolResult } from "../types.js";
 import {
   DEFAULT_DENY_LIST,
-  DEFAULT_DENY_PREFIXES,
   type SystemProcessToolConfig,
+  type SystemProcessLifecycleEvent,
 } from "./types.js";
 import { isCommandAllowed } from "./bash.js";
 import {
@@ -230,6 +230,9 @@ export class SystemProcessManager {
   private readonly denySet: ReadonlySet<string>;
   private readonly allowSet: ReadonlySet<string> | null;
   private readonly denyExclusions: ReadonlySet<string> | null;
+  private readonly onLifecycleEvent?: (
+    event: SystemProcessLifecycleEvent,
+  ) => void | Promise<void>;
   private readonly logger: Logger;
   private readonly now: () => number;
   private loaded = false;
@@ -261,8 +264,36 @@ export class SystemProcessManager {
       !this.unrestricted && config?.denyExclusions && config.denyExclusions.length > 0
         ? new Set<string>(config.denyExclusions)
         : null;
+    this.onLifecycleEvent = config?.onLifecycleEvent;
     this.logger = config?.logger ?? silentLogger;
     this.now = config?.now ?? (() => Date.now());
+  }
+
+  private emitLifecycleEvent(
+    record: SystemProcessRecord,
+    cause: SystemProcessLifecycleEvent["cause"],
+  ): void {
+    if (!this.onLifecycleEvent || record.state === "running") {
+      return;
+    }
+    void Promise.resolve(
+      this.onLifecycleEvent({
+        processId: record.processId,
+        label: record.label,
+        idempotencyKey: record.idempotencyKey,
+        state: record.state,
+        exitCode: record.exitCode,
+        signal: record.signal,
+        occurredAt: record.lastExitAt ?? record.updatedAt,
+        cause,
+      }),
+    ).catch((error) => {
+      this.logger.debug("System process lifecycle callback failed", {
+        processId: record.processId,
+        cause,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   private terminateTrackedProcesses(): void {
@@ -417,17 +448,6 @@ export class SystemProcessManager {
   private validateAllowed(command: string): ToolResult | null {
     if (this.unrestricted) {
       return null;
-    }
-    const base = basename(command);
-    if (DEFAULT_DENY_PREFIXES.some((prefix) => base.toLowerCase().startsWith(prefix))) {
-      return handleErrorResult(
-        SYSTEM_PROCESS_FAMILY,
-        "system_process.denied_command",
-        `Command "${command}" is denied (matches deny prefix)`,
-        false,
-        undefined,
-        "start",
-      );
     }
     const allowed = isCommandAllowed(
       command,
@@ -664,7 +684,9 @@ export class SystemProcessManager {
         current.lastExitAt = this.now();
         current.updatedAt = current.lastExitAt;
         this.runtimes.delete(processId);
-        void this.persist();
+        void this.persist().then(() => {
+          this.emitLifecycleEvent(current, "child_exit");
+        });
       });
       child.once("error", (error) => {
         if (this.disposed) return;
@@ -683,7 +705,9 @@ export class SystemProcessManager {
         current.lastExitAt = this.now();
         current.updatedAt = current.lastExitAt;
         this.runtimes.delete(processId);
-        void this.persist();
+        void this.persist().then(() => {
+          this.emitLifecycleEvent(current, "child_error");
+        });
       });
       child.unref();
 
@@ -840,6 +864,7 @@ export class SystemProcessManager {
           record.updatedAt = record.lastExitAt;
           this.runtimes.delete(record.processId);
           await this.persist();
+          this.emitLifecycleEvent(record, "stop");
           return handleOkResult(buildProcessResponse(record, { stopped: true }));
         }
         throw error;
@@ -868,6 +893,7 @@ export class SystemProcessManager {
     record.updatedAt = record.lastExitAt;
     this.runtimes.delete(record.processId);
     await this.persist();
+    this.emitLifecycleEvent(record, "stop");
     return handleOkResult(buildProcessResponse(record, { stopped: true, forced: true }));
   }
 

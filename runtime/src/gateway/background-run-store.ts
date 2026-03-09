@@ -43,6 +43,8 @@ const DEFAULT_DISPATCH_CLAIM_DURATION_MS = 45_000;
 export const DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS = 7 * 24 * 60 * 60_000;
 export const DEFAULT_BACKGROUND_RUN_MAX_CYCLES = 512;
 export const DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS = 60 * 60_000;
+const DEFAULT_CYCLE_BUDGET_INTERVAL_FLOOR_MS = 30_000;
+const DEFAULT_CYCLE_BUDGET_HEADROOM_MULTIPLIER = 2;
 const DEFAULT_TERMINAL_SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_CORRUPT_RECORD_RETENTION_MS = 3 * 24 * 60 * 60_000;
 const DEFAULT_WAKE_DEAD_LETTER_RETENTION_MS = 3 * 24 * 60 * 60_000;
@@ -57,6 +59,25 @@ export type BackgroundRunState = AgentRunState;
 export type BackgroundRunContract = AgentRunContract;
 export type BackgroundRunManagedProcessPolicy = AgentRunManagedProcessPolicy;
 
+export function deriveDefaultBackgroundRunMaxCycles(params?: {
+  readonly maxRuntimeMs?: number;
+  readonly nextCheckMs?: number;
+}): number {
+  const maxRuntimeMs = params?.maxRuntimeMs ?? DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS;
+  const requestedCadenceMs =
+    typeof params?.nextCheckMs === "number" && params.nextCheckMs > 0
+      ? params.nextCheckMs
+      : DEFAULT_CYCLE_BUDGET_INTERVAL_FLOOR_MS;
+  const budgetCadenceMs = Math.max(
+    requestedCadenceMs,
+    DEFAULT_CYCLE_BUDGET_INTERVAL_FLOOR_MS,
+  );
+  const runtimeScaledCycles =
+    Math.ceil(maxRuntimeMs / budgetCadenceMs) *
+    DEFAULT_CYCLE_BUDGET_HEADROOM_MULTIPLIER;
+  return Math.max(DEFAULT_BACKGROUND_RUN_MAX_CYCLES, runtimeScaledCycles);
+}
+
 export type BackgroundRunWorkerPool =
   | "generic"
   | "browser"
@@ -67,11 +88,19 @@ export type BackgroundRunWorkerPool =
   | "remote_mcp";
 
 export interface BackgroundRunManagedProcessLaunchSpec {
+  readonly kind?: "process" | "server";
   readonly command: string;
   readonly args: readonly string[];
   readonly cwd?: string;
   readonly label?: string;
   readonly logPath?: string;
+  readonly idempotencyKey?: string;
+  readonly healthUrl?: string;
+  readonly host?: string;
+  readonly port?: number;
+  readonly protocol?: "http" | "https";
+  readonly readyStatusCodes?: readonly number[];
+  readonly readinessTimeoutMs?: number;
 }
 
 export type BackgroundRunWakeReason = AgentRunWakeReason;
@@ -130,12 +159,14 @@ export interface BackgroundRunObservedManagedProcessTarget {
   readonly kind: "managed_process";
   readonly processId: string;
   readonly label?: string;
-  readonly surface?: "desktop" | "host";
+  readonly serverId?: string;
+  readonly surface?: "desktop" | "host" | "host_server";
   readonly pid?: number;
   readonly pgid?: number;
   readonly desiredState: "running" | "exited";
   readonly exitPolicy: "until_exit" | "keep_running" | "restart_on_exit";
   readonly currentState: "running" | "exited";
+  readonly ready?: boolean;
   readonly lastObservedAt: number;
   readonly exitCode?: number | null;
   readonly signal?: string | null;
@@ -370,6 +401,29 @@ export interface PersistedBackgroundRunDispatchBeacon {
   readonly nextAvailableAt?: number;
 }
 
+export class BackgroundRunFenceConflictError extends Error {
+  readonly attemptedFenceToken: number;
+  readonly currentFenceToken: number;
+
+  constructor(params: {
+    attemptedFenceToken: number;
+    currentFenceToken: number;
+  }) {
+    super(
+      `Stale BackgroundRun fence token ${params.attemptedFenceToken}; current token is ${params.currentFenceToken}`,
+    );
+    this.name = "BackgroundRunFenceConflictError";
+    this.attemptedFenceToken = params.attemptedFenceToken;
+    this.currentFenceToken = params.currentFenceToken;
+  }
+}
+
+export function isBackgroundRunFenceConflictError(
+  error: unknown,
+): error is BackgroundRunFenceConflictError {
+  return error instanceof BackgroundRunFenceConflictError;
+}
+
 export interface BackgroundRunWorkerRecord {
   readonly version: typeof AGENT_RUN_SCHEMA_VERSION;
   readonly workerId: string;
@@ -563,6 +617,18 @@ function coerceNonNegativeInteger(value: unknown): number | undefined {
   return normalized >= 0 ? normalized : undefined;
 }
 
+function coerceHttpStatusCodes(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const codes = value.filter(
+    (item): item is number =>
+      typeof item === "number" &&
+      Number.isInteger(item) &&
+      item >= 100 &&
+      item <= 599,
+  );
+  return codes.length > 0 ? [...new Set(codes)] : undefined;
+}
+
 function coerceLaunchSpec(
   value: unknown,
 ): BackgroundRunManagedProcessLaunchSpec | undefined {
@@ -573,11 +639,23 @@ function coerceLaunchSpec(
   }
   const args = normalizeStringArray(raw.args);
   return {
+    kind: raw.kind === "process" || raw.kind === "server" ? raw.kind : undefined,
     command: raw.command,
     args,
     cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
     label: typeof raw.label === "string" ? raw.label : undefined,
     logPath: typeof raw.logPath === "string" ? raw.logPath : undefined,
+    idempotencyKey:
+      typeof raw.idempotencyKey === "string" ? raw.idempotencyKey : undefined,
+    healthUrl: typeof raw.healthUrl === "string" ? raw.healthUrl : undefined,
+    host: typeof raw.host === "string" ? raw.host : undefined,
+    port: coercePositiveInteger(raw.port),
+    protocol:
+      raw.protocol === "http" || raw.protocol === "https"
+        ? raw.protocol
+        : undefined,
+    readyStatusCodes: coerceHttpStatusCodes(raw.readyStatusCodes),
+    readinessTimeoutMs: coercePositiveInteger(raw.readinessTimeoutMs),
   };
 }
 
@@ -1098,8 +1176,11 @@ function coerceObservedTarget(
     kind: "managed_process",
     processId: raw.processId,
     label: typeof raw.label === "string" ? raw.label : undefined,
+    serverId: typeof raw.serverId === "string" ? raw.serverId : undefined,
     surface:
-      raw.surface === "desktop" || raw.surface === "host"
+      raw.surface === "desktop" ||
+      raw.surface === "host" ||
+      raw.surface === "host_server"
         ? raw.surface
         : undefined,
     pid: typeof raw.pid === "number" ? raw.pid : undefined,
@@ -1107,6 +1188,7 @@ function coerceObservedTarget(
     desiredState: raw.desiredState,
     exitPolicy: raw.exitPolicy,
     currentState: raw.currentState,
+    ready: typeof raw.ready === "boolean" ? raw.ready : undefined,
     lastObservedAt: raw.lastObservedAt,
     exitCode:
       raw.exitCode === null || typeof raw.exitCode === "number"
@@ -1293,7 +1375,10 @@ function buildDefaultBudgetState(params: {
     lastCycleTokens: 0,
     managedProcessCount: 0,
     maxRuntimeMs: DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
-    maxCycles: DEFAULT_BACKGROUND_RUN_MAX_CYCLES,
+    maxCycles: deriveDefaultBackgroundRunMaxCycles({
+      maxRuntimeMs: DEFAULT_BACKGROUND_RUN_MAX_RUNTIME_MS,
+      nextCheckMs: params.contract.nextCheckMs,
+    }),
     maxIdleMs: params.contract.requiresUserStop ? undefined : DEFAULT_BACKGROUND_RUN_MAX_IDLE_MS,
     nextCheckIntervalMs: params.contract.nextCheckMs,
     heartbeatIntervalMs: params.contract.heartbeatMs,
@@ -2025,14 +2110,22 @@ export class BackgroundRunStore {
     }
     await this.queue.run(run.sessionId, async () => {
       const current = await this.loadRun(run.sessionId);
-      if (
-        current &&
-        current.fenceToken !== validated.fenceToken &&
-        validated.leaseOwnerId !== undefined
-      ) {
-        throw new Error(
-          `Stale BackgroundRun fence token ${validated.fenceToken}; current token is ${current.fenceToken}`,
-        );
+      if (current && validated.leaseOwnerId !== undefined) {
+        if (current.fenceToken > validated.fenceToken) {
+          throw new BackgroundRunFenceConflictError({
+            attemptedFenceToken: validated.fenceToken,
+            currentFenceToken: current.fenceToken,
+          });
+        }
+        if (
+          current.fenceToken < validated.fenceToken &&
+          current.leaseOwnerId &&
+          current.leaseOwnerId !== validated.leaseOwnerId
+        ) {
+          throw new Error(
+            `BackgroundRun lease owner mismatch for forward fence write: attempted ${validated.leaseOwnerId}, current ${current.leaseOwnerId}`,
+          );
+        }
       }
       await this.memoryBackend.set(
         backgroundRunKey(run.sessionId),

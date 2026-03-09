@@ -186,6 +186,9 @@ function parseRetryAfterMs(headers: unknown): number | undefined {
   return Number.isFinite(seconds) ? seconds * 1000 : undefined;
 }
 
+const TRANSIENT_PROVIDER_SERVER_MESSAGE_RE =
+  /\b(?:service\s+temporarily\s+unavailable|temporarily\s+unavailable|server\s+temporarily\s+unavailable|upstream\s+connect\s+error|bad\s+gateway|gateway\s+timeout|server\s+overloaded|temporarily\s+overloaded|temporarily\s+down|backend\s+unavailable)\b/i;
+
 /**
  * Map an unknown error from an LLM SDK call into a typed LLM error.
  *
@@ -239,6 +242,10 @@ export function mapLLMError(
 
   if (status !== undefined && status >= 500) {
     return new LLMServerError(providerName, status, message);
+  }
+
+  if (TRANSIENT_PROVIDER_SERVER_MESSAGE_RE.test(message)) {
+    return new LLMServerError(providerName, 503, message);
   }
 
   return new LLMProviderError(providerName, message, status);

@@ -207,6 +207,7 @@ import {
 } from "./durable-subrun-orchestrator.js";
 import { evaluateAutonomyCanaryAdmission } from "./autonomy-rollout.js";
 import {
+  formatBackgroundRunAdmissionDenied,
   formatBackgroundRunStatus,
   formatInactiveBackgroundRunStatus,
   formatInactiveBackgroundRunStop,
@@ -362,6 +363,12 @@ const LINUX_DESKTOP_BASH_DENY_EXCLUSIONS = [
   "node",
   "nodejs",
 ] as const;
+const STRUCTURED_EXEC_RUNTIME_DENY_EXCLUSIONS = [
+  "python",
+  "python3",
+  "node",
+  "nodejs",
+] as const;
 const CHROMIUM_COMPAT_COMMANDS = ["chromium", "chromium-browser"] as const;
 const CHROMIUM_HOST_CHROME_CANDIDATES = [
   "google-chrome",
@@ -414,6 +421,17 @@ export function resolveBashDenyExclusions(
     return [...LINUX_DESKTOP_BASH_DENY_EXCLUSIONS];
   }
   return undefined;
+}
+
+export function resolveStructuredExecDenyExclusions(
+  config: Pick<GatewayConfig, "desktop">,
+  platform: NodeJS.Platform = process.platform,
+): string[] | undefined {
+  const baseExclusions = resolveBashDenyExclusions(config, platform) ?? [];
+  if (platform !== "darwin" && !(config.desktop?.enabled && platform === "linux")) {
+    return baseExclusions.length > 0 ? [...baseExclusions] : undefined;
+  }
+  return [...new Set([...baseExclusions, ...STRUCTURED_EXEC_RUNTIME_DENY_EXCLUSIONS])];
 }
 
 function mapScopedActionBudgets(
@@ -2328,6 +2346,9 @@ export class DaemonManager {
   private _desktopManager:
     | import("../desktop/manager.js").DesktopSandboxManager
     | null = null;
+  private _desktopWatchdog:
+    | import("../desktop/health.js").DesktopSandboxWatchdog
+    | null = null;
   private _desktopBridges: Map<
     string,
     import("../desktop/rest-bridge.js").DesktopRESTBridge
@@ -2817,7 +2838,11 @@ export class DaemonManager {
     // Start desktop sandbox manager before wiring WebChat (commands need it)
     if (gatewayConfig.desktop?.enabled) {
       try {
-        const { DesktopSandboxManager } = await import("../desktop/manager.js");
+        const [{ DesktopSandboxManager }, { DesktopSandboxWatchdog }] =
+          await Promise.all([
+            import("../desktop/manager.js"),
+            import("../desktop/health.js"),
+          ]);
         this._desktopManager = new DesktopSandboxManager(
           gatewayConfig.desktop,
           {
@@ -2836,7 +2861,17 @@ export class DaemonManager {
           },
         );
         await this._desktopManager.start();
+        this._desktopWatchdog = new DesktopSandboxWatchdog(
+          this._desktopManager,
+          {
+            intervalMs: gatewayConfig.desktop.healthCheckIntervalMs,
+            logger: this.logger,
+          },
+        );
+        this._desktopWatchdog.start();
       } catch (err) {
+        this._desktopWatchdog?.stop();
+        this._desktopWatchdog = null;
         this.logger.warn?.("Desktop sandbox manager failed to start:", err);
       }
     }
@@ -6027,13 +6062,14 @@ export class DaemonManager {
     //
     // On Linux desktop mode, include the minimum developer workflow binaries
     // required by host health checks and orchestration smoke tests.
-    const denyExclusions = resolveBashDenyExclusions(config);
+    const bashDenyExclusions = resolveBashDenyExclusions(config);
+    const structuredExecDenyExclusions = resolveStructuredExecDenyExclusions(config);
 
     registry.register(
       createBashTool({
         logger: this.logger,
         env: safeEnv,
-        denyExclusions,
+        denyExclusions: bashDenyExclusions,
         timeoutMs: config.desktop?.enabled ? 300_000 : undefined,
         maxTimeoutMs: config.desktop?.enabled ? 600_000 : undefined,
       }),
@@ -6042,7 +6078,28 @@ export class DaemonManager {
       createProcessTools({
         logger: this.logger,
         env: safeEnv,
-        denyExclusions,
+        denyExclusions: structuredExecDenyExclusions,
+        onLifecycleEvent: async (event) => {
+          if (event.state !== "exited" && event.state !== "failed") {
+            return;
+          }
+          const signalled = await this._backgroundRunSupervisor?.signalManagedProcessExit({
+            processId: event.processId,
+            label: event.label,
+            exitCode: event.exitCode,
+            signal: event.signal,
+            occurredAt: event.occurredAt,
+            source: `system.process:${event.cause}`,
+          });
+          if (signalled) {
+            this.logger.info("Background run signalled from host process lifecycle", {
+              processId: event.processId,
+              label: event.label,
+              state: event.state,
+              cause: event.cause,
+            });
+          }
+        },
       }),
     );
     const callbackPort = config.gateway?.port ?? 3100;
@@ -6075,7 +6132,7 @@ export class DaemonManager {
       createServerTools({
         logger: this.logger,
         env: safeEnv,
-        denyExclusions,
+        denyExclusions: structuredExecDenyExclusions,
       }),
     );
     registry.registerAll(createHttpTools({}, this.logger));
@@ -9032,6 +9089,11 @@ export class DaemonManager {
           cohort: admission.cohort,
           reason: admission.reason,
         });
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content: formatBackgroundRunAdmissionDenied(admission.reason),
+        });
+        return;
       } else {
         await memoryBackend
           .addEntry({
@@ -9707,6 +9769,8 @@ export class DaemonManager {
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
         "- For durable code-execution environments, isolated workspace/container jobs, or sandbox lifecycle management, prefer system.sandboxStart plus system.sandboxJob* tools over desktop.process_* or raw shell commands.\n" +
         "- desktop.process_* manages processes inside the already-attached desktop sandbox. It does NOT replace system.sandbox* durable sandbox handles.\n" +
+        "- system.bash and other raw host `system.*` shell/file mutation tools are NOT available in desktop-only mode.\n" +
+        "- If the user explicitly asks for an unavailable host tool like system.bash, DO NOT silently substitute desktop.bash, browser tools, or another environment and pretend it is equivalent. State that the requested tool is unavailable in this desktop-only session and only proceed with an allowed desktop/structured-host alternative if the user accepts that change.\n" +
         "- For long-running/background processes you need to inspect or stop later, use desktop.process_start/status/stop instead of desktop.bash.\n" +
         "- desktop.process_start is structured exec only: command = one executable token/path, args = flat string array. Do NOT use bash -lc there.\n" +
         "- NEVER type code into a terminal using keyboard_type — it gets interpreted as separate bash commands and fails.\n" +
@@ -10224,6 +10288,10 @@ export class DaemonManager {
         await this._backgroundRunSupervisor.shutdown();
         this._backgroundRunSupervisor = null;
         this._durableSubrunOrchestrator = null;
+      }
+      if (this._desktopWatchdog !== null) {
+        this._desktopWatchdog.stop();
+        this._desktopWatchdog = null;
       }
       if (this._desktopManager !== null) {
         await this._desktopManager.stop();

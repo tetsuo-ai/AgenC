@@ -34,6 +34,9 @@ describe("agent-run-contract", () => {
     expect(canTransitionAgentRunState("working", "suspended")).toBe(true);
     expect(canTransitionAgentRunState("suspended", "working")).toBe(true);
     expect(canTransitionAgentRunState("paused", "working")).toBe(true);
+    expect(canTransitionAgentRunState("paused", "completed")).toBe(true);
+    expect(canTransitionAgentRunState("blocked", "completed")).toBe(true);
+    expect(canTransitionAgentRunState("suspended", "completed")).toBe(true);
   });
 
   it("rejects invalid lifecycle transitions", () => {

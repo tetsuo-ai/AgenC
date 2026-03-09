@@ -406,7 +406,7 @@ function RunQuickActions(props: RunControlSectionProps) {
       label: 'Stop',
       action: sessionId
         ? ({
-            action: 'cancel',
+            action: 'stop',
             sessionId,
             reason: 'Stopped from the run dashboard.',
           } as const)

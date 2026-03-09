@@ -92,6 +92,44 @@ describe("PipelineExecutor", () => {
       expect(baseHandler).not.toHaveBeenCalled();
     });
 
+    it("emits step execution events for deterministic observability", async () => {
+      const events: Array<Record<string, unknown>> = [];
+      const handler = createMockToolHandler({
+        "tool.a": "a-result",
+      });
+      const executor = createExecutor({ toolHandler: handler });
+      const pipeline = createPipeline([
+        { name: "step-a", tool: "tool.a", args: { value: 1 } },
+      ]);
+
+      const result = await executor.execute(pipeline, 0, {
+        onEvent: (event) => {
+          events.push(event as unknown as Record<string, unknown>);
+        },
+      });
+
+      expect(result.status).toBe("completed");
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "step_started",
+            pipelineId: "test-pipeline",
+            stepName: "step-a",
+            tool: "tool.a",
+            args: { value: 1 },
+          }),
+          expect.objectContaining({
+            type: "step_finished",
+            pipelineId: "test-pipeline",
+            stepName: "step-a",
+            tool: "tool.a",
+            args: { value: 1 },
+            result: "a-result",
+          }),
+        ]),
+      );
+    });
+
     it("returns failed on tool error with abort policy", async () => {
       const handler = createMockToolHandler(
         {},
