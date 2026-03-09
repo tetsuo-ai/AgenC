@@ -210,6 +210,16 @@ export {
 } from "./errors";
 
 export {
+  hasRecordedProcessIdentity,
+  processIdentityMatches,
+  readProcessIdentitySnapshot,
+  type ProcessIdentityState,
+  type ProcessIdentitySnapshot,
+  type RecordedProcessIdentity,
+  type ReadProcessIdentityOptions,
+} from "./process-identity";
+
+export {
   // Current API
   runProofSubmissionPreflight,
   DEFAULT_MAX_PROOF_AGE_MS,

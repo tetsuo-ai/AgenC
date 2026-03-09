@@ -9,6 +9,10 @@ import { createProcessTools, SystemProcessManager } from "./process.js";
 import { runDurableHandleContractSuite } from "./handle-contract.test-utils.js";
 import { silentLogger } from "../../utils/logger.js";
 
+type ProcessToolArgs<T extends "start" | "status" | "stop" | "logs"> =
+  Parameters<SystemProcessManager[T]>[0];
+type ProcessToolResponse = Record<string, unknown>;
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
@@ -33,6 +37,85 @@ describe("system.process tools", () => {
     });
     cleanup.push({ manager, rootDir });
     return manager;
+  }
+
+  function latestRootDir(): string {
+    const entry = cleanup.at(-1);
+    if (!entry) {
+      throw new Error("expected process test manager cleanup entry");
+    }
+    return entry.rootDir;
+  }
+
+  async function writePersistedProcessRecord(
+    record: Record<string, unknown>,
+  ): Promise<void> {
+    await writeFile(
+      join(latestRootDir(), "registry.json"),
+      JSON.stringify({
+        version: 1,
+        processes: [record],
+      }),
+      "utf8",
+    );
+  }
+
+  function buildPersistedProcessRecord(
+    processId: string,
+    label: string,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    const rootDir = latestRootDir();
+    return {
+      version: 1,
+      processId,
+      label,
+      command: "/bin/sleep",
+      args: ["5"],
+      cwd: "/tmp",
+      logPath: join(rootDir, processId, "process.log"),
+      pid: process.pid,
+      pgid: process.pid,
+      state: "running",
+      createdAt: 1,
+      updatedAt: 2,
+      startedAt: 1,
+      ...overrides,
+    };
+  }
+
+  async function startProcess(
+    manager: SystemProcessManager,
+    args: ProcessToolArgs<"start">,
+  ): Promise<ProcessToolResponse> {
+    return JSON.parse((await manager.start(args)).content) as ProcessToolResponse;
+  }
+
+  async function stopProcess(
+    manager: SystemProcessManager,
+    args: ProcessToolArgs<"stop">,
+  ): Promise<ProcessToolResponse> {
+    return JSON.parse((await manager.stop(args)).content) as ProcessToolResponse;
+  }
+
+  async function expectStartedThenStopped(
+    manager: SystemProcessManager,
+    args: ProcessToolArgs<"start">,
+  ): Promise<{
+    started: ProcessToolResponse;
+    stopped: ProcessToolResponse;
+  }> {
+    const started = await startProcess(manager, args);
+    expect(started.processId).toMatch(/^proc_/);
+    expect(started.state).toBe("running");
+
+    const stopped = await stopProcess(manager, {
+      processId: String(started.processId),
+      waitMs: 250,
+    });
+    expect(stopped.state).toBe("exited");
+
+    return { started, stopped };
   }
 
   runDurableHandleContractSuite(() => {
@@ -201,7 +284,7 @@ describe("system.process tools", () => {
 
   it("migrates persisted stopped state to exited on load", async () => {
     const manager = createManager();
-    const rootDir = cleanup[cleanup.length - 1]!.rootDir;
+    const rootDir = latestRootDir();
 
     await writeFile(
       join(rootDir, "registry.json"),
@@ -239,6 +322,39 @@ describe("system.process tools", () => {
     expect(status.state).toBe("exited");
   });
 
+  it("fails closed for persisted running handles that lack identity metadata", async () => {
+    const manager = createManager();
+    await writePersistedProcessRecord(
+      buildPersistedProcessRecord("proc_missing_identity", "legacy-running"),
+    );
+
+    const status = JSON.parse((await manager.status({
+      processId: "proc_missing_identity",
+    })).content) as Record<string, unknown>;
+
+    expect(status.state).toBe("exited");
+    expect(String(status.lastError)).toMatch(/missing persisted identity metadata/i);
+  });
+
+  it("does not treat a mismatched live pid as the original managed process", async () => {
+    const manager = createManager();
+    await writePersistedProcessRecord(
+      buildPersistedProcessRecord("proc_stale_identity", "stale-running", {
+        processStartToken: "stale-start-token",
+        processBootId: "stale-boot-id",
+      }),
+    );
+
+    const stopped = JSON.parse((await manager.stop({
+      processId: "proc_stale_identity",
+      waitMs: 100,
+    })).content) as Record<string, unknown>;
+
+    expect(stopped.state).toBe("exited");
+    expect(stopped.stopped).toBe(false);
+    expect(String(stopped.lastError)).toMatch(/identity mismatch/i);
+  });
+
   it("rejects denied commands", async () => {
     const manager = createManager();
 
@@ -261,21 +377,11 @@ describe("system.process tools", () => {
     });
     cleanup.push({ manager, rootDir });
 
-    const started = JSON.parse((await manager.start({
+    await expectStartedThenStopped(manager, {
       command: process.execPath,
       args: ["-e", "setInterval(()=>{}, 1000);"],
       label: "trusted-node",
-    })).content) as Record<string, unknown>;
-
-    expect(started.processId).toMatch(/^proc_/);
-    expect(started.state).toBe("running");
-
-    const stopped = JSON.parse((await manager.stop({
-      processId: String(started.processId),
-      waitMs: 250,
-    })).content) as Record<string, unknown>;
-
-    expect(stopped.state).toBe("exited");
+    });
   });
 
   it("allows python3 when explicitly excluded from the structured process deny list", async () => {
@@ -289,20 +395,11 @@ describe("system.process tools", () => {
     });
     cleanup.push({ manager, rootDir });
 
-    const started = JSON.parse((await manager.start({
+    await expectStartedThenStopped(manager, {
       command: "python3",
       args: ["-c", "import time; time.sleep(5)"],
       label: "python-sleep",
-    })).content) as Record<string, unknown>;
-
-    expect(started.processId).toMatch(/^proc_/);
-    expect(started.state).toBe("running");
-
-    const stopped = JSON.parse((await manager.stop({
-      processId: String(started.processId),
-      waitMs: 250,
-    })).content) as Record<string, unknown>;
-    expect(stopped.state).toBe("exited");
+    });
   });
 
   it("reclaims a label once the previous process has exited", async () => {

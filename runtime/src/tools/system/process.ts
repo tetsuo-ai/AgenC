@@ -4,6 +4,12 @@ import { existsSync, openSync, closeSync, rmSync } from "node:fs";
 import { open as openFile, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import {
+  hasRecordedProcessIdentity,
+  processIdentityMatches,
+  readProcessIdentitySnapshot,
+} from "@agenc/sdk";
+
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
 import type { Tool, ToolResult } from "../types.js";
@@ -49,6 +55,8 @@ interface SystemProcessRecord {
   readonly resourceEnvelope?: StructuredHandleResourceEnvelope;
   pid: number;
   pgid: number;
+  processStartToken?: string;
+  processBootId?: string;
   state: SystemProcessState;
   readonly createdAt: number;
   updatedAt: number;
@@ -515,20 +523,28 @@ export class SystemProcessManager {
       }
       return;
     }
-    try {
-      process.kill(record.pid, 0);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/ESRCH/i.test(message)) {
-        record.state = "exited";
-        record.lastExitAt = this.now();
-        record.updatedAt = record.lastExitAt;
-        this.runtimes.delete(record.processId);
-        await this.persist();
-        return;
-      }
-      throw error;
+    const snapshot = await readProcessIdentitySnapshot(record.pid);
+    const snapshotRunning = snapshot?.state === "running";
+    const identityMatches = snapshotRunning && snapshot
+      ? processIdentityMatches(record, snapshot)
+      : false;
+    if (snapshotRunning && identityMatches) {
+      return;
     }
+    record.state = "exited";
+    record.lastExitAt = this.now();
+    record.updatedAt = record.lastExitAt;
+    if (!hasRecordedProcessIdentity(record)) {
+      record.lastError = "Managed process handle is missing persisted identity metadata.";
+    } else if (!snapshot) {
+      record.lastError = "Managed process no longer exists.";
+    } else if (snapshotRunning === false) {
+      record.lastError = "Managed process is no longer running.";
+    } else {
+      record.lastError = "Managed process identity mismatch detected.";
+    }
+    this.runtimes.delete(record.processId);
+    await this.persist();
   }
 
   async start(
@@ -666,8 +682,10 @@ export class SystemProcessManager {
       record.pgid = child.pid ?? -1;
       child.once("exit", (exitCode, signal) => {
         if (this.disposed) return;
-        const current = this.records.get(processId);
-        if (!current) return;
+        const current = this.records.get(processId) ?? record;
+        if (!this.records.has(processId)) {
+          this.records.set(processId, current);
+        }
         const runtime = this.runtimes.get(processId);
         if (runtime) {
           runtime.exited = true;
@@ -690,8 +708,10 @@ export class SystemProcessManager {
       });
       child.once("error", (error) => {
         if (this.disposed) return;
-        const current = this.records.get(processId);
-        if (!current) return;
+        const current = this.records.get(processId) ?? record;
+        if (!this.records.has(processId)) {
+          this.records.set(processId, current);
+        }
         const runtime = this.runtimes.get(processId);
         if (runtime) {
           runtime.exited = true;
@@ -709,14 +729,23 @@ export class SystemProcessManager {
           this.emitLifecycleEvent(current, "child_error");
         });
       });
-      child.unref();
-
       this.records.set(processId, record);
       this.runtimes.set(processId, {
         record,
         child,
         exited: false,
       });
+      const identitySnapshot = record.pid > 0
+        ? await readProcessIdentitySnapshot(record.pid)
+        : null;
+      if (identitySnapshot) {
+        record.pgid = identitySnapshot.pgid;
+        record.processStartToken = identitySnapshot.startToken;
+        if (identitySnapshot.bootId) {
+          record.processBootId = identitySnapshot.bootId;
+        }
+      }
+      child.unref();
       await this.persist();
       return handleOkResult(buildProcessResponse(record, { started: true }));
     } catch (error) {

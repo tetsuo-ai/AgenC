@@ -12,6 +12,10 @@ import {
 import { closeSync, openSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import {
+  processIdentityMatches,
+  readProcessIdentitySnapshot,
+} from "@agenc/sdk";
 import { resolveValidatedTextEditorPath } from "./textEditorPath.js";
 import type {
   ToolDefinition,
@@ -92,6 +96,8 @@ interface ManagedProcessRecord {
   logPath: string;
   pid: number;
   pgid: number;
+  processStartToken?: string;
+  processBootId?: string;
   state: ManagedProcessState;
   startedAt: number;
   endedAt?: number;
@@ -286,6 +292,16 @@ async function ensureManagedProcessRegistryLoaded(): Promise<void> {
         logPath: record.logPath,
         pid: record.pid,
         pgid: record.pgid,
+        processStartToken:
+          typeof record.processStartToken === "string" &&
+          record.processStartToken.length > 0
+            ? record.processStartToken
+            : undefined,
+        processBootId:
+          typeof record.processBootId === "string" &&
+          record.processBootId.length > 0
+            ? record.processBootId
+            : undefined,
         state: record.state === "running" ? "running" : "exited",
         startedAt: record.startedAt,
         endedAt: typeof record.endedAt === "number" ? record.endedAt : undefined,
@@ -599,28 +615,24 @@ async function readFileTail(
 }
 
 async function inspectManagedProcessState(
-  pid: number,
+  record: ManagedProcessRecord,
 ): Promise<ManagedProcessState> {
-  try {
-    const raw = await readFile(`/proc/${pid}/stat`, "utf8");
-    const parts = raw.trim().split(/\s+/);
-    const state = parts[2];
-    if (state === "Z") return "exited";
-    return "running";
-  } catch {
-    try {
-      process.kill(pid, 0);
-      return "running";
-    } catch {
-      return "exited";
-    }
+  const snapshot = await readProcessIdentitySnapshot(record.pid, {
+    env: { ...process.env, DISPLAY },
+  });
+  if (snapshot?.state !== "running") {
+    return "exited";
   }
+  if (!processIdentityMatches(record, snapshot)) {
+    return "exited";
+  }
+  return "running";
 }
 
 async function refreshManagedProcessRecord(
   record: ManagedProcessRecord,
 ): Promise<ManagedProcessRecord> {
-  const runtimeState = await inspectManagedProcessState(record.pid);
+  const runtimeState = await inspectManagedProcessState(record);
   if (runtimeState === record.state) {
     return record;
   }
@@ -1255,6 +1267,16 @@ async function processStart(
         ...(envKeys ? { envKeys } : {}),
         launchFingerprint,
       };
+      const identitySnapshot = await readProcessIdentitySnapshot(child.pid, {
+        env: { ...process.env, DISPLAY },
+      });
+      if (identitySnapshot) {
+        record.pgid = identitySnapshot.pgid;
+        record.processStartToken = identitySnapshot.startToken;
+        if (identitySnapshot.bootId) {
+          record.processBootId = identitySnapshot.bootId;
+        }
+      }
 
       managedProcesses.set(processId, record);
       await persistManagedProcessRegistry();
