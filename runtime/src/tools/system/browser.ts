@@ -35,6 +35,8 @@ export interface BrowserToolConfig {
   readonly mode: "basic" | "advanced";
   readonly allowedDomains?: readonly string[];
   readonly blockedDomains?: readonly string[];
+  /** Allowed host file roots for browser upload actions. */
+  readonly allowedFileUploadPaths?: readonly string[];
   /** Maximum response body size in bytes. Default: 1_048_576 (1 MB). */
   readonly maxResponseBytes?: number;
   /** Request timeout in milliseconds. Default: 30_000. */

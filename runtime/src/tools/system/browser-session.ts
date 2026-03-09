@@ -23,6 +23,7 @@ import {
   normalizeResourceEnvelope,
   type StructuredHandleResourceEnvelope,
 } from "./handle-contract.js";
+import { safePath } from "./filesystem.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const BROWSER_SESSION_ROOT = "/tmp/agenc-browser-sessions";
@@ -1005,6 +1006,37 @@ export class BrowserSessionManager {
               "environment_unavailable",
             );
           }
+          const allowedUploadPaths = toolConfig.allowedFileUploadPaths ?? [];
+          if (allowedUploadPaths.length === 0) {
+            return handleErrorResult(
+              BROWSER_SESSION_FAMILY,
+              "browser_session.upload_path_denied",
+              "Browser uploads are disabled because no allowed upload roots are configured.",
+              false,
+              undefined,
+              "resume",
+              "permission_denied",
+            );
+          }
+          const resolvedUploadPaths: string[] = [];
+          for (const candidatePath of uploadPaths) {
+            const validatedPath = await safePath(candidatePath, allowedUploadPaths);
+            if (!validatedPath.safe) {
+              return handleErrorResult(
+                BROWSER_SESSION_FAMILY,
+                "browser_session.upload_path_denied",
+                `Upload path "${candidatePath}" is not allowed for browser uploads.`,
+                false,
+                {
+                  path: candidatePath,
+                  reason: validatedPath.reason,
+                },
+                "resume",
+                "permission_denied",
+              );
+            }
+            resolvedUploadPaths.push(validatedPath.resolved);
+          }
           const uploadIdempotencyKey = asTrimmedString(action.idempotencyKey);
           const uploadLabel =
             asTrimmedString(action.label) ??
@@ -1015,7 +1047,7 @@ export class BrowserSessionManager {
           const uploadSpecMatches = (transfer: BrowserSessionTransfer): boolean =>
             transfer.kind === "upload" &&
             transfer.selector === selector &&
-            transfer.sourcePath === uploadPaths.join("\n");
+            transfer.sourcePath === resolvedUploadPaths.join("\n");
           if (existingTransfer) {
             if (uploadSpecMatches(existingTransfer)) {
               results.push({
@@ -1037,7 +1069,7 @@ export class BrowserSessionManager {
             );
           }
           const transferId = `transfer_${randomUUID().slice(0, 8)}`;
-          const sourcePath = uploadPaths.join("\n");
+          const sourcePath = resolvedUploadPaths.join("\n");
           await this.upsertTransfer(resolved, {
             transferId,
             sessionId: resolved.sessionId,
@@ -1053,11 +1085,13 @@ export class BrowserSessionManager {
           try {
             await runtime.page.setInputFiles(
               selector,
-              uploadPaths.length === 1 ? uploadPaths[0] : uploadPaths,
+              resolvedUploadPaths.length === 1
+                ? resolvedUploadPaths[0]
+                : resolvedUploadPaths,
             );
             await this.recordArtifact(resolved, {
               kind: "upload",
-              path: uploadPaths[0],
+              path: resolvedUploadPaths[0],
               label: uploadLabel,
             });
             const completedTransfer = await this.upsertTransfer(resolved, {
@@ -1072,13 +1106,13 @@ export class BrowserSessionManager {
               ...(uploadIdempotencyKey ? { idempotencyKey: uploadIdempotencyKey } : {}),
               selector,
               sourcePath,
-              artifactPath: uploadPaths[0],
+              artifactPath: resolvedUploadPaths[0],
             });
             results.push({
               type,
-              description: `Uploaded ${uploadPaths.length} file(s) into ${selector}.`,
+              description: `Uploaded ${resolvedUploadPaths.length} file(s) into ${selector}.`,
               transferId: completedTransfer.transferId,
-              artifactPath: uploadPaths[0],
+              artifactPath: resolvedUploadPaths[0],
             });
           } catch (error) {
             await this.upsertTransfer(resolved, {
