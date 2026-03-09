@@ -8,6 +8,7 @@ import type {
   ObservabilityEventRecord,
   ObservabilityLogResponse,
   ObservabilitySummary,
+  ObservabilitySummaryQuery,
   ObservabilityTraceDetail,
   ObservabilityTraceQuery,
 } from "./types.js";
@@ -126,9 +127,11 @@ export class ObservabilityService {
     return this.store.getTrace(traceId);
   }
 
-  async getSummary(windowMs?: number): Promise<ObservabilitySummary> {
+  async getSummary(
+    query: ObservabilitySummaryQuery = {},
+  ): Promise<ObservabilitySummary> {
     await this.writeChain;
-    return this.store.getSummary(windowMs);
+    return this.store.getSummary(query);
   }
 
   async getArtifact(path: string): Promise<ObservabilityArtifactResponse> {

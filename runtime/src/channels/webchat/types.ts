@@ -19,6 +19,7 @@ import type {
   ObservabilityArtifactResponse,
   ObservabilityLogResponse,
   ObservabilitySummary,
+  ObservabilitySummaryQuery,
   ObservabilityTraceDetail,
   ObservabilityTraceQuery,
   ObservabilityTraceSummary,
@@ -128,7 +129,7 @@ export interface WebChatDeps {
   }>;
   /** Optional observability summary query helper. */
   getObservabilitySummary?: (
-    windowMs?: number,
+    query?: ObservabilitySummaryQuery,
   ) => Promise<ObservabilitySummary | undefined>;
   /** Optional observability trace listing helper. */
   listObservabilityTraces?: (

@@ -203,4 +203,59 @@ sqliteDescribe("ObservabilityService", () => {
 
     await service.close();
   });
+
+  it("filters trace listings and summaries by session scope", async () => {
+    const service = new ObservabilityService({
+      dbPath: join(tempDir, "observability.sqlite"),
+      daemonLogPath: join(tempDir, "daemon.log"),
+    });
+    writeFileSync(join(tempDir, "daemon.log"), "", "utf8");
+    const now = Date.now();
+
+    service.recordEvent({
+      eventName: "webchat.inbound",
+      level: "info",
+      traceId: "trace-owned",
+      sessionId: "session-owned",
+      timestampMs: now,
+      payloadPreview: {},
+      rawPayload: { toolName: "system.fs.read" },
+    });
+    service.recordEvent({
+      eventName: "webchat.chat.response",
+      level: "info",
+      traceId: "trace-owned",
+      sessionId: "session-owned",
+      timestampMs: now + 1,
+      payloadPreview: { stopReason: "completed" },
+      rawPayload: { stopReason: "completed" },
+    });
+
+    service.recordEvent({
+      eventName: "webchat.provider.error",
+      level: "error",
+      traceId: "trace-foreign",
+      sessionId: "session-foreign",
+      timestampMs: now + 2,
+      payloadPreview: {},
+      rawPayload: { toolName: "system.browserSessionResume" },
+    });
+
+    const scopedTraces = await service.listTraces({
+      sessionIds: ["session-owned"],
+    });
+    expect(scopedTraces).toHaveLength(1);
+    expect(scopedTraces[0]?.traceId).toBe("trace-owned");
+
+    const scopedSummary = await service.getSummary({
+      sessionIds: ["session-owned"],
+    });
+    expect(scopedSummary.traces.total).toBe(1);
+    expect(scopedSummary.traces.completed).toBe(1);
+    expect(scopedSummary.traces.errors).toBe(0);
+    expect(scopedSummary.events.providerErrors).toBe(0);
+    expect(scopedSummary.topStopReasons).toEqual([{ name: "completed", count: 1 }]);
+
+    await service.close();
+  });
 });
