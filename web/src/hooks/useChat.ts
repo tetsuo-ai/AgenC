@@ -89,7 +89,7 @@ function createClientKey(): string {
 }
 
 function getBrowserLocalStorage(): Storage | undefined {
-  if (typeof globalThis.window === 'undefined') {
+  if (globalThis.window === undefined) {
     return undefined;
   }
   return globalThis.window.localStorage;
