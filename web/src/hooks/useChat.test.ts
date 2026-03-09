@@ -4,7 +4,7 @@ import type { WSMessage } from "../types";
 import { useChat } from "./useChat";
 
 beforeEach(() => {
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 describe("useChat tool result matching", () => {
@@ -247,7 +247,7 @@ describe("useChat session lifecycle", () => {
       } as WSMessage);
     });
 
-    expect(window.localStorage.getItem("agenc-webchat-owner-token")).toBe(
+    expect(globalThis.localStorage.getItem("agenc-webchat-owner-token")).toBe(
       "owner-token-123",
     );
 

@@ -88,32 +88,42 @@ function createClientKey(): string {
   return `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function getBrowserLocalStorage(): Storage | undefined {
+  if (typeof globalThis.window === 'undefined') {
+    return undefined;
+  }
+  return globalThis.window.localStorage;
+}
+
 function getOrCreateWebChatClientKey(): string {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  const storage = getBrowserLocalStorage();
+  if (!storage) {
     return createClientKey();
   }
-  const existing = window.localStorage.getItem(WEBCHAT_CLIENT_KEY_STORAGE_KEY);
+  const existing = storage.getItem(WEBCHAT_CLIENT_KEY_STORAGE_KEY);
   if (existing && existing.trim().length > 0) {
     return existing;
   }
   const next = createClientKey();
-  window.localStorage.setItem(WEBCHAT_CLIENT_KEY_STORAGE_KEY, next);
+  storage.setItem(WEBCHAT_CLIENT_KEY_STORAGE_KEY, next);
   return next;
 }
 
 function getStoredWebChatOwnerToken(): string | null {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  const storage = getBrowserLocalStorage();
+  if (!storage) {
     return null;
   }
-  const existing = window.localStorage.getItem(WEBCHAT_OWNER_TOKEN_STORAGE_KEY);
+  const existing = storage.getItem(WEBCHAT_OWNER_TOKEN_STORAGE_KEY);
   return existing && existing.trim().length > 0 ? existing : null;
 }
 
 function persistWebChatOwnerToken(ownerToken: string): void {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  const storage = getBrowserLocalStorage();
+  if (!storage) {
     return;
   }
-  window.localStorage.setItem(WEBCHAT_OWNER_TOKEN_STORAGE_KEY, ownerToken);
+  storage.setItem(WEBCHAT_OWNER_TOKEN_STORAGE_KEY, ownerToken);
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -280,11 +290,18 @@ export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   }, []);
 
   const authPayload = useCallback(
-    (extra?: Record<string, unknown>) => ({
-      clientKey: clientKeyRef.current,
-      ...(ownerTokenRef.current ? { ownerToken: ownerTokenRef.current } : {}),
-      ...(extra ?? {}),
-    }),
+    (extra?: Record<string, unknown>) => {
+      const payload: Record<string, unknown> = {
+        clientKey: clientKeyRef.current,
+      };
+      if (ownerTokenRef.current) {
+        payload.ownerToken = ownerTokenRef.current;
+      }
+      if (extra) {
+        Object.assign(payload, extra);
+      }
+      return payload;
+    },
     [],
   );
 
