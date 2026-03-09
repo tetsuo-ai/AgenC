@@ -121,4 +121,59 @@ describe("VoiceBridge delegation", () => {
       }),
     );
   });
+
+  it("passes provider trace options to delegated chat execution when enabled", async () => {
+    const execute = vi.fn(async () => ({
+      content: "Opened the browser",
+      provider: "fresh-grok",
+      toolCalls: [],
+      durationMs: 12,
+      compacted: false,
+      callUsage: [],
+    }));
+
+    const send = vi.fn();
+    const bridge = new VoiceBridge({
+      apiKey: "voice-key",
+      toolHandler: vi.fn(async () => ""),
+      systemPrompt: "You are a helpful assistant.",
+      getChatExecutor: () => ({
+        execute,
+        getSessionTokenUsage: () => 0,
+      } as any),
+      traceProviderPayloads: true,
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+    });
+
+    (bridge as any).sessions.set("client-1", {
+      client: {} as any,
+      send,
+      toolHandler: vi.fn(async () => ""),
+      sessionId: "session-1",
+      managedSessionId: "session-1",
+      delegationAbort: null,
+    });
+
+    await (bridge as any).handleDelegation(
+      "client-1",
+      "session-1",
+      JSON.stringify({ task: "Open a browser" }),
+      send,
+    );
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trace: expect.objectContaining({
+          includeProviderPayloads: true,
+          onProviderTraceEvent: expect.any(Function),
+          onExecutionTraceEvent: expect.any(Function),
+        }),
+      }),
+    );
+  });
 });

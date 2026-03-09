@@ -117,6 +117,29 @@ describe("createDesktopAwarenessAction", () => {
     expect(tool.execute).toHaveBeenCalledWith({ quality: "high" });
   });
 
+  it("passes provider trace options when enabled", async () => {
+    const llm = makeMockLLM("Normal desktop activity.");
+
+    const action = createDesktopAwarenessAction({
+      screenshotTool: makeMockScreenshotTool(),
+      llm: llm as any,
+      memory: makeMockMemory() as any,
+      traceProviderPayloads: true,
+    });
+
+    await action.execute(makeContext());
+
+    expect(llm.chat).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        trace: expect.objectContaining({
+          includeProviderPayloads: true,
+          onProviderTraceEvent: expect.any(Function),
+        }),
+      }),
+    );
+  });
+
   // --------------------------------------------------------------------------
   // Noteworthy detection
   // --------------------------------------------------------------------------

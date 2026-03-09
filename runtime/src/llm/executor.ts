@@ -20,6 +20,9 @@ import { entryToMessage, messageToEntryOptions } from "../memory/types.js";
 import type { MetricsProvider } from "../task/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 import type { MemoryGraph, MemoryGraphResult } from "../memory/graph.js";
+import { createProviderTraceEventLogger } from "./provider-trace-logger.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 /** Default TTL for memory entries: 24 hours */
 const DEFAULT_MEMORY_TTL_MS = 86_400_000;
@@ -59,6 +62,10 @@ export interface LLMTaskExecutorConfig {
   allowedTools?: string[];
   /** Optional memory graph used for provenance-aware retrieval and ingestion. */
   memoryGraph?: Pick<MemoryGraph, "query" | "ingestToolOutput">;
+  /** Logger for provider payload trace capture. */
+  logger?: Logger;
+  /** Emit raw provider payload traces for task execution. */
+  traceProviderPayloads?: boolean;
 }
 
 /**
@@ -88,6 +95,8 @@ export class LLMTaskExecutor implements TaskExecutor {
     MemoryGraph,
     "query" | "ingestToolOutput"
   >;
+  private readonly logger: Logger;
+  private readonly traceProviderPayloads: boolean;
 
   constructor(config: LLMTaskExecutorConfig) {
     this.provider = config.provider;
@@ -105,6 +114,38 @@ export class LLMTaskExecutor implements TaskExecutor {
       : null;
     this.metrics = config.metrics;
     this.memoryGraph = config.memoryGraph;
+    this.logger = config.logger ?? silentLogger;
+    this.traceProviderPayloads = config.traceProviderPayloads ?? false;
+  }
+
+  private buildProviderTraceOptions(params: {
+    sessionId: string;
+    taskPda: string;
+    phase: "initial" | "followup";
+    round?: number;
+  }) {
+    if (!this.traceProviderPayloads) {
+      return undefined;
+    }
+
+    return {
+      trace: {
+        includeProviderPayloads: true as const,
+        onProviderTraceEvent: createProviderTraceEventLogger({
+          logger: this.logger,
+          traceLabel: "llm_executor.provider",
+          traceId:
+            `${params.sessionId}:${params.phase}` +
+            (params.round !== undefined ? `:${params.round}` : ""),
+          sessionId: params.sessionId,
+          staticFields: {
+            taskPda: params.taskPda,
+            phase: params.phase,
+            ...(params.round !== undefined ? { round: params.round } : {}),
+          },
+        }),
+      },
+    };
   }
 
   async execute(task: Task): Promise<bigint[]> {
@@ -129,10 +170,19 @@ export class LLMTaskExecutor implements TaskExecutor {
     let response;
     try {
       const chatStart = Date.now();
+      const initialTrace = this.buildProviderTraceOptions({
+        sessionId,
+        taskPda,
+        phase: "initial",
+      });
       if (this.streaming && this.onStreamChunk) {
-        response = await this.provider.chatStream(messages, this.onStreamChunk);
+        response = await this.provider.chatStream(
+          messages,
+          this.onStreamChunk,
+          initialTrace,
+        );
       } else {
-        response = await this.provider.chat(messages);
+        response = await this.provider.chat(messages, initialTrace);
       }
       this.recordLLMMetrics(response, Date.now() - chatStart);
     } catch (err) {
@@ -229,13 +279,20 @@ export class LLMTaskExecutor implements TaskExecutor {
 
       try {
         const chatStart = Date.now();
+        const followupTrace = this.buildProviderTraceOptions({
+          sessionId,
+          taskPda,
+          phase: "followup",
+          round: rounds,
+        });
         if (this.streaming && this.onStreamChunk) {
           response = await this.provider.chatStream(
             messages,
             this.onStreamChunk,
+            followupTrace,
           );
         } else {
-          response = await this.provider.chat(messages);
+          response = await this.provider.chat(messages, followupTrace);
         }
         this.recordLLMMetrics(response, Date.now() - chatStart);
       } catch (err) {

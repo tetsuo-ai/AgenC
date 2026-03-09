@@ -45,6 +45,10 @@ export interface ToolContractGuidance {
   readonly runtimeInstruction?: string;
   readonly routedToolNames?: readonly string[];
   readonly toolChoice: LLMToolChoice;
+  readonly enforcement?: {
+    readonly mode: "block_other_tools";
+    readonly message: string;
+  };
 }
 
 interface ToolContractGuidanceResolver {
@@ -81,6 +85,34 @@ export function resolveToolContractGuidance(
   return undefined;
 }
 
+export function resolveToolContractExecutionBlock(
+  input: ToolContractGuidanceContext & {
+    readonly candidateToolName: string;
+  },
+): string | undefined {
+  const guidance = resolveToolContractGuidance(input);
+  if (guidance?.enforcement?.mode !== "block_other_tools") {
+    return undefined;
+  }
+
+  const requiredToolNames = guidance.routedToolNames ?? [];
+  if (
+    requiredToolNames.length === 0 ||
+    requiredToolNames.includes(input.candidateToolName)
+  ) {
+    return undefined;
+  }
+
+  const requiredSummary = requiredToolNames
+    .map((toolName) => `\`${toolName}\``)
+    .join(", ");
+  return (
+    `${guidance.enforcement.message} ` +
+    `Allowed now: ${requiredSummary}. ` +
+    `Do not use \`${input.candidateToolName}\` yet.`
+  );
+}
+
 function resolveDoomToolContractGuidance(
   input: ToolContractGuidanceContext,
 ): ToolContractGuidance | undefined {
@@ -98,12 +130,29 @@ function resolveDoomToolContractGuidance(
       input.allowedToolNames.length === 0 ||
       input.allowedToolNames.includes(toolName),
   );
+  const enforcement =
+    gap.code === "missing_launch"
+      ? {
+        mode: "block_other_tools" as const,
+        message:
+          "This Doom turn must begin with `mcp.doom.start_game`. " +
+          "Do not launch or inspect Doom with `desktop.bash`, `desktop.process_start`, `system.bash`, or direct binary commands before the MCP launch succeeds.",
+      }
+      : gap.code === "missing_async_start"
+      ? {
+        mode: "block_other_tools" as const,
+        message:
+          "Continuous Doom play was requested, but the game is not yet running in async mode. " +
+          "Restart it with `mcp.doom.start_game` and `async_player: true` before using other tools.",
+      }
+      : undefined;
 
   return {
     source: "doom",
     runtimeInstruction: gap.message,
     ...(routedToolNames.length > 0 ? { routedToolNames } : {}),
     toolChoice: "required",
+    ...(enforcement ? { enforcement } : {}),
   };
 }
 

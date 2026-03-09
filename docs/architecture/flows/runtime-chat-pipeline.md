@@ -96,6 +96,10 @@ When planner validation or delegated execution returns `needs_decomposition`, th
 
 For incident triage, trace logs now summarize delegated `execute_with_agent` calls with the child objective, contract, acceptance criteria, validation outcome, stop reason, and nested child tool-call summaries. Use those traced args/results rather than UI card summaries when diagnosing low-signal child behavior.
 
+When `logging.trace.includeProviderPayloads=true`, the daemon also emits JSON `*.provider.request`, `*.provider.response`, and `*.provider.error` events for each provider call. Those events are the source of truth for exact routed tool subsets, `tool_choice`, `previous_response_id`, and raw provider `output[]` items during incident replay.
+
+When `logging.trace.enabled=true`, the daemon emits JSON `*.executor.*` events for the internal `ChatExecutor` state machine as well. Those events are the source of truth for in-memory mutations between routing and provider dispatch: `model_call_prepared`, `contract_guidance_resolved`, `tool_rejected`, `tool_arguments_invalid`, `tool_dispatch_started`, `tool_dispatch_finished`, `route_expanded`, and `completion_gate_checked`.
+
 For Grok-backed research turns, provider-native `web_search` is now the preferred research path when `llm.webSearch=true`. Routed tool subsets append `web_search` for research/docs-comparison intents, delegated research scopes prefer `web_search` over browser MCP tools, and research validation accepts provider citations (`providerEvidence.citations`) as tool-grounded evidence. Keep browser MCP/Playwright tools for interactive page work such as localhost QA, DOM inspection, screenshots, clicks, and console/network validation. Provider-native search must stay model-gated: unsupported Grok models such as `grok-code-fast-1` must not advertise or inject `web_search` even when the config flag is enabled.
 
 Terminal window open/close actions should also be routed as distinct intents. When `mcp.kitty.launch` or `mcp.kitty.close` is available, the router should prefer those direct tools and invalidate cached terminal routes on action shifts instead of reusing a stale "open terminal" cluster for "close the terminal".
@@ -212,6 +216,8 @@ Delegation-specific observability:
 - WebChat lifecycle events: `subagents.planned|spawned|started|progress|tool.executing|tool.result|completed|failed|cancelled|synthesized`
 - trace correlation: parent turn trace IDs + delegated child trace IDs
 - learning signals: parent/child trajectory records and per-context arm statistics
+- local observability ledger: trace events persisted to `~/.agenc/observability.sqlite` plus exact payload artifacts under `~/.agenc/trace-payloads/`
+- operator portal: WebChat `TRACE` view queries `observability.summary|traces|trace|artifact|logs` to reconstruct one turn end-to-end without parsing raw daemon logs first
 
 Operational runbooks:
 

@@ -14,6 +14,7 @@ import type {
   HeartbeatResult,
 } from "../gateway/heartbeat.js";
 import type { LLMProvider } from "../llm/types.js";
+import { createProviderTraceEventLogger } from "../llm/provider-trace-logger.js";
 import type { MemoryBackend } from "../memory/types.js";
 import { entryToMessage } from "../memory/types.js";
 
@@ -34,6 +35,8 @@ export interface SelfLearningConfig {
   maxEntries?: number;
   /** KV key prefix for stored learnings (default: "learning:"). */
   keyPrefix?: string;
+  /** Emit raw provider payload traces when daemon trace logging enables it. */
+  traceProviderPayloads?: boolean;
 }
 
 // ============================================================================
@@ -134,7 +137,22 @@ export function createSelfLearningAction(
             role: "user",
             content: `Analyze these ${entries.length} recent interactions:\n\n${formatted}`,
           },
-        ]);
+        ], config.traceProviderPayloads === true
+          ? {
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: createProviderTraceEventLogger({
+                logger: context.logger,
+                traceLabel: "self_learning.provider",
+                traceId: `self-learning:${Date.now()}`,
+                staticFields: {
+                  phase: "analysis",
+                  entryCount: entries.length,
+                },
+              }),
+            },
+          }
+          : undefined);
 
         if (!response.content) {
           return { hasOutput: false, quiet: true };

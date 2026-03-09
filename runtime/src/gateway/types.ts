@@ -274,6 +274,8 @@ export interface GatewayLoggingConfig {
     includeToolArgs?: boolean;
     /** Include raw tool-call results in trace output. */
     includeToolResults?: boolean;
+    /** Include raw provider request/response/error payloads in trace output. */
+    includeProviderPayloads?: boolean;
     /** Max characters retained for any traced text field. */
     maxChars?: number;
   };

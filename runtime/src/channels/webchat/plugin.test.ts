@@ -215,6 +215,58 @@ function makeRunDetail(sessionId = "session-owned") {
   };
 }
 
+function makeTraceSummary(sessionId = 'session-owned') {
+  return {
+    traceId: `trace-${sessionId}`,
+    sessionId,
+    startedAt: 1,
+    updatedAt: 2,
+    eventCount: 3,
+    errorCount: 0,
+    status: 'completed' as const,
+    lastEventName: 'webchat.chat.response',
+    stopReason: 'completed',
+  };
+}
+
+function makeTraceDetail(sessionId = 'session-owned') {
+  const summary = makeTraceSummary(sessionId);
+  return {
+    summary,
+    completeness: {
+      complete: true,
+      issues: [],
+    },
+    events: [
+      {
+        id: `${summary.traceId}:event-1`,
+        eventName: 'webchat.provider.request',
+        level: 'info' as const,
+        traceId: summary.traceId,
+        sessionId,
+        timestampMs: 1,
+        routingMiss: false,
+        payloadPreview: { toolChoice: 'required' },
+      },
+      {
+        id: `${summary.traceId}:event-2`,
+        eventName: 'webchat.provider.response',
+        level: 'info' as const,
+        traceId: summary.traceId,
+        sessionId,
+        timestampMs: 2,
+        routingMiss: false,
+        payloadPreview: { finishReason: 'tool_calls' },
+        artifact: {
+          path: `/home/tetsuo/.agenc/trace-payloads/${summary.traceId}/artifact.json`,
+          sha256: 'abc123',
+          bytes: 42,
+        },
+      },
+    ],
+  };
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -1427,6 +1479,183 @@ describe("WebChatChannel", () => {
       const data = payload?.data as Record<string, unknown> | undefined;
       expect(data?.traceId).toBeUndefined();
       expect(data?.parentTraceId).toBeUndefined();
+    });
+  });
+
+  describe('observability handlers', () => {
+    it('returns summary, trace list, trace detail, artifact, and logs for owned sessions', async () => {
+      deps = createDeps();
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      const ownedSessionId = openChatSession(channel, context, 'client_1', send, 'owned session');
+      const traceDetail = makeTraceDetail(ownedSessionId);
+      const getObservabilitySummary = vi.fn(async () => ({
+        windowMs: 60_000,
+        traces: {
+          total: 1,
+          completed: 1,
+          errors: 0,
+          open: 0,
+          completenessRate: 1,
+        },
+        events: {
+          providerErrors: 0,
+          toolRejections: 0,
+          routeMisses: 0,
+          completionGateFailures: 0,
+        },
+        topTools: [{ name: 'mcp.doom.start_game', count: 1 }],
+        topStopReasons: [{ name: 'completed', count: 1 }],
+      }));
+      const listObservabilityTraces = vi.fn(async () => [traceDetail.summary]);
+      const getObservabilityTrace = vi.fn(async () => traceDetail);
+      const getObservabilityArtifact = vi.fn(async () => ({
+        path: traceDetail.events[1]!.artifact!.path,
+        body: { payload: { ok: true } },
+      }));
+      const getObservabilityLogTail = vi.fn(async () => ({
+        path: '/home/tetsuo/.agenc/daemon.log',
+        lines: [`${traceDetail.summary.traceId} line`],
+      }));
+      (channel as unknown as { deps: WebChatDeps }).deps = {
+        ...deps,
+        getObservabilitySummary,
+        listObservabilityTraces,
+        getObservabilityTrace,
+        getObservabilityArtifact,
+        getObservabilityLogTail,
+      };
+
+      channel.handleMessage(
+        'client_1',
+        'observability.summary',
+        msg('observability.summary', {}, 'req-observability-summary'),
+        send,
+      );
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'observability.summary',
+            id: 'req-observability-summary',
+          }),
+        ),
+      );
+
+      channel.handleMessage(
+        'client_1',
+        'observability.traces',
+        msg('observability.traces', { sessionId: ownedSessionId }, 'req-observability-traces'),
+        send,
+      );
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'observability.traces',
+            id: 'req-observability-traces',
+            payload: [expect.objectContaining({ traceId: traceDetail.summary.traceId })],
+          }),
+        ),
+      );
+
+      channel.handleMessage(
+        'client_1',
+        'observability.trace',
+        msg('observability.trace', { traceId: traceDetail.summary.traceId }, 'req-observability-trace'),
+        send,
+      );
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'observability.trace',
+            id: 'req-observability-trace',
+            payload: expect.objectContaining({
+              summary: expect.objectContaining({ traceId: traceDetail.summary.traceId }),
+            }),
+          }),
+        ),
+      );
+
+      channel.handleMessage(
+        'client_1',
+        'observability.artifact',
+        msg(
+          'observability.artifact',
+          {
+            traceId: traceDetail.summary.traceId,
+            path: traceDetail.events[1]!.artifact!.path,
+          },
+          'req-observability-artifact',
+        ),
+        send,
+      );
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'observability.artifact',
+            id: 'req-observability-artifact',
+            payload: expect.objectContaining({
+              path: traceDetail.events[1]!.artifact!.path,
+            }),
+          }),
+        ),
+      );
+
+      channel.handleMessage(
+        'client_1',
+        'observability.logs',
+        msg(
+          'observability.logs',
+          { traceId: traceDetail.summary.traceId, lines: 50 },
+          'req-observability-logs',
+        ),
+        send,
+      );
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'observability.logs',
+            id: 'req-observability-logs',
+            payload: expect.objectContaining({
+              lines: [`${traceDetail.summary.traceId} line`],
+            }),
+          }),
+        ),
+      );
+    });
+
+    it('rejects observability access for foreign sessions', async () => {
+      const traceDetail = makeTraceDetail('foreign-session');
+      const getObservabilityTrace = vi.fn(async () => traceDetail);
+
+      deps = createDeps({ getObservabilityTrace });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      openChatSession(channel, context, 'client_1', send, 'owned session');
+
+      channel.handleMessage(
+        'client_1',
+        'observability.trace',
+        msg('observability.trace', { traceId: traceDetail.summary.traceId }, 'req-observability-foreign'),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'error',
+            id: 'req-observability-foreign',
+            error: 'Not authorized for target session trace data',
+          }),
+        ),
+      );
     });
   });
 

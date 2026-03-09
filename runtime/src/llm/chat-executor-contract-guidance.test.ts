@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallRecord } from "./chat-executor-types.js";
-import { resolveToolContractGuidance } from "./chat-executor-contract-guidance.js";
+import {
+  resolveToolContractExecutionBlock,
+  resolveToolContractGuidance,
+} from "./chat-executor-contract-guidance.js";
 
 function makeToolCall(
   overrides: Partial<ToolCallRecord> & Pick<ToolCallRecord, "name">,
@@ -30,6 +33,12 @@ describe("chat-executor-contract-guidance", () => {
         "For play-until-stop requests, set `async_player: true` and preserve the requested scenario/window settings.",
       routedToolNames: ["mcp.doom.start_game"],
       toolChoice: "required",
+      enforcement: {
+        mode: "block_other_tools",
+        message:
+          "This Doom turn must begin with `mcp.doom.start_game`. " +
+          "Do not launch or inspect Doom with `desktop.bash`, `desktop.process_start`, `system.bash`, or direct binary commands before the MCP launch succeeds.",
+      },
     });
   });
 
@@ -55,6 +64,43 @@ describe("chat-executor-contract-guidance", () => {
       routedToolNames: ["mcp.doom.set_god_mode"],
       toolChoice: "required",
     });
+  });
+
+  it("blocks desktop/bash detours before the Doom launch contract is satisfied", () => {
+    const block = resolveToolContractExecutionBlock({
+      phase: "initial",
+      messageText:
+        "I want you to play doom on defend the center with godmode on so i can watch in a desktop container.",
+      toolCalls: [],
+      allowedToolNames: ["desktop.bash", "mcp.doom.start_game"],
+      candidateToolName: "desktop.bash",
+    });
+
+    expect(block).toBe(
+      "This Doom turn must begin with `mcp.doom.start_game`. " +
+      "Do not launch or inspect Doom with `desktop.bash`, `desktop.process_start`, `system.bash`, or direct binary commands before the MCP launch succeeds. " +
+      "Allowed now: `mcp.doom.start_game`. " +
+      "Do not use `desktop.bash` yet.",
+    );
+  });
+
+  it("stops blocking once Doom launch evidence exists", () => {
+    const block = resolveToolContractExecutionBlock({
+      phase: "tool_followup",
+      messageText:
+        "I want you to play doom on defend the center with godmode on so i can watch in a desktop container.",
+      toolCalls: [
+        makeToolCall({
+          name: "mcp.doom.start_game",
+          args: { async_player: true },
+          result: JSON.stringify({ status: "running" }),
+        }),
+      ],
+      allowedToolNames: ["desktop.bash", "mcp.doom.start_game"],
+      candidateToolName: "desktop.bash",
+    });
+
+    expect(block).toBeUndefined();
   });
 
   it("routes delegated implementation turns to an editor-first tool on initial guidance", () => {

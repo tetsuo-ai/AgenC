@@ -9,6 +9,7 @@ import type {
   LLMMessage,
   LLMProviderEvidence,
   LLMCompactionDiagnostics,
+  LLMProviderTraceEvent,
   LLMResponse,
   LLMUsage,
   LLMRequestMetrics,
@@ -98,6 +99,23 @@ export interface ToolCallRecord {
   readonly durationMs: number;
 }
 
+export type ChatExecutionTraceEventType =
+  | "completion_gate_checked"
+  | "contract_guidance_resolved"
+  | "model_call_prepared"
+  | "route_expanded"
+  | "tool_arguments_invalid"
+  | "tool_dispatch_finished"
+  | "tool_dispatch_started"
+  | "tool_rejected";
+
+export interface ChatExecutionTraceEvent {
+  readonly type: ChatExecutionTraceEventType;
+  readonly phase?: ChatCallUsageRecord["phase"];
+  readonly callIndex?: number;
+  readonly payload: Record<string, unknown>;
+}
+
 /** Parameters for a single ChatExecutor.execute() call. */
 export interface ChatExecuteParams {
   readonly message: GatewayMessage;
@@ -136,6 +154,12 @@ export interface ChatExecuteParams {
   readonly stateful?: {
     readonly resumeAnchor?: LLMStatefulResumeAnchor;
   };
+  /** Optional provider-payload tracing hooks for incident diagnostics. */
+  readonly trace?: {
+    readonly includeProviderPayloads?: boolean;
+    readonly onProviderTraceEvent?: (event: LLMProviderTraceEvent) => void;
+    readonly onExecutionTraceEvent?: (event: ChatExecutionTraceEvent) => void;
+  };
 }
 
 /** Estimated prompt-shape statistics for one provider call. */
@@ -154,6 +178,7 @@ export interface ChatCallUsageRecord {
   /** 1-based call index within a single execute() invocation. */
   readonly callIndex: number;
   readonly phase:
+    | "compaction"
     | "initial"
     | "planner"
     | "planner_verifier"
@@ -621,6 +646,7 @@ export interface ExecutionContext {
     readonly maxCorrectionAttempts: number;
     readonly delegationSpec?: DelegationContractSpec;
   };
+  readonly trace?: ChatExecuteParams["trace"];
 
   // --- Mutable accumulator state ---
   history: readonly LLMMessage[];
@@ -677,6 +703,7 @@ export interface BuildExecutionContextParams {
   readonly toolRouting?: ChatExecuteParams["toolRouting"];
   readonly stateful?: ChatExecuteParams["stateful"];
   readonly requiredToolEvidence?: ChatExecuteParams["requiredToolEvidence"];
+  readonly trace?: ChatExecuteParams["trace"];
   readonly initialRoutedToolNames: readonly string[];
   readonly expandedRoutedToolNames: readonly string[];
   readonly baseDelegationThreshold: number;
@@ -731,6 +758,7 @@ export function buildDefaultExecutionContext(
     baseDelegationThreshold: params.baseDelegationThreshold,
     toolRouting: params.toolRouting,
     stateful: params.stateful,
+    trace: params.trace,
     requiredToolEvidence: params.requiredToolEvidence
       ? {
         maxCorrectionAttempts: Math.max(

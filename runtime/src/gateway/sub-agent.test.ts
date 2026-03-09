@@ -171,6 +171,51 @@ describe("SubAgentManager", () => {
       expect(createContext).toHaveBeenCalledTimes(1);
     });
 
+    it("passes provider and execution trace callbacks when sub-agent tracing is enabled", async () => {
+      const executeSpy = vi
+        .spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValue({
+          content: "sub-agent output",
+          toolCalls: [],
+          providerEvidence: undefined,
+          tokenUsage: undefined,
+          stopReason: "completed",
+          stopReasonDetail: undefined,
+          callUsage: [],
+          finalPromptShape: undefined,
+          statefulSummary: undefined,
+          toolRoutingSummary: undefined,
+          plannerSummary: undefined,
+          model: "mock",
+        });
+      const createContext = vi.fn(async () => makeMockContext());
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          createContext,
+          traceProviderPayloads: true,
+        }),
+      );
+
+      try {
+        await manager.spawn({ parentSessionId: "p", task: "trace this" });
+        await settle();
+
+        expect(executeSpy).toHaveBeenCalledTimes(1);
+        const params = executeSpy.mock.calls[0][0] as {
+          trace?: Record<string, unknown>;
+        };
+        expect(params.trace).toEqual(
+          expect.objectContaining({
+            includeProviderPayloads: true,
+            onProviderTraceEvent: expect.any(Function),
+            onExecutionTraceEvent: expect.any(Function),
+          }),
+        );
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
     it("passes workspace override to createContext", async () => {
       const createContext = vi.fn(async () => makeMockContext());
       const manager = new SubAgentManager(makeManagerConfig({ createContext }));

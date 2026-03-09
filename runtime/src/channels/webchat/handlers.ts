@@ -1010,6 +1010,188 @@ export async function handleRunControl(
   });
 }
 
+export async function handleObservabilitySummary(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+): Promise<void> {
+  if (!deps.getObservabilitySummary) {
+    send({ type: 'error', error: 'Observability API not available', id });
+    return;
+  }
+  const windowMs =
+    typeof payload?.windowMs === 'number' && Number.isFinite(payload.windowMs)
+      ? payload.windowMs
+      : undefined;
+  await safeAsync(send, id, 'error', 'Failed to load observability summary', async () => {
+    const summary = await deps.getObservabilitySummary!(windowMs);
+    if (!summary) {
+      send({ type: 'error', error: 'Observability summary unavailable', id });
+      return;
+    }
+    send({ type: 'observability.summary', payload: summary, id });
+  });
+}
+
+export async function handleObservabilityTraces(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.listObservabilityTraces) {
+    send({ type: 'error', error: 'Observability API not available', id });
+    return;
+  }
+  const sessionId =
+    typeof payload?.sessionId === 'string' && payload.sessionId.length > 0
+      ? payload.sessionId
+      : undefined;
+  if (sessionId && !request.isSessionOwned(sessionId)) {
+    send({ type: 'error', error: 'Not authorized for target session trace data', id });
+    return;
+  }
+  await safeAsync(send, id, 'error', 'Failed to list observability traces', async () => {
+    const traces = await deps.listObservabilityTraces!({
+      limit:
+        typeof payload?.limit === 'number' && Number.isFinite(payload.limit)
+          ? payload.limit
+          : undefined,
+      offset:
+        typeof payload?.offset === 'number' && Number.isFinite(payload.offset)
+          ? payload.offset
+          : undefined,
+      search: typeof payload?.search === 'string' ? payload.search : undefined,
+      status:
+        payload?.status === 'open' ||
+        payload?.status === 'completed' ||
+        payload?.status === 'error' ||
+        payload?.status === 'all'
+          ? payload.status
+          : undefined,
+      sessionId,
+    });
+    send({ type: 'observability.traces', payload: traces ?? [], id });
+  });
+}
+
+export async function handleObservabilityTrace(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.getObservabilityTrace) {
+    send({ type: 'error', error: 'Observability API not available', id });
+    return;
+  }
+  const traceId = typeof payload?.traceId === 'string' ? payload.traceId.trim() : '';
+  if (!traceId) {
+    send({ type: 'error', error: 'Missing traceId in payload', id });
+    return;
+  }
+  await safeAsync(send, id, 'error', 'Failed to inspect observability trace', async () => {
+    const detail = await deps.getObservabilityTrace!(traceId);
+    if (!detail) {
+      send({ type: 'error', error: `Observability trace "${traceId}" not found`, id });
+      return;
+    }
+    if (
+      detail.summary.sessionId &&
+      !request.isSessionOwned(detail.summary.sessionId)
+    ) {
+      send({ type: 'error', error: 'Not authorized for target session trace data', id });
+      return;
+    }
+    send({ type: 'observability.trace', payload: detail, id });
+  });
+}
+
+export async function handleObservabilityArtifact(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.getObservabilityArtifact || !deps.getObservabilityTrace) {
+    send({ type: 'error', error: 'Observability API not available', id });
+    return;
+  }
+  const traceId = typeof payload?.traceId === 'string' ? payload.traceId.trim() : '';
+  const path = typeof payload?.path === 'string' ? payload.path.trim() : '';
+  if (!traceId || !path) {
+    send({ type: 'error', error: 'Missing traceId or path in payload', id });
+    return;
+  }
+  await safeAsync(send, id, 'error', 'Failed to read trace artifact', async () => {
+    const detail = await deps.getObservabilityTrace!(traceId);
+    if (!detail) {
+      send({ type: 'error', error: `Observability trace "${traceId}" not found`, id });
+      return;
+    }
+    if (
+      detail.summary.sessionId &&
+      !request.isSessionOwned(detail.summary.sessionId)
+    ) {
+      send({ type: 'error', error: 'Not authorized for target session trace data', id });
+      return;
+    }
+    const allowed = detail.events.some((event) => event.artifact?.path === path);
+    if (!allowed) {
+      send({ type: 'error', error: 'Artifact does not belong to the requested trace', id });
+      return;
+    }
+    const artifact = await deps.getObservabilityArtifact!(path);
+    if (!artifact) {
+      send({ type: 'error', error: `Trace artifact "${path}" not found`, id });
+      return;
+    }
+    send({ type: 'observability.artifact', payload: artifact, id });
+  });
+}
+
+export async function handleObservabilityLogs(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+  request: HandlerRequestContext,
+): Promise<void> {
+  if (!deps.getObservabilityLogTail) {
+    send({ type: 'error', error: 'Observability API not available', id });
+    return;
+  }
+  const traceId = typeof payload?.traceId === 'string' ? payload.traceId.trim() : undefined;
+  if (traceId && deps.getObservabilityTrace) {
+    const detail = await deps.getObservabilityTrace(traceId);
+    if (
+      detail?.summary.sessionId &&
+      !request.isSessionOwned(detail.summary.sessionId)
+    ) {
+      send({ type: 'error', error: 'Not authorized for target session trace data', id });
+      return;
+    }
+  }
+  await safeAsync(send, id, 'error', 'Failed to read daemon logs', async () => {
+    const logs = await deps.getObservabilityLogTail!({
+      lines:
+        typeof payload?.lines === 'number' && Number.isFinite(payload.lines)
+          ? payload.lines
+          : undefined,
+      traceId,
+    });
+    if (!logs) {
+      send({ type: 'error', error: 'Daemon logs unavailable', id });
+      return;
+    }
+    send({ type: 'observability.logs', payload: logs, id });
+  });
+}
+
 // ============================================================================
 // Shared handler utilities
 // ============================================================================
@@ -1056,6 +1238,11 @@ export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
   'runs.list': handleRunsList,
   'run.inspect': handleRunInspect,
   'run.control': handleRunControl,
+  'observability.summary': handleObservabilitySummary,
+  'observability.traces': handleObservabilityTraces,
+  'observability.trace': handleObservabilityTrace,
+  'observability.artifact': handleObservabilityArtifact,
+  'observability.logs': handleObservabilityLogs,
   'agents.list': handleAgentsList,
   'desktop.list': handleDesktopList,
   'desktop.create': handleDesktopCreate,

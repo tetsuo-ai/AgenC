@@ -2138,6 +2138,7 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
             "includeSystemPrompt",
             "includeToolArgs",
             "includeToolResults",
+            "includeProviderPayloads",
           ];
           for (const field of boolFields) {
             if (

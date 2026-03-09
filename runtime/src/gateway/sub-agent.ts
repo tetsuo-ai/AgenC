@@ -28,6 +28,10 @@ import type {
 } from "../llm/types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
+import {
+  createExecutionTraceEventLogger,
+  createProviderTraceEventLogger,
+} from "../llm/provider-trace-logger.js";
 import type {
   DelegationContractSpec,
   DelegationOutputValidationCode,
@@ -176,6 +180,7 @@ export interface SubAgentManagerConfig {
     requiredCapabilities?: readonly string[];
   }) => LLMProvider | undefined;
   readonly logger?: Logger;
+  readonly traceProviderPayloads?: boolean;
 }
 
 export interface SubAgentInfo {
@@ -545,6 +550,33 @@ export class SubAgentManager {
 
       const systemPrompt =
         this.config.systemPrompt ?? DEFAULT_SUB_AGENT_SYSTEM_PROMPT;
+      const subAgentTraceId = `subagent:${handle.sessionId}:${Date.now()}`;
+      const providerTrace =
+        this.config.traceProviderPayloads === true
+          ? {
+            includeProviderPayloads: true as const,
+            onProviderTraceEvent: createProviderTraceEventLogger({
+              logger: this.logger,
+              traceLabel: "sub_agent.provider",
+              traceId: subAgentTraceId,
+              sessionId: handle.sessionId,
+              staticFields: {
+                parentSessionId: handle.parentSessionId,
+                depth: handle.depth,
+              },
+            }),
+            onExecutionTraceEvent: createExecutionTraceEventLogger({
+              logger: this.logger,
+              traceLabel: "sub_agent.executor",
+              traceId: subAgentTraceId,
+              sessionId: handle.sessionId,
+              staticFields: {
+                parentSessionId: handle.parentSessionId,
+                depth: handle.depth,
+              },
+            }),
+          }
+          : undefined;
 
       const resultOrAbort = await raceAbort(
         executor.execute({
@@ -558,6 +590,7 @@ export class SubAgentManager {
               delegationSpec: handle.config.delegationSpec,
             }
             : undefined,
+          ...(providerTrace ? { trace: providerTrace } : {}),
         }),
         handle.abortController.signal,
       );

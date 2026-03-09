@@ -108,6 +108,33 @@ describe("LLMTaskExecutor", () => {
     expect(messages[1].role).toBe("user");
   });
 
+  it("passes provider trace options when enabled", async () => {
+    const provider = createMockProvider();
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const executor = new LLMTaskExecutor({
+      provider,
+      logger,
+      traceProviderPayloads: true,
+    });
+
+    await executor.execute(createMockTask());
+
+    expect(provider.chat).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        trace: expect.objectContaining({
+          includeProviderPayloads: true,
+          onProviderTraceEvent: expect.any(Function),
+        }),
+      }),
+    );
+  });
+
   it("strips null bytes from task description", async () => {
     const provider = createMockProvider();
     const executor = new LLMTaskExecutor({ provider });
