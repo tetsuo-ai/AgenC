@@ -107,4 +107,100 @@ sqliteDescribe("ObservabilityService", () => {
 
     await service.close();
   });
+
+  it("treats handled slash-command traces as completed terminal traces", async () => {
+    const service = new ObservabilityService({
+      dbPath: join(tempDir, "observability.sqlite"),
+      daemonLogPath: join(tempDir, "daemon.log"),
+    });
+    writeFileSync(join(tempDir, "daemon.log"), "", "utf8");
+    const now = Date.now();
+
+    service.recordEvent({
+      eventName: "webchat.inbound",
+      level: "info",
+      traceId: "trace-command",
+      sessionId: "session-1",
+      timestampMs: now,
+      payloadPreview: { content: "/policy simulate system.delete {}" },
+    });
+    service.recordEvent({
+      eventName: "webchat.command.reply",
+      level: "info",
+      traceId: "trace-command",
+      sessionId: "session-1",
+      timestampMs: now + 1,
+      payloadPreview: { content: "Policy simulation..." },
+    });
+    service.recordEvent({
+      eventName: "webchat.command.handled",
+      level: "info",
+      traceId: "trace-command",
+      sessionId: "session-1",
+      timestampMs: now + 2,
+      payloadPreview: { command: "/policy simulate system.delete {}" },
+    });
+
+    const traces = await service.listTraces();
+    expect(traces).toHaveLength(1);
+    expect(traces[0]?.traceId).toBe("trace-command");
+    expect(traces[0]?.status).toBe("completed");
+
+    const detail = await service.getTrace("trace-command");
+    expect(detail?.summary.status).toBe("completed");
+    expect(detail?.summary.lastEventName).toBe("webchat.command.handled");
+    expect(detail?.completeness.complete).toBe(true);
+
+    const summary = await service.getSummary();
+    expect(summary.traces.total).toBe(1);
+    expect(summary.traces.completed).toBe(1);
+    expect(summary.traces.open).toBe(0);
+
+    await service.close();
+  });
+
+  it("treats working background cycle traces as completed cycle traces", async () => {
+    const service = new ObservabilityService({
+      dbPath: join(tempDir, "observability.sqlite"),
+      daemonLogPath: join(tempDir, "daemon.log"),
+    });
+    writeFileSync(join(tempDir, "daemon.log"), "", "utf8");
+    const now = Date.now();
+
+    service.recordEvent({
+      eventName: "background_run.cycle.decision_resolved",
+      level: "info",
+      traceId: "trace-background-cycle",
+      sessionId: "session-1",
+      channel: "background_run",
+      timestampMs: now,
+      payloadPreview: { decisionState: "working" },
+    });
+    service.recordEvent({
+      eventName: "background_run.cycle.working_applied",
+      level: "info",
+      traceId: "trace-background-cycle",
+      sessionId: "session-1",
+      channel: "background_run",
+      timestampMs: now + 1,
+      payloadPreview: { summary: "Managed process is still running." },
+    });
+
+    const traces = await service.listTraces();
+    expect(traces).toHaveLength(1);
+    expect(traces[0]?.traceId).toBe("trace-background-cycle");
+    expect(traces[0]?.status).toBe("completed");
+
+    const detail = await service.getTrace("trace-background-cycle");
+    expect(detail?.summary.status).toBe("completed");
+    expect(detail?.summary.lastEventName).toBe("background_run.cycle.working_applied");
+    expect(detail?.completeness.complete).toBe(true);
+
+    const summary = await service.getSummary();
+    expect(summary.traces.total).toBe(1);
+    expect(summary.traces.completed).toBe(1);
+    expect(summary.traces.open).toBe(0);
+
+    await service.close();
+  });
 });

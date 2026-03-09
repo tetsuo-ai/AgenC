@@ -2,6 +2,10 @@ import type { LLMMessage, LLMTool } from "../llm/types.js";
 import type { ChatToolRoutingSummary } from "../llm/chat-executor.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
+import {
+  createTypedArtifactTermSet,
+  createTypedArtifactToolNameSet,
+} from "../tools/system/typed-artifact-domains.js";
 
 const TOKEN_RE = /[a-z0-9_]+/g;
 
@@ -197,6 +201,13 @@ const SANDBOX_TOOL_NAMES = new Set([
   "system.sandboxJobLogs",
 ]);
 
+const SQLITE_TOOL_NAMES = createTypedArtifactToolNameSet("sqlite");
+const PDF_TOOL_NAMES = createTypedArtifactToolNameSet("pdf");
+const SPREADSHEET_TOOL_NAMES = createTypedArtifactToolNameSet("spreadsheet");
+const OFFICE_DOCUMENT_TOOL_NAMES = createTypedArtifactToolNameSet("office-document");
+const EMAIL_MESSAGE_TOOL_NAMES = createTypedArtifactToolNameSet("email-message");
+const CALENDAR_TOOL_NAMES = createTypedArtifactToolNameSet("calendar");
+
 const REMOTE_JOB_TERMS = new Set([
   "callback",
   "callbacks",
@@ -237,6 +248,20 @@ const SANDBOX_TERMS = new Set([
   "sandbox",
   "workspace",
 ]);
+
+const SQLITE_TERMS = createTypedArtifactTermSet("sqlite", "routingTerms");
+const DOCUMENT_TERMS = createTypedArtifactTermSet("pdf", "routingTerms");
+const SPREADSHEET_TERMS = createTypedArtifactTermSet("spreadsheet", "routingTerms");
+const OFFICE_DOCUMENT_TERMS = createTypedArtifactTermSet("office-document", "routingTerms");
+const EMAIL_MESSAGE_TERMS = createTypedArtifactTermSet("email-message", "routingTerms");
+const CALENDAR_TERMS = createTypedArtifactTermSet("calendar", "routingTerms");
+
+const HARD_SQLITE_TERMS = createTypedArtifactTermSet("sqlite", "hardRoutingTerms");
+const HARD_PDF_TERMS = createTypedArtifactTermSet("pdf", "hardRoutingTerms");
+const HARD_SPREADSHEET_TERMS = createTypedArtifactTermSet("spreadsheet", "hardRoutingTerms");
+const HARD_OFFICE_DOCUMENT_TERMS = createTypedArtifactTermSet("office-document", "hardRoutingTerms");
+const HARD_EMAIL_MESSAGE_TERMS = createTypedArtifactTermSet("email-message", "hardRoutingTerms");
+const HARD_CALENDAR_TERMS = createTypedArtifactTermSet("calendar", "hardRoutingTerms");
 
 const DOOM_TERMS = new Set([
   "doom",
@@ -516,6 +541,49 @@ function requiredFamiliesForTerms(terms: readonly string[]): Set<string> {
   return required;
 }
 
+function addToolSet(target: Set<string>, toolNames: ReadonlySet<string>): void {
+  for (const toolName of toolNames) {
+    target.add(toolName);
+  }
+}
+
+function requiredToolNamesForTerms(terms: readonly string[]): Set<string> {
+  const required = new Set<string>();
+  if (terms.some((term) => HARD_SQLITE_TERMS.has(term))) {
+    addToolSet(required, SQLITE_TOOL_NAMES);
+  }
+  if (terms.some((term) => HARD_PDF_TERMS.has(term))) {
+    addToolSet(required, PDF_TOOL_NAMES);
+  }
+  if (terms.some((term) => HARD_SPREADSHEET_TERMS.has(term))) {
+    addToolSet(required, SPREADSHEET_TOOL_NAMES);
+  }
+  if (terms.some((term) => HARD_OFFICE_DOCUMENT_TERMS.has(term))) {
+    addToolSet(required, OFFICE_DOCUMENT_TOOL_NAMES);
+  }
+  if (terms.some((term) => HARD_EMAIL_MESSAGE_TERMS.has(term))) {
+    addToolSet(required, EMAIL_MESSAGE_TOOL_NAMES);
+  }
+  if (terms.some((term) => HARD_CALENDAR_TERMS.has(term))) {
+    addToolSet(required, CALENDAR_TOOL_NAMES);
+  }
+  return required;
+}
+
+function hasAllRequiredToolNames(
+  toolNames: readonly string[],
+  requiredToolNames: ReadonlySet<string>,
+): boolean {
+  if (requiredToolNames.size === 0) return true;
+  const available = new Set(toolNames);
+  for (const toolName of requiredToolNames) {
+    if (!available.has(toolName)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function resolveTerminalIntent(terms: readonly string[]): TerminalIntent {
   const hasTerminalIntent = terms.some((term) => TERMINAL_TERMS.has(term));
   if (!hasTerminalIntent) return "none";
@@ -529,7 +597,28 @@ function hasAnyToolInFamily(toolNames: readonly string[], family: string): boole
   return toolNames.some((name) => familyFromToolName(name) === family);
 }
 
-function normalizeConfig(config: ToolRoutingConfig | undefined): NormalizedRoutingConfig {
+function hasStrongCurrentIntent(terms: readonly string[]): boolean {
+  return terms.some((term) =>
+    PROCESS_TERMS.has(term) ||
+    REMOTE_JOB_TERMS.has(term) ||
+    RESEARCH_TERMS.has(term) ||
+    SANDBOX_TERMS.has(term) ||
+    SQLITE_TERMS.has(term) ||
+    DOCUMENT_TERMS.has(term) ||
+    SPREADSHEET_TERMS.has(term) ||
+    OFFICE_DOCUMENT_TERMS.has(term) ||
+    EMAIL_MESSAGE_TERMS.has(term) ||
+    CALENDAR_TERMS.has(term) ||
+    DOOM_TERMS.has(term) ||
+    TERMINAL_TERMS.has(term) ||
+    BROWSER_TERMS.has(term) ||
+    MCP_TERMS.has(term)
+  );
+}
+
+function normalizeToolCountBounds(
+  config: ToolRoutingConfig | undefined,
+): Pick<NormalizedRoutingConfig, "minToolsPerTurn" | "maxToolsPerTurn" | "maxExpandedToolsPerTurn"> {
   const minToolsPerTurn = clamp(
     Math.floor(config?.minToolsPerTurn ?? 6),
     1,
@@ -545,38 +634,58 @@ function normalizeConfig(config: ToolRoutingConfig | undefined): NormalizedRouti
     maxToolsPerTurn,
     256,
   );
-  const cacheTtlMs = clamp(
-    Math.floor(config?.cacheTtlMs ?? 10 * 60_000),
-    10_000,
-    24 * 60 * 60_000,
-  );
-  const minCacheConfidence = clamp(
-    typeof config?.minCacheConfidence === "number"
-      ? config.minCacheConfidence
-      : 0.5,
-    0,
-    1,
-  );
-  const pivotSimilarityThreshold = clamp(
-    typeof config?.pivotSimilarityThreshold === "number"
-      ? config.pivotSimilarityThreshold
-      : 0.25,
-    0,
-    1,
-  );
-  const pivotMissThreshold = clamp(
-    Math.floor(config?.pivotMissThreshold ?? 2),
-    1,
-    20,
-  );
+  return {
+    minToolsPerTurn,
+    maxToolsPerTurn,
+    maxExpandedToolsPerTurn,
+  };
+}
 
-  const mandatoryTools = Array.from(
+function normalizeCacheConfig(
+  config: ToolRoutingConfig | undefined,
+): Pick<NormalizedRoutingConfig, "cacheTtlMs" | "minCacheConfidence" | "pivotSimilarityThreshold" | "pivotMissThreshold"> {
+  return {
+    cacheTtlMs: clamp(
+      Math.floor(config?.cacheTtlMs ?? 10 * 60_000),
+      10_000,
+      24 * 60 * 60_000,
+    ),
+    minCacheConfidence: clamp(
+      typeof config?.minCacheConfidence === "number"
+        ? config.minCacheConfidence
+        : 0.5,
+      0,
+      1,
+    ),
+    pivotSimilarityThreshold: clamp(
+      typeof config?.pivotSimilarityThreshold === "number"
+        ? config.pivotSimilarityThreshold
+        : 0.25,
+      0,
+      1,
+    ),
+    pivotMissThreshold: clamp(
+      Math.floor(config?.pivotMissThreshold ?? 2),
+      1,
+      20,
+    ),
+  };
+}
+
+function normalizeMandatoryTools(
+  config: ToolRoutingConfig | undefined,
+): string[] {
+  return Array.from(
     new Set([
       ...DEFAULT_MANDATORY_TOOLS,
       ...(config?.mandatoryTools ?? []),
     ]),
   );
+}
 
+function normalizeFamilyCaps(
+  config: ToolRoutingConfig | undefined,
+): Readonly<Record<string, number>> {
   const familyCaps: Record<string, number> = {
     ...DEFAULT_FAMILY_CAPS,
   };
@@ -584,18 +693,19 @@ function normalizeConfig(config: ToolRoutingConfig | undefined): NormalizedRouti
     if (!Number.isFinite(cap)) continue;
     familyCaps[family.toLowerCase()] = clamp(Math.floor(cap), 1, 128);
   }
+  return familyCaps;
+}
+
+function normalizeConfig(config: ToolRoutingConfig | undefined): NormalizedRoutingConfig {
+  const toolCountBounds = normalizeToolCountBounds(config);
+  const cacheConfig = normalizeCacheConfig(config);
 
   return {
     enabled: config?.enabled ?? true,
-    minToolsPerTurn,
-    maxToolsPerTurn,
-    maxExpandedToolsPerTurn,
-    cacheTtlMs,
-    minCacheConfidence,
-    pivotSimilarityThreshold,
-    pivotMissThreshold,
-    mandatoryTools,
-    familyCaps,
+    ...toolCountBounds,
+    ...cacheConfig,
+    mandatoryTools: normalizeMandatoryTools(config),
+    familyCaps: normalizeFamilyCaps(config),
   };
 }
 
@@ -685,13 +795,15 @@ export class ToolRouter {
       };
     }
 
-    const intentTerms = this.extractIntentTerms(params.messageText, params.history);
+    const currentIntentTerms = toTerms(params.messageText);
+    const intentTerms = this.extractIntentTerms(currentIntentTerms, params.history);
     const explicitToolMentions = this.extractExplicitToolMentions(params.messageText);
     const clusterKey = intentTerms.slice(0, 6).join("|") || "general";
     const now = Date.now();
     const cached = this.cache.get(params.sessionId);
-    const requiredFamilies = requiredFamiliesForTerms(intentTerms);
-    const terminalIntent = resolveTerminalIntent(intentTerms);
+    const requiredFamilies = requiredFamiliesForTerms(currentIntentTerms);
+    const requiredToolNames = requiredToolNamesForTerms(currentIntentTerms);
+    const terminalIntent = resolveTerminalIntent(currentIntentTerms);
 
     let invalidatedReason: string | undefined;
     if (cached) {
@@ -714,6 +826,10 @@ export class ToolRouter {
         )
       ) {
         invalidatedReason = "missing_required_family";
+      } else if (
+        !hasAllRequiredToolNames(cached.routedToolNames, requiredToolNames)
+      ) {
+        invalidatedReason = "missing_required_tools";
       } else {
         const similarity = jaccardSimilarity(intentTerms, cached.terms);
         if (intentTerms.length > 0 && similarity < this.config.pivotSimilarityThreshold) {
@@ -741,6 +857,7 @@ export class ToolRouter {
     const routedToolNames = this.selectRoutedTools(
       scored,
       requiredFamilies,
+      requiredToolNames,
       explicitToolMentions,
     );
     const expandedToolNames = this.selectExpandedTools(scored, routedToolNames);
@@ -809,10 +926,15 @@ export class ToolRouter {
   }
 
   private extractIntentTerms(
-    messageText: string,
+    currentTerms: readonly string[],
     history: readonly LLMMessage[],
   ): string[] {
-    const terms = new Set<string>(toTerms(messageText));
+    const terms = new Set<string>(currentTerms);
+    const shouldBlendHistory = currentTerms.length < 6 && !hasStrongCurrentIntent(currentTerms);
+
+    if (!shouldBlendHistory) {
+      return Array.from(terms).sort();
+    }
 
     for (let i = history.length - 1; i >= 0; i--) {
       const entry = history[i];
@@ -879,6 +1001,20 @@ export class ToolRouter {
     const hasRemoteJobIntent = intentTerms.some((term) => REMOTE_JOB_TERMS.has(term));
     const hasResearchIntent = intentTerms.some((term) => RESEARCH_TERMS.has(term));
     const hasSandboxIntent = intentTerms.some((term) => SANDBOX_TERMS.has(term));
+    const hasSqliteIntent = intentTerms.some((term) => SQLITE_TERMS.has(term));
+    const hasDocumentIntent = intentTerms.some((term) => DOCUMENT_TERMS.has(term));
+    const hasSpreadsheetIntent = intentTerms.some((term) =>
+      SPREADSHEET_TERMS.has(term)
+    );
+    const hasOfficeDocumentIntent = intentTerms.some((term) =>
+      OFFICE_DOCUMENT_TERMS.has(term)
+    );
+    const hasEmailMessageIntent = intentTerms.some((term) =>
+      EMAIL_MESSAGE_TERMS.has(term)
+    );
+    const hasCalendarIntent = intentTerms.some((term) =>
+      CALENDAR_TERMS.has(term)
+    );
     const wantsTypedServer =
       explicitToolMentions.has("system.serverStart") ||
       (
@@ -944,6 +1080,24 @@ export class ToolRouter {
       }
       if (wantsResearchHandles && RESEARCH_TOOL_NAMES.has(tool.name)) {
         score += 14;
+      }
+      if (hasSqliteIntent && SQLITE_TOOL_NAMES.has(tool.name)) {
+        score += 16;
+      }
+      if (hasDocumentIntent && PDF_TOOL_NAMES.has(tool.name)) {
+        score += 16;
+      }
+      if (hasSpreadsheetIntent && SPREADSHEET_TOOL_NAMES.has(tool.name)) {
+        score += 16;
+      }
+      if (hasOfficeDocumentIntent && OFFICE_DOCUMENT_TOOL_NAMES.has(tool.name)) {
+        score += 16;
+      }
+      if (hasEmailMessageIntent && EMAIL_MESSAGE_TOOL_NAMES.has(tool.name)) {
+        score += 16;
+      }
+      if (hasCalendarIntent && CALENDAR_TOOL_NAMES.has(tool.name)) {
+        score += 16;
       }
       if (hasSandboxIntent && SANDBOX_TOOL_NAMES.has(tool.name)) {
         score += 18;
@@ -1027,7 +1181,7 @@ export class ToolRouter {
           score += 5;
         }
         if (PRIMARY_BROWSER_START_TOOL_NAMES.has(tool.name)) {
-          score += 4;
+          score += 8;
         } else if (PRIMARY_BROWSER_READ_TOOL_NAMES.has(tool.name)) {
           score += 2;
         }
@@ -1052,6 +1206,17 @@ export class ToolRouter {
           score += 2;
         }
       }
+      if (
+        hasFileIntent &&
+        (
+          SQLITE_TOOL_NAMES.has(tool.name) ||
+          PDF_TOOL_NAMES.has(tool.name) ||
+          SPREADSHEET_TOOL_NAMES.has(tool.name) ||
+          OFFICE_DOCUMENT_TOOL_NAMES.has(tool.name)
+        )
+      ) {
+        score += 4;
+      }
       if (hasNetworkIntent && tool.name.startsWith("system.http")) {
         score += 2;
       }
@@ -1074,6 +1239,7 @@ export class ToolRouter {
   private selectRoutedTools(
     scored: ReadonlyArray<{ tool: IndexedTool; score: number }>,
     requiredFamilies: ReadonlySet<string>,
+    requiredToolNames: ReadonlySet<string>,
     explicitToolMentions: ReadonlySet<string>,
   ): string[] {
     const selected = new Set<string>();
@@ -1096,6 +1262,11 @@ export class ToolRouter {
       if (!bestRequired) continue;
       requiredFamilySelections.set(requiredFamily, bestRequired.tool);
       hardPinnedToolNames.add(bestRequired.tool.name);
+    }
+    for (const requiredToolName of requiredToolNames) {
+      if (this.allToolNames.includes(requiredToolName)) {
+        hardPinnedToolNames.add(requiredToolName);
+      }
     }
     for (const mentionedTool of explicitToolMentions) {
       if (this.allToolNames.includes(mentionedTool)) {
@@ -1127,6 +1298,15 @@ export class ToolRouter {
 
     for (const bestRequired of requiredFamilySelections.values()) {
       tryAdd(bestRequired, { limit: hardPinLimit });
+    }
+
+    for (const requiredToolName of requiredToolNames) {
+      const explicitMatch = scored.find((entry) => entry.tool.name === requiredToolName);
+      if (!explicitMatch) continue;
+      tryAdd(explicitMatch.tool, {
+        limit: hardPinLimit,
+        ignoreFamilyCap: true,
+      });
     }
 
     for (const mentionedTool of explicitToolMentions) {

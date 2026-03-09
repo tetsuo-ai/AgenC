@@ -19,6 +19,33 @@ behavior, user-path correctness, and operator trust.
 4. Copy prompts from [prompt.txt](/home/tetsuo/git/AgenC/prompt.txt).
 5. After every stage, verify the expected evidence before advancing.
 
+## Automated Watch Mode
+
+If you want AgenC to drive the same live tmux pane you are watching, use:
+
+```bash
+npm run autonomy:ladder -- --tmux-target agenc-watch:live.0 --client-key tmux-live-watch
+```
+
+What it does:
+
+- types prompts and operator commands into the live `agenc-watch` pane
+- inspects the same owner/session via a sidecar websocket client without
+  rebinding the visible session
+- scores each stage from durable run inspection plus TRACE detail
+- writes per-stage JSON artifacts under `.tmp/autonomy-ladder/<run-token>/`
+
+Use `--stages 0-4` to stop at the core prompt ladder or `--stages 5-8` to
+continue through operator controls, TRACE validation, restart recovery, and
+cleanup.
+
+Additional targeted scenarios:
+
+- `--scenario server` for typed durable HTTP service supervision
+- `--scenario spreadsheet` for typed workbook inspection through the live pane
+- `--scenario office-document` for typed DOCX/ODT inspection through the live pane
+- `--scenario productivity` for typed email-message and calendar inspection through the live pane
+
 If any stage fails:
 
 - stop the ladder
@@ -69,11 +96,13 @@ Pass:
 - CHAT shows a real tool execution
 - the tool result contains the token
 - the final answer includes the same token
+- the tool matches the active environment (`desktop.bash` in desktop mode,
+  `system.bash` in host mode)
 - TRACE shows the tool call and result for the same session
 
 Fail examples:
 - assistant claims a result without a tool
-- wrong command shape
+- wrong environment tool selection or wrong command shape
 - tool runs but final answer ignores the result
 
 ### Stage 2: Multi-Tool File Workflow
@@ -193,6 +222,62 @@ Fail examples:
 
 These are not required for the core ladder, but they should be run before
 claiming a domain is production-ready.
+
+### Local Data / Document Tools
+
+Goal:
+- validate typed host-side inspection of spreadsheets, local databases, and
+  documents without shell fallback
+
+Use:
+- ask AgenC to inspect a local spreadsheet/workbook with
+  `system.spreadsheetInfo` and `system.spreadsheetRead`, summarize the sheets,
+  and ground the answer in real rows
+- ask AgenC to inspect a local SQLite database with `system.sqliteSchema` and
+  `system.sqliteQuery`, summarize the schema, and ground the answer in real rows
+- ask AgenC to inspect a local PDF with `system.pdfInfo` and
+  `system.pdfExtractText`, then report both metadata and extracted text
+- ask AgenC to inspect a local DOCX/ODT document with
+  `system.officeDocumentInfo` and `system.officeDocumentExtractText`, then
+  report both metadata and extracted text exactly
+
+### Productivity Artifacts
+
+Goal:
+- validate typed host-side inspection of local productivity artifacts such as
+  email messages and calendar invites without browser or shell fallback
+
+Use:
+- ask AgenC to inspect a local EML file with `system.emailMessageInfo` and
+  `system.emailMessageExtractText`, then report exact headers and extracted text
+- ask AgenC to inspect a local ICS file with `system.calendarInfo` and
+  `system.calendarRead`, then report exact event count, summaries, and attendees
+
+Watch:
+- `[1] CHAT`
+- `[4] TRACE`
+
+Pass:
+- TRACE shows the typed email/calendar tool calls, not shell fallback
+- the final answer is grounded in real message/calendar metadata and text
+- desktop-mode sessions still reach these host-scoped typed tools correctly
+
+Automated watch mode:
+- `--scenario productivity` for typed email-message and calendar inspection
+
+Watch:
+- `[1] CHAT`
+- `[4] TRACE`
+
+Pass:
+- TRACE shows the typed tool calls, not `desktop.bash` / `system.bash`
+- the final answer cites real schema/metadata/text from the tool results
+- desktop-mode sessions still reach the host-scoped typed tools correctly
+
+Fail examples:
+- planner claims the typed tools are unavailable when they are registered
+- shell fallback is used even though the typed family exists
+- answer invents data not present in the typed tool result
 
 ### Desktop / Browser
 

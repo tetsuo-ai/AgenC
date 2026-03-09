@@ -22,6 +22,12 @@ const DESKTOP_ALLOWED_HOST_TOOL_PREFIXES = [
   "system.remoteJob",
   "system.research",
   "system.sandbox",
+  "system.sqlite",
+  "system.pdf",
+  "system.spreadsheet",
+  "system.officeDocument",
+  "system.emailMessage",
+  "system.calendar",
 ] as const;
 const DESKTOP_TOOL_PREFIXES = [
   "desktop.",

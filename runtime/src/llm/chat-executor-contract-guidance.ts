@@ -23,6 +23,10 @@ import {
   resolveDelegatedCorrectionToolChoiceToolNames,
   resolveDelegatedInitialToolChoiceToolName,
 } from "../utils/delegation-validation.js";
+import {
+  TYPED_ARTIFACT_DOMAINS,
+  type TypedArtifactDomain,
+} from "../tools/system/typed-artifact-domains.js";
 
 export type ToolContractGuidancePhase =
   | "initial"
@@ -62,6 +66,11 @@ const TOOL_CONTRACT_GUIDANCE_RESOLVERS: readonly ToolContractGuidanceResolver[] 
     name: "server-handle",
     priority: 250,
     resolve: resolveServerHandleContractGuidance,
+  },
+  {
+    name: "typed-artifact",
+    priority: 225,
+    resolve: resolveTypedArtifactContractGuidance,
   },
   {
     name: "delegation-correction",
@@ -233,6 +242,106 @@ function resolveDoomToolContractGuidance(
     toolChoice: "required",
     ...(enforcement ? { enforcement } : {}),
   };
+}
+
+function resolveTypedArtifactContractGuidance(
+  input: ToolContractGuidanceContext,
+): ToolContractGuidance | undefined {
+  const contract = inferTypedArtifactContract(input);
+  if (!contract) return undefined;
+
+  const hasSuccessfulInfo = input.toolCalls.some(
+    (call) => call.name === contract.infoToolName && !call.isError,
+  );
+  const hasSuccessfulDetail = input.toolCalls.some(
+    (call) => call.name === contract.detailToolName && !call.isError,
+  );
+  const hasFailedRequiredCall = input.toolCalls.some(
+    (call) =>
+      (call.name === contract.infoToolName || call.name === contract.detailToolName) &&
+      call.isError,
+  );
+  if (hasFailedRequiredCall) {
+    return undefined;
+  }
+
+  if (!hasSuccessfulInfo) {
+    const routedToolNames = [contract.infoToolName].filter(
+      (toolName) =>
+        input.allowedToolNames.length === 0 ||
+        input.allowedToolNames.includes(toolName),
+    );
+    if (routedToolNames.length === 0) return undefined;
+    return {
+      source: contract.source,
+      runtimeInstruction:
+        `This ${contract.label} is not complete yet. ` +
+        `Start with \`${contract.infoToolName}\` so the answer is grounded in real metadata before you summarize or quote details.`,
+      routedToolNames,
+      toolChoice: "required",
+      enforcement: {
+        mode: "block_other_tools",
+        message:
+          `This ${contract.label} must begin with \`${contract.infoToolName}\`. ` +
+          "Do not use `desktop.bash`, `desktop.text_editor`, `system.bash`, or ad hoc file parsing before the typed inspection path starts.",
+      },
+    };
+  }
+
+  if (!hasSuccessfulDetail) {
+    const routedToolNames = [contract.detailToolName].filter(
+      (toolName) =>
+        input.allowedToolNames.length === 0 ||
+        input.allowedToolNames.includes(toolName),
+    );
+    if (routedToolNames.length === 0) return undefined;
+    return {
+      source: contract.source,
+      runtimeInstruction:
+        `Metadata alone is not enough for this ${contract.label}. ` +
+        `Call \`${contract.detailToolName}\` before answering so the response includes grounded structured content, not just a metadata summary.`,
+      routedToolNames,
+      toolChoice: "required",
+      enforcement: {
+        mode: "block_other_tools",
+        message:
+          `This ${contract.label} still requires \`${contract.detailToolName}\`. ` +
+          "Do not stop early or switch to shell/editor fallbacks while the typed read/extract step is still missing.",
+      },
+    };
+  }
+
+  return undefined;
+}
+
+function inferTypedArtifactContract(
+  input: ToolContractGuidanceContext,
+): TypedArtifactDomain | undefined {
+  const lower = input.messageText.toLowerCase();
+  for (const contract of TYPED_ARTIFACT_DOMAINS) {
+    const domainMatch = contract.guidanceDomainTerms.some((term) => lower.includes(term));
+    if (!domainMatch) continue;
+
+    const infoMatch = contract.guidanceInfoTerms.some((term) => lower.includes(term));
+    const detailMatch = contract.guidanceDetailTerms.some((term) => lower.includes(term));
+    const explicitToolMatch =
+      lower.includes(contract.infoToolName.toLowerCase()) ||
+      lower.includes(contract.detailToolName.toLowerCase()) ||
+      lower.includes(`typed ${contract.label}`);
+
+    if (!explicitToolMatch && !(infoMatch && detailMatch)) {
+      continue;
+    }
+
+    const hasAnyAllowedTool =
+      input.allowedToolNames.length === 0 ||
+      input.allowedToolNames.includes(contract.infoToolName) ||
+      input.allowedToolNames.includes(contract.detailToolName);
+    if (!hasAnyAllowedTool) continue;
+
+    return contract;
+  }
+  return undefined;
 }
 
 function resolveDelegationInitialContractGuidance(

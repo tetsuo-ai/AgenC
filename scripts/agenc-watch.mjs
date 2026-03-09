@@ -42,11 +42,16 @@ let runInspectPending = false;
 let isOpen = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
+let bootstrapTimer = null;
+let bootstrapAttempts = 0;
+let bootstrapReady = false;
 let shuttingDown = false;
 let ws = null;
 let enteredAltScreen = false;
 let renderPending = false;
 let transientStatus = "Booting watch client…";
+let lastStatus = null;
+const queuedOperatorInputs = [];
 
 const pendingFrames = [];
 const events = [];
@@ -259,6 +264,108 @@ function requestRunInspect(reason) {
   setTransientStatus(`refreshing run card (${reason})`);
 }
 
+function isExpectedMissingRunInspect(errorText) {
+  return (
+    typeof errorText === "string" &&
+    errorText.includes("Background run") &&
+    errorText.includes("not found")
+  );
+}
+
+function isRetryableBootstrapError(errorText) {
+  return (
+    typeof errorText === "string" &&
+    (
+      errorText === "Unknown message type: chat.new" ||
+      errorText === "Unknown message type: chat.sessions" ||
+      errorText === "Unknown message type: chat.resume"
+    )
+  );
+}
+
+function latestSessionSummary(payload, preferredSessionId = null) {
+  if (!Array.isArray(payload) || payload.length === 0) {
+    return null;
+  }
+  if (preferredSessionId) {
+    const preferred = payload.find((session) => session?.sessionId === preferredSessionId);
+    if (preferred) {
+      return preferred;
+    }
+  }
+  return [...payload].sort((left, right) => {
+    const leftTime = Number(left?.lastActiveAt ?? 0);
+    const rightTime = Number(right?.lastActiveAt ?? 0);
+    return rightTime - leftTime;
+  })[0] ?? null;
+}
+
+function clearBootstrapTimer() {
+  if (!bootstrapTimer) {
+    return;
+  }
+  clearTimeout(bootstrapTimer);
+  bootstrapTimer = null;
+}
+
+function bootstrapPending() {
+  return !bootstrapReady;
+}
+
+function queueOperatorInput(value, reason = "bootstrap pending") {
+  queuedOperatorInputs.push(value);
+  pushEvent(
+    "queued",
+    "Queued Input",
+    `${value}\n\n${reason}`,
+    "amber",
+  );
+  setTransientStatus(`queued ${value} until session restore completes`);
+}
+
+function flushQueuedOperatorInputs() {
+  if (!isOpen || bootstrapPending() || queuedOperatorInputs.length === 0) {
+    return;
+  }
+  while (queuedOperatorInputs.length > 0) {
+    const value = queuedOperatorInputs.shift();
+    if (!value) {
+      continue;
+    }
+    dispatchOperatorInput(value, { replayed: true });
+  }
+}
+
+function markBootstrapReady(statusText) {
+  bootstrapReady = true;
+  bootstrapAttempts = 0;
+  clearBootstrapTimer();
+  setTransientStatus(statusText);
+  flushQueuedOperatorInputs();
+}
+
+function sendBootstrapProbe() {
+  if (!isOpen || shuttingDown) {
+    return;
+  }
+  send("chat.sessions", { clientKey });
+}
+
+function scheduleBootstrap(reason = "restoring session") {
+  if (shuttingDown || !isOpen) {
+    return;
+  }
+  bootstrapReady = false;
+  clearBootstrapTimer();
+  const delayMs = Math.min(2_000, Math.max(250, bootstrapAttempts * 250));
+  bootstrapTimer = setTimeout(() => {
+    bootstrapTimer = null;
+    bootstrapAttempts += 1;
+    sendBootstrapProbe();
+  }, delayMs);
+  setTransientStatus(`${reason}; retrying in ${delayMs}ms`);
+}
+
 function headerLines(width) {
   const inner = width - 2;
   const shortSession = sessionId ? sessionId.slice(-8) : "--------";
@@ -412,6 +519,9 @@ function scheduleReconnect() {
 function handleToolResult(toolName, isError, result) {
   latestTool = toolName;
   latestToolState = isError ? "error" : "ok";
+  setTransientStatus(
+    isError ? `${toolName} failed` : `${toolName} completed`,
+  );
   const parsed = tryParseJson(result);
   const summary = buildToolSummary(parsed);
   const formatted = tryPrettyJson(result);
@@ -427,12 +537,14 @@ function attachSocket(socket) {
     ws = socket;
     isOpen = true;
     reconnectAttempts = 0;
+    bootstrapAttempts = 0;
+    bootstrapReady = false;
     connectionState = "live";
     setTransientStatus(`connected to ${wsUrl}`);
     while (pendingFrames.length > 0) {
       socket.send(pendingFrames.shift());
     }
-    send("chat.new", { clientKey });
+    sendBootstrapProbe();
   });
 
   socket.addEventListener("message", (event) => {
@@ -451,20 +563,37 @@ function attachSocket(socket) {
         runDetail = null;
         runState = "idle";
         runPhase = null;
-        setTransientStatus(`session ready: ${sessionId}`);
+        markBootstrapReady(`session ready: ${sessionId}`);
         break;
       case "chat.resumed":
         sessionId = msg.payload?.sessionId ?? sessionId;
-        setTransientStatus(`session resumed: ${sessionId}`);
+        markBootstrapReady(`session resumed: ${sessionId}`);
         requestRunInspect("resume");
         break;
+      case "chat.sessions": {
+        const target = latestSessionSummary(msg.payload, sessionId);
+        if (target?.sessionId) {
+          sessionId = target.sessionId;
+          setTransientStatus(`resuming session ${sessionId}`);
+          send("chat.resume", { sessionId: target.sessionId, clientKey });
+        } else {
+          setTransientStatus("no existing session; creating a new one");
+          send("chat.new", { clientKey });
+        }
+        break;
+      }
       case "chat.history": {
         const history = Array.isArray(msg.payload) ? msg.payload : [];
-        setTransientStatus(`history restored: ${history.length} item(s)`);
+        if (!bootstrapReady && sessionId) {
+          markBootstrapReady(`history restored: ${history.length} item(s)`);
+        } else {
+          setTransientStatus(`history restored: ${history.length} item(s)`);
+        }
         break;
       }
       case "chat.message":
         latestAgentSummary = msg.payload?.content ?? null;
+        setTransientStatus("agent reply received");
         pushEvent("agent", "Agent Reply", msg.payload?.content ?? "", "cyan");
         if (currentObjective) {
           requestRunInspect("agent reply");
@@ -479,6 +608,7 @@ function attachSocket(socket) {
         setTransientStatus("agent is typing…");
         break;
       case "chat.cancelled":
+        setTransientStatus("chat cancelled");
         pushEvent("cancelled", "Chat Cancelled", tryPrettyJson(msg.payload ?? {}), "amber");
         break;
       case "tools.executing":
@@ -509,11 +639,13 @@ function attachSocket(socket) {
         currentObjective = msg.payload?.objective ?? currentObjective;
         runState = msg.payload?.state ?? runState;
         runPhase = msg.payload?.currentPhase ?? runPhase;
+        setTransientStatus(`run inspect loaded: ${runState ?? "unknown"}`);
         pushEvent("inspect", "Run Inspect", tryPrettyJson(msg.payload ?? {}), "blue");
         break;
       case "run.updated":
         runState = msg.payload?.state ?? runState;
         runPhase = msg.payload?.currentPhase ?? runPhase;
+        setTransientStatus(`run updated: ${runState ?? "unknown"}`);
         pushEvent(
           "run",
           "Run Update",
@@ -530,9 +662,11 @@ function attachSocket(socket) {
         requestRunInspect("run update");
         break;
       case "observability.traces":
+        setTransientStatus("trace list loaded");
         pushEvent("trace", "Trace List", tryPrettyJson(msg.payload ?? []), "slate");
         break;
       case "observability.trace":
+        setTransientStatus("trace detail loaded");
         pushEvent(
           "trace",
           "Trace Detail",
@@ -542,6 +676,7 @@ function attachSocket(socket) {
         break;
       case "status.update":
         lastStatus = msg.payload ?? lastStatus;
+        setTransientStatus("gateway status loaded");
         pushEvent("status", "Gateway Status", tryPrettyJson(msg.payload ?? {}), "blue");
         break;
       case "agent.status":
@@ -554,6 +689,16 @@ function attachSocket(socket) {
         break;
       case "error":
         runInspectPending = false;
+        if (isExpectedMissingRunInspect(msg.error)) {
+          runDetail = null;
+          setTransientStatus("no active background run for this session");
+          break;
+        }
+        if (isRetryableBootstrapError(msg.error)) {
+          scheduleBootstrap("webchat handler still starting");
+          break;
+        }
+        setTransientStatus("runtime error");
         pushEvent("error", "Runtime Error", msg.error ?? tryPrettyJson(msg.payload ?? msg), "red");
         break;
       default:
@@ -566,7 +711,9 @@ function attachSocket(socket) {
   socket.addEventListener("close", () => {
     isOpen = false;
     ws = null;
+    bootstrapReady = false;
     connectionState = "reconnecting";
+    clearBootstrapTimer();
     if (shuttingDown) {
       leaveAltScreen();
       process.exit(0);
@@ -608,6 +755,156 @@ function printHelp() {
   );
 }
 
+function shouldQueueOperatorInput(value) {
+  if (!isOpen || bootstrapPending()) {
+    return true;
+  }
+  if (!value.startsWith("/")) {
+    return false;
+  }
+  return false;
+}
+
+function dispatchOperatorInput(value, { replayed = false } = {}) {
+  const maybeQueue = (reason) => {
+    if (replayed) {
+      pushEvent("error", "Queued Input Failed", `${value}\n\n${reason}`, "red");
+      return true;
+    }
+    queueOperatorInput(value, reason);
+    return true;
+  };
+
+  if (value === "/quit" || value === "/exit") {
+    shuttingDown = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    clearBootstrapTimer();
+    rl.close();
+    ws?.close();
+    leaveAltScreen();
+    return true;
+  }
+
+  if (value === "/help") {
+    printHelp();
+    return true;
+  }
+
+  if (value === "/clear") {
+    events.length = 0;
+    setTransientStatus("console cleared");
+    return true;
+  }
+
+  if (value === "/new") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    currentObjective = null;
+    runDetail = null;
+    runState = "idle";
+    runPhase = null;
+    bootstrapAttempts = 0;
+    clearBootstrapTimer();
+    pushEvent("operator", "New Session", "Requested a fresh chat session.", "teal");
+    send("chat.new", { clientKey });
+    return true;
+  }
+
+  if (value === "/runs") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    pushEvent("operator", "Run List", "Requested active runs for this session.", "teal");
+    send("runs.list", sessionId ? { sessionId } : {});
+    return true;
+  }
+
+  if (value === "/inspect") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    if (!requireSession("/inspect")) return;
+    runInspectPending = true;
+    pushEvent("operator", "Run Inspect", `Inspecting run for ${sessionId}.`, "teal");
+    send("run.inspect", { sessionId });
+    return true;
+  }
+
+  if (value === "/trace") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    pushEvent("operator", "Trace Query", "Requested recent traces.", "teal");
+    send("observability.traces", sessionId ? { sessionId, limit: 5 } : { limit: 5 });
+    return true;
+  }
+
+  if (value === "/status") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    pushEvent("operator", "Gateway Status", "Requested daemon status.", "teal");
+    send("status.get", {});
+    return true;
+  }
+
+  if (value === "/cancel") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    pushEvent("operator", "Cancel Chat", `Cancelling chat for ${clientKey}.`, "teal");
+    send("chat.cancel", { clientKey });
+    return true;
+  }
+
+  if (value === "/pause") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    if (!requireSession("/pause")) return;
+    runInspectPending = true;
+    pushEvent("operator", "Pause Run", `Pausing run for ${sessionId}.`, "teal");
+    send("run.control", { action: "pause", sessionId, reason: "operator pause" });
+    return true;
+  }
+
+  if (value === "/resume") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    if (!requireSession("/resume")) return;
+    runInspectPending = true;
+    pushEvent("operator", "Resume Run", `Resuming run for ${sessionId}.`, "teal");
+    send("run.control", { action: "resume", sessionId, reason: "operator resume" });
+    return true;
+  }
+
+  if (value === "/stop") {
+    if (shouldQueueOperatorInput(value)) {
+      return maybeQueue("session bootstrap not complete");
+    }
+    if (!requireSession("/stop")) return;
+    runInspectPending = true;
+    pushEvent("operator", "Stop Run", `Stopping run for ${sessionId}.`, "teal");
+    send("run.control", { action: "stop", sessionId, reason: "operator stop" });
+    return true;
+  }
+
+  if (shouldQueueOperatorInput(value)) {
+    return maybeQueue("session bootstrap not complete");
+  }
+  currentObjective = value;
+  runState = "starting";
+  runPhase = "queued";
+  pushEvent("you", "Prompt", value, "teal");
+  send("chat.message", { content: value, clientKey });
+  return true;
+}
+
 connect();
 scheduleRender();
 
@@ -617,101 +914,7 @@ rl.on("line", (input) => {
     scheduleRender();
     return;
   }
-
-  if (value === "/quit" || value === "/exit") {
-    shuttingDown = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    rl.close();
-    ws?.close();
-    leaveAltScreen();
-    return;
-  }
-
-  if (value === "/help") {
-    printHelp();
-    return;
-  }
-
-  if (value === "/clear") {
-    events.length = 0;
-    setTransientStatus("console cleared");
-    return;
-  }
-
-  if (value === "/new") {
-    currentObjective = null;
-    runDetail = null;
-    runState = "idle";
-    runPhase = null;
-    pushEvent("operator", "New Session", "Requested a fresh chat session.", "teal");
-    send("chat.new", { clientKey });
-    return;
-  }
-
-  if (value === "/runs") {
-    pushEvent("operator", "Run List", "Requested active runs for this session.", "teal");
-    send("runs.list", sessionId ? { sessionId } : {});
-    return;
-  }
-
-  if (value === "/inspect") {
-    if (!requireSession("/inspect")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Run Inspect", `Inspecting run for ${sessionId}.`, "teal");
-    send("run.inspect", { sessionId });
-    return;
-  }
-
-  if (value === "/trace") {
-    pushEvent("operator", "Trace Query", "Requested recent traces.", "teal");
-    send("observability.traces", sessionId ? { sessionId, limit: 5 } : { limit: 5 });
-    return;
-  }
-
-  if (value === "/status") {
-    pushEvent("operator", "Gateway Status", "Requested daemon status.", "teal");
-    send("status.get", {});
-    return;
-  }
-
-  if (value === "/cancel") {
-    pushEvent("operator", "Cancel Chat", `Cancelling chat for ${clientKey}.`, "teal");
-    send("chat.cancel", { clientKey });
-    return;
-  }
-
-  if (value === "/pause") {
-    if (!requireSession("/pause")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Pause Run", `Pausing run for ${sessionId}.`, "teal");
-    send("run.control", { action: "pause", sessionId, reason: "operator pause" });
-    return;
-  }
-
-  if (value === "/resume") {
-    if (!requireSession("/resume")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Resume Run", `Resuming run for ${sessionId}.`, "teal");
-    send("run.control", { action: "resume", sessionId, reason: "operator resume" });
-    return;
-  }
-
-  if (value === "/stop") {
-    if (!requireSession("/stop")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Stop Run", `Stopping run for ${sessionId}.`, "teal");
-    send("run.control", { action: "stop", sessionId, reason: "operator stop" });
-    return;
-  }
-
-  currentObjective = value;
-  runState = "starting";
-  runPhase = "queued";
-  pushEvent("you", "Prompt", value, "teal");
-  send("chat.message", { content: value, clientKey });
+  dispatchOperatorInput(value);
 });
 
 rl.on("SIGINT", () => {
@@ -726,6 +929,7 @@ rl.on("close", () => {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  clearBootstrapTimer();
   try {
     ws?.close();
   } catch {}

@@ -2636,6 +2636,16 @@ function buildManagedProcessIdentity(
   return `${target.label ? `"${target.label}" ` : ""}(${target.processId})`;
 }
 
+const DEFAULT_NATIVE_SERVER_PROTOCOL = "http" as const;
+const DEFAULT_NATIVE_SERVER_HEALTH_PATH = "/";
+const DEFAULT_NATIVE_SERVER_READY_STATUS_CODES = [200] as const;
+const DEFAULT_NATIVE_SERVER_READINESS_TIMEOUT_MS = 10_000;
+
+interface ManagedProcessCommandSpec {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
 function listManagedProcessBootstrapCandidates(
   run: ActiveBackgroundRun,
 ): readonly string[] {
@@ -2696,12 +2706,294 @@ function extractManagedProcessBootstrapLabel(
   run: ActiveBackgroundRun,
 ): string | undefined {
   for (const candidate of listManagedProcessBootstrapCandidates(run)) {
-    const label = candidate.match(MANAGED_PROCESS_BOOTSTRAP_LABEL_RE)?.[1]?.trim();
+    const label = candidate
+      .match(MANAGED_PROCESS_BOOTSTRAP_LABEL_RE)?.[1]
+      ?.trim()
+      .replace(/[.,;:]+$/g, "");
     if (label) {
       return label;
     }
   }
   return undefined;
+}
+
+function extractBootstrapHealthUrl(run: ActiveBackgroundRun): URL | undefined {
+  const urlPattern = /https?:\/\/[^\s`"'<>]+/g;
+  for (const candidate of listManagedProcessBootstrapCandidates(run)) {
+    for (const match of candidate.matchAll(urlPattern)) {
+      const raw = match[0]?.trim();
+      if (!raw) {
+        continue;
+      }
+      try {
+        const parsed = new URL(raw);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          return parsed;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractBootstrapPortFromArgs(args: readonly string[]): number | undefined {
+  for (const value of args) {
+    if (!/^\d{2,5}$/.test(value)) {
+      continue;
+    }
+    const port = Number(value);
+    if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+      return port;
+    }
+  }
+  return undefined;
+}
+
+function wantsManagedServerBootstrap(
+  run: ActiveBackgroundRun,
+  commandSpec: ManagedProcessCommandSpec,
+): boolean {
+  const objectiveCorpus = listManagedProcessBootstrapCandidates(run)
+    .join(" ")
+    .toLowerCase();
+  const explicitUrl = extractBootstrapHealthUrl(run);
+  const commandText = [commandSpec.command, ...commandSpec.args].join(" ").toLowerCase();
+  const commandLooksLikeServer =
+    commandText.includes("http.server") ||
+    commandText.includes("http-server") ||
+    commandText.includes("python -m http.server") ||
+    commandText.includes("python3 -m http.server");
+  const objectiveLooksLikeServer =
+    /\b(server|service)\b/.test(objectiveCorpus) &&
+    /\b(http|https|health|ready|readiness|localhost|127\.0\.0\.1|0\.0\.0\.0)\b/.test(
+      objectiveCorpus,
+    );
+  return Boolean(explicitUrl) || commandLooksLikeServer || objectiveLooksLikeServer;
+}
+
+function buildManagedProcessBootstrapStartSpec(
+  run: ActiveBackgroundRun,
+  commandSpec: ManagedProcessCommandSpec,
+  label: string | undefined,
+): {
+  readonly surface: "host" | "host_server";
+  readonly toolName: "system.processStart" | "system.serverStart";
+  readonly args: Record<string, unknown>;
+} {
+  const idempotencyKey = buildManagedProcessBootstrapIdempotencyKey(run, label);
+  const baseArgs: Record<string, unknown> = {
+    command: commandSpec.command,
+    args: [...commandSpec.args],
+    ...(label ? { label } : {}),
+    idempotencyKey,
+  };
+  if (wantsManagedServerBootstrap(run, commandSpec)) {
+    const explicitHealthUrl = extractBootstrapHealthUrl(run);
+    const port = explicitHealthUrl
+      ? Number(explicitHealthUrl.port || (explicitHealthUrl.protocol === "https:" ? 443 : 80))
+      : extractBootstrapPortFromArgs(commandSpec.args);
+    return {
+      surface: "host_server",
+      toolName: "system.serverStart",
+      args: {
+        ...baseArgs,
+        ...(explicitHealthUrl
+          ? { healthUrl: explicitHealthUrl.toString() }
+          : port
+            ? {
+                host: "127.0.0.1",
+                port,
+                protocol: DEFAULT_NATIVE_SERVER_PROTOCOL,
+                healthPath: DEFAULT_NATIVE_SERVER_HEALTH_PATH,
+              }
+            : {}),
+        readyStatusCodes: [...DEFAULT_NATIVE_SERVER_READY_STATUS_CODES],
+        readinessTimeoutMs: DEFAULT_NATIVE_SERVER_READINESS_TIMEOUT_MS,
+      },
+    };
+  }
+  return {
+    surface: "host",
+    toolName: "system.processStart",
+    args: baseArgs,
+  };
+}
+
+function buildManagedProcessStatusArgs(
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
+): Record<string, unknown> {
+  return getManagedProcessSurface(target) === "host_server"
+    ? target.label
+      ? { label: target.label }
+      : target.serverId
+        ? { serverId: target.serverId }
+        : { processId: target.processId }
+    : target.label
+      ? { label: target.label }
+      : { processId: target.processId };
+}
+
+function shouldUpgradeManagedProcessTargetToServerHandle(
+  run: ActiveBackgroundRun,
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>,
+): boolean {
+  if (target.surface !== "host") {
+    return false;
+  }
+  if (target.currentState !== "running") {
+    return false;
+  }
+  const launchSpec = target.launchSpec;
+  if (!launchSpec) {
+    return false;
+  }
+  return wantsManagedServerBootstrap(run, {
+    command: launchSpec.command,
+    args: launchSpec.args,
+  });
+}
+
+async function executeManagedServerUpgradeCycle(params: {
+  run: ActiveBackgroundRun;
+  toolHandler: ToolHandler;
+  now: number;
+  target: Extract<BackgroundRunObservedTarget, { kind: "managed_process" }>;
+}): Promise<NativeManagedProcessCycleResult> {
+  const { run, toolHandler, now, target } = params;
+  const launchSpec = target.launchSpec;
+  if (!launchSpec) {
+    return {
+      actorResult: buildNativeActorResult([], "Missing launch spec for server upgrade.", "managed-process-supervisor"),
+      decision: {
+        state: "blocked",
+        userUpdate: truncate(
+          `Managed process ${buildManagedProcessIdentity(target)} cannot be upgraded to a typed server handle because the launch spec is missing.`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        internalSummary:
+          "Native managed-process server upgrade failed because no launch spec was persisted.",
+        shouldNotifyUser: true,
+      },
+    };
+  }
+
+  const label = target.label ?? launchSpec.label;
+  const bootstrapSpec = buildManagedProcessBootstrapStartSpec(
+    run,
+    {
+      command: launchSpec.command,
+      args: launchSpec.args,
+    },
+    label,
+  );
+  const toolCalls: ChatExecutorResult["toolCalls"][number][] = [];
+  const stopCall = await executeNativeToolCall(
+    toolHandler,
+    "system.processStop",
+    buildManagedProcessStopArgs(target),
+  );
+  toolCalls.push(stopCall);
+  if (stopCall.isError) {
+    return {
+      actorResult: buildNativeActorResult(
+        toolCalls,
+        `Failed to stop ${buildManagedProcessIdentity(target)} before server-handle upgrade.`,
+        "managed-process-supervisor",
+      ),
+      decision: {
+        state: "blocked",
+        userUpdate: truncate(
+          `Failed to stop ${buildManagedProcessIdentity(target)} before upgrading to a typed server handle: ${extractToolFailureText(stopCall)}`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        internalSummary:
+          `Native managed-process server upgrade could not stop the existing process: ${extractToolFailureText(stopCall)}`,
+        shouldNotifyUser: true,
+      },
+    };
+  }
+
+  const startCall = await executeNativeToolCall(
+    toolHandler,
+    bootstrapSpec.toolName,
+    bootstrapSpec.args,
+  );
+  toolCalls.push(startCall);
+  const startActorResult = buildNativeActorResult(
+    toolCalls,
+    `Upgrading ${buildManagedProcessIdentity(target)} to a typed server handle.`,
+    "managed-process-supervisor",
+  );
+  observeManagedProcessTargets(run, startActorResult, now);
+  run.lastVerifiedAt = now;
+  recordToolEvidence(run, toolCalls);
+
+  if (startCall.isError) {
+    return {
+      actorResult: startActorResult,
+      decision: {
+        state: "blocked",
+        userUpdate: truncate(
+          `Server-handle upgrade failed after stopping ${buildManagedProcessIdentity(target)}: ${extractToolFailureText(startCall)}`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        internalSummary:
+          `Native managed-process server upgrade failed to start the typed server handle: ${extractToolFailureText(startCall)}`,
+        shouldNotifyUser: true,
+      },
+    };
+  }
+
+  const upgradedTarget =
+    findLatestManagedProcessTarget(run.observedTargets) ?? target;
+  const statusCall = await executeNativeToolCall(
+    toolHandler,
+    managedProcessStatusToolName(getManagedProcessSurface(upgradedTarget)),
+    buildManagedProcessStatusArgs(upgradedTarget),
+  );
+  toolCalls.push(statusCall);
+  const actorResult = buildNativeActorResult(
+    toolCalls,
+    `Upgraded ${buildManagedProcessIdentity(target)} to typed server supervision.`,
+    "managed-process-supervisor",
+  );
+  observeManagedProcessTargets(run, actorResult, now);
+  run.lastVerifiedAt = now;
+  recordToolEvidence(run, toolCalls);
+
+  if (statusCall.isError) {
+    return {
+      actorResult,
+      decision: {
+        state: "working",
+        userUpdate: truncate(
+          `Started typed server supervision for ${buildManagedProcessIdentity(upgradedTarget)} but readiness verification failed and will retry: ${extractToolFailureText(statusCall)}`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        internalSummary:
+          `Native managed-process server upgrade started the typed server handle but status verification failed: ${extractToolFailureText(statusCall)}`,
+        nextCheckMs: MIN_POLL_INTERVAL_MS,
+        shouldNotifyUser: true,
+      },
+    };
+  }
+
+  return {
+    actorResult,
+    decision: {
+      state: "working",
+      userUpdate: truncate(
+        `Run ${run.id} in session ${run.sessionId}: upgraded to typed server supervision for ${buildManagedProcessIdentity(upgradedTarget)} and verified readiness state=${upgradedTarget.currentState}.`,
+        MAX_USER_UPDATE_CHARS,
+      ),
+      internalSummary:
+        "Native managed-process verifier upgraded a plain host process bootstrap to a typed server handle.",
+      nextCheckMs: FAST_FOLLOWUP_POLL_INTERVAL_MS,
+      shouldNotifyUser: true,
+    },
+  };
 }
 
 function buildManagedProcessBootstrapIdempotencyKey(
@@ -2793,20 +3085,16 @@ async function executeManagedProcessNativeCycle(params: {
       return undefined;
     }
     const label = extractManagedProcessBootstrapLabel(run);
+    const bootstrapSpec = buildManagedProcessBootstrapStartSpec(run, parsed, label);
     const startCall = await executeNativeToolCall(
       toolHandler,
-      "system.processStart",
-      {
-        command: parsed.command,
-        args: [...parsed.args],
-        ...(label ? { label } : {}),
-        idempotencyKey: buildManagedProcessBootstrapIdempotencyKey(run, label),
-      },
+      bootstrapSpec.toolName,
+      bootstrapSpec.args,
     );
     const toolCalls: ChatExecutorResult["toolCalls"][number][] = [startCall];
     const startActorResult = buildNativeActorResult(
       toolCalls,
-      `Started managed process ${label ? `"${label}" ` : ""}for background supervision.`,
+      `Started managed ${bootstrapSpec.surface === "host_server" ? "server" : "process"} ${label ? `"${label}" ` : ""}for background supervision.`,
       "managed-process-supervisor",
     );
     observeManagedProcessTargets(run, startActorResult, now);
@@ -2848,10 +3136,8 @@ async function executeManagedProcessNativeCycle(params: {
 
     const statusCall = await executeNativeToolCall(
       toolHandler,
-      "system.processStatus",
-      startedTarget.label
-        ? { label: startedTarget.label }
-        : { processId: startedTarget.processId },
+      managedProcessStatusToolName(getManagedProcessSurface(startedTarget)),
+      buildManagedProcessStatusArgs(startedTarget),
     );
     toolCalls.push(statusCall);
     const actorResult = buildNativeActorResult(
@@ -2903,17 +3189,16 @@ async function executeManagedProcessNativeCycle(params: {
   }
 
   const policy = getManagedProcessPolicy(run);
+  if (shouldUpgradeManagedProcessTargetToServerHandle(run, target)) {
+    return executeManagedServerUpgradeCycle({
+      run,
+      toolHandler,
+      now,
+      target,
+    });
+  }
   const surface = getManagedProcessSurface(target);
-  const statusArgs =
-    surface === "host_server"
-      ? target.label
-        ? { label: target.label }
-        : target.serverId
-          ? { serverId: target.serverId }
-          : { processId: target.processId }
-      : target.label
-        ? { label: target.label }
-        : { processId: target.processId };
+  const statusArgs = buildManagedProcessStatusArgs(target);
   const statusCall = await executeNativeToolCall(
     toolHandler,
     managedProcessStatusToolName(surface),
@@ -3282,6 +3567,19 @@ const MANAGED_PROCESS_RUN_DOMAIN: RunDomain<ActiveBackgroundRun> = {
       return toDomainVerificationFromDecision(terminalDecision);
     }
     const target = findLatestManagedProcessTarget(run.observedTargets);
+    if (target && shouldUpgradeManagedProcessTargetToServerHandle(run, target)) {
+      return {
+        state: "safe_to_continue",
+        summary:
+          "Managed-process domain detected a server-like host process without a typed server handle and will upgrade it deterministically.",
+        userUpdate: truncate(
+          `Upgrading ${buildManagedProcessIdentity(target)} to a typed server handle so readiness can be verified.`,
+          MAX_USER_UPDATE_CHARS,
+        ),
+        safeToContinue: true,
+        nextCheckMs: 0,
+      };
+    }
     if (target?.currentState === "running") {
       return {
         state: "safe_to_continue",

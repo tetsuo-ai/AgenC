@@ -36,6 +36,8 @@
     "security:cargo:lock:check": "node scripts/check-cargo-lock-security.mjs",
     "security:desktop:hardening:check": "node scripts/check-desktop-image-hardening.mjs",
     "desktop:image:doom:smoke": "node scripts/smoke-desktop-doom-image.mjs",
+    "autonomy:ladder": "node scripts/run-autonomy-ladder.mjs",
+    "test:autonomy:ladder": "node --test scripts/agenc-autonomy-ladder.test.mjs",
     "security:trivy:image": "trivy image --scanners vuln,misconfig,secret",
     "fender:list": "node scripts/solana-fender-mcp.mjs list",
     "fender:check:file": "node scripts/solana-fender-mcp.mjs check-file",

@@ -110,6 +110,10 @@ import { createHttpTools } from "../tools/system/http.js";
 import { createFilesystemTools } from "../tools/system/filesystem.js";
 import { createBrowserTools } from "../tools/system/browser.js";
 import { createProcessTools } from "../tools/system/process.js";
+import { createPdfTools } from "../tools/system/pdf.js";
+import { createOfficeDocumentTools } from "../tools/system/office-document.js";
+import { createEmailMessageTools } from "../tools/system/email-message.js";
+import { createCalendarTools } from "../tools/system/calendar.js";
 import {
   createRemoteJobTools,
   SystemRemoteJobManager,
@@ -117,6 +121,8 @@ import {
 import { createResearchTools } from "../tools/system/research.js";
 import { createSandboxTools } from "../tools/system/sandbox-handle.js";
 import { createServerTools } from "../tools/system/server.js";
+import { createSqliteTools } from "../tools/system/sqlite.js";
+import { createSpreadsheetTools } from "../tools/system/spreadsheet.js";
 import { resolveBrowserToolMode } from "./browser-tool-mode.js";
 import { createExecuteWithAgentTool } from "./delegation-tool.js";
 import { SkillDiscovery } from "../skills/markdown/discovery.js";
@@ -6150,6 +6156,42 @@ export class DaemonManager {
       createFilesystemTools({
         allowedPaths: allowedFilesystemPaths,
         allowDelete: false,
+      }),
+    );
+    registry.registerAll(
+      createPdfTools({
+        allowedPaths: allowedFilesystemPaths,
+        logger: this.logger,
+      }),
+    );
+    registry.registerAll(
+      createOfficeDocumentTools({
+        allowedPaths: allowedFilesystemPaths,
+        logger: this.logger,
+      }),
+    );
+    registry.registerAll(
+      createEmailMessageTools({
+        allowedPaths: allowedFilesystemPaths,
+        logger: this.logger,
+      }),
+    );
+    registry.registerAll(
+      createCalendarTools({
+        allowedPaths: allowedFilesystemPaths,
+        logger: this.logger,
+      }),
+    );
+    registry.registerAll(
+      createSqliteTools({
+        allowedPaths: allowedFilesystemPaths,
+        logger: this.logger,
+      }),
+    );
+    registry.registerAll(
+      createSpreadsheetTools({
+        allowedPaths: allowedFilesystemPaths,
+        logger: this.logger,
       }),
     );
     const browserToolMode = await resolveBrowserToolMode(this.logger);

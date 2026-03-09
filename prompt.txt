@@ -15,8 +15,11 @@ any tools.
 
 Stage 1 — single tool grounding
 
-Use `system.bash` to run `/usr/bin/printf` with args
-`["AUTONOMY_STAGE1::RUN_TOKEN\n"]`.
+Use the shell tool appropriate for the current environment to print
+`AUTONOMY_STAGE1::RUN_TOKEN\n`.
+
+If you are in the `agenc-watch` desktop session, use `desktop.bash`.
+If you are in a host-only session, `system.bash` is also acceptable.
 
 Then answer with:
 - the exact output
@@ -77,6 +80,57 @@ is still active, then use the same web session and confirm:
 - the run continues or recovers instead of silently disappearing
 
 OPTIONAL EXTENSIONS
+
+Spreadsheet / workbook tools
+
+Use the typed spreadsheet tools to inspect `/tmp/agenc-tool-smoke/roster.xlsx`.
+Summarize the workbook, then read the `Roster` sheet and answer with:
+- the exact row count
+- the name/role pairs
+
+Do not use shell unless the typed spreadsheet tools fail.
+
+Office document tools
+
+Use the typed office document tools to inspect `/tmp/agenc-tool-smoke/launch-brief.docx`.
+Answer with:
+- the exact document metadata
+- the exact extracted text
+
+Do not use shell unless the typed office document tools fail.
+
+Productivity artifacts
+
+Use the typed email message tools to inspect `/tmp/agenc-tool-smoke/inbox.eml`.
+Answer with:
+- the exact message metadata
+- the exact extracted text
+
+Do not use shell unless the typed email message tools fail.
+
+Use the typed calendar tools to inspect `/tmp/agenc-tool-smoke/team-calendar.ics`.
+Answer with:
+- the calendar metadata
+- the exact event count
+- the event summaries and attendees
+
+Do not use shell unless the typed calendar tools fail.
+
+Local data / document tools
+
+Use the typed SQLite tools to inspect `/tmp/agenc-tool-smoke/sample.db`.
+Summarize the schema, then query the `users` table and answer with:
+- exactly how many users there are
+- each user's name and role
+
+Do not use shell unless the typed SQLite tools fail.
+
+Use the typed PDF tools to inspect `/tmp/agenc-tool-smoke/sample.pdf`.
+Answer with:
+- the document metadata
+- the exact extracted text
+
+Do not use shell unless the typed PDF tools fail.
 
 Desktop/browser
 

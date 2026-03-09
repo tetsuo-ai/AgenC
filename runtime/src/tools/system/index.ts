@@ -19,6 +19,30 @@ export {
 } from "./filesystem.js";
 
 export {
+  createPdfTools,
+} from "./pdf.js";
+
+export {
+  createOfficeDocumentTools,
+} from "./office-document.js";
+
+export {
+  createEmailMessageTools,
+} from "./email-message.js";
+
+export {
+  createCalendarTools,
+} from "./calendar.js";
+
+export {
+  createSqliteTools,
+} from "./sqlite.js";
+
+export {
+  createSpreadsheetTools,
+} from "./spreadsheet.js";
+
+export {
   createBrowserTools,
   closeBrowser,
   type BrowserToolConfig,
@@ -72,4 +96,10 @@ export {
   type SystemResearchToolConfig,
   type SystemSandboxToolConfig,
   type SystemSandboxWorkspaceAccessMode,
+  type SystemSqliteToolConfig,
+  type SystemPdfToolConfig,
+  type SystemSpreadsheetToolConfig,
+  type SystemOfficeDocumentToolConfig,
+  type SystemEmailMessageToolConfig,
+  type SystemCalendarToolConfig,
 } from "./types.js";

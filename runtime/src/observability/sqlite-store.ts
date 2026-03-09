@@ -67,6 +67,22 @@ const TRACE_ARTIFACT_ROOT = resolvePath(homedir(), ".agenc", "trace-payloads");
 const DEFAULT_LOG_TAIL_BYTES = 256 * 1024;
 const DEFAULT_LOG_LINES = 200;
 
+function isCompletedTraceEventName(eventName: string): boolean {
+  return (
+    eventName.endsWith(".chat.response") ||
+    eventName.endsWith(".command.handled") ||
+    eventName === "background_run.cycle.working_applied" ||
+    eventName === "background_run.cycle.terminal_applied"
+  );
+}
+
+function isTerminalTraceEventName(eventName: string): boolean {
+  return (
+    isCompletedTraceEventName(eventName) ||
+    eventName.endsWith(".chat.error")
+  );
+}
+
 export interface SqliteObservabilityStoreConfig {
   readonly dbPath?: string;
   readonly daemonLogPath?: string;
@@ -201,7 +217,7 @@ export class SqliteObservabilityStore {
           ) AS stop_reason,
           CASE
             WHEN SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END) > 0 THEN 'error'
-            WHEN SUM(CASE WHEN event_name LIKE '%.chat.response' THEN 1 ELSE 0 END) > 0 THEN 'completed'
+            WHEN SUM(CASE WHEN event_name LIKE '%.chat.response' OR event_name LIKE '%.command.handled' OR event_name = 'background_run.cycle.working_applied' OR event_name = 'background_run.cycle.terminal_applied' THEN 1 ELSE 0 END) > 0 THEN 'completed'
             ELSE 'open'
           END AS status
         FROM observability_events oe
@@ -259,8 +275,8 @@ export class SqliteObservabilityStore {
           SELECT
             trace_id,
             SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END) AS error_count,
-            SUM(CASE WHEN event_name LIKE '%.chat.response' THEN 1 ELSE 0 END) AS completed_count,
-            SUM(CASE WHEN event_name LIKE '%.chat.response' OR level = 'error' THEN 1 ELSE 0 END) AS terminal_count
+            SUM(CASE WHEN event_name LIKE '%.chat.response' OR event_name LIKE '%.command.handled' OR event_name = 'background_run.cycle.working_applied' OR event_name = 'background_run.cycle.terminal_applied' THEN 1 ELSE 0 END) AS completed_count,
+            SUM(CASE WHEN event_name LIKE '%.chat.response' OR event_name LIKE '%.command.handled' OR event_name = 'background_run.cycle.working_applied' OR event_name = 'background_run.cycle.terminal_applied' OR level = 'error' THEN 1 ELSE 0 END) AS terminal_count
           FROM observability_events
           WHERE timestamp_ms >= @sinceMs
           GROUP BY trace_id
@@ -528,7 +544,7 @@ export class SqliteObservabilityStore {
     const last = events[events.length - 1]!;
     const errorCount = events.filter((event) => event.level === "error").length;
     const completed = events.some((event) =>
-      event.eventName.endsWith(".chat.response"),
+      isCompletedTraceEventName(event.eventName),
     );
     return {
       traceId: first.traceId,
@@ -547,12 +563,12 @@ export class SqliteObservabilityStore {
     const issues: string[] = [];
     const hasInbound = events.some((event) => event.eventName.endsWith(".inbound"));
     const hasTerminal = events.some(
-      (event) =>
-        event.eventName.endsWith(".chat.response") ||
-        event.eventName.endsWith(".chat.error"),
+      (event) => isTerminalTraceEventName(event.eventName),
     );
     if (hasInbound && !hasTerminal) {
-      issues.push("Trace has inbound activity but no terminal chat response/error event");
+      issues.push(
+        "Trace has inbound activity but no terminal chat/command response or error event",
+      );
     }
     return {
       complete: issues.length === 0,
