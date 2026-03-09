@@ -29,9 +29,9 @@ import {
 import { safeStringify } from "../tools/types.js";
 import {
   extractDelegationTokens,
-  parseJsonObjectFromText,
   validateDelegatedOutputContract,
 } from "../utils/delegation-validation.js";
+import { parseJsonObjectFromText } from "../utils/delegated-contract-normalization.js";
 
 export function evaluateSubagentDeterministicChecks(
   subagentSteps: readonly PlannerSubAgentTaskStepIntent[],

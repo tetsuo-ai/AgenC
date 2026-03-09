@@ -3402,6 +3402,80 @@ describe("ChatExecutor", () => {
       expect(result.content).toBe("response after compaction");
     });
 
+    it("preserves exact parent recall output after compaction", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "ACK-1",
+              usage: { promptTokens: 500, completionTokens: 500, totalTokens: 1000 },
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "ACK-2",
+              usage: { promptTokens: 500, completionTokens: 500, totalTokens: 1000 },
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({ content: "Summary of earlier recall state" }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "**TOKEN=OBSIDIAN-SIGNAL-61**",
+              usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+            }),
+          ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        sessionTokenBudget: 1500,
+        plannerEnabled: true,
+        allowedTools: ["desktop.text_editor", "execute_with_agent"],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+      });
+
+      await executor.execute(
+        createParams({
+          history: buildLongHistory(10),
+          message: createMessage("Reply with exactly ACK-1 and nothing else."),
+        }),
+      );
+      await executor.execute(
+        createParams({
+          history: buildLongHistory(10),
+          message: createMessage("Reply with exactly ACK-2 and nothing else."),
+        }),
+      );
+
+      const result = await executor.execute(
+        createParams({
+          history: [
+            {
+              role: "user",
+              content:
+                "Parent endurance P1. Memorize token OBSIDIAN-SIGNAL-61 for later recall and answer exactly PARENT-STORED-P1.",
+            },
+            { role: "assistant", content: "PARENT-STORED-P1" },
+            ...buildLongHistory(8),
+          ],
+          toolRouting: {
+            routedToolNames: ["desktop.text_editor", "execute_with_agent"],
+            expandedToolNames: ["desktop.text_editor", "execute_with_agent"],
+          },
+          message: createMessage(
+            "After compaction, without extra words return the parent token from P1 exactly as TOKEN=OBSIDIAN-SIGNAL-61.",
+          ),
+        }),
+      );
+
+      expect(result.compacted).toBe(true);
+      expect(result.content).toBe("TOKEN=OBSIDIAN-SIGNAL-61");
+      expect(result.plannerSummary?.used).toBe(false);
+      expect(provider.chat).toHaveBeenCalledTimes(4);
+    });
+
     it("resets token counter after compaction", async () => {
       const provider = createMockProvider("primary", {
         chat: vi

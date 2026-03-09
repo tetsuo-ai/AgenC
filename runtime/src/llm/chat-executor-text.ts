@@ -43,10 +43,12 @@ import {
 } from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
 import {
-  parseJsonObjectFromText,
-  tryParseJsonObject as tryParseObject,
   hasUnsupportedNarrativeFileClaims,
 } from "../utils/delegation-validation.js";
+import {
+  parseJsonObjectFromText,
+  tryParseJsonObject as tryParseObject,
+} from "../utils/delegated-contract-normalization.js";
 
 // ============================================================================
 // JSON parsing helpers (used by planner + verifier)
