@@ -1,9 +1,9 @@
 /**
  * Shared tool-environment filtering helpers.
  *
- * Desktop-only mode excludes raw host-mutation tools like `system.bash`, but it
- * keeps the structured durable-handle families available so the runtime can
- * still supervise long-lived host resources deterministically.
+ * Desktop-only mode excludes raw host tools and host-side typed artifact
+ * readers, but it keeps the structured durable-handle families available so
+ * the runtime can still supervise long-lived host resources deterministically.
  * Host-only mode excludes desktop/container surfaces instead.
  *
  * @module
@@ -14,7 +14,7 @@ import type { LLMTool } from "../llm/types.js";
 export type ToolEnvironmentMode = "both" | "desktop" | "host";
 
 const HOST_TOOL_PREFIX = "system.";
-const DESKTOP_ALLOWED_HOST_TOOL_PREFIXES = [
+const DESKTOP_ALLOWED_HOST_CONTROL_TOOL_PREFIXES = [
   "system.process",
   "system.server",
   "system.browserSession",
@@ -22,12 +22,6 @@ const DESKTOP_ALLOWED_HOST_TOOL_PREFIXES = [
   "system.remoteJob",
   "system.research",
   "system.sandbox",
-  "system.sqlite",
-  "system.pdf",
-  "system.spreadsheet",
-  "system.officeDocument",
-  "system.emailMessage",
-  "system.calendar",
 ] as const;
 const DESKTOP_TOOL_PREFIXES = [
   "desktop.",
@@ -43,7 +37,7 @@ function isDesktopScopedToolName(name: string): boolean {
 }
 
 function isStructuredHostControlToolName(name: string): boolean {
-  return DESKTOP_ALLOWED_HOST_TOOL_PREFIXES.some((prefix) =>
+  return DESKTOP_ALLOWED_HOST_CONTROL_TOOL_PREFIXES.some((prefix) =>
     name.startsWith(prefix)
   );
 }

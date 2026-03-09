@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { LLMTool } from "../llm/types.js";
 import { ToolRouter } from "./tool-routing.js";
+import { filterLlmToolsByEnvironment } from "./tool-environment-policy.js";
 
 function makeTool(name: string, description: string): LLMTool {
   return {
@@ -429,6 +430,40 @@ describe("ToolRouter", () => {
     expect(decision.routedToolNames).toContain("system.calendarInfo");
     expect(decision.routedToolNames).toContain("system.calendarRead");
   });
+
+  it.each([
+    {
+      label: "PDF",
+      sessionId: "s-desktop-pdf",
+      messageText: "extract text from this pdf report and inspect its metadata",
+      blockedTools: ["system.pdfInfo", "system.pdfExtractText"],
+    },
+    {
+      label: "SQLite",
+      sessionId: "s-desktop-sqlite",
+      messageText: "inspect the sqlite schema and query the database tables",
+      blockedTools: ["system.sqliteSchema", "system.sqliteQuery"],
+    },
+  ])(
+    "does not route host-side typed artifact readers in desktop mode for $label prompts",
+    ({ sessionId, messageText, blockedTools }) => {
+      const router = new ToolRouter(filterLlmToolsByEnvironment(TOOLS, "desktop"), {
+        maxToolsPerTurn: 8,
+        minToolsPerTurn: 4,
+      });
+
+      const decision = router.route({
+        sessionId,
+        messageText,
+        history: [],
+      });
+
+      for (const toolName of blockedTools) {
+        expect(decision.routedToolNames).not.toContain(toolName);
+        expect(decision.expandedToolNames).not.toContain(toolName);
+      }
+    },
+  );
 
   it("prefers typed server handles for server monitoring tasks", () => {
     const router = new ToolRouter(TOOLS, {

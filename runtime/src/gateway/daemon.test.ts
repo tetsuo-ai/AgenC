@@ -573,23 +573,36 @@ describe("resolveStructuredExecDenyExclusions", () => {
 
 describe("buildDesktopContext", () => {
   it("makes desktop-only host tool unavailability explicit", () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", {
+      value: "linux",
+      configurable: true,
+    });
+
     const manager = new DaemonManager({
       configPath: "/tmp/agenc-test-config.json",
     });
 
-    const context = (manager as any).buildDesktopContext({
-      desktop: {
-        enabled: true,
-        environment: "desktop",
-      },
-    });
+    try {
+      const context = (manager as any).buildDesktopContext({
+        desktop: {
+          enabled: true,
+          environment: "desktop",
+        },
+      });
 
-    expect(context).toContain(
-      "system.bash and other raw host `system.*` shell/file mutation tools are NOT available in desktop-only mode.",
-    );
-    expect(context).toContain(
-      "DO NOT silently substitute desktop.bash, browser tools, or another environment",
-    );
+      expect(context).toContain(
+        "host-side typed artifact readers (`system.pdf*`, `system.sqlite*`, `system.spreadsheet*`, `system.officeDocument*`, `system.emailMessage*`, `system.calendar*`)",
+      );
+      expect(context).toContain(
+        "DO NOT silently substitute desktop.bash, browser tools, or another environment",
+      );
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+    }
   });
 });
 

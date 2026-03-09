@@ -9811,7 +9811,7 @@ export class DaemonManager {
         '- To run scripts: desktop.bash with "python app.py" or "node server.js"\n' +
         "- For durable code-execution environments, isolated workspace/container jobs, or sandbox lifecycle management, prefer system.sandboxStart plus system.sandboxJob* tools over desktop.process_* or raw shell commands.\n" +
         "- desktop.process_* manages processes inside the already-attached desktop sandbox. It does NOT replace system.sandbox* durable sandbox handles.\n" +
-        "- system.bash and other raw host `system.*` shell/file mutation tools are NOT available in desktop-only mode.\n" +
+        "- system.bash, host-side typed artifact readers (`system.pdf*`, `system.sqlite*`, `system.spreadsheet*`, `system.officeDocument*`, `system.emailMessage*`, `system.calendar*`), and other raw host `system.*` file tools are NOT available in desktop-only mode.\n" +
         "- If the user explicitly asks for an unavailable host tool like system.bash, DO NOT silently substitute desktop.bash, browser tools, or another environment and pretend it is equivalent. State that the requested tool is unavailable in this desktop-only session and only proceed with an allowed desktop/structured-host alternative if the user accepts that change.\n" +
         "- For long-running/background processes you need to inspect or stop later, use desktop.process_start/status/stop instead of desktop.bash.\n" +
         "- desktop.process_start is structured exec only: command = one executable token/path, args = flat string array. Do NOT use bash -lc there.\n" +
