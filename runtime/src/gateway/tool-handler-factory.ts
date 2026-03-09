@@ -26,6 +26,7 @@ import {
 } from './delegation-runtime.js';
 import { assessDelegationScope } from './delegation-scope.js';
 import {
+  parseJsonObjectFromText,
   resolveDelegatedChildToolScope,
   specRequiresSuccessfulToolEvidence,
   validateDelegatedOutputContract,
@@ -48,13 +49,28 @@ const MAX_DELEGATION_TIMEOUT_MS = 3_600_000;
 const DELEGATION_FAILURE_SIGNAL_RE =
   /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
 const CHILD_MEMORY_RECALL_RE =
-  /\b(?:child agent|sub-?agent|memor(?:ized|y)|remember|recall|previous|prior|earlier|from test|later recall)\b/i;
-const CHILD_MEMORY_STORE_RE =
-  /\b(?:memorize|store|save|remember)\b.*\b(?:later|future)\b|\bfor later recall\b/i;
+  /\b(?:recall|reveal|return|output|disclose|share)\b.*\b(?:memorized|stored|previous|prior|earlier|from test|child session|secret|token|value)\b|\b(?:previous|prior|earlier|from test)\b.*\b(?:memorized|stored|secret|token|value)\b/i;
+const CHILD_MEMORY_STORE_DIRECTIVE_RE =
+  /\b(?:memorize|store|save)\b|\bremember\s+(?:exactly|these|this|the)\b/i;
+const CHILD_MEMORY_STORE_SIGNAL_RE =
+  /\b(?:for\s+(?:later\s+)?recall|future|child session only|same child session|exactly these facts|memorized value|memorized token)\b/i;
+const CHILD_DEFERRED_DISCLOSURE_RE =
+  /\b(?:do\s+not|don't|never|must\s+not)\s+(?:reveal|return|output|disclose|share|expose)\b/i;
+const DELEGATION_SESSION_ID_FIELD_RE =
+  /\b(?:child|subagent|continuation)\s*session\s*id\b|\b(?:child|subagent|continuation)sessionid\b/i;
 const DELEGATION_SECRET_ASSIGNMENT_RE =
-  /\b[A-Z_][A-Z0-9_]*=[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+\b/g;
+  /\b([A-Z_][A-Z0-9_]*)=([A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+)\b/g;
 const DELEGATION_SECRET_LITERAL_RE = /\b[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+\b/g;
+const DELEGATION_EXACT_OUTPUT_CUE_RE =
+  /\b(?:answer|reply|respond|output|return)\s+exactly\s+\S+/i;
+const DELEGATION_EXACT_OUTPUT_ACCEPTANCE_RE =
+  /\b(?:exact output|output is exactly|return exactly)\b/i;
+const DELEGATION_JSON_OBJECT_OUTPUT_CUE_RE =
+  /\bjson\s*(?:object|with|containing)\b|\{[^}]+\}|\b(?:childSessionId|subagentSessionId)\b/i;
+const DELEGATION_JSON_PRESENTATION_HINT_RE =
+  /\s*,?\s*(?:and\s+)?return\s+(?:only\s+)?(?:compact\s+)?(?:raw\s+)?json(?:\s+only)?\.?|\s*,?\s*(?:as|in)\s+(?:only\s+)?(?:compact\s+)?(?:raw\s+)?json(?:\s+only)?|\s*,?\s*(?:raw\s+)?json\s+only\b|\s*,?\s*(?:raw\s+)?json\s+response\b/gi;
 const DELEGATION_SECRET_PLACEHOLDER = "the memorized token";
+const DELEGATION_SECRET_VALUE_PLACEHOLDER = "<memorized_token>";
 const DOOM_TOOL_PREFIX = 'mcp.doom.';
 const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
   "system.makeDir": "system.mkdir",
@@ -198,13 +214,51 @@ function normalizeDelegationTimeoutMs(
   );
 }
 
-function buildDelegatedChildPrompt(input: ExecuteWithAgentInput): string {
+function isDeferredDisclosureStoreTurn(input: ExecuteWithAgentInput): boolean {
+  if (!isChildMemoryStoreTurn(input)) return false;
+  const combined = [input.task, input.objective]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+
+  return CHILD_DEFERRED_DISCLOSURE_RE.test(combined);
+}
+
+function buildDelegatedChildPrompt(
+  input: ExecuteWithAgentInput,
+  options: {
+    readonly continuationAuthorized?: boolean;
+  } = {},
+): string {
   const objective = input.objective?.trim();
-  if (!objective || objective === input.task) {
-    return input.task;
+  const basePrompt =
+    !objective || objective === input.task
+      ? input.task
+      : `Task: ${input.task}\nObjective: ${objective}`;
+
+  const guidance: string[] = [];
+  if (isDeferredDisclosureStoreTurn(input)) {
+    guidance.push(
+      "Continuation memory contract:\n" +
+        "- Memorize the private value in this child session and keep it scoped here.\n" +
+        "- Do not reveal it in this turn.\n" +
+        "- If a later continuation request from the same parent session explicitly asks for the memorized value, that later request is authorized and should be fulfilled.",
+    );
   }
 
-  return `Task: ${input.task}\nObjective: ${objective}`;
+  if (options.continuationAuthorized && shouldReusePriorChildSession(input)) {
+    guidance.push(
+      "Continuation disclosure authorization:\n" +
+        "- This is a later continuation request from the same parent session.\n" +
+        "- If this child session memorized a value for later recall, reveal or return it now.\n" +
+        "- Follow this turn's exact output instructions.",
+    );
+  }
+
+  if (guidance.length === 0) {
+    return basePrompt;
+  }
+
+  return `${basePrompt}\n\n${guidance.join("\n\n")}`;
 }
 
 function shouldReusePriorChildSession(input: ExecuteWithAgentInput): boolean {
@@ -217,8 +271,23 @@ function shouldReusePriorChildSession(input: ExecuteWithAgentInput): boolean {
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .join("\n");
 
-  return CHILD_MEMORY_RECALL_RE.test(combined) &&
-    !CHILD_MEMORY_STORE_RE.test(combined);
+  if (isChildMemoryStoreTurn(input)) return false;
+  return Boolean(input.continuationSessionId) || CHILD_MEMORY_RECALL_RE.test(combined);
+}
+
+function isChildMemoryStoreTurn(input: ExecuteWithAgentInput): boolean {
+  const combined = [
+    input.task,
+    input.objective,
+    input.inputContract,
+    input.acceptanceCriteria?.join("\n"),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+
+  return CHILD_MEMORY_STORE_DIRECTIVE_RE.test(combined) &&
+    (CHILD_MEMORY_STORE_SIGNAL_RE.test(combined) ||
+      CHILD_DEFERRED_DISCLOSURE_RE.test(combined));
 }
 
 function sanitizeDelegatedRecallText(text: string | undefined): string | undefined {
@@ -226,7 +295,7 @@ function sanitizeDelegatedRecallText(text: string | undefined): string | undefin
   const sanitized = text
     .replace(
       DELEGATION_SECRET_ASSIGNMENT_RE,
-      DELEGATION_SECRET_PLACEHOLDER,
+      (_match, key: string) => `${key}=${DELEGATION_SECRET_VALUE_PLACEHOLDER}`,
     )
     .replace(DELEGATION_SECRET_LITERAL_RE, DELEGATION_SECRET_PLACEHOLDER)
     .replace(
@@ -267,6 +336,124 @@ function sanitizeDelegatedRecallInput(
       ? { spawnDecisionScore: input.spawnDecisionScore }
       : {}),
   };
+}
+
+function prefersLiteralDelegatedOutput(input: ExecuteWithAgentInput): boolean {
+  const combined = [
+    input.task,
+    input.objective,
+    input.inputContract,
+    input.acceptanceCriteria?.join("\n"),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+
+  if (combined.length === 0) return false;
+
+  const hasExactOutputCue =
+    DELEGATION_EXACT_OUTPUT_CUE_RE.test(combined) ||
+    (input.acceptanceCriteria?.some((criterion) =>
+      DELEGATION_EXACT_OUTPUT_ACCEPTANCE_RE.test(criterion),
+    ) ?? false);
+  if (!hasExactOutputCue) return false;
+
+  return !DELEGATION_JSON_OBJECT_OUTPUT_CUE_RE.test(combined);
+}
+
+function stripDelegatedJsonPresentationHints(
+  text: string | undefined,
+): string | undefined {
+  if (!text) return undefined;
+  const stripped = text
+    .replace(DELEGATION_JSON_PRESENTATION_HINT_RE, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/,\s*(?:,|\.|;|:)/g, (match) => match.slice(-1))
+    .trim();
+  return stripped.length > 0 ? stripped : undefined;
+}
+
+function normalizeDelegatedLiteralOutputContract(
+  input: ExecuteWithAgentInput,
+): ExecuteWithAgentInput {
+  if (!prefersLiteralDelegatedOutput(input)) return input;
+
+  const task = stripDelegatedJsonPresentationHints(input.task) ?? input.task;
+  const objective =
+    stripDelegatedJsonPresentationHints(input.objective) ?? input.objective;
+  const inputContract = stripDelegatedJsonPresentationHints(input.inputContract);
+  const acceptanceCriteria = input.acceptanceCriteria
+    ?.map((criterion) => {
+      if (
+        /\b(?:raw\s+)?json\b/i.test(criterion) &&
+        !DELEGATION_JSON_OBJECT_OUTPUT_CUE_RE.test(criterion)
+      ) {
+        return undefined;
+      }
+      return stripDelegatedJsonPresentationHints(criterion) ?? criterion;
+    })
+    .filter((criterion): criterion is string => Boolean(criterion));
+
+  return {
+    task,
+    ...(objective ? { objective } : {}),
+    ...(input.continuationSessionId
+      ? { continuationSessionId: input.continuationSessionId }
+      : {}),
+    ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.tools ? { tools: input.tools } : {}),
+    ...(input.requiredToolCapabilities
+      ? { requiredToolCapabilities: input.requiredToolCapabilities }
+      : {}),
+    ...(inputContract ? { inputContract } : {}),
+    ...(acceptanceCriteria && acceptanceCriteria.length > 0
+      ? { acceptanceCriteria }
+      : {}),
+    ...(typeof input.spawnDecisionScore === "number"
+      ? { spawnDecisionScore: input.spawnDecisionScore }
+      : {}),
+  };
+}
+
+function normalizeDelegatedSessionHandleOutput(params: {
+  readonly childSessionId: string;
+  readonly input: ExecuteWithAgentInput;
+  readonly output: string;
+}): string {
+  const { childSessionId, input, output } = params;
+  const trimmed = output.trim();
+  if (trimmed.length === 0) return output;
+
+  const parsed = parseJsonObjectFromText(trimmed);
+  if (!parsed) return output;
+
+  const combined = [
+    input.task,
+    input.objective,
+    input.inputContract,
+    input.acceptanceCriteria?.join("\n"),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+
+  const shouldExposeChildSessionId =
+    Object.hasOwn(parsed, "childSessionId") ||
+    DELEGATION_SESSION_ID_FIELD_RE.test(combined);
+  const shouldExposeSubagentSessionId =
+    Object.hasOwn(parsed, "subagentSessionId");
+
+  if (!shouldExposeChildSessionId && !shouldExposeSubagentSessionId) {
+    return output;
+  }
+
+  const normalized = { ...parsed };
+  if (shouldExposeChildSessionId) {
+    normalized.childSessionId = childSessionId;
+  }
+  if (shouldExposeSubagentSessionId) {
+    normalized.subagentSessionId = childSessionId;
+  }
+  return JSON.stringify(normalized);
 }
 
 function resolveRecallContinuationSessionId(
@@ -589,7 +776,9 @@ async function executeDelegationTool(params: {
     return JSON.stringify({ error: parsedInput.error });
   }
 
-  const input = sanitizeDelegatedRecallInput(parsedInput.value);
+  const input = normalizeDelegatedLiteralOutputContract(
+    sanitizeDelegatedRecallInput(parsedInput.value),
+  );
   const scopeAssessment = assessDelegationScope(input);
   if (!scopeAssessment.ok) {
     lifecycleEmitter?.emit({
@@ -616,7 +805,6 @@ async function executeDelegationTool(params: {
     });
   }
   const objective = input.objective ?? input.task;
-  const childPrompt = buildDelegatedChildPrompt(input);
   const effectiveTimeoutMs = normalizeDelegationTimeoutMs(input.timeoutMs);
   const resolvedChildScope = resolveDelegatedChildToolScope({
     spec: input,
@@ -663,9 +851,12 @@ async function executeDelegationTool(params: {
     const continuationSessionId = shouldReusePriorChildSession(input)
       ? resolveRecallContinuationSessionId(input, sessionId, subAgentManager)
       : input.continuationSessionId;
+    const childPrompt = buildDelegatedChildPrompt(input, {
+      continuationAuthorized: Boolean(continuationSessionId),
+    });
     childSessionId = await subAgentManager.spawn({
       parentSessionId: sessionId,
-      task: childPrompt,
+      task: objective,
       prompt: childPrompt,
       ...(continuationSessionId
         ? { continuationSessionId }
@@ -791,6 +982,11 @@ async function executeDelegationTool(params: {
     const unresolvedChildFailure =
       failedChildToolCalls > 0 &&
       hasDelegationFailureSignal(childResult.output);
+    const normalizedChildOutput = normalizeDelegatedSessionHandleOutput({
+      childSessionId,
+      input,
+      output: childResult.output,
+    });
 
     if (childResult.success && !unresolvedChildFailure && !childOutputValidationError) {
       lifecycleEmitter?.emit({
@@ -805,7 +1001,7 @@ async function executeDelegationTool(params: {
           durationMs: childResult.durationMs,
           toolCalls: childResult.toolCalls.length,
           providerName: childResult.providerName,
-          output: childResult.output,
+          output: normalizedChildOutput,
           toolCallId,
           verifyRequested: verifier?.shouldVerifySubAgentResult() ?? false,
         },
@@ -815,7 +1011,7 @@ async function executeDelegationTool(params: {
         status: finalStatus,
         subagentSessionId: childSessionId,
         objective,
-        output: childResult.output,
+        output: normalizedChildOutput,
         durationMs: childResult.durationMs,
         toolCalls: childResult.toolCalls.length,
         failedToolCalls: failedChildToolCalls,

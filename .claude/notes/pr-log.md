@@ -39,3 +39,10 @@
 - **What worked:** Confirmed parent memory, manual compaction, owner-token resume, and repeated child-session recall from `~/.agenc/daemon.log`; salvaged planner-emitted direct tool calls into deterministic steps; kept exact child-memory contracts stable across delegated reuse; and persisted the live TUI owner token so operator reconnects keep the same chat session.
 - **What didn't:** The continuity path still spans large executor/delegation files, and endurance confidence still depends on daemon-log-backed replay instead of a dedicated automated soak suite.
 - **Rule added to CLAUDE.md:** no
+
+## PR #[local]: delegated child memory contract hardening
+- **Date:** 2026-03-09
+- **Files changed:** runtime/src/gateway/{tool-handler-factory,tool-handler-factory.test}.ts, runtime/src/llm/{chat-executor-planner,chat-executor.test}.ts, runtime/src/utils/{delegation-validation,delegation-validation.test}.ts, .claude/notes/{gotchas,pr-log,techdebt-2026-03-09}.md
+- **What worked:** Used `~/.agenc/daemon.log` as the authoritative replay source, fixed delegated child mixed-output session-handle rewriting, preserved child store-vs-recall semantics for secret prompts, and made placeholder exact-output contracts validate against real recalled values so parent memory, manual compaction, and subagent continuity all passed in the live `MEMCORE-20260309-1302` session.
+- **What didn't:** Planner turns still rely on salvage because Grok continues to emit tool calls instead of strict planner JSON on some delegated requests, so the planner normalization path remains a medium-risk maintenance hotspot.
+- **Rule added to CLAUDE.md:** no
