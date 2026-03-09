@@ -2644,9 +2644,9 @@ export class DaemonManager {
           toolName: params.toolName,
           args: params.args,
         }),
-      getObservabilitySummary: async (windowMs) =>
+      getObservabilitySummary: async (query) =>
         this._observabilityService
-          ? this._observabilityService.getSummary(windowMs)
+          ? this._observabilityService.getSummary(query)
           : undefined,
       listObservabilityTraces: async (query) =>
         this._observabilityService

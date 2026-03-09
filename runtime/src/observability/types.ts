@@ -94,12 +94,19 @@ export interface ObservabilitySummary {
   readonly topStopReasons: readonly ObservabilityNamedCount[];
 }
 
+export interface ObservabilitySummaryQuery {
+  readonly windowMs?: number;
+  readonly sessionId?: string;
+  readonly sessionIds?: readonly string[];
+}
+
 export interface ObservabilityTraceQuery {
   readonly limit?: number;
   readonly offset?: number;
   readonly search?: string;
   readonly status?: ObservabilityTraceStatus | "all";
   readonly sessionId?: string;
+  readonly sessionIds?: readonly string[];
 }
 
 export interface ObservabilityArtifactResponse {

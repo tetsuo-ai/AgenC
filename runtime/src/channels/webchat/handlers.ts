@@ -17,6 +17,7 @@
 import type { ControlResponse } from '../../gateway/types.js';
 import type { WebChatDeps } from './types.js';
 import type { BackgroundRunControlAction } from '../../gateway/background-run-operator.js';
+import type { ObservabilitySummary } from '../../observability/types.js';
 import { createProgram } from '../../idl.js';
 import { OnChainTaskStatus, taskStatusToString } from '../../task/types.js';
 import { findTaskPda, findEscrowPda } from '../../task/pda.js';
@@ -51,6 +52,7 @@ const SOLANA_NOT_CONFIGURED =
   'On-chain task operations require Solana connection — configure connection.rpcUrl in config';
 const DESKTOP_MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
 const DESKTOP_CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
+const DEFAULT_OBSERVABILITY_WINDOW_MS = 86_400_000;
 
 function parseDesktopResourceOverride(
   value: unknown,
@@ -108,6 +110,46 @@ function createWalletProvider(
     },
   };
   return new AnchorProvider(connection, wallet, { commitment: 'confirmed' });
+}
+
+function emptyObservabilitySummary(windowMs: number): ObservabilitySummary {
+  return {
+    windowMs,
+    traces: {
+      total: 0,
+      completed: 0,
+      errors: 0,
+      open: 0,
+      completenessRate: 1,
+    },
+    events: {
+      providerErrors: 0,
+      toolRejections: 0,
+      routeMisses: 0,
+      completionGateFailures: 0,
+    },
+    topTools: [],
+    topStopReasons: [],
+  };
+}
+
+function listScopedObservabilitySessionIds(
+  request: HandlerRequestContext,
+): readonly string[];
+function listScopedObservabilitySessionIds(
+  request: HandlerRequestContext,
+  requestedSessionId: string | undefined,
+): readonly string[] | 'unauthorized';
+function listScopedObservabilitySessionIds(
+  request: HandlerRequestContext,
+  requestedSessionId?: string,
+): readonly string[] | 'unauthorized' {
+  if (requestedSessionId) {
+    return request.isSessionOwned(requestedSessionId)
+      ? [requestedSessionId]
+      : 'unauthorized';
+  }
+  return [...new Set(request.listOwnedSessionIds())];
 }
 
 // ============================================================================
@@ -1017,6 +1059,7 @@ export async function handleObservabilitySummary(
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
+  request: HandlerRequestContext,
 ): Promise<void> {
   if (!deps.getObservabilitySummary) {
     send({ type: 'error', error: 'Observability API not available', id });
@@ -1026,8 +1069,20 @@ export async function handleObservabilitySummary(
     typeof payload?.windowMs === 'number' && Number.isFinite(payload.windowMs)
       ? payload.windowMs
       : undefined;
+  const scopedSessionIds = listScopedObservabilitySessionIds(request);
+  if (scopedSessionIds.length === 0) {
+    send({
+      type: 'observability.summary',
+      payload: emptyObservabilitySummary(windowMs ?? DEFAULT_OBSERVABILITY_WINDOW_MS),
+      id,
+    });
+    return;
+  }
   await safeAsync(send, id, 'error', 'Failed to load observability summary', async () => {
-    const summary = await deps.getObservabilitySummary!(windowMs);
+    const summary = await deps.getObservabilitySummary!({
+      windowMs,
+      sessionIds: scopedSessionIds,
+    });
     if (!summary) {
       send({ type: 'error', error: 'Observability summary unavailable', id });
       return;
@@ -1051,8 +1106,13 @@ export async function handleObservabilityTraces(
     typeof payload?.sessionId === 'string' && payload.sessionId.length > 0
       ? payload.sessionId
       : undefined;
-  if (sessionId && !request.isSessionOwned(sessionId)) {
+  const scopedSessionIds = listScopedObservabilitySessionIds(request, sessionId);
+  if (scopedSessionIds === 'unauthorized') {
     send({ type: 'error', error: 'Not authorized for target session trace data', id });
+    return;
+  }
+  if (scopedSessionIds.length === 0) {
+    send({ type: 'observability.traces', payload: [], id });
     return;
   }
   await safeAsync(send, id, 'error', 'Failed to list observability traces', async () => {
@@ -1074,6 +1134,7 @@ export async function handleObservabilityTraces(
           ? payload.status
           : undefined,
       sessionId,
+      sessionIds: scopedSessionIds,
     });
     send({ type: 'observability.traces', payload: traces ?? [], id });
   });

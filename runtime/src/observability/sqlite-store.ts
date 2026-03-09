@@ -9,6 +9,7 @@ import type {
   ObservabilityEventRecord,
   ObservabilityLogResponse,
   ObservabilitySummary,
+  ObservabilitySummaryQuery,
   ObservabilityTraceDetail,
   ObservabilityTraceQuery,
   ObservabilityTraceSummary,
@@ -66,6 +67,13 @@ const DEFAULT_DAEMON_LOG_PATH = join(homedir(), ".agenc", "daemon.log");
 const TRACE_ARTIFACT_ROOT = resolvePath(homedir(), ".agenc", "trace-payloads");
 const DEFAULT_LOG_TAIL_BYTES = 256 * 1024;
 const DEFAULT_LOG_LINES = 200;
+
+function normalizeSessionIds(
+  sessionIds: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (!sessionIds) return undefined;
+  return [...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))];
+}
 
 function isCompletedTraceEventName(eventName: string): boolean {
   return (
@@ -181,10 +189,7 @@ export class SqliteObservabilityStore {
       offset: Math.max(0, query.offset ?? 0),
     };
 
-    if (query.sessionId) {
-      where.push("session_id = @sessionId");
-      params.sessionId = query.sessionId;
-    }
+    this.applySessionScope(where, params, query);
     if (query.search) {
       where.push(
         "(trace_id LIKE @search OR session_id LIKE @search OR event_name LIKE @search OR tool_name LIKE @search OR stop_reason LIKE @search)",
@@ -264,10 +269,16 @@ export class SqliteObservabilityStore {
     };
   }
 
-  async getSummary(windowMs = 86_400_000): Promise<ObservabilitySummary> {
+  async getSummary(
+    query: ObservabilitySummaryQuery = {},
+  ): Promise<ObservabilitySummary> {
     const db = await this.getDb();
+    const windowMs = query.windowMs ?? 86_400_000;
     const sinceMs = Date.now() - windowMs;
-    const baseParams = { sinceMs };
+    const baseParams: Record<string, unknown> = { sinceMs };
+    const where = ["timestamp_ms >= @sinceMs"];
+    this.applySessionScope(where, baseParams, query);
+    const whereSql = where.join(" AND ");
 
     const traceCounts = db
       .prepare(`
@@ -278,7 +289,7 @@ export class SqliteObservabilityStore {
             SUM(CASE WHEN event_name LIKE '%.chat.response' OR event_name LIKE '%.command.handled' OR event_name = 'background_run.cycle.working_applied' OR event_name = 'background_run.cycle.terminal_applied' THEN 1 ELSE 0 END) AS completed_count,
             SUM(CASE WHEN event_name LIKE '%.chat.response' OR event_name LIKE '%.command.handled' OR event_name = 'background_run.cycle.working_applied' OR event_name = 'background_run.cycle.terminal_applied' OR level = 'error' THEN 1 ELSE 0 END) AS terminal_count
           FROM observability_events
-          WHERE timestamp_ms >= @sinceMs
+          WHERE ${whereSql}
           GROUP BY trace_id
         )
         SELECT
@@ -295,7 +306,7 @@ export class SqliteObservabilityStore {
       `
         SELECT COUNT(*) AS count
         FROM observability_events
-        WHERE timestamp_ms >= @sinceMs AND event_name LIKE '%.provider.error'
+        WHERE ${whereSql} AND event_name LIKE '%.provider.error'
       `,
       baseParams,
     );
@@ -304,7 +315,7 @@ export class SqliteObservabilityStore {
       `
         SELECT COUNT(*) AS count
         FROM observability_events
-        WHERE timestamp_ms >= @sinceMs AND event_name LIKE '%.executor.tool_rejected'
+        WHERE ${whereSql} AND event_name LIKE '%.executor.tool_rejected'
       `,
       baseParams,
     );
@@ -313,7 +324,7 @@ export class SqliteObservabilityStore {
       `
         SELECT COUNT(*) AS count
         FROM observability_events
-        WHERE timestamp_ms >= @sinceMs AND routing_miss = 1
+        WHERE ${whereSql} AND routing_miss = 1
       `,
       baseParams,
     );
@@ -322,7 +333,7 @@ export class SqliteObservabilityStore {
       `
         SELECT COUNT(*) AS count
         FROM observability_events
-        WHERE timestamp_ms >= @sinceMs
+        WHERE ${whereSql}
           AND event_name LIKE '%.executor.completion_gate_checked'
           AND completion_gate_decision = 'fail'
       `,
@@ -334,7 +345,7 @@ export class SqliteObservabilityStore {
       `
         SELECT tool_name AS name, COUNT(*) AS count
         FROM observability_events
-        WHERE timestamp_ms >= @sinceMs
+        WHERE ${whereSql}
           AND tool_name IS NOT NULL
         GROUP BY tool_name
         ORDER BY count DESC
@@ -347,7 +358,7 @@ export class SqliteObservabilityStore {
       `
         SELECT stop_reason AS name, COUNT(*) AS count
         FROM observability_events
-        WHERE timestamp_ms >= @sinceMs
+        WHERE ${whereSql}
           AND stop_reason IS NOT NULL
         GROUP BY stop_reason
         ORDER BY count DESC
@@ -487,6 +498,43 @@ export class SqliteObservabilityStore {
       name: String(row.name),
       count: Number(row.count ?? 0),
     }));
+  }
+
+  private applySessionScope(
+    where: string[],
+    params: Record<string, unknown>,
+    scope: {
+      readonly sessionId?: string;
+      readonly sessionIds?: readonly string[];
+    },
+  ): void {
+    const sessionId =
+      typeof scope.sessionId === "string" && scope.sessionId.trim().length > 0
+        ? scope.sessionId.trim()
+        : undefined;
+    const sessionIds = normalizeSessionIds(scope.sessionIds);
+
+    if (sessionId) {
+      if (scope.sessionIds !== undefined && !(sessionIds ?? []).includes(sessionId)) {
+        where.push("1 = 0");
+        return;
+      }
+      where.push("session_id = @sessionId");
+      params.sessionId = sessionId;
+      return;
+    }
+
+    if (scope.sessionIds === undefined) return;
+    if (!sessionIds || sessionIds.length === 0) {
+      where.push("1 = 0");
+      return;
+    }
+
+    const placeholders = sessionIds.map((_, index) => `@sessionScope${index}`);
+    where.push(`session_id IN (${placeholders.join(", ")})`);
+    sessionIds.forEach((value, index) => {
+      params[`sessionScope${index}`] = value;
+    });
   }
 
   private toEventRecord(row: SqliteEventRow): ObservabilityEventRecord {
