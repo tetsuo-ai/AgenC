@@ -273,6 +273,62 @@ describe("resolveSessionStatefulContinuation", () => {
     });
   });
 
+  it("preserves compaction trust when the latest anchor only survived via a trusted local compaction boundary", () => {
+    const result = createResult({
+      callUsage: [
+        {
+          callIndex: 1,
+          phase: "initial",
+          provider: "grok",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          beforeBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          afterBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          statefulDiagnostics: {
+            enabled: true,
+            attempted: true,
+            continued: true,
+            store: true,
+            fallbackToStateless: true,
+            previousResponseId: "resp-prev",
+            responseId: "resp-compacted",
+            reconciliationHash: "hash-compacted",
+            previousReconciliationHash: "hash-prev",
+            anchorMatched: false,
+            historyCompacted: true,
+            compactedHistoryTrusted: true,
+            events: [],
+          },
+        },
+      ],
+    });
+
+    expect(resolveSessionStatefulContinuation(result)).toEqual({
+      mode: "persist",
+      anchor: {
+        previousResponseId: "resp-compacted",
+        reconciliationHash: "hash-compacted",
+      },
+      preserveHistoryCompacted: true,
+    });
+  });
+
   it("clears stale anchors after planner-driven turns", () => {
     const result = createResult({
       callUsage: [
@@ -500,6 +556,79 @@ describe("resolveSessionStatefulContinuation", () => {
     expect(
       session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
     ).toBeUndefined();
+  });
+
+  it("keeps persisted compaction trust when the latest anchor relied on a trusted compaction boundary", () => {
+    const session: Session = {
+      id: "session-2",
+      workspaceId: "workspace-1",
+      history: [],
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      metadata: {
+        [SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY]: {
+          previousResponseId: "resp-prev",
+          reconciliationHash: "hash-prev",
+        },
+        [SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY]: true,
+      },
+    };
+    const result = createResult({
+      callUsage: [
+        {
+          callIndex: 1,
+          phase: "initial",
+          provider: "grok",
+          finishReason: "stop",
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          beforeBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          afterBudget: {
+            messageCount: 2,
+            systemMessages: 1,
+            userMessages: 1,
+            assistantMessages: 0,
+            toolMessages: 0,
+            estimatedChars: 100,
+            systemPromptChars: 50,
+          },
+          statefulDiagnostics: {
+            enabled: true,
+            attempted: true,
+            continued: true,
+            store: true,
+            fallbackToStateless: true,
+            previousResponseId: "resp-prev",
+            responseId: "resp-next",
+            reconciliationHash: "hash-next",
+            previousReconciliationHash: "hash-prev",
+            anchorMatched: false,
+            historyCompacted: true,
+            compactedHistoryTrusted: true,
+            events: [],
+          },
+        },
+      ],
+    });
+
+    persistSessionStatefulContinuation(session, result);
+
+    expect(
+      session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY],
+    ).toEqual({
+      previousResponseId: "resp-next",
+      reconciliationHash: "hash-next",
+    });
+    expect(
+      session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY],
+    ).toBe(true);
   });
 });
 

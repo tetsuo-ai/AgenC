@@ -422,6 +422,7 @@ export function resolveSessionStatefulContinuation(
   | {
     readonly mode: "persist";
     readonly anchor: LLMStatefulResumeAnchor;
+    readonly preserveHistoryCompacted?: boolean;
   }
   | {
     readonly mode: "clear";
@@ -446,6 +447,10 @@ export function resolveSessionStatefulContinuation(
   const responseId = latestLineageDiagnostics?.responseId?.trim();
   const reconciliationHash =
     latestLineageDiagnostics?.reconciliationHash?.trim();
+  const preserveHistoryCompacted =
+    latestLineageDiagnostics?.historyCompacted === true &&
+    latestLineageDiagnostics?.continued === true &&
+    latestLineageDiagnostics?.anchorMatched === false;
   if (responseId && responseId.length > 0) {
     return {
       mode: "persist",
@@ -453,6 +458,7 @@ export function resolveSessionStatefulContinuation(
         previousResponseId: responseId,
         ...(reconciliationHash ? { reconciliationHash } : {}),
       },
+      ...(preserveHistoryCompacted ? { preserveHistoryCompacted: true } : {}),
     };
   }
 
@@ -470,6 +476,10 @@ export function persistSessionStatefulContinuation(
   if (continuation.mode === "persist") {
     session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY] =
       continuation.anchor;
+    if (continuation.preserveHistoryCompacted) {
+      session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] = true;
+      return;
+    }
     delete session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY];
     return;
   }
