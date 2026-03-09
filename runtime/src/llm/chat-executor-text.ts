@@ -320,10 +320,35 @@ function extractExactResponseLiteral(messageText: string): string | undefined {
     .slice(anchorMatch.index + anchorMatch[0].length)
     .trim();
   if (!remainder) {
+    return extractExactAliasLiteral(messageText);
+  }
+
+  const normalized = normalizeExactLiteralCandidate(remainder);
+  if (normalized && !GENERIC_EXACT_LITERAL_RE.test(normalized)) {
+    return normalized;
+  }
+
+  return extractExactAliasLiteral(messageText);
+}
+
+function extractExactAliasLiteral(messageText: string): string | undefined {
+  const aliasMatch =
+    /\b(?:return|reply|respond|output|answer)\b[\s\S]{0,160}?\bas\s+("[^"]+"|'[^']+'|`[^`]+`|[^\n]+?)(?:[.!?](?:\s|$)|$)/i.exec(
+      messageText,
+    );
+  if (!aliasMatch) {
+    return undefined;
+  }
+  return normalizeExactLiteralCandidate(aliasMatch[1] ?? "");
+}
+
+function normalizeExactLiteralCandidate(candidate: string): string | undefined {
+  const trimmedCandidate = candidate.trim();
+  if (trimmedCandidate.length === 0) {
     return undefined;
   }
 
-  const openingQuote = remainder[0];
+  const openingQuote = trimmedCandidate[0];
   const quotePairs = new Map<string, string>([
     ['"', '"'],
     ["'", "'"],
@@ -332,14 +357,17 @@ function extractExactResponseLiteral(messageText: string): string | undefined {
   ]);
   const closingQuote = quotePairs.get(openingQuote);
   if (closingQuote) {
-    const closingIndex = remainder.indexOf(closingQuote, 1);
+    const closingIndex = trimmedCandidate.indexOf(closingQuote, 1);
     if (closingIndex > 1) {
-      return remainder.slice(1, closingIndex).trim();
+      const quoted = trimmedCandidate.slice(1, closingIndex).trim();
+      if (quoted.length > 0 && !GENERIC_EXACT_LITERAL_RE.test(quoted)) {
+        return quoted;
+      }
     }
     return undefined;
   }
 
-  const unquoted = remainder
+  const unquoted = trimmedCandidate
     .replace(/\s+/g, " ")
     .replace(
       /\s+(?:and|with)\s+(?:nothing\s+else|no\s+extra\s+(?:text|words)|no\s+other\s+text)\b[\s\S]*$/i,
@@ -347,17 +375,23 @@ function extractExactResponseLiteral(messageText: string): string | undefined {
     )
     .replace(/[.!?]+$/, "")
     .trim();
-  if (unquoted.length > 0) {
+  if (unquoted.length > 0 && !GENERIC_EXACT_LITERAL_RE.test(unquoted)) {
     return unquoted;
   }
 
   return undefined;
 }
 
+const GENERIC_EXACT_LITERAL_RE =
+  /^(?:the\s+)?(?:child\s+answer|answer|result|memorized\s+token|memorised\s+token|token)$/i;
+
 export function reconcileExactResponseContract(
   content: string,
   toolCalls: readonly ToolCallRecord[],
   messageText: string,
+  options?: {
+    readonly forceLiteralWhenNoToolEvidence?: boolean;
+  },
 ): string {
   if (!content) return content;
   const literal = extractExactResponseLiteral(messageText);
@@ -386,6 +420,29 @@ export function reconcileExactResponseContract(
   const delegatedOutput =
     toolCalls.length === 1 ? extractDelegatedToolOutput(toolCalls[0]!) : undefined;
   if (delegatedOutput === literal) {
+    return literal;
+  }
+  if (
+    delegatedOutput &&
+    trimmed === delegatedOutput &&
+    literal.endsWith(delegatedOutput) &&
+    literal.length > delegatedOutput.length &&
+    /^[A-Z0-9_.:-]+[=|:/-]$/i.test(
+      literal.slice(0, literal.length - delegatedOutput.length),
+    )
+  ) {
+    return literal;
+  }
+
+  if (
+    toolCalls.length === 0 &&
+    !hasExplicitNonComplianceSignal(trimmed) &&
+    !looksLikeExecutionPlan(trimmed) &&
+    (
+      options?.forceLiteralWhenNoToolEvidence === true ||
+      EXACT_CONTRACT_ACK_RE.test(trimmed)
+    )
+  ) {
     return literal;
   }
 
@@ -528,9 +585,16 @@ export function reconcileTerminalFailureContent(params: {
 
 const EXPLICIT_FAILURE_SIGNAL_RE =
   /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
+const EXPLICIT_NON_COMPLIANCE_SIGNAL_RE =
+  /\b(?:can't|cannot|unable|won't|will not|refuse|decline|sorry)\b/i;
 
 function hasExplicitFailureSignal(value: string): boolean {
   return EXPLICIT_FAILURE_SIGNAL_RE.test(value);
+}
+
+function hasExplicitNonComplianceSignal(value: string): boolean {
+  return hasExplicitFailureSignal(value) ||
+    EXPLICIT_NON_COMPLIANCE_SIGNAL_RE.test(value);
 }
 
 function appendFailureReason(
@@ -570,6 +634,8 @@ const LOW_INFORMATION_TOOL_COMPLETION_RE =
   /^(?:complete(?:d)?|ran|executed)\s+(?:[a-z0-9_.-]+\s*){1,4}[.!]?$/i;
 const PASS_STATUS_RE = /^pass$/i;
 const UNAVAILABLE_VALUE_RE = /\b(?:n\/a|none|null|undefined)\b/i;
+const EXACT_CONTRACT_ACK_RE =
+  /^(?:(?:i(?:'ve| have)\s+)?(?:memorized|memorised|stored|saved|remembered|noted|ack(?:nowledged)?|understood)|done|ok(?:ay)?|complete(?:d)?|success)(?:\s+(?:it|that|the token|for later recall))?[.!]?$/i;
 
 function isLowInformationCompletion(content: string): boolean {
   const lines = content

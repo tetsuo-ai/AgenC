@@ -1065,7 +1065,7 @@ describe("createSessionToolHandler", () => {
     );
   });
 
-  it("reuses the latest child session and strips leaked recall answers from execute_with_agent", async () => {
+  it("reuses the latest child session and rewrites leaked recall answers into generic recall guidance", async () => {
     const subAgentManager = {
       findLatestSuccessfulSessionId: vi.fn(() => "subagent:child-memory"),
       spawn: vi.fn(async () => "subagent:child-memory"),
@@ -1127,6 +1127,56 @@ describe("createSessionToolHandler", () => {
     };
     expect(spawnConfig.task).not.toContain("NEON-AXIS-17");
     expect(spawnConfig.prompt).not.toContain("NEON-AXIS-17");
+    expect(spawnConfig.prompt).toContain("return exactly the memorized token");
+    expect(spawnConfig.prompt).not.toContain("TOKEN=...");
+  });
+
+  it("does not sanitize child store turns that establish the memorized value", async () => {
+    const subAgentManager = {
+      findLatestSuccessfulSessionId: vi.fn(() => undefined),
+      spawn: vi.fn(async () => "subagent:child-memory-store"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-memory-store",
+        output: "CHILD-STORED-F2",
+        success: true,
+        durationMs: 35,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-memory-store",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 50,
+        task: "Store the memorized token",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["desktop.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    await handler("execute_with_agent", {
+      task: "Child endurance F2 exact task",
+      objective:
+        "In the child agent only, memorize token TOKEN=NEON-AXIS-17 for later recall, do not reveal it now, and answer exactly CHILD-STORED-F2.",
+    });
+
+    const spawnConfig = subAgentManager.spawn.mock.calls[0]?.[0] as {
+      prompt: string;
+    };
+    expect(spawnConfig.prompt).toContain("TOKEN=NEON-AXIS-17");
+    expect(spawnConfig.prompt).not.toContain("the memorized token");
   });
 
   it("returns failure when delegated output includes unresolved denied commands", async () => {

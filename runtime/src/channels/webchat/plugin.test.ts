@@ -332,15 +332,23 @@ describe("WebChatChannel", () => {
   describe("chat.message", () => {
     it("should deliver chat message to gateway pipeline", () => {
       const send = vi.fn<(response: ControlResponse) => void>();
+      const requestId = "req-chat-1";
 
       channel.handleMessage(
         "client_1",
         "chat.message",
-        msg("chat.message", { content: "Hello agent!" }),
+        msg("chat.message", { content: "Hello agent!" }, requestId),
         send,
       );
 
       expect(context.onMessage).toHaveBeenCalledTimes(1);
+      expect(findResponse(send, "chat.session", requestId)).toEqual(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            sessionId: expect.any(String),
+          }),
+        }),
+      );
       const gatewayMsg = vi.mocked(context.onMessage).mock.calls[0][0];
       expect(gatewayMsg.channel).toBe("webchat");
       expect(gatewayMsg.content).toBe("Hello agent!");

@@ -214,6 +214,7 @@ import {
   buildPlannerMessages,
   buildPlannerExecutionContext,
   parsePlannerPlan,
+  salvagePlannerToolCallsAsPlan,
   validatePlannerGraph,
   extractExplicitSubagentOrchestrationRequirements,
   validateExplicitSubagentOrchestrationRequirements,
@@ -486,6 +487,11 @@ export class ChatExecutor {
       ctx.finalContent,
       ctx.allToolCalls,
       ctx.messageText,
+      {
+        forceLiteralWhenNoToolEvidence:
+          plannerSummary?.routeReason === "exact_response_turn" ||
+          plannerSummary?.routeReason === "dialogue_memory_turn",
+      },
     );
     ctx.finalContent = reconcileStructuredToolOutcome(
       ctx.finalContent,
@@ -2011,10 +2017,22 @@ export class ChatExecutor {
       ctx.plannedFanout = 0;
       ctx.plannedDependencyDepth = 0;
 
-      const plannerParse = parsePlannerPlan(
+      let plannerParse = parsePlannerPlan(
         plannerResponse.content,
         explicitOrchestrationRequirements,
       );
+      if (!plannerParse.plan && plannerResponse.toolCalls.length > 0) {
+        const salvagedPlannerParse = salvagePlannerToolCallsAsPlan(
+          plannerResponse.toolCalls,
+        );
+        plannerParse = {
+          plan: salvagedPlannerParse.plan,
+          diagnostics: [
+            ...plannerParse.diagnostics,
+            ...salvagedPlannerParse.diagnostics,
+          ],
+        };
+      }
       ctx.plannerSummaryState.diagnostics.push(...plannerParse.diagnostics);
       const plannerPlan = plannerParse.plan;
       if (!plannerPlan) {

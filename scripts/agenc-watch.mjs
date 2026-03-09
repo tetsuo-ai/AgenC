@@ -1,8 +1,18 @@
 import readline from "node:readline";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import WebSocket from "../node_modules/ws/wrapper.mjs";
 
 const wsUrl = process.env.AGENC_WATCH_WS_URL ?? "ws://127.0.0.1:3100";
 const clientKey = process.env.AGENC_WATCH_CLIENT_KEY ?? "tmux-live-watch";
+const watchStateFile =
+  process.env.AGENC_WATCH_STATE_FILE ??
+  path.join(
+    os.homedir(),
+    ".agenc",
+    `watch-state-${clientKey.replace(/[^a-zA-Z0-9._-]+/g, "_")}.json`,
+  );
 const reconnectMinDelayMs = 1_000;
 const reconnectMaxDelayMs = 5_000;
 const maxEvents = 80;
@@ -76,6 +86,7 @@ let transientStatus = "Booting watch client…";
 let lastStatus = null;
 let lastUsageSummary = null;
 let lastActivityAt = null;
+let ownerToken = loadPersistedOwnerToken();
 const queuedOperatorInputs = [];
 
 const pendingFrames = [];
@@ -107,6 +118,37 @@ function stable(value) {
   } catch {
     return String(value);
   }
+}
+
+function loadPersistedOwnerToken() {
+  try {
+    const raw = fs.readFileSync(watchStateFile, "utf8");
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.clientKey === clientKey &&
+      typeof parsed.ownerToken === "string" &&
+      parsed.ownerToken.trim().length > 0
+    ) {
+      return parsed.ownerToken.trim();
+    }
+  } catch {}
+  return null;
+}
+
+function persistOwnerToken(nextOwnerToken) {
+  try {
+    fs.mkdirSync(path.dirname(watchStateFile), { recursive: true });
+    fs.writeFileSync(
+      watchStateFile,
+      `${JSON.stringify({
+        clientKey,
+        ownerToken: nextOwnerToken,
+        updatedAt: Date.now(),
+      }, null, 2)}\n`,
+    );
+  } catch {}
 }
 
 function sanitizeLargeText(value) {
@@ -491,6 +533,14 @@ function setTransientStatus(value) {
   scheduleRender();
 }
 
+function authPayload(extra = {}) {
+  const payload = { clientKey, ...extra };
+  if (ownerToken) {
+    payload.ownerToken = ownerToken;
+  }
+  return payload;
+}
+
 function send(type, payload) {
   const frame = JSON.stringify({ type, payload, id: nextId(type) });
   if (!isOpen) {
@@ -697,7 +747,7 @@ function sendBootstrapProbe() {
   if (!isOpen || shuttingDown) {
     return;
   }
-  send("chat.sessions", { clientKey });
+  send("chat.sessions", authPayload());
 }
 
 function scheduleBootstrap(reason = "restoring session") {
@@ -1200,6 +1250,12 @@ function attachSocket(socket) {
         runPhase = null;
         markBootstrapReady(`session ready: ${sessionId}`);
         break;
+      case "chat.owner":
+        if (typeof msg.payload?.ownerToken === "string" && msg.payload.ownerToken.trim()) {
+          ownerToken = msg.payload.ownerToken.trim();
+          persistOwnerToken(ownerToken);
+        }
+        break;
       case "chat.resumed":
         sessionId = msg.payload?.sessionId ?? sessionId;
         markBootstrapReady(`session resumed: ${sessionId}`);
@@ -1210,10 +1266,10 @@ function attachSocket(socket) {
         if (target?.sessionId) {
           sessionId = target.sessionId;
           setTransientStatus(`resuming session ${sessionId}`);
-          send("chat.resume", { sessionId: target.sessionId, clientKey });
+          send("chat.resume", authPayload({ sessionId: target.sessionId }));
         } else {
           setTransientStatus("no existing session; creating a new one");
-          send("chat.new", { clientKey });
+          send("chat.new", authPayload());
         }
         break;
       }
@@ -1446,7 +1502,7 @@ function dispatchOperatorInput(value, { replayed = false } = {}) {
     bootstrapAttempts = 0;
     clearBootstrapTimer();
     pushEvent("operator", "New Session", "Requested a fresh chat session.", "teal");
-    send("chat.new", { clientKey });
+    send("chat.new", authPayload());
     return true;
   }
 
@@ -1493,7 +1549,7 @@ function dispatchOperatorInput(value, { replayed = false } = {}) {
       return maybeQueue("session bootstrap not complete");
     }
     pushEvent("operator", "Cancel Chat", `Cancelling chat for ${clientKey}.`, "teal");
-    send("chat.cancel", { clientKey });
+    send("chat.cancel", authPayload());
     return true;
   }
 
@@ -1537,7 +1593,7 @@ function dispatchOperatorInput(value, { replayed = false } = {}) {
   runState = "starting";
   runPhase = "queued";
   pushEvent("you", "Prompt", value, "teal");
-  send("chat.message", { content: value, clientKey });
+  send("chat.message", authPayload({ content: value }));
   return true;
 }
 
