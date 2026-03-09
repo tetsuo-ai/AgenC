@@ -13,6 +13,11 @@ import {
   isResearchLikeText,
   isProviderNativeToolName,
 } from "../llm/provider-native-search.js";
+import {
+  extractExactOutputExpectation,
+  matchesExactOutputExpectation,
+  tryParseJsonObject,
+} from "./delegated-contract-normalization.js";
 
 export interface DelegationContractSpec {
   readonly task?: string;
@@ -68,7 +73,6 @@ export interface ResolvedDelegatedChildToolScope
 }
 
 const EMPTY_DELEGATION_OUTPUT_VALUES = new Set(["null", "undefined", "{}", "[]"]);
-const DELEGATION_MEMORIZED_TOKEN_PLACEHOLDER = "<memorized_token>";
 const DELEGATION_FILE_ACTION_RE =
   /\b(create|write|edit|save|scaffold|implement(?:ation)?|generate|modify|patch|update|add|build)\b/i;
 const DELEGATION_FILE_TARGET_RE =
@@ -398,39 +402,6 @@ function isDelegationToolNameLike(toolName: string): boolean {
     toolName.startsWith("agenc.subagent.");
 }
 
-export function tryParseJsonObject(
-  candidate: string,
-): Record<string, unknown> | undefined {
-  try {
-    const parsed = JSON.parse(candidate) as unknown;
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-    ) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    // Fall through.
-  }
-  return undefined;
-}
-
-export function parseJsonObjectFromText(
-  content: string,
-): Record<string, unknown> | undefined {
-  const trimmed = content.trim();
-  const direct = tryParseJsonObject(trimmed);
-  if (direct) return direct;
-
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    return tryParseJsonObject(trimmed.slice(start, end + 1));
-  }
-  return undefined;
-}
-
 export function extractDelegationTokens(value: string): string[] {
   const matches = value.toLowerCase().match(/[a-z0-9_.-]+/g) ?? [];
   const deduped = new Set<string>();
@@ -439,50 +410,6 @@ export function extractDelegationTokens(value: string): string[] {
     deduped.add(match);
   }
   return [...deduped];
-}
-
-function extractExactOutputExpectation(criterion: string): string | undefined {
-  const trimmed = criterion.trim().replace(/[.;:]+$/, "");
-  const patterns = [
-    /\b(?:child\s+)?(?:output|response|reply)\s+(?:is\s+)?exactly\s+(.+)$/i,
-    /\b(?:child\s+)?(?:responds?|replies?)\s+(?:with\s+)?exactly\s+(.+)$/i,
-    /^\s*exact(?:\s+output)?\s+(.+)$/i,
-  ];
-  for (const pattern of patterns) {
-    const match = pattern.exec(trimmed);
-    if (!match) continue;
-    const expected = match[1]
-      ?.replace(/\s+or\s+equivalent.*$/i, "")
-      .trim()
-      .replace(/^["'`]|["'`]$/g, "");
-    if (expected && expected.length > 0) {
-      return expected;
-    }
-  }
-  return undefined;
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function matchesExactOutputExpectation(
-  expected: string,
-  output: string,
-): boolean {
-  const normalizedOutput = output.trim().replace(/^["'`]|["'`]$/g, "");
-  if (normalizedOutput === expected) return true;
-  if (!expected.includes(DELEGATION_MEMORIZED_TOKEN_PLACEHOLDER)) {
-    return false;
-  }
-
-  const pattern = new RegExp(
-    `^${escapeRegex(expected).replace(
-      escapeRegex(DELEGATION_MEMORIZED_TOKEN_PLACEHOLDER),
-      "[A-Z0-9][A-Z0-9|=._:-]*(?:-[A-Z0-9|=._:-]+)*",
-    )}$`,
-  );
-  return pattern.test(normalizedOutput);
 }
 
 function shouldSkipAcceptanceEvidenceCriterion(criterion: string): boolean {

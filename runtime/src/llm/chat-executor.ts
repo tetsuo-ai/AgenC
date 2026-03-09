@@ -45,7 +45,6 @@ import type {
 import type {
   Pipeline,
   PipelineExecutionEvent,
-  PipelinePlannerContext,
   PipelineResult,
 } from "../workflow/pipeline.js";
 import {
@@ -87,10 +86,7 @@ import type {
   FallbackResult,
   PlannerDeterministicToolStepIntent,
   PlannerSubAgentTaskStepIntent,
-  PlannerPlan,
-  SubagentVerifierDecision,
   ResolvedSubagentVerifierConfig,
-  PlannerPipelineVerifierLoopInput,
   ToolLoopState,
   ToolCallAction,
   ExecutionContext,
@@ -213,8 +209,6 @@ import {
   assessPlannerDecision,
   buildPlannerMessages,
   buildPlannerExecutionContext,
-  parsePlannerPlan,
-  salvagePlannerToolCallsAsPlan,
   validatePlannerGraph,
   extractExplicitSubagentOrchestrationRequirements,
   validateExplicitSubagentOrchestrationRequirements,
@@ -228,17 +222,15 @@ import {
   isPipelineStopReasonHint,
   buildPlannerSynthesisMessages,
   ensureSubagentProvenanceCitations,
-  pipelineResultToToolCalls,
   resolveDelegationBanditArm,
   assessAndRecordDelegationDecision,
   mapPlannerStepsToPipelineSteps,
 } from "./chat-executor-planner.js";
+import { normalizePlannerResponse } from "./chat-executor-planner-normalization.js";
 import {
-  evaluateSubagentDeterministicChecks,
-  buildSubagentVerifierMessages,
-  parseSubagentVerifierDecision,
-  mergeSubagentVerifierDecisions,
-} from "./chat-executor-verifier.js";
+  executePlannerPipelineWithVerifierLoop,
+  runSubagentVerifierRound,
+} from "./chat-executor-planner-verifier-loop.js";
 // ---------------------------------------------------------------------------
 // Re-exports — preserve backward-compatible import paths for consumers
 // ---------------------------------------------------------------------------
@@ -1043,70 +1035,6 @@ export class ChatExecutor {
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
     }
-  }
-
-  private async runSubagentVerifier(
-    ctx: ExecutionContext,
-    input: {
-      plannerPlan: PlannerPlan;
-      subagentSteps: readonly PlannerSubAgentTaskStepIntent[];
-      pipelineResult: PipelineResult;
-      plannerContext: PipelinePlannerContext;
-      round: number;
-    },
-  ): Promise<SubagentVerifierDecision> {
-    const deterministic = evaluateSubagentDeterministicChecks(
-      input.subagentSteps,
-      input.pipelineResult,
-      input.plannerContext,
-    );
-    const verifierMessages = buildSubagentVerifierMessages(
-      ctx.systemPrompt,
-      ctx.messageText,
-      input.plannerPlan,
-      input.subagentSteps,
-      input.pipelineResult,
-      input.plannerContext,
-      deterministic,
-    );
-    const verifierSections: PromptBudgetSection[] = [
-      "system_anchor",
-      "system_runtime",
-      "user",
-    ];
-    const verifierResponse = await this.callModelForPhase(ctx, {
-      phase: "planner_verifier",
-      callMessages: verifierMessages,
-      callSections: verifierSections,
-      statefulSessionId: ctx.sessionId,
-      statefulResumeAnchor: ctx.stateful?.resumeAnchor,
-      statefulHistoryCompacted: ctx.stateful?.historyCompacted,
-      budgetReason:
-        "Planner verifier blocked by max model recalls per request budget",
-    });
-    if (!verifierResponse) {
-      return deterministic;
-    }
-    const modelDecision = parseSubagentVerifierDecision(
-      verifierResponse.content,
-      input.subagentSteps,
-    );
-    if (!modelDecision) {
-      ctx.plannerSummaryState.diagnostics.push({
-        category: "parse",
-        code: "subagent_verifier_parse_failed",
-        message:
-          "Sub-agent verifier returned non-JSON or malformed schema; using deterministic verifier fallback",
-        details: {
-          round: input.round,
-        },
-      });
-      return deterministic;
-    }
-    return mergeSubagentVerifierDecisions(
-      deterministic,
-      modelDecision,
-    );
   }
 
   private async initializeExecutionContext(
@@ -2017,22 +1945,11 @@ export class ChatExecutor {
       ctx.plannedFanout = 0;
       ctx.plannedDependencyDepth = 0;
 
-      let plannerParse = parsePlannerPlan(
-        plannerResponse.content,
-        explicitOrchestrationRequirements,
-      );
-      if (!plannerParse.plan && plannerResponse.toolCalls.length > 0) {
-        const salvagedPlannerParse = salvagePlannerToolCallsAsPlan(
-          plannerResponse.toolCalls,
-        );
-        plannerParse = {
-          plan: salvagedPlannerParse.plan,
-          diagnostics: [
-            ...plannerParse.diagnostics,
-            ...salvagedPlannerParse.diagnostics,
-          ],
-        };
-      }
+      const plannerParse = normalizePlannerResponse({
+        content: plannerResponse.content,
+        toolCalls: plannerResponse.toolCalls,
+        repairRequirements: explicitOrchestrationRequirements,
+      });
       ctx.plannerSummaryState.diagnostics.push(...plannerParse.diagnostics);
       const plannerPlan = plannerParse.plan;
       if (!plannerPlan) {
@@ -2383,17 +2300,31 @@ export class ChatExecutor {
           verifierRounds,
           verificationDecision,
           pipelineResult,
-        } = await this.executePlannerPipelineWithVerifier({
+        } = await executePlannerPipelineWithVerifierLoop({
           pipeline,
           plannerPlan,
           subagentSteps,
           deterministicSteps,
           plannerExecutionContext,
           shouldRunSubagentVerifier,
+          verifierConfig: this.subagentVerifierConfig,
           plannerSummaryState: ctx.plannerSummaryState,
           checkRequestTimeout: (stage: string) => this.checkRequestTimeout(ctx, stage),
           runPipelineWithGlobalTimeout: (p: Pipeline) => this.runPipelineWithTimeout(ctx, p),
-          runSubagentVerifierRound: (input) => this.runSubagentVerifier(ctx, input),
+          runSubagentVerifierRound: (input) =>
+            runSubagentVerifierRound({
+              systemPrompt: ctx.systemPrompt,
+              messageText: ctx.messageText,
+              sessionId: ctx.sessionId,
+              stateful: ctx.stateful,
+              plannerDiagnostics: ctx.plannerSummaryState.diagnostics,
+              plannerPlan: input.plannerPlan,
+              subagentSteps: input.subagentSteps,
+              pipelineResult: input.pipelineResult,
+              plannerContext: input.plannerContext,
+              round: input.round,
+              callModelForPhase: (phaseInput) => this.callModelForPhase(ctx, phaseInput),
+            }),
           appendToolRecord: (record: ToolCallRecord) => this.appendToolRecord(ctx, record),
           setStopReason: (reason: LLMPipelineStopReason, detail?: string) => this.setStopReason(ctx, reason, detail),
         });
@@ -2595,114 +2526,6 @@ export class ChatExecutor {
       });
       return;
     }
-  }
-
-  private async executePlannerPipelineWithVerifier(
-    input: PlannerPipelineVerifierLoopInput,
-  ): Promise<{
-    verifierRounds: number;
-    verificationDecision?: SubagentVerifierDecision;
-    pipelineResult?: PipelineResult;
-  }> {
-    let verifierRounds = 0;
-    let verificationDecision: SubagentVerifierDecision | undefined;
-    let pipelineResult: PipelineResult | undefined;
-
-    while (true) {
-      if (input.checkRequestTimeout("planner pipeline execution")) break;
-      const nextPipelineResult = await input.runPipelineWithGlobalTimeout(
-        input.pipeline,
-      );
-      if (!nextPipelineResult) break;
-      pipelineResult = nextPipelineResult;
-
-      for (const record of pipelineResultToToolCalls(
-        input.plannerPlan.steps,
-        nextPipelineResult,
-      )) {
-        input.appendToolRecord(record);
-      }
-      input.plannerSummaryState.deterministicStepsExecuted =
-        input.deterministicSteps.filter((step) =>
-          typeof nextPipelineResult.context.results[step.name] === "string"
-        ).length;
-
-      if (
-        !input.shouldRunSubagentVerifier ||
-        nextPipelineResult.status !== "completed"
-      ) {
-        break;
-      }
-
-      verifierRounds++;
-      verificationDecision = await input.runSubagentVerifierRound({
-        plannerPlan: input.plannerPlan,
-        subagentSteps: input.subagentSteps,
-        pipelineResult: nextPipelineResult,
-        plannerContext: input.plannerExecutionContext,
-        round: verifierRounds,
-      });
-      input.plannerSummaryState.subagentVerification = {
-        enabled: true,
-        performed: true,
-        rounds: verifierRounds,
-        overall: verificationDecision.overall,
-        confidence: verificationDecision.confidence,
-        unresolvedItems: [...verificationDecision.unresolvedItems],
-      };
-
-      const belowConfidence =
-        verificationDecision.confidence <
-        this.subagentVerifierConfig.minConfidence;
-      const retryable =
-        verificationDecision.steps.some((step) => step.retryable);
-      const canRetry =
-        verifierRounds < this.subagentVerifierConfig.maxRounds &&
-        (
-          verificationDecision.overall === "retry" ||
-          belowConfidence
-        ) &&
-        retryable;
-
-      if (canRetry) {
-        input.plannerSummaryState.diagnostics.push({
-          category: "policy",
-          code: "subagent_verifier_retry",
-          message:
-            "Sub-agent verifier requested retry; rerunning planner pipeline",
-          details: {
-            round: verifierRounds,
-            maxRounds: this.subagentVerifierConfig.maxRounds,
-            confidence: Number(verificationDecision.confidence.toFixed(3)),
-            minConfidence: Number(
-              this.subagentVerifierConfig.minConfidence.toFixed(3),
-            ),
-          },
-        });
-        continue;
-      }
-
-      if (
-        verificationDecision.overall !== "pass" ||
-        belowConfidence
-      ) {
-        const unresolvedPreview =
-          verificationDecision.unresolvedItems.slice(0, 3).join("; ");
-        input.setStopReason(
-          "validation_error",
-          unresolvedPreview.length > 0
-            ? `Sub-agent verifier rejected child outputs: ${unresolvedPreview}`
-            : "Sub-agent verifier rejected child outputs",
-        );
-      }
-      break;
-    }
-
-    return {
-      verifierRounds,
-      verificationDecision,
-      pipelineResult,
-    };
   }
 
   /** Get accumulated token usage for a session. */

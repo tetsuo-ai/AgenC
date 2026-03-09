@@ -39,28 +39,19 @@ import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import {
   EVAL_REPLY_MAX_CHARS,
-  logExecutionTraceEvent,
   logProviderPayloadTraceEvent,
   logTraceErrorEvent,
   logTraceEvent,
   resolveTraceLoggingConfig,
   sanitizeLifecyclePayloadData,
-  summarizeCallUsageForTrace,
   summarizeGatewayMessageForTrace,
-  summarizeHistoryForTrace,
-  summarizeInitialRequestShape,
-  summarizeRoleCounts,
   summarizeTraceValue,
-  summarizeToolArgsForLog,
-  summarizeToolFailureForLog,
   summarizeToolResultForTrace,
-  summarizeToolRoutingDecisionForTrace,
-  summarizeToolRoutingSummaryForTrace,
   truncateToolLogText,
   buildSubagentTraceId,
   createTurnTraceId,
 } from "./daemon-trace.js";
-import type { ResolvedTraceLoggingConfig, ToolFailureSummary } from "./daemon-trace.js";
+import type { ResolvedTraceLoggingConfig } from "./daemon-trace.js";
 import { WebChatChannel } from "../channels/webchat/plugin.js";
 import { TelegramChannel } from "../channels/telegram/plugin.js";
 import { WorkspaceManager, WorkspaceValidationError } from "./workspace.js";
@@ -88,16 +79,11 @@ import type {
   ToolHandler,
   StreamProgressCallback,
   LLMMessage,
-  LLMStatefulResumeAnchor,
 } from "../llm/types.js";
 import { type Tool } from "../tools/types.js";
-import { classifyLLMFailure } from "../llm/errors.js";
-import { toPipelineStopReason } from "../llm/policy.js";
-import type { LLMPipelineStopReason } from "../llm/policy.js";
 import type { GatewayMessage } from "./message.js";
 import { createGatewayMessage } from "./message.js";
 import { ChatExecutor } from "../llm/chat-executor.js";
-import type { ChatExecutionTraceEvent } from "../llm/chat-executor-types.js";
 import {
   didToolCallFail,
   normalizeToolCallArguments,
@@ -110,14 +96,15 @@ import {
   supportsProviderNativeWebSearch,
 } from "../llm/provider-native-search.js";
 import { resolveGatewayStatefulResponses } from "./llm-stateful-defaults.js";
+import {
+  summarizeLLMFailureForSurface,
+} from "./daemon-llm-failure.js";
 import type {
   DeterministicPipelineExecutor,
   SkillInjector,
   MemoryRetriever,
   ToolCallRecord,
   ChatToolRoutingSummary,
-  ChatExecuteParams,
-  ChatExecutorResult,
 } from "../llm/chat-executor.js";
 import {
   DelegationBanditPolicyTuner,
@@ -167,6 +154,14 @@ import { createEmbeddingProvider } from "../memory/embeddings.js";
 import { InMemoryVectorStore } from "../memory/vector-store.js";
 import { SemanticMemoryRetriever } from "../memory/retriever.js";
 import {
+  clearWebSessionRuntimeState,
+  hydrateWebSessionRuntimeState,
+} from "./daemon-session-state.js";
+import { executeTextChannelTurn } from "./daemon-text-channel-turn.js";
+import {
+  executeWebChatConversationTurn as runWebChatConversationTurn,
+} from "./daemon-webchat-turn.js";
+import {
   MemoryIngestionEngine,
   createIngestionHooks,
 } from "../memory/ingestion.js";
@@ -176,9 +171,6 @@ import type { TelemetrySnapshot } from "../telemetry/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 import {
   SessionManager,
-  SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY,
-  SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY,
-  type Session,
 } from "./session.js";
 import {
   WorkspaceLoader,
@@ -189,7 +181,6 @@ import { loadPersonalityTemplate, mergePersonality } from "./personality.js";
 import { SlashCommandRegistry, createDefaultCommands } from "./commands.js";
 import { HookDispatcher, createBuiltinHooks } from "./hooks.js";
 import { ProgressTracker, summarizeToolResult } from "./progress.js";
-import { buildChatUsagePayload } from "./chat-usage.js";
 import {
   inferContextWindowTokens,
   normalizeGrokModel,
@@ -269,7 +260,18 @@ export {
   summarizeToolFailureForLog,
   summarizeToolResultForTrace,
 } from "./daemon-trace.js";
+export {
+  summarizeLLMFailureForSurface,
+} from "./daemon-llm-failure.js";
+export {
+  clearWebSessionRuntimeState,
+  hydrateWebSessionRuntimeState,
+  persistSessionStatefulContinuation,
+  persistWebSessionRuntimeState,
+  resolveSessionStatefulContinuation,
+} from "./daemon-session-state.js";
 export type { ResolvedTraceLoggingConfig } from "./daemon-trace.js";
+export type { LLMFailureSurfaceSummary } from "./daemon-llm-failure.js";
 
 // ============================================================================
 // Constants
@@ -284,208 +286,6 @@ function chooseDoomResolutionForDisplay(width: number, height: number): string {
   if (width >= 1024 && height >= 768) return "RES_1024X768";
   if (width >= 800 && height >= 600) return "RES_800X600";
   return "RES_640X480";
-}
-
-function isStatefulResumeAnchor(
-  value: unknown,
-): value is LLMStatefulResumeAnchor {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.previousResponseId !== "string") return false;
-  if (candidate.previousResponseId.trim().length === 0) return false;
-  if (
-    candidate.reconciliationHash !== undefined &&
-    typeof candidate.reconciliationHash !== "string"
-  ) {
-    return false;
-  }
-  return true;
-}
-
-function buildSessionStatefulOptions(
-  session: Session,
-): ChatExecuteParams["stateful"] | undefined {
-  const resumeAnchorCandidate =
-    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
-  const resumeAnchor = isStatefulResumeAnchor(resumeAnchorCandidate)
-    ? resumeAnchorCandidate
-    : undefined;
-  const historyCompacted =
-    session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] === true;
-  if (!resumeAnchor && !historyCompacted) return undefined;
-  return {
-    ...(resumeAnchor ? { resumeAnchor } : {}),
-    ...(historyCompacted ? { historyCompacted: true } : {}),
-  };
-}
-
-const WEB_SESSION_RUNTIME_STATE_KEY_PREFIX = "webchat:runtime-state:";
-
-interface PersistedWebSessionRuntimeState {
-  readonly version: 1;
-  readonly statefulResumeAnchor?: LLMStatefulResumeAnchor;
-  readonly statefulHistoryCompacted?: boolean;
-}
-
-function webSessionRuntimeStateKey(webSessionId: string): string {
-  return `${WEB_SESSION_RUNTIME_STATE_KEY_PREFIX}${webSessionId}`;
-}
-
-function cloneResumeAnchor(
-  anchor: LLMStatefulResumeAnchor,
-): LLMStatefulResumeAnchor {
-  return {
-    previousResponseId: anchor.previousResponseId,
-    ...(anchor.reconciliationHash
-      ? { reconciliationHash: anchor.reconciliationHash }
-      : {}),
-  };
-}
-
-function buildPersistedWebSessionRuntimeState(
-  session: Session,
-): PersistedWebSessionRuntimeState | undefined {
-  const resumeAnchorCandidate =
-    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
-  const resumeAnchor = isStatefulResumeAnchor(resumeAnchorCandidate)
-    ? cloneResumeAnchor(resumeAnchorCandidate)
-    : undefined;
-  const historyCompacted =
-    session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] === true;
-  if (!resumeAnchor && !historyCompacted) return undefined;
-  return {
-    version: 1,
-    ...(resumeAnchor ? { statefulResumeAnchor: resumeAnchor } : {}),
-    ...(historyCompacted ? { statefulHistoryCompacted: true } : {}),
-  };
-}
-
-function coercePersistedWebSessionRuntimeState(
-  value: unknown,
-): PersistedWebSessionRuntimeState | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const candidate = value as Record<string, unknown>;
-  if (candidate.version !== 1) return undefined;
-  const resumeAnchor = isStatefulResumeAnchor(candidate.statefulResumeAnchor)
-    ? cloneResumeAnchor(candidate.statefulResumeAnchor)
-    : undefined;
-  const historyCompacted = candidate.statefulHistoryCompacted === true;
-  if (!resumeAnchor && !historyCompacted) return undefined;
-  return {
-    version: 1,
-    ...(resumeAnchor ? { statefulResumeAnchor: resumeAnchor } : {}),
-    ...(historyCompacted ? { statefulHistoryCompacted: true } : {}),
-  };
-}
-
-export async function persistWebSessionRuntimeState(
-  memoryBackend: MemoryBackend,
-  webSessionId: string,
-  session: Session,
-): Promise<void> {
-  const persisted = buildPersistedWebSessionRuntimeState(session);
-  const key = webSessionRuntimeStateKey(webSessionId);
-  if (!persisted) {
-    await memoryBackend.delete(key);
-    return;
-  }
-  await memoryBackend.set(key, persisted);
-}
-
-export async function hydrateWebSessionRuntimeState(
-  memoryBackend: MemoryBackend,
-  webSessionId: string,
-  session: Session,
-): Promise<void> {
-  const persisted = coercePersistedWebSessionRuntimeState(
-    await memoryBackend.get(webSessionRuntimeStateKey(webSessionId)),
-  );
-  if (!persisted) return;
-  if (persisted.statefulResumeAnchor) {
-    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY] =
-      cloneResumeAnchor(persisted.statefulResumeAnchor);
-  }
-  if (persisted.statefulHistoryCompacted) {
-    session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] = true;
-  }
-}
-
-const SESSION_STATEFUL_LINEAGE_PHASES = new Set([
-  "initial",
-  "tool_followup",
-  "evaluator_retry",
-]);
-
-export function resolveSessionStatefulContinuation(
-  result: ChatExecutorResult,
-):
-  | {
-    readonly mode: "persist";
-    readonly anchor: LLMStatefulResumeAnchor;
-    readonly preserveHistoryCompacted?: boolean;
-  }
-  | {
-    readonly mode: "clear";
-  }
-  | {
-    readonly mode: "noop";
-  } {
-  if (result.callUsage.length === 0) {
-    return { mode: "noop" };
-  }
-
-  const latestLineageDiagnostics = [...result.callUsage]
-    .reverse()
-    .find((entry) => {
-      if (!SESSION_STATEFUL_LINEAGE_PHASES.has(entry.phase)) {
-        return false;
-      }
-      const responseId = entry.statefulDiagnostics?.responseId?.trim();
-      return typeof responseId === "string" && responseId.length > 0;
-    })
-    ?.statefulDiagnostics;
-  const responseId = latestLineageDiagnostics?.responseId?.trim();
-  const reconciliationHash =
-    latestLineageDiagnostics?.reconciliationHash?.trim();
-  const preserveHistoryCompacted =
-    latestLineageDiagnostics?.historyCompacted === true &&
-    latestLineageDiagnostics?.continued === true &&
-    latestLineageDiagnostics?.anchorMatched === false;
-  if (responseId && responseId.length > 0) {
-    return {
-      mode: "persist",
-      anchor: {
-        previousResponseId: responseId,
-        ...(reconciliationHash ? { reconciliationHash } : {}),
-      },
-      ...(preserveHistoryCompacted ? { preserveHistoryCompacted: true } : {}),
-    };
-  }
-
-  return { mode: "clear" };
-}
-
-export function persistSessionStatefulContinuation(
-  session: Session,
-  result: ChatExecutorResult,
-): void {
-  const continuation = resolveSessionStatefulContinuation(result);
-  if (continuation.mode === "noop") {
-    return;
-  }
-  if (continuation.mode === "persist") {
-    session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY] =
-      continuation.anchor;
-    if (continuation.preserveHistoryCompacted) {
-      session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY] = true;
-      return;
-    }
-    delete session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY];
-    return;
-  }
-
-  delete session.metadata[SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY];
-  delete session.metadata[SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY];
 }
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
@@ -1501,36 +1301,6 @@ async function runEvalScript(
       finalize(code ?? 1);
     });
   });
-}
-
-export interface LLMFailureSurfaceSummary {
-  stopReason: LLMPipelineStopReason;
-  stopReasonDetail: string;
-  userMessage: string;
-}
-
-export function summarizeLLMFailureForSurface(
-  error: unknown,
-): LLMFailureSurfaceSummary {
-  const fallbackDetail =
-    error instanceof Error ? error.message : String(error ?? "Unknown error");
-  const annotated = error as {
-    stopReason?: unknown;
-    stopReasonDetail?: unknown;
-  };
-  const stopReason =
-    typeof annotated.stopReason === "string"
-      ? (annotated.stopReason as LLMPipelineStopReason)
-      : toPipelineStopReason(classifyLLMFailure(error));
-  const stopReasonDetail =
-    typeof annotated.stopReasonDetail === "string"
-      ? annotated.stopReasonDetail
-      : fallbackDetail;
-  return {
-    stopReason,
-    stopReasonDetail,
-    userMessage: `Error (${stopReason}): ${stopReasonDetail}`,
-  };
 }
 
 /**
@@ -3979,257 +3749,33 @@ export class DaemonManager {
       );
 
       try {
-        if (traceConfig.enabled) {
-          const requestTracePayload = {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            historyLength: session.history.length,
-            historyRoleCounts: summarizeRoleCounts(session.history),
-            systemPromptChars: systemPrompt.length,
-            ...(traceConfig.includeSystemPrompt
-              ? {
-                  systemPrompt: truncateToolLogText(
-                    systemPrompt,
-                    traceConfig.maxChars,
-                  ),
-                }
-              : {}),
-            ...(traceConfig.includeHistory
-              ? {
-                  history: summarizeHistoryForTrace(
-                    session.history,
-                    traceConfig,
-                  ),
-                }
-              : {}),
-          };
-          logTraceEvent(
-            this.logger,
-            "telegram.chat.request",
-            requestTracePayload,
-            traceConfig.maxChars,
-            {
-              artifactPayload: {
-                traceId: turnTraceId,
-                sessionId: msg.sessionId,
-                historyLength: session.history.length,
-                historyRoleCounts: summarizeRoleCounts(session.history),
-                systemPromptChars: systemPrompt.length,
-                ...(traceConfig.includeSystemPrompt ? { systemPrompt } : {}),
-                ...(traceConfig.includeHistory
-                  ? { history: session.history }
-                  : {}),
-              },
-            },
-          );
-        }
-        const toolRoutingDecision = this.buildToolRoutingDecision(
-          msg.sessionId,
-          msg.content,
-          session.history,
-        );
-        if (traceConfig.enabled && toolRoutingDecision) {
-          logTraceEvent(
-            this.logger,
-            "telegram.tool_routing",
-            {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              routing:
-                summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
-            },
-            traceConfig.maxChars,
-            {
-              artifactPayload: {
-                traceId: turnTraceId,
-                sessionId: msg.sessionId,
-                routing: toolRoutingDecision,
-              },
-            },
-          );
-        }
-
-        const baseSessionHandler = createSessionToolHandler({
+        const toolHandler = this.createTextChannelSessionToolHandler({
           sessionId: msg.sessionId,
-          baseHandler: this._baseToolHandler!,
-          availableToolNames: this.getAdvertisedToolNames(),
-          desktopRouterFactory: this._desktopRouterFactory ?? undefined,
-          routerId: msg.sessionId,
-          send: (response) => {
-            this.forwardControlToTextChannel({
-              response,
-              sessionId: msg.sessionId,
-              channelName: "telegram",
-              send: sendTelegramText,
-            });
-          },
-          hooks: this._hookDispatcher ?? undefined,
-          approvalEngine: this._approvalEngine ?? undefined,
-          delegation: this.resolveDelegationToolContext,
-          credentialBroker: this._sessionCredentialBroker ?? undefined,
-          resolvePolicyScope: () =>
-            this.resolvePolicyScopeForSession({
-              sessionId: msg.sessionId,
-              runId: msg.sessionId,
-              channel: "telegram",
-            }),
+          channelName: "telegram",
+          send: sendTelegramText,
+          traceConfig,
+          traceId: turnTraceId,
         });
 
-        const toolHandler = this.createTracedSessionToolHandler({
-          traceLabel: "telegram",
+        const result = await executeTextChannelTurn({
+          logger: this.logger,
+          channelName: "telegram",
+          msg,
+          session,
+          sessionMgr,
+          systemPrompt,
+          chatExecutor,
+          toolHandler,
           traceConfig,
           turnTraceId,
-          sessionId: msg.sessionId,
-          baseSessionHandler,
-        });
-        const sessionStateful = buildSessionStatefulOptions(session);
-
-        const result = await chatExecutor.execute({
-          message: msg,
-          history: session.history,
-          systemPrompt,
-          sessionId: msg.sessionId,
-          toolHandler,
-          ...(sessionStateful ? { stateful: sessionStateful } : {}),
-          toolRouting: toolRoutingDecision
-            ? {
-                routedToolNames: toolRoutingDecision.routedToolNames,
-                expandedToolNames: toolRoutingDecision.expandedToolNames,
-                expandOnMiss: true,
-              }
-            : undefined,
-          ...(traceConfig.enabled
-            ? {
-                trace: {
-                  ...(traceConfig.includeProviderPayloads
-                    ? {
-                      includeProviderPayloads: true,
-                      onProviderTraceEvent: (event: LLMProviderTraceEvent) => {
-                        logProviderPayloadTraceEvent({
-                          logger: this.logger,
-                          channelName: "telegram",
-                          traceId: turnTraceId,
-                          sessionId: msg.sessionId,
-                          traceConfig,
-                          event,
-                        });
-                      },
-                    }
-                    : {}),
-                  onExecutionTraceEvent: (event: ChatExecutionTraceEvent) => {
-                    logExecutionTraceEvent({
-                      logger: this.logger,
-                      channelName: "telegram",
-                      traceId: turnTraceId,
-                      sessionId: msg.sessionId,
-                      traceConfig,
-                      event,
-                    });
-                  },
-                },
-              }
-            : {}),
-        });
-        this.recordToolRoutingOutcome(msg.sessionId, result.toolRoutingSummary);
-
-        if (traceConfig.enabled) {
-          const responseTracePayload = {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            provider: result.provider,
-            model: result.model,
-            usedFallback: result.usedFallback,
-            durationMs: result.durationMs,
-            compacted: result.compacted,
-            tokenUsage: result.tokenUsage,
-            requestShape: summarizeInitialRequestShape(result.callUsage),
-            callUsage: summarizeCallUsageForTrace(result.callUsage),
-            statefulSummary: result.statefulSummary,
-            plannerSummary: result.plannerSummary,
-            toolRoutingDecision:
-              summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
-            toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
-              result.toolRoutingSummary,
-            ),
-            stopReason: result.stopReason,
-            stopReasonDetail: result.stopReasonDetail,
-            response: truncateToolLogText(result.content, traceConfig.maxChars),
-            toolCalls: result.toolCalls.map((toolCall) => ({
-              name: toolCall.name,
-              durationMs: toolCall.durationMs,
-              isError: toolCall.isError,
-              ...(traceConfig.includeToolArgs
-                ? {
-                    args:
-                      summarizeToolArgsForLog(toolCall.name, toolCall.args) ??
-                      summarizeTraceValue(toolCall.args, traceConfig.maxChars),
-                  }
-                : {}),
-              ...(traceConfig.includeToolResults
-                ? {
-                    result: summarizeToolResultForTrace(
-                      toolCall.result,
-                      traceConfig.maxChars,
-                    ),
-                  }
-                : {}),
-            })),
-          };
-          logTraceEvent(
-            this.logger,
-            "telegram.chat.response",
-            responseTracePayload,
-            traceConfig.maxChars,
-            {
-              artifactPayload: {
-                traceId: turnTraceId,
-                sessionId: msg.sessionId,
-                provider: result.provider,
-                model: result.model,
-                usedFallback: result.usedFallback,
-                durationMs: result.durationMs,
-                compacted: result.compacted,
-                tokenUsage: result.tokenUsage,
-                requestShape: summarizeInitialRequestShape(result.callUsage),
-                callUsage: result.callUsage,
-                statefulSummary: result.statefulSummary,
-                plannerSummary: result.plannerSummary,
-                toolRoutingDecision,
-                toolRoutingSummary: result.toolRoutingSummary,
-                stopReason: result.stopReason,
-                stopReasonDetail: result.stopReasonDetail,
-                response: result.content,
-                toolCalls: result.toolCalls.map((toolCall) => ({
-                  name: toolCall.name,
-                  durationMs: toolCall.durationMs,
-                  isError: toolCall.isError,
-                  ...(traceConfig.includeToolArgs
-                    ? { args: toolCall.args }
-                    : {}),
-                  ...(traceConfig.includeToolResults
-                    ? { result: toolCall.result }
-                    : {}),
-                })),
-              },
-            },
-          );
-        }
-        if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
-          this.logger.warn("[stateful] telegram fallback_to_stateless", {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            summary: result.statefulSummary,
-          });
-        }
-
-        persistSessionStatefulContinuation(session, result);
-        sessionMgr.appendMessage(session.id, {
-          role: "user",
-          content: msg.content,
-        });
-        sessionMgr.appendMessage(session.id, {
-          role: "assistant",
-          content: result.content,
+          memoryBackend: this._memoryBackend,
+          includeTraceArtifacts: true,
+          includePlannerSummaryInTrace: true,
+          buildToolRoutingDecision: (sessionId, content, history) =>
+            this.buildToolRoutingDecision(sessionId, content, history),
+          recordToolRoutingOutcome: (sessionId, summary) => {
+            this.recordToolRoutingOutcome(sessionId, summary);
+          },
         });
 
         this.logger.debug("Telegram reply ready", {
@@ -4379,208 +3925,31 @@ export class DaemonManager {
       );
 
       try {
-        if (traceConfig.enabled) {
-          logTraceEvent(
-            this.logger,
-            `${channelName}.chat.request`,
-            {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              historyLength: session.history.length,
-              historyRoleCounts: summarizeRoleCounts(session.history),
-              systemPromptChars: systemPrompt.length,
-              ...(traceConfig.includeSystemPrompt
-                ? {
-                    systemPrompt: truncateToolLogText(
-                      systemPrompt,
-                      traceConfig.maxChars,
-                    ),
-                  }
-                : {}),
-              ...(traceConfig.includeHistory
-                ? {
-                    history: summarizeHistoryForTrace(
-                      session.history,
-                      traceConfig,
-                    ),
-                  }
-                : {}),
-            },
-            traceConfig.maxChars,
-          );
-        }
-        const toolRoutingDecision = this.buildToolRoutingDecision(
-          msg.sessionId,
-          msg.content,
-          session.history,
-        );
-        if (traceConfig.enabled && toolRoutingDecision) {
-          logTraceEvent(
-            this.logger,
-            `${channelName}.tool_routing`,
-            {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              routing:
-                summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
-            },
-            traceConfig.maxChars,
-          );
-        }
-
-        const baseSessionHandler = createSessionToolHandler({
+        const toolHandler = this.createTextChannelSessionToolHandler({
           sessionId: msg.sessionId,
-          baseHandler: this._baseToolHandler!,
-          availableToolNames: this.getAdvertisedToolNames(),
-          desktopRouterFactory: this._desktopRouterFactory ?? undefined,
-          routerId: msg.sessionId,
-          send: (response) => {
-            this.forwardControlToTextChannel({
-              response,
-              sessionId: msg.sessionId,
-              channelName,
-              send: sendChannelText,
-            });
-          },
-          hooks: this._hookDispatcher ?? undefined,
-          approvalEngine: this._approvalEngine ?? undefined,
-          delegation: this.resolveDelegationToolContext,
-          credentialBroker: this._sessionCredentialBroker ?? undefined,
-          resolvePolicyScope: () =>
-            this.resolvePolicyScopeForSession({
-              sessionId: msg.sessionId,
-              runId: msg.sessionId,
-              channel: channelName,
-            }),
+          channelName,
+          send: sendChannelText,
+          traceConfig,
+          traceId: turnTraceId,
         });
 
-        const toolHandler = this.createTracedSessionToolHandler({
-          traceLabel: channelName,
+        const result = await executeTextChannelTurn({
+          logger: this.logger,
+          channelName,
+          msg,
+          session,
+          sessionMgr,
+          systemPrompt,
+          chatExecutor,
+          toolHandler,
           traceConfig,
           turnTraceId,
-          sessionId: msg.sessionId,
-          baseSessionHandler,
-        });
-        const sessionStateful = buildSessionStatefulOptions(session);
-
-        const result = await chatExecutor.execute({
-          message: msg,
-          history: session.history,
-          systemPrompt,
-          sessionId: msg.sessionId,
-          toolHandler,
-          ...(sessionStateful ? { stateful: sessionStateful } : {}),
-          toolRouting: toolRoutingDecision
-            ? {
-                routedToolNames: toolRoutingDecision.routedToolNames,
-                expandedToolNames: toolRoutingDecision.expandedToolNames,
-                expandOnMiss: true,
-              }
-            : undefined,
-          ...(traceConfig.enabled
-            ? {
-                trace: {
-                  ...(traceConfig.includeProviderPayloads
-                    ? {
-                      includeProviderPayloads: true,
-                      onProviderTraceEvent: (event: LLMProviderTraceEvent) => {
-                        logProviderPayloadTraceEvent({
-                          logger: this.logger,
-                          channelName,
-                          traceId: turnTraceId,
-                          sessionId: msg.sessionId,
-                          traceConfig,
-                          event,
-                        });
-                      },
-                    }
-                    : {}),
-                  onExecutionTraceEvent: (event: ChatExecutionTraceEvent) => {
-                    logExecutionTraceEvent({
-                      logger: this.logger,
-                      channelName,
-                      traceId: turnTraceId,
-                      sessionId: msg.sessionId,
-                      traceConfig,
-                      event,
-                    });
-                  },
-                },
-              }
-            : {}),
-        });
-        this.recordToolRoutingOutcome(msg.sessionId, result.toolRoutingSummary);
-
-        if (traceConfig.enabled) {
-          logTraceEvent(
-            this.logger,
-            `${channelName}.chat.response`,
-            {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              provider: result.provider,
-              model: result.model,
-              usedFallback: result.usedFallback,
-              durationMs: result.durationMs,
-              compacted: result.compacted,
-              tokenUsage: result.tokenUsage,
-              requestShape: summarizeInitialRequestShape(result.callUsage),
-              callUsage: summarizeCallUsageForTrace(result.callUsage),
-              statefulSummary: result.statefulSummary,
-              toolRoutingDecision:
-                summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
-              toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
-                result.toolRoutingSummary,
-              ),
-              stopReason: result.stopReason,
-              stopReasonDetail: result.stopReasonDetail,
-              response: truncateToolLogText(
-                result.content,
-                traceConfig.maxChars,
-              ),
-              toolCalls: result.toolCalls.map((toolCall) => ({
-                name: toolCall.name,
-                durationMs: toolCall.durationMs,
-                isError: toolCall.isError,
-                ...(traceConfig.includeToolArgs
-                  ? {
-                      args:
-                        summarizeToolArgsForLog(toolCall.name, toolCall.args) ??
-                        summarizeTraceValue(
-                          toolCall.args,
-                          traceConfig.maxChars,
-                        ),
-                    }
-                  : {}),
-                ...(traceConfig.includeToolResults
-                  ? {
-                      result: summarizeToolResultForTrace(
-                        toolCall.result,
-                        traceConfig.maxChars,
-                      ),
-                    }
-                  : {}),
-              })),
-            },
-            traceConfig.maxChars,
-          );
-        }
-        if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
-          this.logger.warn(`[stateful] ${channelName} fallback_to_stateless`, {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            summary: result.statefulSummary,
-          });
-        }
-
-        persistSessionStatefulContinuation(session, result);
-        sessionMgr.appendMessage(session.id, {
-          role: "user",
-          content: msg.content,
-        });
-        sessionMgr.appendMessage(session.id, {
-          role: "assistant",
-          content: result.content,
+          memoryBackend: this._memoryBackend,
+          buildToolRoutingDecision: (sessionId, content, history) =>
+            this.buildToolRoutingDecision(sessionId, content, history),
+          recordToolRoutingOutcome: (sessionId, summary) => {
+            this.recordToolRoutingOutcome(sessionId, summary);
+          },
         });
 
         const formatted = formatForChannel(
@@ -6101,14 +5470,14 @@ export class DaemonManager {
         error: toErrorMessage(error),
       });
     });
-    await memoryBackend
-      .delete(webSessionRuntimeStateKey(webSessionId))
-      .catch((error) => {
+    await clearWebSessionRuntimeState(memoryBackend, webSessionId).catch(
+      (error) => {
         this.logger.debug("Failed to delete web session runtime state", {
           sessionId: webSessionId,
           error: toErrorMessage(error),
         });
-      });
+      },
+    );
 
     await this.cleanupDesktopSessionResources(webSessionId);
   }
@@ -8328,6 +7697,50 @@ export class DaemonManager {
     });
   }
 
+  private createTextChannelSessionToolHandler(params: {
+    sessionId: string;
+    channelName: string;
+    send: (content: string) => Promise<void>;
+    traceConfig: ResolvedTraceLoggingConfig;
+    traceId: string;
+  }): ToolHandler {
+    const { sessionId, channelName, send, traceConfig, traceId } = params;
+
+    const baseSessionHandler = createSessionToolHandler({
+      sessionId,
+      baseHandler: this._baseToolHandler!,
+      availableToolNames: this.getAdvertisedToolNames(),
+      desktopRouterFactory: this._desktopRouterFactory ?? undefined,
+      routerId: sessionId,
+      send: (response) => {
+        this.forwardControlToTextChannel({
+          response,
+          sessionId,
+          channelName,
+          send,
+        });
+      },
+      hooks: this._hookDispatcher ?? undefined,
+      approvalEngine: this._approvalEngine ?? undefined,
+      delegation: this.resolveDelegationToolContext,
+      credentialBroker: this._sessionCredentialBroker ?? undefined,
+      resolvePolicyScope: () =>
+        this.resolvePolicyScopeForSession({
+          sessionId,
+          runId: sessionId,
+          channel: channelName,
+        }),
+    });
+
+    return this.createTracedSessionToolHandler({
+      traceLabel: channelName,
+      traceConfig,
+      turnTraceId: traceId,
+      sessionId,
+      baseSessionHandler,
+    });
+  }
+
   private async handleWebChatInboundMessage(
     msg: GatewayMessage,
     params: WebChatMessageHandlerDeps,
@@ -8838,357 +8251,57 @@ export class DaemonManager {
     this._activeSessionTraceIds.set(msg.sessionId, turnTraceId);
     this._foregroundSessionLocks.add(msg.sessionId);
     try {
-      signals.signalThinking(msg.sessionId);
-
-      const session = sessionMgr.getOrCreate({
-        channel: "webchat",
-        senderId: msg.sessionId,
-        scope: "dm",
-        workspaceId: "default",
-      });
-
-      if (traceConfig.enabled) {
-        const currentPrompt = getSystemPrompt();
-        const requestTracePayload = {
-          traceId: turnTraceId,
-          sessionId: msg.sessionId,
-          historyLength: session.history.length,
-          historyRoleCounts: summarizeRoleCounts(session.history),
-          systemPromptChars: currentPrompt.length,
-          ...(traceConfig.includeSystemPrompt
-            ? {
-                systemPrompt: truncateToolLogText(
-                  currentPrompt,
-                  traceConfig.maxChars,
-                ),
-              }
-            : {}),
-          ...(traceConfig.includeHistory
-            ? {
-                history: summarizeHistoryForTrace(session.history, traceConfig),
-              }
-            : {}),
-        };
-        logTraceEvent(
-          this.logger,
-          "webchat.chat.request",
-          requestTracePayload,
-          traceConfig.maxChars,
-          {
-            artifactPayload: {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              historyLength: session.history.length,
-              historyRoleCounts: summarizeRoleCounts(session.history),
-              systemPromptChars: currentPrompt.length,
-              ...(traceConfig.includeSystemPrompt
-                ? { systemPrompt: currentPrompt }
-                : {}),
-              ...(traceConfig.includeHistory
-                ? { history: session.history }
-                : {}),
-            },
-          },
-        );
-      }
-      const toolRoutingDecision = this.buildToolRoutingDecision(
-        msg.sessionId,
-        msg.content,
-        session.history,
-      );
-      if (traceConfig.enabled && toolRoutingDecision) {
-        logTraceEvent(
-          this.logger,
-          "webchat.tool_routing",
-          {
-            traceId: turnTraceId,
+      await runWebChatConversationTurn({
+        logger: this.logger,
+        msg,
+        webChat,
+        chatExecutor,
+        sessionMgr,
+        getSystemPrompt,
+        sessionToolHandler,
+        sessionStreamCallback,
+        signals,
+        hooks,
+        memoryBackend,
+        sessionTokenBudget,
+        contextWindowTokens,
+        traceConfig,
+        turnTraceId,
+        buildToolRoutingDecision: (sessionId, content, history) =>
+          this.buildToolRoutingDecision(sessionId, content, history),
+        recordToolRoutingOutcome: (sessionId, summary) => {
+          this.recordToolRoutingOutcome(sessionId, summary);
+        },
+        getSessionTokenUsage: (sessionId) =>
+          chatExecutor.getSessionTokenUsage(sessionId),
+        onModelInfo: (result) => {
+          if (!result.model) return;
+          this._sessionModelInfo.set(msg.sessionId, {
+            provider: result.provider,
+            model: result.model,
+            usedFallback: result.usedFallback,
+            updatedAt: Date.now(),
+          });
+        },
+        onSubagentSynthesis: (result) => {
+          if (
+            this._subagentActivityTraceBySession.get(msg.sessionId) !== turnTraceId
+          ) {
+            return;
+          }
+          this.relaySubAgentLifecycleEvent(webChat, {
+            type: "subagents.synthesized",
+            timestamp: Date.now(),
             sessionId: msg.sessionId,
-            routing: summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
-          },
-          traceConfig.maxChars,
-          {
-            artifactPayload: {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              routing: toolRoutingDecision,
-            },
-          },
-        );
-      }
-
-      // Create an AbortController so the user can cancel mid-execution
-      const abortController = webChat.createAbortController(msg.sessionId);
-      const sessionStateful = buildSessionStatefulOptions(session);
-
-      const result = await chatExecutor.execute({
-        message: msg,
-        history: session.history,
-        systemPrompt: getSystemPrompt(),
-        sessionId: msg.sessionId,
-        toolHandler: sessionToolHandler,
-        onStreamChunk: sessionStreamCallback,
-        signal: abortController.signal,
-        ...(sessionStateful ? { stateful: sessionStateful } : {}),
-        toolRouting: toolRoutingDecision
-          ? {
-              routedToolNames: toolRoutingDecision.routedToolNames,
-              expandedToolNames: toolRoutingDecision.expandedToolNames,
-              expandOnMiss: true,
-            }
-          : undefined,
-        ...(traceConfig.enabled
-          ? {
-              trace: {
-                ...(traceConfig.includeProviderPayloads
-                  ? {
-                    includeProviderPayloads: true,
-                    onProviderTraceEvent: (event: LLMProviderTraceEvent) => {
-                      logProviderPayloadTraceEvent({
-                        logger: this.logger,
-                        channelName: "webchat",
-                        traceId: turnTraceId,
-                        sessionId: msg.sessionId,
-                        traceConfig,
-                        event,
-                      });
-                    },
-                  }
-                  : {}),
-                onExecutionTraceEvent: (event: ChatExecutionTraceEvent) => {
-                  logExecutionTraceEvent({
-                    logger: this.logger,
-                    channelName: "webchat",
-                    traceId: turnTraceId,
-                    sessionId: msg.sessionId,
-                    traceConfig,
-                    event,
-                  });
-                },
-              },
-            }
-          : {}),
-      });
-      this.recordToolRoutingOutcome(msg.sessionId, result.toolRoutingSummary);
-
-      webChat.clearAbortController(msg.sessionId);
-
-      if (result.model) {
-        this._sessionModelInfo.set(msg.sessionId, {
-          provider: result.provider,
-          model: result.model,
-          usedFallback: result.usedFallback,
-          updatedAt: Date.now(),
-        });
-      }
-
-      if (traceConfig.enabled) {
-        const responseTracePayload = {
-          traceId: turnTraceId,
-          sessionId: msg.sessionId,
-          provider: result.provider,
-          model: result.model,
-          usedFallback: result.usedFallback,
-          durationMs: result.durationMs,
-          compacted: result.compacted,
-          tokenUsage: result.tokenUsage,
-          requestShape: summarizeInitialRequestShape(result.callUsage),
-          callUsage: summarizeCallUsageForTrace(result.callUsage),
-          statefulSummary: result.statefulSummary,
-          plannerSummary: result.plannerSummary,
-          toolRoutingDecision:
-            summarizeToolRoutingDecisionForTrace(toolRoutingDecision),
-          toolRoutingSummary: summarizeToolRoutingSummaryForTrace(
-            result.toolRoutingSummary,
-          ),
-          stopReason: result.stopReason,
-          stopReasonDetail: result.stopReasonDetail,
-          response: truncateToolLogText(result.content, traceConfig.maxChars),
-          toolCalls: result.toolCalls.map((toolCall) => ({
-            name: toolCall.name,
-            durationMs: toolCall.durationMs,
-            isError: toolCall.isError,
-            ...(traceConfig.includeToolArgs
-              ? {
-                  args:
-                    summarizeToolArgsForLog(toolCall.name, toolCall.args) ??
-                    summarizeTraceValue(toolCall.args, traceConfig.maxChars),
-                }
-              : {}),
-            ...(traceConfig.includeToolResults
-              ? {
-                  result: summarizeToolResultForTrace(
-                    toolCall.result,
-                    traceConfig.maxChars,
-                  ),
-                }
-              : {}),
-          })),
-        };
-        logTraceEvent(
-          this.logger,
-          "webchat.chat.response",
-          responseTracePayload,
-          traceConfig.maxChars,
-          {
-            artifactPayload: {
-              traceId: turnTraceId,
-              sessionId: msg.sessionId,
-              provider: result.provider,
-              model: result.model,
-              usedFallback: result.usedFallback,
-              durationMs: result.durationMs,
-              compacted: result.compacted,
-              tokenUsage: result.tokenUsage,
-              requestShape: summarizeInitialRequestShape(result.callUsage),
-              callUsage: result.callUsage,
-              statefulSummary: result.statefulSummary,
-              plannerSummary: result.plannerSummary,
-              toolRoutingDecision,
-              toolRoutingSummary: result.toolRoutingSummary,
+            parentSessionId: msg.sessionId,
+            payload: {
               stopReason: result.stopReason,
-              stopReasonDetail: result.stopReasonDetail,
-              response: result.content,
-              toolCalls: result.toolCalls.map((toolCall) => ({
-                name: toolCall.name,
-                durationMs: toolCall.durationMs,
-                isError: toolCall.isError,
-                ...(traceConfig.includeToolArgs ? { args: toolCall.args } : {}),
-                ...(traceConfig.includeToolResults
-                  ? { result: toolCall.result }
-                  : {}),
-              })),
+              outputChars: result.content.length,
+              toolCalls: result.toolCalls.length,
             },
-          },
-        );
-      }
-      if ((result.statefulSummary?.fallbackCalls ?? 0) > 0) {
-        this.logger.warn("[stateful] webchat fallback_to_stateless", {
-          traceId: turnTraceId,
-          sessionId: msg.sessionId,
-          summary: result.statefulSummary,
-        });
-      }
-
-      persistSessionStatefulContinuation(session, result);
-      // If ChatExecutor compacted context, also trim session history
-      if (result.compacted) {
-        await sessionMgr.compact(session.id);
-      }
-      await persistWebSessionRuntimeState(memoryBackend, msg.sessionId, session);
-
-      signals.signalIdle(msg.sessionId);
-      sessionMgr.appendMessage(session.id, {
-        role: "user",
-        content: msg.content,
-      });
-      sessionMgr.appendMessage(session.id, {
-        role: "assistant",
-        content: result.content,
-      });
-
-      await webChat.send({
-        sessionId: msg.sessionId,
-        content: result.content || "(no response)",
-      });
-
-      // Send cumulative token usage to browser
-      webChat.pushToSession(msg.sessionId, {
-        type: "chat.usage",
-        payload: buildChatUsagePayload({
-          totalTokens: chatExecutor.getSessionTokenUsage(msg.sessionId),
-          sessionTokenBudget,
-          compacted: result.compacted ?? false,
-          contextWindowTokens,
-          callUsage: result.callUsage,
-        }),
-      });
-
-      if (
-        this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
-      ) {
-        this.relaySubAgentLifecycleEvent(webChat, {
-          type: "subagents.synthesized",
-          timestamp: Date.now(),
-          sessionId: msg.sessionId,
-          parentSessionId: msg.sessionId,
-          payload: {
-            stopReason: result.stopReason,
-            outputChars: result.content.length,
-            toolCalls: result.toolCalls.length,
-          },
-        });
-        this._subagentActivityTraceBySession.delete(msg.sessionId);
-      }
-
-      webChat.broadcastEvent("chat.response", { sessionId: msg.sessionId });
-
-      await hooks.dispatch("message:outbound", {
-        sessionId: msg.sessionId,
-        content: result.content,
-        provider: result.provider,
-        userMessage: msg.content,
-        agentResponse: result.content,
-      });
-
-      try {
-        await memoryBackend.addEntry({
-          sessionId: msg.sessionId,
-          role: "user",
-          content: msg.content,
-        });
-        await memoryBackend.addEntry({
-          sessionId: msg.sessionId,
-          role: "assistant",
-          content: result.content,
-        });
-      } catch (error) {
-        this.logger.warn?.("Failed to persist messages to memory:", error);
-      }
-
-      if (result.toolCalls.length > 0) {
-        const failures = result.toolCalls
-          .map((toolCall) => summarizeToolFailureForLog(toolCall))
-          .filter((entry): entry is ToolFailureSummary => entry !== null);
-
-        this.logger.info(`Chat used ${result.toolCalls.length} tool call(s)`, {
-          traceId: turnTraceId,
-          tools: result.toolCalls.map((toolCall) => toolCall.name),
-          provider: result.provider,
-          failedToolCalls: failures.length,
-          ...(failures.length > 0 ? { failureDetails: failures } : {}),
-        });
-      }
-    } catch (error) {
-      const failure = summarizeLLMFailureForSurface(error);
-      webChat.clearAbortController(msg.sessionId);
-      signals.signalIdle(msg.sessionId);
-      if (traceConfig.enabled) {
-        logTraceErrorEvent(
-          this.logger,
-          "webchat.chat.error",
-          {
-            traceId: turnTraceId,
-            sessionId: msg.sessionId,
-            stopReason: failure.stopReason,
-            stopReasonDetail: failure.stopReasonDetail,
-            error: toErrorMessage(error),
-            ...(error instanceof Error && error.stack
-              ? {
-                  stack: truncateToolLogText(error.stack, traceConfig.maxChars),
-                }
-              : {}),
-          },
-          traceConfig.maxChars,
-        );
-      }
-      this.logger.error("LLM chat error:", {
-        stopReason: failure.stopReason,
-        stopReasonDetail: failure.stopReasonDetail,
-        error: toErrorMessage(error),
-      });
-      await webChat.send({
-        sessionId: msg.sessionId,
-        content: failure.userMessage,
+          });
+          this._subagentActivityTraceBySession.delete(msg.sessionId);
+        },
       });
     } finally {
       this._foregroundSessionLocks.delete(msg.sessionId);
