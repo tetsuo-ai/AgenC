@@ -1,0 +1,11 @@
+{
+  "name": "bigint-buffer",
+  "version": "1.1.6",
+  "description": "Pure-JS bigint to buffer conversion for AgenC security hardening",
+  "main": "dist/node.js",
+  "browser": {
+    "./dist/node.js": "./dist/browser.js"
+  },
+  "types": "dist/index.d.ts",
+  "license": "Apache-2.0"
+}
