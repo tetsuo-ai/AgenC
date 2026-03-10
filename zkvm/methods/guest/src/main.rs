@@ -1,12 +1,9 @@
-#![no_main]
 #![forbid(unsafe_code)]
 
 use agenc_zkvm_guest::{serialize_journal, JournalFields, JOURNAL_FIELD_LEN};
 use risc0_zkvm::guest::env;
 
-risc0_zkvm::entry!(guest_entry);
-
-fn guest_entry() {
+fn main() {
     let task_pda: [u8; JOURNAL_FIELD_LEN] = env::read();
     let agent_authority: [u8; JOURNAL_FIELD_LEN] = env::read();
     let constraint_hash: [u8; JOURNAL_FIELD_LEN] = env::read();

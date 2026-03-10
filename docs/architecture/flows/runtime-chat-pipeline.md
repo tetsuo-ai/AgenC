@@ -218,6 +218,8 @@ Delegation-specific observability:
 - learning signals: parent/child trajectory records and per-context arm statistics
 - local observability ledger: trace events persisted to `~/.agenc/observability.sqlite` plus exact payload artifacts under `~/.agenc/trace-payloads/`
 - operator portal: WebChat `TRACE` view queries `observability.summary|traces|trace|artifact|logs` to reconstruct one turn end-to-end without parsing raw daemon logs first
+- foreground daemon parity: local tmux or multi-daemon foreground runs tee the same trace stream into the configured daemon log file so pane scrollback and persisted logs stay identical debugging surfaces
+- tool-dispatch repair diagnostics: `*.executor.tool_dispatch_started` can include `argumentDiagnostics` when the runtime repairs or normalizes tool args immediately before execution
 
 Operational runbooks:
 

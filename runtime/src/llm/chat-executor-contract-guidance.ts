@@ -27,6 +27,7 @@ import {
   TYPED_ARTIFACT_DOMAINS,
   type TypedArtifactDomain,
 } from "../tools/system/typed-artifact-domains.js";
+import { extractExplicitImperativeToolNames } from "./chat-executor-explicit-tools.js";
 
 export type ToolContractGuidancePhase =
   | "initial"
@@ -62,6 +63,11 @@ interface ToolContractGuidanceResolver {
 }
 
 const TOOL_CONTRACT_GUIDANCE_RESOLVERS: readonly ToolContractGuidanceResolver[] = [
+  {
+    name: "explicit-tool-invocation",
+    priority: 260,
+    resolve: resolveExplicitToolInvocationContractGuidance,
+  },
   {
     name: "server-handle",
     priority: 250,
@@ -240,6 +246,32 @@ function resolveDoomToolContractGuidance(
     ...(routedToolNames.length > 0 ? { routedToolNames } : {}),
     toolChoice: "required",
     ...(enforcement ? { enforcement } : {}),
+  };
+}
+
+function resolveExplicitToolInvocationContractGuidance(
+  input: ToolContractGuidanceContext,
+): ToolContractGuidance | undefined {
+  if (input.phase !== "initial") return undefined;
+  if (input.toolCalls.length > 0) return undefined;
+
+  const routedToolNames = extractExplicitImperativeToolNames(
+    input.messageText,
+    input.allowedToolNames,
+  );
+  if (routedToolNames.length === 0) return undefined;
+
+  const toolSummary = routedToolNames
+    .map((toolName) => `\`${toolName}\``)
+    .join(", ");
+  const noun = routedToolNames.length === 1 ? "that tool" : "those tools";
+  return {
+    source: "explicit-tool-invocation",
+    runtimeInstruction:
+      `The user explicitly instructed this turn to call ${toolSummary}. ` +
+      `Execute ${noun} before answering.`,
+    routedToolNames,
+    toolChoice: "required",
   };
 }
 

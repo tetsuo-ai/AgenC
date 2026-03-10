@@ -14,6 +14,7 @@ import type {
   LLMProvider,
   LLMProviderEvidence,
   LLMMessage,
+  LLMProviderTraceEvent,
   LLMStatefulResumeAnchor,
   LLMToolChoice,
   LLMToolCall,
@@ -125,8 +126,10 @@ import {
   enrichToolResultMetadata,
   checkToolCallPermission,
   normalizeToolCallArguments,
+  repairToolCallArgumentsFromMessageText,
   parseToolCallArguments,
   executeToolWithRetry,
+  summarizeToolArgumentChanges,
   trackToolCallFailureState,
   checkToolLoopStuckDetection,
   buildToolLoopRecoveryMessages,
@@ -176,6 +179,23 @@ function mergeProviderEvidence(
   if (citations.length === 0) return undefined;
   return { citations };
 }
+
+function mergeExplicitRequirementToolNames(
+  primaryToolNames: readonly string[],
+  secondaryToolNames: readonly string[],
+  fallbackToolNames: readonly string[],
+): readonly string[] {
+  const merged = Array.from(
+    new Set([
+      ...primaryToolNames,
+      ...secondaryToolNames,
+    ]),
+  );
+  if (merged.length > 0) {
+    return merged;
+  }
+  return Array.from(new Set(fallbackToolNames));
+}
 import type { RoundStuckState } from "./chat-executor-tool-utils.js";
 import {
   extractMessageText,
@@ -210,9 +230,13 @@ import {
   buildPlannerMessages,
   buildPlannerExecutionContext,
   validatePlannerGraph,
+  extractExplicitDeterministicToolRequirements,
   extractExplicitSubagentOrchestrationRequirements,
+  validateExplicitDeterministicToolRequirements,
   validateExplicitSubagentOrchestrationRequirements,
   extractPlannerDecompositionDiagnostics,
+  buildExplicitDeterministicToolRefinementHint,
+  buildExplicitDeterministicToolFailureMessage,
   buildPlannerDecompositionRefinementHint,
   buildPipelineDecompositionRefinementHint,
   buildExplicitSubagentOrchestrationRefinementHint,
@@ -488,6 +512,7 @@ export class ChatExecutor {
     ctx.finalContent = reconcileStructuredToolOutcome(
       ctx.finalContent,
       ctx.allToolCalls,
+      ctx.messageText,
     );
     ctx.finalContent = reconcileTerminalFailureContent({
       content: ctx.finalContent,
@@ -865,6 +890,7 @@ export class ChatExecutor {
       statefulHistoryCompacted?: boolean;
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
+      preparationDiagnostics?: Record<string, unknown>;
       budgetReason: string;
     },
   ): Promise<LLMResponse | undefined> {
@@ -902,6 +928,10 @@ export class ChatExecutor {
       phase: input.phase,
       callIndex: ctx.callIndex + 1,
       payload: {
+        ...(input.routedToolNames !== undefined
+          ? { requestedRoutedToolNames: input.routedToolNames }
+          : {}),
+        ...(input.preparationDiagnostics ?? {}),
         routedToolNames: effectiveRoutedToolNames ?? [],
         toolChoice:
           input.toolChoice === undefined
@@ -1057,13 +1087,38 @@ export class ChatExecutor {
         ? Math.max(0, Math.floor(params.maxModelRecallsPerRequest))
         : this.maxModelRecallsPerRequest;
     const messageText = extractMessageText(message);
-    const plannerDecision = assessPlannerDecision(this.plannerEnabled, messageText, history);
     const initialRoutedToolNames = params.toolRouting?.routedToolNames
       ? Array.from(new Set(params.toolRouting.routedToolNames))
       : [];
     const expandedRoutedToolNames = params.toolRouting?.expandedToolNames
       ? Array.from(new Set(params.toolRouting.expandedToolNames))
       : [];
+    const explicitRequirementToolNames =
+      mergeExplicitRequirementToolNames(
+        initialRoutedToolNames,
+        expandedRoutedToolNames,
+        this.allowedTools ? [...this.allowedTools] : [],
+      );
+    const explicitDeterministicToolRequirements =
+      extractExplicitDeterministicToolRequirements(
+        messageText,
+        explicitRequirementToolNames,
+      );
+    let plannerDecision = assessPlannerDecision(
+      this.plannerEnabled,
+      messageText,
+      history,
+    );
+    if (
+      explicitDeterministicToolRequirements?.forcePlanner &&
+      !plannerDecision.shouldPlan
+    ) {
+      plannerDecision = {
+        score: Math.max(plannerDecision.score, 3),
+        shouldPlan: true,
+        reason: "explicit_deterministic_tool_requirements",
+      };
+    }
     const resolvedThresholdOverride = this.resolveDelegationScoreThreshold?.();
     const baseDelegationThreshold =
       typeof resolvedThresholdOverride === "number" &&
@@ -1428,6 +1483,10 @@ export class ChatExecutor {
     const initialContractGuidance = this.resolveActiveToolContractGuidance(ctx, {
       phase: "initial",
     });
+    const dialogueToolSuppressed =
+      suppressToolsForDialogueTurn &&
+      initialContractGuidance?.routedToolNames === undefined &&
+      ctx.initialRoutedToolNames.length > 0;
     if (initialContractGuidance) {
       this.emitExecutionTrace(ctx, {
         type: "contract_guidance_resolved",
@@ -1468,6 +1527,14 @@ export class ChatExecutor {
       statefulSessionId: ctx.sessionId,
       statefulResumeAnchor: ctx.stateful?.resumeAnchor,
       statefulHistoryCompacted: ctx.stateful?.historyCompacted,
+      preparationDiagnostics: {
+        plannerReason: ctx.plannerDecision.reason,
+        plannerShouldPlan: ctx.plannerDecision.shouldPlan,
+        dialogueToolSuppressed,
+        ...(dialogueToolSuppressed
+          ? { preSuppressionRoutedToolNames: ctx.initialRoutedToolNames }
+          : {}),
+      },
       ...((initialToolChoice !== undefined || initialRoutedToolNames !== undefined)
         ? {
           ...(initialToolChoice !== undefined
@@ -1784,7 +1851,16 @@ export class ChatExecutor {
       });
       return "skip";
     }
-    let args = normalizeToolCallArguments(toolCall.name, parseResult.args);
+    const rawArgs = parseResult.args;
+    let args = normalizeToolCallArguments(toolCall.name, rawArgs);
+    const normalizedFields = summarizeToolArgumentChanges(rawArgs, args);
+    const repaired = repairToolCallArgumentsFromMessageText(
+      toolCall.name,
+      args,
+      ctx.messageText,
+    );
+    args = repaired.args;
+    const contractAdjustedFields: string[] = [];
     if (toolCall.name === "mcp.doom.start_game") {
       const doomTurnContract = inferDoomTurnContract(ctx.messageText);
       if (
@@ -1792,7 +1868,22 @@ export class ChatExecutor {
         args.async_player !== true
       ) {
         args = { ...args, async_player: true };
+        contractAdjustedFields.push("async_player");
       }
+    }
+    const argumentDiagnostics: Record<string, unknown> = {};
+    if (normalizedFields.length > 0) {
+      argumentDiagnostics.normalizedFields = normalizedFields;
+    }
+    if (repaired.repairedFields.length > 0) {
+      argumentDiagnostics.repairSource = "message_text";
+      argumentDiagnostics.repairedFields = repaired.repairedFields;
+    }
+    if (contractAdjustedFields.length > 0) {
+      argumentDiagnostics.contractAdjustedFields = contractAdjustedFields;
+    }
+    if (Object.keys(argumentDiagnostics).length > 0) {
+      argumentDiagnostics.rawArgs = rawArgs;
     }
     this.emitExecutionTrace(ctx, {
       type: "tool_dispatch_started",
@@ -1801,6 +1892,9 @@ export class ChatExecutor {
       payload: {
         tool: toolCall.name,
         args,
+        ...(Object.keys(argumentDiagnostics).length > 0
+          ? { argumentDiagnostics }
+          : {}),
       },
     });
 
@@ -1915,6 +2009,19 @@ export class ChatExecutor {
     ];
     const explicitOrchestrationRequirements =
       extractExplicitSubagentOrchestrationRequirements(ctx.messageText);
+    const explicitDeterministicToolRequirements =
+      explicitOrchestrationRequirements
+        ? undefined
+        : extractExplicitDeterministicToolRequirements(
+            ctx.messageText,
+            mergeExplicitRequirementToolNames(
+              ctx.activeRoutedToolNames,
+              ctx.expandedRoutedToolNames,
+              this.allowedTools ? [...this.allowedTools] : [],
+            ),
+          );
+    const explicitPlannerToolNames =
+      explicitDeterministicToolRequirements?.orderedToolNames;
     let refinementHint: string | undefined;
 
     for (
@@ -1926,12 +2033,16 @@ export class ChatExecutor {
         ctx.messageText,
         ctx.history,
         this.plannerMaxTokens,
+        explicitDeterministicToolRequirements,
         refinementHint,
       );
       const plannerResponse = await this.callModelForPhase(ctx, {
         phase: "planner",
         callMessages: plannerMessages,
         callSections: plannerSections,
+        ...(explicitPlannerToolNames
+          ? { routedToolNames: explicitPlannerToolNames }
+          : {}),
         budgetReason:
           "Planner pass blocked by max model recalls per request budget",
       });
@@ -2001,6 +2112,54 @@ export class ChatExecutor {
           ctx.plannerHandled = true;
           return;
         }
+        if (explicitDeterministicToolRequirements) {
+          if (plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS) {
+            refinementHint = buildExplicitDeterministicToolRefinementHint(
+              explicitDeterministicToolRequirements,
+              plannerParse.diagnostics,
+            );
+            ctx.plannerSummaryState.diagnostics.push({
+              category: "policy",
+              code: "planner_explicit_tool_parse_retry",
+              message:
+                "Planner failed to emit the user-required deterministic tool plan; requesting a refined plan",
+              details: {
+                attempt: plannerAttempt,
+                nextAttempt: plannerAttempt + 1,
+                maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+              },
+            });
+            this.emitPlannerTrace(ctx, "planner_refinement_requested", {
+              attempt: plannerAttempt,
+              nextAttempt: plannerAttempt + 1,
+              reason: "planner_explicit_tool_parse_retry",
+              routeReason: "planner_explicit_tool_requirements_unmet",
+              diagnostics: plannerParse.diagnostics,
+            });
+            continue;
+          }
+          ctx.plannerSummaryState.routeReason =
+            "planner_explicit_tool_requirements_unmet";
+          this.setStopReason(
+            ctx,
+            "validation_error",
+            "Planner could not produce the required deterministic tool plan",
+          );
+          ctx.finalContent = buildExplicitDeterministicToolFailureMessage(
+            explicitDeterministicToolRequirements,
+            plannerParse.diagnostics,
+          );
+          this.emitPlannerTrace(ctx, "planner_path_finished", {
+            plannerCalls: plannerAttempt,
+            routeReason: ctx.plannerSummaryState.routeReason,
+            stopReason: ctx.stopReason,
+            stopReasonDetail: ctx.stopReasonDetail,
+            diagnostics: ctx.plannerSummaryState.diagnostics,
+            handled: true,
+          });
+          ctx.plannerHandled = true;
+          return;
+        }
         ctx.plannerSummaryState.routeReason = "planner_parse_failed";
         this.emitPlannerTrace(ctx, "planner_path_finished", {
           plannerCalls: plannerAttempt,
@@ -2030,20 +2189,30 @@ export class ChatExecutor {
               explicitOrchestrationRequirements,
             )
           : [];
+      const explicitToolDiagnostics =
+        explicitDeterministicToolRequirements
+          ? validateExplicitDeterministicToolRequirements(
+              plannerPlan,
+              explicitDeterministicToolRequirements,
+            )
+          : [];
       const shouldRefinePlan =
         (
           decompositionDiagnostics.length > 0 ||
-          requiredOrchestrationDiagnostics.length > 0
+          requiredOrchestrationDiagnostics.length > 0 ||
+          explicitToolDiagnostics.length > 0
         ) &&
         plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS;
       if (
         graphDiagnostics.length > 0 ||
-        requiredOrchestrationDiagnostics.length > 0
+        requiredOrchestrationDiagnostics.length > 0 ||
+        explicitToolDiagnostics.length > 0
       ) {
         ctx.plannerSummaryState.diagnostics.push(...graphDiagnostics);
         ctx.plannerSummaryState.diagnostics.push(
           ...requiredOrchestrationDiagnostics,
         );
+        ctx.plannerSummaryState.diagnostics.push(...explicitToolDiagnostics);
         if (shouldRefinePlan) {
           const refinementHints: string[] = [];
           if (decompositionDiagnostics.length > 0) {
@@ -2061,17 +2230,31 @@ export class ChatExecutor {
               ),
             );
           }
+          if (explicitToolDiagnostics.length > 0) {
+            refinementHints.push(
+              buildExplicitDeterministicToolRefinementHint(
+                explicitDeterministicToolRequirements!,
+                explicitToolDiagnostics,
+              ),
+            );
+          }
           refinementHint = refinementHints.join(" ");
+          const plannerRetryCode =
+            requiredOrchestrationDiagnostics.length > 0
+              ? "planner_required_orchestration_retry"
+              : explicitToolDiagnostics.length > 0
+                ? "planner_explicit_tool_retry"
+                : "planner_refinement_retry";
+          const plannerRetryMessage =
+            requiredOrchestrationDiagnostics.length > 0
+              ? "Planner did not satisfy the user-required sub-agent orchestration plan; requesting a refined plan"
+              : explicitToolDiagnostics.length > 0
+                ? "Planner drifted outside the explicitly requested deterministic tool contract; requesting a refined plan"
+                : "Planner emitted overloaded delegated steps; requesting a smaller refined plan";
           ctx.plannerSummaryState.diagnostics.push({
             category: "policy",
-            code:
-              requiredOrchestrationDiagnostics.length > 0
-                ? "planner_required_orchestration_retry"
-                : "planner_refinement_retry",
-            message:
-              requiredOrchestrationDiagnostics.length > 0
-                ? "Planner did not satisfy the user-required sub-agent orchestration plan; requesting a refined plan"
-                : "Planner emitted overloaded delegated steps; requesting a smaller refined plan",
+            code: plannerRetryCode,
+            message: plannerRetryMessage,
             details: {
               attempt: plannerAttempt,
               nextAttempt: plannerAttempt + 1,
@@ -2081,12 +2264,10 @@ export class ChatExecutor {
           this.emitPlannerTrace(ctx, "planner_refinement_requested", {
             attempt: plannerAttempt,
             nextAttempt: plannerAttempt + 1,
-            reason:
-              requiredOrchestrationDiagnostics.length > 0
-                ? "planner_required_orchestration_retry"
-                : "planner_refinement_retry",
+            reason: plannerRetryCode,
             graphDiagnostics,
             requiredOrchestrationDiagnostics,
+            explicitToolDiagnostics,
           });
           continue;
         }
@@ -2113,7 +2294,33 @@ export class ChatExecutor {
           ctx.plannerHandled = true;
           return;
         }
-        ctx.plannerSummaryState.routeReason = "planner_validation_failed";
+        if (explicitToolDiagnostics.length > 0) {
+          ctx.plannerSummaryState.routeReason =
+            "planner_explicit_tool_requirements_unmet";
+          this.setStopReason(
+            ctx,
+            "validation_error",
+            "Planner did not satisfy the user-required deterministic tool plan",
+          );
+          ctx.finalContent = buildExplicitDeterministicToolFailureMessage(
+            explicitDeterministicToolRequirements!,
+            explicitToolDiagnostics,
+          );
+          this.emitPlannerTrace(ctx, "planner_path_finished", {
+            plannerCalls: plannerAttempt,
+            routeReason: ctx.plannerSummaryState.routeReason,
+            stopReason: ctx.stopReason,
+            stopReasonDetail: ctx.stopReasonDetail,
+            diagnostics: ctx.plannerSummaryState.diagnostics,
+            handled: true,
+          });
+          ctx.plannerHandled = true;
+          return;
+        }
+        ctx.plannerSummaryState.routeReason =
+          explicitToolDiagnostics.length > 0
+            ? "planner_explicit_tool_requirements_unmet"
+            : "planner_validation_failed";
       } else if (plannerPlan.reason) {
         ctx.plannerSummaryState.routeReason = plannerPlan.reason;
       }
@@ -2134,6 +2341,7 @@ export class ChatExecutor {
         ).length,
         graphDiagnostics,
         requiredOrchestrationDiagnostics,
+        explicitToolDiagnostics,
       });
 
       ctx.plannerSummaryState.plannedSteps = plannerPlan.steps.length;
@@ -2236,7 +2444,9 @@ export class ChatExecutor {
 
       if (
         hasExecutablePlannerSteps &&
-        ctx.plannerSummaryState.routeReason !== "planner_validation_failed"
+        ctx.plannerSummaryState.routeReason !== "planner_validation_failed" &&
+        ctx.plannerSummaryState.routeReason !==
+          "planner_explicit_tool_requirements_unmet"
       ) {
         if (deterministicSteps.length > ctx.effectiveToolBudget) {
           this.setStopReason(
@@ -2441,9 +2651,32 @@ export class ChatExecutor {
           );
         }
 
+        let plannerFinalizationStrategy: string | undefined;
         if (
           pipelineResult &&
           !pipelineResult.decomposition &&
+          ctx.stopReason === "completed" &&
+          explicitDeterministicToolRequirements?.exactResponseLiteral
+        ) {
+          ctx.finalContent =
+            explicitDeterministicToolRequirements.exactResponseLiteral;
+          plannerFinalizationStrategy = "exact_response_literal";
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code: "planner_exact_response_literal_applied",
+            message:
+              "Completed deterministic plan satisfied the explicit exact-response contract without planner synthesis",
+            details: {
+              literal:
+                explicitDeterministicToolRequirements.exactResponseLiteral,
+            },
+          });
+        }
+
+        if (
+          pipelineResult &&
+          !pipelineResult.decomposition &&
+          !ctx.finalContent &&
           (
             plannerPlan.requiresSynthesis ||
             explicitOrchestrationRequirements?.requiresSynthesis === true ||
@@ -2470,6 +2703,8 @@ export class ChatExecutor {
             statefulSessionId: ctx.sessionId,
             statefulResumeAnchor: ctx.stateful?.resumeAnchor,
             statefulHistoryCompacted: ctx.stateful?.historyCompacted,
+            routedToolNames: [],
+            toolChoice: "none",
             budgetReason:
               "Planner synthesis blocked by max model recalls per request budget",
           });
@@ -2501,6 +2736,9 @@ export class ChatExecutor {
           stopReasonDetail: ctx.stopReasonDetail,
           diagnostics: ctx.plannerSummaryState.diagnostics,
           handled: true,
+          ...(plannerFinalizationStrategy
+            ? { finalizationStrategy: plannerFinalizationStrategy }
+            : {}),
           deterministicStepsExecuted:
             ctx.plannerSummaryState.deterministicStepsExecuted,
         });
@@ -2512,7 +2750,11 @@ export class ChatExecutor {
         !delegationDecision ||
         delegationDecision.shouldDelegate
       ) {
-        if (ctx.plannerSummaryState.routeReason !== "planner_validation_failed") {
+        if (
+          ctx.plannerSummaryState.routeReason !== "planner_validation_failed" &&
+          ctx.plannerSummaryState.routeReason !==
+            "planner_explicit_tool_requirements_unmet"
+        ) {
           ctx.plannerSummaryState.routeReason = "planner_no_deterministic_steps";
         }
       }
@@ -2627,17 +2869,8 @@ export class ChatExecutor {
                   options?.trace?.includeProviderPayloads === true,
                 ...(options?.trace?.onProviderTraceEvent
                   ? {
-                    onProviderTraceEvent: (event) => {
-                      options.trace?.onProviderTraceEvent?.({
-                        ...event,
-                        ...(options.callIndex !== undefined
-                          ? { callIndex: options.callIndex }
-                          : {}),
-                        ...(options.callPhase !== undefined
-                          ? { callPhase: options.callPhase }
-                          : {}),
-                      });
-                    },
+                    onProviderTraceEvent: (event) =>
+                      this.emitProviderTraceEvent(options, event),
                   }
                   : {}),
               },
@@ -2646,26 +2879,45 @@ export class ChatExecutor {
         }
         : undefined;
     let lastError: Error | undefined;
-    const now = Date.now();
+    const transport =
+      onStreamChunk !== undefined &&
+      !shouldBypassStreamingForForcedSingleToolTurn(chatOptions)
+        ? "chat_stream"
+        : "chat";
 
     for (let i = 0; i < this.providers.length; i++) {
       const provider = this.providers[i];
+      const now = Date.now();
       const cooldown = this.cooldowns.get(provider.name);
 
       if (cooldown && cooldown.availableAt > now) {
+        this.emitProviderTraceEvent(options, {
+          kind: "error",
+          transport,
+          provider: provider.name,
+          payload: {
+            reason: "provider_cooldown_skip",
+            retryAfterMs: Math.max(0, cooldown.availableAt - now),
+            availableAt: cooldown.availableAt,
+            failures: cooldown.failures,
+          },
+          context: {
+            stage: "fallback_selection",
+          },
+        });
         continue;
       }
 
       let attempts = 0;
       while (true) {
         try {
+          const streamChunkCallback = onStreamChunk;
           const shouldStream =
-            onStreamChunk !== undefined &&
-            !shouldBypassStreamingForForcedSingleToolTurn(chatOptions);
+            transport === "chat_stream" && streamChunkCallback !== undefined;
           const providerCall = shouldStream
             ? provider.chatStream(
               boundedMessages,
-              onStreamChunk,
+              streamChunkCallback,
               chatOptions,
             )
             : provider.chat(boundedMessages, chatOptions);
@@ -2701,7 +2953,24 @@ export class ChatExecutor {
           }
 
           // Success — clear cooldown
+          const priorCooldown = this.cooldowns.get(provider.name);
           this.cooldowns.delete(provider.name);
+          if (priorCooldown) {
+            this.emitProviderTraceEvent(options, {
+              kind: "response",
+              transport,
+              provider: provider.name,
+              model: response.model,
+              payload: {
+                reason: "provider_cooldown_cleared",
+                failures: priorCooldown.failures,
+                previousAvailableAt: priorCooldown.availableAt,
+              },
+              context: {
+                stage: "fallback_selection",
+              },
+            });
+          }
 
           return {
             response,
@@ -2740,9 +3009,37 @@ export class ChatExecutor {
             retryRule,
             lastError,
           );
+          const availableAt = Date.now() + cooldownDuration;
           this.cooldowns.set(provider.name, {
-            availableAt: Date.now() + cooldownDuration,
+            availableAt,
             failures,
+          });
+          this.emitProviderTraceEvent(options, {
+            kind: "error",
+            transport,
+            provider: provider.name,
+            payload: {
+              reason: "provider_cooldown_applied",
+              failureClass,
+              retryAfterMs: cooldownDuration,
+              cooldownDurationMs: cooldownDuration,
+              availableAt,
+              failures,
+              errorName: lastError.name,
+              errorMessage: lastError.message,
+              ...(lastError instanceof LLMProviderError &&
+              lastError.statusCode !== undefined
+                ? { statusCode: lastError.statusCode }
+                : {}),
+              ...(lastError instanceof LLMRateLimitError &&
+              lastError.retryAfterMs !== undefined
+                ? { providerRetryAfterMs: lastError.retryAfterMs }
+                : {}),
+            },
+            context: {
+              stage: "fallback_selection",
+              attempts,
+            },
           });
           break;
         }
@@ -2752,11 +3049,64 @@ export class ChatExecutor {
     if (lastError) {
       throw lastError;
     }
+    const now = Date.now();
+    this.emitProviderTraceEvent(options, {
+      kind: "error",
+      transport,
+      provider: "chat-executor",
+      payload: {
+        reason: "all_providers_in_cooldown",
+        providers: this.buildActiveCooldownSnapshot(now),
+      },
+      context: {
+        stage: "fallback_selection",
+      },
+    });
     // All providers were skipped (in cooldown) — no provider was attempted
     throw new LLMProviderError(
       "chat-executor",
       "All providers are in cooldown",
     );
+  }
+
+  private emitProviderTraceEvent(
+    options:
+      | {
+          trace?: ChatExecuteParams["trace"];
+          callIndex?: number;
+          callPhase?: ChatCallUsageRecord["phase"];
+        }
+      | undefined,
+    event: Omit<LLMProviderTraceEvent, "callIndex" | "callPhase">,
+  ): void {
+    options?.trace?.onProviderTraceEvent?.({
+      ...event,
+      ...(options.callIndex !== undefined
+        ? { callIndex: options.callIndex }
+        : {}),
+      ...(options.callPhase !== undefined
+        ? { callPhase: options.callPhase }
+        : {}),
+    });
+  }
+
+  private buildActiveCooldownSnapshot(
+    now: number,
+  ): Array<{
+    provider: string;
+    retryAfterMs: number;
+    availableAt: number;
+    failures: number;
+  }> {
+    return Array.from(this.cooldowns.entries())
+      .map(([provider, cooldown]) => ({
+        provider,
+        retryAfterMs: Math.max(0, cooldown.availableAt - now),
+        availableAt: cooldown.availableAt,
+        failures: cooldown.failures,
+      }))
+      .filter((entry) => entry.retryAfterMs > 0)
+      .sort((left, right) => left.provider.localeCompare(right.provider));
   }
 
   private shouldRetryProviderImmediately(

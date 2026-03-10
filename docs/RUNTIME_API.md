@@ -497,6 +497,10 @@ The runtime also persists those trace events into the local observability store 
 
 These queries power the WebChat `TRACE` view, which combines summary metrics, trace timelines, exact artifact payloads under `~/.agenc/trace-payloads/`, and trace-filtered daemon log slices without requiring operators to grep raw logs first.
 
+In foreground tmux or other multi-daemon local runs, the runtime now tees foreground daemon output into the configured daemon log path as well. That keeps pane scrollback, `observability.logs`, and exported debug bundles aligned even when each agent uses its own log file (for example `~/.agenc/localnet-soak/default/social/logs/agent-1.log`).
+
+When the executor normalizes or repairs tool arguments immediately before dispatch, `*.executor.tool_dispatch_started` trace events can include `argumentDiagnostics`. This payload records the repair source plus the repaired fields so operators can distinguish model-supplied arguments from deterministic runtime repair during incident replay.
+
 ### Profile 4: Delegation SOTA (subagent orchestration + policy learning)
 
 Use for multi-step delegated workloads where planner DAG execution, verifier gates, and learning-based routing should be active.

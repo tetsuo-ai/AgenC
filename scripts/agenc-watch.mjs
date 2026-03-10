@@ -1226,6 +1226,7 @@ function attachSocket(socket) {
     bootstrapReady = false;
     connectionState = "live";
     setTransientStatus(`connected to ${wsUrl}`);
+    pushEvent("ws", "WebSocket Connected", wsUrl, "green");
     while (pendingFrames.length > 0) {
       socket.send(pendingFrames.shift());
     }
@@ -1323,6 +1324,25 @@ function attachSocket(socket) {
         break;
       case "chat.usage":
         lastUsageSummary = summarizeUsage(msg.payload);
+        break;
+      case "social.message":
+        setTransientStatus(
+          `social message from ${truncate(msg.payload?.sender ?? "unknown", 32)}`,
+        );
+        pushEvent(
+          "social",
+          "Social Message",
+          [
+            `from: ${msg.payload?.sender ?? "unknown"}`,
+            `to: ${msg.payload?.recipient ?? "unknown"}`,
+            `mode: ${msg.payload?.mode ?? "unknown"}`,
+            `messageId: ${msg.payload?.messageId ?? "unknown"}`,
+            `threadId: ${msg.payload?.threadId ?? "none"}`,
+            "",
+            msg.payload?.content ?? "",
+          ].join("\n"),
+          "blue",
+        );
         break;
       case "runs.list":
         pushEvent("runs", "Run List", tryPrettyJson(msg.payload ?? []), "blue");

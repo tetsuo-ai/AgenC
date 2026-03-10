@@ -34,6 +34,12 @@ const DOOM_RUNTIME_FAILURE_RE =
 const DOOM_SCREEN_RESOLUTION_RE = /^(?:RES_)?(\d{2,4})[xX](\d{2,4})$/i;
 const NULLISH_STRING_RE = /^(?:null|none|undefined)$/i;
 const DEFAULT_VISIBLE_DOOM_SCREEN_RESOLUTION = "RES_1280X720";
+const COLLABORATION_PAYOUT_MODES = new Set(["fixed", "weighted", "milestone"]);
+
+export interface ToolArgumentRepairResult {
+  readonly args: Record<string, unknown>;
+  readonly repairedFields: readonly string[];
+}
 
 export function didToolCallFail(isError: boolean, result: string): boolean {
   if (isError) return true;
@@ -288,6 +294,159 @@ export function normalizeToolCallArguments(
   }
 
   return nextArgs;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function trimRecoveredArgumentValue(value: string): string {
+  return value
+    .trim()
+    .replace(/^[`"'“”]+|[`"'“”]+$/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function buildNamedFieldRegex(
+  fieldName: string,
+  trailingFields: readonly string[],
+): RegExp {
+  const escapedField = escapeRegex(fieldName);
+  const trailing = trailingFields.map((field) => escapeRegex(field)).join("|");
+  return new RegExp(
+    `\\b${escapedField}\\s*(?:=|:)?\\s*([\\s\\S]+?)` +
+      `(?=(?:,\\s*(?:${trailing})\\b)|(?:\\.\\s*(?:after|then|reply|respond|once|when)\\b)|$)`,
+    "i",
+  );
+}
+
+function extractNamedStringArgument(
+  messageText: string,
+  fieldName: string,
+  trailingFields: readonly string[],
+): string | undefined {
+  const quoted = new RegExp(
+    `\\b${escapeRegex(fieldName)}\\s*(?:=|:)?\\s*["'\`]([\\s\\S]+?)["'\`]`,
+    "i",
+  ).exec(messageText);
+  if (quoted?.[1]) {
+    const normalized = trimRecoveredArgumentValue(quoted[1]);
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  const unquoted = buildNamedFieldRegex(fieldName, trailingFields).exec(messageText);
+  if (!unquoted?.[1]) return undefined;
+  const normalized = trimRecoveredArgumentValue(unquoted[1]);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function isMissingNumberArg(value: unknown): boolean {
+  return typeof value !== "number" || !Number.isFinite(value);
+}
+
+function repairCollaborationArgumentsFromMessageText(
+  args: Record<string, unknown>,
+  messageText: string,
+): ToolArgumentRepairResult {
+  let nextArgs = args;
+  const repairedFields: string[] = [];
+
+  if (!hasNonEmptyString(args.title)) {
+    const recoveredTitle = extractNamedStringArgument(messageText, "title", [
+      "description",
+      "requiredCapabilities",
+      "maxMembers",
+      "payoutMode",
+    ]);
+    if (recoveredTitle) {
+      if (nextArgs === args) nextArgs = { ...args };
+      nextArgs.title = recoveredTitle;
+      repairedFields.push("title");
+    }
+  }
+
+  if (!hasNonEmptyString(args.description)) {
+    const recoveredDescription = extractNamedStringArgument(
+      messageText,
+      "description",
+      ["requiredCapabilities", "maxMembers", "payoutMode"],
+    );
+    if (recoveredDescription) {
+      if (nextArgs === args) nextArgs = { ...nextArgs };
+      nextArgs.description = recoveredDescription;
+      repairedFields.push("description");
+    }
+  }
+
+  if (!hasNonEmptyString(args.requiredCapabilities)) {
+    const recoveredCaps =
+      /\brequiredCapabilities\s*(?:=|:)?\s*["'\`]?([0-9]+)["'\`]?/i.exec(
+        messageText,
+      )?.[1];
+    if (recoveredCaps) {
+      if (nextArgs === args) nextArgs = { ...nextArgs };
+      nextArgs.requiredCapabilities = recoveredCaps;
+      repairedFields.push("requiredCapabilities");
+    }
+  }
+
+  if (isMissingNumberArg(args.maxMembers)) {
+    const recoveredMaxMembers = /\bmaxMembers\s*(?:=|:)?\s*([0-9]+)\b/i.exec(
+      messageText,
+    )?.[1];
+    if (recoveredMaxMembers) {
+      if (nextArgs === args) nextArgs = { ...nextArgs };
+      nextArgs.maxMembers = Number.parseInt(recoveredMaxMembers, 10);
+      repairedFields.push("maxMembers");
+    }
+  }
+
+  if (
+    !hasNonEmptyString(args.payoutMode) ||
+    !COLLABORATION_PAYOUT_MODES.has(args.payoutMode.trim())
+  ) {
+    const recoveredMode =
+      /\bpayoutMode\s*(?:=|:)?\s*(fixed|weighted|milestone)\b/i.exec(
+        messageText,
+      )?.[1];
+    if (recoveredMode) {
+      if (nextArgs === args) nextArgs = { ...nextArgs };
+      nextArgs.payoutMode = recoveredMode.toLowerCase();
+      repairedFields.push("payoutMode");
+    }
+  }
+
+  return { args: nextArgs, repairedFields };
+}
+
+export function repairToolCallArgumentsFromMessageText(
+  toolName: string,
+  args: Record<string, unknown>,
+  messageText: string,
+): ToolArgumentRepairResult {
+  if (toolName !== "social.requestCollaboration") {
+    return { args, repairedFields: [] };
+  }
+  return repairCollaborationArgumentsFromMessageText(args, messageText);
+}
+
+export function summarizeToolArgumentChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): readonly string[] {
+  const fields = new Set([...Object.keys(before), ...Object.keys(after)]);
+  const changed: string[] = [];
+  for (const field of fields) {
+    if (safeStringify(before[field]) !== safeStringify(after[field])) {
+      changed.push(field);
+    }
+  }
+  return changed.sort();
 }
 
 /** Configuration for tool execution with retry. */

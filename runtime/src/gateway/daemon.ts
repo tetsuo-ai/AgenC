@@ -1698,6 +1698,7 @@ export class DaemonManager {
   private _agentMessaging:
     | import("../social/messaging.js").AgentMessaging
     | null = null;
+  private _agentMessagingUnsubscribe: (() => void) | null = null;
   private _agentFeed: import("../social/feed.js").AgentFeed | null = null;
   private _reputationScorer:
     | import("../social/reputation.js").ReputationScorer
@@ -4339,14 +4340,21 @@ export class DaemonManager {
           agentId,
           wallet: keypair,
           logger: this.logger,
+          memoryBackend: this._memoryBackend ?? undefined,
           config: {
             defaultMode: config.social.messagingMode ?? "auto",
             offChainPort: config.social.messagingPort ?? 0,
           },
         });
+        await this._agentMessaging.hydrateRecentMessages();
         if (config.social.messagingPort) {
           await this._agentMessaging.startListener(config.social.messagingPort);
         }
+        this._agentMessagingUnsubscribe = this._agentMessaging.onMessage(
+          (message) => {
+            this.handleIncomingSocialMessage(message);
+          },
+        );
         this.logger.info("Agent messaging initialized");
       } catch (err) {
         this.logger.warn?.("Agent messaging initialization failed:", err);
@@ -5141,6 +5149,7 @@ export class DaemonManager {
             getMessaging: () => this._agentMessaging,
             getFeed: () => this._agentFeed,
             getCollaboration: () => this._collaborationProtocol,
+            getPeerDirectory: () => config.social?.peerDirectory ?? null,
             logger: this.logger,
           }),
         );
@@ -5460,6 +5469,44 @@ export class DaemonManager {
         );
       },
     };
+  }
+
+  private handleIncomingSocialMessage(
+    message: import("../social/messaging-types.js").AgentMessage,
+  ): void {
+    const sender = message.sender.toBase58();
+    const recipient = message.recipient.toBase58();
+
+    this.logger.info("Inbound social message received", {
+      messageId: message.id,
+      sender,
+      recipient,
+      mode: message.mode,
+      onChain: message.onChain,
+      threadId: message.threadId ?? null,
+      timestamp: message.timestamp,
+      content: message.content,
+    });
+
+    const deliveredSessions =
+      this._webChatChannel?.pushSocialMessageToActiveSessions({
+        messageId: message.id,
+        sender,
+        recipient,
+        content: message.content,
+        mode: message.mode,
+        timestamp: message.timestamp,
+        onChain: message.onChain,
+        threadId: message.threadId ?? null,
+      }) ?? 0;
+
+    this.logger.info("Inbound social message session fanout", {
+      messageId: message.id,
+      deliveredSessions,
+      sender,
+      recipient,
+      threadId: message.threadId ?? null,
+    });
   }
 
   private createMemoryRetriever(memoryBackend: MemoryBackend): MemoryRetriever {
@@ -8977,6 +9024,8 @@ export class DaemonManager {
         this._voiceBridge = null;
       }
       // Stop social module
+      this._agentMessagingUnsubscribe?.();
+      this._agentMessagingUnsubscribe = null;
       if (this._agentMessaging !== null) {
         await this._agentMessaging.dispose();
         this._agentMessaging = null;

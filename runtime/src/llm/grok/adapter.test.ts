@@ -1349,6 +1349,51 @@ describe("GrokProvider", () => {
     expect(second.stateful?.responseId).toBe("resp_2");
   });
 
+  it("does not persist previous_response_id anchors for empty assistant turns", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_empty",
+          output_text: "",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_fresh",
+          output_text: "Recovered statelessly",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+      ],
+      { stateful: { sessionId: "sess-empty-anchor" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+        { role: "user", content: "follow up after empty turn" },
+      ],
+      { stateful: { sessionId: "sess-empty-anchor" } },
+    );
+
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(secondParams.previous_response_id).toBeUndefined();
+    expect(second.stateful?.continued).toBe(false);
+  });
+
   it("keeps previous_response_id continuity across a tool turn and the next user turn", async () => {
     mockCreate
       .mockResolvedValueOnce(

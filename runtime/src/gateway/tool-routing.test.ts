@@ -229,6 +229,14 @@ const TOOLS: LLMTool[] = [
     "system.browserSessionStop",
     "Stop a durable browser session handle",
   ),
+  makeTool(
+    "social.sendMessage",
+    "Send a message to another agent via on-chain state or off-chain WebSocket",
+  ),
+  makeTool(
+    "social.getRecentMessages",
+    "Read recent inbound/outbound social messages observed by this daemon",
+  ),
   makeTool("agenc.createTask", "Create on-chain task"),
   makeTool("agenc.getTask", "Read task details"),
   makeTool("mcp.doom.start_game", "Start a Doom scenario"),
@@ -412,6 +420,25 @@ describe("ToolRouter", () => {
 
     expect(decision.routedToolNames).toContain("system.emailMessageInfo");
     expect(decision.routedToolNames).toContain("system.emailMessageExtractText");
+  });
+
+  it("does not route email tools for explicit social inbox reads", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-social-inbox",
+      messageText:
+        "Use social.getRecentMessages with direction incoming and limit 3. Read the newest message from agent 1 and then use social.sendMessage to reply to recipient 6YvDdmWCcpU5wKWqutEvrKW7vzMfZhFqX8TLt64vxAQw.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("social.getRecentMessages");
+    expect(decision.routedToolNames).toContain("social.sendMessage");
+    expect(decision.routedToolNames).not.toContain("system.emailMessageInfo");
+    expect(decision.routedToolNames).not.toContain("system.emailMessageExtractText");
   });
 
   it("prioritizes typed calendar tools for ics prompts", () => {

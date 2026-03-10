@@ -1111,6 +1111,15 @@ export class GrokProvider implements LLMProvider {
     if (!plan.statefulDiagnostics?.enabled) return;
     const sessionId = plan.sessionId;
     const responseId = response.stateful?.responseId;
+    const hasMeaningfulAssistantOutput =
+      response.toolCalls.length > 0 ||
+      response.content.trim().length > 0;
+    if (!hasMeaningfulAssistantOutput) {
+      if (sessionId) {
+        this.statefulSessions.delete(sessionId);
+      }
+      return;
+    }
     const reconciliationHash =
       plan.requestMessages &&
       plan.requestMessages.length > 0

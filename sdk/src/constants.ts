@@ -84,8 +84,8 @@ export const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
  * This value MUST match TRUSTED_RISC0_IMAGE_ID in complete_task_private.rs exactly.
  */
 export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
-  202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245, 211,
-  97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
+  91, 102, 183, 26, 119, 89, 149, 15, 10, 80, 87, 16, 22, 157, 195, 85, 12,
+  183, 108, 1, 237, 243, 199, 24, 191, 151, 209, 50, 83, 101, 49, 151,
 ]);
 
 // ============================================================================

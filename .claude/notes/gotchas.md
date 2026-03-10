@@ -49,5 +49,25 @@
 - Voice observability must stay trace-compatible with webchat observability. If tool trace event names, payload fields, or sanitization rules change in the daemon traced-tool wrapper, update `runtime/src/gateway/voice-bridge.ts` in the same change or extract the wrapper into shared code, or the Logs pane will silently lose voice parity again.
 
 ## 2026-03-10
+- Soak report JSON is a summary, not proof. For local social runs, verify required behavior from per-agent daemon traces (`webchat.inbound`, `webchat.tool_routing`, `webchat.provider.request/response`, `webchat.executor.*`, `webchat.chat.response`) before calling a turn correct.
+- Explicit deterministic tool requirements must be derived from the union of the initial routed subset and the expanded routed subset. If cached routing drops a user-named tool like `social.getRecentMessages` from the initial allowlist, planner enforcement will validate the wrong contract unless the expanded subset is merged back in.
+- If a turn has an explicit deterministic tool contract, put that contract into the first planner prompt, not just the refinement prompt. Otherwise planner repair becomes the normal path and latency scales with model drift.
+- On-chain agent registration only accepts `http://` or `https://` endpoints, but the social messaging transport is WebSocket. Runtime off-chain messaging must normalize registered `http(s)` endpoints to `ws(s)` before connecting, or local/social bring-up will fail in one direction or the other.
 - Doom background supervision prompts must not accidentally re-trigger the foreground Doom setup contract. When a background cycle needs Doom MCP tools after an initial launch, scope contract inference to the explicit background-objective section or carry structured run metadata instead of letting carry-forward/tool-evidence prose drive relaunch gating.
 - Doom background recovery must preserve the exact recovery objective, not a prose approximation. If the first turn launches `hold_position` with movement constraints like `no_strafe`, `no_back_forth`, or `smooth_movement`, carry those exact args into the background run and reapply them on idle/restart recovery.
+- Dialogue-only suppression heuristics must treat explicit dotted tool references like `social.searchAgents` or `social.sendMessage` as real tool-invocation cues. Otherwise exact-response prompts can zero the routed allowlist and produce `empty_allowlist` hallucination paths instead of executing the named tools.
+- In local multi-daemon tmux runs, the foreground pane and the configured daemon log file must show the same execution journal. If `AGENC_DAEMON_LOG_PATH` is not actually backing the foreground process, fix that first or every trace bundle and `observability.logs` export will be incomplete.
+- The social tmux launcher should tail the per-agent log files in its `LOGS` window, not the legacy shared `~/.agenc/daemon.log`. Otherwise operators will debug one daemon in the pane while the persisted evidence comes from another process.
+- Peer-to-peer social DMs must not be replayed through webchat as assistant replies. Surface them as transport-only events (for example `social.message`) or a dedicated peer-message role, otherwise the receiving agent's chat history gets polluted with messages it never authored.
+- When the live tmux watch client reconnects after daemon startup, emit an explicit success event in the pane. Leaving only the initial `WS-ERROR` visible makes a healthy localnet stack look broken until some unrelated tool or social event arrives.
+- Exact-output contracts must not survive failed tool execution unchanged. If a turn hits tool errors and the model still returns a success sentinel like `R2_DONE_A2`, reconcile it into an explicit failure summary before showing it to the operator.
+- Imperative prompts that literally say to `use` or `call` a named tool need contract guidance on the initial turn. Otherwise single-tool turns like `social.requestCollaboration` can fall through the direct path and return no tool calls at all.
+- Stateful Grok continuation must not persist `previous_response_id` anchors for empty assistant turns with no tool calls. Those anchors poison the next request and can surface as opaque provider 400s instead of a local recovery path.
+## 2026-03-10 - Localnet social soak readiness must use fresh logs
+
+- When booting the 4-agent localnet social stack, do not trust persisted daemon logs without truncating them first.
+- If the launcher waits on `Gateway started on port ...` / `Messaging listener started on port ...` / `Daemon started {` markers, stale log lines can create a false-ready signal.
+- The safe pattern is:
+  - truncate the per-agent log before launching the foreground daemon
+  - require both TCP port readiness and the fresh log readiness markers before starting soak traffic
+- Keep that readiness contract in one module, [agenc-social-readiness.mjs](/home/tetsuo/git/AgenC/scripts/agenc-social-readiness.mjs), so the launcher and soak runner cannot silently drift.

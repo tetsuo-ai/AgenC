@@ -90,7 +90,7 @@ Control example (valid linkage):
 
 Bundle these files/artifacts:
 
-- `~/.agenc/daemon.log` (trace-enabled window only)
+- the active daemon log file(s): default `~/.agenc/daemon.log`, or the configured `AGENC_DAEMON_LOG_PATH` / per-daemon log path for local tmux runs such as `~/.agenc/localnet-soak/default/social/logs/agent-*.log`
 - `~/.agenc/config.json` (redact API keys/secrets)
 - repro harness JSON output
 - trace lines for `*.executor.*`
@@ -125,7 +125,7 @@ Trace logs include a per-turn `traceId`. Use it to join:
 Example:
 
 ```bash
-rg "traceId\":\"<TRACE_ID>\"" ~/.agenc/daemon.log
+rg "traceId\":\"<TRACE_ID>\"" ~/.agenc/daemon.log ~/.agenc/localnet-soak/default/social/logs/agent-*.log
 ```
 
 Key fields for context diagnostics in `*.chat.response`:

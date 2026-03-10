@@ -9,10 +9,11 @@
 
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import type { Keypair } from "@solana/web3.js";
-import anchor, { utils, type Program } from "@coral-xyz/anchor";
+import { BN, utils, type Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../idl.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
+import type { MemoryBackend } from "../memory/types.js";
 import { findAgentPda, findProtocolPda } from "../agent/pda.js";
 import { isAnchorError, AnchorErrorCodes } from "../types/errors.js";
 import { ensureLazyModule } from "../utils/lazy-import.js";
@@ -34,13 +35,17 @@ import {
   encodeMessageStateValue,
   decodeMessageStateValue,
   type AgentMessage,
+  type MessageSendOptions,
+  type MessageQueryDirection,
   type MessageMode,
   type MessageHandler,
   type PeerResolver,
   type MessagingConfig,
   type MessagingOpsConfig,
   type OffChainEnvelope,
+  type RecentMessageQuery,
 } from "./messaging-types.js";
+import { AGENT_AUTHORITY_OFFSET } from "./types.js";
 
 // ============================================================================
 // WebSocket type shims (loaded lazily)
@@ -80,16 +85,87 @@ function createDefaultPeerResolver(
       try {
         const account =
           await program.account.agentRegistration.fetchNullable(agentPubkey);
-        if (!account) return null;
-        const endpoint = (account as Record<string, unknown>).endpoint as
+        const endpoint = (account as Record<string, unknown> | null)?.endpoint as
           | string
           | undefined;
-        return endpoint && endpoint.length > 0 ? endpoint : null;
+        if (endpoint && endpoint.length > 0) {
+          return endpoint;
+        }
       } catch {
-        return null;
+        // Fall through to authority lookup below.
       }
+
+      try {
+        const accounts = await program.account.agentRegistration.all([
+          {
+            memcmp: {
+              offset: AGENT_AUTHORITY_OFFSET,
+              bytes: agentPubkey.toBase58(),
+            },
+          },
+        ]);
+        for (const entry of accounts) {
+          const endpoint = (entry.account as Record<string, unknown>).endpoint as
+            | string
+            | undefined;
+          if (endpoint && endpoint.length > 0) {
+            return endpoint;
+          }
+        }
+      } catch {
+        // No authority alias resolution available.
+      }
+
+      return null;
     },
   };
+}
+
+interface PersistedRecentMessage {
+  id: string;
+  sender: string;
+  recipient: string;
+  content: string;
+  mode: MessageMode;
+  timestamp: number;
+  nonce: number;
+  onChain: boolean;
+  threadId?: string | null;
+}
+
+function normalizeWebSocketEndpoint(endpoint: string): string {
+  if (endpoint.startsWith("ws://") || endpoint.startsWith("wss://")) {
+    return endpoint;
+  }
+  if (endpoint.startsWith("http://")) {
+    return `ws://${endpoint.slice("http://".length)}`;
+  }
+  if (endpoint.startsWith("https://")) {
+    return `wss://${endpoint.slice("https://".length)}`;
+  }
+  return endpoint;
+}
+
+const MAX_THREAD_ID_BYTES = 128;
+
+function normalizeThreadId(threadId: unknown): string | null {
+  if (threadId == null) {
+    return null;
+  }
+  if (typeof threadId !== "string") {
+    throw new Error("threadId must be a string");
+  }
+  const normalized = threadId.trim();
+  if (normalized.length === 0) {
+    return null;
+  }
+  const threadBytes = new TextEncoder().encode(normalized);
+  if (threadBytes.length > MAX_THREAD_ID_BYTES) {
+    throw new Error(
+      `threadId exceeds ${MAX_THREAD_ID_BYTES} bytes: ${threadBytes.length} bytes`,
+    );
+  }
+  return normalized;
 }
 
 // ============================================================================
@@ -97,6 +173,9 @@ function createDefaultPeerResolver(
 // ============================================================================
 
 export class AgentMessaging {
+  private static readonly MAX_RECENT_MESSAGES = 200;
+  private static readonly RECENT_MESSAGES_STORAGE_VERSION = "v1";
+
   private readonly program: Program<AgencCoordination>;
   private readonly agentId: Uint8Array;
   private readonly wallet: Keypair;
@@ -105,9 +184,13 @@ export class AgentMessaging {
   private readonly logger: Logger;
   private readonly agentPda: PublicKey;
   private readonly protocolPda: PublicKey;
+  private readonly memoryBackend?: MemoryBackend;
 
   private nonce: number;
   private readonly handlers: Set<MessageHandler> = new Set();
+  private readonly recentMessages: AgentMessage[] = [];
+  private recentMessagesHydrated = false;
+  private recentMessagePersistChain: Promise<void> = Promise.resolve();
   private wss: WsWebSocketServer | null = null;
   private disposed = false;
   private readonly onReputationSignal?: ReputationSignalCallback;
@@ -120,6 +203,7 @@ export class AgentMessaging {
     this.discovery =
       opsConfig.discovery ?? createDefaultPeerResolver(this.program);
     this.onReputationSignal = opsConfig.onReputationSignal;
+    this.memoryBackend = opsConfig.memoryBackend;
 
     this.config = {
       defaultMode: opsConfig.config?.defaultMode ?? "auto",
@@ -152,6 +236,7 @@ export class AgentMessaging {
     recipient: PublicKey,
     content: string,
     mode?: MessageMode,
+    options?: MessageSendOptions,
   ): Promise<AgentMessage> {
     if (this.disposed) {
       throw new MessagingSendError(
@@ -161,21 +246,32 @@ export class AgentMessaging {
     }
 
     const effectiveMode = mode ?? this.config.defaultMode;
+    const recipientBase58 = recipient.toBase58();
+    const contentBytes = new TextEncoder().encode(content).length;
+    const threadId = normalizeThreadId(options?.threadId);
+
+    this.logger.info("Messaging send started", {
+      recipient: recipientBase58,
+      requestedMode: mode ?? null,
+      effectiveMode,
+      contentBytes,
+      threadId,
+    });
 
     let message: AgentMessage;
     switch (effectiveMode) {
       case "on-chain":
-        message = await this.sendOnChain(recipient, content);
+        message = await this.sendOnChain(recipient, content, { threadId });
         break;
       case "off-chain":
-        message = await this.sendOffChain(recipient, content);
+        message = await this.sendOffChain(recipient, content, { threadId });
         break;
       case "auto":
-        message = await this.sendAuto(recipient, content);
+        message = await this.sendAuto(recipient, content, { threadId });
         break;
       default:
         throw new MessagingSendError(
-          recipient.toBase58(),
+          recipientBase58,
           `Unknown mode: ${effectiveMode}`,
         );
     }
@@ -202,6 +298,105 @@ export class AgentMessaging {
     return () => {
       this.handlers.delete(handler);
     };
+  }
+
+  getLocalAuthority(): PublicKey {
+    return this.wallet.publicKey;
+  }
+
+  getLocalAgentPda(): PublicKey {
+    return this.agentPda;
+  }
+
+  async hydrateRecentMessages(): Promise<void> {
+    if (this.recentMessagesHydrated) {
+      return;
+    }
+    this.recentMessagesHydrated = true;
+
+    if (!this.memoryBackend) {
+      this.logger.debug("Recent social message hydration skipped", {
+        reason: "memory_backend_unavailable",
+      });
+      return;
+    }
+
+    const storageKey = this.getRecentMessagesStorageKey();
+    try {
+      const stored =
+        await this.memoryBackend.get<PersistedRecentMessage[]>(storageKey);
+      if (!Array.isArray(stored) || stored.length === 0) {
+        this.logger.info("Recent social messages hydrated", {
+          storageKey,
+          restoredCount: 0,
+          localAuthority: this.wallet.publicKey.toBase58(),
+          localAgentPda: this.agentPda.toBase58(),
+        });
+        return;
+      }
+
+      const restored: AgentMessage[] = [];
+      for (const entry of stored.slice(-AgentMessaging.MAX_RECENT_MESSAGES)) {
+        const coerced = this.deserializeRecentMessage(entry);
+        if (coerced) {
+          restored.push(coerced);
+        }
+      }
+
+      this.recentMessages.splice(0, this.recentMessages.length, ...restored);
+      this.logger.info("Recent social messages hydrated", {
+        storageKey,
+        restoredCount: restored.length,
+        localAuthority: this.wallet.publicKey.toBase58(),
+        localAgentPda: this.agentPda.toBase58(),
+      });
+    } catch (error) {
+      this.logger.warn("Failed to hydrate recent social messages", {
+        storageKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Return recent in-memory messages observed by this daemon, newest first.
+   * This includes outbound sends and inbound off-chain deliveries handled by the listener.
+   */
+  getRecentMessages(query: RecentMessageQuery = {}): AgentMessage[] {
+    const limit = Math.min(Math.max(query.limit ?? 10, 1), 50);
+    const direction = query.direction ?? "all";
+    const peer = query.peer;
+    const mode = query.mode ?? "all";
+    const threadId = normalizeThreadId(query.threadId);
+
+    const filtered = this.recentMessages.filter((message) => {
+      if (!this.matchesDirection(message, direction)) return false;
+      if (
+        peer &&
+        !message.sender.equals(peer) &&
+        !message.recipient.equals(peer)
+      ) {
+        return false;
+      }
+      if (mode !== "all" && message.mode !== mode) return false;
+      if (threadId !== null && message.threadId !== threadId) return false;
+      return true;
+    });
+
+    const result = filtered.slice(-limit).reverse();
+    this.logger.info("Recent social messages queried", {
+      direction,
+      mode,
+      peer: peer?.toBase58() ?? null,
+      threadId,
+      bufferedCount: this.recentMessages.length,
+      returnedCount: result.length,
+      hydrated: this.recentMessagesHydrated,
+      storageEnabled: Boolean(this.memoryBackend),
+      localAuthority: this.wallet.publicKey.toBase58(),
+      localAgentPda: this.agentPda.toBase58(),
+    });
+    return result;
   }
 
   /**
@@ -327,6 +522,7 @@ export class AgentMessaging {
       message.recipient,
       message.nonce,
       message.content,
+      message.threadId,
     );
     return verifyAgentSignature(message.sender, payload, message.signature);
   }
@@ -403,6 +599,7 @@ export class AgentMessaging {
   private async sendOnChain(
     recipient: PublicKey,
     content: string,
+    options?: MessageSendOptions,
   ): Promise<AgentMessage> {
     // Validate content byte length
     const contentBytes = new TextEncoder().encode(content);
@@ -420,6 +617,7 @@ export class AgentMessaging {
     }
 
     const authority = this.wallet.publicKey;
+    const threadId = normalizeThreadId(options?.threadId);
     let lastError: unknown;
 
     // Retry on nonce collision (VersionMismatch = state PDA already exists)
@@ -444,6 +642,7 @@ export class AgentMessaging {
         recipient,
         currentNonce,
         content,
+        threadId,
       );
       const signature = signAgentMessage(this.wallet, payload);
 
@@ -452,7 +651,7 @@ export class AgentMessaging {
           .updateState(
             Array.from(stateKey) as unknown as number[],
             Array.from(stateValue) as unknown as number[],
-            new anchor.BN(0), // expected_version = 0 (new account)
+            new BN(0), // expected_version = 0 (new account)
           )
           .accountsPartial({
             state: statePda,
@@ -473,11 +672,18 @@ export class AgentMessaging {
           timestamp: Math.floor(Date.now() / 1000),
           nonce: currentNonce,
           onChain: true,
+          threadId,
         };
+        await this.recordRecentMessage(message);
 
-        this.logger.info(
-          `On-chain message sent to ${recipient.toBase58()} (nonce: ${currentNonce})`,
-        );
+        this.logger.info("On-chain message sent", {
+          messageId: message.id,
+          recipient: recipient.toBase58(),
+          nonce: currentNonce,
+          onChain: true,
+          contentBytes: contentBytes.length,
+          threadId,
+        });
         return message;
       } catch (err) {
         if (isAnchorError(err, AnchorErrorCodes.RateLimitExceeded)) {
@@ -488,9 +694,11 @@ export class AgentMessaging {
         }
         // Retry on VersionMismatch (nonce collision — state PDA already exists)
         if (isAnchorError(err, AnchorErrorCodes.VersionMismatch)) {
-          this.logger.warn(
-            `Nonce collision (VersionMismatch) on attempt ${attempt + 1}, retrying with new nonce`,
-          );
+          this.logger.warn("On-chain message nonce collision", {
+            recipient: recipient.toBase58(),
+            attempt: attempt + 1,
+            nonce: currentNonce,
+          });
           lastError = err;
           continue;
         }
@@ -503,7 +711,11 @@ export class AgentMessaging {
 
     throw new MessagingSendError(
       recipient.toBase58(),
-      `On-chain send failed after ${AgentMessaging.MAX_NONCE_RETRIES + 1} nonce collision retries: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+      `On-chain send failed after ${
+        AgentMessaging.MAX_NONCE_RETRIES + 1
+      } nonce collision retries: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
     );
   }
 
@@ -514,6 +726,7 @@ export class AgentMessaging {
   private async sendOffChain(
     recipient: PublicKey,
     content: string,
+    options?: MessageSendOptions,
   ): Promise<AgentMessage> {
     // Validate size
     const contentBytes = new TextEncoder().encode(content);
@@ -532,9 +745,11 @@ export class AgentMessaging {
         "No endpoint found for recipient",
       );
     }
+    const transportEndpoint = normalizeWebSocketEndpoint(endpoint);
 
     const currentNonce = this.nextNonce();
     const authority = this.wallet.publicKey;
+    const threadId = normalizeThreadId(options?.threadId);
 
     // Sign message
     const signPayload = buildSigningPayload(
@@ -542,6 +757,7 @@ export class AgentMessaging {
       recipient,
       currentNonce,
       content,
+      threadId,
     );
     const signature = signAgentMessage(this.wallet, signPayload);
 
@@ -551,32 +767,57 @@ export class AgentMessaging {
       sender: authority.toBase58(),
       recipient: recipient.toBase58(),
       content,
+      threadId: threadId ?? undefined,
       nonce: currentNonce,
       timestamp,
       signature: Buffer.from(signature).toString("base64"),
     };
 
+    this.logger.info("Off-chain message delivery prepared", {
+      recipient: recipient.toBase58(),
+      endpoint: transportEndpoint,
+      nonce: currentNonce,
+      retryBudget: this.config.offChainRetries,
+      contentBytes: contentBytes.length,
+      threadId,
+    });
+
     // Send via WebSocket with retries
     let lastWsError: unknown;
+    let attemptsUsed = 0;
     for (let attempt = 0; attempt <= this.config.offChainRetries; attempt++) {
       try {
-        await this.sendWebSocket(endpoint, JSON.stringify(envelope));
+        attemptsUsed = attempt + 1;
+        await this.sendWebSocket(transportEndpoint, JSON.stringify(envelope));
         lastWsError = undefined;
         break;
       } catch (err) {
         lastWsError = err;
         if (attempt < this.config.offChainRetries) {
-          this.logger.warn(
-            `Off-chain send attempt ${attempt + 1} failed, retrying (${this.config.offChainRetries - attempt} left)`,
-          );
+          this.logger.warn("Off-chain send attempt failed", {
+            recipient: recipient.toBase58(),
+            endpoint: transportEndpoint,
+            attempt: attempt + 1,
+            retriesRemaining: this.config.offChainRetries - attempt,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
     }
     if (lastWsError) {
+      this.logger.error("Off-chain message delivery failed", {
+        recipient: recipient.toBase58(),
+        endpoint: transportEndpoint,
+        attempts: this.config.offChainRetries + 1,
+        error:
+          lastWsError instanceof Error
+            ? lastWsError.message
+            : String(lastWsError),
+      });
       throw lastWsError instanceof MessagingConnectionError
         ? lastWsError
         : new MessagingConnectionError(
-            endpoint,
+            transportEndpoint,
             lastWsError instanceof Error
               ? lastWsError.message
               : String(lastWsError),
@@ -593,11 +834,20 @@ export class AgentMessaging {
       timestamp,
       nonce: currentNonce,
       onChain: false,
+      threadId,
     };
+    await this.recordRecentMessage(message);
 
-    this.logger.info(
-      `Off-chain message sent to ${recipient.toBase58()} via ${endpoint}`,
-    );
+    this.logger.info("Off-chain message sent", {
+      messageId: message.id,
+      recipient: recipient.toBase58(),
+      endpoint: transportEndpoint,
+      nonce: currentNonce,
+      attemptsUsed,
+      onChain: false,
+      contentBytes: contentBytes.length,
+      threadId,
+    });
     return message;
   }
 
@@ -608,16 +858,19 @@ export class AgentMessaging {
   private async sendAuto(
     recipient: PublicKey,
     content: string,
+    options?: MessageSendOptions,
   ): Promise<AgentMessage> {
     // Try off-chain first
     try {
-      return await this.sendOffChain(recipient, content);
+      return await this.sendOffChain(recipient, content, options);
     } catch (err) {
       // If no endpoint or connection failed, fall back to on-chain
       if (err instanceof MessagingConnectionError) {
-        this.logger.info(
-          `Off-chain unavailable for ${recipient.toBase58()}, falling back to on-chain`,
-        );
+        this.logger.info("Messaging auto fallback to on-chain", {
+          recipient: recipient.toBase58(),
+          reason: err.message,
+          threadId: normalizeThreadId(options?.threadId),
+        });
 
         // Validate content fits on-chain
         const contentBytes = new TextEncoder().encode(content);
@@ -628,7 +881,7 @@ export class AgentMessaging {
           );
         }
 
-        return this.sendOnChain(recipient, content);
+        return this.sendOnChain(recipient, content, options);
       }
       throw err;
     }
@@ -714,12 +967,25 @@ export class AgentMessaging {
       recipientPubkey,
       envelope.nonce,
       envelope.content,
+      envelope.threadId,
     );
 
     if (
       !verifyAgentSignature(senderPubkey, payload, new Uint8Array(signature))
     ) {
       this.logger.warn(`Invalid signature from ${envelope.sender}, ignoring`);
+      return;
+    }
+
+    let threadId: string | null;
+    try {
+      threadId = normalizeThreadId(envelope.threadId);
+    } catch (error) {
+      this.logger.warn("Invalid threadId in inbound social message", {
+        sender: envelope.sender,
+        recipient: envelope.recipient,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
 
@@ -733,7 +999,9 @@ export class AgentMessaging {
       timestamp: envelope.timestamp,
       nonce: envelope.nonce,
       onChain: false,
+      threadId,
     };
+    await this.recordRecentMessage(message);
 
     // Dispatch to all handlers
     for (const handler of this.handlers) {
@@ -751,6 +1019,125 @@ export class AgentMessaging {
 
   private nextNonce(): number {
     return this.nonce++;
+  }
+
+  private async recordRecentMessage(message: AgentMessage): Promise<void> {
+    this.recentMessages.push(message);
+    const overflow =
+      this.recentMessages.length - AgentMessaging.MAX_RECENT_MESSAGES;
+    if (overflow > 0) {
+      this.recentMessages.splice(0, overflow);
+    }
+
+    if (!this.memoryBackend) {
+      return;
+    }
+
+    try {
+      await this.persistRecentMessages();
+    } catch (error) {
+      this.logger.warn("Failed to persist recent social messages", {
+        storageKey: this.getRecentMessagesStorageKey(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private matchesDirection(
+    message: AgentMessage,
+    direction: MessageQueryDirection,
+  ): boolean {
+    if (direction === "all") return true;
+    if (direction === "incoming") {
+      return this.isLocalParticipant(message.recipient);
+    }
+    return this.isLocalParticipant(message.sender);
+  }
+
+  private isLocalParticipant(pubkey: PublicKey): boolean {
+    return pubkey.equals(this.wallet.publicKey) || pubkey.equals(this.agentPda);
+  }
+
+  private getRecentMessagesStorageKey(): string {
+    return `social:recent-messages:${AgentMessaging.RECENT_MESSAGES_STORAGE_VERSION}:${this.agentPda.toBase58()}`;
+  }
+
+  private serializeRecentMessage(message: AgentMessage): PersistedRecentMessage {
+    return {
+      id: message.id,
+      sender: message.sender.toBase58(),
+      recipient: message.recipient.toBase58(),
+      content: message.content,
+      mode: message.mode,
+      timestamp: message.timestamp,
+      nonce: message.nonce,
+      onChain: message.onChain,
+      threadId: message.threadId ?? null,
+    };
+  }
+
+  private deserializeRecentMessage(
+    value: unknown,
+  ): AgentMessage | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const record = value as Partial<PersistedRecentMessage>;
+    if (
+      typeof record.id !== "string" ||
+      typeof record.sender !== "string" ||
+      typeof record.recipient !== "string" ||
+      typeof record.content !== "string" ||
+      typeof record.timestamp !== "number" ||
+      typeof record.nonce !== "number" ||
+      (record.mode !== "on-chain" &&
+        record.mode !== "off-chain" &&
+        record.mode !== "auto") ||
+      typeof record.onChain !== "boolean"
+    ) {
+      return null;
+    }
+
+    try {
+      return {
+        id: record.id,
+        sender: new PublicKey(record.sender),
+        recipient: new PublicKey(record.recipient),
+        content: record.content,
+        mode: record.mode,
+        timestamp: record.timestamp,
+        nonce: record.nonce,
+        onChain: record.onChain,
+        threadId: normalizeThreadId(record.threadId),
+        signature: new Uint8Array(0),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async persistRecentMessages(): Promise<void> {
+    if (!this.memoryBackend) {
+      return;
+    }
+
+    const storageKey = this.getRecentMessagesStorageKey();
+    const snapshot = this.recentMessages.map((message) =>
+      this.serializeRecentMessage(message),
+    );
+
+    this.recentMessagePersistChain = this.recentMessagePersistChain
+      .catch(() => undefined)
+      .then(async () => {
+        await this.memoryBackend!.set(storageKey, snapshot);
+        this.logger.debug("Recent social messages persisted", {
+          storageKey,
+          messageCount: snapshot.length,
+        });
+      });
+
+    await this.recentMessagePersistChain;
   }
 
   private async loadWs(): Promise<WsModule> {

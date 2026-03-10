@@ -29,6 +29,33 @@ Optional (full Anchor test suite on Devnet):
 anchor test --provider.cluster devnet
 ```
 
+## Live Soak Harness
+
+For a long-running Devnet shakeout with one controller, four worker agents, and
+live logs in tmux:
+
+```bash
+npm run devnet:soak:launch
+```
+
+This creates a tmux session named `agenc-devnet-soak` with:
+
+- `CONTROL`: submits on-chain tasks continuously on Devnet
+- `AGENT_1` .. `AGENT_4`: registered worker agents that race to claim and complete tasks
+- `WATCH`: local soak event log on the left and `solana logs -u devnet <PROGRAM_ID>` on the right
+
+Useful overrides:
+
+```bash
+AGENC_DEVNET_SOAK_TASK_COUNT=40 \
+AGENC_DEVNET_SOAK_INTERVAL_MS=8000 \
+AGENC_DEVNET_SOAK_REWARD_SOL=0.02 \
+npm run devnet:soak:launch
+```
+
+The harness persists worker/creator keypairs and run artifacts under
+`~/.agenc/devnet-soak/default/`.
+
 ## Notes on Devnet Rate Limits
 
 - Devnet faucet requests can return HTTP 429 rate-limit errors.

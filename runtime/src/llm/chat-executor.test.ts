@@ -371,6 +371,7 @@ describe("ChatExecutor", () => {
     });
 
     it("failed provider skipped on next call within cooldown", async () => {
+      const providerTraceEvents: Array<Record<string, unknown>> = [];
       const primary = createMockProvider("primary", {
         chat: vi
           .fn()
@@ -387,21 +388,61 @@ describe("ChatExecutor", () => {
       });
 
       // First call — primary fails, secondary succeeds
-      await executor.execute(createParams());
+      await executor.execute(
+        createParams({
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) =>
+              providerTraceEvents.push(event as Record<string, unknown>),
+          },
+        }),
+      );
       expect(primary.chat).toHaveBeenCalledOnce();
 
       // Second call — primary should be skipped (in cooldown)
       vi.advanceTimersByTime(1_000);
-      await executor.execute(createParams());
+      await executor.execute(
+        createParams({
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) =>
+              providerTraceEvents.push(event as Record<string, unknown>),
+          },
+        }),
+      );
 
       // Primary still called only once total (the initial failure)
       expect(primary.chat).toHaveBeenCalledOnce();
       expect(secondary.chat).toHaveBeenCalledTimes(2);
+      expect(providerTraceEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "error",
+            provider: "primary",
+            callPhase: "initial",
+            payload: expect.objectContaining({
+              reason: "provider_cooldown_applied",
+              failureClass: "provider_error",
+              failures: 1,
+            }),
+          }),
+          expect.objectContaining({
+            kind: "error",
+            provider: "primary",
+            callPhase: "initial",
+            payload: expect.objectContaining({
+              reason: "provider_cooldown_skip",
+              failures: 1,
+            }),
+          }),
+        ]),
+      );
 
       vi.useRealTimers();
     });
 
     it("provider retried after cooldown expires", async () => {
+      const providerTraceEvents: Array<Record<string, unknown>> = [];
       let primaryCallCount = 0;
       const primary = createMockProvider("primary", {
         chat: vi.fn().mockImplementation(() => {
@@ -422,15 +463,50 @@ describe("ChatExecutor", () => {
       });
 
       // First call — primary fails
-      await executor.execute(createParams());
+      await executor.execute(
+        createParams({
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) =>
+              providerTraceEvents.push(event as Record<string, unknown>),
+          },
+        }),
+      );
 
       // Advance past cooldown
       vi.advanceTimersByTime(11_000);
 
       // Second call — primary retried and succeeds
-      const result = await executor.execute(createParams());
+      const result = await executor.execute(
+        createParams({
+          trace: {
+            includeProviderPayloads: true,
+            onProviderTraceEvent: (event) =>
+              providerTraceEvents.push(event as Record<string, unknown>),
+          },
+        }),
+      );
       expect(result.provider).toBe("primary");
       expect(result.usedFallback).toBe(false);
+      expect(providerTraceEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "error",
+            provider: "primary",
+            payload: expect.objectContaining({
+              reason: "provider_cooldown_applied",
+            }),
+          }),
+          expect.objectContaining({
+            kind: "response",
+            provider: "primary",
+            payload: expect.objectContaining({
+              reason: "provider_cooldown_cleared",
+              failures: 1,
+            }),
+          }),
+        ]),
+      );
 
       vi.useRealTimers();
     });
@@ -467,6 +543,7 @@ describe("ChatExecutor", () => {
     });
 
     it("all providers in cooldown throws descriptive error", async () => {
+      const providerTraceEvents: Array<Record<string, unknown>> = [];
       const primary = createMockProvider("primary", {
         chat: vi
           .fn()
@@ -488,15 +565,105 @@ describe("ChatExecutor", () => {
       });
 
       // First call — both fail, both enter cooldown
-      await expect(executor.execute(createParams())).rejects.toThrow(
-        "overloaded",
-      );
+      await expect(
+        executor.execute(
+          createParams({
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: (event) =>
+                providerTraceEvents.push(event as Record<string, unknown>),
+            },
+          }),
+        ),
+      ).rejects.toThrow("overloaded");
 
       // Second call — both in cooldown, no provider tried
       vi.advanceTimersByTime(1_000);
-      await expect(executor.execute(createParams())).rejects.toThrow(
-        "All providers are in cooldown",
+      await expect(
+        executor.execute(
+          createParams({
+            trace: {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: (event) =>
+                providerTraceEvents.push(event as Record<string, unknown>),
+            },
+          }),
+        ),
+      ).rejects.toThrow("All providers are in cooldown");
+      expect(providerTraceEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "error",
+            provider: "primary",
+            payload: expect.objectContaining({
+              reason: "provider_cooldown_skip",
+            }),
+          }),
+          expect.objectContaining({
+            kind: "error",
+            provider: "secondary",
+            payload: expect.objectContaining({
+              reason: "provider_cooldown_skip",
+            }),
+          }),
+          expect.objectContaining({
+            kind: "error",
+            provider: "chat-executor",
+            payload: expect.objectContaining({
+              reason: "all_providers_in_cooldown",
+              providers: [
+                expect.objectContaining({
+                  provider: "primary",
+                  failures: 1,
+                }),
+                expect.objectContaining({
+                  provider: "secondary",
+                  failures: 1,
+                }),
+              ],
+            }),
+          }),
+        ]),
       );
+
+      vi.useRealTimers();
+    });
+
+    it("re-checks cooldown timing after earlier provider latency before skipping later providers", async () => {
+      const primary = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation(
+          () =>
+            new Promise<LLMResponse>((_resolve, reject) => {
+              setTimeout(
+                () => reject(new LLMServerError("primary", 500, "slow fail")),
+                2_000,
+              );
+            }),
+        ),
+      });
+      const secondary = createMockProvider("secondary");
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        providerCooldownMs: 10_000,
+        retryPolicyMatrix: {
+          provider_error: { maxRetries: 0 },
+        },
+      });
+
+      (executor as unknown as {
+        cooldowns: Map<string, { availableAt: number; failures: number }>;
+      }).cooldowns.set("secondary", {
+        availableAt: Date.now() + 1_000,
+        failures: 1,
+      });
+
+      const execution = executor.execute(createParams());
+      await vi.advanceTimersByTimeAsync(2_000);
+      const result = await execution;
+
+      expect(result.provider).toBe("secondary");
+      expect(result.usedFallback).toBe(true);
+      expect(secondary.chat).toHaveBeenCalledOnce();
 
       vi.useRealTimers();
     });
@@ -1392,6 +1559,101 @@ describe("ChatExecutor", () => {
         window_visible: true,
         render_hud: true,
       });
+    });
+
+    it("repairs collaboration tool args from explicit prompt fields and traces the repair", async () => {
+      const events: Array<Record<string, unknown>> = [];
+      const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
+        if (name === "social.requestCollaboration") {
+          return safeJson({ requestId: "req-1", args });
+        }
+        return safeJson({ name, args });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-collab",
+                  name: "social.requestCollaboration",
+                  arguments: safeJson({
+                    requiredCapabilities: "3",
+                    maxMembers: 3,
+                    payoutMode: "fixed",
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({ content: "Collaboration posted." }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["social.requestCollaboration"],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Use social.requestCollaboration with title Launch Ritual Drill, description Need 3 agents to simulate a privacy-safe localnet launch with one observer and two operators., requiredCapabilities 3, maxMembers 3, payoutMode fixed.",
+          ),
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(toolHandler).toHaveBeenCalledWith("social.requestCollaboration", {
+        title: "Launch Ritual Drill",
+        description:
+          "Need 3 agents to simulate a privacy-safe localnet launch with one observer and two operators.",
+        requiredCapabilities: "3",
+        maxMembers: 3,
+        payoutMode: "fixed",
+      });
+      expect(result.toolCalls[0]?.args).toEqual({
+        title: "Launch Ritual Drill",
+        description:
+          "Need 3 agents to simulate a privacy-safe localnet launch with one observer and two operators.",
+        requiredCapabilities: "3",
+        maxMembers: 3,
+        payoutMode: "fixed",
+      });
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "tool_dispatch_started",
+            phase: "tool_followup",
+            payload: expect.objectContaining({
+              tool: "social.requestCollaboration",
+              args: expect.objectContaining({
+                title: "Launch Ritual Drill",
+                description:
+                  "Need 3 agents to simulate a privacy-safe localnet launch with one observer and two operators.",
+              }),
+              argumentDiagnostics: expect.objectContaining({
+                repairSource: "message_text",
+                repairedFields: ["title", "description"],
+                rawArgs: {
+                  requiredCapabilities: "3",
+                  maxMembers: 3,
+                  payoutMode: "fixed",
+                },
+              }),
+            }),
+          }),
+        ]),
+      );
     });
 
     it("records normalized async Doom launches as evidence for autonomous follow-up routing", async () => {
@@ -3048,7 +3310,10 @@ describe("ChatExecutor", () => {
 
       // All calls had different args, so loop detection should NOT fire
       expect(result.toolCalls.length).toBe(2);
-      expect(result.content).toBe("gave up");
+      expect(result.content).toContain(
+        "Execution could not be completed due to unresolved tool errors.",
+      );
+      expect(result.content).toContain("desktop.bash: err");
     });
 
     it("breaks loop after repeated all-failed rounds even with different args", async () => {
@@ -3391,6 +3656,118 @@ describe("ChatExecutor", () => {
       );
       expect(result.content).toContain("system.bash");
       expect(result.content).not.toBe("Done\nDone\nDone");
+    });
+
+    it("does not preserve exact success sentinels when a tool failed", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValueOnce(
+          '{"error":"Collaboration request failed: Feed post failed: AnchorError thrown in src/instructions/post_to_feed.rs:62. Error Code: InsufficientReputation."}',
+        );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "social.requestCollaboration",
+                  arguments:
+                    '{"title":"Launch Ritual Drill","description":"Need 3 agents","requiredCapabilities":"3","maxMembers":3,"payoutMode":"fixed"}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "R2_DONE_A2",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Use social.requestCollaboration, then after the tool calls finish, reply with exactly R2_DONE_A2.",
+          ),
+        }),
+      );
+
+      expect(result.content).toContain(
+        "Execution could not be completed due to unresolved tool errors.",
+      );
+      expect(result.content).toContain("social.requestCollaboration");
+      expect(result.content).not.toBe("R2_DONE_A2");
+    });
+
+    it("forces required tool choice for explicit social tool prompts", async () => {
+      const toolHandler = vi
+        .fn()
+        .mockResolvedValueOnce('{"requestId":"req-123"}');
+      const responses = [
+        mockResponse({
+          content: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tc-1",
+              name: "social.requestCollaboration",
+              arguments:
+                '{"title":"Launch Ritual Drill","description":"Need 3 agents","requiredCapabilities":"3","maxMembers":3,"payoutMode":"fixed"}',
+            },
+          ],
+        }),
+        mockResponse({
+          content: "R3_DONE_A2",
+        }),
+      ];
+      const chat = vi
+        .fn()
+        .mockImplementation(async () => responses.shift() ?? mockResponse());
+      const chatStream = vi
+        .fn()
+        .mockImplementation(
+          async (
+            _messages: LLMMessage[],
+            onChunk: StreamProgressCallback,
+            _options?: LLMChatOptions,
+          ) => {
+            const response = responses.shift() ?? mockResponse();
+            onChunk({
+              content: response.content,
+              done: true,
+              ...(response.toolCalls.length > 0
+                ? { toolCalls: response.toolCalls }
+                : {}),
+            });
+            return response;
+          },
+        );
+      const provider = createMockProvider("primary", { chat, chatStream });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["social.requestCollaboration"],
+      });
+      await executor.execute(
+        createParams({
+          message: createMessage(
+            "Use social.requestCollaboration with title Launch Ritual Drill, description Need 3 agents, requiredCapabilities 3, maxMembers 3, payoutMode fixed. After the tool calls finish, reply with exactly R3_DONE_A2.",
+          ),
+        }),
+      );
+
+      const firstCallOptions =
+        chat.mock.calls[0]?.[1] ?? chatStream.mock.calls[0]?.[2];
+      expect(firstCallOptions?.toolChoice).toBe("required");
+      expect(firstCallOptions?.toolRouting?.allowedToolNames).toEqual([
+        "social.requestCollaboration",
+      ]);
     });
   });
 
@@ -4665,6 +5042,970 @@ describe("ChatExecutor", () => {
       });
     });
 
+    it("does not suppress tools for exact-response turns that explicitly reference tool names", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "SENT",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.searchAgents", "social.sendMessage"],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.searchAgents", "social.sendMessage"],
+            expandedToolNames: ["social.searchAgents", "social.sendMessage"],
+          },
+          message: createMessage(
+            "Use social.searchAgents first. Then use social.sendMessage to send the exact content daemon-proof-1773116292530 to recipient 9kSWa3Z2yfybqZbdgc8nw8obEy5R6k45nsWBKQZyeuQC in off-chain mode. After the tool calls finish, reply with exactly SENT.",
+          ),
+        }),
+      );
+
+      expect(result.content).toBe("SENT");
+      expect(result.plannerSummary?.routeReason).not.toBe("exact_response_turn");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolRouting: {
+          allowedToolNames: ["social.searchAgents", "social.sendMessage"],
+        },
+      });
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.toolChoice).not.toBe("none");
+    });
+
+    it("refines explicit social-tool planner turns back into deterministic in-domain steps", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "social_bad_plan",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "get_incoming_msgs",
+                    step_type: "deterministic_tool",
+                    tool: "social.getRecentMessages",
+                    args: { direction: "incoming", limit: 5 },
+                  },
+                  {
+                    name: "read_tagged_message",
+                    step_type: "subagent_task",
+                    depends_on: ["get_incoming_msgs"],
+                    objective: "Read the newest tagged message through email tools.",
+                    input_contract: "Return the tagged content",
+                    acceptance_criteria: ["Message tag matched"],
+                    required_tool_capabilities: ["system.emailMessageInfo"],
+                    context_requirements: ["get_incoming_msgs"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: true,
+                  },
+                  {
+                    name: "send_reply",
+                    step_type: "deterministic_tool",
+                    depends_on: ["read_tagged_message"],
+                    tool: "social.sendMessage",
+                    args: {
+                      recipient: "agent-a",
+                      content: "Failure mode: unfiltered broadcasts causing congestion.",
+                      mode: "off-chain",
+                    },
+                  },
+                  {
+                    name: "send_followup",
+                    step_type: "deterministic_tool",
+                    depends_on: ["read_tagged_message"],
+                    tool: "social.sendMessage",
+                    args: {
+                      recipient: "agent-b",
+                      content: "What metrics would detect congestion early?",
+                      mode: "off-chain",
+                    },
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "social_refined",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "get_incoming_msgs",
+                    step_type: "deterministic_tool",
+                    tool: "social.getRecentMessages",
+                    args: { direction: "incoming", limit: 5 },
+                  },
+                  {
+                    name: "send_reply",
+                    step_type: "deterministic_tool",
+                    depends_on: ["get_incoming_msgs"],
+                    tool: "social.sendMessage",
+                    args: {
+                      recipient: "agent-a",
+                      content: "Failure mode: unfiltered broadcasts causing congestion.",
+                      mode: "off-chain",
+                    },
+                  },
+                  {
+                    name: "send_followup",
+                    step_type: "deterministic_tool",
+                    depends_on: ["send_reply"],
+                    tool: "social.sendMessage",
+                    args: {
+                      recipient: "agent-b",
+                      content: "What metrics would detect congestion early?",
+                      mode: "off-chain",
+                    },
+                  },
+                ],
+              }),
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              get_incoming_msgs:
+                '{"messages":[{"id":"poly-1","content":"seed message"}]}',
+              send_reply:
+                '{"status":"sent","recipient":"agent-a","mode":"off-chain"}',
+              send_followup:
+                '{"status":"sent","recipient":"agent-b","mode":"off-chain"}',
+            },
+          },
+          completedSteps: 3,
+          totalSteps: 3,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.getRecentMessages", "social.sendMessage"],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+            expandedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+          },
+          message: createMessage(
+            "Use social.getRecentMessages to inspect the newest incoming message tagged poly-r2. Then use social.sendMessage to send one reply to agent A and one follow-up question to agent B. Reply with exactly LOOP_OK after the tool calls finish.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      const secondPlannerMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      expect(
+        secondPlannerMessages.some(
+          (message) =>
+            message.role === "system" &&
+            typeof message.content === "string" &&
+            message.content.includes("do not add delegated steps"),
+        ),
+      ).toBe(true);
+      const pipelineArg = (pipelineExecutor.execute as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as { plannerSteps?: Array<Record<string, unknown>> };
+      expect(
+        pipelineArg.plannerSteps?.every(
+          (step) =>
+            step.stepType !== "subagent_task" &&
+            (
+              step.stepType !== "deterministic_tool" ||
+              step.tool === "social.getRecentMessages" ||
+              step.tool === "social.sendMessage"
+            ),
+        ),
+      ).toBe(true);
+      expect(result.stopReason).toBe("completed");
+      expect(result.plannerSummary?.plannerCalls).toBe(2);
+      expect(result.plannerSummary?.routeReason).toBe("social_refined");
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "explicit_tool_plan_subagent_forbidden",
+          }),
+          expect.objectContaining({
+            code: "planner_explicit_tool_retry",
+          }),
+        ]),
+      );
+    });
+
+    it("forces repeated explicit deterministic tool turns through the planner path", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "social_seed_loop",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "send_agent_2",
+                  step_type: "deterministic_tool",
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-2",
+                    content: "social-live-20260310a q1",
+                    mode: "off-chain",
+                  },
+                },
+                {
+                  name: "send_agent_3",
+                  step_type: "deterministic_tool",
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-3",
+                    content: "social-live-20260310a q2",
+                    mode: "off-chain",
+                  },
+                  depends_on: ["send_agent_2"],
+                },
+                {
+                  name: "send_agent_4",
+                  step_type: "deterministic_tool",
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-4",
+                    content: "social-live-20260310a q3",
+                    mode: "off-chain",
+                  },
+                  depends_on: ["send_agent_3"],
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              send_agent_2: '{"status":"sent","recipient":"agent-2"}',
+              send_agent_3: '{"status":"sent","recipient":"agent-3"}',
+              send_agent_4: '{"status":"sent","recipient":"agent-4"}',
+            },
+          },
+          completedSteps: 3,
+          totalSteps: 3,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.sendMessage"],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.sendMessage"],
+            expandedToolNames: ["social.sendMessage"],
+          },
+          message: createMessage(
+            "Run token: social-live-20260310a.\n" +
+              "Use `social.sendMessage` exactly 3 times in `off-chain` mode.\n" +
+              "Recipients and themes:\n" +
+              "- `agent-2`: throughput + backpressure\n" +
+              "- `agent-3`: reputation gates + abuse resistance\n" +
+              "- `agent-4`: restart/recovery + message durability\n" +
+              "After the tool calls, reply with exactly `A1_R1_DONE`.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["planner"]);
+      expect(result.content).toBe("A1_R1_DONE");
+      expect(result.plannerSummary?.used).toBe(true);
+      expect(result.plannerSummary?.routeReason).toBe("social_seed_loop");
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "planner_exact_response_literal_applied",
+          }),
+        ]),
+      );
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolRouting: {
+          allowedToolNames: ["social.sendMessage"],
+        },
+      });
+    });
+
+    it("finalizes completed explicit deterministic planner turns with the exact requested literal", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "social_finalization",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "get_incoming_msgs",
+                  step_type: "deterministic_tool",
+                  tool: "social.getRecentMessages",
+                  args: { direction: "incoming", limit: 20, mode: "off-chain" },
+                },
+                {
+                  name: "send_agent_1",
+                  step_type: "deterministic_tool",
+                  depends_on: ["get_incoming_msgs"],
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-1",
+                    content: "final decision",
+                    mode: "off-chain",
+                  },
+                },
+                {
+                  name: "send_agent_3",
+                  step_type: "deterministic_tool",
+                  depends_on: ["send_agent_1"],
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-3",
+                    content: "challenge or agreement",
+                    mode: "off-chain",
+                  },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              get_incoming_msgs: '{"messages":[{"id":"m1","content":"seed"}]}',
+              send_agent_1: '{"status":"sent","recipient":"agent-1"}',
+              send_agent_3: '{"status":"sent","recipient":"agent-3"}',
+            },
+          },
+          completedSteps: 3,
+          totalSteps: 3,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.getRecentMessages", "social.sendMessage"],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+            expandedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+          },
+          message: createMessage(
+            "Run token: social-live-20260310a.\n" +
+              "Use `social.getRecentMessages` first with `{ \"direction\": \"incoming\", \"limit\": 20, \"mode\": \"off-chain\" }`.\n" +
+              "Then use `social.sendMessage` exactly 2 times in `off-chain` mode:\n" +
+              "- one to `agent-1` with your final decision\n" +
+              "- one to `agent-3` with one challenge or agreement\n" +
+              "Each message must mention a concrete observation from your inbox and keep the run token visible.\n" +
+              "After the tool calls, reply with exactly `A4_R4_DONE`.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual(["planner"]);
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toBe("A4_R4_DONE");
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "planner_exact_response_literal_applied",
+          }),
+        ]),
+      );
+    });
+
+    it("hard-fails explicit deterministic tool turns when planner output stays unparsable", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "not planner json",
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.getRecentMessages", "social.sendMessage"],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+            expandedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+          },
+          message: createMessage(
+            "Run token: social-live-20260310b.\n" +
+              "Use `social.getRecentMessages` first with `{ \"direction\": \"incoming\", \"limit\": 20, \"mode\": \"off-chain\" }`.\n" +
+              "Then use `social.sendMessage` exactly 2 times in `off-chain` mode:\n" +
+              "- one to `agent-1` with your final decision\n" +
+              "- one to `agent-4` with one challenge or agreement\n" +
+              "Each message must mention a concrete observation from your inbox and keep the run token visible.\n" +
+              "After the tool calls, reply with exactly `A2_R4_DONE`.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.content).toContain(
+        "Planner could not produce the required deterministic tool plan.",
+      );
+      expect(result.content).toContain(
+        "Required tool order: social.getRecentMessages -> social.sendMessage x2",
+      );
+      expect(result.plannerSummary?.routeReason).toBe(
+        "planner_explicit_tool_requirements_unmet",
+      );
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "parse",
+            code: "invalid_json",
+          }),
+          expect.objectContaining({
+            category: "policy",
+            code: "planner_explicit_tool_parse_retry",
+          }),
+        ]),
+      );
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner",
+      ]);
+    });
+
+    it("hard-fails explicit deterministic tool turns when planner never satisfies repeated tool counts", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "social_incomplete",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "get_incoming_msgs",
+                  step_type: "deterministic_tool",
+                  tool: "social.getRecentMessages",
+                  args: { direction: "incoming", limit: 20, mode: "off-chain" },
+                },
+                {
+                  name: "send_agent_1",
+                  step_type: "deterministic_tool",
+                  depends_on: ["get_incoming_msgs"],
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-1",
+                    content: "final decision",
+                    mode: "off-chain",
+                  },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.getRecentMessages", "social.sendMessage"],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+            expandedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+          },
+          message: createMessage(
+            "Run token: social-live-20260310b.\n" +
+              "Use `social.getRecentMessages` first with `{ \"direction\": \"incoming\", \"limit\": 20, \"mode\": \"off-chain\" }`.\n" +
+              "Then use `social.sendMessage` exactly 2 times in `off-chain` mode:\n" +
+              "- one to `agent-1` with your final decision\n" +
+              "- one to `agent-4` with one challenge or agreement\n" +
+              "Each message must mention a concrete observation from your inbox and keep the run token visible.\n" +
+              "After the tool calls, reply with exactly `A2_R4_DONE`.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.content).toContain(
+        "Required tool order: social.getRecentMessages -> social.sendMessage x2",
+      );
+      expect(result.plannerSummary?.routeReason).toBe(
+        "planner_explicit_tool_requirements_unmet",
+      );
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "validation",
+            code: "explicit_tool_plan_insufficient_tool_calls",
+          }),
+          expect.objectContaining({
+            category: "policy",
+            code: "planner_explicit_tool_retry",
+          }),
+        ]),
+      );
+      expect(result.callUsage.map((entry) => entry.phase)).toEqual([
+        "planner",
+        "planner",
+      ]);
+    });
+
+    it("includes explicitly named tools from the expanded route when the cached route is too narrow", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "social_r3",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "get_incoming_msgs",
+                  step_type: "deterministic_tool",
+                  tool: "social.getRecentMessages",
+                  args: {
+                    direction: "incoming",
+                    limit: 20,
+                    mode: "off-chain",
+                    threadId: "social-live-20260310e",
+                  },
+                },
+                {
+                  name: "send_agent_2",
+                  step_type: "deterministic_tool",
+                  depends_on: ["get_incoming_msgs"],
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-2",
+                    content: "reply one",
+                    mode: "off-chain",
+                    threadId: "social-live-20260310e",
+                  },
+                },
+                {
+                  name: "send_agent_3",
+                  step_type: "deterministic_tool",
+                  depends_on: ["send_agent_2"],
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-3",
+                    content: "reply two",
+                    mode: "off-chain",
+                    threadId: "social-live-20260310e",
+                  },
+                },
+                {
+                  name: "send_agent_4",
+                  step_type: "deterministic_tool",
+                  depends_on: ["send_agent_3"],
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-4",
+                    content: "reply three",
+                    mode: "off-chain",
+                    threadId: "social-live-20260310e",
+                  },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              get_incoming_msgs: '{"messages":[{"id":"m1","content":"seed"}]}',
+              send_agent_2: '{"status":"sent","recipient":"agent-2"}',
+              send_agent_3: '{"status":"sent","recipient":"agent-3"}',
+              send_agent_4: '{"status":"sent","recipient":"agent-4"}',
+            },
+          },
+          completedSteps: 4,
+          totalSteps: 4,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.getRecentMessages", "social.sendMessage"],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.sendMessage"],
+            expandedToolNames: [
+              "social.sendMessage",
+              "social.getRecentMessages",
+            ],
+          },
+          message: createMessage(
+            "Run token: social-live-20260310e.\n" +
+              "Use `social.getRecentMessages` first with `{ \"direction\": \"incoming\", \"limit\": 20, \"mode\": \"off-chain\", \"threadId\": \"social-live-20260310e\" }`.\n" +
+              "Then use `social.sendMessage` exactly 3 times in `off-chain` mode with `threadId` set to `social-live-20260310e` for `agent-2`, `agent-3`, and `agent-4`.\n" +
+              "Each message must synthesize one concrete point from that peer's latest reply, name one tradeoff, and ask for a final decision or counterargument.\n" +
+              "After the tool calls, reply with exactly `A1_R3_DONE`.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolRouting: {
+          allowedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+        },
+      });
+      expect(result.content).toBe("A1_R3_DONE");
+      expect(result.stopReason).toBe("completed");
+    });
+
+    it("keeps explicit deterministic social turns on a single planner pass when the initial planner prompt carries the contract", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockImplementation((messages: LLMMessage[]) => {
+          const hasExplicitContractInstruction = messages.some(
+            (message) =>
+              message.role === "system" &&
+              typeof message.content === "string" &&
+              message.content.includes(
+                "The user supplied an explicit deterministic tool contract for this turn.",
+              ),
+          );
+
+          if (!hasExplicitContractInstruction) {
+            return Promise.resolve(
+              mockResponse({
+                content: safeJson({
+                  reason: "bad_first_pass",
+                  requiresSynthesis: true,
+                  steps: [
+                    {
+                      name: "analyze_craft_send",
+                      step_type: "subagent_task",
+                      objective: "Analyze the inbox and craft both final messages.",
+                      input_contract: "Use the recent thread context",
+                      acceptance_criteria: ["Two final messages"],
+                      required_tool_capabilities: ["social.getRecentMessages"],
+                      context_requirements: ["recent thread context"],
+                      max_budget_hint: "2m",
+                      can_run_parallel: true,
+                    },
+                  ],
+                }),
+              }),
+            );
+          }
+
+          return Promise.resolve(
+            mockResponse({
+              content: safeJson({
+                reason: "deterministic tool sequence per user spec",
+                requiresSynthesis: false,
+                steps: [
+                  {
+                    name: "get_incoming_msgs",
+                    step_type: "deterministic_tool",
+                    tool: "social.getRecentMessages",
+                    args: {
+                      direction: "incoming",
+                      limit: 20,
+                      mode: "off-chain",
+                      threadId: "social-live-20260310f",
+                    },
+                  },
+                  {
+                    name: "send_agent_1",
+                    step_type: "deterministic_tool",
+                    depends_on: ["get_incoming_msgs"],
+                    tool: "social.sendMessage",
+                    args: {
+                      recipient: "agent-1",
+                      content:
+                        "Final decision: proceed. Observation: prior limit 12 and A4_R2_DONE. Run token social-live-20260310f.",
+                      mode: "off-chain",
+                      threadId: "social-live-20260310f",
+                    },
+                  },
+                  {
+                    name: "send_agent_3",
+                    step_type: "deterministic_tool",
+                    depends_on: ["send_agent_1"],
+                    tool: "social.sendMessage",
+                    args: {
+                      recipient: "agent-3",
+                      content:
+                        "Agreement on run; challenge the limit increase from 12 to 20. Run token social-live-20260310f.",
+                      mode: "off-chain",
+                      threadId: "social-live-20260310f",
+                    },
+                  },
+                ],
+              }),
+            }),
+          );
+        }),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              get_incoming_msgs:
+                '{"messages":[{"id":"m1","content":"prior limit 12 and A4_R2_DONE"}]}',
+              send_agent_1: '{"status":"sent","recipient":"agent-1"}',
+              send_agent_3: '{"status":"sent","recipient":"agent-3"}',
+            },
+          },
+          completedSteps: 3,
+          totalSteps: 3,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["social.getRecentMessages", "social.sendMessage"],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+            expandedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+          },
+          message: createMessage(
+            "Run token: social-live-20260310f.\n" +
+              "Use `social.getRecentMessages` first with `{ \"direction\": \"incoming\", \"limit\": 20, \"mode\": \"off-chain\", \"threadId\": \"social-live-20260310f\" }`.\n" +
+              "Then use `social.sendMessage` exactly 2 times in `off-chain` mode with `threadId` set to `social-live-20260310f`:\n" +
+              "- one to `agent-1` with your final decision\n" +
+              "- one to `agent-3` with one challenge or agreement\n" +
+              "Each message must mention a concrete observation from your inbox and keep the run token visible.\n" +
+              "After the tool calls, reply with exactly `A4_R4_DONE`.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe("A4_R4_DONE");
+      expect(result.plannerSummary?.plannerCalls).toBe(1);
+      expect(result.plannerSummary?.diagnostics).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "planner_explicit_tool_retry",
+          }),
+          expect.objectContaining({
+            code: "planner_explicit_tool_parse_retry",
+          }),
+        ]),
+      );
+    });
+
+    it("narrows planner turns with explicit deterministic social tools to the named tool subset", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "social_loop",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "get_incoming_msgs",
+                  step_type: "deterministic_tool",
+                  tool: "social.getRecentMessages",
+                  args: { direction: "incoming", limit: 5 },
+                },
+                {
+                  name: "send_reply",
+                  step_type: "deterministic_tool",
+                  tool: "social.sendMessage",
+                  args: {
+                    recipient: "agent-a",
+                    content: "reply",
+                    mode: "off-chain",
+                  },
+                  depends_on: ["get_incoming_msgs"],
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              get_incoming_msgs: '{"messages":[{"id":"m1","content":"seed"}]}',
+              send_reply: '{"status":"sent"}',
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: [
+          "social.getRecentMessages",
+          "social.sendMessage",
+          "social.searchAgents",
+          "web_search",
+          "system.emailMessageInfo",
+          "system.emailMessageExtractText",
+        ],
+        pipelineExecutor: pipelineExecutor as any,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: [
+              "social.getRecentMessages",
+              "social.sendMessage",
+              "social.searchAgents",
+              "web_search",
+              "system.emailMessageInfo",
+              "system.emailMessageExtractText",
+            ],
+            expandedToolNames: [
+              "social.getRecentMessages",
+              "social.sendMessage",
+              "social.searchAgents",
+              "web_search",
+              "system.emailMessageInfo",
+              "system.emailMessageExtractText",
+            ],
+          },
+          message: createMessage(
+            "Use social.getRecentMessages with direction incoming and limit 5. Then use social.sendMessage to send one off-chain reply to agent-a. After the tool calls finish, reply exactly SOCIAL_OK.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe("SOCIAL_OK");
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+        toolRouting: {
+          allowedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+        },
+      });
+    });
+
+    it("emits suppression diagnostics in model-call trace events for dialogue-only turns", async () => {
+      const events: Array<Record<string, unknown>> = [];
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "STORED-A",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        allowedTools: ["desktop.text_editor", "execute_with_agent"],
+      });
+
+      await executor.execute(
+        createParams({
+          toolRouting: {
+            routedToolNames: ["desktop.text_editor", "execute_with_agent"],
+            expandedToolNames: ["desktop.text_editor", "execute_with_agent"],
+          },
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+          message: createMessage(
+            "Stateful continuity test A. Memorize exactly these facts for later recall: codename=BLACK-ORBIT, port=8771, checksum=SIGMA-42. Reply with exactly STORED-A.",
+          ),
+        }),
+      );
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "model_call_prepared",
+            phase: "initial",
+            payload: expect.objectContaining({
+              plannerReason: "exact_response_turn",
+              plannerShouldPlan: false,
+              dialogueToolSuppressed: true,
+              preSuppressionRoutedToolNames: [
+                "desktop.text_editor",
+                "execute_with_agent",
+              ],
+              requestedRoutedToolNames: [],
+              routedToolNames: [],
+              toolChoice: "none",
+            }),
+          }),
+        ]),
+      );
+    });
+
     it("keeps dialogue recall turns on the direct no-tool path", async () => {
       const provider = createMockProvider("primary", {
         chat: vi.fn().mockResolvedValue(
@@ -5600,6 +6941,8 @@ describe("ChatExecutor", () => {
 
       const synthesisMessages = (provider.chat as ReturnType<typeof vi.fn>).mock
         .calls[1][0] as LLMMessage[];
+      const synthesisOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1][1] as LLMChatOptions | undefined;
       const groundingMessage = synthesisMessages.find((message) =>
         message.role === "system" &&
         typeof message.content === "string" &&
@@ -5608,6 +6951,10 @@ describe("ChatExecutor", () => {
       expect(groundingMessage).toBeDefined();
       expect(String(groundingMessage?.content)).toContain('"tool":"system.bash"');
       expect(String(groundingMessage?.content)).toContain('"toolCallCount":1');
+      expect(synthesisOptions).toMatchObject({
+        toolChoice: "none",
+        toolRouting: { allowedToolNames: [] },
+      });
     });
 
     it("maps failed subagent pipeline stopReasonHint into parent stopReason semantics", async () => {

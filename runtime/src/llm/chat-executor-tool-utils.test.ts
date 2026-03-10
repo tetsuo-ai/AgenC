@@ -4,6 +4,8 @@ import {
   didToolCallFail,
   normalizeDoomScreenResolution,
   normalizeToolCallArguments,
+  repairToolCallArgumentsFromMessageText,
+  summarizeToolArgumentChanges,
 } from "./chat-executor-tool-utils.js";
 
 describe("chat-executor-tool-utils", () => {
@@ -112,6 +114,68 @@ describe("chat-executor-tool-utils", () => {
         window_visible: true,
         render_hud: true,
       });
+    });
+  });
+
+  describe("repairToolCallArgumentsFromMessageText", () => {
+    it("repairs collaboration args from explicit field labels in the prompt", () => {
+      const repaired = repairToolCallArgumentsFromMessageText(
+        "social.requestCollaboration",
+        {
+          requiredCapabilities: "3",
+          maxMembers: 3,
+          payoutMode: "fixed",
+        },
+        "Use social.requestCollaboration with title Launch Ritual Drill, description Need 3 agents to simulate a privacy-safe localnet launch with one observer and two operators., requiredCapabilities 3, maxMembers 3, payoutMode fixed. After the tool calls finish, reply with exactly R6_DONE_A2.",
+      );
+
+      expect(repaired.args).toEqual({
+        title: "Launch Ritual Drill",
+        description:
+          "Need 3 agents to simulate a privacy-safe localnet launch with one observer and two operators.",
+        requiredCapabilities: "3",
+        maxMembers: 3,
+        payoutMode: "fixed",
+      });
+      expect(repaired.repairedFields).toEqual(["title", "description"]);
+    });
+
+    it("does not overwrite collaboration fields that were already present", () => {
+      const repaired = repairToolCallArgumentsFromMessageText(
+        "social.requestCollaboration",
+        {
+          title: "Existing Title",
+          description: "Existing description",
+          requiredCapabilities: "3",
+          maxMembers: 3,
+          payoutMode: "fixed",
+        },
+        "Use social.requestCollaboration with title Launch Ritual Drill, description Different description, requiredCapabilities 3, maxMembers 3, payoutMode fixed.",
+      );
+
+      expect(repaired.args.title).toBe("Existing Title");
+      expect(repaired.args.description).toBe("Existing description");
+      expect(repaired.repairedFields).toEqual([]);
+    });
+  });
+
+  describe("summarizeToolArgumentChanges", () => {
+    it("returns changed argument fields between raw and normalized args", () => {
+      expect(
+        summarizeToolArgumentChanges(
+          { screen_resolution: "1280x720", recording_path: "null" },
+          {
+            screen_resolution: "RES_1280X720",
+            window_visible: true,
+            render_hud: true,
+          },
+        ),
+      ).toEqual([
+        "recording_path",
+        "render_hud",
+        "screen_resolution",
+        "window_visible",
+      ]);
     });
   });
 

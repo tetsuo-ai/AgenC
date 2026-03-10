@@ -19,7 +19,7 @@
 #   - solana CLI (v3.0.13+)
 #   - anchor CLI (v0.32.1+)
 #   - Built AgenC program (anchor build)
-#   - Optional for real verifier mode: /tmp/risc0-solana/solana-verifier
+#   - Optional for real verifier mode: ${AGENC_RISC0_SOLANA_DIR:-/tmp/risc0-solana/solana-verifier}
 #
 set -euo pipefail
 
@@ -36,7 +36,7 @@ EOF
   return 0
 }
 
-RISC0_SOLANA_DIR="/tmp/risc0-solana/solana-verifier"
+RISC0_SOLANA_DIR="${AGENC_RISC0_SOLANA_DIR:-/tmp/risc0-solana/solana-verifier}"
 AGENC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 AGENC_SO_ROOT="${AGENC_DIR}/target/deploy/agenc_coordination.so"
 AGENC_SO_PROGRAMS="${AGENC_DIR}/programs/agenc-coordination/target/deploy/agenc_coordination.so"

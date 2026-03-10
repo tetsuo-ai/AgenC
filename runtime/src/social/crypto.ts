@@ -33,16 +33,22 @@ const ED25519_DER_PRIVATE_PREFIX = Buffer.from(
 /**
  * Build the canonical signing payload for a message.
  *
- * Layout: sender[32] | recipient[32] | nonce_u64_be[8] | content_utf8[...]
+ * Layout:
+ *   sender[32] | recipient[32] | nonce_u64_be[8] |
+ *   thread_id_len_u32_be[4] | thread_id_utf8[...] | content_utf8[...]
  */
 export function buildSigningPayload(
   sender: PublicKey,
   recipient: PublicKey,
   nonce: number,
   content: string,
+  threadId?: string | null,
 ): Uint8Array {
+  const threadBytes = new TextEncoder().encode(threadId ?? "");
   const contentBytes = new TextEncoder().encode(content);
-  const payload = new Uint8Array(32 + 32 + 8 + contentBytes.length);
+  const payload = new Uint8Array(
+    32 + 32 + 8 + 4 + threadBytes.length + contentBytes.length,
+  );
 
   // Sender (32 bytes)
   payload.set(sender.toBytes(), 0);
@@ -55,8 +61,15 @@ export function buildSigningPayload(
   view.setUint32(0, Math.floor(nonce / 0x100000000) >>> 0);
   view.setUint32(4, nonce >>> 0);
 
+  // Thread ID length as big-endian u32 (4 bytes)
+  const threadView = new DataView(payload.buffer, payload.byteOffset + 72, 4);
+  threadView.setUint32(0, threadBytes.length >>> 0);
+
+  // Thread ID (variable length)
+  payload.set(threadBytes, 76);
+
   // Content (variable length)
-  payload.set(contentBytes, 72);
+  payload.set(contentBytes, 76 + threadBytes.length);
 
   return payload;
 }
