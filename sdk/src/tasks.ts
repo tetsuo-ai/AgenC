@@ -26,7 +26,7 @@ import {
   PERCENT_BASE,
   DEFAULT_FEE_PERCENT,
   HASH_SIZE,
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   TRUSTED_RISC0_SELECTOR,
@@ -114,7 +114,7 @@ export interface TaskStatus {
 }
 
 export interface PrivateCompletionPayload {
-  /** Borsh-encoded router seal bytes (selector + proof = 260 bytes) */
+  /** Router seal bytes (trusted selector + proof = 260 bytes) */
   sealBytes: Buffer | Uint8Array;
   /** Fixed private journal bytes (192 bytes) */
   journal: Buffer | Uint8Array;
@@ -733,7 +733,7 @@ export async function completeTaskPrivate(
   const protocolPda = deriveProtocolPda(programId);
   const sealBytes = toFixedBytes(
     proof.sealBytes,
-    RISC0_SEAL_BORSH_LEN,
+    RISC0_SEAL_BYTES_LEN,
     "sealBytes",
   );
   const journal = toFixedBytes(proof.journal, RISC0_JOURNAL_LEN, "journal");

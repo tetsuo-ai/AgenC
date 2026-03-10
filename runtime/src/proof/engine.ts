@@ -54,22 +54,10 @@ export function buildSdkProverConfig(
   const kind = config.kind;
   if (!kind) {
     throw new ProofGenerationError(
-      "ProofEngine requires an explicit proverBackend kind (local-binary or remote)",
+      'ProofEngine requires an explicit proverBackend kind ("remote")',
     );
   }
   switch (kind) {
-    case "local-binary": {
-      if (!config.binaryPath) {
-        throw new ProofGenerationError(
-          "binaryPath is required for local-binary prover backend",
-        );
-      }
-      return {
-        kind: "local-binary",
-        binaryPath: config.binaryPath,
-        timeoutMs: config.timeoutMs,
-      };
-    }
     case "remote": {
       if (!config.endpoint) {
         throw new ProofGenerationError(
@@ -100,8 +88,8 @@ export function buildSdkProverConfig(
  * ```typescript
  * const engine = new ProofEngine({
  *   proverBackend: {
- *     kind: "local-binary",
- *     binaryPath: "/absolute/path/to/agenc-zkvm-host",
+ *     kind: "remote",
+ *     endpoint: "https://prover.example.com",
  *   },
  *   methodId: trustedImageIdBytes,
  *   routerConfig: {
@@ -148,7 +136,7 @@ export class ProofEngine implements ProofGenerator {
     }
     this.routerConfig = config?.routerConfig ?? null;
     this.proverBackendConfig = config?.proverBackend;
-    this.proverBackend = config?.proverBackend?.kind ?? "local-binary";
+    this.proverBackend = config?.proverBackend?.kind ?? "remote";
     this.unsafeAllowUnpinnedPrivateProofs =
       config?.unsafeAllowUnpinnedPrivateProofs ?? false;
     this.cache = config?.cache ? new ProofCache(config.cache) : null;
@@ -156,14 +144,6 @@ export class ProofEngine implements ProofGenerator {
     this.metrics = config?.metrics;
 
     // Warn on config inconsistencies
-    if (
-      config?.proverBackend?.binaryPath &&
-      this.proverBackend !== "local-binary"
-    ) {
-      this.logger.warn(
-        'binaryPath is set but prover backend kind is not "local-binary" — binaryPath will be ignored',
-      );
-    }
     if (config?.proverBackend?.endpoint && this.proverBackend !== "remote") {
       this.logger.warn(
         'endpoint is set but prover backend kind is not "remote" — endpoint will be ignored',
@@ -313,7 +293,7 @@ export class ProofEngine implements ProofGenerator {
   private requireProverBackendConfig(): ProverBackendConfig {
     if (!this.proverBackendConfig) {
       throw new ProofGenerationError(
-        "ProofEngine requires an explicit proverBackend configuration (local-binary or remote)",
+        "ProofEngine requires an explicit proverBackend configuration",
       );
     }
     return this.proverBackendConfig;

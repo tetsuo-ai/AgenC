@@ -6,7 +6,7 @@ import {
 import {
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   TRUSTED_RISC0_SELECTOR,
 } from "../constants";
 
@@ -60,7 +60,7 @@ describe("validateProverEndpoint", () => {
 
 describe("validateRisc0PayloadShape", () => {
   it("accepts canonical payload shape", () => {
-    const seal = makeBytes(RISC0_SEAL_BORSH_LEN, 7);
+    const seal = makeBytes(RISC0_SEAL_BYTES_LEN, 7);
     seal.set(TRUSTED_RISC0_SELECTOR, 0);
 
     expect(() =>
@@ -87,7 +87,7 @@ describe("validateRisc0PayloadShape", () => {
   });
 
   it("rejects untrusted selector in seal", () => {
-    const seal = makeBytes(RISC0_SEAL_BORSH_LEN, 7);
+    const seal = makeBytes(RISC0_SEAL_BYTES_LEN, 7);
     seal.set(TRUSTED_RISC0_SELECTOR, 0);
     seal[0] ^= 1;
     expect(() =>
@@ -102,7 +102,7 @@ describe("validateRisc0PayloadShape", () => {
   });
 
   it("rejects wrong journal length", () => {
-    const seal = makeBytes(RISC0_SEAL_BORSH_LEN, 7);
+    const seal = makeBytes(RISC0_SEAL_BYTES_LEN, 7);
     seal.set(TRUSTED_RISC0_SELECTOR, 0);
     expect(() =>
       validateRisc0PayloadShape({

@@ -38,20 +38,20 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "zod": "^3.24.2"
+    "zod": "^4.3.6"
   },
   "overrides": {
-    "express-rate-limit": "^8.2.2",
-    "hono": "^4.11.10"
+    "express-rate-limit": "^8.3.1",
+    "hono": "^4.12.6"
   },
   "resolutions": {
-    "express-rate-limit": "^8.2.2",
-    "hono": "^4.11.10"
+    "express-rate-limit": "^8.3.1",
+    "hono": "^4.12.6"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "^25.4.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=18.0.0"

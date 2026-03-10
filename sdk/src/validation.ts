@@ -6,7 +6,7 @@ import {
   HASH_SIZE,
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   RISC0_SELECTOR_LEN,
   TRUSTED_RISC0_SELECTOR,
 } from "./constants";
@@ -71,9 +71,9 @@ export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
   const bindingSeed = Buffer.from(payload.bindingSeed);
   const nullifierSeed = Buffer.from(payload.nullifierSeed);
 
-  if (sealBytes.length !== RISC0_SEAL_BORSH_LEN) {
+  if (sealBytes.length !== RISC0_SEAL_BYTES_LEN) {
     throw new Error(
-      `Security: sealBytes must be ${RISC0_SEAL_BORSH_LEN} bytes`,
+      `Security: sealBytes must be ${RISC0_SEAL_BYTES_LEN} bytes`,
     );
   }
   if (journal.length !== RISC0_JOURNAL_LEN) {

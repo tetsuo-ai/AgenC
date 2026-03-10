@@ -65,8 +65,12 @@ export const RISC0_SELECTOR_LEN = 4;
 /** RISC0 Groth16 seal proof body length in bytes */
 export const RISC0_GROTH16_SEAL_LEN = 256;
 
-/** RISC0 borsh-encoded seal length (selector + proof body) */
-export const RISC0_SEAL_BORSH_LEN = RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
+/** RISC0 router seal length (selector + proof body) */
+export const RISC0_SEAL_BYTES_LEN =
+  RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
+
+/** @deprecated Use RISC0_SEAL_BYTES_LEN. */
+export const RISC0_SEAL_BORSH_LEN = RISC0_SEAL_BYTES_LEN;
 
 /** RISC0 fixed journal length (6 x 32-byte fields) */
 export const RISC0_JOURNAL_LEN = 192;
@@ -80,7 +84,7 @@ export const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
 /**
  * Trusted RISC0 image ID — SHA-256 digest of the RISC Zero guest ELF.
  *
- * Regenerate with: cargo run -p agenc-zkvm-host --features production-prover -- image-id
+ * This value must stay pinned to the trusted remote prover/verifier stack.
  * This value MUST match TRUSTED_RISC0_IMAGE_ID in complete_task_private.rs exactly.
  */
 export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([

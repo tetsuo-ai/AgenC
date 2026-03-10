@@ -21,7 +21,7 @@ use solana_sha256_hasher::hashv;
 const RISC0_JOURNAL_LEN: usize = 192;
 const RISC0_SELECTOR_LEN: usize = 4;
 const RISC0_IMAGE_ID_LEN: usize = 32;
-const RISC0_SEAL_BORSH_LEN: usize = 260;
+const RISC0_SEAL_BYTES_LEN: usize = 260;
 
 // Journal field offsets (each field is HASH_SIZE=32 bytes)
 const JOURNAL_TASK_PDA_OFFSET: usize = 0;
@@ -48,12 +48,11 @@ const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
-// SHA-256 digest of the RISC Zero guest ELF (agenc-zkvm-methods AGENC_GUEST_ID).
-// Regenerate with: cargo run -p agenc-zkvm-host --features production-prover -- image-id
+// SHA-256 digest of the trusted RISC Zero guest ELF used by the remote prover stack.
 // This value MUST match TRUSTED_RISC0_IMAGE_ID in sdk/src/constants.ts exactly.
 const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
-    91, 102, 183, 26, 119, 89, 149, 15, 10, 80, 87, 16, 22, 157, 195, 85, 12, 183, 108, 1, 237, 243,
-    199, 24, 191, 151, 209, 50, 83, 101, 49, 151,
+    91, 102, 183, 26, 119, 89, 149, 15, 10, 80, 87, 16, 22, 157, 195, 85, 12, 183, 108, 1, 237,
+    243, 199, 24, 191, 151, 209, 50, 83, 101, 49, 151,
 ];
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -224,24 +223,17 @@ fn settle_private_completion(
     )
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Risc0Groth16Proof {
     pi_a: [u8; 64],
     pi_b: [u8; 128],
     pi_c: [u8; 64],
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Risc0Seal {
     selector: [u8; RISC0_SELECTOR_LEN],
     proof: Risc0Groth16Proof,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-struct RouterVerifyArgs {
-    seal: Risc0Seal,
-    image_id: [u8; RISC0_IMAGE_ID_LEN],
-    journal_digest: [u8; HASH_SIZE],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -292,11 +284,10 @@ fn decode_private_completion_payload(
     proof: &PrivateCompletionPayload,
 ) -> Result<DecodedPrivateProof> {
     require!(
-        proof.seal_bytes.len() == RISC0_SEAL_BORSH_LEN,
+        proof.seal_bytes.len() == RISC0_SEAL_BYTES_LEN,
         CoordinationError::InvalidSealEncoding
     );
-    let seal = crate::utils::borsh::try_from_slice_non_zst::<Risc0Seal>(&proof.seal_bytes)
-        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let seal = decode_seal_bytes(&proof.seal_bytes)?;
     require!(
         seal.selector == TRUSTED_RISC0_SELECTOR,
         CoordinationError::TrustedSelectorMismatch
@@ -475,13 +466,7 @@ fn build_router_verify_ix(
 ) -> Result<Instruction> {
     let mut cpi_data = Vec::with_capacity(332);
     cpi_data.extend_from_slice(&ROUTER_VERIFY_IX_DISCRIMINATOR);
-    RouterVerifyArgs {
-        seal: seal.clone(),
-        image_id,
-        journal_digest,
-    }
-    .serialize(&mut cpi_data)
-    .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    append_router_verify_args(&mut cpi_data, seal, image_id, journal_digest);
 
     Ok(Instruction {
         program_id: *router_program_key,
@@ -493,6 +478,45 @@ fn build_router_verify_ix(
         ],
         data: cpi_data,
     })
+}
+
+fn decode_seal_bytes(seal_bytes: &[u8]) -> Result<Risc0Seal> {
+    require!(
+        seal_bytes.len() == RISC0_SEAL_BYTES_LEN,
+        CoordinationError::InvalidSealEncoding
+    );
+
+    let selector = seal_bytes[0..RISC0_SELECTOR_LEN]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let pi_a = seal_bytes[RISC0_SELECTOR_LEN..RISC0_SELECTOR_LEN + 64]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let pi_b = seal_bytes[RISC0_SELECTOR_LEN + 64..RISC0_SELECTOR_LEN + 64 + 128]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let pi_c = seal_bytes[RISC0_SELECTOR_LEN + 64 + 128..RISC0_SEAL_BYTES_LEN]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+
+    Ok(Risc0Seal {
+        selector,
+        proof: Risc0Groth16Proof { pi_a, pi_b, pi_c },
+    })
+}
+
+fn append_router_verify_args(
+    out: &mut Vec<u8>,
+    seal: &Risc0Seal,
+    image_id: [u8; RISC0_IMAGE_ID_LEN],
+    journal_digest: [u8; HASH_SIZE],
+) {
+    out.extend_from_slice(&seal.selector);
+    out.extend_from_slice(&seal.proof.pi_a);
+    out.extend_from_slice(&seal.proof.pi_b);
+    out.extend_from_slice(&seal.proof.pi_c);
+    out.extend_from_slice(&image_id);
+    out.extend_from_slice(&journal_digest);
 }
 
 fn record_private_spends<'info>(

@@ -8,9 +8,9 @@
   },
   "dependencies": {
     "@agenc/sdk": "file:../../sdk",
-    "@solana/web3.js": "^1.95.0"
+    "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
-    "tsx": "^4.7.0"
+    "tsx": "^4.21.0"
   }
 }

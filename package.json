@@ -30,7 +30,7 @@
     "test:e2e-zk": "npm run build:sdk && bash ./scripts/run-e2e-zk-local.sh",
     "demo": "npx tsx demo/private_task_demo.ts",
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts",
-    "security:mcp:check": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose --allow-fail",
+    "security:mcp:check": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose",
     "security:mcp:check:strict": "node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose",
     "security:gitguardian:mcp:scan": "node scripts/gitguardian-mcp-scan.mjs",
     "security:cargo:lock:check": "node scripts/check-cargo-lock-security.mjs",
@@ -54,46 +54,46 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/web3.js": "^1.95.0"
+    "@solana/web3.js": "^1.98.4"
   },
   "overrides": {
     "ajv": "^8.18.0",
     "bn.js": "^5.2.3",
-    "esbuild": "^0.27.2",
-    "express-rate-limit": "^8.2.2",
-    "hono": "^4.11.10",
-    "matrix-js-sdk": "^38.2.0",
+    "esbuild": "^0.27.3",
+    "express-rate-limit": "^8.3.1",
+    "hono": "^4.12.6",
+    "matrix-js-sdk": "^41.1.0-rc.0",
     "prismjs": "^1.30.0",
     "rollup": "^4.59.0",
-    "undici": "^6.23.0"
+    "undici": "^7.22.0"
   },
   "resolutions": {
     "ajv": "^8.18.0",
     "bn.js": "^5.2.3",
-    "esbuild": "^0.27.2",
-    "express-rate-limit": "^8.2.2",
-    "hono": "^4.11.10",
-    "matrix-js-sdk": "^38.2.0",
+    "esbuild": "^0.27.3",
+    "express-rate-limit": "^8.3.1",
+    "hono": "^4.12.6",
+    "matrix-js-sdk": "^41.1.0-rc.0",
     "prismjs": "^1.30.0",
     "rollup": "^4.59.0",
-    "undici": "^6.23.0"
+    "undici": "^7.22.0"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@agenc/sdk": "file:./sdk",
     "@solana/spl-token": "0.4.14",
     "@types/bn.js": "^5.2.0",
-    "@types/chai": "^4.3.0",
-    "@types/mocha": "^10.0.0",
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
     "anchor-litesvm": "^0.2.1",
     "bn.js": "^5.2.3",
     "bs58": "^6.0.0",
-    "chai": "^4.3.0",
-    "litesvm": "^0.5.0",
-    "mocha": "^10.0.0",
-    "ts-mocha": "^10.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.0.0",
-    "ws": "^8.18.3"
+    "chai": "^6.2.2",
+    "litesvm": "^0.6.0",
+    "mocha": "^11.7.5",
+    "ts-mocha": "^11.1.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "ws": "^8.19.0"
   }
 }

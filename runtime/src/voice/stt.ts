@@ -87,9 +87,10 @@ export class WhisperAPIProvider implements SpeechToTextProvider {
     const client = (await this.ensureClient()) as any;
     const ext = options?.format?.codec ?? "ogg";
     const filename = `audio.${ext}`;
+    const audioBytes = Uint8Array.from(audio);
 
     // Build a File object from the audio buffer
-    const blob = new Blob([audio], { type: `audio/${ext}` });
+    const blob = new Blob([audioBytes], { type: `audio/${ext}` });
     const file = new File([blob], filename, { type: `audio/${ext}` });
 
     const params: Record<string, unknown> = {

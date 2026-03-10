@@ -153,8 +153,8 @@ import { ProofEngine } from '@agenc/runtime';
 
 const engine = new ProofEngine({
   proverBackend: {
-    kind: 'local-binary',
-    binaryPath: '/usr/local/bin/agenc-zkvm-host',
+    kind: 'remote',
+    endpoint: 'https://prover.example.com',
   },
   methodId: trustedImageIdBytes,
   routerConfig: {
@@ -327,8 +327,7 @@ When `GrokProviderConfig.webSearch=true`, the runtime can route provider-native 
 
 | Field | Type | Required | Default |
 |-------|------|----------|---------|
-| `proverBackend.kind` | `"local-binary" \| "remote"` | Yes | — |
-| `proverBackend.binaryPath` | `string` | If `kind="local-binary"` | — |
+| `proverBackend.kind` | `"remote"` | Yes | — |
 | `proverBackend.endpoint` | `string` | If `kind="remote"` | — |
 | `proverBackend.timeoutMs` | `number` | No | SDK default |
 | `proverBackend.headers` | `Record<string, string>` | No | — |

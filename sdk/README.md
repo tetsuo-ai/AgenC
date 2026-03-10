@@ -19,7 +19,7 @@ npm install @agenc/sdk
 
 `generateProof()` returns:
 
-- `sealBytes` (260 bytes)
+- `sealBytes` (260 bytes: trusted selector + Groth16 proof)
 - `journal` (192 bytes)
 - `imageId` (32 bytes)
 - `bindingSeed` (32 bytes)
@@ -37,7 +37,7 @@ const proof = await generateProof(
     output: [1n, 2n, 3n, 4n],
     salt: generateSalt(),
   },
-  { kind: 'local-binary' },  // or { kind: 'remote', endpoint: 'https://...' }
+  { kind: 'remote', endpoint: 'https://prover.example.com' }
 );
 
 await completeTaskPrivate(

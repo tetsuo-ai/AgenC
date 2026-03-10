@@ -68,49 +68,49 @@
     "directory": "runtime"
   },
   "optionalDependencies": {
-    "@slack/bolt": "^4.0.0",
-    "@whiskeysockets/baileys": "^6.0.0",
-    "better-sqlite3": "^12.0.0",
-    "cheerio": "^1.0.0",
-    "discord.js": "^14.7.0",
-    "edge-tts": "^1.0.0",
-    "grammy": "^1.0.0",
-    "ioredis": "^5.0.0",
-    "matrix-js-sdk": "^38.2.0",
-    "ollama": "^0.5.0",
-    "openai": "^4.0.0",
-    "playwright": "^1.40.0",
-    "ws": "^8.0.0"
+    "@slack/bolt": "^4.6.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "better-sqlite3": "^12.6.2",
+    "cheerio": "^1.2.0",
+    "discord.js": "^14.25.1",
+    "edge-tts": "^1.0.1",
+    "grammy": "^1.41.1",
+    "ioredis": "^5.10.0",
+    "matrix-js-sdk": "^41.1.0-rc.0",
+    "ollama": "^0.6.3",
+    "openai": "^6.27.0",
+    "playwright": "^1.58.2",
+    "ws": "^8.19.0"
   },
   "overrides": {
-    "express-rate-limit": "^8.2.2",
-    "matrix-js-sdk": "^38.2.0",
-    "undici": "^6.23.0"
+    "express-rate-limit": "^8.3.1",
+    "matrix-js-sdk": "^41.1.0-rc.0",
+    "undici": "^7.22.0"
   },
   "resolutions": {
-    "express-rate-limit": "^8.2.2",
-    "matrix-js-sdk": "^38.2.0",
-    "undici": "^6.23.0"
+    "express-rate-limit": "^8.3.1",
+    "matrix-js-sdk": "^41.1.0-rc.0",
+    "undici": "^7.22.0"
   },
   "dependencies": {
     "@agenc/sdk": "file:../sdk",
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "undici": "^6.23.0"
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "undici": "^7.22.0"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/spl-token": "^0.4.0",
-    "@solana/web3.js": "^1.95.0",
-    "@types/better-sqlite3": "^7.0.0",
-    "@types/node": "^20.0.0",
-    "@types/ws": "^8.0.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.4.0",
+    "@types/ws": "^8.18.1",
     "anchor-litesvm": "^0.2.1",
     "bs58": "^6.0.0",
-    "litesvm": "^0.5.0",
-    "tsup": "^8.0.0",
+    "litesvm": "^0.6.0",
+    "tsup": "^8.5.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.0.0",
-    "vitest": "^2.0.0"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   },
   "peerDependencies": {
     "@coral-xyz/anchor": ">=0.29.0",

@@ -45,34 +45,34 @@
   "dependencies": {
     "@agenc/runtime": "file:../runtime",
     "@agenc/sdk": "file:../sdk",
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "zod": "^3.24.2"
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^4.3.6"
   },
   "overrides": {
     "ajv": "^8.18.0",
-    "express-rate-limit": "^8.2.2",
-    "hono": "^4.11.10",
+    "express-rate-limit": "^8.3.1",
+    "hono": "^4.12.6",
     "minimatch": "^9.0.9",
-    "matrix-js-sdk": "^38.2.0",
+    "matrix-js-sdk": "^41.1.0-rc.0",
     "rollup": "^4.59.0",
-    "undici": "^6.23.0"
+    "undici": "^7.22.0"
   },
   "resolutions": {
     "ajv": "^8.18.0",
-    "express-rate-limit": "^8.2.2",
-    "hono": "^4.11.10",
+    "express-rate-limit": "^8.3.1",
+    "hono": "^4.12.6",
     "minimatch": "^9.0.9",
-    "matrix-js-sdk": "^38.2.0",
+    "matrix-js-sdk": "^41.1.0-rc.0",
     "rollup": "^4.59.0",
-    "undici": "^6.23.0"
+    "undici": "^7.22.0"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/web3.js": "^1.95.0",
-    "@types/node": "^20.0.0",
-    "tsup": "^8.0.0",
+    "@solana/web3.js": "^1.98.4",
+    "@types/node": "^25.4.0",
+    "tsup": "^8.5.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "@coral-xyz/anchor": ">=0.29.0",

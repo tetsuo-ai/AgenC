@@ -106,8 +106,8 @@ export const ReplayCompareResultSchema = z.object({
     local: z.string(),
     projected: z.string(),
   }),
-  local_summary: z.record(z.unknown()),
-  projected_summary: z.record(z.unknown()),
+  local_summary: z.record(z.string(), z.unknown()),
+  projected_summary: z.record(z.string(), z.unknown()),
 });
 
 export const ReplayIncidentValidationSchema = z.object({
@@ -129,10 +129,10 @@ export const ReplayIncidentSummarySchema = z.object({
   to_slot: z.number().int().positive().optional(),
   unique_task_ids: z.array(z.string()),
   unique_dispute_ids: z.array(z.string()),
-  source_event_type_counts: z.record(z.number().nonnegative()),
-  source_event_name_counts: z.record(z.number().nonnegative()),
-  trace_id_counts: z.record(z.number().nonnegative()),
-  events: z.array(z.record(z.unknown())),
+  source_event_type_counts: z.record(z.string(), z.number().nonnegative()),
+  source_event_name_counts: z.record(z.string(), z.number().nonnegative()),
+  trace_id_counts: z.record(z.string(), z.number().nonnegative()),
+  events: z.array(z.record(z.string(), z.unknown())),
 });
 
 export const ReplayIncidentNarrativeSchema = z.object({
@@ -153,7 +153,7 @@ export const ReplayBackfillOutputSchema = z.object({
   result: ReplayBackfillResultSchema,
   sections: z.array(z.string()),
   redactions: z.array(z.string()),
-  command_params: z.record(z.unknown()),
+  command_params: z.record(z.string(), z.unknown()),
   truncated: z.boolean(),
   truncation_reason: z.string().nullable().optional(),
 });
@@ -170,7 +170,7 @@ export const ReplayCompareOutputSchema = z.object({
   dispute_pda: z.string().nullable().optional(),
   sections: z.array(z.string()),
   redactions: z.array(z.string()),
-  command_params: z.record(z.unknown()),
+  command_params: z.record(z.string(), z.unknown()),
   truncated: z.boolean(),
   truncation_reason: z.string().nullable().optional(),
 });
@@ -180,7 +180,7 @@ export const ReplayIncidentOutputSchema = z.object({
   command: z.literal("agenc_replay_incident"),
   schema: z.literal(REPLAY_INCIDENT_OUTPUT_SCHEMA),
   schema_hash: z.string().optional(),
-  command_params: z.record(z.unknown()),
+  command_params: z.record(z.string(), z.unknown()),
   sections: z.array(z.string()),
   redactions: z.array(z.string()),
   summary: ReplayIncidentSummarySchema.nullable(),
@@ -199,7 +199,7 @@ export const ReplayStatusOutputSchema = z.object({
   event_count: z.number().nonnegative(),
   unique_task_count: z.number().nonnegative(),
   unique_dispute_count: z.number().nonnegative(),
-  active_cursor: z.record(z.unknown()).nullable(),
+  active_cursor: z.record(z.string(), z.unknown()).nullable(),
   sections: z.array(z.string()),
   redactions: z.array(z.string()),
 });
@@ -211,7 +211,7 @@ export const ReplayToolErrorSchema = z.object({
   schema_hash: z.string().optional(),
   code: z.string(),
   message: z.string(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
   retriable: z.boolean(),
 });
 

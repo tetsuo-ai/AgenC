@@ -23,7 +23,7 @@ import {
 } from "../proofs";
 import {
   OUTPUT_FIELD_COUNT,
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   RISC0_SELECTOR_LEN,
@@ -580,7 +580,7 @@ describe("proofs", () => {
             output: [1n, 2n, 3n, 4n],
             salt: 0n,
           },
-          { kind: "local-binary", binaryPath: "/test" },
+          { kind: "remote", endpoint: "https://test.com" },
         ),
       ).rejects.toThrow("non-zero");
     });
@@ -617,7 +617,7 @@ describe("proofs", () => {
 
       vi.doMock("../prover", () => ({
         prove: vi.fn().mockResolvedValue({
-          sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN, 0xab),
+          sealBytes: Buffer.alloc(RISC0_SEAL_BYTES_LEN, 0xab),
           journal: expectedJournal,
           imageId: Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xcd),
         }),
@@ -625,10 +625,10 @@ describe("proofs", () => {
 
       const { generateProof: fn } = await import("../proofs");
       const result = await fn(params, {
-        kind: "local-binary",
-        binaryPath: "/test",
+        kind: "remote",
+        endpoint: "https://test.com",
       });
-      expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
+      expect(result.sealBytes.length).toBe(RISC0_SEAL_BYTES_LEN);
       expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
 
       vi.doUnmock("../prover");
@@ -687,7 +687,7 @@ describe("proofs", () => {
     it("returns all ProofResult fields with correct lengths", async () => {
       const params = makeProofParams();
       const expectedJournal = buildExpectedJournal(params);
-      const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BORSH_LEN, 0xab);
+      const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BYTES_LEN, 0xab);
       const fakeImageId = Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xcd);
 
       vi.doMock("../prover", () => ({
@@ -700,23 +700,23 @@ describe("proofs", () => {
 
       const { generateProof: fn } = await import("../proofs");
       const result = await fn(params, {
-        kind: "local-binary",
-        binaryPath: "/test",
+        kind: "remote",
+        endpoint: "https://test.com",
       });
 
-      expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
+      expect(result.sealBytes.length).toBe(RISC0_SEAL_BYTES_LEN);
       expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
       expect(result.imageId.length).toBe(RISC0_IMAGE_ID_LEN);
       expect(result.bindingSeed.length).toBe(32);
       expect(result.nullifierSeed.length).toBe(32);
       expect(result.proof.length).toBe(
-        RISC0_SEAL_BORSH_LEN - RISC0_SELECTOR_LEN,
+        RISC0_SEAL_BYTES_LEN - RISC0_SELECTOR_LEN,
       );
       expect(result.constraintHash.length).toBe(32);
       expect(result.outputCommitment.length).toBe(32);
       expect(result.binding.length).toBe(32);
       expect(result.nullifier.length).toBe(32);
-      expect(result.proofSize).toBe(RISC0_SEAL_BORSH_LEN - RISC0_SELECTOR_LEN);
+      expect(result.proofSize).toBe(RISC0_SEAL_BYTES_LEN - RISC0_SELECTOR_LEN);
       expect(result.generationTime).toBeGreaterThanOrEqual(0);
 
       vi.doUnmock("../prover");
@@ -725,13 +725,13 @@ describe("proofs", () => {
     it("proof is sealBytes minus the 4-byte selector", async () => {
       const params = makeProofParams();
       const expectedJournal = buildExpectedJournal(params);
-      const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BORSH_LEN);
+      const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BYTES_LEN);
       // Write recognizable pattern in selector and body
       fakeSealBytes[0] = 0x52;
       fakeSealBytes[1] = 0x5a;
       fakeSealBytes[2] = 0x56;
       fakeSealBytes[3] = 0x4d;
-      for (let i = 4; i < RISC0_SEAL_BORSH_LEN; i++)
+      for (let i = 4; i < RISC0_SEAL_BYTES_LEN; i++)
         fakeSealBytes[i] = i & 0xff;
 
       vi.doMock("../prover", () => ({
@@ -744,8 +744,8 @@ describe("proofs", () => {
 
       const { generateProof: fn } = await import("../proofs");
       const result = await fn(params, {
-        kind: "local-binary",
-        binaryPath: "/test",
+        kind: "remote",
+        endpoint: "https://test.com",
       });
 
       // proof should be bytes [4..260] of sealBytes
@@ -761,7 +761,7 @@ describe("proofs", () => {
 
       vi.doMock("../prover", () => ({
         prove: vi.fn().mockResolvedValue({
-          sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN),
+          sealBytes: Buffer.alloc(RISC0_SEAL_BYTES_LEN),
           journal: tamperedJournal,
           imageId: Buffer.alloc(RISC0_IMAGE_ID_LEN),
         }),
@@ -769,7 +769,7 @@ describe("proofs", () => {
 
       const { generateProof: fn } = await import("../proofs");
       await expect(
-        fn(params, { kind: "local-binary", binaryPath: "/test" }),
+        fn(params, { kind: "remote", endpoint: "https://test.com" }),
       ).rejects.toThrow("does not match computed fields");
 
       vi.doUnmock("../prover");
@@ -782,13 +782,13 @@ describe("proofs", () => {
       vi.doMock("../prover", () => ({
         prove: vi
           .fn()
-          .mockRejectedValue(new PE("binary crashed", "local-binary")),
+          .mockRejectedValue(new PE("remote failed", "remote")),
       }));
 
       const { generateProof: fn } = await import("../proofs");
       await expect(
-        fn(params, { kind: "local-binary", binaryPath: "/test" }),
-      ).rejects.toThrow("binary crashed");
+        fn(params, { kind: "remote", endpoint: "https://test.com" }),
+      ).rejects.toThrow("remote failed");
 
       vi.doUnmock("../prover");
     });
@@ -800,7 +800,7 @@ describe("proofs", () => {
 
       vi.doMock("../prover", () => ({
         prove: vi.fn().mockResolvedValue({
-          sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN),
+          sealBytes: Buffer.alloc(RISC0_SEAL_BYTES_LEN),
           journal: expectedJournal,
           imageId: fakeImageId,
         }),

@@ -44,18 +44,6 @@ describe("PrivacyClient input validation (#963)", () => {
     ).not.toThrow();
   });
 
-  it("accepts proverConfig with local-binary backend", () => {
-    expect(
-      () =>
-        new PrivacyClient({
-          proverConfig: {
-            kind: "local-binary",
-            binaryPath: "/usr/bin/agenc-zkvm-host",
-          },
-        }),
-    ).not.toThrow();
-  });
-
   describe("completeTaskPrivate validation", () => {
     it("rejects when wallet not initialized", async () => {
       const client = new PrivacyClient({ rpcUrl: "http://localhost:8899" });
@@ -120,7 +108,7 @@ describe("PrivacyClient input validation (#963)", () => {
         rpcUrl: "http://localhost:8899",
         wallet,
         agentId: new Uint8Array(32).fill(1),
-        proverConfig: { kind: "local-binary", binaryPath: "/test" },
+        proverConfig: { kind: "remote", endpoint: "https://prover.example.com" },
       });
       (client as any).program = {};
       await expect(
@@ -137,7 +125,7 @@ describe("PrivacyClient input validation (#963)", () => {
         rpcUrl: "http://localhost:8899",
         wallet,
         agentId: new Uint8Array(32).fill(1),
-        proverConfig: { kind: "local-binary", binaryPath: "/test" },
+        proverConfig: { kind: "remote", endpoint: "https://prover.example.com" },
       });
       (client as any).program = {};
       await expect(
@@ -155,7 +143,7 @@ describe("PrivacyClient input validation (#963)", () => {
         rpcUrl: "http://localhost:8899",
         wallet,
         agentId: new Uint8Array(32).fill(1),
-        proverConfig: { kind: "local-binary", binaryPath: "/test" },
+        proverConfig: { kind: "remote", endpoint: "https://prover.example.com" },
       });
       (client as any).program = {};
       await expect(

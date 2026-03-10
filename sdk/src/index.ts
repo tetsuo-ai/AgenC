@@ -29,7 +29,6 @@ export {
 
 export {
   type ProverConfig,
-  type LocalBinaryProverConfig,
   type RemoteProverConfig,
   type ProverInput,
   ProverError,
@@ -117,6 +116,7 @@ export {
   PROOF_SIZE_BYTES,
   RISC0_SELECTOR_LEN,
   RISC0_GROTH16_SEAL_LEN,
+  RISC0_SEAL_BYTES_LEN,
   RISC0_SEAL_BORSH_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
