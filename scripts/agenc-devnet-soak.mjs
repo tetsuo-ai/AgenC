@@ -104,7 +104,7 @@ Options:
   --poll-ms <ms>             Worker poll interval (default: ${DEFAULT_POLL_MS})
   --deadline-seconds <n>     Task deadline offset from now (default: ${DEFAULT_DEADLINE_SECONDS})
   --proof-mode <mode>        Completion path: public | private (default: ${DEFAULT_PROOF_MODE})
-  --prover-binary-path <p>   Absolute path to agenc-zkvm-host for private mode
+  --prover-endpoint <url>    HTTPS prover endpoint for private mode
   --prover-timeout-ms <ms>   Prover timeout in ms for private mode (default: ${DEFAULT_PROVER_TIMEOUT_MS})
   --run-token <token>        Stable token used in task labels
   --reset-events             Archive and reset events.ndjson during prepare
@@ -238,7 +238,7 @@ function parseArgs(argv) {
     pollMs: DEFAULT_POLL_MS,
     deadlineSeconds: DEFAULT_DEADLINE_SECONDS,
     proofMode: DEFAULT_PROOF_MODE,
-    proverBinaryPath: null,
+    proverEndpoint: null,
     proverTimeoutMs: DEFAULT_PROVER_TIMEOUT_MS,
     workerIndex: null,
     runToken: createRunToken(),
@@ -283,8 +283,8 @@ function parseArgs(argv) {
       parsed.deadlineSeconds = Number.parseInt(argv[++index], 10);
     } else if (arg === "--proof-mode" && argv[index + 1]) {
       parsed.proofMode = normalizeProofMode(argv[++index]);
-    } else if (arg === "--prover-binary-path" && argv[index + 1]) {
-      parsed.proverBinaryPath = path.resolve(argv[++index]);
+    } else if (arg === "--prover-endpoint" && argv[index + 1]) {
+      parsed.proverEndpoint = argv[++index];
     } else if (arg === "--prover-timeout-ms" && argv[index + 1]) {
       parsed.proverTimeoutMs = Number.parseInt(argv[++index], 10);
     } else if (arg === "--worker-index" && argv[index + 1]) {
@@ -896,7 +896,7 @@ async function ensureHarnessState(options) {
       mode: proof.mode,
       constraintHashHex: proof.constraintHashBytes?.toString("hex") ?? null,
       output: proof.output?.map((value) => value.toString()) ?? null,
-      proverBinaryPath: options.proverBinaryPath,
+      proverEndpoint: options.proverEndpoint,
       proverTimeoutMs: options.proverTimeoutMs,
     },
     operator: context.authority.publicKey.toBase58(),
@@ -1120,8 +1120,8 @@ async function runWorker(options) {
   if (!Number.isInteger(options.workerIndex) || options.workerIndex < 1 || options.workerIndex > options.workerCount) {
     throw new Error(`worker --worker-index must be between 1 and ${options.workerCount}`);
   }
-  if (options.proofMode === "private" && !options.proverBinaryPath) {
-    throw new Error("worker private proof mode requires --prover-binary-path");
+  if (options.proofMode === "private" && !options.proverEndpoint) {
+    throw new Error("worker private proof mode requires --prover-endpoint");
   }
 
   const state = await ensureHarnessState(options);
@@ -1130,8 +1130,8 @@ async function runWorker(options) {
   const workerKeypair = state.workerKeypairs[workerArrayIndex];
   const proverConfig = state.proof.mode === "private"
     ? {
-        kind: "local-binary",
-        binaryPath: options.proverBinaryPath,
+        kind: "remote",
+        endpoint: options.proverEndpoint,
         timeoutMs: options.proverTimeoutMs,
       }
     : null;

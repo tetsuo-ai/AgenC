@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/web3.js": "^1.95.0",
+    "@solana/web3.js": "^1.98.4",
     "buffer": "^6.0.3",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "overrides": {
     "bn.js": "^5.2.3"
@@ -21,13 +21,14 @@
     "bn.js": "^5.2.3"
   },
   "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@vitejs/plugin-react": "^4.2.0",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0",
-    "typescript": "^5.3.0",
-    "vite": "^5.0.0"
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@tailwindcss/postcss": "^4.2.1",
+    "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
   }
 }

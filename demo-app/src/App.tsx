@@ -89,8 +89,7 @@ const getRpcEndpoint = (): string => {
       console.warn('[Security] Non-HTTPS RPC endpoint detected. Use HTTPS in production.')
     }
 
-    // Security: Check if domain is in trusted allowlist (configurable via env)
-    const allowCustomDomains = import.meta.env.VITE_ALLOW_CUSTOM_RPC === 'true'
+    // Security: Only allow explicitly trusted RPC domains.
     const isTrustedDomain = TRUSTED_RPC_DOMAINS.some(domain => {
       if (url.hostname === domain) return true;
       // For subdomains, ensure the trusted domain is a proper suffix
@@ -99,8 +98,8 @@ const getRpcEndpoint = (): string => {
       return url.hostname.endsWith('.' + domain);
     })
 
-    if (!isTrustedDomain && !allowCustomDomains) {
-      console.warn('[Security] RPC URL domain not in trusted allowlist. Set VITE_ALLOW_CUSTOM_RPC=true to allow custom domains.')
+    if (!isTrustedDomain) {
+      console.warn('[Security] RPC URL domain not in trusted allowlist. Using default endpoint.')
       return defaultRpc
     }
 

@@ -8,14 +8,11 @@
  * derived from fixture private key material. This is only to keep the fixture
  * reproducible; it must not model the production witness pattern.
  *
- * This script calls the agenc-zkvm-host binary with --features production-prover
- * to generate a real RISC Zero Groth16 proof. This can take 10-30 minutes on
- * first run (downloads ceremony params). The fixture is committed to git so
- * it only needs to run once.
+ * This script calls a remote prover endpoint to generate a real RISC Zero
+ * Groth16 proof. The fixture is committed to git so it only needs to run once.
  *
  * Prerequisites:
- *   - rzup toolchain installed (curl -L https://risczero.com/install | bash && rzup install)
- *   - Docker running (for Groth16 prover)
+ *   - A remote prover endpoint exposed via AGENC_PROVER_ENDPOINT
  *
  * Usage:
  *   npx tsx scripts/generate-real-proof.ts
@@ -28,7 +25,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { spawn } from "child_process";
 
 // SDK constants
 const PROGRAM_ID = new PublicKey("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7");
@@ -107,7 +103,7 @@ function computeNullifier(constraintHash: bigint, outputCommitment: bigint, agen
   return BigInt(`0x${digest.toString("hex")}`);
 }
 
-async function callHostBinary(input: {
+async function callRemoteProver(input: {
   task_pda: number[];
   agent_authority: number[];
   constraint_hash: number[];
@@ -115,58 +111,29 @@ async function callHostBinary(input: {
   binding: number[];
   nullifier: number[];
 }): Promise<{ seal_bytes: number[]; journal: number[]; image_id: number[] }> {
-  const hostBinaryDir = path.resolve(__dirname, "..", "zkvm");
-  const inputJson = JSON.stringify(input);
+  const endpoint = process.env.AGENC_PROVER_ENDPOINT;
+  if (!endpoint) {
+    throw new Error("AGENC_PROVER_ENDPOINT is required");
+  }
 
-  console.log("Spawning host binary (this may take 10-30 minutes for Groth16)...");
-  console.log("If this is the first run, the RISC Zero ceremony params will be downloaded (~1.5 GB).");
+  const url = endpoint.endsWith("/prove")
+    ? endpoint
+    : `${endpoint.replace(/\/+$/, "")}/prove`;
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "cargo",
-      ["run", "-p", "agenc-zkvm-host", "--features", "production-prover", "--", "prove", "--stdin"],
-      {
-        cwd: hostBinaryDir,
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 1_800_000, // 30 minutes
-      },
-    );
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk: Buffer) => {
-      const line = chunk.toString();
-      stderr += line;
-      // Print progress to console
-      process.stderr.write(line);
-    });
-
-    child.on("error", (err: Error) => {
-      reject(new Error(`Failed to spawn host binary: ${err.message}`));
-    });
-
-    child.on("close", (code: number | null) => {
-      if (code !== 0) {
-        reject(new Error(`Host binary exited with code ${code}: ${stderr.trim()}`));
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(stdout);
-        resolve(parsed);
-      } catch (err) {
-        reject(new Error(`Failed to parse host output: ${(err as Error).message}\nstdout: ${stdout}`));
-      }
-    });
-
-    child.stdin.write(inputJson);
-    child.stdin.end();
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
   });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "(unreadable body)");
+    throw new Error(`Remote prover returned HTTP ${response.status}: ${body}`);
+  }
+  return (await response.json()) as {
+    seal_bytes: number[];
+    journal: number[];
+    image_id: number[];
+  };
 }
 
 async function main() {
@@ -229,7 +196,7 @@ async function main() {
   // 6. Generate proof
   console.log("\nGenerating Groth16 proof...");
   const startTime = Date.now();
-  const result = await callHostBinary(proverInput);
+  const result = await callRemoteProver(proverInput);
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\nProof generated in ${elapsed}s`);
 

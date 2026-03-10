@@ -7,8 +7,6 @@ import process from "node:process";
 const ROOT = process.cwd();
 const TARGET_DIRS = [
   "programs/agenc-coordination/src",
-  "zkvm/host/src",
-  "zkvm/methods",
 ];
 const EXCLUDED_FILES = new Set([
   "programs/agenc-coordination/src/utils/borsh.rs",

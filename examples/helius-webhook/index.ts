@@ -8,9 +8,8 @@
  *
  * Environment:
  *   HELIUS_API_KEY (required) - Helius API key
- *   HELIUS_WEBHOOK_SECRET (optional) - Webhook secret for signature verification
+ *   HELIUS_WEBHOOK_SECRET (required) - Webhook secret for signature verification
  *   PORT (optional) - Server port (default: 3000)
- *   NODE_ENV (optional) - Set to production to enforce stricter security checks
  */
 
 import express from 'express';
@@ -29,8 +28,8 @@ if (!HELIUS_API_KEY) {
 // Set this in your Helius webhook configuration
 const HELIUS_WEBHOOK_SECRET = process.env.HELIUS_WEBHOOK_SECRET;
 if (!HELIUS_WEBHOOK_SECRET) {
-  console.warn(chalk.yellow('Warning: HELIUS_WEBHOOK_SECRET not set. Webhook signature verification disabled.'));
-  console.warn(chalk.yellow('  This is a security risk in production. Set HELIUS_WEBHOOK_SECRET to enable verification.'));
+  console.error(chalk.red('Error: HELIUS_WEBHOOK_SECRET environment variable is required'));
+  process.exit(1);
 }
 const ROUTER_PROGRAM_ID = '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7';
 const VERIFIER_PROGRAM_ID = 'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge';
@@ -129,16 +128,6 @@ function checkRateLimit(ip: string): boolean {
  * @see https://docs.helius.xyz/webhooks/webhook-security
  */
 function verifyWebhookSignature(payload: string, signature: string | undefined): boolean {
-  if (!HELIUS_WEBHOOK_SECRET) {
-    // SECURITY: In production, signature verification MUST be enabled
-    if (process.env.NODE_ENV === 'production') {
-      console.error(chalk.red('FATAL: HELIUS_WEBHOOK_SECRET required in production'));
-      return false;
-    }
-    // Signature verification disabled - warn but allow in development
-    return true;
-  }
-
   if (!signature) {
     return false;
   }

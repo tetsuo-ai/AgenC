@@ -49,6 +49,7 @@
 - Voice observability must stay trace-compatible with webchat observability. If tool trace event names, payload fields, or sanitization rules change in the daemon traced-tool wrapper, update `runtime/src/gateway/voice-bridge.ts` in the same change or extract the wrapper into shared code, or the Logs pane will silently lose voice parity again.
 
 ## 2026-03-10
+- Security checks and validation examples must fail closed by default. Do not ship `--allow-fail`, `--no-audit`, unsigned webhook acceptance, or env-driven trusted-endpoint bypasses as the default path.
 - Soak report JSON is a summary, not proof. For local social runs, verify required behavior from per-agent daemon traces (`webchat.inbound`, `webchat.tool_routing`, `webchat.provider.request/response`, `webchat.executor.*`, `webchat.chat.response`) before calling a turn correct.
 - Explicit deterministic tool requirements must be derived from the union of the initial routed subset and the expanded routed subset. If cached routing drops a user-named tool like `social.getRecentMessages` from the initial allowlist, planner enforcement will validate the wrong contract unless the expanded subset is merged back in.
 - If a turn has an explicit deterministic tool contract, put that contract into the first planner prompt, not just the refinement prompt. Otherwise planner repair becomes the normal path and latency scales with model drift.
@@ -71,3 +72,11 @@
   - truncate the per-agent log before launching the foreground daemon
   - require both TCP port readiness and the fresh log readiness markers before starting soak traffic
 - Keep that readiness contract in one module, [agenc-social-readiness.mjs](/home/tetsuo/git/AgenC/scripts/agenc-social-readiness.mjs), so the launcher and soak runner cannot silently drift.
+
+## 2026-03-10 - Keep the repo prover surface remote-only
+
+- Do not reintroduce `agenc-zkvm-host`, `zkvm/methods`, vendored `ark-*` patches, or any `local-binary` prover backend into the repo workspace unless upstream RISC Zero/Boundless audit clean again.
+- The safe pattern is:
+  - keep `zkvm/` limited to shared schema types
+  - send proof generation through an authenticated remote prover endpoint
+  - treat local prove/build toolchains as external infrastructure, not repo dependencies

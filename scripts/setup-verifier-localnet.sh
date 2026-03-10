@@ -40,7 +40,7 @@ RISC0_SOLANA_DIR="${AGENC_RISC0_SOLANA_DIR:-/tmp/risc0-solana/solana-verifier}"
 AGENC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 AGENC_SO_ROOT="${AGENC_DIR}/target/deploy/agenc_coordination.so"
 AGENC_SO_PROGRAMS="${AGENC_DIR}/programs/agenc-coordination/target/deploy/agenc_coordination.so"
-MOCK_ROUTER_SO="${AGENC_DIR}/tests/fixtures/mock_verifier_router.so"
+MOCK_ROUTER_SO="${AGENC_DIR}/tests/mock-router/target/deploy/mock_router.so"
 MOCK_ACCOUNT_DIR="${AGENC_DIR}/target/verifier-bootstrap"
 VERIFIER_ANCHOR_VERSION="${VERIFIER_ANCHOR_VERSION:-}"
 
@@ -191,6 +191,10 @@ if [[ "${MODE}" = "real" ]]; then
   fi
 else
   echo "Using explicit mock verifier mode."
+  if [[ ! -f "${MOCK_ROUTER_SO}" ]]; then
+    echo "Building mock verifier router from source..."
+    "${AGENC_DIR}/scripts/build-mock-verifier-router.sh" >/dev/null
+  fi
   ROUTER_SO="${MOCK_ROUTER_SO}"
   VERIFIER_SO="${MOCK_ROUTER_SO}"
 fi

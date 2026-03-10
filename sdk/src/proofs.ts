@@ -2,7 +2,7 @@
  * RISC Zero private-proof payload helpers for AgenC SDK.
  *
  * Proof generation now emits the router payload shape:
- * - seal_bytes (260 bytes borsh envelope for trusted selector + RISC Zero Groth16 proof)
+ * - seal_bytes (260 bytes: trusted selector + RISC Zero Groth16 proof)
  * - journal (192 bytes fixed schema)
  * - image_id (32 bytes)
  * - binding_seed / nullifier_seed (32 bytes each)
@@ -333,7 +333,7 @@ export function buildJournalBytes(fields: {
  * comes from the prover's compiled guest ELF.
  *
  * @param params - Same proof generation parameters as `generateProof()`
- * @param proverConfig - Backend configuration (local-binary or remote)
+ * @param proverConfig - Remote prover backend configuration
  */
 export async function generateProof(
   params: ProofGenerationParams,

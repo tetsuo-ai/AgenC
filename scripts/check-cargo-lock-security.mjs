@@ -111,10 +111,6 @@ async function main() {
 
   for (const { lockPath, packages } of lockfiles) {
     const borshVersions = collectVersions(packages, "borsh");
-    if (borshVersions.length === 0) {
-      fail(`${path.relative(ROOT, lockPath)} does not contain borsh entries`);
-    }
-
     for (const version of borshVersions) {
       if (compareVersions(version, MIN_BORSH_VERSION) < 0) {
         fail(

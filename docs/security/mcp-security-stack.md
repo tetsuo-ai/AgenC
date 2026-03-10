@@ -39,12 +39,6 @@ Recommended environment variables:
 Use the bundled checker to validate server connectivity:
 
 ```bash
-node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose --allow-fail
-```
-
-Use strict mode (non-zero exit on any failure):
-
-```bash
 node scripts/check-security-mcp-stack.mjs --config mcp/security-stack.mcp.json --verbose
 ```
 
@@ -126,7 +120,6 @@ This check enforces:
 - no apt install reintroduction of `imagemagick`, `epiphany-browser`, or system `ffmpeg`
 - Playwright ffmpeg symlink wiring
 - manifest-based secure-path launcher exports instead of ad hoc `/usr/games` symlinks
-- no forced `risc0-zkvm` guest `std` feature in `zkvm/methods/guest/Cargo.toml`
 
 ## Optional Snyk MCP
 

@@ -51,9 +51,7 @@ The gate script is:
 
 ## Full-Repo Baseline (`.`)
 
-1. Includes all eight program-only entries above with repository-root paths, plus:
-- `zkvm/methods/guest/src/main.rs` (`guest_entry`)
-- Why false positive: this is a RISC Zero guest entrypoint that reads pre-committed guest inputs and commits a journal payload. It does not initialize or reinitialize Solana accounts.
+1. Includes all eight program-only entries above with repository-root paths.
 
 ## Policy
 

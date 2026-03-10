@@ -49,8 +49,8 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const pingTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const mountedRef = useRef(true);
   const intentionalCloseRef = useRef(false);
@@ -59,7 +59,7 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
   const stopPing = useCallback(() => {
     if (pingTimerRef.current) {
       clearInterval(pingTimerRef.current);
-      pingTimerRef.current = undefined;
+      pingTimerRef.current = null;
     }
   }, []);
 
@@ -75,7 +75,7 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
   const clearReconnect = useCallback(() => {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = undefined;
+      reconnectTimerRef.current = null;
     }
   }, []);
 

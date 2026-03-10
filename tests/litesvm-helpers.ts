@@ -21,6 +21,7 @@ import {
   SendTransactionError,
 } from "@solana/web3.js";
 import * as bs58Module from "bs58";
+import * as fs from "fs";
 import * as path from "path";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 
@@ -418,9 +419,17 @@ const VERIFIER_ENTRY_DISCRIMINATOR = Uint8Array.from([
 export function injectMockVerifierRouter(svm: LiteSVM): void {
   const mockSoPath = path.resolve(
     __dirname,
-    "fixtures",
-    "mock_verifier_router.so",
+    "mock-router",
+    "target",
+    "deploy",
+    "mock_router.so",
   );
+
+  if (!fs.existsSync(mockSoPath)) {
+    throw new Error(
+      `Missing mock verifier router artifact at ${mockSoPath}. Build it from source with scripts/build-mock-verifier-router.sh.`,
+    );
+  }
 
   // Load mock program at both trusted program IDs
   svm.addProgramFromFile(TRUSTED_RISC0_ROUTER_PROGRAM_ID, mockSoPath);

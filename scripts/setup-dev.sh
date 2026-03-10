@@ -31,10 +31,10 @@ echo "[1/7] Validating environment..."
 "${ROOT_DIR}/scripts/validate-env.sh"
 
 echo "[2/7] Installing dependencies..."
-npm install --no-audit --no-fund
-npm install --no-audit --no-fund --prefix sdk
-npm install --no-audit --no-fund --prefix runtime
-npm install --no-audit --no-fund --prefix mcp
+npm install --no-fund
+npm install --no-fund --prefix sdk
+npm install --no-fund --prefix runtime
+npm install --no-fund --prefix mcp
 
 echo "[3/7] Building Anchor program..."
 if command -v anchor >/dev/null 2>&1; then
@@ -76,4 +76,3 @@ echo "  npm run test:fast      # Run LiteSVM integration tests (~5s)"
 echo "  npm run test:fixtures  # Run replay fixture simulation"
 echo "  cd runtime && npm test # Run runtime tests (~1800+ tests)"
 echo "  anchor build           # Build Solana program"
-

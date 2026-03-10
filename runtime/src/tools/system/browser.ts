@@ -18,8 +18,8 @@ import {
   formatDomainBlockReason,
   createSafeFetchDispatcher,
   closeSafeFetchDispatcher,
+  type SafeFetchDispatcher,
 } from "./http.js";
-import type { Dispatcher } from "undici";
 import { ensureLazyModule } from "../../utils/lazy-import.js";
 import {
   closeBrowserSessions,
@@ -157,7 +157,7 @@ async function fetchHtml(
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   const requestHeaders: Record<string, string> = { "User-Agent": USER_AGENT };
-  let dispatcher: Dispatcher | undefined;
+  let dispatcher: SafeFetchDispatcher | undefined;
 
   try {
     dispatcher = await createSafeFetchDispatcher(url);

@@ -18,7 +18,7 @@ import {
   PROGRAM_ID,
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   TRUSTED_RISC0_IMAGE_ID,
   TRUSTED_RISC0_SELECTOR,
 } from "../constants";
@@ -88,7 +88,7 @@ function makeProof(
     overrides.nullifierFromJournal ?? Uint8Array.from(nullifierSeed);
 
   const sealSelector = overrides.sealSelector ?? TRUSTED_RISC0_SELECTOR;
-  const sealBytesLen = overrides.sealBytesLen ?? RISC0_SEAL_BORSH_LEN;
+  const sealBytesLen = overrides.sealBytesLen ?? RISC0_SEAL_BYTES_LEN;
   const sealBytes = makeBytes(sealBytesLen, 7);
   if (sealBytes.length >= TRUSTED_RISC0_SELECTOR.length) {
     sealBytes.set(sealSelector, 0);

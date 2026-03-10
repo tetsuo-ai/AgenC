@@ -1,9 +1,4 @@
 [workspace]
-members = ["guest", "host", "methods"]
-default-members = ["guest", "host"]
+members = ["guest"]
+default-members = ["guest"]
 resolver = "2"
-
-[patch.crates-io]
-# Backport CVE-2025-58160 remediation for ark-relations 0.5.1 by moving
-# tracing-subscriber dependency from 0.2.x to 0.3.x without changing ark APIs.
-ark-relations = { path = "patches/ark-relations" }

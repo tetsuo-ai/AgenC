@@ -15,29 +15,23 @@ function usage() {
   console.log(
     [
       "Usage:",
-      "  node scripts/check-security-mcp-stack.mjs [--config <path>] [--verbose] [--allow-fail]",
+      "  node scripts/check-security-mcp-stack.mjs [--config <path>] [--verbose]",
       "",
       "Options:",
       "  --config <path>   Path to MCP JSON config (default: mcp/security-stack.mcp.json)",
       "  --verbose         Print command output for each probe",
-      "  --allow-fail      Exit 0 even if one or more probes fail",
     ].join("\n"),
   );
 }
 
 function parseArgs(argv) {
   const args = {
-    allowFail: false,
     configPath: defaultConfigPath,
     verbose: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--allow-fail") {
-      args.allowFail = true;
-      continue;
-    }
     if (arg === "--verbose") {
       args.verbose = true;
       continue;
@@ -171,7 +165,7 @@ async function loadConfig(configPath) {
 }
 
 async function main() {
-  const { allowFail, configPath, verbose } = parseArgs(process.argv.slice(2));
+  const { configPath, verbose } = parseArgs(process.argv.slice(2));
   const config = await loadConfig(configPath);
   const servers = Object.entries(config.mcpServers);
 
@@ -220,12 +214,7 @@ async function main() {
   }
 
   if (failures > 0) {
-    const message = `${failures} security MCP probe(s) failed`;
-    if (allowFail) {
-      console.log(`${message} (ignored due to --allow-fail)`);
-      process.exit(0);
-    }
-    console.error(message);
+    console.error(`${failures} security MCP probe(s) failed`);
     process.exit(1);
   }
 

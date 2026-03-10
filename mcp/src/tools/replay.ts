@@ -512,7 +512,7 @@ function createToolOutput<T extends z.ZodTypeAny>(
       command,
       "schema-validation",
       "replay.output_validation_failed",
-      `${command}: ${parsed.error.errors.map((error) => error.message).join("; ")}`,
+      `${command}: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
       false,
     );
   }

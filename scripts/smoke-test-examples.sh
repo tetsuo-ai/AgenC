@@ -15,7 +15,7 @@ echo "=== Example Smoke Tests ==="
 
 if [ ! -d "node_modules" ]; then
   echo "Installing root dependencies..."
-  npm install --no-audit --no-fund
+  npm install --no-fund
 fi
 
 if [ ! -d "sdk/dist" ] || [ ! -d "runtime/dist" ]; then
@@ -34,7 +34,7 @@ for EXAMPLE_DIR in examples/*/; do
 
   if [ -f "${EXAMPLE_DIR}/package.json" ] && [ ! -d "${EXAMPLE_DIR}/node_modules" ]; then
     echo "Installing ${EXAMPLE_NAME} dependencies..."
-    npm install --no-audit --no-fund --no-package-lock --prefix "${EXAMPLE_DIR}"
+    npm install --no-fund --no-package-lock --prefix "${EXAMPLE_DIR}"
   fi
 
   if ENTRY="${ENTRY}" node -e "
@@ -78,7 +78,7 @@ echo "--- Demo App ---"
 if [ -f "demo-app/package.json" ]; then
   if [ ! -d "demo-app/node_modules" ]; then
     echo "Installing demo-app dependencies..."
-    (cd demo-app && npm install --no-audit --no-fund)
+    (cd demo-app && npm install --no-fund)
   fi
 
   if (cd demo-app && npm run build >/dev/null 2>&1); then
@@ -96,4 +96,3 @@ else
 fi
 
 exit "${EXIT_CODE}"
-

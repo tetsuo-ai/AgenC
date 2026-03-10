@@ -57,7 +57,7 @@ async function main() {
 
   console.log('Computing private payload hashes...');
   // Actual seal generation requires: generateProof(params, proverConfig)
-  // with a local-binary or remote prover backend.
+  // with a trusted remote prover backend.
   const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 
   const bindingSeed = bigintToBytes32(hashes.binding);

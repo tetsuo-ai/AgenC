@@ -4,7 +4,7 @@ import {
   HASH_SIZE,
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   RISC0_SELECTOR_LEN,
   TRUSTED_RISC0_IMAGE_ID,
   TRUSTED_RISC0_SELECTOR,
@@ -167,10 +167,10 @@ export async function runProofSubmissionPreflight(
   const bindingSeed = toBytes(params.proof.bindingSeed);
   const nullifierSeed = toBytes(params.proof.nullifierSeed);
 
-  if (sealBytes.length !== RISC0_SEAL_BORSH_LEN) {
+  if (sealBytes.length !== RISC0_SEAL_BYTES_LEN) {
     failures.push({
       check: "seal_length",
-      message: `sealBytes must be ${RISC0_SEAL_BORSH_LEN} bytes, got ${sealBytes.length}`,
+      message: `sealBytes must be ${RISC0_SEAL_BYTES_LEN} bytes, got ${sealBytes.length}`,
       retriable: false,
     });
   } else {

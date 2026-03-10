@@ -7,7 +7,6 @@ import { pathToFileURL } from "node:url";
 
 const ROOT = process.cwd();
 const DOCKERFILE_PATH = path.join(ROOT, "containers/desktop/Dockerfile");
-const GUEST_CARGO_TOML_PATH = path.join(ROOT, "zkvm/methods/guest/Cargo.toml");
 
 function fail(message) {
   console.error(`desktop hardening check failed: ${message}`);
@@ -57,10 +56,7 @@ function hasAdHocGamesSymlink(dockerfile) {
 }
 
 async function main() {
-  const [dockerfile, guestCargoToml] = await Promise.all([
-    fs.readFile(DOCKERFILE_PATH, "utf8"),
-    fs.readFile(GUEST_CARGO_TOML_PATH, "utf8"),
-  ]);
+  const dockerfile = await fs.readFile(DOCKERFILE_PATH, "utf8");
 
   if (!/^FROM ubuntu:24\.04$/m.test(dockerfile)) {
     fail('desktop image base must be "ubuntu:24.04"');
@@ -93,10 +89,6 @@ async function main() {
 
   if (hasAdHocGamesSymlink(dockerfile)) {
     fail("ad hoc /usr/games symlinks are forbidden; use the secure-path launcher manifest");
-  }
-
-  if (/risc0-zkvm\s*=\s*\{[^}]*features\s*=\s*\[\s*"std"\s*\][^}]*\}/.test(guestCargoToml)) {
-    fail('zkvm/methods/guest must not force `risc0-zkvm` "std" feature');
   }
 
   console.log("desktop hardening check passed.");

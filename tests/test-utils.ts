@@ -836,15 +836,15 @@ export const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey(
 );
 
 /**
- * Build a 260-byte Borsh-encoded Risc0Seal with the trusted selector
- * and non-zero proof body. Valid for on-chain decode_and_validate_seal().
+ * Build a 260-byte router seal payload with the trusted selector
+ * and non-zero proof body. Valid for on-chain fixed-width seal decoding.
  */
 export function buildTestSealBytes(): Buffer {
   const seal = Buffer.alloc(260);
   // Selector (4 bytes)
   ZK_TRUSTED_SELECTOR.copy(seal, 0);
   // Groth16 proof body (256 bytes): pi_a(64) + pi_b(128) + pi_c(64)
-  // Fill with non-zero bytes to pass Borsh deserialization
+  // Fill with non-zero bytes to avoid obviously fake zeroed proofs in tests.
   for (let i = 4; i < 260; i++) {
     seal[i] = ((i * 7 + 13) % 255) + 1; // non-zero pseudo-random fill
   }

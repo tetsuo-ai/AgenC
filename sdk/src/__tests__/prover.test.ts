@@ -1,27 +1,19 @@
 /**
- * Unit tests for the prover backends.
- *
- * Local binary tests mock child_process.spawn with EventEmitter-based stubs.
- * Remote tests mock globalThis.fetch.
+ * Unit tests for the remote prover backend.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   prove,
   ProverError,
   type ProverInput,
-  type LocalBinaryProverConfig,
   type RemoteProverConfig,
 } from "../prover";
 import {
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
 } from "../constants";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function validInput(): ProverInput {
   return {
@@ -37,7 +29,7 @@ function validInput(): ProverInput {
 function validOutputPayload() {
   return {
     seal_bytes: Array.from(
-      { length: RISC0_SEAL_BORSH_LEN },
+      { length: RISC0_SEAL_BYTES_LEN },
       (_, i) => i & 0xff,
     ),
     journal: Array.from(
@@ -50,14 +42,6 @@ function validOutputPayload() {
     ),
   };
 }
-
-function validOutputJson(): string {
-  return JSON.stringify(validOutputPayload());
-}
-
-// ---------------------------------------------------------------------------
-// Input validation (tested via remote backend to avoid child_process mocking)
-// ---------------------------------------------------------------------------
 
 describe("prove — input validation", () => {
   const remoteConfig: RemoteProverConfig = {
@@ -114,10 +98,6 @@ describe("prove — input validation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Remote backend (uses fetch mock — reliable and straightforward)
-// ---------------------------------------------------------------------------
-
 describe("prove — remote backend", () => {
   const originalFetch = globalThis.fetch;
 
@@ -131,13 +111,12 @@ describe("prove — remote backend", () => {
       json: () => Promise.resolve(validOutputPayload()),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
+    const result = await prove(validInput(), {
       kind: "remote",
       endpoint: "https://prover.example.com",
-    };
+    });
 
-    const result = await prove(validInput(), config);
-    expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
+    expect(result.sealBytes.length).toBe(RISC0_SEAL_BYTES_LEN);
     expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
     expect(result.imageId.length).toBe(RISC0_IMAGE_ID_LEN);
     expect(Buffer.isBuffer(result.sealBytes)).toBe(true);
@@ -155,12 +134,11 @@ describe("prove — remote backend", () => {
       json: () => Promise.resolve(validOutputPayload()),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
+    await prove(validInput(), {
       kind: "remote",
       endpoint: "https://prover.example.com/api",
-    };
+    });
 
-    await prove(validInput(), config);
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe("https://prover.example.com/api/prove");
   });
@@ -171,12 +149,11 @@ describe("prove — remote backend", () => {
       json: () => Promise.resolve(validOutputPayload()),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
+    await prove(validInput(), {
       kind: "remote",
       endpoint: "https://prover.example.com/prove",
-    };
+    });
 
-    await prove(validInput(), config);
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe("https://prover.example.com/prove");
   });
@@ -187,12 +164,11 @@ describe("prove — remote backend", () => {
       json: () => Promise.resolve(validOutputPayload()),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
+    await prove(validInput(), {
       kind: "remote",
       endpoint: "https://prover.example.com/api/",
-    };
+    });
 
-    await prove(validInput(), config);
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe("https://prover.example.com/api/prove");
   });
@@ -204,14 +180,18 @@ describe("prove — remote backend", () => {
       text: () => Promise.resolve("Internal Server Error"),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://prover.example.com",
-    };
+    await expect(
+      prove(validInput(), {
+        kind: "remote",
+        endpoint: "https://prover.example.com",
+      }),
+    ).rejects.toThrow(ProverError);
 
-    await expect(prove(validInput(), config)).rejects.toThrow(ProverError);
     try {
-      await prove(validInput(), config);
+      await prove(validInput(), {
+        kind: "remote",
+        endpoint: "https://prover.example.com",
+      });
     } catch (err) {
       expect(err).toBeInstanceOf(ProverError);
       expect((err as ProverError).backend).toBe("remote");
@@ -226,18 +206,12 @@ describe("prove — remote backend", () => {
         new TypeError("Failed to fetch"),
       ) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://prover.example.com",
-    };
-
-    await expect(prove(validInput(), config)).rejects.toThrow(ProverError);
-    try {
-      await prove(validInput(), config);
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProverError);
-      expect((err as ProverError).message).toContain("request failed");
-    }
+    await expect(
+      prove(validInput(), {
+        kind: "remote",
+        endpoint: "https://prover.example.com",
+      }),
+    ).rejects.toThrow(ProverError);
   });
 
   it("passes custom headers", async () => {
@@ -246,13 +220,12 @@ describe("prove — remote backend", () => {
       json: () => Promise.resolve(validOutputPayload()),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
+    await prove(validInput(), {
       kind: "remote",
       endpoint: "https://prover.example.com",
       headers: { Authorization: "Bearer token123" },
-    };
+    });
 
-    await prove(validInput(), config);
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][1].headers).toMatchObject({
       Authorization: "Bearer token123",
@@ -271,24 +244,20 @@ describe("prove — remote backend", () => {
 
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
     const body = JSON.parse(calls[0][1].body);
-    expect(body.task_pda).toHaveLength(32);
-    expect(body.agent_authority).toHaveLength(32);
-    expect(body.constraint_hash).toHaveLength(32);
-    expect(body.output_commitment).toHaveLength(32);
-    expect(body.binding).toHaveLength(32);
-    expect(body.nullifier).toHaveLength(32);
-    // Verify values match input
     expect(body.task_pda).toEqual(Array.from(input.taskPda));
+    expect(body.agent_authority).toEqual(Array.from(input.agentAuthority));
+    expect(body.constraint_hash).toEqual(Array.from(input.constraintHash));
+    expect(body.output_commitment).toEqual(
+      Array.from(input.outputCommitment),
+    );
+    expect(body.binding).toEqual(Array.from(input.binding));
     expect(body.nullifier).toEqual(Array.from(input.nullifier));
   });
 });
 
-// ---------------------------------------------------------------------------
-// Output validation (tested via remote backend)
-// ---------------------------------------------------------------------------
-
 describe("prove — output validation", () => {
   const originalFetch = globalThis.fetch;
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
@@ -304,13 +273,9 @@ describe("prove — output validation", () => {
         }),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://test.com",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      `seal_bytes must be ${RISC0_SEAL_BORSH_LEN} bytes`,
-    );
+    await expect(
+      prove(validInput(), { kind: "remote", endpoint: "https://test.com" }),
+    ).rejects.toThrow(`seal_bytes must be ${RISC0_SEAL_BYTES_LEN} bytes`);
   });
 
   it("rejects journal with wrong length", async () => {
@@ -318,19 +283,15 @@ describe("prove — output validation", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          seal_bytes: Array.from({ length: RISC0_SEAL_BORSH_LEN }, () => 0),
+          seal_bytes: Array.from({ length: RISC0_SEAL_BYTES_LEN }, () => 0),
           journal: [1, 2],
           image_id: Array.from({ length: RISC0_IMAGE_ID_LEN }, () => 0),
         }),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://test.com",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      `journal must be ${RISC0_JOURNAL_LEN} bytes`,
-    );
+    await expect(
+      prove(validInput(), { kind: "remote", endpoint: "https://test.com" }),
+    ).rejects.toThrow(`journal must be ${RISC0_JOURNAL_LEN} bytes`);
   });
 
   it("rejects image_id with wrong length", async () => {
@@ -338,19 +299,15 @@ describe("prove — output validation", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          seal_bytes: Array.from({ length: RISC0_SEAL_BORSH_LEN }, () => 0),
+          seal_bytes: Array.from({ length: RISC0_SEAL_BYTES_LEN }, () => 0),
           journal: Array.from({ length: RISC0_JOURNAL_LEN }, () => 0),
           image_id: [1],
         }),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://test.com",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      `image_id must be ${RISC0_IMAGE_ID_LEN} bytes`,
-    );
+    await expect(
+      prove(validInput(), { kind: "remote", endpoint: "https://test.com" }),
+    ).rejects.toThrow(`image_id must be ${RISC0_IMAGE_ID_LEN} bytes`);
   });
 
   it("rejects missing seal_bytes array", async () => {
@@ -363,13 +320,9 @@ describe("prove — output validation", () => {
         }),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://test.com",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      "prover output missing seal_bytes array",
-    );
+    await expect(
+      prove(validInput(), { kind: "remote", endpoint: "https://test.com" }),
+    ).rejects.toThrow("prover output missing seal_bytes array");
   });
 
   it("rejects missing journal array", async () => {
@@ -377,18 +330,14 @@ describe("prove — output validation", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          seal_bytes: Array.from({ length: RISC0_SEAL_BORSH_LEN }, () => 0),
+          seal_bytes: Array.from({ length: RISC0_SEAL_BYTES_LEN }, () => 0),
           image_id: Array.from({ length: RISC0_IMAGE_ID_LEN }, () => 0),
         }),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://test.com",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      "prover output missing journal array",
-    );
+    await expect(
+      prove(validInput(), { kind: "remote", endpoint: "https://test.com" }),
+    ).rejects.toThrow("prover output missing journal array");
   });
 
   it("rejects missing image_id array", async () => {
@@ -396,245 +345,25 @@ describe("prove — output validation", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          seal_bytes: Array.from({ length: RISC0_SEAL_BORSH_LEN }, () => 0),
+          seal_bytes: Array.from({ length: RISC0_SEAL_BYTES_LEN }, () => 0),
           journal: Array.from({ length: RISC0_JOURNAL_LEN }, () => 0),
         }),
     }) as unknown as typeof fetch;
 
-    const config: RemoteProverConfig = {
-      kind: "remote",
-      endpoint: "https://test.com",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      "prover output missing image_id array",
-    );
+    await expect(
+      prove(validInput(), { kind: "remote", endpoint: "https://test.com" }),
+    ).rejects.toThrow("prover output missing image_id array");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Local binary backend
-// ---------------------------------------------------------------------------
-
-describe("prove — local-binary backend", () => {
-  // We test local-binary by mocking child_process.spawn at the module level
-  let spawnMock: ReturnType<typeof vi.fn>;
-
-  function mockSpawnWith(stdout: string, stderr: string, exitCode: number) {
-    const { EventEmitter } = require("node:events");
-
-    const child = new EventEmitter();
-    const stdoutEmitter = new EventEmitter();
-    const stderrEmitter = new EventEmitter();
-    child.stdout = stdoutEmitter;
-    child.stderr = stderrEmitter;
-    child.stdin = {
-      write: vi.fn(),
-      end: vi.fn(),
-    };
-
-    // Schedule data + close events after listeners have been attached
-    setImmediate(() => {
-      if (stdout) stdoutEmitter.emit("data", Buffer.from(stdout));
-      if (stderr) stderrEmitter.emit("data", Buffer.from(stderr));
-      setImmediate(() => child.emit("close", exitCode));
-    });
-
-    spawnMock.mockReturnValue(child);
-    return child;
-  }
-
-  function mockSpawnError(errorMessage: string) {
-    const { EventEmitter } = require("node:events");
-
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stdin = {
-      write: vi.fn(),
-      end: vi.fn(),
-    };
-
-    setImmediate(() => {
-      const err = new Error(errorMessage) as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      child.emit("error", err);
-    });
-
-    spawnMock.mockReturnValue(child);
-    return child;
-  }
-
-  beforeEach(() => {
-    spawnMock = vi.fn();
-    vi.doMock("node:child_process", () => ({
-      spawn: spawnMock,
-    }));
-  });
-
-  afterEach(() => {
-    vi.doUnmock("node:child_process");
-    vi.restoreAllMocks();
-  });
-
-  it("returns valid buffers on successful spawn", async () => {
-    mockSpawnWith(validOutputJson(), "", 0);
-
-    const { prove: proveMocked } = await import("../prover");
-    const config: LocalBinaryProverConfig = {
-      kind: "local-binary",
-      binaryPath: "/test/agenc-zkvm-host",
-    };
-
-    const result = await proveMocked(validInput(), config);
-    expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
-    expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
-    expect(result.imageId.length).toBe(RISC0_IMAGE_ID_LEN);
-    expect(Buffer.isBuffer(result.sealBytes)).toBe(true);
-  });
-
-  it("passes correct args to spawn", async () => {
-    mockSpawnWith(validOutputJson(), "", 0);
-
-    const { prove: proveMocked } = await import("../prover");
-    await proveMocked(validInput(), {
-      kind: "local-binary",
-      binaryPath: "/usr/local/bin/agenc-zkvm-host",
-    });
-
-    expect(spawnMock).toHaveBeenCalledWith(
-      "/usr/local/bin/agenc-zkvm-host",
-      ["prove", "--stdin"],
-      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
-    );
-  });
-
-  it("writes JSON to stdin", async () => {
-    const child = mockSpawnWith(validOutputJson(), "", 0);
-
-    const { prove: proveMocked } = await import("../prover");
-    await proveMocked(validInput(), {
-      kind: "local-binary",
-      binaryPath: "/test/agenc-zkvm-host",
-    });
-
-    expect(child.stdin.write).toHaveBeenCalled();
-    const writtenJson = JSON.parse(child.stdin.write.mock.calls[0][0]);
-    expect(writtenJson.task_pda).toHaveLength(32);
-    expect(writtenJson.nullifier).toHaveLength(32);
-    expect(child.stdin.end).toHaveBeenCalled();
-  });
-
-  it("wraps non-zero exit code in ProverError", async () => {
-    mockSpawnWith("", "something went wrong", 1);
-
-    const { prove: proveMocked } = await import("../prover");
-    const config: LocalBinaryProverConfig = {
-      kind: "local-binary",
-      binaryPath: "/test/agenc-zkvm-host",
-    };
-
-    try {
-      await proveMocked(validInput(), config);
-      expect.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProverError);
-      expect((err as ProverError).backend).toBe("local-binary");
-      expect((err as ProverError).message).toContain("exited with code 1");
-      expect((err as ProverError).message).toContain("something went wrong");
-    }
-  });
-
-  it("wraps spawn ENOENT in ProverError", async () => {
-    mockSpawnError("spawn ENOENT");
-
-    const { prove: proveMocked } = await import("../prover");
-    const config: LocalBinaryProverConfig = {
-      kind: "local-binary",
-      binaryPath: "/nonexistent/agenc-zkvm-host",
-    };
-
-    try {
-      await proveMocked(validInput(), config);
-      expect.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProverError);
-      expect((err as ProverError).backend).toBe("local-binary");
-      expect((err as ProverError).message).toContain("failed to spawn");
-    }
-  });
-
-  it("wraps invalid JSON output in ProverError", async () => {
-    mockSpawnWith("not valid json!", "", 0);
-
-    const { prove: proveMocked } = await import("../prover");
-    const config: LocalBinaryProverConfig = {
-      kind: "local-binary",
-      binaryPath: "/test/agenc-zkvm-host",
-    };
-
-    try {
-      await proveMocked(validInput(), config);
-      expect.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProverError);
-      expect((err as ProverError).message).toContain(
-        "failed to parse prover output",
-      );
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Local binary path validation
-// ---------------------------------------------------------------------------
-
-describe("prove — local-binary path validation", () => {
-  it("rejects relative binary path", async () => {
-    const config: LocalBinaryProverConfig = {
-      kind: "local-binary",
-      binaryPath: "relative/agenc-zkvm-host",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      "binaryPath must be an absolute path",
-    );
-  });
-
-  it("rejects path with .. segments", async () => {
-    const config: LocalBinaryProverConfig = {
-      kind: "local-binary",
-      binaryPath: "/test/../etc/agenc-zkvm-host",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      "must not contain '..'",
-    );
-  });
-
-  it("rejects binary not named agenc-zkvm-host", async () => {
-    const config: LocalBinaryProverConfig = {
-      kind: "local-binary",
-      binaryPath: "/test/some-other-binary",
-    };
-    await expect(prove(validInput(), config)).rejects.toThrow(
-      "must point to an agenc-zkvm-host binary",
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ProverError
-// ---------------------------------------------------------------------------
 
 describe("ProverError", () => {
   it("has correct name property", () => {
-    const err = new ProverError("test", "local-binary");
+    const err = new ProverError("test", "remote");
     expect(err.name).toBe("ProverError");
     expect(err instanceof Error).toBe(true);
   });
 
   it("preserves backend type", () => {
-    const local = new ProverError("msg", "local-binary");
-    expect(local.backend).toBe("local-binary");
-
     const remote = new ProverError("msg", "remote");
     expect(remote.backend).toBe("remote");
   });
@@ -646,7 +375,7 @@ describe("ProverError", () => {
   });
 
   it("message is accessible", () => {
-    const err = new ProverError("test message", "local-binary");
+    const err = new ProverError("test message", "remote");
     expect(err.message).toBe("test message");
   });
 });

@@ -86,9 +86,9 @@ import type {
   ProofInputs,
 } from "./types.js";
 
-const DEFAULT_LOCAL_BINARY_BACKEND = {
-  kind: "local-binary" as const,
-  binaryPath: "/usr/bin/agenc-zkvm-host",
+const DEFAULT_REMOTE_BACKEND = {
+  kind: "remote" as const,
+  endpoint: "https://prover.example.com",
 };
 const MOCK_PINNED_METHOD_ID = new Uint8Array(32).fill(0xef);
 
@@ -117,7 +117,7 @@ function makePinnedProofConfig(
   return {
     methodId: new Uint8Array(MOCK_PINNED_METHOD_ID),
     routerConfig: makeRouterConfig(),
-    proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+    proverBackend: { ...DEFAULT_REMOTE_BACKEND },
     ...overrides,
   };
 }
@@ -140,7 +140,7 @@ describe("ProofEngine", () => {
     it("creates with custom config", () => {
       const engine = new ProofEngine({
         methodId: new Uint8Array(32),
-        proverBackend: { kind: "local-binary", binaryPath: "/test" },
+        proverBackend: { kind: "remote", endpoint: "https://prover.example.com" },
         cache: { ttlMs: 60_000, maxEntries: 50 },
       });
       expect(engine).toBeInstanceOf(ProofEngine);
@@ -209,7 +209,7 @@ describe("ProofEngine", () => {
 
     it("rejects private proving when methodId and routerConfig are not pinned", async () => {
       const engine = new ProofEngine({
-        proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+        proverBackend: { ...DEFAULT_REMOTE_BACKEND },
       });
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
@@ -228,7 +228,7 @@ describe("ProofEngine", () => {
           routerProgramId: Keypair.generate().publicKey,
           routerPda: Keypair.generate().publicKey,
         },
-        proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+        proverBackend: { ...DEFAULT_REMOTE_BACKEND },
       });
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
@@ -239,7 +239,7 @@ describe("ProofEngine", () => {
     it("allows unpinned private proving only with the explicit unsafe override", async () => {
       const warnFn = vi.fn();
       const engine = new ProofEngine({
-        proverBackend: { ...DEFAULT_LOCAL_BINARY_BACKEND },
+        proverBackend: { ...DEFAULT_REMOTE_BACKEND },
         unsafeAllowUnpinnedPrivateProofs: true,
         logger: {
           debug: vi.fn(),
@@ -430,7 +430,7 @@ describe("ProofEngine", () => {
       const engine = new ProofEngine();
       const status = engine.checkTools();
       expect(status.risc0).toBe(true);
-      expect(status.proverBackend).toBe("local-binary");
+      expect(status.proverBackend).toBe("remote");
       expect(status.methodIdPinned).toBe(false);
       expect(status.routerPinned).toBe(false);
     });
@@ -532,19 +532,6 @@ describe("ProofEngine", () => {
 // =============================================================================
 
 describe("buildSdkProverConfig", () => {
-  it("maps local-binary config correctly", () => {
-    const result = buildSdkProverConfig({
-      kind: "local-binary",
-      binaryPath: "/usr/bin/agenc-zkvm-host",
-      timeoutMs: 60_000,
-    });
-    expect(result).toEqual({
-      kind: "local-binary",
-      binaryPath: "/usr/bin/agenc-zkvm-host",
-      timeoutMs: 60_000,
-    });
-  });
-
   it("maps remote config correctly with headers", () => {
     const result = buildSdkProverConfig({
       kind: "remote",
@@ -558,15 +545,6 @@ describe("buildSdkProverConfig", () => {
       timeoutMs: 120_000,
       headers: { Authorization: "Bearer token123" },
     });
-  });
-
-  it("throws ProofGenerationError when binaryPath missing for local-binary", () => {
-    expect(() => buildSdkProverConfig({ kind: "local-binary" })).toThrow(
-      ProofGenerationError,
-    );
-    expect(() => buildSdkProverConfig({ kind: "local-binary" })).toThrow(
-      "binaryPath is required",
-    );
   });
 
   it("throws ProofGenerationError when endpoint missing for remote", () => {
@@ -595,7 +573,7 @@ describe("buildSdkProverConfig", () => {
 // ProofEngine with real prover backends
 // =============================================================================
 
-describe("ProofEngine with local-binary backend", () => {
+describe("ProofEngine with remote backend", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -608,47 +586,6 @@ describe("ProofEngine with local-binary backend", () => {
   });
 
   it("passes correct prover config to SDK", async () => {
-    const engine = new ProofEngine(
-      makePinnedProofConfig({
-        proverBackend: {
-          kind: "local-binary",
-          binaryPath: "/usr/bin/agenc-zkvm-host",
-          timeoutMs: 60_000,
-        },
-      }),
-    );
-    await engine.generate(makeInputs());
-
-    const args = vi.mocked(mockGenerateProof).mock.calls[0];
-    expect(args[1]).toEqual({
-      kind: "local-binary",
-      binaryPath: "/usr/bin/agenc-zkvm-host",
-      timeoutMs: 60_000,
-    });
-  });
-
-  it("throws ProofGenerationError when binaryPath is missing", async () => {
-    const engine = new ProofEngine(
-      makePinnedProofConfig({
-        proverBackend: { kind: "local-binary" },
-      }),
-    );
-
-    await expect(engine.generate(makeInputs())).rejects.toThrow(
-      ProofGenerationError,
-    );
-    await expect(engine.generate(makeInputs())).rejects.toThrow(
-      "binaryPath is required",
-    );
-  });
-});
-
-describe("ProofEngine with remote backend", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("calls SDK generateProof with remote config", async () => {
     const engine = new ProofEngine(
       makePinnedProofConfig({
         proverBackend: {
@@ -688,16 +625,6 @@ describe("ProofEngine with remote backend", () => {
 });
 
 describe("checkTools with new backend kinds", () => {
-  it("reports local-binary backend", () => {
-    const engine = new ProofEngine({
-      proverBackend: {
-        kind: "local-binary",
-        binaryPath: "/usr/bin/agenc-zkvm-host",
-      },
-    });
-    expect(engine.checkTools().proverBackend).toBe("local-binary");
-  });
-
   it("reports remote backend", () => {
     const engine = new ProofEngine({
       proverBackend: { kind: "remote", endpoint: "https://prover.example.com" },
