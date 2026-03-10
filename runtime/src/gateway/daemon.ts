@@ -133,9 +133,11 @@ import { createSqliteTools } from "../tools/system/sqlite.js";
 import { createSpreadsheetTools } from "../tools/system/spreadsheet.js";
 import { resolveBrowserToolMode } from "./browser-tool-mode.js";
 import { createExecuteWithAgentTool } from "./delegation-tool.js";
-import { SkillDiscovery } from "../skills/markdown/discovery.js";
-import type { DiscoveryPaths } from "../skills/markdown/discovery.js";
-import type { DiscoveredSkill } from "../skills/markdown/discovery.js";
+import {
+  SkillDiscovery,
+  type DiscoveryPaths,
+  type DiscoveredSkill,
+} from "../skills/markdown/discovery.js";
 import { VoiceBridge } from "./voice-bridge.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import type { DesktopBridgeEvent } from "../desktop/rest-bridge.js";

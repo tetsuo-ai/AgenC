@@ -1871,19 +1871,19 @@ describe("PID file operations", () => {
   });
 
   it("resolveRuntimeSkillDiscoveryPaths only includes ~/.agenc/skills when opt-in is enabled", () => {
-    const currentFilePath = "/tmp/agenc/runtime/dist/bin/daemon.js";
+    const currentFilePath = "/opt/agenc/runtime/dist/bin/daemon.js";
 
-    const disabled = resolveRuntimeSkillDiscoveryPaths({}, "/tmp/home-disabled", currentFilePath);
+    const disabled = resolveRuntimeSkillDiscoveryPaths({}, "/home/tester-disabled", currentFilePath);
     expect(disabled.userSkills).toBeUndefined();
-    expect(disabled.builtinSkills).toBe("/tmp/agenc/runtime/src/skills/bundled");
+    expect(disabled.builtinSkills).toBe("/opt/agenc/runtime/src/skills/bundled");
 
     const enabled = resolveRuntimeSkillDiscoveryPaths(
       { AGENC_ENABLE_USER_SKILLS: "true" },
-      "/tmp/home-enabled",
+      "/home/tester-enabled",
       currentFilePath,
     );
-    expect(enabled.userSkills).toBe("/tmp/home-enabled/.agenc/skills");
-    expect(enabled.builtinSkills).toBe("/tmp/agenc/runtime/src/skills/bundled");
+    expect(enabled.userSkills).toBe("/home/tester-enabled/.agenc/skills");
+    expect(enabled.builtinSkills).toBe("/opt/agenc/runtime/src/skills/bundled");
   });
 });
 
@@ -2630,7 +2630,7 @@ describe("DaemonManager", () => {
 
     const pidPath = join(tempDir, "subagent-diag.pid");
     const dm = new DaemonManager({
-      configPath: "/tmp/config.json",
+      configPath: "/workspace/config.json",
       pidPath,
       logger: logger as any,
     });
@@ -3374,7 +3374,7 @@ describe("DaemonManager", () => {
   });
 
   it("audits operator stop controls through the governance log", async () => {
-    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const dm = new DaemonManager({ configPath: "/workspace/config.json" });
     const applyOperatorControl = vi.fn().mockResolvedValue({
       runId: "run-session-owned",
       sessionId: "session-owned",
