@@ -138,6 +138,7 @@ import {
   type DiscoveryPaths,
   type DiscoveredSkill,
 } from "../skills/markdown/discovery.js";
+import { MarkdownSkillInjector } from "../skills/markdown/injector.js";
 import { VoiceBridge } from "./voice-bridge.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import type { DesktopBridgeEvent } from "../desktop/rest-bridge.js";
@@ -5473,28 +5474,12 @@ export class DaemonManager {
   }
 
   private createSkillInjector(skills: DiscoveredSkill[]): SkillInjector {
-    return {
-      async inject(
-        _message: string,
-        _sessionId: string,
-      ): Promise<string | undefined> {
-        if (skills.length === 0) {
-          return undefined;
-        }
-
-        const sections = skills.map(
-          (skill) =>
-            `## Skill: ${skill.skill.name}\n${skill.skill.description}\n\n${skill.skill.body}`,
-        );
-        return (
-          "# Available Skills\n\n" +
-          "You have the following skills available. Use the system.bash tool to execute commands. " +
-          "The system.bash tool takes a `command` (executable name) and `args` (array of argument strings). " +
-          "Do NOT use shell syntax — pass the executable and its arguments separately.\n\n" +
-          sections.join("\n\n---\n\n")
-        );
+    return new MarkdownSkillInjector({
+      discovery: {
+        getAvailable: async () => skills,
       },
-    };
+      logger: this.logger,
+    });
   }
 
   private handleIncomingSocialMessage(
@@ -8979,8 +8964,8 @@ export class DaemonManager {
 
   /**
    * Discover bundled skills and, when explicitly enabled, user-home skills.
-   * Returns full DiscoveredSkill objects so skill bodies can be injected into
-   * LLM context.
+   * Returns discovered skill metadata for downstream relevance-filtered prompt
+   * injection.
    */
   private async discoverSkills(): Promise<DiscoveredSkill[]> {
     try {
