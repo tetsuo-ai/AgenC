@@ -1534,6 +1534,126 @@ describe("ChatExecutor", () => {
       ]);
     });
 
+    it("requires an explore objective for generic Doom autoplay turns", async () => {
+      const toolHandler = vi.fn(async (name: string) => {
+        if (name === "mcp.doom.start_game") {
+          return safeJson({ status: "running", scenario: "basic" });
+        }
+        if (name === "mcp.doom.set_objective") {
+          return safeJson({
+            status: "objective_set",
+            objective: { type: "explore" },
+          });
+        }
+        if (name === "mcp.doom.get_situation_report") {
+          return safeJson({
+            executor_state: "exploring",
+            objectives: [{ type: "explore" }],
+          });
+        }
+        return safeJson({ status: "ok" });
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-start",
+                  name: "mcp.doom.start_game",
+                  arguments: safeJson({
+                    scenario: "basic",
+                    window_visible: true,
+                    render_hud: true,
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-objective",
+                  name: "mcp.doom.set_objective",
+                  arguments: safeJson({ objective_type: "explore" }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-report",
+                  name: "mcp.doom.get_situation_report",
+                  arguments: safeJson({}),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "Doom is running autonomously and will continue until stopped.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: [
+          "mcp.doom.start_game",
+          "mcp.doom.set_objective",
+          "mcp.doom.get_situation_report",
+        ],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage("Play Doom until I tell you to stop."),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        1,
+        "mcp.doom.start_game",
+        expect.objectContaining({
+          async_player: true,
+        }),
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        2,
+        "mcp.doom.set_objective",
+        { objective_type: "explore" },
+      );
+      expect(toolHandler).toHaveBeenNthCalledWith(
+        3,
+        "mcp.doom.get_situation_report",
+        {},
+      );
+
+      const secondOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[1]?.[1] as LLMChatOptions | undefined;
+      expect(secondOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.set_objective",
+      ]);
+
+      const thirdOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[2]?.[1] as LLMChatOptions | undefined;
+      expect(thirdOptions?.toolRouting?.allowedToolNames).toEqual([
+        "mcp.doom.get_situation_report",
+      ]);
+    });
+
     it("keeps Doom contract-required tools available even when the generic routed subset omits them", async () => {
       const toolHandler = vi.fn(async (name: string, args: Record<string, unknown>) => {
         if (name === "mcp.doom.start_game") {

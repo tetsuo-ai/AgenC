@@ -81,7 +81,7 @@ export interface ExecuteWebChatConversationTurnParams {
 
 export async function executeWebChatConversationTurn(
   params: ExecuteWebChatConversationTurnParams,
-): Promise<void> {
+): Promise<ChatExecutorResult | undefined> {
   const {
     logger,
     msg,
@@ -399,6 +399,7 @@ export async function executeWebChatConversationTurn(
         ...(failures.length > 0 ? { failureDetails: failures } : {}),
       });
     }
+    return result;
   } catch (error) {
     const failure = summarizeLLMFailureForSurface(error);
     webChat.clearAbortController(msg.sessionId);
@@ -431,5 +432,6 @@ export async function executeWebChatConversationTurn(
       sessionId: msg.sessionId,
       content: failure.userMessage,
     });
+    return undefined;
   }
 }

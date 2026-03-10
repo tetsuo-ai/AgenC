@@ -401,6 +401,11 @@ describe("background-run-supervisor", () => {
         "Monitor this in the background and keep me updated.",
       ),
     ).toBe(true);
+    expect(
+      inferBackgroundRunIntent(
+        "Play Doom defending the center, keep it smooth and aggressive, and provide periodic status updates.",
+      ),
+    ).toBe(true);
     expect(inferBackgroundRunIntent("What is 2+2?")).toBe(false);
     expect(isBackgroundRunStopRequest("stop")).toBe(true);
     expect(isBackgroundRunStopRequest("stop the server you just started")).toBe(

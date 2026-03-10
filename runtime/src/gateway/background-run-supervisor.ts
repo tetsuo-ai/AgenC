@@ -179,7 +179,7 @@ const MAX_BACKGROUND_RUN_ALERTS = 16;
 const UNTIL_STOP_RE =
   /\buntil\s+(?:i|you)\s+(?:say|tell)\s+(?:(?:me|you)\s+)?(?:to\s+)?stop\b/i;
 const KEEP_UPDATING_RE =
-  /\b(?:keep\s+me\s+updated|give\s+me\s+(?:regular|periodic)?\s*updates|report\s+back|send\s+updates)\b/i;
+  /\b(?:keep\s+me\s+updated|(?:give|provide|send)\s+(?:me\s+)?(?:regular|periodic)?\s*(?:status\s+)?updates|report\s+back)\b/i;
 const BACKGROUND_RE =
   /\b(?:in\s+the\s+background|background\s+(?:run|task|job|monitor|execution))\b/i;
 const CONTINUOUS_RE =

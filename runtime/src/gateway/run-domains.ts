@@ -123,6 +123,21 @@ const DESKTOP_GUI_RETRY_POLICY: RunDomainRetryPolicy = {
   heartbeatMinMs: 10_000,
   heartbeatMaxMs: 20_000,
 };
+const DOOM_SUPERVISION_OBJECTIVE_RE = /\b(?:doom|vizdoom)\b/i;
+const DOOM_RECOVERY_OBJECTIVE_LINE_RE =
+  /^Recovery objective JSON:\s*(\{.+\})$/m;
+const DOOM_MOVEMENT_CONSTRAINT_RE =
+  /\b(?:movement constraint|hold_position|hold(?:ing)?\s+position|stay(?:ing)?\s+put|stay(?:ing)?\s+centered|defend(?:ing)?(?:\s+|_)the(?:\s+|_)center|capture(?:\s+the)?\s+center)\b/i;
+
+interface DoomSituationState {
+  readonly episodeFinished: boolean;
+  readonly playerDead: boolean;
+  readonly levelCompleted: boolean;
+  readonly executorState?: string;
+  readonly totalReward?: number;
+  readonly killCount?: number;
+  readonly godModeEnabled?: boolean;
+}
 
 interface ParsedDomainSignal {
   readonly signal: BackgroundRunSignal;
@@ -162,6 +177,12 @@ function summarizeNativeToolCall(
 ): string {
   const result = truncate(toolCall.result, MAX_TOOL_RESULT_PREVIEW_CHARS);
   return `- ${toolCall.name} [${toolCall.isError ? "error" : "ok"}] ${result}`;
+}
+
+function summarizeNativeToolCalls(
+  toolCalls: readonly ChatExecutorResult["toolCalls"][number][],
+): string {
+  return toolCalls.map((toolCall) => summarizeNativeToolCall(toolCall)).join("\n");
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
@@ -239,6 +260,302 @@ function criteriaCorpus(run: RunDomainRun): string {
 
 function allowsDeterministicCompletion(run: RunDomainRun): boolean {
   return run.contract.kind !== "until_stopped" && !run.contract.requiresUserStop;
+}
+
+function parseDoomSituationState(result: string): DoomSituationState | undefined {
+  const tryExtract = (value: unknown): DoomSituationState | undefined => {
+    const object = Array.isArray(value)
+      ? asObject(value[0])
+      : asObject(value);
+    if (!object) {
+      return undefined;
+    }
+
+    const episodeFinished = object.episode_finished === true;
+    const playerDead = object.player_dead === true;
+    const levelCompleted = object.level_completed === true;
+    const executorState = asString(object.executor_state)?.toLowerCase();
+    const totalReward = asNumber(object.total_reward);
+    const godModeEnabled =
+      typeof object.god_mode_enabled === "boolean"
+        ? object.god_mode_enabled
+        : undefined;
+    const gameVariables = asObject(object.game_variables);
+    const killCount = asNumber(gameVariables?.KILLCOUNT);
+
+    if (
+      !episodeFinished &&
+      !playerDead &&
+      !levelCompleted &&
+      !executorState &&
+      totalReward === undefined &&
+      killCount === undefined &&
+      godModeEnabled === undefined
+    ) {
+      return undefined;
+    }
+
+    return {
+      episodeFinished,
+      playerDead,
+      levelCompleted,
+      executorState,
+      totalReward,
+      killCount,
+      godModeEnabled,
+    };
+  };
+
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    const extracted = tryExtract(parsed);
+    if (extracted) {
+      return extracted;
+    }
+  } catch {
+    // Fall through to newline-delimited parsing below.
+  }
+
+  for (const line of result.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      const extracted = tryExtract(parsed);
+      if (extracted) {
+        return extracted;
+      }
+    } catch {
+      // Ignore non-JSON lines.
+    }
+  }
+
+  return undefined;
+}
+
+function buildDoomRecoveryObjectiveArgs(
+  run: RunDomainRun,
+): Record<string, unknown> {
+  const encodedObjectiveMatch = run.objective.match(
+    DOOM_RECOVERY_OBJECTIVE_LINE_RE,
+  );
+  if (encodedObjectiveMatch) {
+    try {
+      const parsed = JSON.parse(encodedObjectiveMatch[1] ?? "") as unknown;
+      const parsedObject = asObject(parsed);
+      if (typeof parsedObject?.objective_type === "string") {
+        const recoveryObjective: Record<string, unknown> = {
+          objective_type: parsedObject.objective_type,
+        };
+        if (
+          parsedObject.params &&
+          typeof parsedObject.params === "object" &&
+          !Array.isArray(parsedObject.params)
+        ) {
+          recoveryObjective.params = parsedObject.params;
+        }
+        if (typeof parsedObject.priority === "number") {
+          recoveryObjective.priority = parsedObject.priority;
+        }
+        return recoveryObjective;
+      }
+    } catch {
+      // Fall through to heuristic recovery logic below.
+    }
+  }
+
+  if (DOOM_MOVEMENT_CONSTRAINT_RE.test(run.objective)) {
+    return {
+      objective_type: "hold_position",
+      params: {
+        smooth: true,
+        aggressive: true,
+      },
+      priority: 1,
+    };
+  }
+  return {
+    objective_type: "explore",
+    priority: 1,
+  };
+}
+
+async function executeDoomSupervisionNativeCycle(
+  run: RunDomainRun,
+  context: RunDomainExecutionContext,
+): Promise<RunDomainNativeCycleResult | undefined> {
+  if (!DOOM_SUPERVISION_OBJECTIVE_RE.test(run.objective)) {
+    return undefined;
+  }
+
+  const toolCalls: ChatExecutorResult["toolCalls"][number][] = [];
+  const appendEvidence = (): void => {
+    run.lastVerifiedAt = context.now;
+    run.lastToolEvidence = summarizeNativeToolCalls(toolCalls);
+  };
+
+  const situationCall = await executeNativeToolCall(
+    context.toolHandler,
+    "mcp.doom.get_situation_report",
+    {},
+  );
+  toolCalls.push(situationCall);
+  appendEvidence();
+
+  if (situationCall.isError) {
+    const actorResult = buildNativeActorResult(
+      toolCalls,
+      "Verified ViZDoom supervision state natively.",
+      "doom-supervisor",
+    );
+    return {
+      actorResult,
+      verification: blockedVerification(
+        `ViZDoom supervision could not verify the live session: ${extractToolFailureText(situationCall)}`,
+        "tool_failure",
+      ),
+    };
+  }
+
+  const situation = parseDoomSituationState(situationCall.result);
+  if (!situation) {
+    const actorResult = buildNativeActorResult(
+      toolCalls,
+      "Verified ViZDoom supervision state natively.",
+      "doom-supervisor",
+    );
+    return {
+      actorResult,
+      verification: blockedVerification(
+        "ViZDoom supervision could not interpret the situation report from Doom MCP tools.",
+        "tool_failure",
+      ),
+    };
+  }
+
+  const recoveryObjectiveArgs = buildDoomRecoveryObjectiveArgs(run);
+  const rewardText =
+    typeof situation.totalReward === "number"
+      ? ` (reward ${situation.totalReward})`
+      : "";
+
+  if (situation.episodeFinished || situation.playerDead || situation.levelCompleted) {
+    const newEpisodeCall = await executeNativeToolCall(
+      context.toolHandler,
+      "mcp.doom.new_episode",
+      {},
+    );
+    toolCalls.push(newEpisodeCall);
+    appendEvidence();
+
+    if (newEpisodeCall.isError) {
+      const actorResult = buildNativeActorResult(
+        toolCalls,
+        "Attempted ViZDoom recovery natively.",
+        "doom-supervisor",
+      );
+      return {
+        actorResult,
+        verification: blockedVerification(
+          `ViZDoom episode ended${rewardText}, but starting a new episode failed: ${extractToolFailureText(newEpisodeCall)}`,
+          "tool_failure",
+        ),
+      };
+    }
+
+    const objectiveCall = await executeNativeToolCall(
+      context.toolHandler,
+      "mcp.doom.set_objective",
+      recoveryObjectiveArgs,
+    );
+    toolCalls.push(objectiveCall);
+    appendEvidence();
+
+    const actorResult = buildNativeActorResult(
+      toolCalls,
+      "Recovered ViZDoom supervision state natively.",
+      "doom-supervisor",
+    );
+    if (objectiveCall.isError) {
+      return {
+        actorResult,
+        verification: blockedVerification(
+          `ViZDoom started a new episode, but restoring gameplay failed: ${extractToolFailureText(objectiveCall)}`,
+          "tool_failure",
+        ),
+      };
+    }
+
+    const objectiveType =
+      typeof recoveryObjectiveArgs.objective_type === "string"
+        ? recoveryObjectiveArgs.objective_type
+        : "explore";
+    return {
+      actorResult,
+      verification: safeToContinueVerification(
+        `ViZDoom episode restarted${rewardText} and ${objectiveType} was restored.`,
+        `ViZDoom episode restarted${rewardText}. Restored \`${objectiveType}\` to keep gameplay active.`,
+        4_000,
+      ),
+    };
+  }
+
+  if (situation.executorState === "idle") {
+    const objectiveCall = await executeNativeToolCall(
+      context.toolHandler,
+      "mcp.doom.set_objective",
+      recoveryObjectiveArgs,
+    );
+    toolCalls.push(objectiveCall);
+    appendEvidence();
+
+    const actorResult = buildNativeActorResult(
+      toolCalls,
+      "Restored ViZDoom forward progress natively.",
+      "doom-supervisor",
+    );
+    if (objectiveCall.isError) {
+      return {
+        actorResult,
+        verification: blockedVerification(
+          `ViZDoom executor went idle and restoring progress failed: ${extractToolFailureText(objectiveCall)}`,
+          "tool_failure",
+        ),
+      };
+    }
+
+    const objectiveType =
+      typeof recoveryObjectiveArgs.objective_type === "string"
+        ? recoveryObjectiveArgs.objective_type
+        : "explore";
+    return {
+      actorResult,
+      verification: safeToContinueVerification(
+        `ViZDoom executor was idle; restored ${objectiveType} objective.`,
+        `ViZDoom executor went idle. Restored \`${objectiveType}\` to keep gameplay moving.`,
+        4_000,
+      ),
+    };
+  }
+
+  const actorResult = buildNativeActorResult(
+    toolCalls,
+    "Verified ViZDoom session natively.",
+    "doom-supervisor",
+  );
+  const stateSummary = situation.executorState ?? "active";
+  const progressParts: string[] = [`ViZDoom session active; executor ${stateSummary}.`];
+  if (typeof situation.killCount === "number") {
+    progressParts.push(`Kills ${situation.killCount}.`);
+  }
+  return {
+    actorResult,
+    verification: safeToContinueVerification(
+      progressParts.join(" "),
+      progressParts.join(" "),
+      8_000,
+    ),
+  };
 }
 
 function latestSignal(
@@ -685,6 +1002,8 @@ export function createGenericRunDomain(): RunDomain {
       run.blocker ? verificationFromBlocker(run.blocker) : undefined,
     detectDeterministicVerification: (run) =>
       run.blocker ? verificationFromBlocker(run.blocker) : undefined,
+    executeNativeCycle: async (run, context) =>
+      executeDoomSupervisionNativeCycle(run, context),
   };
 }
 

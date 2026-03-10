@@ -23,6 +23,67 @@ describe("createVoiceDelegationTool", () => {
 });
 
 describe("VoiceBridge delegation", () => {
+  it("logs direct voice turns under a single trace when trace logging is enabled", () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const send = vi.fn();
+    const bridge = new VoiceBridge({
+      apiKey: "voice-key",
+      toolHandler: vi.fn(async () => ""),
+      systemPrompt: "You are a helpful assistant.",
+      getChatExecutor: () => null,
+      logger: logger as any,
+      traceConfig: {
+        enabled: true,
+        includeHistory: true,
+        includeSystemPrompt: true,
+        includeToolArgs: true,
+        includeToolResults: true,
+        includeProviderPayloads: false,
+        maxChars: 8_000,
+      },
+    });
+
+    (bridge as any).sessions.set("client-1", {
+      client: {} as any,
+      send,
+      toolHandler: vi.fn(async () => ""),
+      sessionId: "session-1",
+      managedSessionId: "session-1",
+      delegationAbort: null,
+      currentTraceId: null,
+      currentTurnDelegated: false,
+    });
+
+    const callbacks = (bridge as any).buildClientCallbacks(
+      "client-1",
+      "session-1",
+      send,
+    );
+
+    callbacks.onSpeechStarted();
+    callbacks.onInputTranscriptDone("Inspect the logs");
+    callbacks.onTranscriptDone("I found the issue.");
+    callbacks.onResponseDone();
+
+    const lines = logger.info.mock.calls.map(([line]) => line as string);
+    const inbound = lines.find((line) => line.includes("[trace] voice.inbound "));
+    const response = lines.find((line) =>
+      line.includes("[trace] voice.chat.response "),
+    );
+
+    expect(inbound).toBeTruthy();
+    expect(response).toBeTruthy();
+    const inboundTrace = inbound?.match(/"traceId":"([^"]+)"/)?.[1];
+    const responseTrace = response?.match(/"traceId":"([^"]+)"/)?.[1];
+    expect(inboundTrace).toBeTruthy();
+    expect(responseTrace).toBe(inboundTrace);
+  });
+
   it("resolves the current chat executor at delegation time", async () => {
     const staleExecute = vi.fn();
     const freshExecute = vi.fn(async () => ({
@@ -57,6 +118,8 @@ describe("VoiceBridge delegation", () => {
       sessionId: "session-1",
       managedSessionId: "session-1",
       delegationAbort: null,
+      currentTraceId: null,
+      currentTurnDelegated: false,
     });
 
     currentExecutor = {
@@ -157,6 +220,8 @@ describe("VoiceBridge delegation", () => {
       sessionId: "session-1",
       managedSessionId: "session-1",
       delegationAbort: null,
+      currentTraceId: null,
+      currentTurnDelegated: false,
     });
 
     await (bridge as any).handleDelegation(
@@ -175,5 +240,103 @@ describe("VoiceBridge delegation", () => {
         }),
       }),
     );
+  });
+
+  it("uses one trace for voice inbound, delegated tool calls, and the final response", async () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const baseToolHandler = vi.fn(async () => '{"cwd":"/tmp"}');
+    const execute = vi.fn(async ({ toolHandler }: { toolHandler: (name: string, args: Record<string, unknown>) => Promise<string> }) => {
+      const result = await toolHandler("system.bash", { command: "pwd" });
+      return {
+        content: "Opened the browser",
+        provider: "fresh-grok",
+        toolCalls: [
+          {
+            name: "system.bash",
+            args: { command: "pwd" },
+            result,
+            durationMs: 7,
+            isError: false,
+          },
+        ],
+        durationMs: 12,
+        compacted: false,
+        callUsage: [],
+      };
+    });
+
+    const send = vi.fn();
+    const bridge = new VoiceBridge({
+      apiKey: "voice-key",
+      toolHandler: baseToolHandler,
+      systemPrompt: "You are a helpful assistant.",
+      getChatExecutor: () => ({
+        execute,
+        getSessionTokenUsage: () => 0,
+      } as any),
+      logger: logger as any,
+      traceConfig: {
+        enabled: true,
+        includeHistory: true,
+        includeSystemPrompt: true,
+        includeToolArgs: true,
+        includeToolResults: true,
+        includeProviderPayloads: false,
+        maxChars: 8_000,
+      },
+    });
+
+    (bridge as any).sessions.set("client-1", {
+      client: {} as any,
+      send,
+      toolHandler: vi.fn(async () => ""),
+      sessionId: "session-1",
+      managedSessionId: "session-1",
+      delegationAbort: null,
+      currentTraceId: null,
+      currentTurnDelegated: false,
+    });
+
+    const callbacks = (bridge as any).buildClientCallbacks(
+      "client-1",
+      "session-1",
+      send,
+    );
+    callbacks.onSpeechStarted();
+    callbacks.onInputTranscriptDone("Open a browser");
+
+    await (bridge as any).handleDelegation(
+      "client-1",
+      "session-1",
+      JSON.stringify({ task: "Open a browser" }),
+      send,
+    );
+
+    const lines = logger.info.mock.calls.map(([line]) => line as string);
+    const expectedEvents = [
+      "[trace] voice.inbound ",
+      "[trace] voice.delegation.started ",
+      "[trace] voice.tool.call ",
+      "[trace] voice.tool.result ",
+      "[trace] voice.chat.response ",
+    ];
+    for (const marker of expectedEvents) {
+      expect(lines.some((line) => line.includes(marker))).toBe(true);
+    }
+
+    const traceIds = lines
+      .filter((line) => line.includes("[trace] voice."))
+      .map((line) => line.match(/"traceId":"([^"]+)"/)?.[1])
+      .filter((value): value is string => typeof value === "string");
+
+    expect(new Set(traceIds).size).toBe(1);
+    expect(baseToolHandler).toHaveBeenCalledWith("system.bash", {
+      command: "pwd",
+    });
   });
 });

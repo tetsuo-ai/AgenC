@@ -53,6 +53,117 @@ describe("run-domains", () => {
     expect(domain.eventSubscriptions(run)).toContain("tool_result");
   });
 
+  it("generic domain restarts completed Doom autoplay sessions natively", async () => {
+    const domain = createGenericRunDomain();
+    const run = makeRun({
+      objective:
+        "Supervise the existing ViZDoom session for this user.\n" +
+        "A scenario-based session is already configured.\n" +
+        'Recovery objective JSON: {"objective_type":"explore","priority":1}\n' +
+        "A non-idle gameplay objective is already configured; keep it unless verification shows it is no longer progressing.\n" +
+        "If the episode ends or the player dies, use `mcp.doom.new_episode` and continue supervision.\n" +
+        "Keep the session visibly active until the user explicitly stops it.",
+      contract: {
+        ...makeRun().contract,
+        kind: "until_stopped",
+        requiresUserStop: true,
+      },
+    });
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const toolHandler = async (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      if (name === "mcp.doom.get_situation_report") {
+        return '[{"episode_finished":true,"player_dead":false,"level_completed":true,"total_reward":93,"executor_state":"idle"}]';
+      }
+      if (name === "mcp.doom.new_episode") {
+        return '{"status":"episode_started"}';
+      }
+      if (name === "mcp.doom.set_objective") {
+        expect(args).toEqual({
+          objective_type: "explore",
+          priority: 1,
+        });
+        return '{"status":"objective_set"}';
+      }
+      throw new Error(`Unexpected tool: ${name}`);
+    };
+
+    const result = await domain.executeNativeCycle?.(run, {
+      now: 50,
+      toolHandler,
+    });
+
+    expect(result?.verification).toMatchObject({
+      state: "safe_to_continue",
+      userUpdate: "ViZDoom episode restarted (reward 93). Restored `explore` to keep gameplay active.",
+      nextCheckMs: 4_000,
+    });
+    expect(result?.actorResult.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "mcp.doom.get_situation_report",
+      "mcp.doom.new_episode",
+      "mcp.doom.set_objective",
+    ]);
+    expect(run.lastVerifiedAt).toBe(50);
+    expect(run.lastToolEvidence).toContain("mcp.doom.new_episode");
+    expect(calls.map((call) => call.name)).toEqual([
+      "mcp.doom.get_situation_report",
+      "mcp.doom.new_episode",
+      "mcp.doom.set_objective",
+    ]);
+  });
+
+  it("generic domain preserves Doom movement constraints when recovering idle sessions", async () => {
+    const domain = createGenericRunDomain();
+    const run = makeRun({
+      objective:
+        "Supervise the existing ViZDoom session for this user.\n" +
+        "The current session already has a user-requested movement constraint; preserve it unless the user changes the task.\n" +
+        'Recovery objective JSON: {"objective_type":"hold_position","params":{"no_strafe":true,"smooth_movement":true,"aggressive":true},"priority":1}\n' +
+        "If the executor becomes idle or stalls, restore forward progress with an active objective such as `explore`, or use tactical Doom tools directly.",
+      contract: {
+        ...makeRun().contract,
+        kind: "until_stopped",
+        requiresUserStop: true,
+      },
+    });
+    const toolHandler = async (name: string, args: Record<string, unknown>) => {
+      if (name === "mcp.doom.get_situation_report") {
+        return '{"episode_finished":false,"player_dead":false,"level_completed":false,"executor_state":"idle","game_variables":{"KILLCOUNT":2}}';
+      }
+      if (name === "mcp.doom.set_objective") {
+        expect(args).toEqual({
+          objective_type: "hold_position",
+          params: {
+            no_strafe: true,
+            smooth_movement: true,
+            aggressive: true,
+          },
+          priority: 1,
+        });
+        return '{"status":"objective_set"}';
+      }
+      throw new Error(`Unexpected tool: ${name}`);
+    };
+
+    const result = await domain.executeNativeCycle?.(run, {
+      now: 75,
+      toolHandler,
+    });
+
+    expect(result?.verification).toMatchObject({
+      state: "safe_to_continue",
+      userUpdate:
+        "ViZDoom executor went idle. Restored `hold_position` to keep gameplay moving.",
+      nextCheckMs: 4_000,
+    });
+    expect(result?.actorResult.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "mcp.doom.get_situation_report",
+      "mcp.doom.set_objective",
+    ]);
+    expect(run.lastVerifiedAt).toBe(75);
+    expect(run.lastToolEvidence).toContain("mcp.doom.set_objective");
+  });
+
   it("approval domain blocks deterministically while approval is pending", () => {
     const domain = createApprovalRunDomain();
     const run = makeRun({
