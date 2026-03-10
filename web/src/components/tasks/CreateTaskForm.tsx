@@ -10,8 +10,8 @@ export function CreateTaskForm({ onCreate }: CreateTaskFormProps) {
   const [expanded, setExpanded] = useState(false);
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
+    (event: React.FormEvent) => {
+      event.preventDefault();
       if (!description.trim()) return;
       onCreate({
         description: description.trim(),
@@ -27,51 +27,61 @@ export function CreateTaskForm({ onCreate }: CreateTaskFormProps) {
   if (!expanded) {
     return (
       <button
+        type="button"
         onClick={() => setExpanded(true)}
-        className="w-full flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-tetsuo-200 rounded-xl text-sm text-tetsuo-400 hover:border-accent hover:text-accent hover:bg-accent-bg/30 transition-all duration-200"
+        className="w-full border border-dashed border-bbs-border bg-bbs-dark px-4 py-4 text-xs uppercase tracking-[0.16em] text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-        Create Task
+        [new task]
       </button>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-4 rounded-xl border border-accent/20 bg-accent-bg/30 animate-panel-enter">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-4 border border-bbs-purple-dim bg-bbs-surface px-4 py-4 animate-panel-enter"
+    >
+      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-bbs-gray">
+        <span className="text-bbs-purple">TASK&gt;</span>
+        <span>compose settlement request</span>
+      </div>
+
       <div>
-        <label className="text-[10px] text-tetsuo-400 uppercase tracking-[0.15em] font-medium block mb-1.5">Description</label>
+        <label className="mb-2 block text-[10px] uppercase tracking-[0.16em] text-bbs-gray">Description</label>
         <textarea
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="w-full bg-surface border border-tetsuo-200 rounded-lg px-3 py-2.5 text-sm text-tetsuo-700 resize-none focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200 placeholder:text-tetsuo-400"
-          rows={3}
-          placeholder="Task description..."
+          onChange={(event) => setDescription(event.target.value)}
+          rows={4}
           autoFocus
+          placeholder="describe the task expected from the agent"
+          className="w-full resize-none border border-bbs-border bg-bbs-dark px-3 py-3 text-sm text-bbs-white outline-none transition-colors placeholder:text-bbs-gray focus:border-bbs-purple-dim"
         />
       </div>
+
       <div>
-        <label className="text-[10px] text-tetsuo-400 uppercase tracking-[0.15em] font-medium block mb-1.5">Reward (SOL)</label>
+        <label className="mb-2 block text-[10px] uppercase tracking-[0.16em] text-bbs-gray">Reward (SOL)</label>
         <input
           type="number"
           value={reward}
-          onChange={(e) => setReward(e.target.value)}
-          className="w-full bg-surface border border-tetsuo-200 rounded-lg px-3 py-2.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200 placeholder:text-tetsuo-400"
+          onChange={(event) => setReward(event.target.value)}
           placeholder="0"
+          className="w-full border border-bbs-border bg-bbs-dark px-3 py-3 text-sm text-bbs-white outline-none transition-colors placeholder:text-bbs-gray focus:border-bbs-purple-dim"
         />
       </div>
-      <div className="flex gap-2 pt-1">
+
+      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs uppercase tracking-[0.14em]">
         <button
           type="submit"
-          className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:opacity-90 hover:shadow-lg hover:shadow-accent/20 active:scale-[0.98] transition-all duration-200"
+          className="border border-bbs-green/40 bg-bbs-dark px-4 py-2 text-bbs-green transition-colors hover:text-bbs-white"
         >
-          Create
+          [create]
         </button>
         <button
           type="button"
           onClick={() => setExpanded(false)}
-          className="px-4 py-2 text-tetsuo-500 text-sm hover:text-tetsuo-700 transition-colors"
+          className="border border-bbs-border bg-bbs-dark px-4 py-2 text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
         >
-          Cancel
+          [cancel]
         </button>
       </div>
     </form>

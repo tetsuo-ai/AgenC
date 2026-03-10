@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   TraceArtifact,
   TraceDetail,
@@ -29,6 +29,17 @@ interface ObservabilityViewProps {
   onRefresh: () => void;
 }
 
+const INPUT_CLASS =
+  'min-w-0 w-full border border-bbs-border bg-bbs-surface px-3 py-2 text-xs text-bbs-lightgray outline-none placeholder:text-bbs-gray focus:border-bbs-purple-dim';
+const CODE_BLOCK_CLASS =
+  'overflow-auto border border-bbs-border bg-bbs-surface p-3 text-[11px] leading-5 text-bbs-lightgray whitespace-pre-wrap break-words';
+const STATUS_OPTIONS: ReadonlyArray<{ value: TraceStatus; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'open', label: 'Open' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'error', label: 'Error' },
+];
+
 function formatTimestamp(timestampMs?: number): string {
   if (!timestampMs) return 'n/a';
   return new Date(timestampMs).toLocaleString();
@@ -53,16 +64,20 @@ function formatJson(value: unknown): string {
   }
 }
 
-function statusClass(status: string): string {
-  if (status === 'error') return 'text-red-300 bg-red-500/10 border-red-500/30';
-  if (status === 'completed') return 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30';
-  return 'text-amber-300 bg-amber-500/10 border-amber-500/30';
+function formatStatusTag(status: string): string {
+  return `[${status.toUpperCase()}]`;
 }
 
-function eventLevelClass(level: 'info' | 'error'): string {
+function statusTextClass(status: string): string {
+  if (status === 'error') return 'text-bbs-red';
+  if (status === 'completed') return 'text-bbs-green';
+  return 'text-bbs-yellow';
+}
+
+function eventToneClass(level: 'info' | 'error'): string {
   return level === 'error'
-    ? 'border-red-500/40 bg-red-500/10 text-red-100'
-    : 'border-tetsuo-200 bg-tetsuo-50 text-tetsuo-900';
+    ? 'border-bbs-red/40 bg-bbs-dark text-bbs-lightgray'
+    : 'border-bbs-border bg-bbs-dark text-bbs-lightgray';
 }
 
 export function ObservabilityView(props: ObservabilityViewProps) {
@@ -87,121 +102,113 @@ export function ObservabilityView(props: ObservabilityViewProps) {
   } = props;
 
   return (
-    <div className="flex flex-col h-full bg-bbs-black text-tetsuo-50">
-      <header className="shrink-0 border-b border-bbs-purple-dim bg-bbs-surface/80 px-5 py-4">
+    <div className="flex h-full flex-col bg-bbs-black text-bbs-lightgray font-mono animate-chat-enter">
+      <header className="shrink-0 border-b border-bbs-border bg-bbs-surface px-4 py-3 md:px-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-bbs-purple">
-              Observability
-            </p>
-            <h1 className="text-xl font-semibold text-bbs-white">
-              Trace Explorer
-            </h1>
-            <p className="text-sm text-bbs-gray max-w-3xl">
-              Complete runtime traces, exact payload artifacts, and raw daemon log slices
-              correlated by trace ID.
-            </p>
+          <div className="min-w-0 space-y-1">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="shrink-0 text-xs text-bbs-purple">TRACE&gt;</span>
+              <div className="min-w-0">
+                <h1 className="text-xs font-bold uppercase tracking-[0.18em] text-bbs-white">
+                  Trace Explorer
+                </h1>
+                <p className="mt-1 max-w-3xl text-xs text-bbs-gray">
+                  complete runtime traces, exact payload artifacts, and daemon log slices
+                  correlated by trace id
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 rounded-md border border-bbs-purple-dim bg-bbs-black px-3 py-2 text-sm">
-              <span className="text-bbs-gray">Search</span>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <label className="flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">
+              <span className="shrink-0">Search</span>
               <input
                 value={search}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder="trace, session, tool, stop reason"
-                className="min-w-[18rem] bg-transparent text-bbs-white outline-none placeholder:text-bbs-gray"
+                className={`${INPUT_CLASS} min-w-[16rem] md:min-w-[20rem]`}
               />
             </label>
 
-            <label className="flex items-center gap-2 rounded-md border border-bbs-purple-dim bg-bbs-black px-3 py-2 text-sm">
-              <span className="text-bbs-gray">Status</span>
-              <select
-                value={status}
-                onChange={(event) => onStatusChange(event.target.value as TraceStatus)}
-                className="bg-transparent text-bbs-white outline-none"
-              >
-                <option value="all">All</option>
-                <option value="open">Open</option>
-                <option value="completed">Completed</option>
-                <option value="error">Error</option>
-              </select>
-            </label>
+            <StatusFilter value={status} onChange={onStatusChange} />
 
             <button
               onClick={onRefresh}
-              className="rounded-md border border-bbs-purple bg-bbs-purple/10 px-4 py-2 text-sm text-bbs-white transition hover:bg-bbs-purple/20"
+              className="border border-bbs-border bg-bbs-dark px-3 py-2 text-xs text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
             >
-              Refresh
+              [REFRESH]
             </button>
           </div>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <MetricCard label="Traces" value={summary?.traces.total ?? 0} />
-          <MetricCard label="Errors" value={summary?.traces.errors ?? 0} />
+          <MetricCard label="Errors" value={summary?.traces.errors ?? 0} tone="error" />
           <MetricCard
             label="Completeness"
             value={summary ? formatPercent(summary.traces.completenessRate) : 'n/a'}
+            tone="accent"
           />
-          <MetricCard label="Provider Errors" value={summary?.events.providerErrors ?? 0} />
-          <MetricCard label="Tool Rejections" value={summary?.events.toolRejections ?? 0} />
-          <MetricCard label="Route Misses" value={summary?.events.routeMisses ?? 0} />
+          <MetricCard label="Provider Errors" value={summary?.events.providerErrors ?? 0} tone="error" />
+          <MetricCard label="Tool Rejections" value={summary?.events.toolRejections ?? 0} tone="warning" />
+          <MetricCard label="Route Misses" value={summary?.events.routeMisses ?? 0} tone="warning" />
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">
-            {error}
+        {error ? (
+          <div className="mt-4 border border-bbs-red/40 bg-bbs-dark px-4 py-3 text-sm text-bbs-red">
+            [ERROR] {error}
           </div>
-        )}
+        ) : null}
       </header>
 
-      <div className="grid flex-1 min-h-0 grid-cols-[22rem,1.2fr,1fr]">
-        <aside className="min-h-0 overflow-y-auto border-r border-bbs-purple-dim bg-bbs-surface/50">
-          <div className="sticky top-0 z-10 border-b border-bbs-purple-dim bg-bbs-surface/95 px-4 py-3">
-            <div className="flex items-center justify-between">
+      <div className="grid flex-1 min-h-0 grid-cols-1 xl:grid-cols-[22rem,1.15fr,1fr]">
+        <aside className="min-h-0 overflow-y-auto border-b xl:border-b-0 xl:border-r border-bbs-border bg-bbs-dark/40">
+          <div className="sticky top-0 z-10 border-b border-bbs-border bg-bbs-surface px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-bbs-purple">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-bbs-gray">
                   Trace List
                 </p>
-                <p className="text-xs text-bbs-gray">{traces.length} result(s)</p>
+                <p className="mt-1 text-xs text-bbs-gray">{traces.length} result(s)</p>
               </div>
-              {loading && <span className="text-xs text-bbs-gray">Loading…</span>}
+              {loading ? <span className="text-xs text-bbs-yellow">[LOADING]</span> : null}
             </div>
           </div>
 
           <div className="space-y-2 p-3">
-            {traces.length === 0 && (
-              <div className="rounded-md border border-dashed border-bbs-purple-dim px-3 py-4 text-sm text-bbs-gray">
-                No traces matched the current filters.
+            {traces.length === 0 ? (
+              <div className="border border-dashed border-bbs-border px-3 py-4 text-sm text-bbs-gray">
+                no traces matched the current filters
               </div>
-            )}
+            ) : null}
 
-            {traces.map((trace) => {
+            {traces.map((trace, index) => {
               const isActive = trace.traceId === selectedTraceId;
               return (
                 <button
                   key={trace.traceId}
                   onClick={() => onSelectTrace(trace.traceId)}
-                  className={`w-full rounded-lg border px-3 py-3 text-left transition ${
+                  className={`w-full border px-4 py-3 text-left transition-colors animate-list-item ${
                     isActive
-                      ? 'border-bbs-purple bg-bbs-purple/10 shadow-[0_0_0_1px_rgba(146,111,255,0.25)]'
-                      : 'border-bbs-purple-dim bg-bbs-black/30 hover:border-bbs-purple/50 hover:bg-bbs-surface'
+                      ? 'border-bbs-purple-dim bg-bbs-surface'
+                      : 'border-bbs-border bg-bbs-dark hover:bg-bbs-surface'
                   }`}
+                  style={{ animationDelay: `${index * 35}ms` }}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-3">
                     <code className="block break-all text-[11px] text-bbs-white">
                       {trace.traceId}
                     </code>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass(trace.status)}`}>
-                      {trace.status}
+                    <span className={`text-[10px] font-bold ${statusTextClass(trace.status)}`}>
+                      {formatStatusTag(trace.status)}
                     </span>
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-bbs-gray">
-                    {trace.sessionId && <div>Session: {trace.sessionId}</div>}
-                    <div>Updated: {formatTimestamp(trace.updatedAt)}</div>
-                    <div>Events: {trace.eventCount}</div>
-                    {trace.stopReason && <div>Stop: {trace.stopReason}</div>}
+                  <div className="mt-2 space-y-1 text-xs text-bbs-gray break-words">
+                    {trace.sessionId ? <div>session: {trace.sessionId}</div> : null}
+                    <div>updated: {formatTimestamp(trace.updatedAt)}</div>
+                    <div>events: {trace.eventCount}</div>
+                    {trace.stopReason ? <div>stop: {trace.stopReason}</div> : null}
                   </div>
                 </button>
               );
@@ -209,143 +216,134 @@ export function ObservabilityView(props: ObservabilityViewProps) {
           </div>
         </aside>
 
-        <section className="min-h-0 overflow-y-auto border-r border-bbs-purple-dim bg-bbs-black/60">
-          <div className="sticky top-0 z-10 border-b border-bbs-purple-dim bg-bbs-surface/95 px-5 py-4">
+        <section className="min-h-0 overflow-y-auto border-b xl:border-b-0 xl:border-r border-bbs-border bg-bbs-black">
+          <div className="sticky top-0 z-10 border-b border-bbs-border bg-bbs-surface px-5 py-4">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-bbs-purple">
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-bbs-gray">
                   Trace Timeline
                 </p>
-                <h2 className="mt-1 text-lg font-semibold text-bbs-white">
+                <h2 className="mt-1 break-all text-sm font-bold text-bbs-white">
                   {selectedTrace?.summary.traceId ?? 'Select a trace'}
                 </h2>
               </div>
-              {selectedTrace && (
-                <div className="text-right text-xs text-bbs-gray">
-                  <div>Started: {formatTimestamp(selectedTrace.summary.startedAt)}</div>
-                  <div>Updated: {formatTimestamp(selectedTrace.summary.updatedAt)}</div>
+              {selectedTrace ? (
+                <div className="text-right text-xs text-bbs-gray shrink-0">
+                  <div>started: {formatTimestamp(selectedTrace.summary.startedAt)}</div>
+                  <div>updated: {formatTimestamp(selectedTrace.summary.updatedAt)}</div>
                 </div>
-              )}
+              ) : null}
             </div>
 
-            {selectedTrace && (
+            {selectedTrace ? (
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <Pill label={`Status ${selectedTrace.summary.status}`} tone={selectedTrace.summary.status} />
-                <Pill label={`${selectedTrace.summary.eventCount} events`} />
-                <Pill label={`${selectedTrace.summary.errorCount} errors`} tone={selectedTrace.summary.errorCount > 0 ? 'error' : 'neutral'} />
-                {selectedTrace.summary.stopReason && (
-                  <Pill label={`Stop ${selectedTrace.summary.stopReason}`} />
-                )}
-                <Pill
-                  label={
-                    selectedTrace.completeness.complete
-                      ? 'Trace complete'
-                      : 'Trace incomplete'
-                  }
+                <Tag label={`status ${selectedTrace.summary.status}`} tone={selectedTrace.summary.status} />
+                <Tag label={`${selectedTrace.summary.eventCount} events`} />
+                <Tag
+                  label={`${selectedTrace.summary.errorCount} errors`}
+                  tone={selectedTrace.summary.errorCount > 0 ? 'error' : 'neutral'}
+                />
+                {selectedTrace.summary.stopReason ? (
+                  <Tag label={`stop ${selectedTrace.summary.stopReason}`} tone="warning" />
+                ) : null}
+                <Tag
+                  label={selectedTrace.completeness.complete ? 'trace complete' : 'trace incomplete'}
                   tone={selectedTrace.completeness.complete ? 'success' : 'error'}
                 />
               </div>
-            )}
+            ) : null}
 
-            {selectedTrace && !selectedTrace.completeness.complete && (
-              <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-                {selectedTrace.completeness.issues.join(' ')}
+            {selectedTrace && !selectedTrace.completeness.complete ? (
+              <div className="mt-3 border border-bbs-yellow/40 bg-bbs-dark px-3 py-2 text-sm text-bbs-yellow">
+                [WARN] {selectedTrace.completeness.issues.join(' ')}
               </div>
-            )}
+            ) : null}
           </div>
 
           <div className="space-y-3 p-4">
             {selectedTrace?.events.length ? (
-              selectedTrace.events.map((event) => {
+              selectedTrace.events.map((event, index) => {
                 const isSelected = event.id === selectedEventId;
                 return (
                   <button
                     key={event.id}
                     onClick={() => onSelectEvent(event.id)}
-                    className={`w-full rounded-lg border px-4 py-3 text-left transition ${eventLevelClass(event.level)} ${
-                      isSelected ? 'shadow-[0_0_0_1px_rgba(146,111,255,0.3)] border-bbs-purple' : ''
+                    className={`w-full border px-4 py-3 text-left transition-colors animate-list-item ${eventToneClass(event.level)} ${
+                      isSelected ? 'border-bbs-purple-dim bg-bbs-surface' : ''
                     }`}
+                    style={{ animationDelay: `${index * 30}ms` }}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="font-mono text-xs text-bbs-white">{event.eventName}</div>
-                        <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-bbs-gray">
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-bbs-white">{event.eventName}</div>
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-bbs-gray">
                           <span>{formatTimestamp(event.timestampMs)}</span>
-                          {event.callPhase && <span>Phase: {event.callPhase}</span>}
-                          {event.callIndex !== undefined && <span>Call: {event.callIndex}</span>}
-                          {event.toolName && <span>Tool: {event.toolName}</span>}
-                          {event.provider && <span>Provider: {event.provider}</span>}
-                          {event.model && <span>Model: {event.model}</span>}
-                          {event.durationMs !== undefined && (
-                            <span>Duration: {formatDuration(event.durationMs)}</span>
-                          )}
+                          {event.callPhase ? <span>phase: {event.callPhase}</span> : null}
+                          {event.callIndex !== undefined ? <span>call: {event.callIndex}</span> : null}
+                          {event.toolName ? <span>tool: {event.toolName}</span> : null}
+                          {event.provider ? <span>provider: {event.provider}</span> : null}
+                          {event.model ? <span>model: {event.model}</span> : null}
+                          {event.durationMs !== undefined ? (
+                            <span>duration: {formatDuration(event.durationMs)}</span>
+                          ) : null}
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wide">
-                        {event.routingMiss && (
-                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-200">
-                            Route miss
-                          </span>
-                        )}
-                        {event.completionGateDecision && (
-                          <span className="rounded-full border border-bbs-purple/30 bg-bbs-purple/10 px-2 py-0.5 text-bbs-white">
-                            Gate {event.completionGateDecision}
-                          </span>
-                        )}
-                        {event.artifact && (
-                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-200">
-                            Artifact
-                          </span>
-                        )}
+                      <div className="flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.12em]">
+                        <span className={event.level === 'error' ? 'text-bbs-red' : 'text-bbs-gray'}>
+                          [{event.level}]
+                        </span>
+                        {event.routingMiss ? <span className="text-bbs-yellow">[route miss]</span> : null}
+                        {event.completionGateDecision ? (
+                          <span className="text-bbs-purple">[gate {event.completionGateDecision}]</span>
+                        ) : null}
+                        {event.artifact ? <span className="text-bbs-green">[artifact]</span> : null}
                       </div>
                     </div>
-                    <pre className="mt-3 overflow-x-auto rounded-md bg-bbs-black/60 p-3 text-[11px] leading-5 text-bbs-gray">
-                      {formatJson(event.payloadPreview)}
-                    </pre>
+                    <pre className={`mt-3 ${CODE_BLOCK_CLASS}`}>{formatJson(event.payloadPreview)}</pre>
                   </button>
                 );
               })
             ) : (
-              <div className="rounded-md border border-dashed border-bbs-purple-dim px-4 py-8 text-sm text-bbs-gray">
-                Select a trace to inspect its full event timeline.
+              <div className="border border-dashed border-bbs-border px-4 py-8 text-sm text-bbs-gray">
+                select a trace to inspect its full event timeline
               </div>
             )}
           </div>
         </section>
 
-        <aside className="min-h-0 overflow-y-auto bg-bbs-surface/40">
-          <div className="sticky top-0 z-10 border-b border-bbs-purple-dim bg-bbs-surface/95 px-5 py-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-bbs-purple">
+        <aside className="min-h-0 overflow-y-auto bg-bbs-dark/40">
+          <div className="sticky top-0 z-10 border-b border-bbs-border bg-bbs-surface px-5 py-4">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-bbs-gray">
               Event Detail
             </p>
-            <h2 className="mt-1 text-lg font-semibold text-bbs-white">
+            <h2 className="mt-1 break-words text-sm font-bold text-bbs-white">
               {selectedEvent?.eventName ?? 'Select an event'}
             </h2>
-            {selectedEvent && (
-              <div className="mt-2 space-y-1 text-xs text-bbs-gray">
-                <div>Timestamp: {formatTimestamp(selectedEvent.timestampMs)}</div>
-                <div>Duration: {formatDuration(selectedEvent.durationMs)}</div>
-                {selectedEvent.stopReason && <div>Stop reason: {selectedEvent.stopReason}</div>}
-                {selectedEvent.artifact && <div>Artifact: {selectedEvent.artifact.path}</div>}
+            {selectedEvent ? (
+              <div className="mt-2 space-y-1 text-xs text-bbs-gray break-words">
+                <div>timestamp: {formatTimestamp(selectedEvent.timestampMs)}</div>
+                <div>duration: {formatDuration(selectedEvent.durationMs)}</div>
+                {selectedEvent.stopReason ? <div>stop reason: {selectedEvent.stopReason}</div> : null}
+                {selectedEvent.artifact ? <div>artifact: {selectedEvent.artifact.path}</div> : null}
               </div>
-            )}
+            ) : null}
           </div>
 
           <div className="space-y-5 p-4">
             <SectionCard title="Preview Payload">
-              <pre className="overflow-x-auto rounded-md bg-bbs-black/70 p-3 text-[11px] leading-5 text-bbs-gray">
+              <pre className={CODE_BLOCK_CLASS}>
                 {selectedEvent ? formatJson(selectedEvent.payloadPreview) : 'Select an event'}
               </pre>
             </SectionCard>
 
             <SectionCard title="Exact Artifact">
-              <pre className="overflow-x-auto rounded-md bg-bbs-black/70 p-3 text-[11px] leading-5 text-bbs-gray">
+              <pre className={CODE_BLOCK_CLASS}>
                 {artifact ? formatJson(artifact.body) : 'No artifact attached to the selected event.'}
               </pre>
             </SectionCard>
 
             <SectionCard title="Daemon Log Slice">
-              <pre className="max-h-[24rem] overflow-auto rounded-md bg-bbs-black/70 p-3 text-[11px] leading-5 text-bbs-gray">
+              <pre className={`${CODE_BLOCK_CLASS} max-h-[24rem]`}>
                 {logs?.lines.length
                   ? logs.lines.join('\n')
                   : 'No daemon log lines captured for the selected trace.'}
@@ -365,36 +363,134 @@ export function ObservabilityView(props: ObservabilityViewProps) {
   );
 }
 
-function MetricCard(props: { label: string; value: string | number }) {
+function MetricCard(props: {
+  label: string;
+  value: string | number;
+  tone?: 'default' | 'accent' | 'warning' | 'error';
+}) {
+  const toneClass =
+    props.tone === 'error'
+      ? 'text-bbs-red'
+      : props.tone === 'warning'
+        ? 'text-bbs-yellow'
+        : props.tone === 'accent'
+          ? 'text-bbs-purple'
+          : 'text-bbs-white';
+
   return (
-    <div className="rounded-lg border border-bbs-purple-dim bg-bbs-black/50 px-4 py-3">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-bbs-gray">
-        {props.label}
-      </div>
-      <div className="mt-2 text-2xl font-semibold text-bbs-white">{props.value}</div>
+    <div className="border border-bbs-border bg-bbs-dark px-4 py-3">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-bbs-gray">{props.label}</div>
+      <div className={`mt-2 text-2xl font-bold ${toneClass}`}>{props.value}</div>
     </div>
   );
 }
 
-function Pill(props: { label: string; tone?: 'success' | 'error' | 'neutral' | string }) {
+function StatusFilter(props: {
+  value: TraceStatus;
+  onChange: (value: TraceStatus) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  const currentLabel =
+    STATUS_OPTIONS.find((option) => option.value === props.value)?.label ?? props.value;
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray"
+    >
+      <span className="shrink-0">Status</span>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="border border-bbs-border bg-bbs-surface px-3 py-2 text-xs text-bbs-lightgray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
+      >
+        [{currentLabel.toUpperCase()}]
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          aria-label="Trace status"
+          className="absolute right-0 top-full z-30 mt-2 min-w-[10rem] border border-bbs-border bg-bbs-dark shadow-[0_0_0_1px_rgba(146,111,255,0.12)]"
+        >
+          {STATUS_OPTIONS.map((option) => {
+            const selected = option.value === props.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  props.onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition-colors ${
+                  selected
+                    ? 'bg-bbs-surface text-bbs-white'
+                    : 'text-bbs-gray hover:bg-bbs-surface hover:text-bbs-white'
+                }`}
+              >
+                <span>[{option.label.toUpperCase()}]</span>
+                {selected ? <span className="text-bbs-purple">ACTIVE</span> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Tag(props: { label: string; tone?: 'success' | 'error' | 'warning' | 'neutral' | string }) {
   const tone = props.tone ?? 'neutral';
   const className =
     tone === 'success'
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+      ? 'text-bbs-green'
       : tone === 'error'
-        ? 'border-red-500/30 bg-red-500/10 text-red-200'
-        : 'border-bbs-purple/30 bg-bbs-purple/10 text-bbs-white';
-  return (
-    <span className={`rounded-full border px-2.5 py-1 ${className}`}>
-      {props.label}
-    </span>
-  );
+        ? 'text-bbs-red'
+        : tone === 'warning'
+          ? 'text-bbs-yellow'
+          : tone === 'completed'
+            ? 'text-bbs-green'
+            : tone === 'open'
+              ? 'text-bbs-yellow'
+              : 'text-bbs-purple';
+
+  return <span className={`text-[11px] uppercase tracking-[0.12em] ${className}`}>[{props.label}]</span>;
 }
 
 function SectionCard(props: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg border border-bbs-purple-dim bg-bbs-black/30">
-      <div className="border-b border-bbs-purple-dim px-4 py-3 text-xs uppercase tracking-[0.16em] text-bbs-purple">
+    <section className="border border-bbs-border bg-bbs-dark">
+      <div className="border-b border-bbs-border px-4 py-3 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">
         {props.title}
       </div>
       <div className="p-4">{props.children}</div>
@@ -405,16 +501,17 @@ function SectionCard(props: { title: string; children: ReactNode }) {
 function NamedCounts(props: { label: string; items: readonly { name: string; count: number }[] }) {
   return (
     <div>
-      <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-bbs-purple">
-        {props.label}
-      </p>
+      <p className="mb-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">{props.label}</p>
       {props.items.length === 0 ? (
         <p className="text-xs text-bbs-gray">No data yet.</p>
       ) : (
         <div className="space-y-2">
           {props.items.map((item) => (
-            <div key={`${props.label}:${item.name}`} className="flex items-center justify-between gap-3 rounded-md border border-bbs-purple-dim bg-bbs-black/40 px-3 py-2">
-              <span className="truncate text-bbs-white">{item.name}</span>
+            <div
+              key={`${props.label}:${item.name}`}
+              className="flex items-center justify-between gap-3 border border-bbs-border bg-bbs-surface px-3 py-2"
+            >
+              <span className="truncate text-bbs-lightgray">{item.name}</span>
               <span className="text-bbs-gray">{item.count}</span>
             </div>
           ))}

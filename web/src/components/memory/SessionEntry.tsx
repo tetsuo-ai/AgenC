@@ -8,25 +8,26 @@ export function SessionEntry({ session }: SessionEntryProps) {
   const lastActive = new Date(session.lastActiveAt).toLocaleString();
 
   return (
-    <div className="px-4 py-3.5 rounded-xl border border-tetsuo-200 bg-tetsuo-50 hover:border-tetsuo-300 transition-all duration-200 hover:shadow-sm">
-      <div className="flex items-center gap-2">
-        <div className="w-7 h-7 rounded-lg bg-tetsuo-100 flex items-center justify-center shrink-0">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-400" strokeWidth="2" strokeLinecap="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
+    <article className="border border-bbs-border bg-bbs-dark px-4 py-4 transition-colors hover:border-bbs-purple-dim hover:bg-bbs-surface">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">
+            <span className="text-bbs-purple">SESSION&gt;</span>
+            <span className="truncate break-all text-bbs-lightgray">{session.id}</span>
+          </div>
+          <div className="mt-2 text-xs uppercase tracking-[0.14em] text-bbs-cyan">
+            [messages:{session.messageCount}]
+          </div>
         </div>
-        <div className="text-sm text-tetsuo-700 font-mono truncate">{session.id}</div>
+
+        <div className="border border-bbs-border bg-bbs-black/40 px-3 py-2 text-xs uppercase tracking-[0.14em] text-bbs-gray">
+          [last active]
+        </div>
       </div>
-      <div className="mt-2 flex items-center gap-4 text-xs text-tetsuo-400">
-        <span className="flex items-center gap-1">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-          {session.messageCount} messages
-        </span>
-        <span className="flex items-center gap-1">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-          {lastActive}
-        </span>
+
+      <div className="mt-3 border border-bbs-border bg-bbs-black/40 px-3 py-3 text-sm text-bbs-lightgray">
+        {lastActive}
       </div>
-    </div>
+    </article>
   );
 }

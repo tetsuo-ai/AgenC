@@ -21,21 +21,21 @@ function formatUptime(ms: number): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-function statusColor(status: string): string {
+function statusTone(status: string): string {
   switch (status) {
     case 'ready':
-      return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+      return 'border-bbs-green/40 text-bbs-green';
     case 'starting':
     case 'creating':
-      return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+      return 'border-bbs-yellow/40 text-bbs-yellow';
     case 'stopping':
     case 'stopped':
-      return 'bg-tetsuo-100 text-tetsuo-500';
+      return 'border-bbs-border text-bbs-gray';
     case 'failed':
     case 'unhealthy':
-      return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      return 'border-bbs-red/40 text-bbs-red';
     default:
-      return 'bg-tetsuo-100 text-tetsuo-500';
+      return 'border-bbs-border text-bbs-gray';
   }
 }
 
@@ -56,97 +56,93 @@ function SandboxCard({
   const isAssigned = !!activeSessionId && sandbox.sessionId === activeSessionId;
 
   return (
-    <div className="bg-surface border border-tetsuo-200 rounded-xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-tetsuo-600 dark:text-tetsuo-200">
-            Desktop {ordinal}
-          </span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${statusColor(sandbox.status)}`}>
-            {sandbox.status}
-          </span>
-          <span className="text-xs text-tetsuo-400 font-mono">{sandbox.containerId}</span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 text-xs text-tetsuo-500">
-        <div>
-          <span className="text-tetsuo-400">Session:</span>{' '}
-          <span className="font-mono">{sandbox.sessionId.length > 20 ? sandbox.sessionId.slice(0, 20) + '...' : sandbox.sessionId}</span>
-        </div>
-        <div>
-          <span className="text-tetsuo-400">Uptime:</span>{' '}
-          {formatUptime(sandbox.uptimeMs)}
-        </div>
-        <div>
-          <span className="text-tetsuo-400">RAM:</span>{' '}
-          <span className="font-mono">{sandbox.maxMemory ?? 'default'}</span>
-        </div>
-        <div>
-          <span className="text-tetsuo-400">CPU:</span>{' '}
-          <span className="font-mono">{sandbox.maxCpu ?? 'default'}</span>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 pt-1">
-        {sandbox.status === 'ready' && (
-          <>
-            <a
-              href={sandbox.vncUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-bg text-accent text-xs font-medium hover:opacity-80 transition-opacity"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-              Open VNC
-            </a>
-            {isAssigned ? (
-              <span className="px-2.5 py-1.5 rounded-lg bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium">
-                Assigned to chat
-              </span>
-            ) : (
-              <button
-                onClick={() => onAttach(sandbox.containerId)}
-                className="px-2.5 py-1.5 rounded-lg bg-tetsuo-100 text-tetsuo-600 dark:bg-tetsuo-700/40 dark:text-tetsuo-200 text-xs font-medium hover:bg-tetsuo-200 dark:hover:bg-tetsuo-700 transition-colors"
-              >
-                Assign to Chat
-              </button>
-            )}
-          </>
-        )}
-        {confirming ? (
-          <div className="flex items-center gap-1.5 ml-auto">
-            <span className="text-xs text-tetsuo-400">Destroy?</span>
-            <button
-              onClick={() => { onDestroy(sandbox.containerId); setConfirming(false); }}
-              className="px-2 py-1 rounded-md bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors"
-            >
-              Yes
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              className="px-2 py-1 rounded-md bg-tetsuo-100 text-tetsuo-500 text-xs font-medium hover:bg-tetsuo-200 transition-colors"
-            >
-              No
-            </button>
+    <article className="border border-bbs-border bg-bbs-dark px-4 py-4 transition-colors hover:border-bbs-purple-dim hover:bg-bbs-surface">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-bbs-gray">
+            <span className="text-bbs-purple">DESKTOP&gt;</span>
+            <span>[node:{ordinal}]</span>
+            <span className={`border bg-bbs-black px-3 py-2 ${statusTone(sandbox.status)}`}>[{sandbox.status}]</span>
           </div>
+          <div className="mt-2 break-all text-sm text-bbs-lightgray">{sandbox.containerId}</div>
+        </div>
+
+        {sandbox.status === 'ready' && isAssigned ? (
+          <span className="border border-bbs-green/40 bg-bbs-black px-3 py-2 text-xs uppercase tracking-[0.14em] text-bbs-green">
+            [assigned to chat]
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-4">
+        <InfoBlock label="session" value={sandbox.sessionId} />
+        <InfoBlock label="uptime" value={formatUptime(sandbox.uptimeMs)} />
+        <InfoBlock label="ram" value={sandbox.maxMemory ?? 'default'} />
+        <InfoBlock label="cpu" value={sandbox.maxCpu ?? 'default'} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.14em]">
+        {sandbox.status === 'ready' ? (
+          <a
+            href={sandbox.vncUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="border border-bbs-cyan/40 bg-bbs-black px-3 py-2 text-bbs-cyan transition-colors hover:text-bbs-white"
+          >
+            [open vnc]
+          </a>
+        ) : null}
+
+        {sandbox.status === 'ready' && !isAssigned ? (
+          <button
+            type="button"
+            onClick={() => onAttach(sandbox.containerId)}
+            className="border border-bbs-border bg-bbs-black px-3 py-2 text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
+          >
+            [assign to chat]
+          </button>
+        ) : null}
+
+        {confirming ? (
+          <>
+            <span className="text-bbs-yellow">[confirm destroy]</span>
+            <button
+              type="button"
+              onClick={() => {
+                onDestroy(sandbox.containerId);
+                setConfirming(false);
+              }}
+              className="border border-bbs-red/40 bg-bbs-black px-3 py-2 text-bbs-red transition-colors hover:text-bbs-white"
+            >
+              [yes]
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="border border-bbs-border bg-bbs-black px-3 py-2 text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
+            >
+              [no]
+            </button>
+          </>
         ) : (
           <button
+            type="button"
             onClick={() => setConfirming(true)}
-            className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            className="ml-auto border border-bbs-red/40 bg-bbs-black px-3 py-2 text-bbs-red transition-colors hover:text-bbs-white"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            </svg>
-            Destroy
+            [destroy]
           </button>
         )}
       </div>
+    </article>
+  );
+}
+
+function InfoBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-bbs-border bg-bbs-black/40 px-3 py-3">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-bbs-gray">{label}</div>
+      <div className="mt-2 break-all text-sm text-bbs-lightgray">{value}</div>
     </div>
   );
 }
@@ -172,103 +168,77 @@ export function DesktopView({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-tetsuo-200">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-accent-bg flex items-center justify-center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-accent" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-              <line x1="8" y1="21" x2="16" y2="21" />
-              <line x1="12" y1="17" x2="12" y2="21" />
-            </svg>
-          </div>
+    <div className="flex h-full flex-col bg-bbs-black font-mono text-bbs-lightgray animate-chat-enter">
+      <header className="border-b border-bbs-border bg-bbs-surface px-4 py-4 md:px-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <h2 className="text-base font-bold text-tetsuo-800 tracking-tight">Desktop Sandboxes</h2>
-            {sandboxes.length > 0 && (
-              <div className="text-[10px] text-tetsuo-400 mt-0.5">
-                {sandboxes.filter((s) => s.status === 'ready').length} of {sandboxes.length} ready
-              </div>
-            )}
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-bbs-gray">
+              <span className="text-bbs-purple">DESKTOP&gt;</span>
+              <span>sandbox fleet</span>
+            </div>
+            <h2 className="mt-2 text-sm font-bold uppercase tracking-[0.18em] text-bbs-white md:text-base">
+              Remote desktop workers
+            </h2>
+            <p className="mt-1 text-xs text-bbs-gray">
+              provision, assign, and destroy browser-capable desktop sandboxes for agent execution
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <input
+              value={launchMemory}
+              onChange={(event) => setLaunchMemory(event.target.value)}
+              placeholder="ram e.g. 4g"
+              className="w-full border border-bbs-border bg-bbs-dark px-3 py-2 text-xs text-bbs-white outline-none placeholder:text-bbs-gray focus:border-bbs-purple-dim md:w-28"
+            />
+            <input
+              value={launchCpu}
+              onChange={(event) => setLaunchCpu(event.target.value)}
+              placeholder="cpu e.g. 2.0"
+              className="w-full border border-bbs-border bg-bbs-dark px-3 py-2 text-xs text-bbs-white outline-none placeholder:text-bbs-gray focus:border-bbs-purple-dim md:w-28"
+            />
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={loading}
+              className="border border-bbs-green/40 bg-bbs-dark px-3 py-2 text-xs uppercase tracking-[0.14em] text-bbs-green transition-colors hover:text-bbs-white disabled:opacity-50"
+            >
+              [launch]
+            </button>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              className="border border-bbs-border bg-bbs-dark px-3 py-2 text-xs uppercase tracking-[0.14em] text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white disabled:opacity-50"
+            >
+              {loading ? '[refreshing]' : '[refresh]'}
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            value={launchMemory}
-            onChange={(event) => setLaunchMemory(event.target.value)}
-            placeholder="RAM (e.g. 4g)"
-            className="w-28 px-2 py-1.5 rounded-lg border border-tetsuo-200 bg-surface text-xs text-tetsuo-600 placeholder:text-tetsuo-400 focus:outline-none focus:ring-2 focus:ring-accent/40"
-          />
-          <input
-            value={launchCpu}
-            onChange={(event) => setLaunchCpu(event.target.value)}
-            placeholder="CPU (e.g. 2.0)"
-            className="w-28 px-2 py-1.5 rounded-lg border border-tetsuo-200 bg-surface text-xs text-tetsuo-600 placeholder:text-tetsuo-400 focus:outline-none focus:ring-2 focus:ring-accent/40"
-          />
-          <button
-            onClick={handleCreate}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Launch Desktop
-          </button>
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-tetsuo-400 hover:text-accent hover:bg-tetsuo-100 transition-all duration-200 active:scale-90 disabled:opacity-50"
-            title="Refresh"
-          >
-            <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      </header>
 
-      {/* Error banner */}
-      {error && (
-        <div className="mx-6 mt-4 px-4 py-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs text-red-600 dark:text-red-400">
+      {error ? (
+        <div className="border-b border-bbs-red/40 bg-bbs-dark px-4 py-3 text-sm text-bbs-red md:px-6">
           {error}
         </div>
-      )}
+      ) : null}
 
-      {/* Sandbox list */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-2xl mx-auto space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
+        <div className="mx-auto flex max-w-5xl flex-col gap-3">
           {sandboxes.length === 0 ? (
-            <div className="flex flex-col items-center gap-4 py-16">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-200" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-              <div className="text-center">
-                <p className="text-sm text-tetsuo-500 mb-1">No desktop sandboxes running</p>
-                <p className="text-xs text-tetsuo-400">Launch a desktop to get started with autonomous desktop automation</p>
-              </div>
-              <button
-                onClick={handleCreate}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                Launch Desktop
-              </button>
+            <div className="border border-dashed border-bbs-border bg-bbs-dark px-5 py-8 text-center text-xs uppercase tracking-[0.16em] text-bbs-gray">
+              [no desktop sandboxes running]
             </div>
           ) : (
-            sandboxes.map((sandbox, i) => (
-              <div key={sandbox.containerId} className="animate-list-item" style={{ animationDelay: `${i * 40}ms` }}>
+            sandboxes.map((sandbox, index) => (
+              <div
+                key={sandbox.containerId}
+                className="animate-list-item"
+                style={{ animationDelay: `${index * 40}ms` }}
+              >
                 <SandboxCard
                   sandbox={sandbox}
-                  ordinal={i + 1}
+                  ordinal={index + 1}
                   activeSessionId={activeSessionId}
                   onAttach={(containerId) => onAttach(containerId, activeSessionId ?? undefined)}
                   onDestroy={onDestroy}

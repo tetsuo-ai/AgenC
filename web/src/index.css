@@ -77,7 +77,7 @@
 }
 
 .animate-bbs-progress {
-  animation: bbs-progress 3s ease-in-out infinite;
+  animation: bbs-progress 3s steps(28, end) infinite;
 }
 
 /* Simplified message animations */

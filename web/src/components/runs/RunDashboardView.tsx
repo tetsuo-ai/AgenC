@@ -54,7 +54,7 @@ export function RunDashboardView(props: RunDashboardViewProps) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-bbs-black text-bbs-lightgray font-mono animate-chat-enter">
       <RunDashboardHeader
         browserNotificationsEnabled={browserNotificationsEnabled}
         notificationPermission={notificationPermission}
@@ -62,8 +62,8 @@ export function RunDashboardView(props: RunDashboardViewProps) {
         onEnableBrowserNotifications={onEnableBrowserNotifications}
       />
 
-      <div className="flex-1 min-h-0 grid grid-cols-[20rem,1fr]">
-        <aside className="border-r border-tetsuo-200 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[20rem,1fr]">
+        <aside className="border-b xl:border-b-0 xl:border-r border-bbs-border overflow-y-auto px-3 py-3 md:px-4 md:py-4 bg-bbs-dark/40 space-y-3">
           <RunSidebar
             runs={runs}
             selectedSessionId={selectedSessionId}
@@ -72,7 +72,7 @@ export function RunDashboardView(props: RunDashboardViewProps) {
           />
         </aside>
 
-        <section className="min-h-0 overflow-y-auto p-6 space-y-6">
+        <section className="min-h-0 overflow-y-auto px-3 py-4 md:px-5 md:py-5 bg-bbs-black">
           <RunDashboardContent
             selectedRun={selectedRun}
             selectedSessionId={selectedSessionId}

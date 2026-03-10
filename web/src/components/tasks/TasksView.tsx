@@ -4,11 +4,11 @@ import { TaskCard } from './TaskCard';
 import { CreateTaskForm } from './CreateTaskForm';
 
 const FILTERS = [
-  { label: 'All', value: '' },
-  { label: 'Open', value: 'open' },
-  { label: 'In Progress', value: 'in_progress' },
-  { label: 'Completed', value: 'completed' },
-  { label: 'Cancelled', value: 'cancelled' },
+  { label: 'all', value: '' },
+  { label: 'open', value: 'open' },
+  { label: 'in_progress', value: 'in_progress' },
+  { label: 'completed', value: 'completed' },
+  { label: 'cancelled', value: 'cancelled' },
 ] as const;
 
 interface TasksViewProps {
@@ -25,105 +25,105 @@ export function TasksView({ tasks, onRefresh, onCreate, onCancel }: TasksViewPro
     onRefresh();
   }, [onRefresh]);
 
-  // Reverse order (newest first) and apply status filter
   const filtered = useMemo(() => {
     const reversed = [...tasks].reverse();
     if (!filter) return reversed;
-    return reversed.filter((t) => t.status.toLowerCase() === filter);
+    return reversed.filter((task) => task.status.toLowerCase() === filter);
   }, [tasks, filter]);
 
-  // Count per status for filter badges
   const counts = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const t of tasks) {
-      const key = t.status.toLowerCase();
-      m[key] = (m[key] ?? 0) + 1;
+    const map: Record<string, number> = {};
+    for (const task of tasks) {
+      const key = task.status.toLowerCase();
+      map[key] = (map[key] ?? 0) + 1;
     }
-    return m;
+    return map;
   }, [tasks]);
 
+  const filterLabel = FILTERS.find((item) => item.value === filter)?.label ?? 'all';
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-tetsuo-200">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-accent-bg flex items-center justify-center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-accent" strokeWidth="2" strokeLinecap="round">
-              <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
-              <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
-            </svg>
+    <div className="flex h-full flex-col overflow-hidden bg-bbs-black font-mono text-bbs-lightgray animate-chat-enter">
+      <div className="border-b border-bbs-purple-dim bg-bbs-surface px-4 py-4 md:px-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-bbs-gray">
+              <span className="shrink-0 text-bbs-purple">TASKS&gt;</span>
+              <span>Task Board</span>
+            </div>
+            <h2 className="mt-2 text-sm font-bold uppercase tracking-[0.18em] text-bbs-white md:text-base">
+              On-chain task registry
+            </h2>
+            <p className="mt-1 text-xs text-bbs-gray">
+              create work items, inspect settlement state, and manage open queue entries
+            </p>
           </div>
-          <div>
-            <h2 className="text-base font-bold text-tetsuo-800 tracking-tight">Tasks</h2>
-            {tasks.length > 0 && (
-              <div className="text-[10px] text-tetsuo-400 mt-0.5">{tasks.length} task{tasks.length !== 1 ? 's' : ''}</div>
-            )}
+
+          <div className="flex shrink-0 items-center gap-3 text-xs uppercase tracking-[0.14em]">
+            <span className="border border-bbs-border bg-bbs-dark px-3 py-2 text-bbs-lightgray">
+              [{tasks.length} tracked]
+            </span>
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="border border-bbs-border bg-bbs-dark px-3 py-2 text-bbs-gray transition-colors hover:border-bbs-purple-dim hover:text-bbs-white"
+            >
+              [REFRESH]
+            </button>
           </div>
         </div>
-        <button
-          onClick={onRefresh}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-tetsuo-400 hover:text-accent hover:bg-tetsuo-100 transition-all duration-200 active:scale-90"
-          title="Refresh"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-          </svg>
-        </button>
       </div>
 
-      {/* Filter chips */}
       {tasks.length > 0 && (
-        <div className="flex items-center gap-1.5 px-6 py-2.5 border-b border-tetsuo-200 overflow-x-auto">
-          {FILTERS.map((f) => {
-            const count = f.value ? (counts[f.value] ?? 0) : tasks.length;
-            const active = filter === f.value;
-            return (
-              <button
-                key={f.value}
-                onClick={() => setFilter(f.value)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
-                  active
-                    ? 'bg-accent text-white shadow-sm'
-                    : 'bg-tetsuo-100 text-tetsuo-500 hover:bg-tetsuo-200 hover:text-tetsuo-700'
-                }`}
-              >
-                {f.label}
-                {count > 0 && (
-                  <span className={`text-[10px] ${active ? 'text-white/70' : 'text-tetsuo-400'}`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        <div className="border-b border-bbs-border bg-bbs-dark/80 px-4 py-3 md:px-6">
+          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.14em]">
+            <span className="mr-2 text-bbs-gray">filter:</span>
+            {FILTERS.map((item) => {
+              const count = item.value ? (counts[item.value] ?? 0) : tasks.length;
+              const active = filter === item.value;
+              return (
+                <button
+                  key={item.value || 'all'}
+                  type="button"
+                  onClick={() => setFilter(item.value)}
+                  className={[
+                    'border px-3 py-2 transition-colors',
+                    active
+                      ? 'border-bbs-purple-dim bg-bbs-surface text-bbs-white'
+                      : 'border-bbs-border bg-bbs-dark text-bbs-gray hover:border-bbs-purple-dim hover:text-bbs-white',
+                  ].join(' ')}
+                >
+                  [{item.label}:{count}]
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6"><div className="max-w-2xl mx-auto space-y-3">
-        <div className="animate-list-item" style={{ animationDelay: '0ms' }}>
-          <CreateTaskForm onCreate={onCreate} />
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-12">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-200" strokeWidth="1.5" strokeLinecap="round">
-              <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
-              <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
-            </svg>
-            <span className="text-sm text-tetsuo-400">
-              {filter ? `No ${FILTERS.find((f) => f.value === filter)?.label.toLowerCase()} tasks` : 'No tasks found'}
-            </span>
+      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
+        <div className="mx-auto flex max-w-4xl flex-col gap-4">
+          <div className="animate-list-item" style={{ animationDelay: '0ms' }}>
+            <CreateTaskForm onCreate={onCreate} />
           </div>
-        ) : (
-          filtered.map((task, i) => (
-            <div key={task.id} className="animate-list-item" style={{ animationDelay: `${(i + 1) * 50}ms` }}>
-              <TaskCard task={task} onCancel={onCancel} />
+
+          {filtered.length === 0 ? (
+            <div className="animate-list-item border border-dashed border-bbs-border bg-bbs-dark px-5 py-8 text-center text-xs uppercase tracking-[0.16em] text-bbs-gray">
+              [no {filterLabel} tasks]
             </div>
-          ))
-        )}
-      </div></div>
+          ) : (
+            filtered.map((task, index) => (
+              <div
+                key={task.id}
+                className="animate-list-item"
+                style={{ animationDelay: `${(index + 1) * 45}ms` }}
+              >
+                <TaskCard task={task} onCancel={onCancel} />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
