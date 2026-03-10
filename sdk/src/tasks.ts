@@ -44,7 +44,7 @@ import {
 } from "./constants";
 import { getAccount } from "./anchor-utils";
 import { getSdkLogger } from "./logger";
-import { deriveProtocolPda } from "./protocol";
+import { deriveProtocolPda, deriveZkConfigPda, getZkConfig } from "./protocol";
 import { getDependentTaskCount } from "./queries";
 import {
   runProofSubmissionPreflight,
@@ -52,7 +52,7 @@ import {
   type ProofPreconditionResult,
 } from "./proof-validation";
 import { NullifierCache } from "./nullifier-cache";
-import { validateRisc0PayloadShape } from "./validation";
+import { imageIdsEqual, validateRisc0PayloadShape } from "./validation";
 
 export { TaskState };
 
@@ -731,6 +731,7 @@ export async function completeTaskPrivate(
   const claimPda = deriveClaimPda(taskPda, workerAgentPda, programId);
   const escrowPda = deriveEscrowPda(taskPda, programId);
   const protocolPda = deriveProtocolPda(programId);
+  const zkConfigPda = deriveZkConfigPda(programId);
   const sealBytes = toFixedBytes(
     proof.sealBytes,
     RISC0_SEAL_BYTES_LEN,
@@ -776,6 +777,13 @@ export async function completeTaskPrivate(
     taskPda,
     protocolPda,
   );
+  const zkConfig = await getZkConfig(program);
+  if (!zkConfig) {
+    throw new Error("zkConfig account not found");
+  }
+  if (!imageIdsEqual(zkConfig.activeImageId, imageId)) {
+    throw new Error("imageId does not match active zkConfig image ID");
+  }
 
   // Extract task_id as u64 (first 8 bytes LE)
   const taskIdBuf = Buffer.from(task.taskId!);
@@ -808,6 +816,7 @@ export async function completeTaskPrivate(
       creator: task.creator,
       worker: workerAgentPda,
       protocolConfig: protocolPda,
+      zkConfig: zkConfigPda,
       bindingSpend,
       nullifierSpend,
       treasury: protocolConfig.treasury,

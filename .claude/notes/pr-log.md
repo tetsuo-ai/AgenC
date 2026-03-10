@@ -46,3 +46,10 @@
 - **What worked:** Used `~/.agenc/daemon.log` as the authoritative replay source, fixed delegated child mixed-output session-handle rewriting, preserved child store-vs-recall semantics for secret prompts, and made placeholder exact-output contracts validate against real recalled values so parent memory, manual compaction, and subagent continuity all passed in the live `MEMCORE-20260309-1302` session.
 - **What didn't:** Planner turns still rely on salvage because Grok continues to emit tool calls instead of strict planner JSON on some delegated requests, so the planner normalization path remains a medium-risk maintenance hotspot.
 - **Rule added to CLAUDE.md:** no
+
+## PR #[local]: zk image rotation and admin flow
+- **Date:** 2026-03-10
+- **Files changed:** programs/agenc-coordination/src/{errors,events,lib,state}.rs, programs/agenc-coordination/src/instructions/{complete_task_private,initialize_zk_config,mod,update_zk_image_id,zk_config_helpers}.rs, sdk/src/{constants,index,proof-validation,protocol,tasks,validation}.ts, sdk/src/__tests__/{contract,proof-validation,protocol}.test.ts, runtime/{idl/agenc_coordination.json,src/types/agenc_coordination.ts}, runtime/src/events/idl-contract.ts, scripts/zk-config-admin.ts, package.json, docs/MAINNET_DEPLOYMENT.md, .claude/notes/{gotchas,techdebt-2026-03-10-zk-config-admin}.md
+- **What worked:** Moved trusted RISC Zero image selection on-chain via `zk_config`, regenerated and synced IDL/types, added a thin authority CLI for show/init/rotate, and closed the stale runtime event-contract drift so the IDL gate passes again.
+- **What didn't:** The admin flow still depends on an operator providing the new guest image ID explicitly; that is deliberate, but it means release discipline around the separate prover repo remains mandatory.
+- **Rule added to CLAUDE.md:** yes, `Authority Model: Do not invent multisig requirements for ZK image rotation`; `Scope Control: Do not spin up historical worktrees without explicit user buy-in`; `Architecture Advice: Clarify deployment model before recommending prover topology`

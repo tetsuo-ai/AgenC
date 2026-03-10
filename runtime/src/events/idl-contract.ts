@@ -286,6 +286,201 @@ export const RUNTIME_EVENT_CONTRACT: readonly EventContract[] = [
       { name: "timestamp", family: "i64" },
     ],
   },
+  {
+    eventName: "governanceInitialized",
+    fields: [
+      { name: "authority", family: "pubkey" },
+      { name: "votingPeriod", family: "i64" },
+      { name: "executionDelay", family: "i64" },
+      { name: "quorumBps", family: "u16" },
+      { name: "approvalThresholdBps", family: "u16" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "governanceVoteCast",
+    fields: [
+      { name: "proposal", family: "pubkey" },
+      { name: "voter", family: "pubkey" },
+      { name: "approved", family: "bool" },
+      { name: "voteWeight", family: "u64" },
+      { name: "votesFor", family: "u64" },
+      { name: "votesAgainst", family: "u64" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "multisigUpdated",
+    fields: [
+      { name: "oldThreshold", family: "u8" },
+      { name: "newThreshold", family: "u8" },
+      { name: "oldOwnerCount", family: "u8" },
+      { name: "newOwnerCount", family: "u8" },
+      { name: "updatedBy", family: "pubkey" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "postCreated",
+    fields: [
+      { name: "post", family: "pubkey" },
+      { name: "author", family: "pubkey" },
+      { name: "contentHash", family: "bytes<32>" },
+      { name: "topic", family: "bytes<32>" },
+      { name: "parentPost", family: "option<pubkey>" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "postUpvoted",
+    fields: [
+      { name: "post", family: "pubkey" },
+      { name: "voter", family: "pubkey" },
+      { name: "newUpvoteCount", family: "u32" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "proposalCancelled",
+    fields: [
+      { name: "proposal", family: "pubkey" },
+      { name: "proposer", family: "pubkey" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "proposalCreated",
+    fields: [
+      { name: "proposer", family: "pubkey" },
+      { name: "proposalType", family: "u8" },
+      { name: "titleHash", family: "bytes<32>" },
+      { name: "votingDeadline", family: "i64" },
+      { name: "quorum", family: "u64" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "proposalExecuted",
+    fields: [
+      { name: "proposal", family: "pubkey" },
+      { name: "proposalType", family: "u8" },
+      { name: "votesFor", family: "u64" },
+      { name: "votesAgainst", family: "u64" },
+      { name: "totalVoters", family: "u16" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "reputationDelegated",
+    fields: [
+      { name: "delegator", family: "pubkey" },
+      { name: "delegatee", family: "pubkey" },
+      { name: "amount", family: "u16" },
+      { name: "expiresAt", family: "i64" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "reputationDelegationRevoked",
+    fields: [
+      { name: "delegator", family: "pubkey" },
+      { name: "delegatee", family: "pubkey" },
+      { name: "amount", family: "u16" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "reputationStakeWithdrawn",
+    fields: [
+      { name: "agent", family: "pubkey" },
+      { name: "amount", family: "u64" },
+      { name: "remainingStaked", family: "u64" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "reputationStaked",
+    fields: [
+      { name: "agent", family: "pubkey" },
+      { name: "amount", family: "u64" },
+      { name: "totalStaked", family: "u64" },
+      { name: "lockedUntil", family: "i64" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "skillPurchased",
+    fields: [
+      { name: "skill", family: "pubkey" },
+      { name: "buyer", family: "pubkey" },
+      { name: "author", family: "pubkey" },
+      { name: "pricePaid", family: "u64" },
+      { name: "protocolFee", family: "u64" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "skillRated",
+    fields: [
+      { name: "skill", family: "pubkey" },
+      { name: "rater", family: "pubkey" },
+      { name: "rating", family: "u8" },
+      { name: "raterReputation", family: "u16" },
+      { name: "newTotalRating", family: "u64" },
+      { name: "newRatingCount", family: "u32" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "skillRegistered",
+    fields: [
+      { name: "skill", family: "pubkey" },
+      { name: "author", family: "pubkey" },
+      { name: "skillId", family: "bytes<32>" },
+      { name: "name", family: "bytes<32>" },
+      { name: "contentHash", family: "bytes<32>" },
+      { name: "price", family: "u64" },
+      { name: "priceMint", family: "option<pubkey>" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "skillUpdated",
+    fields: [
+      { name: "skill", family: "pubkey" },
+      { name: "author", family: "pubkey" },
+      { name: "contentHash", family: "bytes<32>" },
+      { name: "price", family: "u64" },
+      { name: "version", family: "u8" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "treasuryUpdated",
+    fields: [
+      { name: "oldTreasury", family: "pubkey" },
+      { name: "newTreasury", family: "pubkey" },
+      { name: "updatedBy", family: "pubkey" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "zkConfigInitialized",
+    fields: [
+      { name: "imageId", family: "bytes<32>" },
+      { name: "authority", family: "pubkey" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
+  {
+    eventName: "zkImageIdUpdated",
+    fields: [
+      { name: "oldImageId", family: "bytes<32>" },
+      { name: "newImageId", family: "bytes<32>" },
+      { name: "updatedBy", family: "pubkey" },
+      { name: "timestamp", family: "i64" },
+    ],
+  },
 ] as const;
 
 export const RUNTIME_EVENT_BY_NAME = new Map(

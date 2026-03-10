@@ -3,6 +3,7 @@
 //! These events can be monitored via WebSocket subscriptions
 //! for real-time coordination between agents.
 
+use crate::state::HASH_SIZE;
 use anchor_lang::prelude::*;
 
 /// Dispute resolution outcome constants (fix #425)
@@ -214,6 +215,23 @@ pub struct ProtocolInitialized {
 pub struct TreasuryUpdated {
     pub old_treasury: Pubkey,
     pub new_treasury: Pubkey,
+    pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when the trusted ZK image ID config is initialized.
+#[event]
+pub struct ZkConfigInitialized {
+    pub image_id: [u8; HASH_SIZE],
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when the trusted ZK image ID is rotated.
+#[event]
+pub struct ZkImageIdUpdated {
+    pub old_image_id: [u8; HASH_SIZE],
+    pub new_image_id: [u8; HASH_SIZE],
     pub updated_by: Pubkey,
     pub timestamp: i64,
 }

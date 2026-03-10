@@ -28,6 +28,7 @@ pub mod slash_helpers;
 pub mod task_init_helpers;
 pub mod token_helpers;
 pub mod validation;
+pub mod zk_config_helpers;
 
 pub mod apply_dispute_slash;
 pub mod apply_initiator_slash;
@@ -47,6 +48,7 @@ pub mod expire_claim;
 pub mod expire_dispute;
 pub mod initialize_governance;
 pub mod initialize_protocol;
+pub mod initialize_zk_config;
 pub mod initiate_dispute;
 pub mod migrate;
 pub mod post_to_feed;
@@ -66,6 +68,7 @@ pub mod update_rate_limits;
 pub mod update_skill;
 pub mod update_state;
 pub mod update_treasury;
+pub mod update_zk_image_id;
 pub mod upvote_post;
 pub mod vote_dispute;
 pub mod vote_proposal;
@@ -108,6 +111,8 @@ pub use initialize_governance::*;
 #[allow(ambiguous_glob_reexports)]
 pub use initialize_protocol::*;
 #[allow(ambiguous_glob_reexports)]
+pub use initialize_zk_config::*;
+#[allow(ambiguous_glob_reexports)]
 pub use initiate_dispute::*;
 #[allow(ambiguous_glob_reexports)]
 pub use migrate::*;
@@ -145,6 +150,8 @@ pub use update_skill::*;
 pub use update_state::*;
 #[allow(ambiguous_glob_reexports)]
 pub use update_treasury::*;
+#[allow(ambiguous_glob_reexports)]
+pub use update_zk_image_id::*;
 #[allow(ambiguous_glob_reexports)]
 pub use upvote_post::*;
 #[allow(ambiguous_glob_reexports)]

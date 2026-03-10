@@ -408,6 +408,50 @@ solana program set-upgrade-authority <PROGRAM_ID> \
 solana program show <PROGRAM_ID>
 ```
 
+### 4.5 Initialize ZK Config
+
+Private completion now trusts the on-chain `zk_config` PDA instead of a hardcoded
+guest image ID. Initialize it once after deploy, then rotate it whenever you
+ship a new audited guest image.
+
+Print the current prover image ID from the separate prover repository:
+
+```bash
+cargo run --manifest-path /path/to/agenc-prover/Cargo.toml \
+  -p agenc-prover-server \
+  --features production-prover \
+  -- image-id
+```
+
+Show current protocol + `zk_config` state:
+
+```bash
+npm run zk:config:show -- \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --authority-keypair ~/.config/solana/mainnet-deploy.json
+```
+
+Initialize `zk_config` the first time:
+
+```bash
+npm run zk:config:init -- \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --authority-keypair ~/.config/solana/mainnet-deploy.json \
+  --image-id "234, 105, 58, 154, 139, 43, 119, 65, 97, 133, 45, 254, 201, 178, 175, 71, 73, 230, 18, 17, 243, 3, 22, 193, 47, 173, 107, 173, 215, 208, 1, 82"
+```
+
+Rotate `zk_config.active_image_id` for later guest releases:
+
+```bash
+npm run zk:config:rotate -- \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --authority-keypair ~/.config/solana/mainnet-deploy.json \
+  --image-id "<new 32-byte image ID>"
+```
+
+The signer must match `protocol_config.authority`. You do not need to redeploy
+the Solana program for ordinary guest image rotations after this upgrade is live.
+
 ---
 
 ## 5. Post-Deployment Verification

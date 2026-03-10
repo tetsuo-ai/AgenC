@@ -133,6 +133,8 @@ function makeValidationHarness(options?: {
   claimExpiresAt?: number;
   bindingSpent?: boolean;
   nullifierSpent?: boolean;
+  zkConfigMissing?: boolean;
+  activeImageId?: Uint8Array;
 }) {
   const now = Math.floor(Date.now() / 1000);
   const creator = Keypair.generate().publicKey;
@@ -175,6 +177,14 @@ function makeValidationHarness(options?: {
         fetch: vi.fn().mockResolvedValue({
           treasury: Keypair.generate().publicKey,
         }),
+      },
+      zkConfig: {
+        fetch: options?.zkConfigMissing
+          ? vi.fn().mockRejectedValue(new Error("Account does not exist"))
+          : vi.fn().mockResolvedValue({
+              activeImageId:
+                options?.activeImageId ?? Uint8Array.from(TRUSTED_RISC0_IMAGE_ID),
+            }),
       },
     },
     methods: {
@@ -331,6 +341,22 @@ describe("runProofSubmissionPreflight", () => {
       },
     );
     expect(result.failures.some((f) => f.check === "trusted_image_id")).toBe(
+      true,
+    );
+  });
+
+  it("fails zk_config_exists when zk config is missing", async () => {
+    const harness = makeValidationHarness({ zkConfigMissing: true });
+    const result = await runProofSubmissionPreflight(
+      harness.connection as any,
+      harness.program,
+      {
+        taskPda: harness.taskPda,
+        workerAgentPda: harness.workerAgentPda,
+        proof: makeProof({ taskPda: harness.taskPda }),
+      },
+    );
+    expect(result.failures.some((f) => f.check === "zk_config_exists")).toBe(
       true,
     );
   });

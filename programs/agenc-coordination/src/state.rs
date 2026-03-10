@@ -326,6 +326,37 @@ impl ProtocolConfig {
     }
 }
 
+/// ZK verifier configuration account
+/// PDA seeds: ["zk_config"]
+#[account]
+#[derive(InitSpace)]
+pub struct ZkConfig {
+    /// Active trusted RISC Zero guest image ID.
+    pub active_image_id: [u8; HASH_SIZE],
+    /// Bump seed for PDA.
+    pub bump: u8,
+    /// Reserved for future ZK config extensions.
+    pub _reserved: [u8; 31],
+}
+
+impl Default for ZkConfig {
+    fn default() -> Self {
+        Self {
+            active_image_id: [0u8; HASH_SIZE],
+            bump: 0,
+            _reserved: [0u8; 31],
+        }
+    }
+}
+
+impl ZkConfig {
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8);
+
+    pub fn validate_reserved_fields(&self) -> bool {
+        self._reserved == [0u8; 31]
+    }
+}
+
 /// Agent registration account
 /// PDA seeds: ["agent", agent_id]
 #[account]
@@ -1177,6 +1208,11 @@ mod tests {
     }
 
     #[test]
+    fn test_zk_config_size() {
+        test_size_constant!(ZkConfig);
+    }
+
+    #[test]
     fn test_task_size() {
         test_size_constant!(Task);
     }
@@ -1317,5 +1353,24 @@ mod tests {
         let mut config = ProtocolConfig::default();
         config._padding[0] = 0xFF;
         assert!(!config.validate_padding_fields());
+    }
+
+    #[test]
+    fn test_zk_config_reserved_fields_default_to_zero() {
+        let config = ZkConfig::default();
+        assert_eq!(config._reserved, [0u8; 31]);
+    }
+
+    #[test]
+    fn test_zk_config_validate_reserved_fields_ok() {
+        let config = ZkConfig::default();
+        assert!(config.validate_reserved_fields());
+    }
+
+    #[test]
+    fn test_zk_config_validate_reserved_fields_corrupted() {
+        let mut config = ZkConfig::default();
+        config._reserved[0] = 0xFF;
+        assert!(!config.validate_reserved_fields());
     }
 }
