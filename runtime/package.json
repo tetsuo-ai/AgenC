@@ -83,13 +83,21 @@
     "ws": "^8.19.0"
   },
   "overrides": {
+    "@hono/node-server": "^1.19.11",
+    "bn.js": "^5.2.3",
+    "bigint-buffer": "file:../patches/npm/bigint-buffer",
     "express-rate-limit": "^8.3.1",
     "matrix-js-sdk": "^41.1.0-rc.0",
+    "rollup": "^4.59.0",
     "undici": "^7.22.0"
   },
   "resolutions": {
+    "@hono/node-server": "^1.19.11",
+    "bn.js": "^5.2.3",
+    "bigint-buffer": "file:../patches/npm/bigint-buffer",
     "express-rate-limit": "^8.3.1",
     "matrix-js-sdk": "^41.1.0-rc.0",
+    "rollup": "^4.59.0",
     "undici": "^7.22.0"
   },
   "dependencies": {

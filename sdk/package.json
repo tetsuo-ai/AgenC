@@ -56,10 +56,14 @@
     "ora": "^9.3.0"
   },
   "overrides": {
-    "bn.js": "^5.2.3"
+    "bn.js": "^5.2.3",
+    "bigint-buffer": "file:../patches/npm/bigint-buffer",
+    "rollup": "^4.59.0"
   },
   "resolutions": {
-    "bn.js": "^5.2.3"
+    "bn.js": "^5.2.3",
+    "bigint-buffer": "file:../patches/npm/bigint-buffer",
+    "rollup": "^4.59.0"
   },
   "devDependencies": {
     "@solana/spl-token": "^0.4.14",
