@@ -68,6 +68,7 @@ vi.mock("../desktop/health.js", () => ({
 
 import {
   getDefaultPidPath,
+  isRuntimeUserSkillDiscoveryEnabled,
   writePidFile,
   readPidFile,
   removePidFile,
@@ -85,6 +86,7 @@ import {
   formatEvalScriptReply,
   didEvalScriptPass,
   resolveBashToolEnv,
+  resolveRuntimeSkillDiscoveryPaths,
   resolveBashDenyExclusions,
   resolveStructuredExecDenyExclusions,
   ensureChromiumCompatShims,
@@ -113,6 +115,16 @@ import {
   type Session,
 } from "./session.js";
 import type { MemoryBackend } from "../memory/types.js";
+
+function buildSkillMd(name: string): string {
+  return `---
+name: ${name}
+description: Test skill ${name}
+version: 0.1.0
+---
+Body for ${name}.
+`;
+}
 
 // ============================================================================
 // Command availability classifier
@@ -1850,6 +1862,29 @@ describe("PID file operations", () => {
       }
     }
   });
+
+  it("isRuntimeUserSkillDiscoveryEnabled defaults to false", () => {
+    expect(isRuntimeUserSkillDiscoveryEnabled({})).toBe(false);
+    expect(isRuntimeUserSkillDiscoveryEnabled({ AGENC_ENABLE_USER_SKILLS: "0" })).toBe(
+      false,
+    );
+  });
+
+  it("resolveRuntimeSkillDiscoveryPaths only includes ~/.agenc/skills when opt-in is enabled", () => {
+    const currentFilePath = "/tmp/agenc/runtime/dist/bin/daemon.js";
+
+    const disabled = resolveRuntimeSkillDiscoveryPaths({}, "/tmp/home-disabled", currentFilePath);
+    expect(disabled.userSkills).toBeUndefined();
+    expect(disabled.builtinSkills).toBe("/tmp/agenc/runtime/src/skills/bundled");
+
+    const enabled = resolveRuntimeSkillDiscoveryPaths(
+      { AGENC_ENABLE_USER_SKILLS: "true" },
+      "/tmp/home-enabled",
+      currentFilePath,
+    );
+    expect(enabled.userSkills).toBe("/tmp/home-enabled/.agenc/skills");
+    expect(enabled.builtinSkills).toBe("/tmp/agenc/runtime/src/skills/bundled");
+  });
 });
 
 // ============================================================================
@@ -1958,6 +1993,91 @@ describe("DaemonManager", () => {
     expect(pidInfo!.port).toBe(9000);
 
     await dm.stop();
+  });
+
+  it("discoverSkills ignores ~/.agenc/skills unless explicitly enabled", async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), "agenc-home-"));
+    const userSkillsDir = join(homeDir, ".agenc", "skills");
+    const originalHome = process.env.HOME;
+    const originalFlag = process.env.AGENC_ENABLE_USER_SKILLS;
+
+    try {
+      await mkdir(userSkillsDir, { recursive: true });
+      await writeFile(join(userSkillsDir, "user-home-skill.md"), buildSkillMd("user-home-skill"));
+      process.env.HOME = homeDir;
+      delete process.env.AGENC_ENABLE_USER_SKILLS;
+
+      const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+      const discovered = await (dm as any).discoverSkills();
+
+      expect(discovered.some((entry: { tier: string }) => entry.tier === "user")).toBe(false);
+      expect(
+        discovered.some(
+          (entry: { skill: { name: string } }) => entry.skill.name === "user-home-skill",
+        ),
+      ).toBe(false);
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalFlag === undefined) {
+        delete process.env.AGENC_ENABLE_USER_SKILLS;
+      } else {
+        process.env.AGENC_ENABLE_USER_SKILLS = originalFlag;
+      }
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("discoverSkills loads ~/.agenc/skills only when explicitly enabled", async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), "agenc-home-"));
+    const userSkillsDir = join(homeDir, ".agenc", "skills");
+    const originalHome = process.env.HOME;
+    const originalFlag = process.env.AGENC_ENABLE_USER_SKILLS;
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      setLevel: vi.fn(),
+    };
+
+    try {
+      await mkdir(userSkillsDir, { recursive: true });
+      await writeFile(join(userSkillsDir, "user-home-skill.md"), buildSkillMd("user-home-skill"));
+      process.env.HOME = homeDir;
+      process.env.AGENC_ENABLE_USER_SKILLS = "1";
+
+      const dm = new DaemonManager({
+        configPath: "/tmp/config.json",
+        logger: logger as any,
+      });
+      const discovered = await (dm as any).discoverSkills();
+
+      expect(
+        discovered.some(
+          (entry: { tier: string; skill: { name: string } }) =>
+            entry.tier === "user" && entry.skill.name === "user-home-skill",
+        ),
+      ).toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("AGENC_ENABLE_USER_SKILLS"),
+      );
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalFlag === undefined) {
+        delete process.env.AGENC_ENABLE_USER_SKILLS;
+      } else {
+        process.env.AGENC_ENABLE_USER_SKILLS = originalFlag;
+      }
+      await rm(homeDir, { recursive: true, force: true });
+    }
   });
 
   it("enables sub-agent orchestration by default when llm.subagents is omitted", async () => {
