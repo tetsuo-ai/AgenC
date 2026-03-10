@@ -31,7 +31,7 @@ pub struct ApplyDisputeSlash<'info> {
         seeds = [b"dispute", dispute.dispute_id.as_ref()],
         bump = dispute.bump
     )]
-    pub dispute: Account<'info, Dispute>,
+    pub dispute: Box<Account<'info, Dispute>>,
 
     #[account(
         seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
@@ -45,7 +45,7 @@ pub struct ApplyDisputeSlash<'info> {
         bump = worker_claim.bump,
         constraint = worker_claim.task == task.key() @ CoordinationError::NotClaimed
     )]
-    pub worker_claim: Account<'info, TaskClaim>,
+    pub worker_claim: Box<Account<'info, TaskClaim>>,
 
     #[account(
         mut,
@@ -58,7 +58,7 @@ pub struct ApplyDisputeSlash<'info> {
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     /// CHECK: Treasury account to receive slashed lamports
     #[account(
@@ -76,14 +76,14 @@ pub struct ApplyDisputeSlash<'info> {
 
     /// Token escrow ATA holding deferred slash amount
     #[account(mut)]
-    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+    pub token_escrow_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     /// Treasury token ATA receiving slashed tokens
     #[account(mut)]
-    pub treasury_token_account: Option<Account<'info, TokenAccount>>,
+    pub treasury_token_account: Option<Box<Account<'info, TokenAccount>>>,
 
     /// SPL mint for task rewards (must match task.reward_mint)
-    pub reward_mint: Option<Account<'info, Mint>>,
+    pub reward_mint: Option<Box<Account<'info, Mint>>>,
 
     /// SPL Token program
     pub token_program: Option<Program<'info, Token>>,

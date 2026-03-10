@@ -88,3 +88,9 @@
   - store the active trusted image ID in the on-chain `zk_config` PDA
   - make the program read that PDA during `complete_task_private`
   - make SDK preflight/wrappers read `zk_config` instead of assuming a local constant is authoritative
+
+## 2026-03-10 - Newer SBF toolchains expose stack overflows in large Anchor `Accounts` validators
+
+- `cargo-build-sbf --tools-version v1.52` surfaced 4 KB frame overflows that the older local toolchain was not blocking on.
+- The minimal fix in this repo was to `Box<Account<...>>` the large accounts in heavy validation structs instead of pretending the old `.so` was still acceptable.
+- If local deploys suddenly fail on `try_accounts` frame size, inspect the failing `#[derive(Accounts)]` struct first.
