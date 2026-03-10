@@ -454,9 +454,13 @@ export function reconcileExactResponseContract(
 export function reconcileStructuredToolOutcome(
   content: string,
   toolCalls: readonly ToolCallRecord[],
+  messageText?: string,
 ): string {
   if (!content || toolCalls.length === 0) return content;
   const trimmed = content.trim();
+  const literal = typeof messageText === "string"
+    ? extractExactResponseLiteral(messageText)
+    : undefined;
 
   const hasToolFailure = toolCalls.some((toolCall) =>
     didToolCallFail(toolCall.isError, toolCall.result),
@@ -478,14 +482,38 @@ export function reconcileStructuredToolOutcome(
     if (failedToolCalls <= 0) return false;
     return hasExplicitFailureSignal(output);
   });
+  const failedCalls = toolCalls.filter((toolCall) =>
+    didToolCallFail(toolCall.isError, toolCall.result),
+  );
+  const allToolCallsFailed =
+    toolCalls.length > 0 && failedCalls.length === toolCalls.length;
+  const surfacesFailureDetails =
+    hasExplicitFailureSignal(trimmed) ||
+    failedCalls.some((toolCall) => {
+      const failurePreview = normalizeFailurePreview(
+        extractToolFailureMessage(toolCall),
+      ).toLowerCase();
+      return failurePreview.length > 0 &&
+        trimmed.toLowerCase().includes(failurePreview);
+    });
 
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    if (allToolCallsFailed && !surfacesFailureDetails) {
+      return buildToolFailureFallback(toolCalls);
+    }
     if (hasUnsupportedNarrativeFileClaims(trimmed, toolCalls)) {
       return buildUnsupportedFileClaimFallback(toolCalls);
     }
     if (
       (hasToolFailure || hasSubagentFailureSignal) &&
-      isLowInformationCompletion(trimmed)
+      (
+        isLowInformationCompletion(trimmed) ||
+        (
+          typeof literal === "string" &&
+          literal.length > 0 &&
+          trimmed === literal
+        )
+      )
     ) {
       return buildToolFailureFallback(toolCalls);
     }

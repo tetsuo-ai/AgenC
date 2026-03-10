@@ -5,6 +5,7 @@ import {
   generateFallbackContent,
   reconcileDirectShellObservationContent,
   reconcileExactResponseContract,
+  reconcileStructuredToolOutcome,
   reconcileVerifiedFileWorkflowContent,
   reconcileTerminalFailureContent,
   summarizeToolCalls,
@@ -345,6 +346,62 @@ describe("chat-executor-text", () => {
     );
 
     expect(content).toBe("TOKEN=IVORY-CIRCUIT-92");
+  });
+
+  it("overrides exact success sentinels when a tool failed", () => {
+    const content = reconcileStructuredToolOutcome(
+      "R2_DONE_A2",
+      [
+        {
+          name: "social.requestCollaboration",
+          args: {
+            title: "Launch Ritual Drill",
+          },
+          result: JSON.stringify({
+            error:
+              "Collaboration request failed: Feed post failed: AnchorError thrown in src/instructions/post_to_feed.rs:62. Error Code: InsufficientReputation.",
+          }),
+          isError: true,
+          durationMs: 0,
+        },
+      ],
+      "Use social.requestCollaboration, then after the tool calls finish, reply with exactly R2_DONE_A2.",
+    );
+
+    expect(content).toContain(
+      "Execution could not be completed due to unresolved tool errors.",
+    );
+    expect(content).toContain("social.requestCollaboration");
+    expect(content).not.toBe("R2_DONE_A2");
+  });
+
+  it("overrides paraphrased invocation text when every tool in the turn failed", () => {
+    const content = reconcileStructuredToolOutcome(
+      "invoke social.requestCollaboration with title is Launch Ritual Drill",
+      [
+        {
+          name: "social.requestCollaboration",
+          args: {
+            requiredCapabilities: "3",
+            maxMembers: 3,
+          },
+          result: JSON.stringify({
+            error: "title must be a non-empty string",
+          }),
+          isError: true,
+          durationMs: 3,
+        },
+      ],
+      "Use social.requestCollaboration with title Launch Ritual Drill, then reply with exactly R5_DONE_A2.",
+    );
+
+    expect(content).toContain(
+      "Execution could not be completed due to unresolved tool errors.",
+    );
+    expect(content).toContain("title must be a non-empty string");
+    expect(content).not.toContain(
+      "invoke social.requestCollaboration with title is Launch Ritual Drill",
+    );
   });
 
   it("restores prefixed exact literals from delegated child recall output", () => {

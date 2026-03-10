@@ -325,6 +325,131 @@ describe("WebChatChannel", () => {
     });
   });
 
+  describe("social.message bridge", () => {
+    it("pushes peer messages to active sessions without polluting chat history", async () => {
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "hello one" }),
+        send1,
+      );
+      channel.handleMessage(
+        "client_2",
+        "chat.message",
+        msg("chat.message", { content: "hello two" }),
+        send2,
+      );
+
+      vi.mocked(context.onMessage).mockClear();
+
+      const delivered = channel.pushSocialMessageToActiveSessions({
+        messageId: "social-1",
+        sender: "sender-agent",
+        recipient: "recipient-agent",
+        content: "peer hello",
+        mode: "off-chain",
+        timestamp: 123,
+        onChain: false,
+        threadId: "thread-social-1",
+      });
+
+      expect(delivered).toBe(2);
+      expect(context.onMessage).not.toHaveBeenCalled();
+      expect(send1).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "social.message",
+          payload: expect.objectContaining({
+            messageId: "social-1",
+            sender: "sender-agent",
+            recipient: "recipient-agent",
+            content: "peer hello",
+            mode: "off-chain",
+            onChain: false,
+            threadId: "thread-social-1",
+          }),
+        }),
+      );
+      expect(send2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "social.message",
+          payload: expect.objectContaining({
+            messageId: "social-1",
+            sender: "sender-agent",
+            recipient: "recipient-agent",
+            content: "peer hello",
+            mode: "off-chain",
+            onChain: false,
+            threadId: "thread-social-1",
+          }),
+        }),
+      );
+
+      const historySend = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "chat.history",
+        msg("chat.history", { limit: 10 }, "req-history"),
+        historySend,
+      );
+
+      await vi.waitFor(() =>
+        expect(findResponse(historySend, "chat.history", "req-history")).toEqual(
+          expect.objectContaining({
+            payload: [
+              expect.objectContaining({
+                content: "hello one",
+                sender: "user",
+              }),
+            ],
+          }),
+        ),
+      );
+    });
+
+    it("logs outbound social.message frames", async () => {
+      const logger = {
+        ...silentLogger,
+        info: vi.fn(),
+      };
+      context = createContext({ logger });
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "hello one" }),
+        send,
+      );
+
+      channel.pushSocialMessageToActiveSessions({
+        messageId: "social-1",
+        sender: "sender-agent",
+        recipient: "recipient-agent",
+        content: "peer hello",
+        mode: "off-chain",
+        timestamp: 123,
+        onChain: false,
+        threadId: "thread-social-1",
+      });
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("[trace] webchat.ws.outbound "),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("\"type\":\"social.message\""),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("\"threadId\":\"thread-social-1\""),
+      );
+    });
+  });
+
   // --------------------------------------------------------------------------
   // Chat message handling
   // --------------------------------------------------------------------------
@@ -547,6 +672,81 @@ describe("WebChatChannel", () => {
       expect(context.onMessage).toHaveBeenCalledTimes(1);
     });
 
+    it("should not dedupe the same request id across different durable owners", async () => {
+      const memoryBackend = new InMemoryBackend();
+      deps = createDeps({ memoryBackend });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      const messageId = "chat_msg_fixed";
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "open terminal" }, messageId),
+        send1,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      channel.handleMessage(
+        "client_2",
+        "chat.message",
+        msg("chat.message", { content: "open terminal" }, messageId),
+        send2,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(context.onMessage).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(context.onMessage).mock.calls[0][0].sessionId).not.toBe(
+        vi.mocked(context.onMessage).mock.calls[1][0].sessionId,
+      );
+    });
+
+    it("should dedupe the same request id across reconnects for the same durable owner", async () => {
+      const memoryBackend = new InMemoryBackend();
+      deps = createDeps({ memoryBackend });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      const messageId = "chat_msg_fixed";
+
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "open terminal" }, messageId),
+        send1,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const ownerToken = requireOwnerToken(send1);
+      const firstSessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+
+      channel.handleMessage(
+        "client_2",
+        "chat.message",
+        msg(
+          "chat.message",
+          { content: "open terminal", ownerToken },
+          messageId,
+        ),
+        send2,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(context.onMessage).toHaveBeenCalledTimes(1);
+      expect(findResponse(send2, "chat.session", messageId)?.payload).toEqual({
+        sessionId: firstSessionId,
+      });
+    });
+
     it("should not reuse the same first session ID after channel restart", async () => {
       const send = vi.fn<(response: ControlResponse) => void>();
 
@@ -749,6 +949,38 @@ describe("WebChatChannel", () => {
             sender: "agent",
           }),
         }),
+      );
+    });
+
+    it("logs outbound chat.message frames", async () => {
+      const logger = {
+        ...silentLogger,
+        info: vi.fn(),
+      };
+      context = createContext({ logger });
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "Hello" }),
+        send,
+      );
+
+      const gatewayMsg = vi.mocked(context.onMessage).mock.calls[0][0];
+      await channel.send({ sessionId: gatewayMsg.sessionId, content: "Hi back!" });
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("[trace] webchat.ws.outbound "),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("\"type\":\"chat.message\""),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("\"content\":\"Hi back!\""),
       );
     });
 

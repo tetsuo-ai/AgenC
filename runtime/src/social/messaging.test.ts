@@ -25,6 +25,8 @@ import {
 import { AgentMessaging } from "./messaging.js";
 import { RuntimeErrorCodes, AnchorErrorCodes } from "../types/errors.js";
 import { generateAgentId } from "../utils/encoding.js";
+import { AGENT_AUTHORITY_OFFSET } from "./types.js";
+import { InMemoryBackend } from "../memory/index.js";
 
 // ============================================================================
 // Test Helpers
@@ -269,6 +271,28 @@ describe("signAgentMessage / verifyAgentSignature", () => {
     expect(verifyAgentSignature(keypair.publicKey, tampered, sig)).toBe(false);
   });
 
+  it("rejects tampered thread ids", () => {
+    const keypair = Keypair.generate();
+    const recipient = randomPubkey();
+    const payload = buildSigningPayload(
+      keypair.publicKey,
+      recipient,
+      1,
+      "hello",
+      "thread-a",
+    );
+    const sig = signAgentMessage(keypair, payload);
+
+    const tampered = buildSigningPayload(
+      keypair.publicKey,
+      recipient,
+      1,
+      "hello",
+      "thread-b",
+    );
+    expect(verifyAgentSignature(keypair.publicKey, tampered, sig)).toBe(false);
+  });
+
   it("rejects tampered signature", () => {
     const keypair = Keypair.generate();
     const payload = buildSigningPayload(
@@ -315,8 +339,8 @@ describe("buildSigningPayload", () => {
     const recipient = randomPubkey();
     const content = "hello";
     const payload = buildSigningPayload(sender, recipient, 1, content);
-    // 32 (sender) + 32 (recipient) + 8 (nonce) + 5 (content) = 77
-    expect(payload.length).toBe(77);
+    // 32 (sender) + 32 (recipient) + 8 (nonce) + 4 (thread length) + 5 (content) = 81
+    expect(payload.length).toBe(81);
   });
 
   it("embeds sender and recipient correctly", () => {
@@ -806,6 +830,218 @@ describe("AgentMessaging — off-chain send", () => {
       messaging.send(randomPubkey(), "A".repeat(20), "off-chain"),
     ).rejects.toThrow(MessagingSendError);
   });
+
+  it("normalizes http endpoints to ws transport", async () => {
+    const discovery = createMockPeerResolver({
+      resolveEndpoint: vi.fn().mockResolvedValue("http://127.0.0.1:4101"),
+    });
+    const { messaging } = createTestMessaging({ discovery });
+    const sendWebSocket = vi
+      .spyOn(messaging as any, "sendWebSocket")
+      .mockResolvedValue(undefined);
+
+    await messaging.send(randomPubkey(), "hi", "off-chain");
+
+    expect(sendWebSocket).toHaveBeenCalledWith(
+      "ws://127.0.0.1:4101",
+      expect.any(String),
+    );
+  });
+
+  it("resolves endpoint by authority alias when recipient is not an agent PDA", async () => {
+    const recipientAuthority = randomPubkey();
+    const program = createMockProgram({
+      account: {
+        coordinationState: {
+          all: vi.fn().mockResolvedValue([]),
+        },
+        agentRegistration: {
+          fetchNullable: vi.fn().mockResolvedValue(null),
+          all: vi.fn().mockResolvedValue([
+            {
+              account: {
+                endpoint: "http://127.0.0.1:4102",
+              },
+            },
+          ]),
+        },
+      },
+    });
+    const wallet = Keypair.generate();
+    const agentId = generateAgentId(wallet.publicKey);
+    const messaging = new AgentMessaging({
+      program,
+      agentId,
+      wallet,
+      config: { defaultMode: "off-chain" },
+    });
+    const sendWebSocket = vi
+      .spyOn(messaging as any, "sendWebSocket")
+      .mockResolvedValue(undefined);
+
+    await messaging.send(recipientAuthority, "hi", "off-chain");
+
+    expect(program.account.agentRegistration.fetchNullable).toHaveBeenCalledWith(
+      recipientAuthority,
+    );
+    expect(program.account.agentRegistration.all).toHaveBeenCalledWith([
+      {
+        memcmp: {
+          offset: AGENT_AUTHORITY_OFFSET,
+          bytes: recipientAuthority.toBase58(),
+        },
+      },
+    ]);
+    expect(sendWebSocket).toHaveBeenCalledWith(
+      "ws://127.0.0.1:4102",
+      expect.any(String),
+    );
+  });
+
+  it("normalizes https endpoints to wss transport", async () => {
+    const discovery = createMockPeerResolver({
+      resolveEndpoint: vi.fn().mockResolvedValue("https://agent.example.com"),
+    });
+    const { messaging } = createTestMessaging({ discovery });
+    const sendWebSocket = vi
+      .spyOn(messaging as any, "sendWebSocket")
+      .mockResolvedValue(undefined);
+
+    await messaging.send(randomPubkey(), "hi", "off-chain");
+
+    expect(sendWebSocket).toHaveBeenCalledWith(
+      "wss://agent.example.com",
+      expect.any(String),
+    );
+  });
+
+  it("includes signed thread ids in off-chain envelopes", async () => {
+    const discovery = createMockPeerResolver({
+      resolveEndpoint: vi.fn().mockResolvedValue("http://127.0.0.1:4101"),
+    });
+    const { messaging, wallet } = createTestMessaging({
+      discovery,
+      config: { defaultMode: "off-chain" },
+    });
+    const sendWebSocket = vi
+      .spyOn(messaging as any, "sendWebSocket")
+      .mockResolvedValue(undefined);
+    const recipient = randomPubkey();
+
+    const message = await messaging.send(
+      recipient,
+      "threaded hello",
+      "off-chain",
+      { threadId: "social-thread-1" },
+    );
+
+    const [, rawEnvelope] = sendWebSocket.mock.calls[0];
+    const envelope = JSON.parse(rawEnvelope) as OffChainEnvelope;
+    expect(envelope.threadId).toBe("social-thread-1");
+    expect(message.threadId).toBe("social-thread-1");
+    expect(
+      verifyAgentSignature(
+        wallet.publicKey,
+        buildSigningPayload(
+          wallet.publicKey,
+          recipient,
+          message.nonce,
+          "threaded hello",
+          envelope.threadId,
+        ),
+        message.signature,
+      ),
+    ).toBe(true);
+  });
+
+  it("logs off-chain retry metadata and final delivery details", async () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+      setLevel: vi.fn(),
+    };
+    const discovery = createMockPeerResolver({
+      resolveEndpoint: vi.fn().mockResolvedValue("http://127.0.0.1:4101"),
+    });
+    const { messaging } = createTestMessaging({
+      discovery,
+      logger,
+      config: { defaultMode: "off-chain", offChainRetries: 2 },
+    });
+    const sendWebSocket = vi
+      .spyOn(messaging as any, "sendWebSocket")
+      .mockRejectedValueOnce(
+        new MessagingConnectionError("ws://127.0.0.1:4101", "ECONNREFUSED"),
+      )
+      .mockResolvedValueOnce(undefined);
+
+    await messaging.send(randomPubkey(), "hi", "off-chain");
+
+    expect(sendWebSocket).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Off-chain send attempt failed",
+      expect.objectContaining({
+        attempt: 1,
+        retriesRemaining: 2,
+        error: expect.stringContaining("ECONNREFUSED"),
+      }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "Off-chain message sent",
+      expect.objectContaining({
+        attemptsUsed: 2,
+        onChain: false,
+      }),
+    );
+  });
+
+  it("stores successful outbound messages in recent history", async () => {
+    const discovery = createMockPeerResolver({
+      resolveEndpoint: vi.fn().mockResolvedValue("http://127.0.0.1:4101"),
+    });
+    const { messaging } = createTestMessaging({
+      discovery,
+      config: { defaultMode: "off-chain" },
+    });
+    vi.spyOn(messaging as any, "sendWebSocket").mockResolvedValue(undefined);
+    const recipient = randomPubkey();
+
+    await messaging.send(recipient, "history-outbound", "off-chain");
+
+    const recent = messaging.getRecentMessages({ direction: "outgoing" });
+    expect(recent).toHaveLength(1);
+    expect(recent[0].content).toBe("history-outbound");
+    expect(recent[0].recipient.equals(recipient)).toBe(true);
+  });
+
+  it("filters recent outbound history by thread id", async () => {
+    const discovery = createMockPeerResolver({
+      resolveEndpoint: vi.fn().mockResolvedValue("http://127.0.0.1:4101"),
+    });
+    const { messaging } = createTestMessaging({
+      discovery,
+      config: { defaultMode: "off-chain" },
+    });
+    vi.spyOn(messaging as any, "sendWebSocket").mockResolvedValue(undefined);
+    const recipient = randomPubkey();
+
+    await messaging.send(recipient, "history-a", "off-chain", {
+      threadId: "thread-a",
+    });
+    await messaging.send(recipient, "history-b", "off-chain", {
+      threadId: "thread-b",
+    });
+
+    const recent = messaging.getRecentMessages({
+      direction: "outgoing",
+      threadId: "thread-b",
+    });
+    expect(recent).toHaveLength(1);
+    expect(recent[0].content).toBe("history-b");
+    expect(recent[0].threadId).toBe("thread-b");
+  });
 });
 
 // ============================================================================
@@ -820,6 +1056,171 @@ describe("AgentMessaging — off-chain listener", () => {
     await messaging.dispose();
 
     await expect(messaging.startListener(0)).rejects.toThrow("disposed");
+  });
+
+  it("stores inbound messages in recent history", async () => {
+    const sender = Keypair.generate();
+    const recipient = Keypair.generate();
+    const recipientAgentId = generateAgentId(recipient.publicKey);
+    const program = createMockProgram();
+    const messaging = new AgentMessaging({
+      program,
+      agentId: recipientAgentId,
+      wallet: recipient,
+      config: { defaultMode: "off-chain" },
+    });
+    const payload = buildSigningPayload(
+      sender.publicKey,
+      recipient.publicKey,
+      7,
+      "history-inbound",
+      "thread-inbound",
+    );
+    const signature = signAgentMessage(sender, payload);
+
+    await (messaging as any).handleIncomingMessage(
+      JSON.stringify({
+        type: "message",
+        sender: sender.publicKey.toBase58(),
+        recipient: recipient.publicKey.toBase58(),
+        content: "history-inbound",
+        threadId: "thread-inbound",
+        nonce: 7,
+        timestamp: 123,
+        signature: Buffer.from(signature).toString("base64"),
+      }),
+    );
+
+    const recent = messaging.getRecentMessages({ direction: "incoming" });
+    expect(recent).toHaveLength(1);
+    expect(recent[0].content).toBe("history-inbound");
+    expect(recent[0].sender.equals(sender.publicKey)).toBe(true);
+    expect(recent[0].threadId).toBe("thread-inbound");
+  });
+
+  it("treats messages addressed to the local agent PDA as incoming", async () => {
+    const sender = Keypair.generate();
+    const recipient = Keypair.generate();
+    const recipientAgentId = generateAgentId(recipient.publicKey);
+    const program = createMockProgram();
+    const messaging = new AgentMessaging({
+      program,
+      agentId: recipientAgentId,
+      wallet: recipient,
+      config: { defaultMode: "off-chain" },
+    });
+    const localAgentPda = messaging.getLocalAgentPda();
+    const payload = buildSigningPayload(
+      sender.publicKey,
+      localAgentPda,
+      8,
+      "history-inbound-agent-pda",
+      "thread-agent-pda",
+    );
+    const signature = signAgentMessage(sender, payload);
+
+    await (messaging as any).handleIncomingMessage(
+      JSON.stringify({
+        type: "message",
+        sender: sender.publicKey.toBase58(),
+        recipient: localAgentPda.toBase58(),
+        content: "history-inbound-agent-pda",
+        threadId: "thread-agent-pda",
+        nonce: 8,
+        timestamp: 124,
+        signature: Buffer.from(signature).toString("base64"),
+      }),
+    );
+
+    const recent = messaging.getRecentMessages({ direction: "incoming" });
+    expect(recent).toHaveLength(1);
+    expect(recent[0].content).toBe("history-inbound-agent-pda");
+    expect(recent[0].recipient.equals(localAgentPda)).toBe(true);
+    expect(recent[0].threadId).toBe("thread-agent-pda");
+  });
+
+  it("rejects inbound messages with tampered thread ids", async () => {
+    const sender = Keypair.generate();
+    const recipient = Keypair.generate();
+    const recipientAgentId = generateAgentId(recipient.publicKey);
+    const program = createMockProgram();
+    const messaging = new AgentMessaging({
+      program,
+      agentId: recipientAgentId,
+      wallet: recipient,
+      config: { defaultMode: "off-chain" },
+    });
+
+    const payload = buildSigningPayload(
+      sender.publicKey,
+      recipient.publicKey,
+      9,
+      "history-inbound",
+      "thread-a",
+    );
+    const signature = signAgentMessage(sender, payload);
+
+    await (messaging as any).handleIncomingMessage(
+      JSON.stringify({
+        type: "message",
+        sender: sender.publicKey.toBase58(),
+        recipient: recipient.publicKey.toBase58(),
+        content: "history-inbound",
+        threadId: "thread-b",
+        nonce: 9,
+        timestamp: 125,
+        signature: Buffer.from(signature).toString("base64"),
+      }),
+    );
+
+    const recent = messaging.getRecentMessages({ direction: "incoming" });
+    expect(recent).toHaveLength(0);
+  });
+
+  it("hydrates recent messages from the durable mailbox store across instances", async () => {
+    const backend = new InMemoryBackend();
+    const wallet = Keypair.generate();
+    const agentId = generateAgentId(wallet.publicKey);
+    const recipient = randomPubkey();
+    const discovery = createMockPeerResolver({
+      resolveEndpoint: vi.fn().mockResolvedValue("http://127.0.0.1:4101"),
+    });
+    const program = createMockProgram();
+
+    const messaging1 = new AgentMessaging({
+      program,
+      agentId,
+      wallet,
+      discovery,
+      memoryBackend: backend,
+      config: { defaultMode: "off-chain" },
+    });
+    vi.spyOn(messaging1 as any, "sendWebSocket").mockResolvedValue(undefined);
+
+    await messaging1.send(recipient, "persisted-outbound", "off-chain");
+    await messaging1.send(recipient, "persisted-threaded", "off-chain", {
+      threadId: "thread-persisted",
+    });
+
+    const messaging2 = new AgentMessaging({
+      program,
+      agentId,
+      wallet,
+      discovery,
+      memoryBackend: backend,
+      config: { defaultMode: "off-chain" },
+    });
+
+    await messaging2.hydrateRecentMessages();
+
+    const recent = messaging2.getRecentMessages({
+      direction: "outgoing",
+      threadId: "thread-persisted",
+    });
+    expect(recent).toHaveLength(1);
+    expect(recent[0].content).toBe("persisted-threaded");
+    expect(recent[0].recipient.equals(recipient)).toBe(true);
+    expect(recent[0].threadId).toBe("thread-persisted");
   });
 });
 
@@ -847,6 +1248,13 @@ describe("AgentMessaging — message handlers", () => {
 
 describe("AgentMessaging — auto mode", () => {
   it("falls back to on-chain when no endpoint", async () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+      setLevel: vi.fn(),
+    };
     const discovery = createMockPeerResolver({
       resolveEndpoint: vi.fn().mockResolvedValue(null),
     });
@@ -859,12 +1267,19 @@ describe("AgentMessaging — auto mode", () => {
       agentId,
       wallet,
       discovery,
+      logger,
       config: { defaultMode: "auto" },
     });
 
     const msg = await messaging.send(randomPubkey(), "hi", "auto");
     expect(msg.onChain).toBe(true);
     expect(msg.mode).toBe("on-chain");
+    expect(logger.info).toHaveBeenCalledWith(
+      "Messaging auto fallback to on-chain",
+      expect.objectContaining({
+        reason: expect.stringContaining("No endpoint found for recipient"),
+      }),
+    );
   });
 
   it("surfaces rate limit error from on-chain fallback", async () => {

@@ -13,6 +13,7 @@ import type { Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../idl.js";
 import type { Logger } from "../utils/logger.js";
 import type { ReputationSignalCallback } from "./reputation-types.js";
+import type { MemoryBackend } from "../memory/types.js";
 
 // ============================================================================
 // Constants
@@ -30,6 +31,9 @@ export const MSG_CONTENT_MAX_ONCHAIN = 64;
 
 /** Message delivery mode */
 export type MessageMode = "on-chain" | "off-chain" | "auto";
+
+/** Query direction for recent-message lookups */
+export type MessageQueryDirection = "incoming" | "outgoing" | "all";
 
 /** Core message object */
 export interface AgentMessage {
@@ -51,6 +55,8 @@ export interface AgentMessage {
   nonce: number;
   /** Whether the message was sent on-chain */
   onChain: boolean;
+  /** Optional thread correlation identifier for scoped conversations */
+  threadId?: string | null;
 }
 
 /** Handler for incoming messages */
@@ -75,12 +81,33 @@ export interface MessagingConfig {
   offChainPort?: number;
 }
 
+/** Optional metadata for a send operation */
+export interface MessageSendOptions {
+  /** Stable thread/conversation identifier for correlation and filtering */
+  threadId?: string | null;
+}
+
+/** Query options for recent in-memory message lookups */
+export interface RecentMessageQuery {
+  /** Maximum number of messages to return (newest first) */
+  limit?: number;
+  /** Restrict to incoming, outgoing, or all messages */
+  direction?: MessageQueryDirection;
+  /** Optional peer filter */
+  peer?: PublicKey;
+  /** Optional delivery-mode filter */
+  mode?: "on-chain" | "off-chain" | "all";
+  /** Optional thread correlation filter */
+  threadId?: string;
+}
+
 /** JSON wire format for off-chain WebSocket messages */
 export interface OffChainEnvelope {
   type: "message";
   sender: string;
   recipient: string;
   content: string;
+  threadId?: string;
   nonce: number;
   timestamp: number;
   /** Base64-encoded Ed25519 signature */
@@ -101,6 +128,8 @@ export interface MessagingOpsConfig {
   config?: MessagingConfig;
   /** Optional logger */
   logger?: Logger;
+  /** Optional bounded mailbox persistence for restart-safe recent history */
+  memoryBackend?: MemoryBackend;
   /** Optional callback for reputation-relevant signals (e.g. message sent) */
   onReputationSignal?: ReputationSignalCallback;
 }

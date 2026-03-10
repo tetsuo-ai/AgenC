@@ -1145,6 +1145,54 @@ function validateSocialSection(social: unknown, errors: string[]): void {
   ) {
     errors.push("social.discoveryCacheMaxEntries must be a positive number");
   }
+  if (social.peerDirectory !== undefined) {
+    if (!Array.isArray(social.peerDirectory)) {
+      errors.push("social.peerDirectory must be an array");
+    } else {
+      social.peerDirectory.forEach((entry, index) => {
+        if (!isRecord(entry)) {
+          errors.push(`social.peerDirectory[${index}] must be an object`);
+          return;
+        }
+        if (
+          entry.index !== undefined &&
+          (typeof entry.index !== "number" ||
+            !Number.isInteger(entry.index) ||
+            entry.index < 1)
+        ) {
+          errors.push(`social.peerDirectory[${index}].index must be a positive integer`);
+        }
+        if (typeof entry.label !== "string" || entry.label.trim().length === 0) {
+          errors.push(`social.peerDirectory[${index}].label must be a non-empty string`);
+        }
+        if (
+          typeof entry.authority !== "string" ||
+          entry.authority.trim().length === 0
+        ) {
+          errors.push(`social.peerDirectory[${index}].authority must be a non-empty string`);
+        }
+        if (
+          typeof entry.agentPda !== "string" ||
+          entry.agentPda.trim().length === 0
+        ) {
+          errors.push(`social.peerDirectory[${index}].agentPda must be a non-empty string`);
+        }
+        if (entry.aliases !== undefined) {
+          if (!Array.isArray(entry.aliases)) {
+            errors.push(`social.peerDirectory[${index}].aliases must be an array`);
+          } else if (
+            entry.aliases.some(
+              (alias) => typeof alias !== "string" || alias.trim().length === 0,
+            )
+          ) {
+            errors.push(
+              `social.peerDirectory[${index}].aliases entries must be non-empty strings`,
+            );
+          }
+        }
+      });
+    }
+  }
 }
 
 function validateAutonomySection(autonomy: unknown, errors: string[]): void {

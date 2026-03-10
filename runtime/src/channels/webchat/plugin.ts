@@ -20,6 +20,8 @@ import { createGatewayMessage } from "../../gateway/message.js";
 import { deriveSessionId } from "../../gateway/session.js";
 import { DEFAULT_WORKSPACE_ID } from "../../gateway/workspace.js";
 import type { ControlMessage, ControlResponse } from "../../gateway/types.js";
+import { safeStringify } from "../../tools/types.js";
+import { summarizeTracePayloadForPreview } from "../../utils/trace-payload-serialization.js";
 import type {
   WebChatHandler,
   WebChatDeps,
@@ -28,7 +30,10 @@ import type {
 import { HANDLER_MAP } from "./handlers.js";
 import type { SendFn } from "./handlers.js";
 import type { HandlerRequestContext } from "./handlers.js";
-import { matchesEventFilters } from "./protocol.js";
+import {
+  matchesEventFilters,
+  type SocialMessagePayload,
+} from "./protocol.js";
 import {
   WebChatSessionStore,
   type PersistedWebChatOwnerCredential,
@@ -37,6 +42,7 @@ import {
 
 const MESSAGE_ID_TTL_MS = 5 * 60_000;
 const MAX_TRACKED_MESSAGE_IDS = 5_000;
+const WS_TRACE_PAYLOAD_MAX_CHARS = 2_000;
 
 // ============================================================================
 // WebChatChannel
@@ -85,7 +91,11 @@ export class WebChatChannel
   // sessionId → AbortController for in-flight chat execution
   private readonly sessionAbortControllers = new Map<string, AbortController>();
   // Dedup replayed chat.message envelopes (e.g. reconnect flush/retry)
-  private readonly seenMessageIds = new Map<string, number>();
+  // per durable owner so fresh clients/runs can safely reuse local counters.
+  private readonly seenMessageIds = new Map<
+    string,
+    { seenAt: number; sessionId: string }
+  >();
   private readonly sessionStore?: WebChatSessionStore;
 
   private healthy = true;
@@ -177,7 +187,28 @@ export class WebChatChannel
     if (!clientId) return;
     const send = this.clientSenders.get(clientId);
     if (!send) return;
-    send(response);
+    this.sendTracedControlResponse(clientId, sessionId, send, response);
+  }
+
+  /**
+   * Surface an inbound peer-to-peer social message to every active session on
+   * this daemon without replaying it as the daemon agent's own chat history.
+   */
+  pushSocialMessageToActiveSessions(payload: SocialMessagePayload): number {
+    let delivered = 0;
+    for (const [sessionId, clientId] of this.sessionClients.entries()) {
+      const send = this.clientSenders.get(clientId);
+      if (!send) continue;
+      this.sendTracedControlResponse(clientId, sessionId, send, {
+        type: "social.message",
+        payload: {
+          ...payload,
+          sessionId,
+        },
+      });
+      delivered += 1;
+    }
+    return delivered;
   }
 
   // --------------------------------------------------------------------------
@@ -215,7 +246,7 @@ export class WebChatChannel
       return;
     }
 
-    sendFn({
+    this.sendTracedControlResponse(clientId, message.sessionId, sendFn, {
       type: "chat.message",
       payload: {
         content: message.content,
@@ -237,25 +268,33 @@ export class WebChatChannel
   ): void {
     // Store sender for outbound routing
     this.clientSenders.set(clientId, send);
+    const tracedSend: SendFn = (response) => {
+      this.sendTracedControlResponse(
+        clientId,
+        this.clientSessions.get(clientId),
+        send,
+        response,
+      );
+    };
 
     const id = typeof msg.id === "string" ? msg.id : undefined;
     let payload = msg.payload as Record<string, unknown> | undefined;
 
     // Voice messages are routed to the voice bridge
     if (type.startsWith("voice.")) {
-      this.handleVoiceMessage(clientId, type, payload, id, send);
+      this.handleVoiceMessage(clientId, type, payload, id, tracedSend);
       return;
     }
 
     // Event subscriptions need clientId — handled here, not in HANDLER_MAP
     if (type.startsWith("events.")) {
-      this.handleEventMessage(clientId, type, payload, id, send);
+      this.handleEventMessage(clientId, type, payload, id, tracedSend);
       return;
     }
 
     // Chat messages are special — they go through the Gateway's message pipeline
     if (type === "chat.message") {
-      this.handleChatMessage(clientId, payload, id, send);
+      this.handleChatMessage(clientId, payload, id, tracedSend);
       return;
     }
 
@@ -271,7 +310,7 @@ export class WebChatChannel
         ? this.deps.cancelBackgroundRun?.(sessionId)
         : false;
       void Promise.resolve(backgroundCancelled).then((result) => {
-        send({
+        tracedSend({
           type: "chat.cancelled",
           payload: { cancelled: foregroundCancelled || Boolean(result) },
           id,
@@ -281,22 +320,22 @@ export class WebChatChannel
     }
 
     if (type === "chat.new") {
-      this.handleChatNew(clientId, payload, id, send);
+      this.handleChatNew(clientId, payload, id, tracedSend);
       return;
     }
 
     if (type === "chat.history") {
-      this.handleChatHistory(clientId, payload, id, send);
+      this.handleChatHistory(clientId, payload, id, tracedSend);
       return;
     }
 
     if (type === "chat.resume") {
-      this.handleChatResume(clientId, payload, id, send);
+      this.handleChatResume(clientId, payload, id, tracedSend);
       return;
     }
 
     if (type === "chat.sessions") {
-      this.handleChatSessions(clientId, payload, id, send);
+      this.handleChatSessions(clientId, payload, id, tracedSend);
       return;
     }
 
@@ -314,7 +353,7 @@ export class WebChatChannel
           this.currentOwnerKey(clientId),
         );
         normalizedPayload.sessionId = sessionId;
-        send({ type: "chat.session", payload: { sessionId } });
+        tracedSend({ type: "chat.session", payload: { sessionId } });
       }
       payload = normalizedPayload;
     }
@@ -332,11 +371,11 @@ export class WebChatChannel
         isSessionOwned: (sessionId: string) =>
           this.sessionOwners.get(sessionId) === this.currentOwnerKey(clientId),
       };
-      const result = handler(this.deps, payload, id, send, requestContext);
+      const result = handler(this.deps, payload, id, tracedSend, requestContext);
       if (result instanceof Promise) {
         result.catch((err) => {
           this.context.logger.warn?.("WebChat handler error:", err);
-          send({
+          tracedSend({
             type: "error",
             error: `Handler error: ${(err as Error).message}`,
             id,
@@ -346,7 +385,48 @@ export class WebChatChannel
       return;
     }
 
-    send({ type: "error", error: `Unknown webchat message type: ${type}`, id });
+    tracedSend({ type: "error", error: `Unknown webchat message type: ${type}`, id });
+  }
+
+  private sendTracedControlResponse(
+    clientId: string,
+    sessionId: string | undefined,
+    send: SendFn,
+    response: ControlResponse,
+  ): void {
+    this.traceOutboundControlResponse(clientId, sessionId, response);
+    send(response);
+  }
+
+  private traceOutboundControlResponse(
+    clientId: string,
+    sessionId: string | undefined,
+    response: ControlResponse,
+  ): void {
+    const payload = response.payload;
+    const payloadSessionId =
+      payload &&
+      typeof payload === "object" &&
+      "sessionId" in payload &&
+      typeof payload.sessionId === "string"
+        ? payload.sessionId
+        : undefined;
+    const traceLine = {
+      clientId,
+      ...(payloadSessionId || sessionId
+        ? { sessionId: payloadSessionId ?? sessionId }
+        : {}),
+      type: response.type,
+      ...(typeof response.id === "string" ? { id: response.id } : {}),
+      ...(typeof response.error === "string" ? { error: response.error } : {}),
+      payloadPreview: summarizeTracePayloadForPreview(
+        payload ?? null,
+        WS_TRACE_PAYLOAD_MAX_CHARS,
+      ),
+    };
+    this.context.logger.info(
+      `[trace] webchat.ws.outbound ${safeStringify(traceLine)}`,
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -451,24 +531,33 @@ export class WebChatChannel
       return;
     }
 
-    if (id && this.isDuplicateMessageId(id)) {
-      const existingSessionId = this.clientSessions.get(clientId);
-      if (existingSessionId) {
-        send({
-          type: "chat.session",
-          payload: { sessionId: existingSessionId },
-          id,
-        });
-      }
-      return;
-    }
     this.withResolvedOwner(
       clientId,
       payload,
       send,
       (ownerKey) => {
+        const messageKey =
+          typeof id === "string"
+            ? this.buildSeenMessageKey(ownerKey, id)
+            : undefined;
+        const duplicateSessionId = messageKey
+          ? this.getDuplicateSessionId(messageKey)
+          : undefined;
+        if (duplicateSessionId) {
+          this.bindClientToSession(clientId, duplicateSessionId, ownerKey);
+          send({
+            type: "chat.session",
+            payload: { sessionId: duplicateSessionId },
+            id,
+          });
+          return;
+        }
+
         const timestamp = Date.now();
         const sessionId = this.ensureSession(clientId, ownerKey);
+        if (messageKey) {
+          this.rememberMessageKey(messageKey, sessionId, timestamp);
+        }
         const policyContext =
           this.parsePolicyContext(payload) ??
           this.sessionPolicyContexts.get(sessionId);
@@ -896,9 +985,7 @@ export class WebChatChannel
       "per-channel-peer",
     );
 
-    this.clientSessions.set(clientId, sessionId);
-    this.sessionClients.set(sessionId, clientId);
-    this.sessionOwners.set(sessionId, ownerKey);
+    this.bindClientToSession(clientId, sessionId, ownerKey);
     if (this.isDurableOwnerKey(ownerKey)) {
       void this.sessionStore?.ensureSession({ sessionId, ownerKey });
     }
@@ -906,24 +993,47 @@ export class WebChatChannel
     return sessionId;
   }
 
-  private isDuplicateMessageId(messageId: string): boolean {
-    this.pruneMessageIds();
-    if (this.seenMessageIds.has(messageId)) {
-      return true;
+  private bindClientToSession(
+    clientId: string,
+    sessionId: string,
+    ownerKey: string,
+  ): void {
+    const existingSessionId = this.clientSessions.get(clientId);
+    if (existingSessionId && existingSessionId !== sessionId) {
+      this.sessionClients.delete(existingSessionId);
     }
-    this.seenMessageIds.set(messageId, Date.now());
+    this.clientSessions.set(clientId, sessionId);
+    this.sessionClients.set(sessionId, clientId);
+    this.sessionOwners.set(sessionId, ownerKey);
+  }
+
+  private buildSeenMessageKey(ownerKey: string, messageId: string): string {
+    return `${ownerKey}:${messageId}`;
+  }
+
+  private getDuplicateSessionId(messageKey: string): string | undefined {
+    this.pruneMessageIds();
+    return this.seenMessageIds.get(messageKey)?.sessionId;
+  }
+
+  private rememberMessageKey(
+    messageKey: string,
+    sessionId: string,
+    now = Date.now(),
+  ): void {
+    this.pruneMessageIds(now);
+    this.seenMessageIds.set(messageKey, { seenAt: now, sessionId });
     if (this.seenMessageIds.size > MAX_TRACKED_MESSAGE_IDS) {
       const oldest = this.seenMessageIds.keys().next().value;
       if (typeof oldest === "string") {
         this.seenMessageIds.delete(oldest);
       }
     }
-    return false;
   }
 
   private pruneMessageIds(now = Date.now()): void {
-    for (const [id, ts] of this.seenMessageIds) {
-      if (now - ts > MESSAGE_ID_TTL_MS) {
+    for (const [id, entry] of this.seenMessageIds) {
+      if (now - entry.seenAt > MESSAGE_ID_TTL_MS) {
         this.seenMessageIds.delete(id);
       }
     }

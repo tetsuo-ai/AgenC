@@ -130,6 +130,85 @@ describe("chat-executor-contract-guidance", () => {
     });
   });
 
+  it("forces explicitly requested social tools on the initial turn", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Use social.requestCollaboration with title Launch Ritual Drill, description Need 3 agents, requiredCapabilities 3, maxMembers 3, then reply exactly R3_DONE_A2.",
+      toolCalls: [],
+      allowedToolNames: ["social.requestCollaboration", "social.sendMessage"],
+    });
+
+    expect(guidance).toEqual({
+      source: "explicit-tool-invocation",
+      runtimeInstruction:
+        "The user explicitly instructed this turn to call `social.requestCollaboration`. " +
+        "Execute that tool before answering.",
+      routedToolNames: ["social.requestCollaboration"],
+      toolChoice: "required",
+    });
+  });
+
+  it("does not force tools for non-imperative tool mentions", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Explain what social.requestCollaboration does and when to use it.",
+      toolCalls: [],
+      allowedToolNames: ["social.requestCollaboration"],
+    });
+
+    expect(guidance).toBeUndefined();
+  });
+
+  it("prefers explicit social inbox tools over typed email guidance", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Use social.getRecentMessages with direction incoming and limit 3. Read the newest message from agent 1, then use social.sendMessage to reply.",
+      toolCalls: [],
+      allowedToolNames: [
+        "system.emailMessageInfo",
+        "system.emailMessageExtractText",
+        "social.getRecentMessages",
+        "social.sendMessage",
+      ],
+    });
+
+    expect(guidance).toEqual({
+      source: "explicit-tool-invocation",
+      runtimeInstruction:
+        "The user explicitly instructed this turn to call `social.getRecentMessages`, `social.sendMessage`. " +
+        "Execute those tools before answering.",
+      routedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+      toolChoice: "required",
+    });
+  });
+
+  it("keeps explicit social inbox turns on social tools even when inbox wording appears", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Use social.getRecentMessages with direction incoming and limit 3. Read the newest inbox message from agent 1, then use social.sendMessage to reply.",
+      toolCalls: [],
+      allowedToolNames: [
+        "system.emailMessageInfo",
+        "system.emailMessageExtractText",
+        "social.getRecentMessages",
+        "social.sendMessage",
+      ],
+    });
+
+    expect(guidance).toEqual({
+      source: "explicit-tool-invocation",
+      runtimeInstruction:
+        "The user explicitly instructed this turn to call `social.getRecentMessages`, `social.sendMessage`. " +
+        "Execute those tools before answering.",
+      routedToolNames: ["social.getRecentMessages", "social.sendMessage"],
+      toolChoice: "required",
+    });
+  });
+
   it("blocks desktop/bash detours before the Doom launch contract is satisfied", () => {
     const block = resolveToolContractExecutionBlock({
       phase: "initial",

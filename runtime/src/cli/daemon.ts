@@ -25,6 +25,7 @@ import {
 import { sleep, toErrorMessage } from "../utils/async.js";
 import { createLogger } from "../utils/logger.js";
 import type { CliRuntimeContext, CliStatusCode } from "./types.js";
+import { installForegroundLogTee } from "./foreground-log-tee.js";
 import type {
   DaemonStartOptions,
   DaemonStopOptions,
@@ -237,6 +238,10 @@ async function runForeground(
   configPath: string,
   options: DaemonStartOptions,
 ): Promise<CliStatusCode> {
+  const foregroundLogTee = installForegroundLogTee({
+    logPath: getDaemonLogPath(),
+    warn: (message) => context.logger.warn(message),
+  });
   const dm = new DaemonManager({
     configPath,
     pidPath: options.pidPath,
@@ -250,6 +255,7 @@ async function runForeground(
       command: "start",
       mode: "foreground",
       pid: process.pid,
+      ...(foregroundLogTee ? { logPath: foregroundLogTee.logPath } : {}),
     });
 
     // Block until terminated: DaemonManager.setupSignalHandlers() registers
@@ -264,6 +270,8 @@ async function runForeground(
       message: toErrorMessage(error),
     });
     return 1;
+  } finally {
+    await foregroundLogTee?.dispose();
   }
 }
 

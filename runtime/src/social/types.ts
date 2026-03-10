@@ -20,6 +20,35 @@ import type { AgentState } from "../agent/types.js";
  */
 export const AGENT_STATUS_OFFSET = 80;
 
+/**
+ * Byte offset of the `authority` field (Pubkey) in the AgentRegistration account.
+ * Layout: discriminator (8) + agent_id (32) = 40
+ */
+export const AGENT_AUTHORITY_OFFSET = 40;
+
+// ============================================================================
+// Peer Directory
+// ============================================================================
+
+/**
+ * Optional daemon-local peer directory entry used for stable social aliasing.
+ *
+ * This is intentionally bounded and local to the daemon/session. It is not a
+ * global discovery index.
+ */
+export interface SocialPeerDirectoryEntry {
+  /** Stable local index when available (e.g. agent-1 => 1). */
+  index?: number;
+  /** Human-readable label used by the operator surface. */
+  label: string;
+  /** Agent authority pubkey (base58). */
+  authority: string;
+  /** Agent registration PDA (base58). */
+  agentPda: string;
+  /** Optional extra aliases accepted for resolution. */
+  aliases?: readonly string[];
+}
+
 // ============================================================================
 // Agent Profile
 // ============================================================================

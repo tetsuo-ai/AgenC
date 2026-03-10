@@ -30,6 +30,7 @@ export const WS_CHAT_CANCELLED = "chat.cancelled" as const;
 export const WS_CHAT_CANCEL = "chat.cancel" as const;
 export const WS_CHAT_RESUME = "chat.resume" as const;
 export const WS_CHAT_USAGE = "chat.usage" as const;
+export const WS_SOCIAL_MESSAGE = "social.message" as const;
 
 // Events
 export const WS_EVENTS_SUBSCRIBE = "events.subscribe" as const;
@@ -122,6 +123,17 @@ export type ChatSessionsPayload = ChatSessionSummary[];
 
 export interface ChatCancelledPayload {
   cancelled: boolean;
+}
+
+export interface SocialMessagePayload {
+  messageId: string;
+  sender: string;
+  recipient: string;
+  content: string;
+  mode: string;
+  timestamp: number;
+  onChain: boolean;
+  threadId?: string | null;
 }
 
 export interface EventsSubscriptionPayload {

@@ -20,6 +20,7 @@ import type {
   PlannerDecision,
   PlannerStepType,
   PlannerStepIntent,
+  PlannerDeterministicToolStepIntent,
   PlannerSubAgentTaskStepIntent,
   PlannerPlan,
   PlannerParseResult,
@@ -56,6 +57,7 @@ import {
   parseJsonObjectFromText,
   normalizeHistory,
 } from "./chat-executor-text.js";
+import { extractExplicitImperativeToolNames } from "./chat-executor-explicit-tools.js";
 import { didToolCallFail } from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
 import {
@@ -188,7 +190,7 @@ const DIALOGUE_RECALL_CUE_RE =
 const DIALOGUE_RECALL_REFERENCE_CUE_RE =
   /\b(?:from (?:test|earlier|before|above|prior|previous)|(?:you|i) (?:stored|memorized|remembered|told)|those facts|these facts|the facts|last turn|prior turn|previous turn|continuity test)\b/i;
 const EXPLICIT_ENV_ACTION_CUE_RE =
-  /\b(?:use|call|invoke|run|start|stop|create|write|edit|save|open|navigate|click|search|browse|inspect|read|check|verify|delegate|spawn|launch|post|publish|deploy|install|build|implement|refactor|migrate|continue)\b[\s\S]{0,72}\b(?:tool|tools|desktop|system|mcp|browser|bash|command|terminal|file|files|server|process|service|sub[\s-]?agent|execute_with_agent|child\s+session|continuation\s+session|session\s+id|task|api|endpoint|project|tests?)\b/i;
+  /\b(?:use|call|invoke|run|start|stop|create|write|edit|save|open|navigate|click|search|browse|inspect|read|check|verify|delegate|spawn|launch|post|publish|deploy|install|build|implement|refactor|migrate|continue)\b[\s\S]{0,96}\b(?:tool|tools|desktop|system|mcp|browser|bash|command|terminal|file|files|server|process|service|sub[\s-]?agent|execute_with_agent|child\s+session|continuation\s+session|session\s+id|task|api|endpoint|project|tests?|[a-z][\w-]*\.[a-z][\w.-]*)\b/i;
 
 function isDialogueOnlyExactResponseTurn(messageText: string): boolean {
   return (
@@ -220,6 +222,7 @@ export function buildPlannerMessages(
   messageText: string,
   history: readonly LLMMessage[],
   plannerMaxTokens: number,
+  explicitDeterministicRequirements?: ExplicitDeterministicToolRequirements,
   refinementHint?: string,
 ): readonly LLMMessage[] {
   const explicitOrchestration =
@@ -294,6 +297,26 @@ export function buildPlannerMessages(
     });
   }
 
+  if (explicitDeterministicRequirements) {
+    const requiredOrder = renderExplicitToolRequirementSummary(
+      explicitDeterministicRequirements,
+    );
+    const exactLiteralInstruction =
+      typeof explicitDeterministicRequirements.exactResponseLiteral === "string"
+      && explicitDeterministicRequirements.exactResponseLiteral.length > 0
+        ? " The user also requires an exact final response literal after the deterministic tool steps. " +
+          "Keep `requiresSynthesis` false and do not add a `synthesis` step for that literal; the parent executor will finalize it after the deterministic steps complete."
+        : "";
+    messages.push({
+      role: "system",
+      content:
+        "The user supplied an explicit deterministic tool contract for this turn. " +
+        `Use only these tools in this order: ${requiredOrder}. ` +
+        "Emit one `deterministic_tool` step per required tool call, preserve dependency order between the tool stages, and do not emit `subagent_task` steps or off-domain tools." +
+        exactLiteralInstruction,
+    });
+  }
+
   if (typeof refinementHint === "string" && refinementHint.trim().length > 0) {
     messages.push({
       role: "system",
@@ -325,6 +348,13 @@ export interface ExplicitSubagentOrchestrationRequirements {
   readonly steps: readonly ExplicitSubagentOrchestrationRequirementStep[];
   readonly stepNames: readonly string[];
   readonly requiresSynthesis: boolean;
+}
+
+export interface ExplicitDeterministicToolRequirements {
+  readonly orderedToolNames: readonly string[];
+  readonly minimumToolCallsByName: Readonly<Record<string, number>>;
+  readonly forcePlanner: boolean;
+  readonly exactResponseLiteral?: string;
 }
 
 const REQUIRED_SUBAGENT_PLAN_MARKER_RE =
@@ -390,6 +420,200 @@ function normalizeExplicitRequirementDescription(description: string): string {
     .replace(/\s+/g, " ")
     .replace(/\s*-\s*/g, " - ")
     .trim();
+}
+
+export function extractExplicitDeterministicToolRequirements(
+  messageText: string,
+  allowedToolNames: readonly string[],
+): ExplicitDeterministicToolRequirements | undefined {
+  const orderedToolNames = extractExplicitImperativeToolNames(
+    messageText,
+    allowedToolNames,
+  );
+  if (orderedToolNames.length === 0) return undefined;
+  const minimumToolCallsByName = Object.fromEntries(
+    orderedToolNames.map((toolName) => [
+      toolName,
+      extractExplicitToolInvocationCount(
+        messageText,
+        toolName,
+        orderedToolNames,
+      ),
+    ]),
+  );
+  return {
+    orderedToolNames,
+    minimumToolCallsByName,
+    forcePlanner: Object.values(minimumToolCallsByName).some(
+      (count) => count > 1,
+    ),
+    exactResponseLiteral: extractExactResponseLiteral(messageText),
+  };
+}
+
+const EXACT_RESPONSE_LITERAL_DIRECTIVE_RE =
+  /\b(?:return|reply|respond|output|answer)(?:\s+with)?\s+exactly(?:\s+as)?\s+/i;
+const GENERIC_EXACT_LITERAL_RE =
+  /^(?:the\s+)?(?:child\s+answer|answer|result|memorized\s+token|memorised\s+token|token)$/i;
+const TOOL_INVOCATION_WORD_COUNTS = new Map<string, number>([
+  ["once", 1],
+  ["twice", 2],
+  ["thrice", 3],
+]);
+
+function extractExplicitToolInvocationCount(
+  messageText: string,
+  toolName: string,
+  orderedToolNames: readonly string[],
+): number {
+  const segment = extractExplicitToolDirectiveSegment(
+    messageText,
+    toolName,
+    orderedToolNames,
+  );
+  const numericMatch =
+    /\bexactly\s+(\d+)\s+times?\b/i.exec(segment) ??
+    /\b(\d+)\s+times?\b/i.exec(segment);
+  if (numericMatch) {
+    return Math.max(1, Number(numericMatch[1] ?? "1"));
+  }
+
+  const wordMatch = /\b(once|twice|thrice)\b/i.exec(segment);
+  if (wordMatch) {
+    return TOOL_INVOCATION_WORD_COUNTS.get(
+      (wordMatch[1] ?? "").toLowerCase(),
+    ) ?? 1;
+  }
+
+  const bulletCount = countStructuredDirectiveBullets(segment);
+  return Math.max(1, bulletCount);
+}
+
+function extractExplicitToolDirectiveSegment(
+  messageText: string,
+  toolName: string,
+  orderedToolNames: readonly string[],
+): string {
+  const invocationRe = new RegExp(
+    String.raw`\b(?:use|call|invoke|run)\s+\`?${escapeRegex(toolName)}\`?\b`,
+    "i",
+  );
+  const invocationMatch = invocationRe.exec(messageText);
+  if (!invocationMatch) {
+    return messageText;
+  }
+
+  const start = invocationMatch.index;
+  let end = messageText.length;
+
+  const relativeAfterToolCallsMatch = /\bafter the tool calls\b/i.exec(
+    messageText.slice(start),
+  );
+  if (relativeAfterToolCallsMatch) {
+    end = Math.min(end, start + relativeAfterToolCallsMatch.index);
+  }
+
+  for (const otherToolName of orderedToolNames) {
+    if (otherToolName === toolName) continue;
+    const otherInvocationRe = new RegExp(
+      String.raw`\b(?:use|call|invoke|run)\s+\`?${escapeRegex(otherToolName)}\`?\b`,
+      "ig",
+    );
+    let otherMatch: RegExpExecArray | null;
+    while ((otherMatch = otherInvocationRe.exec(messageText)) !== null) {
+      if (otherMatch.index > start) {
+        end = Math.min(end, otherMatch.index);
+        break;
+      }
+    }
+  }
+
+  return messageText.slice(start, end);
+}
+
+function countStructuredDirectiveBullets(segment: string): number {
+  const lines = segment
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const bulletLines = lines.filter((line) => /^[-*]\s+/.test(line));
+  return bulletLines.length >= 2 ? bulletLines.length : 0;
+}
+
+function extractExactResponseLiteral(messageText: string): string | undefined {
+  const directiveMatch = EXACT_RESPONSE_LITERAL_DIRECTIVE_RE.exec(messageText);
+  if (!directiveMatch) {
+    return extractExactAliasLiteral(messageText);
+  }
+
+  const remainder = messageText
+    .slice(directiveMatch.index + directiveMatch[0].length)
+    .trim();
+  if (!remainder) {
+    return extractExactAliasLiteral(messageText);
+  }
+
+  const normalized = normalizeExactLiteralCandidate(remainder);
+  if (normalized && !GENERIC_EXACT_LITERAL_RE.test(normalized)) {
+    return normalized;
+  }
+
+  return extractExactAliasLiteral(messageText);
+}
+
+function extractExactAliasLiteral(messageText: string): string | undefined {
+  const aliasMatch =
+    /\b(?:return|reply|respond|output|answer)\b[\s\S]{0,160}?\bas\s+("[^"]+"|'[^']+'|`[^`]+`|[^\n]+?)(?:[.!?](?:\s|$)|$)/i.exec(
+      messageText,
+    );
+  if (!aliasMatch) {
+    return undefined;
+  }
+  return normalizeExactLiteralCandidate(aliasMatch[1] ?? "");
+}
+
+function normalizeExactLiteralCandidate(candidate: string): string | undefined {
+  const trimmedCandidate = candidate.trim();
+  if (trimmedCandidate.length === 0) {
+    return undefined;
+  }
+
+  const openingQuote = trimmedCandidate[0];
+  const quotePairs = new Map<string, string>([
+    ['"', '"'],
+    ["'", "'"],
+    ["`", "`"],
+    ["“", "”"],
+  ]);
+  const closingQuote = quotePairs.get(openingQuote);
+  if (closingQuote) {
+    const closingIndex = trimmedCandidate.indexOf(closingQuote, 1);
+    if (closingIndex > 1) {
+      const quoted = trimmedCandidate.slice(1, closingIndex).trim();
+      if (quoted.length > 0 && !GENERIC_EXACT_LITERAL_RE.test(quoted)) {
+        return quoted;
+      }
+    }
+    return undefined;
+  }
+
+  const unquoted = trimmedCandidate
+    .replace(/\s+/g, " ")
+    .replace(
+      /\s+(?:and|with)\s+(?:nothing\s+else|no\s+extra\s+(?:text|words)|no\s+other\s+text)\b[\s\S]*$/i,
+      "",
+    )
+    .replace(/[.!?]+$/, "")
+    .trim();
+  if (unquoted.length > 0 && !GENERIC_EXACT_LITERAL_RE.test(unquoted)) {
+    return unquoted;
+  }
+
+  return undefined;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ============================================================================
@@ -1289,6 +1513,178 @@ export function validateExplicitSubagentOrchestrationRequirements(
   return diagnostics;
 }
 
+export function validateExplicitDeterministicToolRequirements(
+  plannerPlan: PlannerPlan,
+  requirements: ExplicitDeterministicToolRequirements,
+): readonly PlannerDiagnostic[] {
+  const diagnostics: PlannerDiagnostic[] = [];
+  const allowedToolNames = new Set(requirements.orderedToolNames);
+  const deterministicSteps = plannerPlan.steps.filter(
+    (step): step is PlannerDeterministicToolStepIntent =>
+      step.stepType === "deterministic_tool",
+  );
+  const subagentSteps = plannerPlan.steps
+    .filter((step): step is PlannerSubAgentTaskStepIntent => step.stepType === "subagent_task")
+    .map((step) => step.name);
+
+  if (subagentSteps.length > 0) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "explicit_tool_plan_subagent_forbidden",
+        "Planner introduced delegated steps into a turn that explicitly named deterministic tools",
+        {
+          subagentSteps: subagentSteps.join(","),
+          requiredTools: requirements.orderedToolNames.join(","),
+        },
+      ),
+    );
+  }
+
+  const disallowedTools = deterministicSteps
+    .filter((step) => !allowedToolNames.has(step.tool))
+    .map((step) => `${step.name}:${step.tool}`);
+  if (disallowedTools.length > 0) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "explicit_tool_plan_disallowed_tool",
+        "Planner introduced deterministic tools outside the user-requested tool set",
+        {
+          disallowedTools: disallowedTools.join(","),
+          requiredTools: requirements.orderedToolNames.join(","),
+        },
+      ),
+    );
+  }
+
+  const stepsByTool = new Map<string, PlannerDeterministicToolStepIntent[]>();
+  for (const step of deterministicSteps) {
+    const bucket = stepsByTool.get(step.tool);
+    if (bucket) {
+      bucket.push(step);
+    } else {
+      stepsByTool.set(step.tool, [step]);
+    }
+  }
+
+  const missingTools = requirements.orderedToolNames.filter(
+    (toolName) => (stepsByTool.get(toolName)?.length ?? 0) === 0,
+  );
+  if (missingTools.length > 0) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "explicit_tool_plan_missing_required_tool",
+        "Planner omitted one or more explicitly requested deterministic tools",
+        {
+          missingTools: missingTools.join(","),
+          requiredTools: requirements.orderedToolNames.join(","),
+        },
+      ),
+    );
+  }
+
+  const insufficientToolCalls = requirements.orderedToolNames
+    .map((toolName) => ({
+      toolName,
+      requiredCount: requirements.minimumToolCallsByName[toolName] ?? 1,
+      actualCount: stepsByTool.get(toolName)?.length ?? 0,
+    }))
+    .filter(
+      (entry) =>
+        entry.actualCount > 0 && entry.actualCount < entry.requiredCount,
+    );
+  if (insufficientToolCalls.length > 0) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "explicit_tool_plan_insufficient_tool_calls",
+        "Planner did not include enough deterministic calls for one or more explicitly repeated tools",
+        {
+          insufficientToolCalls: insufficientToolCalls
+            .map(
+              (entry) =>
+                `${entry.toolName}:${entry.actualCount}/${entry.requiredCount}`,
+            )
+            .join(","),
+        },
+      ),
+    );
+  }
+
+  const firstStepIndexByTool = new Map<string, number>();
+  plannerPlan.steps.forEach((step, index) => {
+    if (step.stepType !== "deterministic_tool") return;
+    if (!allowedToolNames.has(step.tool)) return;
+    if (firstStepIndexByTool.has(step.tool)) return;
+    firstStepIndexByTool.set(step.tool, index);
+  });
+  const orderMismatch = requirements.orderedToolNames.some(
+    (toolName, index) =>
+      index > 0 &&
+      (firstStepIndexByTool.get(toolName) ?? Number.POSITIVE_INFINITY) <=
+        (firstStepIndexByTool.get(requirements.orderedToolNames[index - 1]!) ??
+          Number.NEGATIVE_INFINITY),
+  );
+  if (orderMismatch) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "explicit_tool_plan_order_mismatch",
+        "Planner did not preserve the user-requested deterministic tool order",
+        {
+          requiredTools: requirements.orderedToolNames.join("->"),
+        },
+      ),
+    );
+  }
+
+  const dependencyMap = buildPlannerDependencyMap(plannerPlan);
+  const ancestorMemo = new Map<string, ReadonlySet<string>>();
+  for (let index = 1; index < requirements.orderedToolNames.length; index++) {
+    const previousTool = requirements.orderedToolNames[index - 1]!;
+    const currentTool = requirements.orderedToolNames[index]!;
+    const previousStepNames = new Set(
+      (stepsByTool.get(previousTool) ?? []).map((step) => step.name),
+    );
+    if (previousStepNames.size === 0) continue;
+
+    const unmatchedCurrentSteps = (stepsByTool.get(currentTool) ?? [])
+      .filter((step) => {
+        const ancestors = collectPlannerStepAncestors(
+          step.name,
+          dependencyMap,
+          ancestorMemo,
+        );
+        for (const dependency of previousStepNames) {
+          if (ancestors.has(dependency)) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .map((step) => step.name);
+
+    if (unmatchedCurrentSteps.length > 0) {
+      diagnostics.push(
+        createPlannerDiagnostic(
+          "validation",
+          "explicit_tool_plan_dependency_mismatch",
+          "Planner did not preserve dependency gating between explicitly ordered tools",
+          {
+            previousTool,
+            currentTool,
+            unmatchedSteps: unmatchedCurrentSteps.join(","),
+          },
+        ),
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
 export function buildExplicitSubagentOrchestrationRefinementHint(
   requirements: ExplicitSubagentOrchestrationRequirements,
   diagnostics: readonly PlannerDiagnostic[] = [],
@@ -1319,6 +1715,69 @@ export function buildExplicitSubagentOrchestrationRefinementHint(
   );
 }
 
+export function buildExplicitDeterministicToolRefinementHint(
+  requirements: ExplicitDeterministicToolRequirements,
+  diagnostics: readonly PlannerDiagnostic[] = [],
+): string {
+  const fragments = diagnostics
+    .map((diagnostic) => {
+      if (diagnostic.code === "explicit_tool_plan_subagent_forbidden") {
+        return "do not introduce subagent_task steps";
+      }
+      if (diagnostic.code === "explicit_tool_plan_disallowed_tool") {
+        return `use only these tools: ${requirements.orderedToolNames.join(", ")}`;
+      }
+      if (diagnostic.code === "explicit_tool_plan_missing_required_tool") {
+        return `missing required tools: ${readDiagnosticDetail(diagnostic, "missingTools") ?? "unknown"}`;
+      }
+      if (diagnostic.code === "explicit_tool_plan_insufficient_tool_calls") {
+        return `increase repeated tool calls to satisfy: ${readDiagnosticDetail(diagnostic, "insufficientToolCalls") ?? "unknown"}`;
+      }
+      if (diagnostic.code === "explicit_tool_plan_order_mismatch") {
+        return "preserve the explicit tool order";
+      }
+      if (diagnostic.code === "explicit_tool_plan_dependency_mismatch") {
+        return `add dependency gating for: ${readDiagnosticDetail(diagnostic, "unmatchedSteps") ?? "unknown"}`;
+      }
+      return diagnostic.message;
+    })
+    .filter((fragment) => fragment.length > 0);
+  const requiredOrder = renderExplicitToolRequirementSummary(requirements);
+  const suffix =
+    fragments.length > 0 ? ` Fix these issues: ${fragments.join(" | ")}.` : "";
+  return (
+    "The user explicitly named deterministic tools for this turn. " +
+    `Use only these tools in this order: ${requiredOrder}. ` +
+    "Keep the plan deterministic-only, preserve dependency order between the tool stages, and do not add delegated steps or off-domain tools." +
+    suffix
+  );
+}
+
+export function buildExplicitDeterministicToolFailureMessage(
+  requirements: ExplicitDeterministicToolRequirements,
+  diagnostics: readonly PlannerDiagnostic[] = [],
+): string {
+  const lines = [
+    "Planner could not produce the required deterministic tool plan.",
+    `Required tool order: ${renderExplicitToolRequirementSummary(requirements)}`,
+  ];
+  for (const diagnostic of diagnostics.slice(0, 3)) {
+    lines.push(`- ${diagnostic.message}`);
+  }
+  return lines.join("\n");
+}
+
+function renderExplicitToolRequirementSummary(
+  requirements: ExplicitDeterministicToolRequirements,
+): string {
+  return requirements.orderedToolNames
+    .map((toolName) => {
+      const requiredCount = requirements.minimumToolCallsByName[toolName] ?? 1;
+      return requiredCount > 1 ? `${toolName} x${requiredCount}` : toolName;
+    })
+    .join(" -> ");
+}
+
 export function buildExplicitSubagentOrchestrationFailureMessage(
   requirements: ExplicitSubagentOrchestrationRequirements,
   diagnostics: readonly PlannerDiagnostic[] = [],
@@ -1341,6 +1800,49 @@ function readDiagnosticDetail(
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : undefined;
+}
+
+function buildPlannerDependencyMap(
+  plannerPlan: PlannerPlan,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const dependencies = new Map<string, Set<string>>();
+  for (const step of plannerPlan.steps) {
+    dependencies.set(step.name, new Set(step.dependsOn ?? []));
+  }
+  for (const edge of plannerPlan.edges) {
+    const target = dependencies.get(edge.to);
+    if (!target || !dependencies.has(edge.from)) continue;
+    target.add(edge.from);
+  }
+  return dependencies;
+}
+
+function collectPlannerStepAncestors(
+  stepName: string,
+  dependencyMap: ReadonlyMap<string, ReadonlySet<string>>,
+  memo: Map<string, ReadonlySet<string>>,
+  visiting = new Set<string>(),
+): ReadonlySet<string> {
+  const cached = memo.get(stepName);
+  if (cached) return cached;
+  if (visiting.has(stepName)) return new Set();
+
+  visiting.add(stepName);
+  const ancestors = new Set<string>();
+  for (const dependency of dependencyMap.get(stepName) ?? []) {
+    ancestors.add(dependency);
+    for (const ancestor of collectPlannerStepAncestors(
+      dependency,
+      dependencyMap,
+      memo,
+      visiting,
+    )) {
+      ancestors.add(ancestor);
+    }
+  }
+  visiting.delete(stepName);
+  memo.set(stepName, ancestors);
+  return ancestors;
 }
 
 export function extractPlannerDecompositionDiagnostics(

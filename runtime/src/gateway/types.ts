@@ -9,6 +9,7 @@
 
 import type { GatewayAuthConfig } from "./remote-types.js";
 import type { DesktopSandboxConfig } from "../desktop/types.js";
+import type { SocialPeerDirectoryEntry } from "../social/types.js";
 
 // ============================================================================
 // Gateway Configuration
@@ -508,6 +509,11 @@ export interface GatewaySocialConfig {
   feedEnabled?: boolean;
   collaborationEnabled?: boolean;
   reputationEnabled?: boolean;
+  /**
+   * Optional bounded peer directory for stable alias resolution in the social
+   * tool surface. Intended for active peers, not a global registry.
+   */
+  peerDirectory?: readonly SocialPeerDirectoryEntry[];
 }
 
 export type GatewayBackgroundRunNotificationEvent =
