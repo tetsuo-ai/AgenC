@@ -18,6 +18,17 @@ const DOOM_HOLD_POSITION_INTENT_RE =
   /\b(?:hold(?:ing)?\s+position|stay(?:ing)?\s+(?:put|centered)|stationary|won't\s+run\s+around|will\s+not\s+run\s+around|don't\s+run\s+around|do\s+not\s+run\s+around|defend(?:ing)?(?:\s+|_)the(?:\s+|_)center|capture(?:\s+the)?\s+center)\b/i;
 const DOOM_GOD_MODE_INTENT_RE =
   /\b(?:god mode|invulnerab(?:ility|le)|invincib(?:ility|le)|iddqd)\b/i;
+const BACKGROUND_OBJECTIVE_PREFIX = "Background objective:\n";
+const CYCLE_SECTION_MARKER = "\n\nCycle:";
+const ACTIVE_DOOM_OBJECTIVE_TYPES = new Set([
+  "explore",
+  "kill",
+  "move_to_pos",
+  "move_to_obj",
+  "collect",
+  "use_object",
+  "retreat",
+]);
 
 export interface DoomTurnContract {
   readonly requiresLaunch: boolean;
@@ -31,6 +42,7 @@ export interface DoomEvidenceState {
   readonly confirmedAsyncStart: boolean;
   readonly verifiedAsyncState: boolean;
   readonly confirmedHoldPosition: boolean;
+  readonly confirmedActiveObjective: boolean;
   readonly confirmedGodMode: boolean;
   readonly executedTools: string[];
 }
@@ -41,6 +53,7 @@ export interface DoomEvidenceGap {
     | "missing_async_start"
     | "missing_god_mode"
     | "missing_hold_position"
+    | "missing_active_objective"
     | "missing_async_verification";
   readonly message: string;
   readonly preferredToolNames: readonly string[];
@@ -49,11 +62,12 @@ export interface DoomEvidenceGap {
 export function inferDoomTurnContract(
   messageText: string,
 ): DoomTurnContract | undefined {
-  if (!DOOM_INTENT_RE.test(messageText)) return undefined;
+  const intentText = extractPrimaryDoomIntentText(messageText);
+  if (!DOOM_INTENT_RE.test(intentText)) return undefined;
 
-  const requiresAutonomousPlay = DOOM_AUTONOMOUS_INTENT_RE.test(messageText);
-  const requiresHoldPosition = DOOM_HOLD_POSITION_INTENT_RE.test(messageText);
-  const requiresGodMode = DOOM_GOD_MODE_INTENT_RE.test(messageText);
+  const requiresAutonomousPlay = DOOM_AUTONOMOUS_INTENT_RE.test(intentText);
+  const requiresHoldPosition = DOOM_HOLD_POSITION_INTENT_RE.test(intentText);
+  const requiresGodMode = DOOM_GOD_MODE_INTENT_RE.test(intentText);
   const requiresLaunch =
     requiresAutonomousPlay || requiresHoldPosition || requiresGodMode;
 
@@ -81,6 +95,7 @@ export function summarizeDoomToolEvidence(
   let confirmedAsyncStart = false;
   let verifiedAsyncState = false;
   let confirmedHoldPosition = false;
+  let confirmedActiveObjective = false;
   let confirmedGodMode = false;
 
   for (const toolCall of toolCalls) {
@@ -113,9 +128,15 @@ export function summarizeDoomToolEvidence(
     if (
       toolCall.name === "mcp.doom.set_objective" &&
       typeof toolCall.args?.objective_type === "string" &&
-      toolCall.args.objective_type.trim().toLowerCase() === "hold_position"
+      toolCall.args.objective_type.trim().length > 0
     ) {
-      confirmedHoldPosition = true;
+      const objectiveType = toolCall.args.objective_type.trim().toLowerCase();
+      if (objectiveType === "hold_position") {
+        confirmedHoldPosition = true;
+      }
+      if (ACTIVE_DOOM_OBJECTIVE_TYPES.has(objectiveType)) {
+        confirmedActiveObjective = true;
+      }
       continue;
     }
 
@@ -136,6 +157,7 @@ export function summarizeDoomToolEvidence(
     confirmedAsyncStart,
     verifiedAsyncState,
     confirmedHoldPosition,
+    confirmedActiveObjective,
     confirmedGodMode,
     executedTools: collectExecutedToolNames(
       toolCalls.filter((toolCall) => toolCall.name.startsWith("mcp.doom.")),
@@ -196,6 +218,20 @@ export function getMissingDoomEvidenceGap(
     };
   }
 
+  if (
+    contract.requiresAutonomousPlay &&
+    !contract.requiresHoldPosition &&
+    !evidence.confirmedActiveObjective
+  ) {
+    return {
+      code: "missing_active_objective",
+      message:
+        "Autonomous Doom play is active, but no gameplay objective is steering the executor yet. " +
+        "Call `mcp.doom.set_objective` with `objective_type: \"explore\"` unless the user explicitly requested a different goal.",
+      preferredToolNames: ["mcp.doom.set_objective"],
+    };
+  }
+
   if (contract.requiresAutonomousPlay && !evidence.verifiedAsyncState) {
     return {
       code: "missing_async_verification",
@@ -221,4 +257,17 @@ function collectExecutedToolNames(
     executed.add(toolCall.name);
   }
   return [...executed];
+}
+
+function extractPrimaryDoomIntentText(messageText: string): string {
+  if (!messageText.startsWith(BACKGROUND_OBJECTIVE_PREFIX)) {
+    return messageText;
+  }
+  const cycleMarkerIndex = messageText.indexOf(CYCLE_SECTION_MARKER);
+  if (cycleMarkerIndex < 0) {
+    return messageText.slice(BACKGROUND_OBJECTIVE_PREFIX.length).trim();
+  }
+  return messageText
+    .slice(BACKGROUND_OBJECTIVE_PREFIX.length, cycleMarkerIndex)
+    .trim();
 }

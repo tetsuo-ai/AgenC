@@ -103,6 +103,33 @@ describe("chat-executor-contract-guidance", () => {
     });
   });
 
+  it("routes generic Doom autoplay turns to set_objective before verification", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "tool_followup",
+      messageText: "Play Doom until I tell you to stop.",
+      toolCalls: [
+        makeToolCall({
+          name: "mcp.doom.start_game",
+          args: { async_player: true },
+          result: JSON.stringify({ status: "running", scenario: "basic" }),
+        }),
+      ],
+      allowedToolNames: [
+        "mcp.doom.set_objective",
+        "mcp.doom.get_situation_report",
+      ],
+    });
+
+    expect(guidance).toEqual({
+      source: "doom",
+      runtimeInstruction:
+        "Autonomous Doom play is active, but no gameplay objective is steering the executor yet. " +
+        "Call `mcp.doom.set_objective` with `objective_type: \"explore\"` unless the user explicitly requested a different goal.",
+      routedToolNames: ["mcp.doom.set_objective"],
+      toolChoice: "required",
+    });
+  });
+
   it("blocks desktop/bash detours before the Doom launch contract is satisfied", () => {
     const block = resolveToolContractExecutionBlock({
       phase: "initial",

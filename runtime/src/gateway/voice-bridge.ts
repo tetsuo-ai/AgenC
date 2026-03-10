@@ -10,6 +10,7 @@
  * @module
  */
 
+import { randomUUID } from "node:crypto";
 import { XaiRealtimeClient } from "../voice/realtime/client.js";
 import type {
   VoiceSessionConfig,
@@ -36,6 +37,15 @@ import {
   createExecuteWithAgentTool,
   parseExecuteWithAgentInput,
 } from "./delegation-tool.js";
+import {
+  logTraceErrorEvent,
+  logTraceEvent,
+  summarizeTraceValue,
+  summarizeToolResultForTrace,
+} from "./daemon-trace.js";
+import type { ResolvedTraceLoggingConfig } from "./daemon-trace.js";
+import { normalizeToolCallArguments } from "../llm/chat-executor-tool-utils.js";
+import { toErrorMessage } from "../utils/async.js";
 
 const DEFAULT_MAX_SESSIONS = 10;
 
@@ -168,6 +178,8 @@ export interface VoiceBridgeConfig {
   delegation?: DelegationToolCompositionResolver;
   /** Emit raw provider payload traces when daemon trace logging enables it. */
   traceProviderPayloads?: boolean;
+  /** Full trace logging controls shared with the daemon's traced webchat path. */
+  traceConfig?: ResolvedTraceLoggingConfig;
 }
 
 interface ActiveSession {
@@ -180,6 +192,10 @@ interface ActiveSession {
   managedSessionId: string;
   /** Abort controller for the active delegation, if any. */
   delegationAbort: AbortController | null;
+  /** Active trace for the current spoken turn. */
+  currentTraceId: string | null;
+  /** True once the current turn has been delegated into ChatExecutor. */
+  currentTurnDelegated: boolean;
 }
 
 // ============================================================================
@@ -326,6 +342,8 @@ export class VoiceBridge {
       sessionId: effectiveSessionId,
       managedSessionId,
       delegationAbort: null,
+      currentTraceId: null,
+      currentTurnDelegated: false,
     });
 
     try {
@@ -404,7 +422,7 @@ export class VoiceBridge {
     const { hooks, approvalEngine, desktopRouterFactory, toolHandler } =
       this.config;
 
-    return createSessionToolHandler({
+    const baseHandler = createSessionToolHandler({
       sessionId,
       baseHandler: toolHandler,
       availableToolNames: this.config.availableToolNames,
@@ -417,6 +435,71 @@ export class VoiceBridge {
       approvalEngine,
       delegation: this.config.delegation,
     });
+
+    return this.buildTracedToolHandler(sessionId, baseHandler);
+  }
+
+  private buildTracedToolHandler(
+    sessionId: string,
+    baseHandler: ToolHandler,
+  ): ToolHandler {
+    const traceConfig = this.config.traceConfig;
+    if (!traceConfig?.enabled) return baseHandler;
+
+    return async (name, args) => {
+      const normalizedArgs = normalizeToolCallArguments(name, args);
+      const traceId = this.ensureTraceIdForSession(sessionId);
+
+      this.logTrace(
+        "voice.tool.call",
+        {
+          traceId,
+          sessionId,
+          tool: name,
+          ...(traceConfig.includeToolArgs
+            ? { args: summarizeTraceValue(normalizedArgs, traceConfig.maxChars) }
+            : {}),
+        },
+        traceId,
+      );
+
+      const startedAt = Date.now();
+      try {
+        const result = await baseHandler(name, normalizedArgs);
+        this.logTrace(
+          "voice.tool.result",
+          {
+            traceId,
+            sessionId,
+            tool: name,
+            durationMs: Date.now() - startedAt,
+            ...(traceConfig.includeToolResults
+              ? {
+                  result: summarizeToolResultForTrace(
+                    result,
+                    traceConfig.maxChars,
+                  ),
+                }
+              : {}),
+          },
+          traceId,
+        );
+        return result;
+      } catch (error) {
+        this.logTraceError(
+          "voice.tool.error",
+          {
+            traceId,
+            sessionId,
+            tool: name,
+            durationMs: Date.now() - startedAt,
+            error: toErrorMessage(error),
+          },
+          traceId,
+        );
+        throw error;
+      }
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -439,6 +522,22 @@ export class VoiceBridge {
       onTranscriptDone: (text: string) => {
         send({ type: VM.TRANSCRIPT, payload: { text, done: true } });
         this.recordTranscript(clientId, "assistant", text);
+        if (text.trim()) {
+          const session = this.sessions.get(clientId);
+          const traceId = this.ensureTraceId(clientId, sessionId);
+          this.logTrace(
+            session?.currentTurnDelegated === true
+              ? "voice.assistant.transcript"
+              : "voice.chat.response",
+            {
+              traceId,
+              sessionId,
+              clientId,
+              content: text,
+            },
+            traceId,
+          );
+        }
       },
       onFunctionCall: async (name: string, args: string, _callId: string) => {
         if (name === "execute_with_agent") {
@@ -455,8 +554,22 @@ export class VoiceBridge {
       onInputTranscriptDone: (text: string) => {
         send({ type: VM.USER_TRANSCRIPT, payload: { text } });
         this.recordTranscript(clientId, "user", text);
+        if (text.trim()) {
+          const traceId = this.ensureTraceId(clientId, sessionId);
+          this.logTrace(
+            "voice.inbound",
+            {
+              traceId,
+              sessionId,
+              clientId,
+              content: text,
+            },
+            traceId,
+          );
+        }
       },
       onSpeechStarted: () => {
+        this.beginTurnTrace(clientId, sessionId);
         send({ type: VM.SPEECH_STARTED });
         // During active delegation, clear any buffered audio to prevent
         // frustrated utterances from queuing as new delegation tasks.
@@ -466,9 +579,24 @@ export class VoiceBridge {
         }
       },
       onSpeechStopped: () => { send({ type: VM.SPEECH_STOPPED }); },
-      onResponseDone: () => { send({ type: VM.RESPONSE_DONE }); },
+      onResponseDone: () => {
+        send({ type: VM.RESPONSE_DONE });
+        this.resetTurnTrace(clientId);
+      },
       onError: (error: { message: string; code?: string }) => {
         this.logger?.warn?.("Voice session error:", error);
+        const traceId = this.ensureTraceId(clientId, sessionId);
+        this.logTraceError(
+          "voice.chat.error",
+          {
+            traceId,
+            sessionId,
+            clientId,
+            error: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          },
+          traceId,
+        );
         send({ type: VM.ERROR, payload: { message: error.message, code: error.code } });
       },
       onConnectionStateChange: (state: string) => {
@@ -499,7 +627,19 @@ export class VoiceBridge {
     if (typeof task !== "string") return task.error;
 
     const session = this.sessions.get(clientId);
+    const traceId = this.ensureTraceId(clientId, sessionId);
+    if (session) session.currentTurnDelegated = true;
     send({ type: VM.DELEGATION, payload: { status: "started", task } });
+    this.logTrace(
+      "voice.delegation.started",
+      {
+        traceId,
+        sessionId,
+        clientId,
+        task,
+      },
+      traceId,
+    );
 
     // Cancel any stale delegation and set up abort for this one
     session?.delegationAbort?.abort();
@@ -508,7 +648,13 @@ export class VoiceBridge {
 
     try {
       // Policy check via message:inbound hook
-      const blocked = await this.dispatchPolicyCheck(clientId, sessionId, task, send);
+      const blocked = await this.dispatchPolicyCheck(
+        clientId,
+        sessionId,
+        task,
+        send,
+        traceId,
+      );
       if (blocked) return blocked;
 
       // Session history
@@ -538,7 +684,6 @@ export class VoiceBridge {
       const delegationToolHandler = this.buildSessionToolHandler(sessionId, send);
 
       const chatExecutor = this.requireChatExecutor();
-      const traceId = `voice:${clientId}:${sessionId}:${Date.now()}`;
       const providerTrace =
         this.config.traceProviderPayloads === true && this.logger
           ? {
@@ -610,6 +755,20 @@ export class VoiceBridge {
           durationMs: result.durationMs,
         },
       });
+      this.logTrace(
+        "voice.chat.response",
+        {
+          traceId,
+          sessionId,
+          clientId,
+          content: result.content,
+          responseSource: "delegation",
+          provider: result.provider,
+          durationMs: result.durationMs,
+          toolCalls: result.toolCalls.length,
+        },
+        traceId,
+      );
 
       // Send cumulative token usage to browser chat panel
       send({
@@ -636,6 +795,17 @@ export class VoiceBridge {
     } catch (error) {
       const errorMsg = (error as Error).message;
       this.logger?.error?.("Voice delegation error:", error);
+      this.logTraceError(
+        "voice.delegation.error",
+        {
+          traceId,
+          sessionId,
+          clientId,
+          task,
+          error: errorMsg,
+        },
+        traceId,
+      );
       send({ type: VM.DELEGATION, payload: { status: "error", task, error: errorMsg } });
       return `Sorry, I ran into an error: ${errorMsg}`;
     } finally {
@@ -682,6 +852,7 @@ export class VoiceBridge {
     sessionId: string,
     task: string,
     send: (response: ControlResponse) => void,
+    traceId?: string,
   ): Promise<string | null> {
     const { hooks } = this.config;
     if (!hooks) return null;
@@ -702,6 +873,18 @@ export class VoiceBridge {
         type: VM.DELEGATION,
         payload: { status: "blocked", task, error: reason },
       });
+      this.logTraceError(
+        "voice.delegation.blocked",
+        {
+          traceId: traceId ?? this.ensureTraceId(clientId, sessionId),
+          sessionId,
+          clientId,
+          task,
+          error: reason,
+          stopReason: "policy_blocked",
+        },
+        traceId,
+      );
       return reason;
     }
     return null;
@@ -805,5 +988,79 @@ export class VoiceBridge {
         `Injected ${recent.length} history items into voice session`,
       );
     }
+  }
+
+  private beginTurnTrace(clientId: string, sessionId: string): string {
+    const traceId = this.createVoiceTurnTraceId(sessionId);
+    const session = this.sessions.get(clientId);
+    if (session) {
+      session.currentTraceId = traceId;
+      session.currentTurnDelegated = false;
+    }
+    return traceId;
+  }
+
+  private ensureTraceId(clientId: string, sessionId: string): string {
+    const session = this.sessions.get(clientId);
+    if (session?.currentTraceId) return session.currentTraceId;
+    return this.beginTurnTrace(clientId, sessionId);
+  }
+
+  private ensureTraceIdForSession(sessionId: string): string {
+    for (const session of this.sessions.values()) {
+      if (session.sessionId !== sessionId) continue;
+      if (!session.currentTraceId) {
+        session.currentTraceId = this.createVoiceTurnTraceId(sessionId);
+      }
+      return session.currentTraceId;
+    }
+    return this.createVoiceTurnTraceId(sessionId);
+  }
+
+  private resetTurnTrace(clientId: string): void {
+    const session = this.sessions.get(clientId);
+    if (!session) return;
+    session.currentTraceId = null;
+    session.currentTurnDelegated = false;
+  }
+
+  private createVoiceTurnTraceId(sessionId: string): string {
+    return `${sessionId}:voice:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`;
+  }
+
+  private logTrace(
+    eventName: string,
+    payload: Record<string, unknown>,
+    traceId?: string,
+  ): void {
+    const traceConfig = this.config.traceConfig;
+    if (!traceConfig?.enabled || !this.logger) return;
+    logTraceEvent(
+      this.logger,
+      eventName,
+      {
+        ...payload,
+        ...(traceId ? { traceId } : {}),
+      },
+      traceConfig.maxChars,
+    );
+  }
+
+  private logTraceError(
+    eventName: string,
+    payload: Record<string, unknown>,
+    traceId?: string,
+  ): void {
+    const traceConfig = this.config.traceConfig;
+    if (!traceConfig?.enabled || !this.logger) return;
+    logTraceErrorEvent(
+      this.logger,
+      eventName,
+      {
+        ...payload,
+        ...(traceId ? { traceId } : {}),
+      },
+      traceConfig.maxChars,
+    );
   }
 }

@@ -1308,13 +1308,36 @@ describe("webchat background-run routing", () => {
     expect(webChat.send).not.toHaveBeenCalled();
   });
 
-  it("keeps Doom until-stop prompts on the foreground Doom MCP path", async () => {
+  it("hands successful Doom until-stop setup turns off to background supervision", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     const startRun = vi.fn(async () => undefined);
     const getStatusSnapshot = vi.fn(() => undefined);
     const executeWebChatConversationTurn = vi
       .spyOn(dm as any, "executeWebChatConversationTurn")
-      .mockResolvedValue(undefined);
+      .mockImplementation(async (params: any) => {
+        await params.sessionToolHandler("mcp.doom.start_game", {
+          scenario: "defend_the_center",
+          god_mode: true,
+          async_player: true,
+        });
+        await params.sessionToolHandler("mcp.doom.set_objective", {
+          objective_type: "hold_position",
+        });
+        await params.sessionToolHandler("mcp.doom.get_situation_report", {});
+        return {
+          provider: "test",
+          model: "test-model",
+          usedFallback: false,
+          durationMs: 10,
+          compacted: false,
+          content: "Doom is running and will continue until stopped.",
+          stopReason: "completed",
+          tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          toolCalls: [],
+          callUsage: [],
+          toolRoutingSummary: undefined,
+        } as any;
+      });
     const webChat = {
       send: vi.fn(async () => undefined),
       pushToSession: vi.fn(),
@@ -1336,7 +1359,29 @@ describe("webchat background-run routing", () => {
     const memoryBackend = {
       addEntry: vi.fn(async () => undefined),
     } as any;
-    const baseToolHandler = vi.fn(async () => JSON.stringify({ status: "running" }));
+    const baseToolHandler = vi.fn(async (name: string) => {
+      if (name === "mcp.doom.start_game") {
+        return JSON.stringify({
+          status: "running",
+          scenario: "defend_the_center",
+          god_mode_enabled: true,
+        });
+      }
+      if (name === "mcp.doom.set_objective") {
+        return JSON.stringify({
+          status: "objective_set",
+          objective: { type: "hold_position" },
+        });
+      }
+      if (name === "mcp.doom.get_situation_report") {
+        return JSON.stringify({
+          executor_state: "fighting",
+          objectives: [{ type: "hold_position" }],
+          god_mode_enabled: true,
+        });
+      }
+      return JSON.stringify({ status: "ok" });
+    });
 
     (dm as any).gateway = {
       config: {
@@ -1384,7 +1429,179 @@ describe("webchat background-run routing", () => {
 
     expect(commandRegistry.dispatch).toHaveBeenCalledOnce();
     expect(getStatusSnapshot).toHaveBeenCalledWith("session-doom-until-stop");
-    expect(startRun).not.toHaveBeenCalled();
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(startRun.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "session-doom-until-stop",
+      options: {
+        silent: true,
+        contract: expect.objectContaining({
+          kind: "until_stopped",
+          requiresUserStop: true,
+        }),
+      },
+    });
+    expect(startRun.mock.calls[0]?.[0]?.objective).toContain(
+      "Supervise the existing ViZDoom session for this user.",
+    );
+    expect(startRun.mock.calls[0]?.[0]?.objective).toContain(
+      'Recovery objective JSON: {"objective_type":"hold_position"}',
+    );
+    expect(memoryBackend.addEntry).not.toHaveBeenCalled();
+    expect(executeWebChatConversationTurn).toHaveBeenCalledOnce();
+  });
+
+  it("hands Doom autoplay turns with periodic status updates off to background supervision", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const startRun = vi.fn(async () => undefined);
+    const getStatusSnapshot = vi.fn(() => undefined);
+    const executeWebChatConversationTurn = vi
+      .spyOn(dm as any, "executeWebChatConversationTurn")
+      .mockImplementation(async (params: any) => {
+        await params.sessionToolHandler("mcp.doom.start_game", {
+          scenario: "defend_the_center",
+          god_mode: true,
+          async_player: true,
+        });
+        await params.sessionToolHandler("mcp.doom.set_objective", {
+          objective_type: "hold_position",
+          params: {
+            no_strafe: true,
+            smooth_movement: true,
+            aggressive: true,
+          },
+          priority: 5,
+        });
+        await params.sessionToolHandler("mcp.doom.get_situation_report", {});
+        return {
+          provider: "test",
+          model: "test-model",
+          usedFallback: false,
+          durationMs: 10,
+          compacted: false,
+          content: "Doom is running and status updates will continue.",
+          stopReason: "completed",
+          tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          toolCalls: [],
+          callUsage: [],
+          toolRoutingSummary: undefined,
+        } as any;
+      });
+    const webChat = {
+      send: vi.fn(async () => undefined),
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+      createAbortController: vi.fn(() => new AbortController()),
+      clearAbortController: vi.fn(),
+    } as any;
+    const commandRegistry = {
+      dispatch: vi.fn(async () => false),
+    } as any;
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const sessionMgr = {
+      getOrCreate: vi.fn(() => ({ history: [] })),
+      appendMessage: vi.fn(),
+      compact: vi.fn(),
+    } as any;
+    const memoryBackend = {
+      addEntry: vi.fn(async () => undefined),
+    } as any;
+    const baseToolHandler = vi.fn(async (name: string) => {
+      if (name === "mcp.doom.start_game") {
+        return JSON.stringify({
+          status: "running",
+          scenario: "defend_the_center",
+          god_mode_enabled: true,
+        });
+      }
+      if (name === "mcp.doom.set_objective") {
+        return JSON.stringify({
+          status: "objective_set",
+          objective: { type: "hold_position" },
+        });
+      }
+      if (name === "mcp.doom.get_situation_report") {
+        return JSON.stringify({
+          executor_state: "fighting",
+          objectives: [{ type: "hold_position" }],
+          god_mode_enabled: true,
+        });
+      }
+      return JSON.stringify({ status: "ok" });
+    });
+
+    (dm as any).gateway = {
+      config: {
+        autonomy: {
+          enabled: true,
+          featureFlags: { backgroundRuns: true, canaryRollout: false },
+        },
+        desktop: {
+          resolution: {
+            width: 1024,
+            height: 768,
+          },
+        },
+      },
+    };
+    (dm as any)._backgroundRunSupervisor = {
+      getStatusSnapshot,
+      startRun,
+    };
+
+    await (dm as any).handleWebChatInboundMessage(
+      {
+        sessionId: "session-doom-periodic-updates",
+        senderId: "operator-1",
+        channel: "webchat",
+        content:
+          "Play Doom defending the center without any strafing or back-and-forth movement. Keep it smooth and aggressive. God mode active. Provide periodic status updates.",
+      },
+      {
+        webChat,
+        commandRegistry,
+        getChatExecutor: () => ({ execute: vi.fn() }),
+        getLoggingConfig: () => ({ enabled: false }),
+        hooks,
+        sessionMgr,
+        getSystemPrompt: () => "",
+        baseToolHandler,
+        approvalEngine: undefined,
+        memoryBackend,
+        signals: { signalThinking: vi.fn(), signalIdle: vi.fn() } as any,
+        sessionTokenBudget: 16_000,
+        contextWindowTokens: 64_000,
+      },
+    );
+
+    expect(commandRegistry.dispatch).toHaveBeenCalledOnce();
+    expect(getStatusSnapshot).toHaveBeenCalledWith(
+      "session-doom-periodic-updates",
+    );
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(startRun.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "session-doom-periodic-updates",
+      options: {
+        silent: true,
+        contract: expect.objectContaining({
+          kind: "until_stopped",
+          requiresUserStop: true,
+        }),
+      },
+    });
+    expect(startRun.mock.calls[0]?.[0]?.objective).toContain(
+      "Supervise the existing ViZDoom session for this user.",
+    );
+    expect(startRun.mock.calls[0]?.[0]?.objective).toContain(
+      '"objective_type":"hold_position"',
+    );
+    expect(startRun.mock.calls[0]?.[0]?.objective).toContain(
+      '"no_strafe":true',
+    );
+    expect(startRun.mock.calls[0]?.[0]?.objective).toContain(
+      '"smooth_movement":true',
+    );
     expect(memoryBackend.addEntry).not.toHaveBeenCalled();
     expect(executeWebChatConversationTurn).toHaveBeenCalledOnce();
   });

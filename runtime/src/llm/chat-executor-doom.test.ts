@@ -57,7 +57,60 @@ describe("chat-executor-doom", () => {
     expect(evidence.confirmedAsyncStart).toBe(true);
     expect(evidence.verifiedAsyncState).toBe(true);
     expect(evidence.confirmedHoldPosition).toBe(true);
+    expect(evidence.confirmedActiveObjective).toBe(false);
     expect(evidence.confirmedGodMode).toBe(false);
+  });
+
+  it("requires an active gameplay objective for generic autoplay turns", () => {
+    const contract = inferDoomTurnContract(
+      "Play Doom until I tell you to stop and keep it going on its own.",
+    );
+    expect(contract).toBeDefined();
+    expect(contract?.requiresAutonomousPlay).toBe(true);
+    expect(contract?.requiresHoldPosition).toBe(false);
+
+    const launchOnlyEvidence = summarizeDoomToolEvidence([
+      makeToolCall({
+        name: "mcp.doom.start_game",
+        args: { async_player: true },
+        result: JSON.stringify({ status: "running" }),
+      }),
+    ]);
+    expect(getMissingDoomEvidenceGap(contract!, launchOnlyEvidence)?.code).toBe(
+      "missing_active_objective",
+    );
+
+    const objectiveEvidence = summarizeDoomToolEvidence([
+      makeToolCall({
+        name: "mcp.doom.start_game",
+        args: { async_player: true },
+        result: JSON.stringify({ status: "running" }),
+      }),
+      makeToolCall({
+        name: "mcp.doom.set_objective",
+        args: { objective_type: "explore" },
+        result: JSON.stringify({
+          status: "objective_set",
+          objective: { type: "explore" },
+        }),
+      }),
+    ]);
+    expect(objectiveEvidence.confirmedActiveObjective).toBe(true);
+    expect(getMissingDoomEvidenceGap(contract!, objectiveEvidence)?.code).toBe(
+      "missing_async_verification",
+    );
+  });
+
+  it("reads Doom intent from the background objective section only", () => {
+    const contract = inferDoomTurnContract(
+      "Background objective:\n" +
+        "Supervise the existing ViZDoom session. Verify state and restore forward momentum if it goes idle.\n\n" +
+        "Cycle: 2\n" +
+        "Latest tool evidence:\n" +
+        '- mcp.doom.set_objective [ok] {"status":"objective_set","objective":{"type":"hold_position"}}\n',
+    );
+
+    expect(contract).toBeUndefined();
   });
 
   it("requires set_god_mode before hold-position and verification when god mode is requested", () => {

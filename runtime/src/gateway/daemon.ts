@@ -100,6 +100,7 @@ import {
   summarizeLLMFailureForSurface,
 } from "./daemon-llm-failure.js";
 import type {
+  ChatExecutorResult,
   DeterministicPipelineExecutor,
   SkillInjector,
   MemoryRetriever,
@@ -217,7 +218,10 @@ import {
 } from "./background-run-supervisor.js";
 import { BackgroundRunNotifier } from "./background-run-notifier.js";
 import { BackgroundRunStore } from "./background-run-store.js";
-import type { PersistedBackgroundRun } from "./background-run-store.js";
+import type {
+  BackgroundRunContract,
+  PersistedBackgroundRun,
+} from "./background-run-store.js";
 import type {
   BackgroundRunControlAction,
   BackgroundRunOperatorDetail,
@@ -240,7 +244,11 @@ import {
   createBackgroundRunWebhookRoute,
   mapDesktopBridgeEventTypeToWebChatEvent,
 } from "./background-run-wake-adapters.js";
-import { inferDoomTurnContract } from "../llm/chat-executor-doom.js";
+import {
+  getMissingDoomEvidenceGap,
+  inferDoomTurnContract,
+  summarizeDoomToolEvidence,
+} from "../llm/chat-executor-doom.js";
 import { parseBackgroundRunQualityArtifact } from "../eval/background-run-quality.js";
 import type { DelegationBenchmarkSummary } from "../eval/delegation-benchmark.js";
 import {
@@ -286,6 +294,110 @@ function chooseDoomResolutionForDisplay(width: number, height: number): string {
   if (width >= 1024 && height >= 768) return "RES_1024X768";
   if (width >= 800 && height >= 600) return "RES_800X600";
   return "RES_640X480";
+}
+
+function buildDoomAutoplayBackgroundContract(): BackgroundRunContract {
+  return {
+    domain: "generic",
+    kind: "until_stopped",
+    successCriteria: [
+      "The active ViZDoom session is verified and continues making progress under supervision.",
+    ],
+    completionCriteria: [
+      "The user explicitly stops Doom or cancels the background supervision run.",
+    ],
+    blockedCriteria: [
+      "Doom MCP tools cannot verify or control the session after bounded retries.",
+      "The session needs user input that cannot be inferred safely.",
+    ],
+    nextCheckMs: 8_000,
+    heartbeatMs: 15_000,
+    requiresUserStop: true,
+    managedProcessPolicy: { mode: "none" },
+  };
+}
+
+function extractDoomRecoveryObjective(
+  toolCalls: readonly ToolCallRecord[],
+): Record<string, unknown> {
+  for (let index = toolCalls.length - 1; index >= 0; index -= 1) {
+    const toolCall = toolCalls[index];
+    if (
+      !toolCall ||
+      toolCall.name !== "mcp.doom.set_objective" ||
+      toolCall.isError
+    ) {
+      continue;
+    }
+    const objectiveType = toolCall.args.objective_type;
+    if (typeof objectiveType !== "string" || objectiveType.trim().length === 0) {
+      continue;
+    }
+
+    const recoveryObjective: Record<string, unknown> = {
+      objective_type: objectiveType,
+    };
+    if (
+      toolCall.args.params &&
+      typeof toolCall.args.params === "object" &&
+      !Array.isArray(toolCall.args.params)
+    ) {
+      recoveryObjective.params = toolCall.args.params;
+    }
+    if (typeof toolCall.args.priority === "number") {
+      recoveryObjective.priority = toolCall.args.priority;
+    }
+    return recoveryObjective;
+  }
+
+  return {
+    objective_type: "explore",
+    priority: 1,
+  };
+}
+
+function buildDoomAutoplaySupervisionObjective(params: {
+  readonly toolCalls: readonly ToolCallRecord[];
+}): string {
+  const successfulStart = params.toolCalls.find(
+    (toolCall) => toolCall.name === "mcp.doom.start_game" && !toolCall.isError,
+  );
+  const startPayload = successfulStart
+    ? parseToolResultObject(successfulStart.result)
+    : undefined;
+  const evidence = summarizeDoomToolEvidence(params.toolCalls);
+  const recoveryObjective = extractDoomRecoveryObjective(params.toolCalls);
+  const contextLines: string[] = [];
+
+  if (typeof startPayload?.scenario === "string") {
+    contextLines.push("A scenario-based session is already configured.");
+  }
+  if (typeof startPayload?.wad === "string") {
+    contextLines.push("A campaign session is already configured.");
+  }
+  if (evidence.confirmedGodMode) {
+    contextLines.push("Requested invulnerability is already active.");
+  }
+  if (evidence.confirmedHoldPosition) {
+    contextLines.push(
+      "The current session already has a user-requested movement constraint; preserve it unless the user changes the task.",
+    );
+  } else if (evidence.confirmedActiveObjective) {
+    contextLines.push(
+      "A non-idle gameplay objective is already configured; keep it unless verification shows it is no longer progressing.",
+    );
+  }
+
+  return [
+    "Supervise the existing ViZDoom session for this user.",
+    ...contextLines,
+    `Recovery objective JSON: ${JSON.stringify(recoveryObjective)}`,
+    "Use Doom MCP tools for verification and steering instead of shell or desktop process inspection.",
+    "If verification shows no live episode, recover with Doom MCP tools instead of narrating.",
+    "If the executor becomes idle or stalls, restore forward progress with an active objective such as `explore`, or use tactical Doom tools directly.",
+    "If the episode ends or the player dies, use `mcp.doom.new_episode` and continue supervision.",
+    "Keep the session visibly active until the user explicitly stops it.",
+  ].join("\n");
 }
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
@@ -6707,7 +6819,7 @@ export class DaemonManager {
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       systemPrompt: voicePrompt,
       voice: config.voice?.voice ?? "Ara",
-      model: normalizeGrokModel(config.llm?.model) ?? DEFAULT_GROK_MODEL,
+      model: config.voice?.model ?? DEFAULT_GROK_MODEL,
       mode: config.voice?.mode ?? "vad",
       vadThreshold: config.voice?.vadThreshold,
       vadSilenceDurationMs: config.voice?.vadSilenceDurationMs,
@@ -6724,6 +6836,7 @@ export class DaemonManager {
       ),
       contextWindowTokens,
       delegation: resolvedDeps.delegation,
+      traceConfig,
       traceProviderPayloads:
         traceConfig.enabled && traceConfig.includeProviderPayloads,
     });
@@ -8111,7 +8224,7 @@ export class DaemonManager {
       return;
     }
 
-    await this.executeWebChatConversationTurn({
+    const conversationResult = await this.executeWebChatConversationTurn({
       msg,
       webChat,
       chatExecutor,
@@ -8127,6 +8240,34 @@ export class DaemonManager {
       traceConfig,
       turnTraceId,
     });
+
+    if (
+      conversationResult &&
+      conversationResult.stopReason === "completed" &&
+      doomTurnContract?.requiresAutonomousPlay &&
+      this._backgroundRunSupervisor
+    ) {
+      const doomEvidence = summarizeDoomToolEvidence(doomTurnToolCalls);
+      if (!getMissingDoomEvidenceGap(doomTurnContract, doomEvidence)) {
+        try {
+          await this._backgroundRunSupervisor.startRun({
+            sessionId: msg.sessionId,
+            objective: buildDoomAutoplaySupervisionObjective({
+              toolCalls: doomTurnToolCalls,
+            }),
+            options: {
+              silent: true,
+              contract: buildDoomAutoplayBackgroundContract(),
+            },
+          });
+        } catch (error) {
+          this.logger.warn("Failed to start Doom background supervision", {
+            sessionId: msg.sessionId,
+            error: toErrorMessage(error),
+          });
+        }
+      }
+    }
   }
 
   private async executeWebChatDoomStopTurn(params: {
@@ -8230,7 +8371,7 @@ export class DaemonManager {
     contextWindowTokens?: number;
     traceConfig: ResolvedTraceLoggingConfig;
     turnTraceId: string;
-  }): Promise<void> {
+  }): Promise<ChatExecutorResult | undefined> {
     const {
       msg,
       webChat,
@@ -8251,7 +8392,7 @@ export class DaemonManager {
     this._activeSessionTraceIds.set(msg.sessionId, turnTraceId);
     this._foregroundSessionLocks.add(msg.sessionId);
     try {
-      await runWebChatConversationTurn({
+      return await runWebChatConversationTurn({
         logger: this.logger,
         msg,
         webChat,
