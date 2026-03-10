@@ -9,6 +9,7 @@ import anchor, { type Program } from "@coral-xyz/anchor";
 import { PROGRAM_ID, SEEDS } from "./constants";
 import { getAccount } from "./anchor-utils";
 import { toBigInt, toNumber } from "./utils/numeric";
+import { normalizeImageIdBytes } from "./validation";
 
 const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111",
@@ -39,6 +40,10 @@ export interface ProtocolConfigState {
   minAgentStake: bigint;
   minStakeForDispute: bigint;
   multisigThreshold: number;
+}
+
+export interface ZkConfigState {
+  activeImageId: Uint8Array;
 }
 
 function buildMultisigRemainingAccounts(signers: Keypair[]): AccountMeta[] {
@@ -131,6 +136,17 @@ export function deriveProtocolPda(
 ): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], programId);
   return pda;
+}
+
+export function deriveZkConfigPda(
+  programId: PublicKey = PROGRAM_ID,
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync([SEEDS.ZK_CONFIG], programId);
+  return pda;
+}
+
+function normalizeImageId(imageId: Uint8Array | Buffer): number[] {
+  return Array.from(normalizeImageIdBytes(imageId));
 }
 
 export async function initializeProtocol(
@@ -251,6 +267,50 @@ export async function updateMinVersion(
   );
 }
 
+export async function initializeZkConfig(
+  connection: Connection,
+  program: Program,
+  authority: Keypair,
+  imageId: Uint8Array | Buffer,
+): Promise<{ zkConfigPda: PublicKey; txSignature: string }> {
+  const protocolPda = deriveProtocolPda(program.programId);
+  const zkConfigPda = deriveZkConfigPda(program.programId);
+
+  const tx = await program.methods
+    .initializeZkConfig(normalizeImageId(imageId))
+    .accountsPartial({
+      protocolConfig: protocolPda,
+      zkConfig: zkConfigPda,
+      authority: authority.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([authority])
+    .rpc();
+
+  await connection.confirmTransaction(tx, "confirmed");
+  return { zkConfigPda, txSignature: tx };
+}
+
+export async function updateZkImageId(
+  connection: Connection,
+  program: Program,
+  authority: Keypair,
+  imageId: Uint8Array | Buffer,
+): Promise<{ txSignature: string }> {
+  const tx = await program.methods
+    .updateZkImageId(normalizeImageId(imageId))
+    .accountsPartial({
+      protocolConfig: deriveProtocolPda(program.programId),
+      zkConfig: deriveZkConfigPda(program.programId),
+      authority: authority.publicKey,
+    })
+    .signers([authority])
+    .rpc();
+
+  await connection.confirmTransaction(tx, "confirmed");
+  return { txSignature: tx };
+}
+
 export async function getProtocolConfig(
   program: Program,
 ): Promise<ProtocolConfigState | null> {
@@ -271,6 +331,32 @@ export async function getProtocolConfig(
       ),
       multisigThreshold: toNumber(
         raw.multisigThreshold ?? raw.multisig_threshold,
+      ),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes("Account does not exist") ||
+      message.includes("could not find account")
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function getZkConfig(
+  program: Program,
+): Promise<ZkConfigState | null> {
+  try {
+    const zkConfigPda = deriveZkConfigPda(program.programId);
+    const raw = (await getAccount(program, "zkConfig").fetch(
+      zkConfigPda,
+    )) as Record<string, unknown>;
+
+    return {
+      activeImageId: Uint8Array.from(
+        (raw.activeImageId ?? raw.active_image_id ?? []) as number[],
       ),
     };
   } catch (error) {

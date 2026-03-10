@@ -1098,6 +1098,27 @@ export type AgencCoordination = {
           }
         },
         {
+          "name": "zkConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  107,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "bindingSpend",
           "writable": true,
           "pda": {
@@ -2848,6 +2869,89 @@ export type AgencCoordination = {
           "name": "multisigOwners",
           "type": {
             "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initializeZkConfig",
+      "docs": [
+        "Initialize the trusted ZK image ID config."
+      ],
+      "discriminator": [
+        160,
+        151,
+        49,
+        249,
+        201,
+        208,
+        48,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "zkConfig",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  107,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "protocolConfig"
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "activeImageId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
           }
         }
       ]
@@ -5037,6 +5141,84 @@ export type AgencCoordination = {
       "args": []
     },
     {
+      "name": "updateZkImageId",
+      "docs": [
+        "Rotate the trusted ZK image ID."
+      ],
+      "discriminator": [
+        216,
+        79,
+        225,
+        219,
+        122,
+        123,
+        169,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "zkConfig",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  107,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocolConfig"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "newImageId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "upvotePost",
       "docs": [
         "Upvote a feed post.",
@@ -5913,6 +6095,19 @@ export type AgencCoordination = {
         3,
         187
       ]
+    },
+    {
+      "name": "zkConfig",
+      "discriminator": [
+        181,
+        176,
+        242,
+        167,
+        108,
+        219,
+        13,
+        202
+      ]
     }
   ],
   "events": [
@@ -6525,6 +6720,32 @@ export type AgencCoordination = {
         38,
         85,
         145
+      ]
+    },
+    {
+      "name": "zkConfigInitialized",
+      "discriminator": [
+        193,
+        65,
+        2,
+        44,
+        100,
+        107,
+        71,
+        177
+      ]
+    },
+    {
+      "name": "zkImageIdUpdated",
+      "discriminator": [
+        78,
+        188,
+        106,
+        56,
+        159,
+        201,
+        60,
+        2
       ]
     }
   ],
@@ -7166,361 +7387,366 @@ export type AgencCoordination = {
     },
     {
       "code": 6127,
+      "name": "unauthorizedProtocolAuthority",
+      "msg": "Only protocol authority can perform this action"
+    },
+    {
+      "code": 6128,
       "name": "invalidMinVersion",
       "msg": "Minimum version cannot exceed current protocol version"
     },
     {
-      "code": 6128,
+      "code": 6129,
       "name": "protocolConfigRequired",
       "msg": "Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts"
     },
     {
-      "code": 6129,
+      "code": 6130,
       "name": "parentTaskCancelled",
       "msg": "Parent task has been cancelled"
     },
     {
-      "code": 6130,
+      "code": 6131,
       "name": "parentTaskDisputed",
       "msg": "Parent task is in disputed state"
     },
     {
-      "code": 6131,
+      "code": 6132,
       "name": "invalidDependencyType",
       "msg": "Invalid dependency type"
     },
     {
-      "code": 6132,
+      "code": 6133,
       "name": "parentTaskNotCompleted",
       "msg": "Parent task must be completed before completing a proof-dependent task"
     },
     {
-      "code": 6133,
+      "code": 6134,
       "name": "parentTaskAccountRequired",
       "msg": "Parent task account required for proof-dependent task completion"
     },
     {
-      "code": 6134,
+      "code": 6135,
       "name": "unauthorizedCreator",
       "msg": "Parent task does not belong to the same creator"
     },
     {
-      "code": 6135,
+      "code": 6136,
       "name": "nullifierAlreadySpent",
       "msg": "Nullifier has already been spent - proof/knowledge reuse detected"
     },
     {
-      "code": 6136,
+      "code": 6137,
       "name": "invalidNullifier",
       "msg": "Invalid nullifier: nullifier value cannot be all zeros"
     },
     {
-      "code": 6137,
+      "code": 6138,
       "name": "incompleteWorkerAccounts",
       "msg": "All worker accounts must be provided when cancelling a task with active claims"
     },
     {
-      "code": 6138,
+      "code": 6139,
       "name": "workerAccountsRequired",
       "msg": "Worker accounts required when task has active workers"
     },
     {
-      "code": 6139,
+      "code": 6140,
       "name": "duplicateArbiter",
       "msg": "Duplicate arbiter provided in remaining_accounts"
     },
     {
-      "code": 6140,
+      "code": 6141,
       "name": "insufficientEscrowBalance",
       "msg": "Escrow has insufficient balance for reward transfer"
     },
     {
-      "code": 6141,
+      "code": 6142,
       "name": "invalidStatusTransition",
       "msg": "Invalid task status transition"
     },
     {
-      "code": 6142,
+      "code": 6143,
       "name": "stakeTooLow",
       "msg": "Stake value is below minimum required (0.001 SOL)"
     },
     {
-      "code": 6143,
+      "code": 6144,
       "name": "invalidMinStake",
       "msg": "min_stake_for_dispute must be greater than zero"
     },
     {
-      "code": 6144,
+      "code": 6145,
       "name": "invalidSlashAmount",
       "msg": "Slash amount must be greater than zero"
     },
     {
-      "code": 6145,
+      "code": 6146,
       "name": "bondAmountTooLow",
       "msg": "Bond amount too low"
     },
     {
-      "code": 6146,
+      "code": 6147,
       "name": "bondAlreadyExists",
       "msg": "Bond already exists"
     },
     {
-      "code": 6147,
+      "code": 6148,
       "name": "bondNotFound",
       "msg": "Bond not found"
     },
     {
-      "code": 6148,
+      "code": 6149,
       "name": "bondNotMatured",
       "msg": "Bond not yet matured"
     },
     {
-      "code": 6149,
+      "code": 6150,
       "name": "insufficientReputation",
       "msg": "Agent reputation below task minimum requirement"
     },
     {
-      "code": 6150,
+      "code": 6151,
       "name": "invalidMinReputation",
       "msg": "Invalid minimum reputation: must be <= 10000"
     },
     {
-      "code": 6151,
+      "code": 6152,
       "name": "developmentKeyNotAllowed",
       "msg": "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use."
     },
     {
-      "code": 6152,
+      "code": 6153,
       "name": "selfTaskNotAllowed",
       "msg": "Cannot claim own task: worker authority matches task creator"
     },
     {
-      "code": 6153,
+      "code": 6154,
       "name": "missingTokenAccounts",
       "msg": "Token accounts not provided for token-denominated task"
     },
     {
-      "code": 6154,
+      "code": 6155,
       "name": "invalidTokenEscrow",
       "msg": "Token escrow ATA does not match expected derivation"
     },
     {
-      "code": 6155,
+      "code": 6156,
       "name": "invalidTokenMint",
       "msg": "Provided mint does not match task's reward_mint"
     },
     {
-      "code": 6156,
+      "code": 6157,
       "name": "tokenTransferFailed",
       "msg": "SPL token transfer CPI failed"
     },
     {
-      "code": 6157,
+      "code": 6158,
       "name": "proposalNotActive",
       "msg": "Proposal is not active"
     },
     {
-      "code": 6158,
+      "code": 6159,
       "name": "proposalVotingNotEnded",
       "msg": "Voting period has not ended"
     },
     {
-      "code": 6159,
+      "code": 6160,
       "name": "proposalVotingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6160,
+      "code": 6161,
       "name": "proposalAlreadyExecuted",
       "msg": "Proposal has already been executed"
     },
     {
-      "code": 6161,
+      "code": 6162,
       "name": "proposalInsufficientQuorum",
       "msg": "Insufficient quorum for proposal execution"
     },
     {
-      "code": 6162,
+      "code": 6163,
       "name": "proposalNotApproved",
       "msg": "Proposal did not achieve majority"
     },
     {
-      "code": 6163,
+      "code": 6164,
       "name": "proposalUnauthorizedCancel",
       "msg": "Only the proposer can cancel this proposal"
     },
     {
-      "code": 6164,
+      "code": 6165,
       "name": "proposalInsufficientStake",
       "msg": "Insufficient stake to create a proposal"
     },
     {
-      "code": 6165,
+      "code": 6166,
       "name": "invalidProposalPayload",
       "msg": "Invalid proposal payload"
     },
     {
-      "code": 6166,
+      "code": 6167,
       "name": "invalidProposalType",
       "msg": "Invalid proposal type"
     },
     {
-      "code": 6167,
+      "code": 6168,
       "name": "treasuryInsufficientBalance",
       "msg": "Treasury spend amount exceeds available balance"
     },
     {
-      "code": 6168,
+      "code": 6169,
       "name": "timelockNotElapsed",
       "msg": "Execution timelock has not elapsed"
     },
     {
-      "code": 6169,
+      "code": 6170,
       "name": "invalidGovernanceParam",
       "msg": "Invalid governance configuration parameter"
     },
     {
-      "code": 6170,
+      "code": 6171,
       "name": "treasuryNotProgramOwned",
       "msg": "Treasury must be a program-owned PDA"
     },
     {
-      "code": 6171,
+      "code": 6172,
       "name": "treasuryNotSpendable",
       "msg": "Treasury must be program-owned, or a signer system account for governance spends"
     },
     {
-      "code": 6172,
+      "code": 6173,
       "name": "skillInvalidId",
       "msg": "Skill ID cannot be all zeros"
     },
     {
-      "code": 6173,
+      "code": 6174,
       "name": "skillInvalidName",
       "msg": "Skill name cannot be all zeros"
     },
     {
-      "code": 6174,
+      "code": 6175,
       "name": "skillInvalidContentHash",
       "msg": "Skill content hash cannot be all zeros"
     },
     {
-      "code": 6175,
+      "code": 6176,
       "name": "skillNotActive",
       "msg": "Skill is not active"
     },
     {
-      "code": 6176,
+      "code": 6177,
       "name": "skillInvalidRating",
       "msg": "Rating must be between 1 and 5"
     },
     {
-      "code": 6177,
+      "code": 6178,
       "name": "skillSelfRating",
       "msg": "Cannot rate own skill"
     },
     {
-      "code": 6178,
+      "code": 6179,
       "name": "skillUnauthorizedUpdate",
       "msg": "Only the skill author can update this skill"
     },
     {
-      "code": 6179,
+      "code": 6180,
       "name": "skillSelfPurchase",
       "msg": "Cannot purchase own skill"
     },
     {
-      "code": 6180,
+      "code": 6181,
       "name": "feedInvalidContentHash",
       "msg": "Feed content hash cannot be all zeros"
     },
     {
-      "code": 6181,
+      "code": 6182,
       "name": "feedInvalidTopic",
       "msg": "Feed topic cannot be all zeros"
     },
     {
-      "code": 6182,
+      "code": 6183,
       "name": "feedPostNotFound",
       "msg": "Feed post not found"
     },
     {
-      "code": 6183,
+      "code": 6184,
       "name": "feedSelfUpvote",
       "msg": "Cannot upvote own post"
     },
     {
-      "code": 6184,
+      "code": 6185,
       "name": "reputationStakeAmountTooLow",
       "msg": "Reputation stake amount must be greater than zero"
     },
     {
-      "code": 6185,
+      "code": 6186,
       "name": "reputationStakeLocked",
       "msg": "Reputation stake is locked: withdrawal before cooldown"
     },
     {
-      "code": 6186,
+      "code": 6187,
       "name": "reputationStakeInsufficientBalance",
       "msg": "Reputation stake has insufficient balance for withdrawal"
     },
     {
-      "code": 6187,
+      "code": 6188,
       "name": "reputationDelegationAmountInvalid",
       "msg": "Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT"
     },
     {
-      "code": 6188,
+      "code": 6189,
       "name": "reputationCannotDelegateSelf",
       "msg": "Cannot delegate reputation to self"
     },
     {
-      "code": 6189,
+      "code": 6190,
       "name": "reputationDelegationExpired",
       "msg": "Reputation delegation has expired"
     },
     {
-      "code": 6190,
+      "code": 6191,
       "name": "reputationAgentNotActive",
       "msg": "Agent must be Active to participate in reputation economy"
     },
     {
-      "code": 6191,
+      "code": 6192,
       "name": "reputationDisputesPending",
       "msg": "Agent has pending disputes as defendant: cannot withdraw stake"
     },
     {
-      "code": 6192,
+      "code": 6193,
       "name": "privateTaskRequiresZkProof",
       "msg": "Private tasks (non-zero constraint_hash) must use complete_task_private"
     },
     {
-      "code": 6193,
+      "code": 6194,
       "name": "invalidTokenAccountOwner",
       "msg": "Token account owner does not match expected authority"
     },
     {
-      "code": 6194,
+      "code": 6195,
       "name": "insufficientSeedEntropy",
       "msg": "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
     },
     {
-      "code": 6195,
+      "code": 6196,
       "name": "skillPriceBelowMinimum",
       "msg": "Skill price below minimum required"
     },
     {
-      "code": 6196,
+      "code": 6197,
       "name": "skillPriceChanged",
       "msg": "Skill price changed since transaction was prepared"
     },
     {
-      "code": 6197,
+      "code": 6198,
       "name": "delegationCooldownNotElapsed",
       "msg": "Delegation must be active for minimum duration before revocation"
     },
     {
-      "code": 6198,
+      "code": 6199,
       "name": "rateLimitBelowMinimum",
       "msg": "Rate limit value below protocol minimum"
     }
@@ -11586,6 +11812,114 @@ export type AgencCoordination = {
           {
             "name": "newTreasury",
             "type": "pubkey"
+          },
+          {
+            "name": "updatedBy",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "zkConfig",
+      "docs": [
+        "ZK verifier configuration account",
+        "PDA seeds: [\"zk_config\"]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "activeImageId",
+            "docs": [
+              "Active trusted RISC Zero guest image ID."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future ZK config extensions."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                31
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "zkConfigInitialized",
+      "docs": [
+        "Emitted when the trusted ZK image ID config is initialized."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "imageId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "zkImageIdUpdated",
+      "docs": [
+        "Emitted when the trusted ZK image ID is rotated."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oldImageId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "newImageId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "updatedBy",

@@ -189,15 +189,20 @@ export {
 
 export {
   initializeProtocol,
+  initializeZkConfig,
   updateProtocolFee,
   updateRateLimits,
+  updateZkImageId,
   migrateProtocol,
   updateMinVersion,
   getProtocolConfig,
+  getZkConfig,
   deriveProtocolPda,
+  deriveZkConfigPda,
   type InitializeProtocolParams,
   type UpdateRateLimitsParams,
   type ProtocolConfigState,
+  type ZkConfigState,
 } from "./protocol";
 
 export {

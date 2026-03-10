@@ -212,6 +212,19 @@ pub mod agenc_coordination {
         instructions::complete_task_private::complete_task_private(ctx, task_id, proof)
     }
 
+    /// Initialize the trusted ZK image ID config.
+    pub fn initialize_zk_config(
+        ctx: Context<InitializeZkConfig>,
+        active_image_id: [u8; 32],
+    ) -> Result<()> {
+        instructions::initialize_zk_config::handler(ctx, active_image_id)
+    }
+
+    /// Rotate the trusted ZK image ID.
+    pub fn update_zk_image_id(ctx: Context<UpdateZkImageId>, new_image_id: [u8; 32]) -> Result<()> {
+        instructions::update_zk_image_id::handler(ctx, new_image_id)
+    }
+
     /// Cancel an unclaimed or expired task and reclaim funds.
     pub fn cancel_task(ctx: Context<CancelTask>) -> Result<()> {
         require!(

@@ -80,3 +80,17 @@
   - keep `zkvm/` limited to shared schema types
   - send proof generation through an authenticated remote prover endpoint
   - treat local prove/build toolchains as external infrastructure, not repo dependencies
+
+## 2026-03-10 - ZK image trust must come from `zk_config`, not hardcoded SDK/program constants
+
+- Do not hardcode the trusted RISC Zero image ID in `complete_task_private` or SDK preflight paths.
+- The safe pattern is:
+  - store the active trusted image ID in the on-chain `zk_config` PDA
+  - make the program read that PDA during `complete_task_private`
+  - make SDK preflight/wrappers read `zk_config` instead of assuming a local constant is authoritative
+
+## 2026-03-10 - Newer SBF toolchains expose stack overflows in large Anchor `Accounts` validators
+
+- `cargo-build-sbf --tools-version v1.52` surfaced 4 KB frame overflows that the older local toolchain was not blocking on.
+- The minimal fix in this repo was to `Box<Account<...>>` the large accounts in heavy validation structs instead of pretending the old `.so` was still acceptable.
+- If local deploys suddenly fail on `try_accounts` frame size, inspect the failing `#[derive(Accounts)]` struct first.

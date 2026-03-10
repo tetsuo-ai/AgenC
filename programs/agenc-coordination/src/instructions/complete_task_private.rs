@@ -9,7 +9,7 @@ use crate::instructions::completion_helpers::{
 use crate::instructions::token_helpers::{validate_token_account, validate_unchecked_token_mint};
 use crate::state::{
     AgentRegistration, BindingSpend, NullifierSpend, ProtocolConfig, Task, TaskClaim, TaskEscrow,
-    HASH_SIZE, RESULT_DATA_SIZE,
+    ZkConfig, HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -48,12 +48,6 @@ const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
-// SHA-256 digest of the trusted RISC Zero guest ELF used by the remote prover stack.
-// This value MUST match TRUSTED_RISC0_IMAGE_ID in sdk/src/constants.ts exactly.
-const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
-    91, 102, 183, 26, 119, 89, 149, 15, 10, 80, 87, 16, 22, 157, 195, 85, 12, 183, 108, 1, 237,
-    243, 199, 24, 191, 151, 209, 50, 83, 101, 49, 151,
-];
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PrivateCompletionPayload {
@@ -111,6 +105,12 @@ pub struct CompleteTaskPrivate<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
+
+    #[account(
+        seeds = [b"zk_config"],
+        bump = zk_config.bump
+    )]
+    pub zk_config: Box<Account<'info, ZkConfig>>,
 
     #[account(
         init,
@@ -267,6 +267,7 @@ fn verify_private_completion_stage(
         task_key,
         &ctx.accounts.claim,
         &ctx.accounts.protocol_config,
+        &ctx.accounts.zk_config,
         ctx.remaining_accounts,
         ctx.program_id,
         &ctx.accounts.authority.key(),
@@ -309,6 +310,7 @@ fn validate_completion_inputs<'info>(
     task_key: &Pubkey,
     claim: &TaskClaim,
     protocol_config: &ProtocolConfig,
+    zk_config: &ZkConfig,
     remaining_accounts: &[AccountInfo<'info>],
     program_id: &Pubkey,
     authority: &Pubkey,
@@ -331,7 +333,7 @@ fn validate_completion_inputs<'info>(
         task.constraint_hash != [0u8; HASH_SIZE],
         CoordinationError::NotPrivateTask
     );
-    validate_parsed_journal(task, task_key, authority, proof, parsed_journal)?;
+    validate_parsed_journal(task, task_key, authority, zk_config, proof, parsed_journal)?;
 
     Ok(())
 }
@@ -349,6 +351,7 @@ fn validate_parsed_journal(
     task: &Task,
     task_key: &Pubkey,
     authority: &Pubkey,
+    zk_config: &ZkConfig,
     proof: &PrivateCompletionPayload,
     parsed_journal: &ParsedJournal,
 ) -> Result<()> {
@@ -373,7 +376,7 @@ fn validate_parsed_journal(
         CoordinationError::InvalidNullifier
     );
     require!(
-        proof.image_id == TRUSTED_RISC0_IMAGE_ID,
+        proof.image_id == zk_config.active_image_id,
         CoordinationError::InvalidImageId
     );
     Ok(())

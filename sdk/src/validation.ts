@@ -61,13 +61,28 @@ export interface Risc0PayloadLike {
   nullifierSeed: Uint8Array | Buffer;
 }
 
+export function normalizeImageIdBytes(imageId: Uint8Array | Buffer): Buffer {
+  const normalized = Buffer.from(imageId);
+  if (normalized.length !== RISC0_IMAGE_ID_LEN) {
+    throw new Error(`Security: imageId must be ${RISC0_IMAGE_ID_LEN} bytes`);
+  }
+  return normalized;
+}
+
+export function imageIdsEqual(
+  left: Uint8Array | Buffer,
+  right: Uint8Array | Buffer,
+): boolean {
+  return Buffer.from(left).equals(Buffer.from(right));
+}
+
 /**
  * Validate local shape constraints for RISC0 private proof payloads.
  */
 export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
   const sealBytes = Buffer.from(payload.sealBytes);
   const journal = Buffer.from(payload.journal);
-  const imageId = Buffer.from(payload.imageId);
+  const imageId = normalizeImageIdBytes(payload.imageId);
   const bindingSeed = Buffer.from(payload.bindingSeed);
   const nullifierSeed = Buffer.from(payload.nullifierSeed);
 
@@ -78,9 +93,6 @@ export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
   }
   if (journal.length !== RISC0_JOURNAL_LEN) {
     throw new Error(`Security: journal must be ${RISC0_JOURNAL_LEN} bytes`);
-  }
-  if (imageId.length !== RISC0_IMAGE_ID_LEN) {
-    throw new Error(`Security: imageId must be ${RISC0_IMAGE_ID_LEN} bytes`);
   }
   if (bindingSeed.length !== HASH_SIZE) {
     throw new Error(`Security: bindingSeed must be ${HASH_SIZE} bytes`);

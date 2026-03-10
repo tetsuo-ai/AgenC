@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { Connection, Keypair } from "@solana/web3.js";
 import type { Program } from "@coral-xyz/anchor";
-import { initializeProtocol } from "../protocol";
+import {
+  initializeProtocol,
+  initializeZkConfig,
+  updateZkImageId,
+} from "../protocol";
 import { PROGRAM_ID } from "../constants";
 
 describe("protocol wrappers", () => {
@@ -99,5 +103,64 @@ describe("protocol wrappers", () => {
       "confirmed",
     );
     expect(result.txSignature).toBe("protocol-init-sig");
+  });
+
+  it("initializeZkConfig submits expected args and confirms transaction", async () => {
+    const authority = Keypair.generate();
+    const rpc = vi.fn().mockResolvedValue("zk-init-sig");
+    const signers = vi.fn().mockReturnValue({ rpc });
+    const accountsPartial = vi.fn().mockReturnValue({ signers });
+    const initializeZkConfigMethod = vi
+      .fn()
+      .mockReturnValue({ accountsPartial });
+
+    const program = {
+      programId: PROGRAM_ID,
+      methods: {
+        initializeZkConfig: initializeZkConfigMethod,
+      },
+    } as unknown as Program;
+
+    const confirmTransaction = vi.fn().mockResolvedValue(undefined);
+    const connection = {
+      confirmTransaction,
+    } as unknown as Connection;
+
+    const imageId = new Uint8Array(32).fill(7);
+    const result = await initializeZkConfig(connection, program, authority, imageId);
+
+    expect(initializeZkConfigMethod).toHaveBeenCalledWith(Array.from(imageId));
+    expect(confirmTransaction).toHaveBeenCalledWith("zk-init-sig", "confirmed");
+    expect(result.txSignature).toBe("zk-init-sig");
+  });
+
+  it("updateZkImageId submits expected args and confirms transaction", async () => {
+    const authority = Keypair.generate();
+    const rpc = vi.fn().mockResolvedValue("zk-update-sig");
+    const signers = vi.fn().mockReturnValue({ rpc });
+    const accountsPartial = vi.fn().mockReturnValue({ signers });
+    const updateZkImageIdMethod = vi.fn().mockReturnValue({ accountsPartial });
+
+    const program = {
+      programId: PROGRAM_ID,
+      methods: {
+        updateZkImageId: updateZkImageIdMethod,
+      },
+    } as unknown as Program;
+
+    const confirmTransaction = vi.fn().mockResolvedValue(undefined);
+    const connection = {
+      confirmTransaction,
+    } as unknown as Connection;
+
+    const imageId = new Uint8Array(32).fill(9);
+    const result = await updateZkImageId(connection, program, authority, imageId);
+
+    expect(updateZkImageIdMethod).toHaveBeenCalledWith(Array.from(imageId));
+    expect(confirmTransaction).toHaveBeenCalledWith(
+      "zk-update-sig",
+      "confirmed",
+    );
+    expect(result.txSignature).toBe("zk-update-sig");
   });
 });

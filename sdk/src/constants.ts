@@ -82,14 +82,17 @@ export const RISC0_IMAGE_ID_LEN = 32;
 export const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
 
 /**
- * Trusted RISC0 image ID — SHA-256 digest of the RISC Zero guest ELF.
+ * Default official RISC0 image ID for the current AgenC prover release.
  *
- * This value must stay pinned to the trusted remote prover/verifier stack.
- * This value MUST match TRUSTED_RISC0_IMAGE_ID in complete_task_private.rs exactly.
+ * On-chain trust is configured via the `zk_config` PDA. This constant is a
+ * default/reference value for the current official prover build.
+ *
+ * @deprecated Read the active trusted image ID from `getZkConfig()` for
+ * authoritative on-chain state.
  */
 export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
-  91, 102, 183, 26, 119, 89, 149, 15, 10, 80, 87, 16, 22, 157, 195, 85, 12,
-  183, 108, 1, 237, 243, 199, 24, 191, 151, 209, 50, 83, 101, 49, 151,
+  234, 105, 58, 154, 139, 43, 119, 65, 97, 133, 45, 254, 201, 178, 175, 71,
+  73, 230, 18, 17, 243, 3, 22, 193, 47, 173, 107, 173, 215, 208, 1, 82,
 ]);
 
 // ============================================================================
@@ -216,6 +219,7 @@ export enum TaskState {
 /** PDA seeds */
 export const SEEDS = {
   PROTOCOL: Buffer.from("protocol"),
+  ZK_CONFIG: Buffer.from("zk_config"),
   TASK: Buffer.from("task"),
   CLAIM: Buffer.from("claim"),
   AGENT: Buffer.from("agent"),

@@ -193,6 +193,9 @@ describe("SDK contract tests", () => {
     });
 
     const imageId = Buffer.alloc(32, 0xef);
+    mockGetAccount({
+      activeImageId: imageId,
+    } as never);
 
     const result = await completeTaskPrivate(
       connection,
@@ -231,6 +234,7 @@ describe("SDK contract tests", () => {
     const builder = completeTaskPrivateMock.mock.results[0].value;
     expect(builder.accountsPartial).toHaveBeenCalledWith(
       expect.objectContaining({
+        zkConfig: expect.any(PublicKey),
         bindingSpend: expect.any(PublicKey),
         nullifierSpend: expect.any(PublicKey),
         routerProgram: expect.any(PublicKey),

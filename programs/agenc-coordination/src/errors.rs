@@ -398,6 +398,9 @@ pub enum CoordinationError {
     #[msg("Only upgrade authority can perform this action")]
     UnauthorizedUpgrade,
 
+    #[msg("Only protocol authority can perform this action")]
+    UnauthorizedProtocolAuthority,
+
     #[msg("Minimum version cannot exceed current protocol version")]
     InvalidMinVersion,
 
