@@ -133,8 +133,11 @@ import { createSqliteTools } from "../tools/system/sqlite.js";
 import { createSpreadsheetTools } from "../tools/system/spreadsheet.js";
 import { resolveBrowserToolMode } from "./browser-tool-mode.js";
 import { createExecuteWithAgentTool } from "./delegation-tool.js";
-import { SkillDiscovery } from "../skills/markdown/discovery.js";
-import type { DiscoveredSkill } from "../skills/markdown/discovery.js";
+import {
+  SkillDiscovery,
+  type DiscoveryPaths,
+  type DiscoveredSkill,
+} from "../skills/markdown/discovery.js";
 import { MarkdownSkillInjector } from "../skills/markdown/injector.js";
 import { VoiceBridge } from "./voice-bridge.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
@@ -526,6 +529,8 @@ const CHROMIUM_HOST_CHROME_CANDIDATES = [
 ] as const;
 const CHROMIUM_SHIM_DIR_SEGMENTS = [".agenc", "bin"] as const;
 const HOST_RUNTIME_SHIM_COMMAND = "agenc-runtime" as const;
+const RUNTIME_USER_SKILLS_ENV = "AGENC_ENABLE_USER_SKILLS" as const;
+const TRUTHY_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
 const CURRENT_MODULE_FILE_PATH =
   typeof __filename === "string"
     ? __filename
@@ -553,6 +558,27 @@ export function resolveBashToolEnv(
     }
   }
   return safeEnv;
+}
+
+export function isRuntimeUserSkillDiscoveryEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw = env[RUNTIME_USER_SKILLS_ENV];
+  return typeof raw === "string" && TRUTHY_ENV_VALUES.has(raw.trim().toLowerCase());
+}
+
+export function resolveRuntimeSkillDiscoveryPaths(
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir: string = homedir(),
+  currentFilePath: string = CURRENT_MODULE_FILE_PATH,
+): Pick<DiscoveryPaths, "builtinSkills" | "userSkills"> {
+  const pkgRoot = resolvePath(dirname(currentFilePath), "..", "..");
+  return {
+    builtinSkills: join(pkgRoot, "src", "skills", "bundled"),
+    ...(isRuntimeUserSkillDiscoveryEnabled(env)
+      ? { userSkills: join(homeDir, ".agenc", "skills") }
+      : {}),
+  };
 }
 
 /**
@@ -8937,20 +8963,20 @@ export class DaemonManager {
   }
 
   /**
-   * Discover bundled and user skills. Returns full DiscoveredSkill objects
-   * so skill bodies can be injected into LLM context.
+   * Discover bundled skills and, when explicitly enabled, user-home skills.
+   * Returns discovered skill metadata for downstream relevance-filtered prompt
+   * injection.
    */
   private async discoverSkills(): Promise<DiscoveredSkill[]> {
     try {
-      const pkgRoot = resolvePath(
-        dirname(CURRENT_MODULE_FILE_PATH),
-        "..",
-        "..",
-      );
-      const builtinSkills = join(pkgRoot, "src", "skills", "bundled");
-      const userSkills = join(homedir(), ".agenc", "skills");
+      const discoveryPaths = resolveRuntimeSkillDiscoveryPaths();
+      if (discoveryPaths.userSkills) {
+        this.logger.warn?.(
+          `Runtime user skill discovery enabled via ${RUNTIME_USER_SKILLS_ENV}; loading skills from ${discoveryPaths.userSkills}`,
+        );
+      }
 
-      const discovery = new SkillDiscovery({ builtinSkills, userSkills });
+      const discovery = new SkillDiscovery(discoveryPaths);
       return await discovery.discoverAll();
     } catch (err) {
       this.logger.warn?.("Skill discovery failed:", err);
