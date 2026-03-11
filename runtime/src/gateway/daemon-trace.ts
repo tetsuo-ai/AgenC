@@ -127,6 +127,16 @@ export function resolveTraceLoggingConfig(
   };
 }
 
+export function resolveTraceFanoutEnabled(
+  logging?: GatewayLoggingConfig,
+): boolean {
+  const trace = logging?.trace;
+  if (!trace?.enabled) {
+    return false;
+  }
+  return trace.fanout?.enabled ?? true;
+}
+
 export function summarizeTraceValue(
   value: unknown,
   maxChars: number,

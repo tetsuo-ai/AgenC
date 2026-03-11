@@ -972,6 +972,9 @@ describe("config loading", () => {
             includeToolResults: true,
             includeProviderPayloads: true,
             maxChars: 12_000,
+            fanout: {
+              enabled: true,
+            },
           },
         },
       }),
@@ -990,6 +993,9 @@ describe("config loading", () => {
             enabled: "yes" as unknown as boolean,
             includeProviderPayloads: "yes" as unknown as boolean,
             maxChars: 100,
+            fanout: {
+              enabled: "yes" as unknown as boolean,
+            },
           },
         },
       }),
@@ -1002,6 +1008,9 @@ describe("config loading", () => {
     );
     expect(result.errors).toContain(
       "logging.trace.maxChars must be an integer between 256 and 200000",
+    );
+    expect(result.errors).toContain(
+      "logging.trace.fanout.enabled must be a boolean",
     );
   });
 

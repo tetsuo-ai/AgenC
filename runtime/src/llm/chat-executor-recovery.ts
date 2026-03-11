@@ -109,6 +109,103 @@ function isDesktopBiasedSystemCommandFailure(
   );
 }
 
+function hasBrokenHeredocConjunctionShape(
+  args: Record<string, unknown> | undefined,
+  failureTextLower: string,
+): boolean {
+  if (!failureTextLower.includes("syntax error near unexpected token")) {
+    return false;
+  }
+  const command =
+    typeof args?.command === "string" ? args.command : "";
+  if (!command.includes("<<")) return false;
+  return /\n\s*(?:&&|\|\||;)\s+\S/.test(command);
+}
+
+function isWatchModeTestRunnerFailure(
+  call: ToolCallRecord,
+  parsedResult: Record<string, unknown> | null,
+  failureTextLower: string,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  if (!parsedResult || parsedResult.timedOut !== true) return false;
+
+  const command = String(call.args?.command ?? "").trim().toLowerCase();
+  const args = Array.isArray(call.args?.args)
+    ? call.args.args
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.toLowerCase())
+    : [];
+  const stdout = typeof parsedResult.stdout === "string"
+    ? parsedResult.stdout.toLowerCase()
+    : "";
+  const stderr = typeof parsedResult.stderr === "string"
+    ? parsedResult.stderr.toLowerCase()
+    : "";
+  const watchSignal =
+    stdout.includes("watching for file changes") ||
+    stdout.includes("press h to show help") ||
+    stdout.includes("press q to quit") ||
+    stderr.includes("watching for file changes");
+  if (!watchSignal) return false;
+
+  return (
+    command === "vitest" ||
+    command === "jest" ||
+    command === "npm" ||
+    command === "pnpm" ||
+    command === "yarn" ||
+    command === "bun" ||
+    args.includes("test") ||
+    args.includes("vitest") ||
+    failureTextLower.includes("vitest") ||
+    failureTextLower.includes("jest")
+  );
+}
+
+function isUnsupportedWorkspaceProtocolFailure(failureTextLower: string): boolean {
+  return (
+    failureTextLower.includes("unsupported url type \"workspace:\"") ||
+    failureTextLower.includes("unsupported url type 'workspace:'") ||
+    failureTextLower.includes("eunsupportedprotocol")
+  );
+}
+
+function isRecursiveNpmInstallLifecycleFailure(
+  call: ToolCallRecord,
+  parsedResult: Record<string, unknown> | null,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  const command = String(call.args?.command ?? "").trim().toLowerCase();
+  if (command !== "npm") return false;
+  const args = Array.isArray(call.args?.args)
+    ? call.args.args
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.toLowerCase())
+    : [];
+  if (!args.includes("install")) return false;
+
+  const stdout = typeof parsedResult?.stdout === "string"
+    ? parsedResult.stdout.toLowerCase()
+    : "";
+  const stderr = typeof parsedResult?.stderr === "string"
+    ? parsedResult.stderr.toLowerCase()
+    : "";
+  const combined = `${stdout}\n${stderr}`;
+  return (
+    />\s+.+?\s+install\s*\n>\s+npm install/.test(combined) ||
+    (
+      combined.includes("lifecycle script `install` failed") &&
+      combined.includes("> npm install")
+    )
+  );
+}
+
+function isMissingLocalPackageDistFailure(failureText: string): boolean {
+  return /cannot find (?:package|module)\s+['"][^'"]*\/node_modules\/[^'"]*\/dist\/[^'"]+['"]/i
+    .test(failureText);
+}
+
 export function buildSemanticToolCallKey(
   name: string,
   args: Record<string, unknown>,
@@ -273,6 +370,16 @@ export function inferRecoveryHint(
 
   const failureText = extractToolFailureText(call);
   const failureTextLower = failureText.toLowerCase();
+  if (isWatchModeTestRunnerFailure(call, parsedResult, failureTextLower)) {
+    return {
+      key: `${call.name}-test-runner-watch-mode`,
+      message:
+        "This test command entered interactive watch mode and timed out. " +
+        "Retry with a non-interactive single-run invocation. Prefer the runner's native single-shot mode. " +
+        "For Vitest, use `vitest run` or `vitest --run`; for Jest-based npm scripts, prefer `CI=1 npm test` or `jest --runInBand`. " +
+        "Only append npm `--` flags when the underlying runner supports them.",
+    };
+  }
   if (call.name === "execute_with_agent" && parsedResult) {
     const status =
       typeof parsedResult.status === "string"
@@ -344,6 +451,22 @@ export function inferRecoveryHint(
           "Retry only after explicitly using file-writing tools and naming the changed files in the result.",
       };
     }
+    if (validationCode === "blocked_phase_output") {
+      return {
+        key: "execute-with-agent-blocked-phase-output",
+        message:
+          "The previous `execute_with_agent` attempt returned a success-path answer that still said the phase was blocked or could not be completed. " +
+          "Retry only after fixing and verifying the blocking issue, or let the failure propagate instead of presenting the phase as completed.",
+      };
+    }
+    if (validationCode === "contradictory_completion_claim") {
+      return {
+        key: "execute-with-agent-contradictory-completion",
+        message:
+          "The previous `execute_with_agent` attempt claimed completion while still admitting unresolved mismatches or follow-up work. " +
+          "Retry only after fixing and verifying the issue, or report the phase as blocked instead of successful.",
+      };
+    }
     if (validationCode === "expected_json_object") {
       return {
         key: "execute-with-agent-expected-json-object",
@@ -384,6 +507,16 @@ export function inferRecoveryHint(
 
   if (call.name === "system.bash") {
     const command = String(call.args?.command ?? "").trim().toLowerCase();
+    if (hasBrokenHeredocConjunctionShape(call.args, failureTextLower)) {
+      return {
+        key: "system-bash-heredoc-conjunction-shape",
+        message:
+          "This shell script put `&&`, `||`, or `;` on a new line after a heredoc terminator, " +
+          "which is invalid shell syntax. Split the follow-up command into a separate tool call, " +
+          "keep the conjunction on the original command line, or use `system.writeFile`/`system.appendFile` " +
+          "for file contents instead of shell heredocs.",
+      };
+    }
     if (
       failureTextLower.includes("long-running server process") ||
       failureTextLower.includes("background process but does not redirect") ||
@@ -394,6 +527,30 @@ export function inferRecoveryHint(
         message:
           "For local HTTP services you need to monitor, prefer `system.serverStart`, then `system.serverStatus`/`system.serverResume`, `system.serverLogs`, and `system.serverStop`. " +
           "Use `system.process*` for non-HTTP workers and `system.bash` for one-shot commands only.",
+      };
+    }
+    if (isUnsupportedWorkspaceProtocolFailure(failureTextLower)) {
+      return {
+        key: "system-bash-workspace-protocol-unsupported",
+        message:
+          "This host package manager rejected `workspace:*`. Do not assume workspace protocol support in generated manifests. " +
+          "Rewrite the local dependency to a host-compatible specifier, then rerun `npm install` on this host before continuing.",
+      };
+    }
+    if (isRecursiveNpmInstallLifecycleFailure(call, parsedResult)) {
+      return {
+        key: "system-bash-recursive-npm-install-lifecycle",
+        message:
+          "This project defines an `install` lifecycle that recursively reruns `npm install`, which can loop until timeout. " +
+          "Remove or rename the recursive `install` script in `package.json`, keep one-time setup out of `npm install`, then rerun `npm install` before continuing.",
+      };
+    }
+    if (isMissingLocalPackageDistFailure(failureText)) {
+      return {
+        key: "system-bash-local-package-dist-missing",
+        message:
+          "This local package link resolved to a `dist/*` entry that does not exist yet. " +
+          "Build the dependency package first or point the consumer at source/exports that already exist on disk, then rerun the command before claiming success.",
       };
     }
     if (isDesktopBiasedSystemCommandFailure(command, failureTextLower)) {
@@ -421,8 +578,8 @@ export function inferRecoveryHint(
       return {
         key: "system-bash-shell-builtin",
         message:
-          "system.bash executes one real binary only. Shell builtins (for example `set`, `cd`, `export`) " +
-          "and script-style command chains do not work there. Use executable + args, or move multi-line/chained logic to `desktop.bash`.",
+          "Shell builtins (for example `set`, `cd`, `export`) are not standalone executables. " +
+          "If you need shell semantics on the host, retry in `system.bash` shell mode by putting the full shell command in `command` and omitting `args`.",
       };
     }
     if (
@@ -432,8 +589,8 @@ export function inferRecoveryHint(
       return {
         key: "system-bash-command-shape",
         message:
-          "system.bash `command` must be a single executable token. Put flags/operands in `args`. " +
-          "For pipes/redirection/heredocs or multi-line shell scripts, use `desktop.bash`.",
+          "In `system.bash` direct mode, `command` must be a single executable token and flags belong in `args`. " +
+          "If you need pipes, redirection, heredocs, chaining, or other shell syntax on the host, retry with the full shell command in `command` and omit `args`.",
       };
     }
     if (failureTextLower.includes("nested shell invocation")) {
@@ -501,6 +658,16 @@ export function inferRecoveryHint(
         "This filesystem tool call was blocked by path allowlisting. " +
         "Use files under allowed roots (`~/.agenc/workspace`, project root, `~/Desktop`, `/tmp`) " +
         "or switch to `system.bash` with an explicit `cwd` for repo-local reads.",
+    };
+  }
+
+  if (failureTextLower.includes("delegated workspace root violation")) {
+    return {
+      key: "delegated-workspace-root-violation",
+      message:
+        "This child task is scoped to a delegated workspace root. " +
+        "Keep file paths under the assigned root, prefer relative paths from that cwd, " +
+        "and do not create fallback workspaces elsewhere (for example under `/tmp`).",
     };
   }
 

@@ -40,6 +40,7 @@ import type {
 import type { WorkflowGraphEdge } from "../workflow/types.js";
 import type { DelegationDecision, DelegationDecisionConfig } from "./delegation-decision.js";
 import type { DelegationContractSpec } from "../utils/delegation-validation.js";
+import type { HostToolingProfile } from "../gateway/host-tooling.js";
 import type {
   DelegationBanditPolicyTuner,
   DelegationBanditSelection,
@@ -108,8 +109,12 @@ export type ChatExecutionTraceEventType =
   | "planner_pipeline_started"
   | "planner_plan_parsed"
   | "planner_refinement_requested"
+  | "planner_verifier_retry_scheduled"
+  | "planner_verifier_round_finished"
   | "route_expanded"
   | "tool_arguments_invalid"
+  | "tool_round_budget_extension_evaluated"
+  | "tool_round_budget_extended"
   | "tool_dispatch_finished"
   | "tool_dispatch_started"
   | "tool_rejected";
@@ -401,6 +406,8 @@ export interface ChatExecutorConfig {
   readonly retryPolicyMatrix?: LLMRetryPolicyOverrides;
   /** Session-level breaker for repeated failing tool patterns. */
   readonly toolFailureCircuitBreaker?: ToolFailureCircuitBreakerConfig;
+  /** Optional live host-tooling profile used to constrain planner output. */
+  readonly resolveHostToolingProfile?: () => HostToolingProfile | null;
 }
 
 // ============================================================================
@@ -579,6 +586,31 @@ export interface PlannerPipelineVerifierLoopInput {
     plannerContext: PipelinePlannerContext;
     round: number;
   }) => Promise<SubagentVerifierDecision>;
+  onVerifierRoundFinished?: (payload: {
+    executionRound: number;
+    verifierRound: number;
+    overall: SubagentVerifierDecision["overall"];
+    confidence: number;
+    minConfidence: number;
+    belowConfidence: boolean;
+    retryable: boolean;
+    canRetry: boolean;
+    unresolvedItems: readonly string[];
+    pipelineStatus: PipelineResult["status"];
+    completedSteps: number;
+    totalSteps: number;
+  }) => void;
+  onVerifierRetryScheduled?: (payload: {
+    executionRound: number;
+    verifierRound: number;
+    nextExecutionRound: number;
+    overall: SubagentVerifierDecision["overall"];
+    confidence: number;
+    minConfidence: number;
+    unresolvedItems: readonly string[];
+    completedSteps: number;
+    totalSteps: number;
+  }) => void;
   appendToolRecord: (record: ToolCallRecord) => void;
   setStopReason: (reason: LLMPipelineStopReason, detail?: string) => void;
 }

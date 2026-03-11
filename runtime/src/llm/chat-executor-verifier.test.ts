@@ -23,12 +23,15 @@ function createStep(
   };
 }
 
-function createPipelineResult(raw: string): PipelineResult {
+function createPipelineResult(
+  raw: string,
+  stepName = "delegate_logs",
+): PipelineResult {
   return {
     status: "completed",
     context: {
       results: {
-        delegate_logs: raw,
+        [stepName]: raw,
       },
     },
     completedSteps: 1,
@@ -74,6 +77,31 @@ describe("evaluateSubagentDeterministicChecks", () => {
     expect(decision.overall).toBe("retry");
     expect(decision.steps[0]?.issues).toContain(
       "contract_violation_acceptance_criteria_count",
+    );
+  });
+
+  it("marks contradictory completion claims for retry", () => {
+    const decision = evaluateSubagentDeterministicChecks(
+      [createStep({
+        name: "add_tests",
+        objective:
+          "Create Vitest tests that match the implemented CLI and core contracts",
+        inputContract: "Core library and CLI already exist",
+        acceptanceCriteria: [
+          "Tests compile against the current CLI/core APIs",
+          "Tests cover requirements",
+        ],
+      })],
+      createPipelineResult(
+        '{"success":true,"status":"completed","output":"**add_tests complete**: tests written. Note: some tests may need minor impl tweaks due to code mismatches in cli/GridMap methods like parse/getGoal.","toolCalls":[{"name":"system.writeFile","args":{"path":"/workspace/grid-router-ts/tests/map.test.ts","content":"it(\\"works\\", () => {})"},"result":"{\\"path\\":\\"/workspace/grid-router-ts/tests/map.test.ts\\",\\"bytesWritten\\":24}","isError":false}]}',
+        "add_tests",
+      ),
+      createPlannerContext(),
+    );
+
+    expect(decision.overall).toBe("retry");
+    expect(decision.steps[0]?.issues).toContain(
+      "child_claimed_completion_with_unresolved_work",
     );
   });
 

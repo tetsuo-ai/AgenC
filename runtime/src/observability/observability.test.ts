@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -28,12 +28,16 @@ function hasSqliteDependency(): boolean {
 
 const sqliteDescribe = hasSqliteDependency() ? describe : describe.skip;
 
-function createService(logContents = ""): ObservabilityService {
+function createService(
+  logContents = "",
+  options: { fanoutEnabled?: boolean } = {},
+): ObservabilityService {
   const daemonLogPath = join(tempDir, "daemon.log");
   writeFileSync(daemonLogPath, logContents, "utf8");
   return new ObservabilityService({
     dbPath: join(tempDir, "observability.sqlite"),
     daemonLogPath,
+    traceFanoutEnabled: options.fanoutEnabled,
   });
 }
 
@@ -247,5 +251,41 @@ sqliteDescribe("ObservabilityService", () => {
     expect(scopedSummary.topStopReasons).toEqual([{ name: "completed", count: 1 }]);
 
     await service.close();
+  });
+
+  it("writes derived concern logs when trace fan-out is enabled", async () => {
+    const service = createService("", { fanoutEnabled: true });
+    const now = Date.now();
+
+    service.recordEvent({
+      eventName: "webchat.executor.tool_rejected",
+      level: "info",
+      traceId: "trace-fanout",
+      sessionId: "session-1",
+      timestampMs: now,
+      payloadPreview: { traceId: "trace-fanout", tool: "system.bash" },
+      rawPayload: { tool: "system.bash" },
+    });
+    service.recordEvent({
+      eventName: "webchat.provider.error",
+      level: "error",
+      traceId: "trace-fanout",
+      sessionId: "session-1",
+      timestampMs: now + 1,
+      payloadPreview: { traceId: "trace-fanout", provider: "grok" },
+      rawPayload: { provider: "grok" },
+    });
+
+    await service.close();
+
+    expect(
+      readFileSync(join(tempDir, "daemon.executor.log"), "utf8"),
+    ).toContain("webchat.executor.tool_rejected");
+    expect(
+      readFileSync(join(tempDir, "daemon.provider.log"), "utf8"),
+    ).toContain("webchat.provider.error");
+    expect(
+      readFileSync(join(tempDir, "daemon.errors.log"), "utf8"),
+    ).toContain("webchat.provider.error");
   });
 });

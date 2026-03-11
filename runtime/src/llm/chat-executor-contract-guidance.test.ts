@@ -404,6 +404,142 @@ describe("chat-executor-contract-guidance", () => {
     expect(guidance).toEqual({
       source: "delegation-initial",
       routedToolNames: ["desktop.text_editor"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("keeps inspection, mutation, and verification tools available for local implementation phases", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText: "Implement the requested files.",
+      toolCalls: [],
+      allowedToolNames: [
+        "system.bash",
+        "system.writeFile",
+        "system.readFile",
+        "system.listDir",
+      ],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "implement_core",
+          objective: "Implement packages/core/src/index.ts and keep the workspace buildable",
+          inputContract: "Existing TypeScript workspace already scaffolded",
+        },
+      },
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-initial",
+      runtimeInstruction:
+        "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
+        "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
+        "and use shell verification when build/test/install evidence is part of acceptance.",
+      routedToolNames: ["system.readFile", "system.writeFile", "system.bash"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("tells delegated bootstrap phases to create a missing workspace root before inspecting it", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText: "Scaffold the workspace root from scratch.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "setup_structure",
+          objective:
+            "Create /tmp/maze-forge-ts-boot with root package.json and package stubs",
+          inputContract: "Empty host dir",
+          contextRequirements: ["cwd=/tmp/maze-forge-ts-boot"],
+          acceptanceCriteria: [
+            "Root package.json with workspaces",
+            "Package stubs exist",
+          ],
+        },
+      },
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-initial",
+      runtimeInstruction:
+        "Bootstrap the delegated workspace before inspecting it. " +
+        "If the delegated cwd does not exist yet, create it first or inspect its parent instead of issuing a cwd-relative inspection that is expected to fail. " +
+        "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations.",
+      routedToolNames: ["system.writeFile", "system.bash"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("tells root-creation planner phases to bootstrap the delegated cwd before cwd-relative inspection", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText: "Create the workspace root from scratch.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile", "system.listDir"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "setup_structure",
+          objective:
+            "Create root dir /tmp/maze-forge-ts-boot package.json with workspaces using file:../pkg instead of workspace:*, tsconfig.json, and skeleton package.json + tsconfig for packages/core,cli,web. Add root scripts: build,test,dev.",
+          inputContract: "none",
+          acceptanceCriteria: [
+            "Root dir exists",
+            "package.json valid with file: deps",
+            "package dirs created",
+            "npm install runs without error",
+          ],
+          contextRequirements: ["cwd=/tmp/maze-forge-ts-boot"],
+        },
+      },
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-initial",
+      runtimeInstruction:
+        "Bootstrap the delegated workspace before inspecting it. " +
+        "If the delegated cwd does not exist yet, create it first or inspect its parent instead of issuing a cwd-relative inspection that is expected to fail. " +
+        "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations.",
+      routedToolNames: ["system.listDir", "system.writeFile", "system.bash"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("does not leak bootstrap guidance into downstream implementation phases just because the parent request was from scratch", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText: "Implement the core pathfinding package.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile", "system.readFile"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "implement_core",
+          objective:
+            "Implement grid parser (S/E/start, #/obstacles, 1-9 weights) and A* pathfinder in packages/core; add types, findPath fn returning path/cost/steps.",
+          inputContract: "Monorepo structure and deps ready",
+          parentRequest:
+            "Create /tmp/maze-forge-ts-boot from scratch. Build a TypeScript npm-workspaces monorepo with packages core, cli, and web.",
+          acceptanceCriteria: [
+            "Grid parse and A* work with weights/obstacles",
+            "Core builds and has basic tests",
+          ],
+          contextRequirements: ["cwd=/tmp/maze-forge-ts-boot"],
+        },
+      },
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-initial",
+      runtimeInstruction:
+        "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
+        "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
+        "and use shell verification when build/test/install evidence is part of acceptance.",
+      routedToolNames: ["system.readFile", "system.writeFile", "system.bash"],
+      persistRoutedToolNames: false,
       toolChoice: "required",
     });
   });
@@ -439,6 +575,7 @@ describe("chat-executor-contract-guidance", () => {
     expect(guidance).toEqual({
       source: "delegation-initial",
       routedToolNames: ["desktop.text_editor"],
+      persistRoutedToolNames: false,
       toolChoice: "required",
     });
   });
@@ -462,6 +599,93 @@ describe("chat-executor-contract-guidance", () => {
     expect(guidance).toEqual({
       source: "delegation-correction",
       routedToolNames: ["desktop.text_editor"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("keeps mutation and verification tools available for acceptance-evidence corrections on implementation phases", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "correction",
+      messageText: "Verify the CLI acceptance criteria with tool-grounded evidence.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "implement_cli",
+          objective:
+            "Build CLI in src/cli.ts that accepts stdin/file, runs chosen algo, prints length/cost/visited/overlay",
+          inputContract: "Use process.argv, import core",
+          acceptanceCriteria: ["Compiles to dist/cli.js, correct output format"],
+        },
+      },
+      validationCode: "acceptance_evidence_missing",
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-correction",
+      routedToolNames: ["system.bash", "system.writeFile"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("keeps mutation and verification tools available for contradictory implementation corrections", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "correction",
+      messageText: "Fix the CLI and verify the acceptance criteria with tool-grounded evidence.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "implement_cli",
+          objective:
+            "Build CLI in src/cli.ts that accepts stdin/file, runs chosen algo, prints length/cost/visited/overlay",
+          inputContract: "Use process.argv, import core",
+          acceptanceCriteria: ["Compiles to dist/cli.js, correct output format"],
+        },
+      },
+      validationCode: "contradictory_completion_claim",
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-correction",
+      routedToolNames: ["system.writeFile", "system.bash"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("routes retried verification-heavy delegated work to shell first on the initial turn", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText:
+        "Retry the phase and directly verify the missing test/build evidence before answering.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "add_tests_demos",
+          objective:
+            "Add demo maps and comprehensive Vitest tests covering parser, portals, conveyors, unreachable maps, and CLI behavior.",
+          acceptanceCriteria: [
+            "Demo maps present",
+            "All tests pass with Vitest",
+            "Coverage for required cases",
+          ],
+          lastValidationCode: "acceptance_evidence_missing",
+        },
+      },
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-initial",
+      runtimeInstruction:
+        "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
+        "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
+        "and use shell verification when build/test/install evidence is part of acceptance.",
+      routedToolNames: ["system.bash", "system.writeFile"],
+      persistRoutedToolNames: false,
       toolChoice: "required",
     });
   });

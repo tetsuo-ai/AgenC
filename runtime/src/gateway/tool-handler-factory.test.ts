@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import type { ControlResponse } from "./types.js";
 import type { ApprovalEngine } from "./approvals.js";
@@ -5,6 +8,10 @@ import { ApprovalEngine as ApprovalEngineImpl } from "./approvals.js";
 import { DelegationPolicyEngine } from "./delegation-runtime.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import { SessionCredentialBroker } from "../policy/session-credentials.js";
+
+function createTempDir(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
 
 describe("createSessionToolHandler", () => {
   it("normalizes Doom start_game args before execution and notifications", async () => {
@@ -273,6 +280,173 @@ describe("createSessionToolHandler", () => {
         toolCallId: expect.any(String),
       }),
     );
+  });
+
+  it("rebases relative filesystem tool paths under the delegated working directory", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+      defaultWorkingDirectory: "/tmp/project-root",
+    });
+
+    await handler("system.writeFile", {
+      path: "src/grid.ts",
+      content: "export const grid = true;\n",
+    });
+
+    expect(baseHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: "/tmp/project-root/src/grid.ts",
+      content: "export const grid = true;\n",
+    });
+    expect(sentMessages[0]).toMatchObject({
+      type: "tools.executing",
+      payload: {
+        toolName: "system.writeFile",
+        args: {
+          path: "/tmp/project-root/src/grid.ts",
+          content: "export const grid = true;\n",
+        },
+      },
+    });
+  });
+
+  it("injects a default cwd for structured shell tools and resolves relative cwd values", async () => {
+    const workspaceRoot = createTempDir("agenc-tool-handler-");
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: workspaceRoot,
+    });
+
+    try {
+      await handler("system.bash", {
+        command: "npm",
+        args: ["test"],
+        cwd: "packages/app",
+      });
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.bash", {
+      command: "npm",
+      args: ["test"],
+      cwd: `${workspaceRoot}/packages/app`,
+    });
+  });
+
+  it("omits an auto-injected cwd when bootstrapping a missing delegated workspace via absolute paths", async () => {
+    const existingParent = createTempDir("agenc-tool-handler-parent-");
+    const missingWorkspaceRoot = join(existingParent, "project-root");
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: missingWorkspaceRoot,
+      scopedFilesystemRoot: missingWorkspaceRoot,
+    });
+
+    try {
+      await handler("system.bash", {
+        command: "mkdir",
+        args: ["-p", missingWorkspaceRoot],
+      });
+    } finally {
+      rmSync(existingParent, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.bash", {
+      command: "mkdir",
+      args: ["-p", missingWorkspaceRoot],
+    });
+  });
+
+  it("fails locally when a delegated command needs a missing auto-injected cwd", async () => {
+    const existingParent = createTempDir("agenc-tool-handler-parent-");
+    const missingWorkspaceRoot = join(existingParent, "project-root");
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: missingWorkspaceRoot,
+      scopedFilesystemRoot: missingWorkspaceRoot,
+    });
+
+    let result = "";
+    try {
+      result = await handler("system.bash", {
+        command: "npm",
+        args: ["install"],
+      });
+    } finally {
+      rmSync(existingParent, { recursive: true, force: true });
+    }
+
+    expect(JSON.parse(result)).toEqual({
+      error:
+        `Delegated working directory "${missingWorkspaceRoot}" does not exist yet. ` +
+        "Create it first with system.mkdir or retry the command with an existing cwd.",
+    });
+    expect(baseHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects filesystem paths that escape a delegated workspace root", async () => {
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: "/tmp/project-root",
+      scopedFilesystemRoot: "/tmp/project-root",
+    });
+
+    const result = await handler("system.writeFile", {
+      path: "/tmp/other-project/src/index.ts",
+      content: "export const broken = true;\n",
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      error:
+        "Delegated workspace root violation: path must stay under the delegated workspace root. Keep all filesystem paths under /tmp/project-root.",
+    });
+    expect(baseHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects shell-mode commands that reference absolute paths outside the delegated workspace root", async () => {
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: "/home/tetsuo/agent-test/terrain-router-ts-1",
+      scopedFilesystemRoot: "/home/tetsuo/agent-test/terrain-router-ts-1",
+    });
+
+    const result = await handler("system.bash", {
+      command: "mkdir -p /tmp/terrain-monorepo/packages/core/src",
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      error:
+        "Delegated workspace root violation: shell mode command references a path outside the delegated workspace root. Keep all filesystem paths under /home/tetsuo/agent-test/terrain-router-ts-1.",
+    });
+    expect(baseHandler).not.toHaveBeenCalled();
   });
 
   it("surfaces the blocking reason returned by tool:before hooks", async () => {
@@ -1062,6 +1236,134 @@ describe("createSessionToolHandler", () => {
     );
     expect(lifecycleEvents.some((event) => event.type === "subagents.completed")).toBe(
       true,
+    );
+  });
+
+  it("passes delegated working-directory context requirements through execute_with_agent spawn", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-1"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-1",
+        output: '{"summary":"child completed"}',
+        success: true,
+        durationMs: 42,
+        toolCalls: [
+          {
+            name: "system.writeFile",
+            args: { path: "/tmp/project-root/src/grid.ts" },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-1",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 100,
+        task: "Implement the grid router core",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["system.writeFile"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    await handler("execute_with_agent", {
+      task: "Implement the grid router core",
+      tools: ["system.writeFile"],
+      contextRequirements: [
+        "repo_context",
+        "working_directory=/tmp/project-root/grid-router-ts",
+      ],
+    });
+
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionId: "session-parent",
+        workingDirectory: "/tmp/project-root/grid-router-ts",
+        delegationSpec: expect.objectContaining({
+          contextRequirements: [
+            "repo_context",
+            "working_directory=/tmp/project-root/grid-router-ts",
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("infers a delegated working directory from execute_with_agent objective text when context requirements are omitted", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-1"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-1",
+        output: '{"summary":"child completed"}',
+        success: true,
+        durationMs: 42,
+        toolCalls: [
+          {
+            name: "system.writeFile",
+            args: {
+              path: "/home/tetsuo/agent-test/terrain-router-ts-2/packages/core/src/index.ts",
+            },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-1",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 100,
+        task: "Implement the terrain router core",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["system.writeFile", "system.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    await handler("execute_with_agent", {
+      task: "Implement the terrain router core",
+      objective:
+        "Write the core terrain router files under /home/tetsuo/agent-test/terrain-router-ts-2 and keep all code changes there.",
+      tools: ["system.writeFile", "system.bash"],
+    });
+
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionId: "session-parent",
+        workingDirectory: "/home/tetsuo/agent-test/terrain-router-ts-2",
+        workingDirectorySource: "task_text",
+        prompt: expect.stringContaining(
+          "Use `/home/tetsuo/agent-test/terrain-router-ts-2` as the working directory for this phase.",
+        ),
+      }),
     );
   });
 

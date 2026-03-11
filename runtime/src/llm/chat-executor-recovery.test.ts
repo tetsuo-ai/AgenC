@@ -116,4 +116,125 @@ describe("chat-executor-recovery", () => {
     expect(hint?.message).toContain("system.sandboxStart");
     expect(hint?.message).toContain("system.sandboxJobStart");
   });
+
+  it("flags heredoc commands that put a conjunction on a fresh line", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command:
+          "cd /tmp/demo && cat > package.json << 'EOF'\n" +
+          "{\n  \"name\": \"demo\"\n}\n" +
+          "EOF\n" +
+          " && cat package.json\n",
+      },
+      result: JSON.stringify({
+        exitCode: 2,
+        stderr:
+          "/tmp/agenc-sh-1234.sh: line 5: syntax error near unexpected token `&&'\n" +
+          "/tmp/agenc-sh-1234.sh: line 5: ` && cat package.json'\n",
+      }),
+      isError: true,
+      durationMs: 18,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system-bash-heredoc-conjunction-shape");
+    expect(hint?.message).toContain("system.writeFile");
+    expect(hint?.message).toContain("separate tool call");
+  });
+
+  it("redirects timed-out Vitest watch mode to single-run execution", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "npm",
+        args: ["test"],
+      },
+      result: JSON.stringify({
+        exitCode: null,
+        timedOut: true,
+        stdout:
+          "> vitest\n\n FAIL  Tests failed. Watching for file changes...\n       press h to show help, press q to quit\n",
+        stderr: "Error: No path found",
+      }),
+      isError: false,
+      durationMs: 30_000,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system.bash-test-runner-watch-mode");
+    expect(hint?.message).toContain("vitest run");
+    expect(hint?.message).toContain("CI=1 npm test");
+  });
+
+  it("flags unsupported workspace protocol failures as host tooling constraints", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "npm",
+        args: ["install"],
+      },
+      result: JSON.stringify({
+        exitCode: 1,
+        stdout: "",
+        stderr:
+          'npm error code EUNSUPPORTEDPROTOCOL\nnpm error Unsupported URL Type "workspace:": workspace:*\n',
+      }),
+      isError: true,
+      durationMs: 412,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system-bash-workspace-protocol-unsupported");
+    expect(hint?.message).toContain("workspace:*");
+    expect(hint?.message).toContain("rerun `npm install`");
+  });
+
+  it("flags recursive npm install lifecycle scripts before they burn the turn budget", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "npm",
+        args: ["install"],
+      },
+      result: JSON.stringify({
+        exitCode: null,
+        timedOut: true,
+        stdout:
+          "\n> maze-forge-ts@0.1.0 install\n> npm install\n\n" +
+          "\n> maze-forge-ts@0.1.0 install\n> npm install\n",
+        stderr: "Command failed: npm install\n",
+      }),
+      isError: true,
+      durationMs: 30_000,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system-bash-recursive-npm-install-lifecycle");
+    expect(hint?.message).toContain("recursive `install` script");
+    expect(hint?.message).toContain("rerun `npm install`");
+  });
+
+  it("flags local package imports that point at missing dist output", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "npx",
+        args: ["tsx", "packages/cli/src/cli.ts", "demo-map.txt"],
+      },
+      result: JSON.stringify({
+        exitCode: 1,
+        stdout: "",
+        stderr:
+          "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '/workspace/demo/node_modules/@terrain-router/core/dist/index.js' imported from /workspace/demo/packages/cli/src/cli.ts\n",
+      }),
+      isError: true,
+      durationMs: 209,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system-bash-local-package-dist-missing");
+    expect(hint?.message).toContain("dist/*");
+    expect(hint?.message).toContain("Build the dependency package first");
+  });
 });

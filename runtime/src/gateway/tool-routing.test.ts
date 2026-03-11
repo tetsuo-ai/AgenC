@@ -239,6 +239,10 @@ const TOOLS: LLMTool[] = [
   ),
   makeTool("agenc.createTask", "Create on-chain task"),
   makeTool("agenc.getTask", "Read task details"),
+  makeTool("agenc.getAgent", "Read on-chain agent registration details"),
+  makeTool("agenc.registerAgent", "Register the signer wallet as an on-chain agent"),
+  makeTool("marketplace.createService", "Create an on-chain marketplace service request"),
+  makeTool("mcp.solana-fender.security_check_file", "Check the anchor file for security issues"),
   makeTool("mcp.doom.start_game", "Start a Doom scenario"),
   makeTool("mcp.doom.stop_game", "Stop the current Doom game"),
   makeTool("mcp.doom.get_state", "Read current Doom state"),
@@ -456,6 +460,56 @@ describe("ToolRouter", () => {
 
     expect(decision.routedToolNames).toContain("system.calendarInfo");
     expect(decision.routedToolNames).toContain("system.calendarRead");
+  });
+
+  it("does not route protocol or Solana audit tools for generic coding prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+    });
+
+    const decision = router.route({
+      sessionId: "s-generic-coding",
+      messageText:
+        "Create a new npm workspace from scratch in /home/tetsuo/agent-test/maze-forge-ts-01. " +
+        "Build a TypeScript monorepo with packages/core, packages/cli, and packages/web. " +
+        "Add tests, demo files, and verify npm install, npm run build, and npm test.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).not.toContain("agenc.createTask");
+    expect(decision.routedToolNames).not.toContain("agenc.getAgent");
+    expect(decision.routedToolNames).not.toContain("agenc.registerAgent");
+    expect(decision.routedToolNames).not.toContain("marketplace.createService");
+    expect(decision.routedToolNames).not.toContain("social.sendMessage");
+    expect(decision.routedToolNames).not.toContain("social.getReputation");
+    expect(decision.routedToolNames).not.toContain("social.postToFeed");
+    expect(decision.routedToolNames).not.toContain(
+      "mcp.solana-fender.security_check_file",
+    );
+  });
+
+  it("routes protocol and Solana audit tools only for explicit protocol prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+    });
+
+    const decision = router.route({
+      sessionId: "s-protocol-tools",
+      messageText:
+        "Use agenc.getAgent, agenc.registerAgent, agenc.createTask, marketplace.createService, " +
+        "and mcp.solana-fender.security_check_file for an explicit Solana protocol workflow.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toContain("agenc.createTask");
+    expect(decision.routedToolNames).toContain("agenc.getAgent");
+    expect(decision.routedToolNames).toContain("agenc.registerAgent");
+    expect(decision.routedToolNames).toContain("marketplace.createService");
+    expect(decision.routedToolNames).toContain(
+      "mcp.solana-fender.security_check_file",
+    );
   });
 
   it.each([

@@ -12,6 +12,10 @@ import type { MemoryBackend } from "../memory/types.js";
 import type { ApprovalEngine } from "../gateway/approvals.js";
 import type { DelegationDecompositionSignal } from "../gateway/delegation-scope.js";
 import type { ProgressTracker } from "../gateway/progress.js";
+import {
+  didToolCallFail,
+  extractToolFailureTextFromResult,
+} from "../llm/chat-executor-tool-utils.js";
 import type { Logger } from "../utils/logger.js";
 import { WorkflowStateError } from "./errors.js";
 import { toErrorMessage, SEVEN_DAYS_MS } from "../utils/async.js";
@@ -324,9 +328,12 @@ export class PipelineExecutor {
           tool: step.tool,
           args: step.args,
           durationMs: Date.now() - stepStartedAt,
+          ...(typeof stepResult.result === "string"
+            ? { result: stepResult.result }
+            : {}),
           ...(stepResult.error
             ? { error: stepResult.error }
-            : { result: stepResult.result }),
+            : {}),
         });
 
         if (stepResult.error) {
@@ -462,6 +469,12 @@ export class PipelineExecutor {
   ): Promise<{ result: string; error?: string }> {
     try {
       const result = await toolHandler(step.tool, step.args);
+      if (didToolCallFail(false, result)) {
+        return {
+          result,
+          error: extractToolFailureTextFromResult(result),
+        };
+      }
       return { result };
     } catch (err) {
       return { result: "", error: toErrorMessage(err) };

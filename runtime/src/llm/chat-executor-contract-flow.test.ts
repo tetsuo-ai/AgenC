@@ -53,4 +53,15 @@ describe("chat-executor-contract-flow", () => {
       }),
     ).toContain("about:blank state checks do not count");
   });
+
+  it("adds contradictory-completion retry guidance", () => {
+    expect(
+      buildRequiredToolEvidenceRetryInstruction({
+        missingEvidenceMessage:
+          "Delegated task output claimed completion while still reporting unresolved work",
+        validationCode: "contradictory_completion_claim",
+        allowedToolNames: ["system.bash", "system.writeFile"],
+      }),
+    ).toContain("Do not claim the phase is complete");
+  });
 });

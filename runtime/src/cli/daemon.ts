@@ -246,6 +246,7 @@ async function runForeground(
     configPath,
     pidPath: options.pidPath,
     logger: createLogger("debug"),
+    yolo: options.yolo,
   });
 
   try {
@@ -255,6 +256,7 @@ async function runForeground(
       command: "start",
       mode: "foreground",
       pid: process.pid,
+      ...(options.yolo ? { yolo: true } : {}),
       ...(foregroundLogTee ? { logPath: foregroundLogTee.logPath } : {}),
     });
 
@@ -287,6 +289,9 @@ async function runDaemonized(
   }
   if (options.logLevel) {
     args.push("--log-level", options.logLevel);
+  }
+  if (options.yolo) {
+    args.push("--yolo");
   }
 
   let logFd: number | undefined;
@@ -394,6 +399,7 @@ async function runDaemonized(
             mode: "daemon",
             pid: info.pid,
             port: info.port,
+            ...(options.yolo ? { yolo: true } : {}),
             ...(logFd !== undefined ? { logPath } : {}),
           });
           return 0;
@@ -622,7 +628,9 @@ export async function runServiceInstallCommand(
 ): Promise<CliStatusCode> {
   const configPath = resolve(options.configPath ?? getDefaultConfigPath());
   const daemonEntry = getDaemonEntryPath();
-  const execStart = `node ${daemonEntry} --config ${configPath} --foreground`;
+  const execStart =
+    `node ${daemonEntry} --config ${configPath} --foreground` +
+    (options.yolo ? " --yolo" : "");
 
   if (options.macos) {
     const plist = generateLaunchdPlist({
@@ -632,6 +640,7 @@ export async function runServiceInstallCommand(
         "--config",
         configPath,
         "--foreground",
+        ...(options.yolo ? ["--yolo"] : []),
       ],
     });
     context.output({

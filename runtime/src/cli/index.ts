@@ -254,14 +254,14 @@ const ONBOARD_COMMAND_OPTIONS = new Set(["non-interactive", "force"]);
 const HEALTH_COMMAND_OPTIONS = new Set(["non-interactive", "deep"]);
 const DOCTOR_COMMAND_OPTIONS = new Set(["non-interactive", "deep", "fix"]);
 
-const START_COMMAND_OPTIONS = new Set(["foreground", "pid-path"]);
+const START_COMMAND_OPTIONS = new Set(["foreground", "pid-path", "yolo"]);
 const STOP_COMMAND_OPTIONS = new Set(["pid-path", "timeout"]);
 const RESTART_COMMAND_OPTIONS = new Set([
   ...START_COMMAND_OPTIONS,
   ...STOP_COMMAND_OPTIONS,
 ]);
 const STATUS_COMMAND_OPTIONS = new Set(["pid-path", "port"]);
-const SERVICE_COMMAND_OPTIONS = new Set(["macos"]);
+const SERVICE_COMMAND_OPTIONS = new Set(["macos", "yolo"]);
 const JOBS_COMMAND_OPTIONS = new Set<string>([]);
 
 const CONFIG_INIT_OPTIONS = new Set(["non-interactive", "force"]);
@@ -611,6 +611,7 @@ function buildHelp(): string {
     "      --config <path>                           Gateway config file path",
     "      --foreground                              Run in foreground (systemd/Docker mode)",
     "      --pid-path <path>                         Custom PID file path",
+    "      --yolo                                    Disable host execution deny lists for trusted runs",
     "",
     "stop options:",
     "      --pid-path <path>                         Custom PID file path",
@@ -622,6 +623,7 @@ function buildHelp(): string {
     "",
     "service install options:",
     "      --macos                                   Generate launchd plist instead of systemd unit",
+    "      --yolo                                    Include --yolo in the generated service command",
     "",
     "backfill options:",
     "      --to-slot <slot>                      Highest slot to scan (required)",
@@ -662,6 +664,7 @@ function buildHelp(): string {
     "Examples:",
     "  agenc-runtime start --config ~/.agenc/config.json",
     "  agenc-runtime start --foreground --config ~/.agenc/config.json",
+    "  agenc-runtime start --foreground --yolo --config ~/.agenc/config.json",
     "  agenc-runtime stop",
     "  agenc-runtime restart --config ~/.agenc/config.json",
     "  agenc-runtime status",
@@ -2090,6 +2093,7 @@ async function dispatchDaemonCommands(
         pidPath,
         foreground: normalizeBool(parsed.flags.foreground, false),
         logLevel: parseOptionalString(parsed.flags["log-level"]),
+        yolo: normalizeBool(parsed.flags.yolo, false),
       };
       return await runStartCommand(context, startOpts);
     } catch (error) {
@@ -2126,6 +2130,7 @@ async function dispatchDaemonCommands(
         pidPath,
         foreground: normalizeBool(parsed.flags.foreground, false),
         logLevel: parseOptionalString(parsed.flags["log-level"]),
+        yolo: normalizeBool(parsed.flags.yolo, false),
       };
       const stopOpts: DaemonStopOptions = {
         pidPath,
@@ -2161,6 +2166,7 @@ async function dispatchDaemonCommands(
       const serviceOpts: ServiceInstallOptions = {
         configPath: parseOptionalString(parsed.flags.config),
         macos: normalizeBool(parsed.flags.macos, false),
+        yolo: normalizeBool(parsed.flags.yolo, false),
       };
       return await runServiceInstallCommand(context, serviceOpts);
     } catch (error) {

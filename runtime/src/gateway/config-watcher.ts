@@ -2205,8 +2205,30 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
               errors,
             );
           }
+          if (obj.logging.trace.fanout !== undefined) {
+            if (!isRecord(obj.logging.trace.fanout)) {
+              errors.push("logging.trace.fanout must be an object");
+            } else if (
+              obj.logging.trace.fanout.enabled !== undefined &&
+              typeof obj.logging.trace.fanout.enabled !== "boolean"
+            ) {
+              errors.push("logging.trace.fanout.enabled must be a boolean");
+            }
+          }
         }
       }
+    }
+  }
+
+  if (obj.workspace !== undefined) {
+    if (!isRecord(obj.workspace)) {
+      errors.push("workspace must be an object");
+    } else if (
+      obj.workspace.hostPath !== undefined &&
+      (typeof obj.workspace.hostPath !== "string" ||
+        obj.workspace.hostPath.trim().length === 0)
+    ) {
+      errors.push("workspace.hostPath must be a non-empty string");
     }
   }
 

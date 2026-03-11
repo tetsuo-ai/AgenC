@@ -20,6 +20,7 @@ import {
   persistSessionStatefulContinuation,
   persistWebSessionRuntimeState,
 } from "./daemon-session-state.js";
+import { filterSystemPromptForToolRouting } from "./system-prompt-routing.js";
 import {
   logExecutionTraceEvent,
   logProviderPayloadTraceEvent,
@@ -43,6 +44,7 @@ import type { HookDispatcher } from "./hooks.js";
 import type { GatewayMessage } from "./message.js";
 import type { Session, SessionManager } from "./session.js";
 import type { ToolRoutingDecision } from "./tool-routing.js";
+import { resolveTurnMaxToolRounds } from "./tool-round-budget.js";
 
 export interface WebChatTurnSignals {
   signalThinking: (sessionId: string) => void;
@@ -62,6 +64,7 @@ export interface ExecuteWebChatConversationTurnParams {
   readonly hooks: HookDispatcher;
   readonly memoryBackend: MemoryBackend;
   readonly sessionTokenBudget: number;
+  readonly defaultMaxToolRounds: number;
   readonly contextWindowTokens?: number;
   readonly traceConfig: ResolvedTraceLoggingConfig;
   readonly turnTraceId: string;
@@ -95,6 +98,7 @@ export async function executeWebChatConversationTurn(
     hooks,
     memoryBackend,
     sessionTokenBudget,
+    defaultMaxToolRounds,
     contextWindowTokens,
     traceConfig,
     turnTraceId,
@@ -114,19 +118,27 @@ export async function executeWebChatConversationTurn(
       scope: "dm",
       workspaceId: "default",
     });
+    const toolRoutingDecision = buildToolRoutingDecision(
+      msg.sessionId,
+      msg.content,
+      session.history,
+    );
+    const effectiveSystemPrompt = filterSystemPromptForToolRouting({
+      systemPrompt: getSystemPrompt(),
+      routedToolNames: toolRoutingDecision?.routedToolNames,
+    });
 
     if (traceConfig.enabled) {
-      const currentPrompt = getSystemPrompt();
       const requestTracePayload = {
         traceId: turnTraceId,
         sessionId: msg.sessionId,
         historyLength: session.history.length,
         historyRoleCounts: summarizeRoleCounts(session.history),
-        systemPromptChars: currentPrompt.length,
+        systemPromptChars: effectiveSystemPrompt.length,
         ...(traceConfig.includeSystemPrompt
           ? {
               systemPrompt: truncateToolLogText(
-                currentPrompt,
+                effectiveSystemPrompt,
                 traceConfig.maxChars,
               ),
             }
@@ -148,21 +160,15 @@ export async function executeWebChatConversationTurn(
             sessionId: msg.sessionId,
             historyLength: session.history.length,
             historyRoleCounts: summarizeRoleCounts(session.history),
-            systemPromptChars: currentPrompt.length,
+            systemPromptChars: effectiveSystemPrompt.length,
             ...(traceConfig.includeSystemPrompt
-              ? { systemPrompt: currentPrompt }
+              ? { systemPrompt: effectiveSystemPrompt }
               : {}),
             ...(traceConfig.includeHistory ? { history: session.history } : {}),
           },
         },
       );
     }
-
-    const toolRoutingDecision = buildToolRoutingDecision(
-      msg.sessionId,
-      msg.content,
-      session.history,
-    );
     if (traceConfig.enabled && toolRoutingDecision) {
       logTraceEvent(
         logger,
@@ -185,15 +191,20 @@ export async function executeWebChatConversationTurn(
 
     const abortController = webChat.createAbortController(msg.sessionId);
     const sessionStateful = buildSessionStatefulOptions(session);
+    const effectiveMaxToolRounds = resolveTurnMaxToolRounds(
+      defaultMaxToolRounds,
+      toolRoutingDecision,
+    );
 
     const result = await chatExecutor.execute({
       message: msg,
       history: session.history,
-      systemPrompt: getSystemPrompt(),
+      systemPrompt: effectiveSystemPrompt,
       sessionId: msg.sessionId,
       toolHandler: sessionToolHandler,
       onStreamChunk: sessionStreamCallback,
       signal: abortController.signal,
+      maxToolRounds: effectiveMaxToolRounds,
       ...(sessionStateful ? { stateful: sessionStateful } : {}),
       toolRouting: toolRoutingDecision
         ? {

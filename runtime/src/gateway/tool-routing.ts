@@ -393,6 +393,18 @@ const MCP_TERMS = new Set([
   "window",
 ]);
 
+const AGENC_PROTOCOL_INTENT_RE =
+  /\b(?:agenc|on-?chain|solana|lamports?|stake|reputation|slashing|escrow|pda|devnet|mainnet|proof(?:s)?\s+of\s+completion|claim(?:able|ing)?\s+tasks?|agent\s+registration|register(?:ed|ing)?\s+(?:the\s+)?agent|capabilit(?:y|ies))\b/i;
+
+const MARKETPLACE_PROTOCOL_INTENT_RE =
+  /\b(?:marketplace|service\s+request|service\s+bids?|agent\s+marketplace)\b/i;
+
+const SOCIAL_PROTOCOL_INTENT_RE =
+  /\b(?:social(?:\.[a-z_]+)?|message(?:s|ing)?|inbox|feed|recipient|collaboration|reputation|agent\s+message|send\s+message|recent\s+messages?)\b/i;
+
+const SOLANA_AUDIT_INTENT_RE =
+  /\b(?:fender|anchor|solana\s+program|anchor\s+program|sealevel|program\s+audit|smart\s+contract\s+audit|rust\s+program|instruction\s+audit|account\s+validation|vulnerabilit(?:y|ies)|security\s+audit)\b/i;
+
 const REQUIRED_MCP_FAMILY_BY_TERM: Record<string, string> = {
   kitty: "mcp.kitty",
   tmux: "mcp.tmux",
@@ -476,6 +488,41 @@ interface ExplicitToolMention {
   readonly toolName: string;
   readonly fullVariants: readonly string[];
   readonly shortVariants: readonly string[];
+}
+
+function isProtocolScopedTool(toolName: string): boolean {
+  return toolName.startsWith("agenc.") ||
+    toolName.startsWith("marketplace.") ||
+    toolName.startsWith("social.") ||
+    toolName.startsWith("wallet.") ||
+    toolName.startsWith("mcp.solana-fender.");
+}
+
+function protectedToolIntentSatisfied(
+  toolName: string,
+  messageText: string,
+  explicitToolMentions: ReadonlySet<string>,
+): boolean {
+  if (explicitToolMentions.has(toolName)) {
+    return true;
+  }
+  if (toolName.startsWith("agenc.")) {
+    return AGENC_PROTOCOL_INTENT_RE.test(messageText);
+  }
+  if (toolName.startsWith("marketplace.")) {
+    return MARKETPLACE_PROTOCOL_INTENT_RE.test(messageText);
+  }
+  if (toolName.startsWith("social.")) {
+    return SOCIAL_PROTOCOL_INTENT_RE.test(messageText);
+  }
+  if (toolName.startsWith("wallet.")) {
+    return /\b(?:wallet|transfer|sign|signing|token|tokens|sol|lamports?|airdrop)\b/i
+      .test(messageText);
+  }
+  if (toolName.startsWith("mcp.solana-fender.")) {
+    return SOLANA_AUDIT_INTENT_RE.test(messageText);
+  }
+  return true;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -853,7 +900,11 @@ export class ToolRouter {
       }
     }
 
-    const scored = this.scoreTools(intentTerms, explicitToolMentions);
+    const scored = this.scoreTools(
+      params.messageText,
+      intentTerms,
+      explicitToolMentions,
+    );
     const routedToolNames = this.selectRoutedTools(
       scored,
       requiredFamilies,
@@ -989,6 +1040,7 @@ export class ToolRouter {
   }
 
   private scoreTools(
+    messageText: string,
     intentTerms: readonly string[],
     explicitToolMentions: ReadonlySet<string>,
   ): Array<{ tool: IndexedTool; score: number }> {
@@ -1048,6 +1100,13 @@ export class ToolRouter {
     const terminalIntent = resolveTerminalIntent(intentTerms);
 
     const scored = this.indexedTools.map((tool) => {
+      if (
+        isProtocolScopedTool(tool.name) &&
+        !protectedToolIntentSatisfied(tool.name, messageText, explicitToolMentions)
+      ) {
+        return { tool, score: Number.NEGATIVE_INFINITY };
+      }
+
       let score = 0;
 
       for (const term of intentTerms) {
@@ -1319,6 +1378,7 @@ export class ToolRouter {
     }
 
     for (const entry of scored) {
+      if (!Number.isFinite(entry.score)) continue;
       if (entry.score <= 0 && selected.size >= minTools) break;
       tryAdd(entry.tool);
     }
@@ -1327,6 +1387,7 @@ export class ToolRouter {
       for (const entry of scored) {
         if (selected.size >= minTools) break;
         if (selected.size >= maxTools) break;
+        if (!Number.isFinite(entry.score)) continue;
         if (selected.has(entry.tool.name)) continue;
         selected.add(entry.tool.name);
       }
@@ -1348,6 +1409,7 @@ export class ToolRouter {
 
     for (const entry of scored) {
       if (selected.size >= maxExpanded) break;
+      if (!Number.isFinite(entry.score)) continue;
       selected.add(entry.tool.name);
     }
 

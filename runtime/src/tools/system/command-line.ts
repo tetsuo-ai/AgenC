@@ -1,4 +1,4 @@
-const SHELL_COMMAND_SEPARATORS = new Set([
+export const SHELL_COMMAND_SEPARATORS = new Set([
   "|",
   "||",
   "&&",
@@ -9,7 +9,7 @@ const SHELL_COMMAND_SEPARATORS = new Set([
   "`",
 ]);
 
-const SHELL_REDIRECT_OPERATORS = new Set([
+export const SHELL_REDIRECT_OPERATORS = new Set([
   ">",
   ">>",
   "<",
@@ -22,6 +22,7 @@ const SHELL_REDIRECT_OPERATORS = new Set([
 
 const SINGLE_EXECUTABLE_RE = /^[A-Za-z0-9_./+-]+$/;
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
+const DIRECT_MODE_REDIRECT_TOKEN_RE = /^\d*(?:>|>>|<|<<|<>|>&|<&|>\|)$/;
 
 export interface ParsedDirectCommandLine {
   readonly command: string;
@@ -130,6 +131,29 @@ export function tokenizeShellCommand(command: string): string[] {
   return tokens;
 }
 
+export function collectDirectModeShellControlTokens(
+  tokens: readonly string[],
+): string[] {
+  const detected = new Set<string>();
+  for (const token of tokens) {
+    if (
+      SHELL_COMMAND_SEPARATORS.has(token) ||
+      SHELL_REDIRECT_OPERATORS.has(token) ||
+      DIRECT_MODE_REDIRECT_TOKEN_RE.test(token) ||
+      token === "$"
+    ) {
+      detected.add(token);
+    }
+  }
+  return [...detected];
+}
+
+export function containsDirectModeShellControlTokens(
+  tokens: readonly string[],
+): boolean {
+  return collectDirectModeShellControlTokens(tokens).length > 0;
+}
+
 /**
  * Parse a command line into direct-exec `{ command, args }` form.
  * Returns `undefined` for shell-style commands or ambiguous inputs.
@@ -147,14 +171,7 @@ export function parseDirectCommandLine(
     return undefined;
   }
 
-  if (
-    tokens.some(
-      (token) =>
-        SHELL_COMMAND_SEPARATORS.has(token) ||
-        SHELL_REDIRECT_OPERATORS.has(token) ||
-        token === "$",
-    )
-  ) {
+  if (containsDirectModeShellControlTokens(tokens)) {
     return undefined;
   }
 

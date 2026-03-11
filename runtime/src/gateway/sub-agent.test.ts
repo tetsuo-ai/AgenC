@@ -247,6 +247,137 @@ describe("SubAgentManager", () => {
       }
     });
 
+    it("forwards prompt budgeting and compaction controls to child executors", async () => {
+      const onCompaction = vi.fn();
+      const executeSpy = vi
+        .spyOn(ChatExecutor.prototype, "execute")
+        .mockImplementation(async function () {
+          expect((this as any).sessionTokenBudget).toBe(12_345);
+          expect((this as any).promptBudget).toEqual(
+            expect.objectContaining({
+              contextWindowTokens: 64_000,
+              maxOutputTokens: 2_048,
+              safetyMarginTokens: 4_096,
+              charPerToken: 4,
+              hardMaxPromptChars: 48_000,
+            }),
+          );
+          expect((this as any).onCompaction).toBe(onCompaction);
+          return {
+            content: "sub-agent output",
+            toolCalls: [],
+            providerEvidence: undefined,
+            tokenUsage: undefined,
+            stopReason: "completed",
+            stopReasonDetail: undefined,
+            callUsage: [],
+            finalPromptShape: undefined,
+            statefulSummary: undefined,
+            toolRoutingSummary: undefined,
+            plannerSummary: undefined,
+            model: "mock",
+          };
+        });
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          promptBudget: {
+            contextWindowTokens: 64_000,
+            maxOutputTokens: 2_048,
+            safetyMarginTokens: 4_096,
+            charPerToken: 4,
+            hardMaxPromptChars: 48_000,
+          },
+          sessionTokenBudget: 12_345,
+          onCompaction,
+        }),
+      );
+
+      try {
+        await manager.spawn({ parentSessionId: "p", task: "budget this" });
+        await settle();
+
+        expect(executeSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("allows iterative coding child phases to exceed the base text-only tool-round cap", async () => {
+      let rounds = 0;
+      const llmProvider: LLMProvider = {
+        name: "looping-llm",
+        chat: vi.fn(async (): Promise<LLMResponse> => {
+          rounds += 1;
+          if (rounds <= 12) {
+            return {
+              content: "continue editing",
+              toolCalls: [{
+                id: `tc-${rounds}`,
+                name: "system.writeFile",
+                arguments: "{}",
+              }],
+              usage: {
+                promptTokens: 10,
+                completionTokens: 5,
+                totalTokens: 15,
+              },
+              model: "mock",
+              finishReason: "tool_calls",
+            };
+          }
+          return {
+            content: "finished",
+            toolCalls: [],
+            usage: {
+              promptTokens: 10,
+              completionTokens: 5,
+              totalTokens: 15,
+            },
+            model: "mock",
+            finishReason: "stop",
+          };
+        }),
+        chatStream: vi.fn(
+          async (
+            _messages: LLMMessage[],
+            _cb: StreamProgressCallback,
+          ): Promise<LLMResponse> => llmProvider.chat([]),
+        ),
+        healthCheck: vi.fn(async () => true),
+      };
+      const toolRegistry = new ToolRegistry({});
+      toolRegistry.register(makeMockTool("system.writeFile"));
+      const context = makeMockContext();
+      const createContext = vi.fn(async () => ({
+        ...context,
+        llmProvider,
+        toolRegistry,
+      }));
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          createContext,
+          resolveDefaultMaxToolRounds: () => 3,
+        }),
+      );
+
+      const sessionId = await manager.spawn({
+        parentSessionId: "p",
+        task: "implement files",
+        tools: ["system.writeFile"],
+      });
+
+      let result = manager.getResult(sessionId);
+      for (let i = 0; i < 20 && result === null; i += 1) {
+        await settle();
+        result = manager.getResult(sessionId);
+      }
+      expect(result).not.toBeNull();
+      expect(result?.success).toBe(true);
+      expect(result?.stopReason).toBe("completed");
+      expect(result?.toolCalls).toHaveLength(12);
+      expect(llmProvider.chat).toHaveBeenCalledTimes(13);
+    });
+
     it("passes workspace override to createContext", async () => {
       const createContext = vi.fn(async () => makeMockContext());
       const manager = new SubAgentManager(makeManagerConfig({ createContext }));

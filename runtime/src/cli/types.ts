@@ -214,6 +214,7 @@ export interface DaemonStartOptions {
   pidPath: string;
   foreground?: boolean;
   logLevel?: string;
+  yolo?: boolean;
 }
 
 export interface DaemonStopOptions {
@@ -229,6 +230,7 @@ export interface DaemonStatusOptions {
 export interface ServiceInstallOptions {
   configPath?: string;
   macos?: boolean;
+  yolo?: boolean;
 }
 
 export interface WizardOptions extends BaseCliOptions {

@@ -27,6 +27,8 @@ export interface DelegationContractSpec {
   readonly acceptanceCriteria?: readonly string[];
   readonly tools?: readonly string[];
   readonly requiredToolCapabilities?: readonly string[];
+  readonly contextRequirements?: readonly string[];
+  readonly lastValidationCode?: DelegationOutputValidationCode;
 }
 
 export interface DelegationValidationToolCall {
@@ -45,6 +47,8 @@ export type DelegationOutputValidationCode =
   | "expected_json_object"
   | "acceptance_count_mismatch"
   | "acceptance_evidence_missing"
+  | "blocked_phase_output"
+  | "contradictory_completion_claim"
   | "missing_successful_tool_evidence"
   | "low_signal_browser_evidence"
   | "missing_file_mutation_evidence"
@@ -76,7 +80,7 @@ const EMPTY_DELEGATION_OUTPUT_VALUES = new Set(["null", "undefined", "{}", "[]"]
 const DELEGATION_FILE_ACTION_RE =
   /\b(create|write|edit|save|scaffold|implement(?:ation)?|generate|modify|patch|update|add|build)\b/i;
 const DELEGATION_FILE_TARGET_RE =
-  /\b(?:file|files|readme(?:\.md)?|docs?|documentation|markdown|index\.html|package\.json|tsconfig(?:\.json)?|vite\.config(?:\.[a-z]+)?|src\/|dist\/|docs\/|[a-z0-9_.-]+\.(?:html?|css|js|jsx|ts|tsx|json|md|txt|py|rs|go))\b/i;
+  /\b(?:file|files|readme(?:\.md)?|docs?|documentation|markdown|index\.html|package\.json|tsconfig(?:\.json)?|vite\.config(?:\.[a-z]+)?|src\/|dist\/|docs\/|demos?\/|tests?\/|__tests__\/|specs?\/|[a-z0-9_.-]+\.(?:html?|css|js|jsx|ts|tsx|json|md|txt|py|rs|go))(?=$|[\s,.;:!?)]|`|'|")/i;
 const DELEGATION_CODE_TARGET_RE =
   /\b(?:game loop|rendering|movement|collision|scoring|score|hud|player|enemy|powerup|pathfinding|save\/load|settings|input|audio|map mutation|system|feature|module|component|class|function|logic|scene|entity|entities)\b/i;
 const NARRATIVE_FILE_CLAIM_RE =
@@ -88,7 +92,9 @@ const EXPLICIT_FILE_ARTIFACT_RE =
 const LOCAL_FILE_REFERENCE_RE =
   /(?:^|[\s`'"])(?:\/[^\s`'"]+|\.{1,2}\/[^\s`'"]+|(?:[a-z0-9_.-]+\/)+[a-z0-9_.-]+|(?:ag(?:ent)?s|readme)\.md|[a-z0-9_.-]+\.(?:md|txt|json|js|jsx|ts|tsx|py|rs|go|toml|ya?ml|html?|css))(?=$|[\s`'"])/i;
 const LOCAL_FILE_BROWSER_OVERRIDE_RE =
-  /\b(?:localhost|127\.0\.0\.1|about:blank|browser|playwright|mcp\.browser|chromium|navigate|snapshot|click|type|hover|scroll|fill|select|console|network|playtest|qa|end-to-end|e2e|url|web(?:site|page)?)\b/i;
+  /\b(?:localhost|127\.0\.0\.1|about:blank|browser|playwright|mcp\.browser|chromium|navigate|click|type|hover|scroll|fill|select|console|network|playtest|qa|end-to-end|e2e|url|website|web\s+site|webpage|web\s+page)\b/i;
+const BROWSER_SNAPSHOT_CUE_RE =
+  /\b(?:(?:browser|page|website|web\s+site|webpage|web\s+page|ui|visual)\s+snapshot|snapshot\s+(?:of|for)\s+(?:the\s+)?(?:browser|page|website|web\s+site|webpage|web\s+page|ui|visual)|mcp\.browser\.browser_snapshot|playwright\.browser_snapshot)\b/i;
 const NEGATED_BROWSER_REQUIREMENT_RE =
   /\b(?:no|non|without|avoid(?:ing)?|exclude(?:d|ing)?)\s+(?:any\s+|the\s+)?(?:browser(?:-grounded)?(?:\s+tools?)?|mcp\.browser|playwright)\b/gi;
 const DO_NOT_USE_BROWSER_RE =
@@ -101,7 +107,7 @@ const SHELL_SCAFFOLD_RE =
 const TOOL_GROUNDED_TASK_RE =
   /\b(?:official docs?|primary sources?|browser tools?|mcp\.browser|playwright|verify|validated?|devlog|gameplay|localhost|console errors?|research|compare|reference|references|citation|framework|document(?:ation)?s?)\b/i;
 const BROWSER_GROUNDED_TASK_RE =
-  /\b(?:official docs?|primary sources?|browser tools?|browser-grounded|mcp\.browser|playwright|chromium|localhost|web(?:site|page)?|url|snapshot|navigate|research|compare|citation|framework|document(?:ation)?s?|validate|validation|playtest|qa|end-to-end|e2e)\b/i;
+  /\b(?:official docs?|primary sources?|browser tools?|browser-grounded|mcp\.browser|playwright|chromium|localhost|website|web\s+site|webpage|web\s+page|url|navigate|research|compare|citation|framework|document(?:ation)?s?|validate|validation|playtest|qa|end-to-end|e2e)\b/i;
 const ABOUT_BLANK_RE = /\babout:blank\b/i;
 const NON_BLANK_BROWSER_TARGET_RE =
   /\b(?:https?:\/\/|file:\/\/|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)\S*/i;
@@ -111,8 +117,31 @@ const IMPLEMENTATION_TASK_RE =
   /\b(?:implement|implementation|build|scaffold|create|edit|code|render|rendering|collision|score|hud|player|enemy|powerup|pathfinding|save\/load|settings|input|polish|ux|audio|movement|dash|map mutation)\b/i;
 const VALIDATION_TASK_RE =
   /\b(?:validate|validation|verify|playtest|qa|chromium|browser|localhost|end-to-end|e2e|test|tests|build checks?)\b/i;
+const ACCEPTANCE_VERIFICATION_CUE_RE =
+  /\b(?:compile|compiles|compiled|compiling|build(?:able|\s+checks?)?|test(?:able|s)?|verify|validated?|confirm|install(?:able|s|ed|ing)?|output(?:\s+format)?|stdout|stderr|exit(?:\s+code|s)?)\b/i;
+const ACCEPTANCE_BUILD_VERIFICATION_RE =
+  /\b(?:compiles?|compiled|compiling|builds?|built|typechecks?|lints?|installs?)\b(?:\s+(?:cleanly|correctly|successfully|without errors?))?|\b(?:compile|build|typecheck|lint|install)\s+(?:cleanly|correctly|successfully|without errors?|passes?|succeeds?)\b/i;
+const ACCEPTANCE_TEST_VERIFICATION_RE =
+  /\b(?:tests?\s+(?:pass|passing|passed|run|runs|running|succeed|succeeds|succeeded)|(?:vitest|jest|pytest|mocha|ava)\s+(?:run|runs|passes?|succeeds?)|coverage(?:\s+(?:reported|generated|collected))?)\b/i;
+const TOOLCALL_BUILD_EVIDENCE_RE =
+  /\b(?:build|compiles?|compiled|compiling|typecheck|lint|install|tsc)\b/i;
+const TOOLCALL_TEST_EVIDENCE_RE =
+  /\b(?:test|tests|vitest|jest|pytest|mocha|ava|spec)\b/i;
 const SETUP_TASK_RE =
   /\b(?:scaffold|bootstrap|setup|initialize|initialise|npm\s+(?:create|init|install)|pnpm\s+(?:create|init|install|add)|yarn\s+(?:create|install|add)|bun\s+create|cargo\s+(?:new|init)|git\s+clone|npx\s+[a-z0-9_.@/-]*create[a-z0-9_.@/-]*)\b/i;
+const TEST_ARTIFACT_TARGET_RE =
+  /\b(?:vitest|jest|mocha|ava|tap|tests?\/|__tests__\/|spec(?:s)?\/|[a-z0-9_.-]+\.test\.[a-z0-9]+|[a-z0-9_.-]+\.spec\.[a-z0-9]+)(?=$|[\s,.;:!?)]|`|'|")/i;
+const DELEGATED_COMPLETION_CLAIM_RE =
+  /\b(?:done|complete(?:d)?|finished|implemented|created|written|ready|passes?|passing|succeeds?|successful(?:ly)?|meets?(?: the)? acceptance criteria|matches?(?: the)? acceptance criteria)\b/i;
+const DELEGATED_UNRESOLVED_WORK_RE =
+  /\b(?:may|might|could|would)\s+need\b|\b(?:need(?:ed|s)?|requires?)\s+(?:minor\s+)?(?:(?:impl(?:ementation)?|integration)\s+)?(?:tweaks?|fix(?:es)?|changes?|follow[- ]?ups?|adjustments?)\b|\b(?:mismatch(?:es)?|placeholder(?:s)?|stub(?:s)?|todo|not yet implemented|unimplemented|incomplete|partial(?:ly)?|approximate|approximation|manual follow[- ]?up)\b|\bblocked(?:\s+on)?\b|\b(?:cannot|can't|unable to|could not|did not)\b/i;
+const DELEGATED_BLOCKED_PHASE_RE =
+  /\bblocked(?:\s+on)?\b|\b(?:cannot|can't|unable to|could not)\b/i;
+const DELEGATED_BENIGN_PHASE_TRANSITION_RE =
+  /\bready for next phase\b|\bno sibling steps?\b|\bfinal deliverable synthesized\b/gi;
+const DELEGATION_EXPECTED_PLACEHOLDER_RE =
+  /\b(?:placeholder(?:s)?|stub(?:s)?|scaffold(?:ing)?|skeleton|boilerplate)\b/i;
+const DELEGATED_ALLOWABLE_PLACEHOLDER_RE = /\b(?:placeholder(?:s)?|stub(?:s)?)\b/gi;
 const LOW_SIGNAL_BROWSER_TOOL_NAMES = new Set([
   "mcp.browser.browser_tabs",
   "playwright.browser_tabs",
@@ -201,6 +230,15 @@ const PREFERRED_IMPLEMENTATION_SHELL_TOOL_NAMES = new Set([
   "desktop.bash",
   "system.bash",
 ]);
+const VERIFICATION_EXECUTION_TOOL_NAMES = new Set([
+  "system.bash",
+  "desktop.bash",
+  "system.processStart",
+  "system.processStatus",
+  "system.sandboxJobStart",
+  "system.sandboxJobResume",
+  "system.sandboxJobLogs",
+]);
 const INITIAL_BROWSER_NAVIGATION_TOOL_NAMES = [
   "mcp.browser.browser_navigate",
   "playwright.browser_navigate",
@@ -220,6 +258,7 @@ const INITIAL_FILE_MUTATION_TOOL_NAMES = [
 const INITIAL_FILE_INSPECTION_TOOL_NAMES = [
   "desktop.text_editor",
   "system.readFile",
+  "system.listDir",
   "mcp.neovim.vim_edit",
   "mcp.neovim.vim_buffer_save",
   "mcp.neovim.vim_search_replace",
@@ -290,6 +329,10 @@ function collectDelegationPrimaryText(spec: DelegationContractSpec): string {
     .join(" ");
 }
 
+function normalizeDelegationClassifierText(value: string): string {
+  return value.replace(/[_-]+/g, " ");
+}
+
 function stripNegativeBrowserLanguage(value: string): string {
   return value
     .replace(NEGATED_BROWSER_REQUIREMENT_RE, " ")
@@ -299,19 +342,27 @@ function stripNegativeBrowserLanguage(value: string): string {
 
 function hasPositiveBrowserGroundingCue(value: string): boolean {
   if (value.trim().length === 0) return false;
-  return BROWSER_GROUNDED_TASK_RE.test(stripNegativeBrowserLanguage(value));
+  const normalized = stripNegativeBrowserLanguage(value);
+  return BROWSER_GROUNDED_TASK_RE.test(normalized) ||
+    BROWSER_SNAPSHOT_CUE_RE.test(normalized);
 }
 
 function hasExplicitBrowserInteractionCue(value: string): boolean {
   if (value.trim().length === 0) return false;
-  return LOCAL_FILE_BROWSER_OVERRIDE_RE.test(stripNegativeBrowserLanguage(value));
+  const normalized = stripNegativeBrowserLanguage(value);
+  return LOCAL_FILE_BROWSER_OVERRIDE_RE.test(normalized) ||
+    BROWSER_SNAPSHOT_CUE_RE.test(normalized);
 }
 
 function classifyDelegatedTaskIntent(
   spec: DelegationContractSpec,
 ): "research" | "implementation" | "validation" | "documentation" | "other" {
-  const primary = collectDelegationPrimaryText(spec);
-  const combined = primary.length > 0 ? primary : collectDelegationStepText(spec);
+  const primary = normalizeDelegationClassifierText(
+    collectDelegationPrimaryText(spec),
+  );
+  const combined = primary.length > 0
+    ? primary
+    : normalizeDelegationClassifierText(collectDelegationStepText(spec));
   if (isResearchLikeText(combined)) return "research";
   if (VALIDATION_TASK_RE.test(combined)) return "validation";
   if (DOCUMENTATION_TASK_RE.test(combined)) return "documentation";
@@ -320,7 +371,9 @@ function classifyDelegatedTaskIntent(
 }
 
 function isSetupHeavyDelegatedTask(spec: DelegationContractSpec): boolean {
-  return SETUP_TASK_RE.test(collectDelegationStepText(spec));
+  return SETUP_TASK_RE.test(
+    normalizeDelegationClassifierText(collectDelegationStepText(spec)),
+  );
 }
 
 function isBrowserToolName(toolName: string): boolean {
@@ -334,6 +387,12 @@ function specTargetsLocalFiles(spec: DelegationContractSpec): boolean {
   return !NON_BLANK_BROWSER_TARGET_RE.test(combined);
 }
 
+function hasAcceptanceVerificationCue(spec: DelegationContractSpec): boolean {
+  return ACCEPTANCE_VERIFICATION_CUE_RE.test(
+    normalizeDelegationClassifierText(collectDelegationStepText(spec)),
+  );
+}
+
 function pruneDelegatedToolsByIntent(
   spec: DelegationContractSpec,
   tools: readonly string[],
@@ -343,6 +402,12 @@ function pruneDelegatedToolsByIntent(
   const requireBrowser = specRequiresMeaningfulBrowserEvidence(spec);
   const requireFileMutation = specRequiresFileMutationEvidence(spec);
   const localFileInspectionTask = specTargetsLocalFiles(spec);
+  const setupHeavy = isSetupHeavyDelegatedTask(spec);
+  const preferInspectionOnlyTools =
+    localFileInspectionTask &&
+    !requireBrowser &&
+    !requireFileMutation &&
+    !setupHeavy;
   const hasPreferredImplementationEditor = normalized.some((toolName) =>
     PREFERRED_IMPLEMENTATION_EDITOR_TOOL_NAMES.has(toolName)
   );
@@ -352,8 +417,7 @@ function pruneDelegatedToolsByIntent(
 
   const filtered = normalized.filter((toolName) => {
     if (
-      localFileInspectionTask &&
-      !requireBrowser &&
+      preferInspectionOnlyTools &&
       localFileInspectionTools.length > 0
     ) {
       return LOCAL_FILE_INSPECTION_TOOL_NAMES.has(toolName);
@@ -371,7 +435,7 @@ function pruneDelegatedToolsByIntent(
       return PREFERRED_RESEARCH_BROWSER_TOOL_NAMES.has(toolName);
     }
 
-    if (taskIntent === "validation") {
+    if (taskIntent === "validation" && !requireFileMutation) {
       return PREFERRED_IMPLEMENTATION_SHELL_TOOL_NAMES.has(toolName) ||
         PREFERRED_VALIDATION_BROWSER_TOOL_NAMES.has(toolName);
     }
@@ -424,6 +488,7 @@ export function specRequiresFileMutationEvidence(
   spec: DelegationContractSpec,
 ): boolean {
   const taskIntent = classifyDelegatedTaskIntent(spec);
+  const setupHeavy = isSetupHeavyDelegatedTask(spec);
   if (
     [...(spec.requiredToolCapabilities ?? []), ...(spec.tools ?? [])].some((toolName) =>
       EXPLICIT_FILE_MUTATION_TOOL_NAMES.has(toolName.trim())
@@ -432,15 +497,21 @@ export function specRequiresFileMutationEvidence(
     return true;
   }
 
-  if (taskIntent === "research" || taskIntent === "validation") {
-    return false;
-  }
-
   const primary = collectDelegationPrimaryText(spec);
   const combined = collectDelegationStepText(spec);
   const hasFileAction = DELEGATION_FILE_ACTION_RE.test(combined);
   const hasExplicitFileTarget = DELEGATION_FILE_TARGET_RE.test(combined);
   const hasCodeTarget = DELEGATION_CODE_TARGET_RE.test(primary);
+  const hasTestArtifactTarget = TEST_ARTIFACT_TARGET_RE.test(combined);
+
+  if (taskIntent === "research") {
+    return false;
+  }
+
+  if (taskIntent === "validation") {
+    return hasFileAction &&
+      (hasExplicitFileTarget || hasCodeTarget || hasTestArtifactTarget);
+  }
 
   if (taskIntent === "implementation") {
     return hasCodeTarget || hasExplicitFileTarget || primary.trim().length > 0;
@@ -448,6 +519,10 @@ export function specRequiresFileMutationEvidence(
 
   if (taskIntent === "documentation") {
     return hasFileAction && hasExplicitFileTarget;
+  }
+
+  if (setupHeavy) {
+    return true;
   }
 
   return hasFileAction && (hasExplicitFileTarget || hasCodeTarget);
@@ -526,6 +601,13 @@ function collectStringValues(value: unknown, depth = 0): string[] {
     );
   }
   return [];
+}
+
+function truncateValidationExcerpt(value: string, maxChars = 200): string {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= maxChars) return trimmed;
+  if (maxChars <= 3) return trimmed.slice(0, Math.max(0, maxChars));
+  return `${trimmed.slice(0, maxChars - 3)}...`;
 }
 
 function getToolCallStringValues(
@@ -844,10 +926,8 @@ export function specRequiresMeaningfulBrowserEvidence(
   }
   const taskIntent = classifyDelegatedTaskIntent(spec);
   if (hasPositiveBrowserGroundingCue(stepText)) return true;
-  return (
-    (taskIntent === "research" || taskIntent === "validation") &&
-    hasPositiveBrowserGroundingCue(collectDelegationContextText(spec))
-  );
+  return taskIntent === "research" &&
+    hasPositiveBrowserGroundingCue(collectDelegationContextText(spec));
 }
 
 function isMeaningfulBrowserToolName(name: string): boolean {
@@ -918,17 +998,22 @@ export function resolveDelegatedChildToolScope(params: {
   const removedAsDelegationTools: string[] = [];
   const removedAsUnknownTools: string[] = [];
   const allowedTools: string[] = [];
+  const explicitRequestedTools: string[] = [];
   const semanticFallback: string[] = [];
   const taskIntent = classifyDelegatedTaskIntent(params.spec);
   const requireBrowser = specRequiresMeaningfulBrowserEvidence(params.spec);
   const requireFileMutation = specRequiresFileMutationEvidence(params.spec);
   const localFileInspectionTask = specTargetsLocalFiles(params.spec);
+  const setupHeavy = isSetupHeavyDelegatedTask(params.spec);
   const contextOnlyCapabilityRequest =
     requested.length > 0 && requested.every(isContextOnlyCapabilityName);
 
   const addCandidate = (
     toolName: string,
-    removalBucket?: string[],
+    options: {
+      readonly removalBucket?: string[];
+      readonly preserveExplicitRequest?: boolean;
+    } = {},
   ): void => {
     const normalized = toolName.trim();
     if (normalized.length === 0) return;
@@ -937,11 +1022,11 @@ export function resolveDelegatedChildToolScope(params: {
       parentAllowedSet.size > 0 &&
       !parentAllowedSet.has(normalized)
     ) {
-      removalBucket?.push(normalized);
+      options.removalBucket?.push(normalized);
       return;
     }
     if (forbiddenSet.has(normalized)) {
-      removalBucket?.push(normalized);
+      options.removalBucket?.push(normalized);
       return;
     }
     if (isDelegationToolNameLike(normalized)) {
@@ -956,13 +1041,23 @@ export function resolveDelegatedChildToolScope(params: {
       removedAsUnknownTools.push(normalized);
       return;
     }
+    if (
+      options.preserveExplicitRequest &&
+      looksLikeExplicitDelegatedToolName(normalized) &&
+      !explicitRequestedTools.includes(normalized)
+    ) {
+      explicitRequestedTools.push(normalized);
+    }
     if (!allowedTools.includes(normalized)) {
       allowedTools.push(normalized);
     }
   };
 
   for (const toolName of requested) {
-    addCandidate(toolName, removedByPolicy);
+    addCandidate(toolName, {
+      removalBucket: removedByPolicy,
+      preserveExplicitRequest: true,
+    });
   }
 
   const addSemanticFallback = (toolName: string): void => {
@@ -991,8 +1086,10 @@ export function resolveDelegatedChildToolScope(params: {
     addSemanticFallback("mcp.browser.browser_run_code");
   }
 
-  if (requireFileMutation || taskIntent === "implementation") {
+  if (requireFileMutation || taskIntent === "implementation" || setupHeavy) {
     addShellSemanticFallback();
+    addSemanticFallback("system.writeFile");
+    addSemanticFallback("system.appendFile");
     addSemanticFallback("desktop.text_editor");
     addSemanticFallback("mcp.neovim.vim_edit");
     addSemanticFallback("mcp.neovim.vim_buffer_save");
@@ -1013,10 +1110,19 @@ export function resolveDelegatedChildToolScope(params: {
     spec: params.spec,
     tools: allowedTools,
   });
-  const profiledAllowedTools = pruneDelegatedToolsByIntent(
-    params.spec,
-    refined.allowedTools,
+  const refinedExplicitRequestedTools = explicitRequestedTools.filter((toolName) =>
+    refined.allowedTools.includes(toolName)
   );
+  const profiledFallbackTools = pruneDelegatedToolsByIntent(
+    params.spec,
+    refined.allowedTools.filter((toolName) =>
+      !refinedExplicitRequestedTools.includes(toolName)
+    ),
+  );
+  const profiledAllowedTools = normalizeToolNames([
+    ...refinedExplicitRequestedTools,
+    ...profiledFallbackTools,
+  ]);
   const profiledSemanticFallback = semanticFallback.filter((toolName) =>
     profiledAllowedTools.includes(toolName)
   );
@@ -1051,18 +1157,42 @@ export function resolveDelegatedInitialToolChoiceToolName(
   const requireFileMutation = specRequiresFileMutationEvidence(spec);
   const setupHeavy = isSetupHeavyDelegatedTask(spec);
   const localFileInspectionTask = specTargetsLocalFiles(spec);
+  const shouldPrioritizeVerificationRetry =
+    spec.lastValidationCode === "acceptance_evidence_missing" &&
+    !requireBrowser &&
+    hasAcceptanceVerificationCue(spec) &&
+    (
+      taskIntent === "implementation" ||
+      taskIntent === "validation" ||
+      requireFileMutation
+    );
+
+  if (shouldPrioritizeVerificationRetry) {
+    const preferredVerificationTool = INITIAL_SETUP_TOOL_NAMES.find((toolName) =>
+      normalizedTools.includes(toolName)
+    );
+    if (preferredVerificationTool) {
+      return preferredVerificationTool;
+    }
+    const preferredShellTool = normalizedTools.find((toolName) =>
+      PREFERRED_IMPLEMENTATION_SHELL_TOOL_NAMES.has(toolName)
+    );
+    if (preferredShellTool) {
+      return preferredShellTool;
+    }
+  }
+
+  if (requireFileMutation) {
+    const preferredMutationTool = INITIAL_FILE_MUTATION_TOOL_NAMES.find((toolName) =>
+      normalizedTools.includes(toolName)
+    );
+    if (preferredMutationTool) {
+      return preferredMutationTool;
+    }
+  }
 
   if (setupHeavy) {
     return INITIAL_SETUP_TOOL_NAMES.find((toolName) =>
-      normalizedTools.includes(toolName)
-    );
-  }
-
-  if (
-    (taskIntent === "implementation" || requireFileMutation) &&
-    taskIntent !== "validation"
-  ) {
-    return INITIAL_FILE_MUTATION_TOOL_NAMES.find((toolName) =>
       normalizedTools.includes(toolName)
     );
   }
@@ -1085,13 +1215,98 @@ export function resolveDelegatedInitialToolChoiceToolName(
     );
   }
 
-  if (requireFileMutation) {
-    return INITIAL_FILE_MUTATION_TOOL_NAMES.find((toolName) =>
-      normalizedTools.includes(toolName)
+  return undefined;
+}
+
+export function resolveDelegatedInitialToolChoiceToolNames(
+  spec: DelegationContractSpec,
+  tools: readonly string[],
+): readonly string[] {
+  const normalizedTools = normalizeToolNames(tools);
+  if (normalizedTools.length === 0) return [];
+
+  const preferredToolName = resolveDelegatedInitialToolChoiceToolName(
+    spec,
+    normalizedTools,
+  );
+  if (!preferredToolName) return [];
+
+  const taskIntent = classifyDelegatedTaskIntent(spec);
+  const requireBrowser = specRequiresMeaningfulBrowserEvidence(spec);
+  const requireFileMutation = specRequiresFileMutationEvidence(spec);
+  const setupHeavy = isSetupHeavyDelegatedTask(spec);
+  const localFileInspectionTask = specTargetsLocalFiles(spec);
+  const verificationCue = hasAcceptanceVerificationCue(spec);
+  const shouldPrioritizeVerificationRetry =
+    spec.lastValidationCode === "acceptance_evidence_missing" &&
+    !requireBrowser &&
+    verificationCue &&
+    (
+      taskIntent === "implementation" ||
+      taskIntent === "validation" ||
+      requireFileMutation
     );
+
+  if (requireBrowser || taskIntent === "research") {
+    return [preferredToolName];
   }
 
-  return undefined;
+  const shouldUseFlexibleInitialSubset =
+    normalizedTools.some((toolName) => toolName.startsWith("system.")) &&
+    (
+      setupHeavy ||
+      verificationCue ||
+      (localFileInspectionTask && requireFileMutation) ||
+      taskIntent === "validation"
+    );
+  if (!shouldUseFlexibleInitialSubset) {
+    return [preferredToolName];
+  }
+
+  const routedToolNames: string[] = [];
+  const pushFirstAvailable = (candidates: readonly string[]) => {
+    const toolName = candidates.find((candidate) =>
+      normalizedTools.includes(candidate)
+    );
+    if (toolName && !routedToolNames.includes(toolName)) {
+      routedToolNames.push(toolName);
+    }
+  };
+
+  const inspectionCandidates = setupHeavy
+    ? (["system.listDir", ...INITIAL_FILE_INSPECTION_TOOL_NAMES] as const)
+    : INITIAL_FILE_INSPECTION_TOOL_NAMES;
+
+  if (shouldPrioritizeVerificationRetry) {
+    pushFirstAvailable(INITIAL_SETUP_TOOL_NAMES);
+    if (localFileInspectionTask || setupHeavy) {
+      pushFirstAvailable(inspectionCandidates);
+    }
+    if (requireFileMutation || taskIntent === "implementation") {
+      pushFirstAvailable(INITIAL_FILE_MUTATION_TOOL_NAMES);
+    }
+  } else {
+    if (localFileInspectionTask || setupHeavy) {
+      pushFirstAvailable(inspectionCandidates);
+    }
+    if (requireFileMutation || taskIntent === "implementation") {
+      pushFirstAvailable(INITIAL_FILE_MUTATION_TOOL_NAMES);
+    }
+    if (
+      setupHeavy ||
+      verificationCue ||
+      taskIntent === "validation" ||
+      spec.lastValidationCode === "acceptance_evidence_missing"
+    ) {
+      pushFirstAvailable(INITIAL_SETUP_TOOL_NAMES);
+    }
+  }
+
+  if (!routedToolNames.includes(preferredToolName)) {
+    routedToolNames.unshift(preferredToolName);
+  }
+
+  return routedToolNames;
 }
 
 export function resolveDelegatedCorrectionToolChoiceToolNames(
@@ -1129,6 +1344,112 @@ export function resolveDelegatedCorrectionToolChoiceToolNames(
     }
   }
 
+  if (
+    validationCode === "acceptance_evidence_missing" ||
+    validationCode === "blocked_phase_output" ||
+    validationCode === "contradictory_completion_claim"
+  ) {
+    const requireBrowser = specRequiresMeaningfulBrowserEvidence(spec);
+    const requireFileMutation = specRequiresFileMutationEvidence(spec);
+    const taskIntent = classifyDelegatedTaskIntent(spec);
+
+    if (requireBrowser || taskIntent === "research") {
+      const preferredTool = resolveDelegatedInitialToolChoiceToolName(
+        spec,
+        normalizedTools,
+      );
+      return preferredTool ? [preferredTool] : [];
+    }
+
+    const localFileInspectionTask = specTargetsLocalFiles(spec);
+    if (localFileInspectionTask && !requireFileMutation) {
+      const inspectionTool = INITIAL_FILE_INSPECTION_TOOL_NAMES.find((toolName) =>
+        normalizedTools.includes(toolName)
+      );
+      if (inspectionTool) {
+        return [inspectionTool];
+      }
+    }
+
+    const correctionTools: string[] = [];
+    const shouldPrioritizeVerification =
+      validationCode === "acceptance_evidence_missing" &&
+      hasAcceptanceVerificationCue(spec) &&
+      (
+        requireFileMutation ||
+        taskIntent === "implementation" ||
+        taskIntent === "validation"
+      );
+
+    if (
+      requireFileMutation ||
+      taskIntent === "implementation" ||
+      taskIntent === "validation" ||
+      hasAcceptanceVerificationCue(spec)
+    ) {
+      const preferredVerificationTool = INITIAL_SETUP_TOOL_NAMES.find(
+        (toolName) => normalizedTools.includes(toolName),
+      );
+      if (
+        preferredVerificationTool &&
+        shouldPrioritizeVerification &&
+        !correctionTools.includes(preferredVerificationTool)
+      ) {
+        correctionTools.push(preferredVerificationTool);
+      }
+    }
+
+    if (requireFileMutation || taskIntent === "implementation") {
+      const preferredMutationTool = INITIAL_FILE_MUTATION_TOOL_NAMES.find(
+        (toolName) => normalizedTools.includes(toolName),
+      );
+      if (
+        preferredMutationTool &&
+        !correctionTools.includes(preferredMutationTool)
+      ) {
+        correctionTools.push(preferredMutationTool);
+      }
+    }
+
+    if (
+      !shouldPrioritizeVerification &&
+      (
+        requireFileMutation ||
+        taskIntent === "implementation" ||
+        taskIntent === "validation" ||
+        hasAcceptanceVerificationCue(spec)
+      )
+    ) {
+      const preferredVerificationTool = INITIAL_SETUP_TOOL_NAMES.find(
+        (toolName) => normalizedTools.includes(toolName),
+      );
+      if (
+        preferredVerificationTool &&
+        !correctionTools.includes(preferredVerificationTool)
+      ) {
+        correctionTools.push(preferredVerificationTool);
+      }
+    }
+
+    if (correctionTools.length > 0) {
+      return correctionTools;
+    }
+
+    if (
+      requireFileMutation ||
+      taskIntent === "implementation" ||
+      taskIntent === "validation" ||
+      hasAcceptanceVerificationCue(spec)
+    ) {
+      const preferredShellTool = normalizedTools.find((toolName) =>
+        PREFERRED_IMPLEMENTATION_SHELL_TOOL_NAMES.has(toolName)
+      );
+      if (preferredShellTool) {
+        return [preferredShellTool];
+      }
+    }
+  }
+
   const preferredTool = resolveDelegatedInitialToolChoiceToolName(
     spec,
     normalizedTools,
@@ -1159,6 +1480,86 @@ function isToolCallFailure(toolCall: DelegationValidationToolCall): boolean {
     return true;
   }
   return false;
+}
+
+export type AcceptanceVerificationCategory = "build" | "test";
+
+export function getAcceptanceVerificationCategories(
+  criterion: string,
+): readonly AcceptanceVerificationCategory[] {
+  const categories = new Set<AcceptanceVerificationCategory>();
+  if (ACCEPTANCE_BUILD_VERIFICATION_RE.test(criterion)) {
+    categories.add("build");
+  }
+  if (ACCEPTANCE_TEST_VERIFICATION_RE.test(criterion)) {
+    categories.add("test");
+  }
+  return [...categories];
+}
+
+function getToolCallVerificationCategories(
+  toolCall: DelegationValidationToolCall,
+): readonly AcceptanceVerificationCategory[] {
+  const toolName = toolCall.name?.trim();
+  if (!toolName || !VERIFICATION_EXECUTION_TOOL_NAMES.has(toolName)) {
+    return [];
+  }
+  const combined = [
+    toolName,
+    ...getToolCallStringValues(toolCall),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+  if (combined.trim().length === 0) {
+    return [];
+  }
+
+  const categories = new Set<AcceptanceVerificationCategory>();
+  if (TOOLCALL_BUILD_EVIDENCE_RE.test(combined)) {
+    categories.add("build");
+  }
+  if (TOOLCALL_TEST_EVIDENCE_RE.test(combined)) {
+    categories.add("test");
+  }
+  return [...categories];
+}
+
+function validateAcceptanceVerificationToolEvidence(
+  spec: DelegationContractSpec,
+  parsedOutput: Record<string, unknown> | undefined,
+  toolCalls: readonly DelegationValidationToolCall[] | undefined,
+): DelegationOutputValidationResult | undefined {
+  if (!Array.isArray(toolCalls) || (spec.acceptanceCriteria?.length ?? 0) === 0) {
+    return undefined;
+  }
+
+  const successfulCalls = toolCalls.filter((toolCall) => !isToolCallFailure(toolCall));
+  for (const criterion of spec.acceptanceCriteria ?? []) {
+    if (shouldSkipAcceptanceEvidenceCriterion(criterion)) {
+      continue;
+    }
+    const categories = getAcceptanceVerificationCategories(criterion);
+    if (categories.length === 0) {
+      continue;
+    }
+
+    const hasMatchingSuccess = successfulCalls.some((toolCall) => {
+      const toolCategories = getToolCallVerificationCategories(toolCall);
+      return categories.some((category) => toolCategories.includes(category));
+    });
+    if (hasMatchingSuccess) {
+      continue;
+    }
+
+    return validationFailure(
+      "acceptance_evidence_missing",
+      "Acceptance criterion required successful verification evidence but none was observed: " +
+        truncateValidationExcerpt(criterion),
+      parsedOutput,
+    );
+  }
+
+  return undefined;
 }
 
 function isMeaningfulBrowserToolCall(
@@ -1306,6 +1707,96 @@ export function getMissingSuccessfulToolEvidenceMessage(
   )?.message;
 }
 
+function validateContradictoryCompletionClaim(
+  spec: DelegationContractSpec,
+  output: string,
+  parsedOutput: Record<string, unknown> | undefined,
+): DelegationOutputValidationResult | undefined {
+  const stringValues = [
+    output,
+    ...collectStringValues(parsedOutput),
+  ]
+    .map((value) => value.trim())
+    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+
+  if (!stringValues.some((value) => DELEGATED_COMPLETION_CLAIM_RE.test(value))) {
+    return undefined;
+  }
+
+  const allowsExpectedPlaceholders = [
+    spec.task,
+    spec.objective,
+    spec.inputContract,
+    ...(spec.acceptanceCriteria ?? []),
+  ]
+    .filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0
+    )
+    .some((value) => DELEGATION_EXPECTED_PLACEHOLDER_RE.test(value));
+
+  const unresolvedSnippet = stringValues.find((value) => {
+    const normalized = value
+      .replace(DELEGATED_BENIGN_PHASE_TRANSITION_RE, " ")
+      .replace(
+        allowsExpectedPlaceholders ? DELEGATED_ALLOWABLE_PLACEHOLDER_RE : /$^/,
+        " ",
+      );
+    return DELEGATED_UNRESOLVED_WORK_RE.test(normalized);
+  });
+  if (!unresolvedSnippet) {
+    return undefined;
+  }
+
+  return validationFailure(
+    "contradictory_completion_claim",
+    "Delegated task output claimed completion while still reporting unresolved work: " +
+      truncateValidationExcerpt(unresolvedSnippet),
+    parsedOutput,
+  );
+}
+
+function validateBlockedPhaseOutput(
+  spec: DelegationContractSpec,
+  output: string,
+  parsedOutput: Record<string, unknown> | undefined,
+): DelegationOutputValidationResult | undefined {
+  const stringValues = [
+    output,
+    ...collectStringValues(parsedOutput),
+  ]
+    .map((value) => value.trim())
+    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+
+  const allowsExpectedPlaceholders = [
+    spec.task,
+    spec.objective,
+    spec.inputContract,
+    ...(spec.acceptanceCriteria ?? []),
+  ]
+    .filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0
+    )
+    .some((value) => DELEGATION_EXPECTED_PLACEHOLDER_RE.test(value));
+
+  const blockedSnippet = stringValues.find((value) => {
+    const normalized = value.replace(
+      allowsExpectedPlaceholders ? DELEGATED_ALLOWABLE_PLACEHOLDER_RE : /$^/,
+      " ",
+    );
+    return DELEGATED_BLOCKED_PHASE_RE.test(normalized);
+  });
+  if (!blockedSnippet) {
+    return undefined;
+  }
+
+  return validationFailure(
+    "blocked_phase_output",
+    "Delegated task output reported the phase as blocked or incomplete instead of completing it: " +
+      truncateValidationExcerpt(blockedSnippet),
+    parsedOutput,
+  );
+}
+
 function validateFileMutationEvidence(
   spec: DelegationContractSpec,
   output: string,
@@ -1367,6 +1858,13 @@ export function validateDelegatedOutputContract(params: {
   );
   if (toolEvidenceFailure) return toolEvidenceFailure;
 
+  const acceptanceVerificationFailure = validateAcceptanceVerificationToolEvidence(
+    spec,
+    parsedOutput,
+    toolCalls,
+  );
+  if (acceptanceVerificationFailure) return acceptanceVerificationFailure;
+
   const fileEvidenceFailure = validateFileMutationEvidence(
     spec,
     output,
@@ -1374,6 +1872,20 @@ export function validateDelegatedOutputContract(params: {
     toolCalls,
   );
   if (fileEvidenceFailure) return fileEvidenceFailure;
+
+  const contradictoryCompletionFailure = validateContradictoryCompletionClaim(
+    spec,
+    output,
+    parsedOutput,
+  );
+  if (contradictoryCompletionFailure) return contradictoryCompletionFailure;
+
+  const blockedPhaseFailure = validateBlockedPhaseOutput(
+    spec,
+    output,
+    parsedOutput,
+  );
+  if (blockedPhaseFailure) return blockedPhaseFailure;
 
   const acceptanceFailure = validateAcceptanceCriteriaEvidence(
     spec,

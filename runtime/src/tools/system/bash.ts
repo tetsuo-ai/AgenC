@@ -108,14 +108,15 @@ function validateCommandShape(command: string): string | undefined {
   }
   if (SHELL_OPERATOR_RE.test(command)) {
     return (
-      `Invalid command "${command}". Shell operators/newlines are not allowed in \`command\`. ` +
-      "Use a direct executable plus args instead."
+      `Invalid command "${command}". Shell operators/newlines are not allowed in direct mode. ` +
+      "Omit `args` and use shell mode when you need shell parsing."
     );
   }
   if (/\s/.test(command)) {
     return (
       `Invalid command "${command}". system.bash expects one executable token in \`command\` ` +
-      `(for example "ls" or "/usr/bin/git"). Put flags and operands in \`args\`.`
+      `(for example "ls" or "/usr/bin/git"). Put flags and operands in \`args\`, ` +
+      "or omit `args` and use shell mode for shell syntax."
     );
   }
   if (!SINGLE_EXECUTABLE_RE.test(command)) {
@@ -135,8 +136,8 @@ function validateShellBuiltin(command: string): string | undefined {
 
   return (
     `Invalid command "${command}". "${base}" is a shell builtin, not a standalone executable. ` +
-    "system.bash runs one executable directly. Use a real binary in `command` with `args`, " +
-    "or use `desktop.bash` for shell-style scripts/heredocs/chaining."
+    "Use a real binary in `command` with `args`, or retry in system.bash shell mode " +
+    "with the full shell command in `command` and omit `args`."
   );
 }
 
@@ -213,7 +214,7 @@ function isShellModeCommand(
   command: string,
   args: readonly string[] | undefined,
 ): boolean {
-  if (args !== undefined) return false;
+  if (args !== undefined && args.length > 0) return false;
   return SHELL_OPERATOR_RE.test(command) || /\s/.test(command);
 }
 
@@ -465,10 +466,14 @@ export function createBashTool(config?: BashToolConfig): Tool {
       }
 
       const command = input.command.trim();
+      const normalizedArgs =
+        Array.isArray(input.args) && input.args.length === 0
+          ? undefined
+          : input.args;
 
       // Determine execution mode: shell vs direct
       const useShellMode =
-        shellModeEnabled && isShellModeCommand(command, input.args);
+        shellModeEnabled && isShellModeCommand(command, normalizedArgs);
 
       let execCommand: string;
       let execArgs: string[];
@@ -510,7 +515,7 @@ export function createBashTool(config?: BashToolConfig): Tool {
       } else {
         // Direct mode: validate command shape, builtins, and deny/allow lists
         if (
-          input.args === undefined &&
+          normalizedArgs === undefined &&
           shellModeEnabled &&
           !SINGLE_EXECUTABLE_RE.test(command)
         ) {

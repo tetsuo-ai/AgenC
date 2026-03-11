@@ -20,6 +20,8 @@ export type DelegationHardBlockedTaskClass =
   | "destructive_host_mutation"
   | "credential_exfiltration";
 
+export type DelegationHardBlockedMatchSource = "capability" | "text";
+
 export interface DelegationDecisionConfig {
   readonly enabled?: boolean;
   readonly mode?: "manager_tools" | "handoff" | "hybrid";
@@ -71,10 +73,14 @@ export interface DelegationDecision {
   readonly latencyCostRisk: number;
   readonly safetyRisk: number;
   readonly confidence: number;
+  readonly hardBlockedTaskClass: DelegationHardBlockedTaskClass | null;
+  readonly hardBlockedTaskClassSource: DelegationHardBlockedMatchSource | null;
+  readonly hardBlockedTaskClassSignal: string | null;
   readonly diagnostics: Readonly<Record<string, number | boolean>>;
 }
 
-const DEFAULT_SCORE_THRESHOLD = 0.65;
+// Calibrated against current utility-score ranges for viable coding/research fanout.
+const DEFAULT_SCORE_THRESHOLD = 0.2;
 const DEFAULT_MAX_FANOUT_PER_TURN = 8;
 const DEFAULT_MAX_DEPTH = 4;
 const DEFAULT_HANDOFF_MIN_PLANNER_CONFIDENCE = 0.82;
@@ -94,11 +100,11 @@ const HIGH_RISK_CAPABILITY_PATTERNS: readonly RegExp[] = [
   /^solana\./i,
   /^agenc\./i,
   /^desktop\./i,
-  /^system\.(?:delete|writeFile|execute|open|applescript|notification)$/i,
+  /^system\.(?:delete|execute|open|applescript|notification)$/i,
 ];
 
 const MODERATE_RISK_CAPABILITY_PATTERNS: readonly RegExp[] = [
-  /^system\.bash$/i,
+  /^system\.(?:bash|writeFile|appendFile)$/i,
   /^system\.http$/i,
   /^playwright\./i,
 ];
@@ -114,6 +120,22 @@ const NETWORK_EGRESS_CAPABILITY_RE =
   /^(?:system\.http|system\.bash|desktop\.bash|playwright\.)/i;
 const CREDENTIAL_MARKER_RE =
   /\b(secret|api[_-]?key|token|password|private[_\s-]?key|seed\s+phrase|mnemonic)\b/i;
+const WALLET_SIGNING_TEXT_RE =
+  /\b(sign|authorize|approve)\b[\s\S]{0,48}\b(wallet|transaction|tx)\b/i;
+const WALLET_TRANSFER_TEXT_RE =
+  /\b(transfer|send|withdraw|pay)\b[\s\S]{0,48}\b(sol|token|fund|wallet|usdc|usdt)\b/i;
+const STAKE_OR_REWARDS_TEXT_PATTERNS: readonly RegExp[] = [
+  /\b(stake|unstake|undelegate)\b[\s\S]{0,48}\b(sol|token|tokens|validator|stake|staking|reward|rewards|yield|wallet)\b/i,
+  /\b(delegate)\b[\s\S]{0,48}\b(stake|staking|validator|vote\s+account|sol|token|tokens|reward|rewards)\b/i,
+  /\b(claim|reward|rewards)\b[\s\S]{0,48}\b(stake|staking|validator|sol|token|tokens|wallet|yield|epoch)\b/i,
+  /\b(stake|staking|validator|yield|epoch)\b[\s\S]{0,48}\b(reward|rewards|claim|delegate|undelegate|unstake)\b/i,
+];
+
+interface HardBlockedTaskClassMatch {
+  readonly taskClass: DelegationHardBlockedTaskClass;
+  readonly source: DelegationHardBlockedMatchSource;
+  readonly signal: string;
+}
 
 interface DecisionMetrics {
   readonly utilityScore: number;
@@ -177,7 +199,8 @@ export function assessDelegationDecision(
 ): DelegationDecision {
   const resolvedConfig = resolveDelegationDecisionConfig(input.config);
   const metrics = computeDecisionMetrics(input);
-  const hardBlockedTaskClass = detectHardBlockedTaskClass(input, resolvedConfig);
+  const hardBlockedMatch = detectHardBlockedTaskClass(input, resolvedConfig);
+  const hardBlockedTaskClass = hardBlockedMatch?.taskClass ?? null;
   const plannerConfidence = clamp01(
     input.plannerConfidence ?? metrics.confidence,
   );
@@ -187,6 +210,7 @@ export function assessDelegationDecision(
     resolvedConfig,
     plannerConfidence,
     hardBlockedTaskClass,
+    hardBlockedMatch,
   );
 
   if (!resolvedConfig.enabled) {
@@ -195,6 +219,7 @@ export function assessDelegationDecision(
       reason: "delegation_disabled",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -205,6 +230,7 @@ export function assessDelegationDecision(
       reason: "no_subagent_steps",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -215,6 +241,7 @@ export function assessDelegationDecision(
       reason: "hard_blocked_task_class",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -225,6 +252,7 @@ export function assessDelegationDecision(
       reason: "fanout_exceeded",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -238,6 +266,7 @@ export function assessDelegationDecision(
       reason: "handoff_confidence_below_threshold",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -253,6 +282,7 @@ export function assessDelegationDecision(
       reason: "trivial_request",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -269,6 +299,7 @@ export function assessDelegationDecision(
       reason: "single_hop_request",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -279,6 +310,7 @@ export function assessDelegationDecision(
       reason: "safety_risk_high",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -289,6 +321,7 @@ export function assessDelegationDecision(
       reason: "score_below_threshold",
       threshold: resolvedConfig.scoreThreshold,
       metrics,
+      hardBlockedMatch,
       diagnostics,
     });
   }
@@ -298,6 +331,7 @@ export function assessDelegationDecision(
     reason: "approved",
     threshold: resolvedConfig.scoreThreshold,
     metrics,
+    hardBlockedMatch,
     diagnostics,
   });
 }
@@ -307,6 +341,7 @@ function buildDecision(input: {
   reason: DelegationDecisionReason;
   threshold: number;
   metrics: DecisionMetrics;
+  hardBlockedMatch: HardBlockedTaskClassMatch | null;
   diagnostics: Readonly<Record<string, number | boolean>>;
 }): DelegationDecision {
   return {
@@ -319,6 +354,9 @@ function buildDecision(input: {
     latencyCostRisk: input.metrics.latencyCostRisk,
     safetyRisk: input.metrics.safetyRisk,
     confidence: input.metrics.confidence,
+    hardBlockedTaskClass: input.hardBlockedMatch?.taskClass ?? null,
+    hardBlockedTaskClassSource: input.hardBlockedMatch?.source ?? null,
+    hardBlockedTaskClassSignal: input.hardBlockedMatch?.signal ?? null,
     diagnostics: input.diagnostics,
   };
 }
@@ -329,6 +367,7 @@ function buildDiagnostics(
   config: ResolvedDelegationDecisionConfig,
   plannerConfidence: number,
   hardBlockedTaskClass: DelegationHardBlockedTaskClass | null,
+  hardBlockedMatch?: HardBlockedTaskClassMatch | null,
 ): Readonly<Record<string, number | boolean>> {
   return {
     complexityScore: input.complexityScore,
@@ -346,6 +385,9 @@ function buildDiagnostics(
     modeHandoff: config.mode === "handoff",
     handoffMinPlannerConfidence: config.handoffMinPlannerConfidence,
     hasHardBlockedTaskClass: hardBlockedTaskClass !== null,
+    hardBlockedTaskClassMatchedByCapability:
+      hardBlockedMatch?.source === "capability",
+    hardBlockedTaskClassMatchedByText: hardBlockedMatch?.source === "text",
     hardBlockedTaskClassWalletSigning:
       hardBlockedTaskClass === "wallet_signing",
     hardBlockedTaskClassWalletTransfer:
@@ -363,7 +405,7 @@ function buildDiagnostics(
 function detectHardBlockedTaskClass(
   input: DelegationDecisionInput,
   config: ResolvedDelegationDecisionConfig,
-): DelegationHardBlockedTaskClass | null {
+): HardBlockedTaskClassMatch | null {
   if (config.hardBlockedTaskClasses.size === 0) return null;
 
   const capabilities = input.subagentSteps.flatMap((step) =>
@@ -377,73 +419,148 @@ function detectHardBlockedTaskClass(
     ...input.subagentSteps.flatMap((step) => step.contextRequirements),
   ].join("\n");
 
-  if (
-    config.hardBlockedTaskClasses.has("wallet_signing") &&
-    (
-      capabilities.some((capability) =>
-        WALLET_SIGNING_CAPABILITY_RE.test(capability)
-      ) ||
-      /\b(sign|authorize|approve)\b[\s\S]{0,48}\b(wallet|transaction|tx)\b/i
-        .test(textBlob)
-    )
-  ) {
-    return "wallet_signing";
+  if (config.hardBlockedTaskClasses.has("wallet_signing")) {
+    const capabilityMatch = findCapabilityMatch(
+      capabilities,
+      WALLET_SIGNING_CAPABILITY_RE,
+    );
+    if (capabilityMatch) {
+      return buildHardBlockedMatch(
+        "wallet_signing",
+        "capability",
+        capabilityMatch,
+      );
+    }
+    const textMatch = findTextMatch(textBlob, [WALLET_SIGNING_TEXT_RE]);
+    if (textMatch) {
+      return buildHardBlockedMatch("wallet_signing", "text", textMatch);
+    }
   }
 
-  if (
-    config.hardBlockedTaskClasses.has("wallet_transfer") &&
-    (
-      capabilities.some((capability) =>
-        WALLET_TRANSFER_CAPABILITY_RE.test(capability)
-      ) ||
-      /\b(transfer|send|withdraw|pay)\b[\s\S]{0,48}\b(sol|token|fund|wallet|usdc|usdt)\b/i
-        .test(textBlob)
-    )
-  ) {
-    return "wallet_transfer";
+  if (config.hardBlockedTaskClasses.has("wallet_transfer")) {
+    const capabilityMatch = findCapabilityMatch(
+      capabilities,
+      WALLET_TRANSFER_CAPABILITY_RE,
+    );
+    if (capabilityMatch) {
+      return buildHardBlockedMatch(
+        "wallet_transfer",
+        "capability",
+        capabilityMatch,
+      );
+    }
+    const textMatch = findTextMatch(textBlob, [WALLET_TRANSFER_TEXT_RE]);
+    if (textMatch) {
+      return buildHardBlockedMatch("wallet_transfer", "text", textMatch);
+    }
   }
 
-  if (
-    config.hardBlockedTaskClasses.has("stake_or_rewards") &&
-    (
-      capabilities.some((capability) =>
-        STAKE_OR_REWARDS_CAPABILITY_RE.test(capability)
-      ) ||
-      /\b(stake|unstake|delegate|reward|rewards|claim)\b/i.test(textBlob)
-    )
-  ) {
-    return "stake_or_rewards";
+  if (config.hardBlockedTaskClasses.has("stake_or_rewards")) {
+    const capabilityMatch = findCapabilityMatch(
+      capabilities,
+      STAKE_OR_REWARDS_CAPABILITY_RE,
+    );
+    if (capabilityMatch) {
+      return buildHardBlockedMatch(
+        "stake_or_rewards",
+        "capability",
+        capabilityMatch,
+      );
+    }
+    const textMatch = findTextMatch(textBlob, STAKE_OR_REWARDS_TEXT_PATTERNS);
+    if (textMatch) {
+      return buildHardBlockedMatch("stake_or_rewards", "text", textMatch);
+    }
   }
 
-  if (
-    config.hardBlockedTaskClasses.has("destructive_host_mutation") &&
-    capabilities.some((capability) =>
-      DESTRUCTIVE_HOST_MUTATION_CAPABILITY_RE.test(capability)
-    )
-  ) {
-    return "destructive_host_mutation";
+  if (config.hardBlockedTaskClasses.has("destructive_host_mutation")) {
+    const capabilityMatch = findCapabilityMatch(
+      capabilities,
+      DESTRUCTIVE_HOST_MUTATION_CAPABILITY_RE,
+    );
+    if (capabilityMatch) {
+      return buildHardBlockedMatch(
+        "destructive_host_mutation",
+        "capability",
+        capabilityMatch,
+      );
+    }
   }
 
   if (
     config.hardBlockedTaskClasses.has("credential_exfiltration") &&
-    CREDENTIAL_MARKER_RE.test(textBlob) &&
-    capabilities.some((capability) =>
-      NETWORK_EGRESS_CAPABILITY_RE.test(capability)
-    )
+    CREDENTIAL_MARKER_RE.test(textBlob)
   ) {
-    return "credential_exfiltration";
+    const capabilityMatch = findCapabilityMatch(
+      capabilities,
+      NETWORK_EGRESS_CAPABILITY_RE,
+    );
+    if (capabilityMatch) {
+      return buildHardBlockedMatch(
+        "credential_exfiltration",
+        "capability",
+        capabilityMatch,
+      );
+    }
   }
 
   return null;
 }
 
+function buildHardBlockedMatch(
+  taskClass: DelegationHardBlockedTaskClass,
+  source: DelegationHardBlockedMatchSource,
+  signal: string,
+): HardBlockedTaskClassMatch {
+  return {
+    taskClass,
+    source,
+    signal: summarizeHardBlockedSignal(signal),
+  };
+}
+
+function findCapabilityMatch(
+  capabilities: readonly string[],
+  pattern: RegExp,
+): string | null {
+  for (const capability of capabilities) {
+    if (pattern.test(capability)) {
+      return capability;
+    }
+  }
+  return null;
+}
+
+function findTextMatch(
+  textBlob: string,
+  patterns: readonly RegExp[],
+): string | null {
+  for (const pattern of patterns) {
+    const match = textBlob.match(pattern);
+    if (match?.[0]) {
+      return match[0];
+    }
+  }
+  return null;
+}
+
+function summarizeHardBlockedSignal(signal: string): string {
+  const normalized = signal.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 96) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 93)}...`;
+}
+
 function computeDecisionMetrics(input: DelegationDecisionInput): DecisionMetrics {
   const wordCount = countWords(input.messageText);
   const subagentCount = input.subagentSteps.length;
-  const edgeCount = input.edges.length;
+  const subagentStepNames = input.subagentSteps.map((step) => step.name);
+  const relevantEdges = filterRelevantSubagentEdges(subagentStepNames, input.edges);
+  const edgeCount = relevantEdges.length;
   const dependencyDepth = estimateDependencyDepth(
-    input.subagentSteps.map((step) => step.name),
-    input.edges,
+    subagentStepNames,
+    relevantEdges,
   );
   const parallelizableSubagentCount = input.subagentSteps.filter((step) =>
     step.canRunParallel
@@ -465,9 +582,12 @@ function computeDecisionMetrics(input: DelegationDecisionInput): DecisionMetrics
   );
   const budgetRisk = clamp01(avgBudgetMinutes / 30);
 
-  const { highRiskCount, moderateRiskCount } = countRiskyCapabilities(
-    capabilities,
-  );
+  const {
+    highRiskCount,
+    moderateRiskCount,
+    riskySubagentCount,
+    parallelRiskySubagentCount,
+  } = countRiskyCapabilities(input.subagentSteps);
 
   const decompositionBenefit = clamp01(
     0.08 +
@@ -477,26 +597,30 @@ function computeDecisionMetrics(input: DelegationDecisionInput): DecisionMetrics
       Math.min(0.14, input.complexityScore * 0.02),
   );
 
+  const sequentialPhaseCount = Math.max(0, subagentCount - parallelizableSubagentCount);
+  const dependencyDepthPenalty = Math.max(0, dependencyDepth - 2);
   const coordinationOverhead = clamp01(
-    0.1 +
-      subagentCount * 0.14 +
-      edgeCount * 0.08 +
-      Math.max(0, dependencyDepth - 1) * 0.07 +
-      input.synthesisSteps * 0.06,
+    0.05 +
+      Math.max(0, sequentialPhaseCount - 2) * 0.06 +
+      parallelizableSubagentCount * 0.11 +
+      edgeCount * 0.025 +
+      dependencyDepthPenalty * 0.03,
   );
 
   const latencyCostRisk = clamp01(
-    0.08 +
-      subagentCount * 0.12 +
-      Math.max(0, dependencyDepth - 1) * 0.08 +
-      budgetRisk * 0.25 -
-      parallelizableSubagentCount * 0.04,
+    0.05 +
+      subagentCount * 0.065 +
+      dependencyDepthPenalty * 0.035 +
+      budgetRisk * 0.18 -
+      parallelizableSubagentCount * 0.03,
   );
 
   const safetyRisk = clamp01(
     0.05 +
       highRiskCount * 0.22 +
       moderateRiskCount * 0.08 +
+      Math.max(0, riskySubagentCount - 2) * 0.03 +
+      parallelRiskySubagentCount * 0.04 +
       Math.max(0, uniqueCapabilityCount - 6) * 0.02,
   );
 
@@ -531,6 +655,15 @@ function computeDecisionMetrics(input: DelegationDecisionInput): DecisionMetrics
     parallelizableSubagentCount,
     uniqueCapabilityCount,
   };
+}
+
+function filterRelevantSubagentEdges(
+  stepNames: readonly string[],
+  edges: readonly WorkflowGraphEdge[],
+): WorkflowGraphEdge[] {
+  if (stepNames.length === 0 || edges.length === 0) return [];
+  const stepSet = new Set(stepNames);
+  return edges.filter((edge) => stepSet.has(edge.from) && stepSet.has(edge.to));
 }
 
 function estimateDependencyDepth(
@@ -583,26 +716,54 @@ function estimateDependencyDepth(
   return maxDepth;
 }
 
-function countRiskyCapabilities(capabilities: readonly string[]): {
+function countRiskyCapabilities(
+  subagentSteps: readonly DelegationSubagentStepProfile[],
+): {
   highRiskCount: number;
   moderateRiskCount: number;
+  riskySubagentCount: number;
+  parallelRiskySubagentCount: number;
 } {
-  let highRiskCount = 0;
-  let moderateRiskCount = 0;
-  for (const capability of capabilities) {
-    if (HIGH_RISK_CAPABILITY_PATTERNS.some((pattern) => pattern.test(capability))) {
-      highRiskCount++;
-      continue;
+  const highRiskCapabilities = new Set<string>();
+  const moderateRiskCapabilities = new Set<string>();
+  let riskySubagentCount = 0;
+  let parallelRiskySubagentCount = 0;
+
+  for (const step of subagentSteps) {
+    let stepHasRiskyCapability = false;
+    for (const rawCapability of step.requiredToolCapabilities) {
+      const capability = rawCapability.trim();
+      if (
+        HIGH_RISK_CAPABILITY_PATTERNS.some((pattern) => pattern.test(capability))
+      ) {
+        highRiskCapabilities.add(capability);
+        stepHasRiskyCapability = true;
+        continue;
+      }
+      if (
+        MODERATE_RISK_CAPABILITY_PATTERNS.some((pattern) =>
+          pattern.test(capability)
+        )
+      ) {
+        moderateRiskCapabilities.add(capability);
+        stepHasRiskyCapability = true;
+      }
     }
-    if (
-      MODERATE_RISK_CAPABILITY_PATTERNS.some((pattern) =>
-        pattern.test(capability)
-      )
-    ) {
-      moderateRiskCount++;
+
+    if (stepHasRiskyCapability) {
+      riskySubagentCount++;
+      if (step.canRunParallel) {
+        parallelRiskySubagentCount++;
+      }
     }
   }
-  return { highRiskCount, moderateRiskCount };
+
+  return {
+    highRiskCount: highRiskCapabilities.size,
+    moderateRiskCount: moderateRiskCapabilities.size,
+    riskySubagentCount,
+    parallelRiskySubagentCount,
+  };
 }
 
 function parseBudgetHintMinutes(hint: string): number {
