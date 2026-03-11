@@ -30,7 +30,8 @@ import {
   parseSubagentVerifierDecision,
 } from "./chat-executor-verifier.js";
 
-interface CallModelForPhaseResult extends Pick<LLMResponse, "content"> {}
+interface CallModelForPhaseResult
+  extends Pick<LLMResponse, "content" | "finishReason" | "toolCalls"> {}
 
 export async function runSubagentVerifierRound(params: {
   readonly systemPrompt: string;
@@ -50,9 +51,11 @@ export async function runSubagentVerifierRound(params: {
     phase: "planner_verifier";
     callMessages: readonly LLMMessage[];
     callSections: readonly PromptBudgetSection[];
+    routedToolNames?: readonly string[];
     statefulSessionId?: string;
     statefulResumeAnchor?: LLMStatefulResumeAnchor;
     statefulHistoryCompacted?: boolean;
+    toolChoice?: "none";
     budgetReason: string;
   }) => Promise<CallModelForPhaseResult | undefined>;
 }): Promise<SubagentVerifierDecision> {
@@ -79,9 +82,11 @@ export async function runSubagentVerifierRound(params: {
     phase: "planner_verifier",
     callMessages: verifierMessages,
     callSections: verifierSections,
+    routedToolNames: [],
     statefulSessionId: params.sessionId,
     statefulResumeAnchor: params.stateful?.resumeAnchor,
     statefulHistoryCompacted: params.stateful?.historyCompacted,
+    toolChoice: "none",
     budgetReason:
       "Planner verifier blocked by max model recalls per request budget",
   });
@@ -100,6 +105,8 @@ export async function runSubagentVerifierRound(params: {
         "Sub-agent verifier returned non-JSON or malformed schema; using deterministic verifier fallback",
       details: {
         round: params.round,
+        finishReason: verifierResponse.finishReason,
+        toolCallCount: verifierResponse.toolCalls.length,
       },
     });
     return deterministic;
@@ -122,8 +129,10 @@ export async function executePlannerPipelineWithVerifierLoop(
   let verifierRounds = 0;
   let verificationDecision: SubagentVerifierDecision | undefined;
   let pipelineResult: PipelineResult | undefined;
+  let executionRound = 0;
 
   while (true) {
+    executionRound++;
     if (input.checkRequestTimeout("planner pipeline execution")) break;
     const nextPipelineResult = await input.runPipelineWithGlobalTimeout(
       input.pipeline,
@@ -179,6 +188,21 @@ export async function executePlannerPipelineWithVerifierLoop(
       ) &&
       retryable;
 
+    input.onVerifierRoundFinished?.({
+      executionRound,
+      verifierRound: verifierRounds,
+      overall: verificationDecision.overall,
+      confidence: verificationDecision.confidence,
+      minConfidence: input.verifierConfig.minConfidence,
+      belowConfidence,
+      retryable,
+      canRetry,
+      unresolvedItems: [...verificationDecision.unresolvedItems],
+      pipelineStatus: nextPipelineResult.status,
+      completedSteps: nextPipelineResult.completedSteps,
+      totalSteps: nextPipelineResult.totalSteps,
+    });
+
     if (canRetry) {
       input.plannerSummaryState.diagnostics.push({
         category: "policy",
@@ -193,6 +217,17 @@ export async function executePlannerPipelineWithVerifierLoop(
             input.verifierConfig.minConfidence.toFixed(3),
           ),
         },
+      });
+      input.onVerifierRetryScheduled?.({
+        executionRound,
+        verifierRound: verifierRounds,
+        nextExecutionRound: executionRound + 1,
+        overall: verificationDecision.overall,
+        confidence: verificationDecision.confidence,
+        minConfidence: input.verifierConfig.minConfidence,
+        unresolvedItems: [...verificationDecision.unresolvedItems],
+        completedSteps: nextPipelineResult.completedSteps,
+        totalSteps: nextPipelineResult.totalSteps,
       });
       continue;
     }

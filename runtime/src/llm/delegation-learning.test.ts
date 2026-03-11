@@ -223,6 +223,28 @@ describe("delegation-learning", () => {
     );
   });
 
+  it("uses the preferred arm first during initial exploration", () => {
+    const tuner = new DelegationBanditPolicyTuner({
+      enabled: true,
+      epsilon: 0,
+      minSamplesPerArm: 1,
+      explorationBudget: 10,
+      arms: [
+        { id: "conservative", thresholdOffset: 0.1 },
+        { id: "balanced", thresholdOffset: 0 },
+        { id: "aggressive", thresholdOffset: -0.1 },
+      ],
+    });
+
+    const selected = tuner.selectArm({
+      contextClusterId: "medium:fanout:fresh:normal",
+      preferredArmId: "balanced",
+    });
+
+    expect(selected.reason).toBe("initial_exploration");
+    expect(selected.armId).toBe("balanced");
+  });
+
   it("applies threshold offsets from selected arms", () => {
     const tuner = new DelegationBanditPolicyTuner({
       arms: [{ id: "aggressive", thresholdOffset: -0.2 }],

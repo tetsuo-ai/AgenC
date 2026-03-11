@@ -48,6 +48,7 @@ import type {
   PipelineExecutionEvent,
   PipelineResult,
 } from "../workflow/pipeline.js";
+import type { HostToolingProfile } from "../gateway/host-tooling.js";
 import {
   resolveDelegationDecisionConfig,
   type ResolvedDelegationDecisionConfig,
@@ -101,11 +102,14 @@ import {
   DEFAULT_MAX_RUNTIME_SYSTEM_HINTS,
   DEFAULT_PLANNER_MAX_TOKENS,
   DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+  DEFAULT_PLANNER_MAX_STEP_CONTRACT_RETRIES,
+  DEFAULT_PLANNER_MAX_RUNTIME_REPAIR_RETRIES,
   DEFAULT_TOOL_BUDGET_PER_REQUEST,
   DEFAULT_MODEL_RECALLS_PER_REQUEST,
   DEFAULT_FAILURE_BUDGET_PER_REQUEST,
   DEFAULT_TOOL_CALL_TIMEOUT_MS,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  MAX_ADAPTIVE_TOOL_ROUNDS,
   DEFAULT_SUBAGENT_VERIFIER_MIN_CONFIDENCE,
   DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS,
   DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
@@ -120,6 +124,7 @@ import {
   resolveExecutionToolContractGuidance,
   validateRequiredToolEvidence,
 } from "./chat-executor-contract-flow.js";
+import type { ToolContractGuidance } from "./chat-executor-contract-guidance.js";
 import {
   didToolCallFail,
   resolveRetryPolicyMatrix,
@@ -134,6 +139,7 @@ import {
   checkToolLoopStuckDetection,
   buildToolLoopRecoveryMessages,
   buildRoutingExpansionMessage,
+  summarizeToolRoundProgress,
 } from "./chat-executor-tool-utils.js";
 import { inferDoomTurnContract } from "./chat-executor-doom.js";
 import {
@@ -196,7 +202,10 @@ function mergeExplicitRequirementToolNames(
   }
   return Array.from(new Set(fallbackToolNames));
 }
-import type { RoundStuckState } from "./chat-executor-tool-utils.js";
+import type {
+  RoundStuckState,
+  ToolRoundProgressSummary,
+} from "./chat-executor-tool-utils.js";
 import {
   extractMessageText,
   truncateText,
@@ -230,15 +239,20 @@ import {
   buildPlannerMessages,
   buildPlannerExecutionContext,
   validatePlannerGraph,
+  validatePlannerStepContracts,
   extractExplicitDeterministicToolRequirements,
   extractExplicitSubagentOrchestrationRequirements,
   validateExplicitDeterministicToolRequirements,
   validateExplicitSubagentOrchestrationRequirements,
-  extractPlannerDecompositionDiagnostics,
+  extractPlannerStructuralDiagnostics,
   buildExplicitDeterministicToolRefinementHint,
   buildExplicitDeterministicToolFailureMessage,
-  buildPlannerDecompositionRefinementHint,
+  buildPlannerStructuralRefinementHint,
+  buildPlannerValidationFailureMessage,
   buildPipelineDecompositionRefinementHint,
+  buildPipelineFailureRepairRefinementHint,
+  buildPlannerStepContractRefinementHint,
+  buildSalvagedPlannerToolCallRefinementHint,
   buildExplicitSubagentOrchestrationRefinementHint,
   buildExplicitSubagentOrchestrationFailureMessage,
   isHighRiskSubagentPlan,
@@ -249,6 +263,7 @@ import {
   resolveDelegationBanditArm,
   assessAndRecordDelegationDecision,
   mapPlannerStepsToPipelineSteps,
+  validateSalvagedPlannerToolPlan,
 } from "./chat-executor-planner.js";
 import { normalizePlannerResponse } from "./chat-executor-planner-normalization.js";
 import {
@@ -326,6 +341,7 @@ export class ChatExecutor {
   private readonly toolFailureBreakerThreshold: number;
   private readonly toolFailureBreakerWindowMs: number;
   private readonly toolFailureBreakerCooldownMs: number;
+  private readonly resolveHostToolingProfile?: () => HostToolingProfile | null;
 
   private readonly cooldowns = new Map<string, CooldownEntry>();
   private readonly sessionTokens = new Map<string, number>();
@@ -376,6 +392,7 @@ export class ChatExecutor {
       config.delegationDecision,
     );
     this.resolveDelegationScoreThreshold = config.resolveDelegationScoreThreshold;
+    this.resolveHostToolingProfile = config.resolveHostToolingProfile;
     this.subagentVerifierConfig = ChatExecutor.resolveSubagentVerifierConfig(
       config.subagentVerifier,
     );
@@ -611,6 +628,272 @@ export class ChatExecutor {
     return ctx.requestDeadlineAt - Date.now();
   }
 
+  private evaluateToolRoundBudgetExtension(params: {
+    readonly ctx: ExecutionContext;
+    readonly currentLimit: number;
+    readonly recentRounds: readonly ToolRoundProgressSummary[];
+  }): {
+    readonly decision:
+      | "extended"
+      | "ceiling_reached"
+      | "no_recent_rounds"
+      | "insufficient_recent_progress"
+      | "request_time_exhausted"
+      | "time_bound_exhausted"
+      | "extension_budget_exhausted";
+    readonly recentProgressRate: number;
+    readonly recentTotalNewSuccessfulSemanticKeys: number;
+    readonly recentTotalNewVerificationFailureDiagnosticKeys: number;
+    readonly weightedAverageNewSuccessfulSemanticKeys: number;
+    readonly latestRoundHadMaterialProgress: boolean;
+    readonly newLimit: number;
+    readonly extensionRounds: number;
+    readonly remainingRequestMs: number;
+    readonly recentAverageRoundMs: number;
+    readonly latestRoundNewSuccessfulSemanticKeys: number;
+    readonly latestRoundNewVerificationFailureDiagnosticKeys: number;
+    readonly extensionReason:
+      | "none"
+      | "repair_episode"
+      | "sustained_progress";
+    readonly repairCycleOpen: boolean;
+    readonly repairCycleNeedsMutation: boolean;
+    readonly repairCycleNeedsVerification: boolean;
+  } {
+    if (params.currentLimit >= MAX_ADAPTIVE_TOOL_ROUNDS) {
+      return {
+        decision: "ceiling_reached",
+        recentProgressRate: 0,
+        recentTotalNewSuccessfulSemanticKeys: 0,
+        recentTotalNewVerificationFailureDiagnosticKeys: 0,
+        weightedAverageNewSuccessfulSemanticKeys: 0,
+        latestRoundHadMaterialProgress: false,
+        newLimit: params.currentLimit,
+        extensionRounds: 0,
+        remainingRequestMs: 0,
+        recentAverageRoundMs: 0,
+        latestRoundNewSuccessfulSemanticKeys: 0,
+        latestRoundNewVerificationFailureDiagnosticKeys: 0,
+        extensionReason: "none",
+        repairCycleOpen: false,
+        repairCycleNeedsMutation: false,
+        repairCycleNeedsVerification: false,
+      };
+    }
+    const latestRound = params.recentRounds[params.recentRounds.length - 1];
+    if (!latestRound) {
+      return {
+        decision: "no_recent_rounds",
+        recentProgressRate: 0,
+        recentTotalNewSuccessfulSemanticKeys: 0,
+        recentTotalNewVerificationFailureDiagnosticKeys: 0,
+        weightedAverageNewSuccessfulSemanticKeys: 0,
+        latestRoundHadMaterialProgress: false,
+        newLimit: params.currentLimit,
+        extensionRounds: 0,
+        remainingRequestMs: 0,
+        recentAverageRoundMs: 0,
+        latestRoundNewSuccessfulSemanticKeys: 0,
+        latestRoundNewVerificationFailureDiagnosticKeys: 0,
+        extensionReason: "none",
+        repairCycleOpen: false,
+        repairCycleNeedsMutation: false,
+        repairCycleNeedsVerification: false,
+      };
+    }
+    const recentProgressRounds = params.recentRounds.filter((round) =>
+      round.hadMaterialProgress
+    ).length;
+    const recentProgressRate =
+      recentProgressRounds / Math.max(1, params.recentRounds.length);
+    const recentTotalNewSuccessfulSemanticKeys = params.recentRounds.reduce(
+      (sum, round) => sum + round.newSuccessfulSemanticKeys,
+      0,
+    );
+    const recentTotalNewVerificationFailureDiagnosticKeys = params.recentRounds
+      .reduce(
+        (sum, round) => sum + round.newVerificationFailureDiagnosticKeys,
+        0,
+      );
+    const weightedAverageNewSuccessfulSemanticKeys = params.recentRounds.reduce(
+      (sum, round, index) => sum + round.newSuccessfulSemanticKeys * (index + 1),
+      0,
+    ) /
+      params.recentRounds.reduce(
+        (sum, _round, index) => sum + index + 1,
+        0,
+      );
+    let latestVerificationFailureRoundIndex = -1;
+    for (let index = params.recentRounds.length - 1; index >= 0; index--) {
+      if (params.recentRounds[index]?.newVerificationFailureDiagnosticKeys > 0) {
+        latestVerificationFailureRoundIndex = index;
+        break;
+      }
+    }
+    let latestMutationRoundIndex = -1;
+    if (latestVerificationFailureRoundIndex >= 0) {
+      for (
+        let index = latestVerificationFailureRoundIndex + 1;
+        index < params.recentRounds.length;
+        index++
+      ) {
+        if (params.recentRounds[index]?.hadSuccessfulMutation) {
+          latestMutationRoundIndex = index;
+        }
+      }
+    }
+    const repairCycleNeedsMutation =
+      latestVerificationFailureRoundIndex >= 0 && latestMutationRoundIndex < 0;
+    const repairCycleNeedsVerification =
+      latestVerificationFailureRoundIndex >= 0 &&
+      (
+        latestMutationRoundIndex < 0 ||
+        !params.recentRounds
+          .slice(latestMutationRoundIndex + 1)
+          .some((round) => round.hadVerificationCall)
+      );
+    const repairCycleOpen =
+      repairCycleNeedsMutation || repairCycleNeedsVerification;
+    const repairCycleExtensionRounds =
+      (repairCycleNeedsMutation ? 1 : 0) +
+      (repairCycleNeedsVerification ? 1 : 0);
+    // Historical progress can size an extension, but absent an open repair cycle
+    // only the latest round can authorize additional rounds.
+    const extendForSustainedProgress =
+      latestRound.newSuccessfulSemanticKeys > 0 &&
+      recentTotalNewSuccessfulSemanticKeys > 0;
+    if (!extendForSustainedProgress && !repairCycleOpen) {
+      return {
+        decision: "insufficient_recent_progress",
+        recentProgressRate,
+        recentTotalNewSuccessfulSemanticKeys,
+        recentTotalNewVerificationFailureDiagnosticKeys,
+        weightedAverageNewSuccessfulSemanticKeys,
+        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
+        newLimit: params.currentLimit,
+        extensionRounds: 0,
+        remainingRequestMs: this.getRemainingRequestMs(params.ctx),
+        recentAverageRoundMs: 0,
+        latestRoundNewSuccessfulSemanticKeys:
+          latestRound.newSuccessfulSemanticKeys,
+        latestRoundNewVerificationFailureDiagnosticKeys:
+          latestRound.newVerificationFailureDiagnosticKeys,
+        extensionReason: "none",
+        repairCycleOpen,
+        repairCycleNeedsMutation,
+        repairCycleNeedsVerification,
+      };
+    }
+    const remainingRequestMs = this.getRemainingRequestMs(params.ctx);
+    if (remainingRequestMs <= 0) {
+      return {
+        decision: "request_time_exhausted",
+        recentProgressRate,
+        recentTotalNewSuccessfulSemanticKeys,
+        recentTotalNewVerificationFailureDiagnosticKeys,
+        weightedAverageNewSuccessfulSemanticKeys,
+        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
+        newLimit: params.currentLimit,
+        extensionRounds: 0,
+        remainingRequestMs,
+        recentAverageRoundMs: 0,
+        latestRoundNewSuccessfulSemanticKeys:
+          latestRound.newSuccessfulSemanticKeys,
+        latestRoundNewVerificationFailureDiagnosticKeys:
+          latestRound.newVerificationFailureDiagnosticKeys,
+        extensionReason: "none",
+        repairCycleOpen,
+        repairCycleNeedsMutation,
+        repairCycleNeedsVerification,
+      };
+    }
+    const recentAverageRoundMs = Math.max(
+      1_000,
+      Math.round(
+        params.recentRounds.reduce((sum, round) => sum + round.durationMs, 0) /
+          params.recentRounds.length,
+      ),
+    );
+    const timeBoundExtension = Math.floor(remainingRequestMs / recentAverageRoundMs);
+    if (timeBoundExtension <= 0) {
+      return {
+        decision: "time_bound_exhausted",
+        recentProgressRate,
+        recentTotalNewSuccessfulSemanticKeys,
+        recentTotalNewVerificationFailureDiagnosticKeys,
+        weightedAverageNewSuccessfulSemanticKeys,
+        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
+        newLimit: params.currentLimit,
+        extensionRounds: 0,
+        remainingRequestMs,
+        recentAverageRoundMs,
+        latestRoundNewSuccessfulSemanticKeys:
+          latestRound.newSuccessfulSemanticKeys,
+        latestRoundNewVerificationFailureDiagnosticKeys:
+          latestRound.newVerificationFailureDiagnosticKeys,
+        extensionReason: "none",
+        repairCycleOpen,
+        repairCycleNeedsMutation,
+        repairCycleNeedsVerification,
+      };
+    }
+    const expectedMarginalRounds = repairCycleOpen
+      ? repairCycleExtensionRounds
+      : Math.max(
+        latestRound.newSuccessfulSemanticKeys,
+        Math.ceil(weightedAverageNewSuccessfulSemanticKeys),
+      );
+    const extensionRounds = Math.min(
+      expectedMarginalRounds,
+      timeBoundExtension,
+      MAX_ADAPTIVE_TOOL_ROUNDS - params.currentLimit,
+    );
+    if (extensionRounds <= 0) {
+      return {
+        decision: "extension_budget_exhausted",
+        recentProgressRate,
+        recentTotalNewSuccessfulSemanticKeys,
+        recentTotalNewVerificationFailureDiagnosticKeys,
+        weightedAverageNewSuccessfulSemanticKeys,
+        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
+        newLimit: params.currentLimit,
+        extensionRounds: 0,
+        remainingRequestMs,
+        recentAverageRoundMs,
+        latestRoundNewSuccessfulSemanticKeys:
+          latestRound.newSuccessfulSemanticKeys,
+        latestRoundNewVerificationFailureDiagnosticKeys:
+          latestRound.newVerificationFailureDiagnosticKeys,
+        extensionReason: "none",
+        repairCycleOpen,
+        repairCycleNeedsMutation,
+        repairCycleNeedsVerification,
+      };
+    }
+    return {
+      decision: "extended",
+      recentProgressRate,
+      recentTotalNewSuccessfulSemanticKeys,
+      recentTotalNewVerificationFailureDiagnosticKeys,
+      weightedAverageNewSuccessfulSemanticKeys,
+      latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
+      newLimit: params.currentLimit + extensionRounds,
+      extensionRounds,
+      remainingRequestMs,
+      recentAverageRoundMs,
+      latestRoundNewSuccessfulSemanticKeys:
+        latestRound.newSuccessfulSemanticKeys,
+      latestRoundNewVerificationFailureDiagnosticKeys:
+        latestRound.newVerificationFailureDiagnosticKeys,
+      extensionReason: repairCycleOpen
+        ? "repair_episode"
+        : "sustained_progress",
+      repairCycleOpen,
+      repairCycleNeedsMutation,
+      repairCycleNeedsVerification,
+    };
+  }
+
   private emitExecutionTrace(
     ctx: ExecutionContext,
     event: ChatExecutionTraceEvent,
@@ -625,7 +908,9 @@ export class ChatExecutor {
       | "planner_pipeline_finished"
       | "planner_pipeline_started"
       | "planner_plan_parsed"
-      | "planner_refinement_requested",
+      | "planner_refinement_requested"
+      | "planner_verifier_retry_scheduled"
+      | "planner_verifier_round_finished",
     payload: Record<string, unknown>,
   ): void {
     this.emitExecutionTrace(ctx, {
@@ -668,9 +953,12 @@ export class ChatExecutor {
           args: event.args,
           durationMs: event.durationMs,
           isError: typeof event.error === "string",
+          ...(typeof event.result === "string"
+            ? { result: event.result }
+            : {}),
           ...(typeof event.error === "string"
             ? { error: event.error }
-            : { result: event.result }),
+            : {}),
         },
       });
       return;
@@ -713,12 +1001,7 @@ export class ChatExecutor {
       readonly allowedToolNames?: readonly string[];
       readonly validationCode?: DelegationOutputValidationCode;
     },
-  ): {
-    readonly source: string;
-    readonly runtimeInstruction?: string;
-    readonly routedToolNames?: readonly string[];
-    readonly toolChoice: LLMToolChoice;
-  } | undefined {
+  ): ToolContractGuidance | undefined {
     return resolveExecutionToolContractGuidance({
       ctx,
       allowedTools: this.allowedTools ?? undefined,
@@ -865,6 +1148,9 @@ export class ChatExecutor {
         ...((correctionContractGuidance?.routedToolNames?.length ?? 0) > 0
           ? {
             routedToolNames: correctionContractGuidance!.routedToolNames,
+            ...(correctionContractGuidance?.persistRoutedToolNames === false
+              ? { persistRoutedToolNames: false }
+              : {}),
           }
           : {}),
         budgetReason:
@@ -889,6 +1175,7 @@ export class ChatExecutor {
       statefulResumeAnchor?: LLMStatefulResumeAnchor;
       statefulHistoryCompacted?: boolean;
       routedToolNames?: readonly string[];
+      persistRoutedToolNames?: boolean;
       toolChoice?: LLMToolChoice;
       preparationDiagnostics?: Record<string, unknown>;
       budgetReason: string;
@@ -909,7 +1196,9 @@ export class ChatExecutor {
     });
     const allowStatefulContinuation =
       shouldUseSessionStatefulContinuationForPhase(input.phase);
-    applyActiveRoutedToolNames(ctx, effectiveRoutedToolNames);
+    if (input.persistRoutedToolNames !== false) {
+      applyActiveRoutedToolNames(ctx, effectiveRoutedToolNames);
+    }
     const groundingMessage =
       input.phase === "tool_followup" || input.phase === "planner_synthesis"
         ? buildToolExecutionGroundingMessage({
@@ -1543,6 +1832,9 @@ export class ChatExecutor {
           ...(initialRoutedToolNames !== undefined
             ? { routedToolNames: initialRoutedToolNames }
             : {}),
+          ...(initialContractGuidance?.persistRoutedToolNames === false
+            ? { persistRoutedToolNames: false }
+            : {}),
         }
         : {}),
       budgetReason:
@@ -1555,7 +1847,11 @@ export class ChatExecutor {
     }
 
     let rounds = 0;
+    let effectiveMaxToolRounds = ctx.effectiveMaxToolRounds;
     const emittedRecoveryHints = new Set<string>();
+    const successfulSemanticToolKeys = new Set<string>();
+    const verificationFailureDiagnosticKeys = new Set<string>();
+    const recentRoundProgress: ToolRoundProgressSummary[] = [];
     const stuckState: RoundStuckState = {
       consecutiveAllFailedRounds: 0,
       lastRoundSemanticKey: "",
@@ -1574,7 +1870,7 @@ export class ChatExecutor {
       ctx.response.finishReason === "tool_calls" &&
       ctx.response.toolCalls.length > 0 &&
       ctx.activeToolHandler &&
-      rounds < ctx.effectiveMaxToolRounds
+      rounds < effectiveMaxToolRounds
     ) {
       if (ctx.signal?.aborted) {
         this.setStopReason(ctx, "cancelled", "Execution cancelled by caller");
@@ -1589,6 +1885,7 @@ export class ChatExecutor {
 
       rounds++;
       const roundToolCallStart = ctx.allToolCalls.length;
+      const roundStartedAt = Date.now();
       loopState.activeRoutedToolSet = buildActiveRoutedToolSet(
         ctx.activeRoutedToolNames,
       );
@@ -1717,7 +2014,12 @@ export class ChatExecutor {
           ? {
             toolChoice: followupContractGuidance.toolChoice,
             ...(followupContractGuidance.routedToolNames
-              ? { routedToolNames: followupContractGuidance.routedToolNames }
+              ? {
+                routedToolNames: followupContractGuidance.routedToolNames,
+                ...(followupContractGuidance.persistRoutedToolNames === false
+                  ? { persistRoutedToolNames: false }
+                  : {}),
+              }
               : {}),
           }
           : {}),
@@ -1732,6 +2034,86 @@ export class ChatExecutor {
           "tool_followup",
         );
       if (evidenceAction === "failed") break;
+
+      const roundProgress = summarizeToolRoundProgress(
+        roundCalls,
+        Date.now() - roundStartedAt,
+        successfulSemanticToolKeys,
+        verificationFailureDiagnosticKeys,
+      );
+      recentRoundProgress.push(roundProgress);
+      if (recentRoundProgress.length > 3) {
+        recentRoundProgress.shift();
+      }
+
+      if (
+        ctx.response.finishReason === "tool_calls" &&
+        rounds >= effectiveMaxToolRounds
+      ) {
+        const extension = this.evaluateToolRoundBudgetExtension({
+          ctx,
+          currentLimit: effectiveMaxToolRounds,
+          recentRounds: recentRoundProgress,
+        });
+        this.emitExecutionTrace(ctx, {
+          type: "tool_round_budget_extension_evaluated",
+          phase: "tool_followup",
+          callIndex: ctx.callIndex + 1,
+          payload: {
+            currentLimit: effectiveMaxToolRounds,
+            decision: extension.decision,
+            recentProgressRate: extension.recentProgressRate,
+            recentTotalNewSuccessfulSemanticKeys:
+              extension.recentTotalNewSuccessfulSemanticKeys,
+            recentTotalNewVerificationFailureDiagnosticKeys:
+              extension.recentTotalNewVerificationFailureDiagnosticKeys,
+            weightedAverageNewSuccessfulSemanticKeys:
+              extension.weightedAverageNewSuccessfulSemanticKeys,
+            latestRoundHadMaterialProgress:
+              extension.latestRoundHadMaterialProgress,
+            latestRoundNewSuccessfulSemanticKeys:
+              extension.latestRoundNewSuccessfulSemanticKeys,
+            latestRoundNewVerificationFailureDiagnosticKeys:
+              extension.latestRoundNewVerificationFailureDiagnosticKeys,
+            extensionReason: extension.extensionReason,
+            repairCycleOpen: extension.repairCycleOpen,
+            repairCycleNeedsMutation:
+              extension.repairCycleNeedsMutation,
+            repairCycleNeedsVerification:
+              extension.repairCycleNeedsVerification,
+            remainingRequestMs: extension.remainingRequestMs,
+            recentAverageRoundMs: extension.recentAverageRoundMs,
+            extensionRounds: extension.extensionRounds,
+            newLimit: extension.newLimit,
+          },
+        });
+        if (extension.decision === "extended") {
+          const previousLimit = effectiveMaxToolRounds;
+          effectiveMaxToolRounds = extension.newLimit;
+          this.emitExecutionTrace(ctx, {
+            type: "tool_round_budget_extended",
+            phase: "tool_followup",
+            callIndex: ctx.callIndex + 1,
+            payload: {
+              previousLimit,
+              newLimit: effectiveMaxToolRounds,
+              extensionRounds: extension.extensionRounds,
+              remainingRequestMs: extension.remainingRequestMs,
+              recentAverageRoundMs: extension.recentAverageRoundMs,
+              extensionReason: extension.extensionReason,
+              latestRoundNewSuccessfulSemanticKeys:
+                extension.latestRoundNewSuccessfulSemanticKeys,
+              latestRoundNewVerificationFailureDiagnosticKeys:
+                extension.latestRoundNewVerificationFailureDiagnosticKeys,
+              repairCycleOpen: extension.repairCycleOpen,
+              repairCycleNeedsMutation:
+                extension.repairCycleNeedsMutation,
+              repairCycleNeedsVerification:
+                extension.repairCycleNeedsVerification,
+            },
+          });
+        }
+      }
     }
 
     if (ctx.signal?.aborted) {
@@ -1739,12 +2121,12 @@ export class ChatExecutor {
     } else if (
       ctx.response &&
       ctx.response.finishReason === "tool_calls" &&
-      rounds >= ctx.effectiveMaxToolRounds
+      rounds >= effectiveMaxToolRounds
     ) {
       this.setStopReason(
         ctx,
         "tool_calls",
-        `Reached max tool rounds (${ctx.effectiveMaxToolRounds})`,
+        `Reached max tool rounds (${effectiveMaxToolRounds})`,
       );
     }
 
@@ -2023,10 +2405,28 @@ export class ChatExecutor {
     const explicitPlannerToolNames =
       explicitDeterministicToolRequirements?.orderedToolNames;
     let refinementHint: string | undefined;
+    const maxStructuralPlannerRetries = Math.max(
+      0,
+      DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS - 1,
+    );
+    const maxPlannerStepContractRetries = Math.max(
+      0,
+      DEFAULT_PLANNER_MAX_STEP_CONTRACT_RETRIES,
+    );
+    const maxRuntimeRepairRetries =
+      DEFAULT_PLANNER_MAX_RUNTIME_REPAIR_RETRIES;
+    const maxPlannerAttempts =
+      1 +
+      maxStructuralPlannerRetries +
+      maxPlannerStepContractRetries +
+      maxRuntimeRepairRetries;
+    let structuralPlannerRetriesUsed = 0;
+    let plannerStepContractRetriesUsed = 0;
+    let runtimeRepairRetriesUsed = 0;
 
     for (
       let plannerAttempt = 1;
-      plannerAttempt <= DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS;
+      plannerAttempt <= maxPlannerAttempts;
       plannerAttempt++
     ) {
       const plannerMessages = buildPlannerMessages(
@@ -2035,6 +2435,7 @@ export class ChatExecutor {
         this.plannerMaxTokens,
         explicitDeterministicToolRequirements,
         refinementHint,
+        this.resolveHostToolingProfile?.(),
       );
       const plannerResponse = await this.callModelForPhase(ctx, {
         phase: "planner",
@@ -2065,7 +2466,11 @@ export class ChatExecutor {
       const plannerPlan = plannerParse.plan;
       if (!plannerPlan) {
         if (explicitOrchestrationRequirements) {
-          if (plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS) {
+          if (
+            plannerAttempt < maxPlannerAttempts &&
+            structuralPlannerRetriesUsed < maxStructuralPlannerRetries
+          ) {
+            structuralPlannerRetriesUsed++;
             refinementHint = buildExplicitSubagentOrchestrationRefinementHint(
               explicitOrchestrationRequirements,
               plannerParse.diagnostics,
@@ -2078,7 +2483,7 @@ export class ChatExecutor {
               details: {
                 attempt: plannerAttempt,
                 nextAttempt: plannerAttempt + 1,
-                maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+                maxAttempts: maxPlannerAttempts,
               },
             });
             this.emitPlannerTrace(ctx, "planner_refinement_requested", {
@@ -2113,7 +2518,11 @@ export class ChatExecutor {
           return;
         }
         if (explicitDeterministicToolRequirements) {
-          if (plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS) {
+          if (
+            plannerAttempt < maxPlannerAttempts &&
+            structuralPlannerRetriesUsed < maxStructuralPlannerRetries
+          ) {
+            structuralPlannerRetriesUsed++;
             refinementHint = buildExplicitDeterministicToolRefinementHint(
               explicitDeterministicToolRequirements,
               plannerParse.diagnostics,
@@ -2126,7 +2535,7 @@ export class ChatExecutor {
               details: {
                 attempt: plannerAttempt,
                 nextAttempt: plannerAttempt + 1,
-                maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+                maxAttempts: maxPlannerAttempts,
               },
             });
             this.emitPlannerTrace(ctx, "planner_refinement_requested", {
@@ -2172,6 +2581,54 @@ export class ChatExecutor {
         return;
       }
 
+      const salvagedToolPlanDiagnostics = validateSalvagedPlannerToolPlan({
+        plannerPlan,
+        messageText: ctx.messageText,
+        history: ctx.history,
+        explicitDeterministicRequirements: explicitDeterministicToolRequirements,
+      });
+      if (salvagedToolPlanDiagnostics.length > 0) {
+        ctx.plannerSummaryState.diagnostics.push(...salvagedToolPlanDiagnostics);
+        if (
+          plannerAttempt < maxPlannerAttempts &&
+          structuralPlannerRetriesUsed < maxStructuralPlannerRetries
+        ) {
+          structuralPlannerRetriesUsed++;
+          refinementHint = buildSalvagedPlannerToolCallRefinementHint(
+            salvagedToolPlanDiagnostics,
+          );
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code: "planner_salvaged_tool_call_retry",
+            message:
+              "Planner emitted raw tool calls that under-decomposed the request; requesting a refined JSON plan",
+            details: {
+              attempt: plannerAttempt,
+              nextAttempt: plannerAttempt + 1,
+              maxAttempts: maxPlannerAttempts,
+            },
+          });
+          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
+            attempt: plannerAttempt,
+            nextAttempt: plannerAttempt + 1,
+            reason: "planner_salvaged_tool_call_retry",
+            routeReason: "planner_parse_failed",
+            diagnostics: salvagedToolPlanDiagnostics,
+          });
+          continue;
+        }
+        ctx.plannerSummaryState.routeReason = "planner_parse_failed";
+        this.emitPlannerTrace(ctx, "planner_path_finished", {
+          plannerCalls: plannerAttempt,
+          routeReason: ctx.plannerSummaryState.routeReason,
+          stopReason: ctx.stopReason,
+          stopReasonDetail: ctx.stopReasonDetail,
+          diagnostics: ctx.plannerSummaryState.diagnostics,
+          handled: false,
+        });
+        return;
+      }
+
       const graphDiagnostics = validatePlannerGraph(
         plannerPlan,
         {
@@ -2179,7 +2636,10 @@ export class ChatExecutor {
           maxSubagentDepth: this.delegationDecisionConfig.maxDepth,
         },
       );
-      const decompositionDiagnostics = extractPlannerDecompositionDiagnostics(
+      const plannerStepContractDiagnostics = validatePlannerStepContracts(
+        plannerPlan,
+      );
+      const structuralGraphDiagnostics = extractPlannerStructuralDiagnostics(
         graphDiagnostics,
       );
       const requiredOrchestrationDiagnostics =
@@ -2196,29 +2656,63 @@ export class ChatExecutor {
               explicitDeterministicToolRequirements,
             )
           : [];
+      const hasStructuralDiagnostics =
+        structuralGraphDiagnostics.length > 0 ||
+        requiredOrchestrationDiagnostics.length > 0 ||
+        explicitToolDiagnostics.length > 0;
+      const hasOnlyStepContractDiagnostics =
+        !hasStructuralDiagnostics &&
+        plannerStepContractDiagnostics.length > 0;
       const shouldRefinePlan =
         (
-          decompositionDiagnostics.length > 0 ||
+          structuralGraphDiagnostics.length > 0 ||
+          plannerStepContractDiagnostics.length > 0 ||
           requiredOrchestrationDiagnostics.length > 0 ||
           explicitToolDiagnostics.length > 0
         ) &&
-        plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS;
+        plannerAttempt < maxPlannerAttempts &&
+        (
+          (
+            hasOnlyStepContractDiagnostics &&
+            plannerStepContractRetriesUsed < maxPlannerStepContractRetries
+          ) ||
+          structuralPlannerRetriesUsed < maxStructuralPlannerRetries
+        );
       if (
         graphDiagnostics.length > 0 ||
+        plannerStepContractDiagnostics.length > 0 ||
         requiredOrchestrationDiagnostics.length > 0 ||
         explicitToolDiagnostics.length > 0
       ) {
         ctx.plannerSummaryState.diagnostics.push(...graphDiagnostics);
         ctx.plannerSummaryState.diagnostics.push(
+          ...plannerStepContractDiagnostics,
+        );
+        ctx.plannerSummaryState.diagnostics.push(
           ...requiredOrchestrationDiagnostics,
         );
         ctx.plannerSummaryState.diagnostics.push(...explicitToolDiagnostics);
         if (shouldRefinePlan) {
+          if (
+            hasOnlyStepContractDiagnostics &&
+            plannerStepContractRetriesUsed < maxPlannerStepContractRetries
+          ) {
+            plannerStepContractRetriesUsed++;
+          } else {
+            structuralPlannerRetriesUsed++;
+          }
           const refinementHints: string[] = [];
-          if (decompositionDiagnostics.length > 0) {
+          if (structuralGraphDiagnostics.length > 0) {
             refinementHints.push(
-              buildPlannerDecompositionRefinementHint(
-                decompositionDiagnostics,
+              buildPlannerStructuralRefinementHint(
+                structuralGraphDiagnostics,
+              ),
+            );
+          }
+          if (plannerStepContractDiagnostics.length > 0) {
+            refinementHints.push(
+              buildPlannerStepContractRefinementHint(
+                plannerStepContractDiagnostics,
               ),
             );
           }
@@ -2244,13 +2738,17 @@ export class ChatExecutor {
               ? "planner_required_orchestration_retry"
               : explicitToolDiagnostics.length > 0
                 ? "planner_explicit_tool_retry"
+                : plannerStepContractDiagnostics.length > 0
+                  ? "planner_step_contract_retry"
                 : "planner_refinement_retry";
           const plannerRetryMessage =
             requiredOrchestrationDiagnostics.length > 0
               ? "Planner did not satisfy the user-required sub-agent orchestration plan; requesting a refined plan"
               : explicitToolDiagnostics.length > 0
                 ? "Planner drifted outside the explicitly requested deterministic tool contract; requesting a refined plan"
-                : "Planner emitted overloaded delegated steps; requesting a smaller refined plan";
+                : plannerStepContractDiagnostics.length > 0
+                  ? "Planner emitted steps that violate runtime tool contracts; requesting a refined plan"
+                : "Planner emitted structural delegation violations; requesting a refined plan";
           ctx.plannerSummaryState.diagnostics.push({
             category: "policy",
             code: plannerRetryCode,
@@ -2258,7 +2756,7 @@ export class ChatExecutor {
             details: {
               attempt: plannerAttempt,
               nextAttempt: plannerAttempt + 1,
-              maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+              maxAttempts: maxPlannerAttempts,
             },
           });
           this.emitPlannerTrace(ctx, "planner_refinement_requested", {
@@ -2266,6 +2764,7 @@ export class ChatExecutor {
             nextAttempt: plannerAttempt + 1,
             reason: plannerRetryCode,
             graphDiagnostics,
+            plannerStepContractDiagnostics,
             requiredOrchestrationDiagnostics,
             explicitToolDiagnostics,
           });
@@ -2340,6 +2839,7 @@ export class ChatExecutor {
           step.stepType === "synthesis"
         ).length,
         graphDiagnostics,
+        plannerStepContractDiagnostics,
         requiredOrchestrationDiagnostics,
         explicitToolDiagnostics,
       });
@@ -2423,6 +2923,9 @@ export class ChatExecutor {
         (step): step is PlannerDeterministicToolStepIntent =>
           step.stepType === "deterministic_tool",
       );
+      const hasSynthesisStep = plannerPlan.steps.some(
+        (step) => step.stepType === "synthesis",
+      );
       const plannerPipelineSteps = mapPlannerStepsToPipelineSteps(
         plannerPlan.steps,
       );
@@ -2436,7 +2939,13 @@ export class ChatExecutor {
           : (this.allowedTools ? [...this.allowedTools] : undefined),
       );
       const hasExecutablePlannerSteps =
-        deterministicSteps.length > 0 ||
+        (
+          deterministicSteps.length > 0 &&
+          (
+            subagentSteps.length === 0 ||
+            delegationDecision?.shouldDelegate === true
+          )
+        ) ||
         (
           subagentSteps.length > 0 &&
           delegationDecision?.shouldDelegate === true
@@ -2535,6 +3044,18 @@ export class ChatExecutor {
               round: input.round,
               callModelForPhase: (phaseInput) => this.callModelForPhase(ctx, phaseInput),
             }),
+          onVerifierRoundFinished: (payload) =>
+            this.emitPlannerTrace(
+              ctx,
+              "planner_verifier_round_finished",
+              payload,
+            ),
+          onVerifierRetryScheduled: (payload) =>
+            this.emitPlannerTrace(
+              ctx,
+              "planner_verifier_retry_scheduled",
+              payload,
+            ),
           appendToolRecord: (record: ToolCallRecord) => this.appendToolRecord(ctx, record),
           setStopReason: (reason: LLMPipelineStopReason, detail?: string) => this.setStopReason(ctx, reason, detail),
         });
@@ -2556,8 +3077,10 @@ export class ChatExecutor {
 
         if (
           pipelineResult?.decomposition &&
-          plannerAttempt < DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS
+          plannerAttempt < maxPlannerAttempts &&
+          structuralPlannerRetriesUsed < maxStructuralPlannerRetries
         ) {
+          structuralPlannerRetriesUsed++;
           refinementHint = buildPipelineDecompositionRefinementHint(
             pipelineResult.decomposition,
           );
@@ -2569,7 +3092,7 @@ export class ChatExecutor {
             details: {
               attempt: plannerAttempt,
               nextAttempt: plannerAttempt + 1,
-              maxAttempts: DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
+              maxAttempts: maxPlannerAttempts,
             },
           });
           this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
@@ -2586,6 +3109,64 @@ export class ChatExecutor {
             nextAttempt: plannerAttempt + 1,
             reason: "planner_runtime_refinement_retry",
             decomposition: pipelineResult.decomposition,
+          });
+          continue;
+        }
+
+        const shouldRetryFailedPipelineWithRepairPlan =
+          pipelineResult?.status === "failed" &&
+          plannerAttempt < maxPlannerAttempts &&
+          runtimeRepairRetriesUsed < maxRuntimeRepairRetries &&
+          pipelineResult.completedSteps > 0 &&
+          (
+            pipelineResult.stopReasonHint === "tool_error" ||
+            pipelineResult.stopReasonHint === "validation_error" ||
+            pipelineResult.stopReasonHint === "no_progress" ||
+            pipelineResult.stopReasonHint === undefined
+          );
+
+        if (
+          pipelineResult &&
+          shouldRetryFailedPipelineWithRepairPlan
+        ) {
+          runtimeRepairRetriesUsed++;
+          refinementHint = buildPipelineFailureRepairRefinementHint({
+            pipelineResult,
+            plannerPlan,
+          });
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code: "planner_runtime_repair_retry",
+            message:
+              "Deterministic verification failed after partial planner execution; requesting a repair-focused replan",
+            details: {
+              attempt: plannerAttempt,
+              nextAttempt: plannerAttempt + 1,
+              maxAttempts: maxPlannerAttempts,
+              completedSteps: pipelineResult.completedSteps,
+              totalSteps: pipelineResult.totalSteps,
+              stopReasonHint: pipelineResult.stopReasonHint ?? "tool_error",
+            },
+          });
+          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
+            attempt: plannerAttempt,
+            pipelineId: pipeline.id,
+            status: pipelineResult.status,
+            completedSteps: pipelineResult.completedSteps,
+            totalSteps: pipelineResult.totalSteps,
+            error: pipelineResult.error,
+            stopReasonHint: pipelineResult.stopReasonHint,
+            decomposition: pipelineResult.decomposition,
+            verificationDecision,
+          });
+          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
+            attempt: plannerAttempt,
+            nextAttempt: plannerAttempt + 1,
+            reason: "planner_runtime_repair_retry",
+            stopReasonHint: pipelineResult.stopReasonHint,
+            error: pipelineResult.error,
+            completedSteps: pipelineResult.completedSteps,
+            totalSteps: pipelineResult.totalSteps,
           });
           continue;
         }
@@ -2679,6 +3260,7 @@ export class ChatExecutor {
           !ctx.finalContent &&
           (
             plannerPlan.requiresSynthesis ||
+            hasSynthesisStep ||
             explicitOrchestrationRequirements?.requiresSynthesis === true ||
             ctx.stopReason !== "completed"
           )
@@ -2757,6 +3339,26 @@ export class ChatExecutor {
         ) {
           ctx.plannerSummaryState.routeReason = "planner_no_deterministic_steps";
         }
+      }
+      if (ctx.plannerSummaryState.routeReason === "planner_validation_failed") {
+        this.setStopReason(
+          ctx,
+          "validation_error",
+          "Planner emitted a structured plan that failed local validation",
+        );
+        ctx.finalContent = buildPlannerValidationFailureMessage(
+          ctx.plannerSummaryState.diagnostics,
+        );
+        this.emitPlannerTrace(ctx, "planner_path_finished", {
+          plannerCalls: plannerAttempt,
+          routeReason: ctx.plannerSummaryState.routeReason,
+          stopReason: ctx.stopReason,
+          stopReasonDetail: ctx.stopReasonDetail,
+          diagnostics: ctx.plannerSummaryState.diagnostics,
+          handled: true,
+        });
+        ctx.plannerHandled = true;
+        return;
       }
       this.emitPlannerTrace(ctx, "planner_path_finished", {
         plannerCalls: plannerAttempt,

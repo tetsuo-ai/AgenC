@@ -7,9 +7,15 @@
 
 import type { DelegationToolCompositionResolver } from "./delegation-runtime.js";
 import type { ExecuteWithAgentInput } from "./delegation-tool.js";
-import { parseExecuteWithAgentInput } from "./delegation-tool.js";
+import {
+  parseExecuteWithAgentInput,
+  resolveDelegatedWorkingDirectory,
+} from "./delegation-tool.js";
 import { isSubAgentSessionId } from "./delegation-runtime.js";
 import { assessDelegationScope } from "./delegation-scope.js";
+import {
+  normalizeDelegationTimeoutMs,
+} from "./delegation-timeout.js";
 import {
   resolveDelegatedChildToolScope,
   specRequiresSuccessfulToolEvidence,
@@ -23,8 +29,6 @@ import {
 
 const DELEGATION_POLL_INTERVAL_MS = 75;
 const DELEGATION_PROGRESS_INTERVAL_MS = 1000;
-const MIN_DELEGATION_TIMEOUT_MS = 60_000;
-const MAX_DELEGATION_TIMEOUT_MS = 3_600_000;
 const DELEGATION_FAILURE_SIGNAL_RE =
   /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
 const CHILD_MEMORY_RECALL_RE =
@@ -91,18 +95,6 @@ function hasDelegationFailureSignal(output: string): boolean {
   return DELEGATION_FAILURE_SIGNAL_RE.test(output);
 }
 
-function normalizeDelegationTimeoutMs(
-  timeoutMs: number | undefined,
-): number | undefined {
-  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
-    return undefined;
-  }
-  return Math.min(
-    MAX_DELEGATION_TIMEOUT_MS,
-    Math.max(MIN_DELEGATION_TIMEOUT_MS, Math.floor(timeoutMs)),
-  );
-}
-
 function isDeferredDisclosureStoreTurn(input: ExecuteWithAgentInput): boolean {
   const combined = [
     input.task,
@@ -121,6 +113,7 @@ function buildDelegatedChildPrompt(
   input: ExecuteWithAgentInput,
   options: {
     continuationAuthorized?: boolean;
+    workingDirectory?: string;
   } = {},
 ): string {
   const parts = [
@@ -152,6 +145,16 @@ function buildDelegatedChildPrompt(
         "- This is a later continuation request from the same parent session.\n" +
         "- If this child session memorized a value for later recall, reveal or return it now.\n" +
         "- Follow this turn's exact output instructions.",
+    );
+  }
+
+  if (options.workingDirectory) {
+    guidance.push(
+      "Workspace root:\n" +
+        `- Use \`${options.workingDirectory}\` as the working directory for this phase.\n` +
+        "- Keep filesystem reads and writes under that root.\n" +
+        "- Prefer relative paths rooted there for filesystem tools.\n" +
+        "- Do not create fallback copies or alternate workspaces elsewhere.",
     );
   }
 
@@ -362,6 +365,8 @@ export async function executeDelegationTool(
       semanticFallback: resolvedChildScope.semanticFallback,
     });
   }
+  const delegatedWorkingDirectory = resolveDelegatedWorkingDirectory(input);
+  const workingDirectory = delegatedWorkingDirectory?.path;
   let childSessionId: string;
   try {
     const continuationSessionId = shouldReusePriorChildSession(input)
@@ -369,6 +374,7 @@ export async function executeDelegationTool(
       : input.continuationSessionId;
     const childPrompt = buildDelegatedChildPrompt(input, {
       continuationAuthorized: Boolean(continuationSessionId),
+      workingDirectory,
     });
     childSessionId = await subAgentManager.spawn({
       parentSessionId: sessionId,
@@ -378,6 +384,10 @@ export async function executeDelegationTool(
         ? { continuationSessionId }
         : {}),
       ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
+      ...(delegatedWorkingDirectory
+        ? { workingDirectorySource: delegatedWorkingDirectory.source }
+        : {}),
       tools: resolvedChildScope.allowedTools,
       ...(input.requiredToolCapabilities
         ? { requiredCapabilities: input.requiredToolCapabilities }
@@ -416,6 +426,10 @@ export async function executeDelegationTool(
     payload: {
       objective,
       ...(effectiveTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
+      ...(delegatedWorkingDirectory
+        ? { workingDirectorySource: delegatedWorkingDirectory.source }
+        : {}),
       tools: resolvedChildScope.allowedTools,
       ...(input.requiredToolCapabilities
         ? { requiredToolCapabilities: input.requiredToolCapabilities }

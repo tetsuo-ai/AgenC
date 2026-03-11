@@ -3,6 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "../node_modules/ws/wrapper.mjs";
+import {
+  createOperatorInputBatcher,
+  shouldAutoInspectRun,
+} from "./lib/agenc-watch-helpers.mjs";
 
 const wsUrl = process.env.AGENC_WATCH_WS_URL ?? "ws://127.0.0.1:3100";
 const clientKey = process.env.AGENC_WATCH_CLIENT_KEY ?? "tmux-live-watch";
@@ -88,6 +92,11 @@ let lastUsageSummary = null;
 let lastActivityAt = null;
 let ownerToken = loadPersistedOwnerToken();
 const queuedOperatorInputs = [];
+const operatorInputBatcher = createOperatorInputBatcher({
+  onDispatch: (value) => {
+    dispatchOperatorInput(value);
+  },
+});
 
 const pendingFrames = [];
 const events = [];
@@ -655,7 +664,12 @@ function summarizeRunDetail(detail) {
 }
 
 function requestRunInspect(reason) {
-  if (!sessionId || !isOpen || runInspectPending) {
+  if (
+    !sessionId ||
+    !isOpen ||
+    runInspectPending ||
+    !shouldAutoInspectRun(runDetail, runState)
+  ) {
     return;
   }
   runInspectPending = true;
@@ -1287,7 +1301,7 @@ function attachSocket(socket) {
         latestAgentSummary = sanitizeInlineText(msg.payload?.content ?? "") || null;
         setTransientStatus("agent reply received");
         pushEvent("agent", "Agent Reply", msg.payload?.content ?? "", "cyan");
-        if (currentObjective) {
+        if (currentObjective && shouldAutoInspectRun(runDetail, runState)) {
           requestRunInspect("agent reply");
         }
         break;
@@ -1403,6 +1417,8 @@ function attachSocket(socket) {
         runInspectPending = false;
         if (isExpectedMissingRunInspect(msg.error)) {
           runDetail = null;
+          runState = "idle";
+          runPhase = null;
           setTransientStatus("no active background run for this session");
           break;
         }
@@ -1626,17 +1642,19 @@ rl.on("line", (input) => {
     scheduleRender();
     return;
   }
-  dispatchOperatorInput(value);
+  operatorInputBatcher.push(value);
 });
 
 rl.on("SIGINT", () => {
   shuttingDown = true;
+  operatorInputBatcher.dispose();
   leaveAltScreen();
   process.exit(0);
 });
 
 rl.on("close", () => {
   shuttingDown = true;
+  operatorInputBatcher.dispose();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

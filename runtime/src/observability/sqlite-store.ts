@@ -63,10 +63,13 @@ interface TraceSummaryRow {
 }
 
 const DEFAULT_DB_PATH = join(homedir(), ".agenc", "observability.sqlite");
-const DEFAULT_DAEMON_LOG_PATH = join(homedir(), ".agenc", "daemon.log");
 const TRACE_ARTIFACT_ROOT = resolvePath(homedir(), ".agenc", "trace-payloads");
 const DEFAULT_LOG_TAIL_BYTES = 256 * 1024;
 const DEFAULT_LOG_LINES = 200;
+
+function resolveDefaultDaemonLogPath(): string {
+  return process.env.AGENC_DAEMON_LOG_PATH ?? join(homedir(), ".agenc", "daemon.log");
+}
 
 function normalizeSessionIds(
   sessionIds: readonly string[] | undefined,
@@ -103,7 +106,11 @@ export class SqliteObservabilityStore {
 
   constructor(config: SqliteObservabilityStoreConfig = {}) {
     this.dbPath = config.dbPath ?? DEFAULT_DB_PATH;
-    this.daemonLogPath = config.daemonLogPath ?? DEFAULT_DAEMON_LOG_PATH;
+    this.daemonLogPath = config.daemonLogPath ?? resolveDefaultDaemonLogPath();
+  }
+
+  getDaemonLogPath(): string {
+    return this.daemonLogPath;
   }
 
   async recordEvent(event: ObservabilityEventRecord): Promise<void> {

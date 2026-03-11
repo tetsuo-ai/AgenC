@@ -279,12 +279,27 @@ export interface GatewayLoggingConfig {
     includeProviderPayloads?: boolean;
     /** Max characters retained for any traced text field. */
     maxChars?: number;
+    /** Emit bounded concern-based derived trace log files alongside the daemon log. */
+    fanout?: {
+      /** Enable derived files such as provider/executor/subagents/errors. Default: true when trace.enabled=true. */
+      enabled?: boolean;
+    };
   };
 }
 
 export interface GatewayBindConfig {
   port: number;
   bind?: string;
+}
+
+export interface GatewayWorkspaceConfig {
+  /**
+   * Host workspace root used for filesystem allowlists, delegated working
+   * directories, and any workspace-mounted sandbox/desktop tooling.
+   *
+   * Defaults to the daemon process cwd when omitted.
+   */
+  hostPath?: string;
 }
 
 export interface GatewayVoiceConfig {
@@ -595,6 +610,7 @@ export interface GatewayConfig {
   gateway: GatewayBindConfig;
   agent: GatewayAgentConfig;
   connection: GatewayConnectionConfig;
+  workspace?: GatewayWorkspaceConfig;
   llm?: GatewayLLMConfig;
   memory?: GatewayMemoryConfig;
   channels?: Record<string, GatewayChannelConfig>;

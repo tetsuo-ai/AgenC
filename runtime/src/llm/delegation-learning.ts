@@ -401,8 +401,27 @@ export class DelegationBanditPolicyTuner {
     }
 
     const cluster = this.getOrCreateClusterStats(input.contextClusterId);
+    const preferredArm = input.preferredArmId
+      ? this.arms.get(input.preferredArmId)
+      : undefined;
+
+    if (preferredArm) {
+      const preferredStats = cluster.arms.get(preferredArm.id);
+      if (!preferredStats || preferredStats.pulls < this.minSamplesPerArm) {
+        return {
+          contextClusterId: input.contextClusterId,
+          armId: preferredArm.id,
+          arm: preferredArm,
+          reason: "initial_exploration",
+          exploration: true,
+        };
+      }
+    }
 
     for (const arm of candidateArms) {
+      if (preferredArm && arm.id === preferredArm.id) {
+        continue;
+      }
       const stats = cluster.arms.get(arm.id);
       if (!stats || stats.pulls < this.minSamplesPerArm) {
         return {

@@ -21,6 +21,7 @@ import {
 } from "./chat-executor-doom.js";
 import {
   resolveDelegatedCorrectionToolChoiceToolNames,
+  resolveDelegatedInitialToolChoiceToolNames,
   resolveDelegatedInitialToolChoiceToolName,
 } from "../utils/delegation-validation.js";
 import {
@@ -49,6 +50,8 @@ export interface ToolContractGuidance {
   readonly source: string;
   readonly runtimeInstruction?: string;
   readonly routedToolNames?: readonly string[];
+  /** When false, treat routedToolNames as a one-call override instead of sticky turn state. */
+  readonly persistRoutedToolNames?: boolean;
   readonly toolChoice: LLMToolChoice;
   readonly enforcement?: {
     readonly mode: "block_other_tools";
@@ -407,11 +410,77 @@ function resolveDelegationInitialContractGuidance(
   );
   if (!preferredToolName) return undefined;
 
+  const routedToolNames = resolveDelegatedInitialToolChoiceToolNames(
+    spec,
+    input.allowedToolNames,
+  );
+  if (routedToolNames.length === 0) return undefined;
+
+  const usesFlexibleInitialSubset = routedToolNames.length > 1;
+  const workspaceBootstrap =
+    isDelegatedWorkspaceBootstrapPhase(spec);
+
   return {
     source: "delegation-initial",
-    routedToolNames: [preferredToolName],
+    runtimeInstruction:
+      usesFlexibleInitialSubset
+        ? workspaceBootstrap
+          ? "Bootstrap the delegated workspace before inspecting it. " +
+            "If the delegated cwd does not exist yet, create it first or inspect its parent instead of issuing a cwd-relative inspection that is expected to fail. " +
+            "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations."
+          : "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
+            "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
+            "and use shell verification when build/test/install evidence is part of acceptance."
+        : preferredToolName === "system.writeFile" ||
+            preferredToolName === "system.appendFile"
+          ? "Begin by creating or updating the required files from the delegated contract. " +
+            "Do not spend the first tool round rediscovering the workspace with shell inspection."
+          : undefined,
+    routedToolNames,
+    persistRoutedToolNames: false,
     toolChoice: "required",
   };
+}
+
+function isDelegatedWorkspaceBootstrapPhase(
+  spec: DelegationContractSpec,
+): boolean {
+  const stepText = [
+    spec.task ?? "",
+    spec.objective ?? "",
+    spec.inputContract ?? "",
+    ...(spec.acceptanceCriteria ?? []),
+    ...(spec.contextRequirements ?? []),
+  ]
+    .join("\n")
+    .toLowerCase();
+  if (stepText.length === 0) return false;
+
+  const hasSetupCue =
+    /\b(?:setup|bootstrap|scaffold|initialize|initialise|init|create)\b/.test(
+      stepText,
+    );
+  if (!hasSetupCue) return false;
+
+  const hasEmptyWorkspaceCue =
+    /\b(?:empty|new|missing)\s+(?:host\s+)?(?:dir|directory|workspace|project|repo|root)\b/.test(
+      stepText,
+    ) ||
+    /\bfrom scratch\b/.test(stepText);
+  const hasRootCreationCue =
+    /\bcreate\s+(?:the\s+)?root\s+(?:dir|directory|workspace|project|repo|root)\b/.test(
+      stepText,
+    ) ||
+    /\broot\s+(?:dir|directory|workspace|project|repo)\s+exists\b/.test(
+      stepText,
+    ) ||
+    /\bpackage\s+dirs?\s+created\b/.test(stepText) ||
+    /\bskeleton\s+package\.json\b/.test(stepText);
+  const hasTargetRootCue =
+    /^create\s+\/\S+/m.test(spec.objective ?? "") ||
+    (spec.contextRequirements ?? []).some((entry) => entry.startsWith("cwd=/"));
+
+  return hasTargetRootCue && (hasEmptyWorkspaceCue || hasRootCreationCue);
 }
 
 function resolveDelegationCorrectionContractGuidance(
@@ -432,6 +501,7 @@ function resolveDelegationCorrectionContractGuidance(
   return {
     source: "delegation-correction",
     routedToolNames: preferredToolNames,
+    persistRoutedToolNames: false,
     toolChoice: "required",
   };
 }

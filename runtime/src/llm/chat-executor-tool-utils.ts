@@ -50,6 +50,7 @@ export function didToolCallFail(isError: boolean, result: string): boolean {
     }
     const obj = parsed as Record<string, unknown>;
     if (typeof obj.error === "string" && obj.error.trim().length > 0) return true;
+    if (obj.timedOut === true) return true;
     if (typeof obj.exitCode === "number" && obj.exitCode !== 0) return true;
   } catch {
     // Non-JSON tool output — detect known tool-wrapper failure signatures.
@@ -73,8 +74,12 @@ export function parseToolResultObject(
 }
 
 export function extractToolFailureText(record: ToolCallRecord): string {
-  const parsed = parseToolResultObject(record.result);
-  if (!parsed) return record.result;
+  return extractToolFailureTextFromResult(record.result);
+}
+
+export function extractToolFailureTextFromResult(result: string): string {
+  const parsed = parseToolResultObject(result);
+  if (!parsed) return result;
 
   const pieces: string[] = [];
   if (typeof parsed.error === "string" && parsed.error.trim().length > 0) {
@@ -83,8 +88,19 @@ export function extractToolFailureText(record: ToolCallRecord): string {
   if (typeof parsed.stderr === "string" && parsed.stderr.trim().length > 0) {
     pieces.push(parsed.stderr.trim());
   }
+  if (
+    pieces.length === 0 &&
+    parsed.timedOut === true &&
+    typeof parsed.stdout === "string" &&
+    parsed.stdout.trim().length > 0
+  ) {
+    pieces.push(parsed.stdout.trim());
+  }
+  if (parsed.timedOut === true) {
+    pieces.unshift("Tool timed out before completing.");
+  }
   if (pieces.length > 0) return pieces.join("\n");
-  return record.result;
+  return result;
 }
 
 export function resolveRetryPolicyMatrix(
@@ -638,6 +654,141 @@ export interface StuckDetectionResult {
   readonly reason?: string;
 }
 
+export interface ToolRoundProgressSummary {
+  readonly durationMs: number;
+  readonly totalCalls: number;
+  readonly successfulCalls: number;
+  readonly newSuccessfulSemanticKeys: number;
+  readonly newVerificationFailureDiagnosticKeys: number;
+  readonly hadSuccessfulMutation: boolean;
+  readonly hadVerificationCall: boolean;
+  readonly hadMaterialProgress: boolean;
+}
+
+const ANSI_ESCAPE_RE =
+  // eslint-disable-next-line no-control-regex
+  /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const VERIFICATION_TOKENS = new Set([
+  "build",
+  "check",
+  "compile",
+  "coverage",
+  "lint",
+  "test",
+  "typecheck",
+  "verify",
+]);
+const VERIFICATION_COMMANDS = new Set([
+  "cargo",
+  "go",
+  "gradle",
+  "jest",
+  "mvn",
+  "npm",
+  "npx",
+  "pnpm",
+  "pytest",
+  "ruff",
+  "tsc",
+  "uv",
+  "vitest",
+  "yarn",
+  "bun",
+]);
+const MUTATING_COMMANDS = new Set([
+  "cp",
+  "git",
+  "install",
+  "mkdir",
+  "mv",
+  "perl",
+  "rm",
+  "sed",
+  "touch",
+]);
+
+function normalizeFailureDiagnosticText(text: string): string {
+  return text
+    .replace(ANSI_ESCAPE_RE, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .slice(0, 600);
+}
+
+function buildFailureDiagnosticKey(call: ToolCallRecord): string | null {
+  if (!didToolCallFail(call.isError, call.result)) return null;
+  const normalizedFailure = normalizeFailureDiagnosticText(
+    extractToolFailureText(call),
+  );
+  if (normalizedFailure.length === 0) return null;
+  return `${call.name}:${normalizedFailure}`;
+}
+
+function extractCommandTokens(args: Record<string, unknown>): string[] {
+  const tokens: string[] = [];
+  const command = typeof args.command === "string" ? args.command : "";
+  if (command.trim().length > 0) {
+    tokens.push(...command.trim().split(/\s+/));
+  }
+  const rawArgs = Array.isArray(args.args) ? args.args : [];
+  for (const value of rawArgs) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      tokens.push(value.trim());
+    }
+  }
+  return tokens.map((token) => token.toLowerCase());
+}
+
+function isVerificationToolCall(call: ToolCallRecord): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") {
+    return false;
+  }
+  const tokens = extractCommandTokens(call.args);
+  if (tokens.length === 0) return false;
+  const [command, ...rest] = tokens;
+  if (VERIFICATION_COMMANDS.has(command)) {
+    if (command === "npm" || command === "pnpm" || command === "yarn" || command === "bun") {
+      return rest.some((token) => VERIFICATION_TOKENS.has(token));
+    }
+    if (command === "npx" || command === "uv") {
+      return rest.some((token) =>
+        VERIFICATION_COMMANDS.has(token) || VERIFICATION_TOKENS.has(token)
+      );
+    }
+    return true;
+  }
+  return tokens.some((token) => VERIFICATION_TOKENS.has(token));
+}
+
+function isSuccessfulMutationToolCall(call: ToolCallRecord): boolean {
+  if (didToolCallFail(call.isError, call.result)) return false;
+  if (call.name === "system.writeFile" || call.name === "system.delete") {
+    return true;
+  }
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") {
+    return false;
+  }
+  const tokens = extractCommandTokens(call.args);
+  if (tokens.length === 0) return false;
+  const [command, ...rest] = tokens;
+  if (command === "git") {
+    return rest.some((token) => ["apply", "checkout", "mv", "restore", "rm"].includes(token));
+  }
+  if (command === "npm" || command === "pnpm" || command === "yarn" || command === "bun") {
+    return rest.some((token) =>
+      ["add", "dedupe", "install", "remove", "uninstall", "update"].includes(token)
+    );
+  }
+  if (command === "sed") {
+    return rest.some((token) => token === "-i" || token.startsWith("-i"));
+  }
+  if (command === "perl") {
+    return rest.some((token) => token === "-i" || token.startsWith("-i"));
+  }
+  return MUTATING_COMMANDS.has(command);
+}
+
 /** Check for stuck tool loop patterns across rounds. */
 export function checkToolLoopStuckDetection(
   roundCalls: readonly ToolCallRecord[],
@@ -698,6 +849,57 @@ export function checkToolLoopStuckDetection(
   }
 
   return { shouldBreak: false };
+}
+
+export function summarizeToolRoundProgress(
+  roundCalls: readonly ToolCallRecord[],
+  durationMs: number,
+  seenSuccessfulSemanticKeys: Set<string>,
+  seenVerificationFailureDiagnosticKeys: Set<string>,
+): ToolRoundProgressSummary {
+  let successfulCalls = 0;
+  let newSuccessfulSemanticKeys = 0;
+  let newVerificationFailureDiagnosticKeys = 0;
+  let hadSuccessfulMutation = false;
+  let hadVerificationCall = false;
+  for (const call of roundCalls) {
+    if (isVerificationToolCall(call)) {
+      hadVerificationCall = true;
+      if (didToolCallFail(call.isError, call.result)) {
+        const diagnosticKey = buildFailureDiagnosticKey(call);
+        if (
+          diagnosticKey &&
+          !seenVerificationFailureDiagnosticKeys.has(diagnosticKey)
+        ) {
+          seenVerificationFailureDiagnosticKeys.add(diagnosticKey);
+          newVerificationFailureDiagnosticKeys++;
+        }
+      }
+    }
+    if (isSuccessfulMutationToolCall(call)) {
+      hadSuccessfulMutation = true;
+    }
+    if (didToolCallFail(call.isError, call.result)) {
+      continue;
+    }
+    successfulCalls++;
+    const semanticKey = buildSemanticToolCallKey(call.name, call.args);
+    if (!seenSuccessfulSemanticKeys.has(semanticKey)) {
+      seenSuccessfulSemanticKeys.add(semanticKey);
+      newSuccessfulSemanticKeys++;
+    }
+  }
+  return {
+    durationMs,
+    totalCalls: roundCalls.length,
+    successfulCalls,
+    newSuccessfulSemanticKeys,
+    newVerificationFailureDiagnosticKeys,
+    hadSuccessfulMutation,
+    hadVerificationCall,
+    hadMaterialProgress:
+      newSuccessfulSemanticKeys > 0 || newVerificationFailureDiagnosticKeys > 0,
+  };
 }
 
 /** Build recovery hint messages for injection after a tool round. */

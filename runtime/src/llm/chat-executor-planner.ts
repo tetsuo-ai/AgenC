@@ -64,10 +64,89 @@ import {
   assessDelegationScope,
   type DelegationDecompositionSignal,
 } from "../gateway/delegation-scope.js";
+import { getAcceptanceVerificationCategories } from "../utils/delegation-validation.js";
+import {
+  inspectDelegationBudgetHint,
+  MIN_DELEGATION_TIMEOUT_MS,
+} from "../gateway/delegation-timeout.js";
+import type { HostToolingProfile } from "../gateway/host-tooling.js";
+import { collectDirectModeShellControlTokens } from "../tools/system/command-line.js";
 
 // ============================================================================
 // Planner decision
 // ============================================================================
+
+interface PlannerRequestSignals {
+  readonly normalized: string;
+  readonly hasMultiStepCue: boolean;
+  readonly hasToolDiversityCue: boolean;
+  readonly hasDelegationCue: boolean;
+  readonly hasImplementationScopeCue: boolean;
+  readonly hasVerificationCue: boolean;
+  readonly hasDocumentationCue: boolean;
+  readonly longTask: boolean;
+  readonly structuredBulletCount: number;
+  readonly priorToolMessages: number;
+  readonly hasPriorNoProgressSignal: boolean;
+}
+
+function countStructuredBulletLines(messageText: string): number {
+  return messageText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^(?:[-*]|\d+[\).:])\s+/.test(line))
+    .length;
+}
+
+function collectPlannerRequestSignals(
+  messageText: string,
+  history: readonly LLMMessage[],
+): PlannerRequestSignals {
+  const normalized = messageText.toLowerCase();
+  const historyTail = history.slice(-10);
+  return {
+    normalized,
+    hasMultiStepCue:
+      /\b(first|second|third|then|after that|next|finally|step\b|in order|checklist|pipeline)\b/i.test(
+        messageText,
+      ) ||
+      /\b1[\).:]\s+.+\b2[\).:]/s.test(messageText),
+    hasToolDiversityCue:
+      /\b(browser|http|curl|bash|command|container|playwright|open|navigate|teardown|verify)\b/i.test(
+        messageText,
+      ),
+    hasDelegationCue:
+      /\b(sub[\s-]?agent|child agent|execute_with_agent|delegate|delegation|parallel(?:ize|ism)?|fanout)\b/i.test(
+        messageText,
+      ),
+    hasImplementationScopeCue:
+      /\b(build|implement|create|scaffold|generate|refactor|migrate|api|endpoint|service|integration|unit tests?|e2e|makefile|project)\b/i.test(
+        messageText,
+      ) ||
+      /\b(add|write|create|run)\s+(?:unit\s+)?tests?\b/i.test(messageText),
+    hasVerificationCue:
+      /\b(verify|verification|validate|validation|typecheck|lint|build|compile|vitest|jest|mocha|passing commands?)\b/i.test(
+        messageText,
+      ) ||
+      /\b(add|write|create|run|include)\s+(?:unit\s+)?tests?\b/i.test(
+        messageText,
+      ),
+    hasDocumentationCue:
+      /\b(readme|docs?|documentation|architecture summary|how to play|known limitations|report)\b/i.test(
+        messageText,
+      ),
+    longTask:
+      messageText.length >= 320 || messageText.split(/\n/).length >= 4,
+    structuredBulletCount: countStructuredBulletLines(messageText),
+    priorToolMessages: historyTail.filter((entry) => entry.role === "tool")
+      .length,
+    hasPriorNoProgressSignal: historyTail.some(
+      (entry) =>
+        typeof entry.content === "string" &&
+        entry.content.includes(RECOVERY_HINT_PREFIX),
+    ),
+  };
+}
 
 export function assessPlannerDecision(
   plannerEnabled: boolean,
@@ -82,62 +161,40 @@ export function assessPlannerDecision(
     };
   }
 
+  const signals = collectPlannerRequestSignals(messageText, history);
   let score = 0;
   const reasons: string[] = [];
-  const normalized = messageText.toLowerCase();
 
-  const hasMultiStepCue =
-    /\b(first|second|third|then|after that|next|finally|step\b|in order|checklist|pipeline)\b/i.test(
-      messageText,
-    ) ||
-    /\b1[\).:]\s+.+\b2[\).:]/s.test(messageText);
-  if (hasMultiStepCue) {
+  if (signals.hasMultiStepCue) {
     score += 3;
     reasons.push("multi_step_cues");
   }
 
-  const hasToolDiversityCue =
-    /\b(browser|http|curl|bash|command|container|playwright|open|navigate|teardown|verify)\b/i.test(
-      messageText,
-    );
-  if (hasToolDiversityCue) {
+  if (signals.hasToolDiversityCue) {
     score += 1;
     reasons.push("multi_tool_candidates");
   }
 
-  const hasDelegationCue =
-    /\b(sub[\s-]?agent|child agent|execute_with_agent|delegate|delegation|parallel(?:ize|ism)?|fanout)\b/i.test(
-      messageText,
-    );
-  if (hasDelegationCue) {
+  if (signals.hasDelegationCue) {
     score += 4;
     reasons.push("delegation_cue");
   }
 
-  const hasImplementationScopeCue =
-    /\b(build|implement|create|scaffold|generate|refactor|migrate|api|endpoint|service|tests?|integration|unit test|e2e|makefile|project)\b/i.test(
-      messageText,
-    );
-  if (hasImplementationScopeCue) {
+  if (signals.hasImplementationScopeCue) {
     score += 3;
     reasons.push("implementation_scope");
   }
 
-  const longTask = messageText.length >= 320 || messageText.split(/\n/).length >= 4;
-  if (longTask) {
+  if (signals.longTask) {
     score += 1;
     reasons.push("long_or_structured_request");
   }
 
-  const historyTail = history.slice(-10);
-  const priorToolMessages = historyTail.filter(
-    (entry) => entry.role === "tool",
-  ).length;
-  if (priorToolMessages >= 4) {
+  if (signals.priorToolMessages >= 4) {
     score += 2;
     reasons.push("prior_tool_loop_activity");
   }
-  if (historyTail.some((entry) => typeof entry.content === "string" && entry.content.includes(RECOVERY_HINT_PREFIX))) {
+  if (signals.hasPriorNoProgressSignal) {
     score += 2;
     reasons.push("prior_no_progress_signal");
   }
@@ -171,14 +228,39 @@ export function assessPlannerDecision(
 
   const directFastPath =
     score < 3 ||
-    normalized.trim().length < 20 ||
-    /\b(hi|hello|thanks|thank you)\b/.test(normalized);
+    signals.normalized.trim().length < 20 ||
+    /\b(hi|hello|thanks|thank you)\b/.test(signals.normalized);
 
   return {
     score,
     shouldPlan: !directFastPath,
     reason: reasons.length > 0 ? reasons.join("+") : "direct_fast_path",
   };
+}
+
+function deriveMinimumExpectedSalvagedSteps(
+  signals: PlannerRequestSignals,
+): number {
+  let minimumExpectedSteps = 1;
+  if (
+    signals.hasImplementationScopeCue ||
+    signals.hasVerificationCue ||
+    signals.hasDocumentationCue ||
+    signals.hasMultiStepCue ||
+    signals.longTask ||
+    signals.structuredBulletCount >= 3
+  ) {
+    minimumExpectedSteps = 2;
+  }
+  if (
+    (signals.hasImplementationScopeCue &&
+      (signals.hasVerificationCue || signals.hasDocumentationCue)) ||
+    (signals.hasImplementationScopeCue && signals.structuredBulletCount >= 3) ||
+    signals.structuredBulletCount >= 5
+  ) {
+    minimumExpectedSteps = 3;
+  }
+  return minimumExpectedSteps;
 }
 
 const EXACT_RESPONSE_CUE_RE =
@@ -191,6 +273,22 @@ const DIALOGUE_RECALL_REFERENCE_CUE_RE =
   /\b(?:from (?:test|earlier|before|above|prior|previous)|(?:you|i) (?:stored|memorized|remembered|told)|those facts|these facts|the facts|last turn|prior turn|previous turn|continuity test)\b/i;
 const EXPLICIT_ENV_ACTION_CUE_RE =
   /\b(?:use|call|invoke|run|start|stop|create|write|edit|save|open|navigate|click|search|browse|inspect|read|check|verify|delegate|spawn|launch|post|publish|deploy|install|build|implement|refactor|migrate|continue)\b[\s\S]{0,96}\b(?:tool|tools|desktop|system|mcp|browser|bash|command|terminal|file|files|server|process|service|sub[\s-]?agent|execute_with_agent|child\s+session|continuation\s+session|session\s+id|task|api|endpoint|project|tests?|[a-z][\w-]*\.[a-z][\w.-]*)\b/i;
+const NODE_PACKAGE_TOOLING_RE =
+  /\b(?:node(?:\.js)?|npm|npx|package\.json|package-lock\.json|pnpm|pnpm-workspace\.yaml|yarn|bun|workspaces?|typescript|tsconfig(?:\.[a-z]+)?\.json|tsx|vitest|commander)\b/i;
+const NODE_PACKAGE_MANIFEST_PATH_RE =
+  /(?:^|\/)(?:package\.json|package-lock\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|yarn\.lock|bun\.lockb|tsconfig(?:\.[a-z]+)?\.json)$/i;
+const NODE_LOCAL_DEPENDENCY_SPEC_RE =
+  /\b(?:file:\.\.\/|workspace:\*|local deps?|local dependency references?)\b/i;
+const NODE_MANIFEST_OR_CONFIG_RE =
+  /\b(?:package\.json|package-lock\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml|yarn\.lock|bun\.lockb|tsconfig(?:\.[a-z]+)?\.json|vite\.config(?:\.[a-z]+)?|vitest\.config(?:\.[a-z]+)?|workspaces?|dependencies|devdependencies|scripts?|bin)\b/i;
+const NODE_INSTALL_SENSITIVE_VERIFICATION_ACTION_RE =
+  /\b(?:verify|verified|validat(?:e|ed|ion)|confirm|confirmed|ensure|ensures|ensured|check|checks|checked|run|runs|running|execute|executes|executed|prove|proves|proven)\b/i;
+const NODE_INSTALL_SENSITIVE_VERIFICATION_TARGET_RE =
+  /\b(?:tests?|coverage|vitest|jest|mocha|ava|npm\s+(?:test|run\s+build|run\s+typecheck|run\s+lint)|pnpm\s+(?:test|build|typecheck|lint)|yarn\s+(?:test|build|typecheck|lint)|bun\s+(?:test|run(?:\s+(?:build|typecheck|lint))?)|vite\s+build|tsc\b|build(?:s|ing)?|compile(?:s|d|ing)?|typecheck(?:s|ed|ing)?|lint(?:s|ed|ing)?|install(?:s|ed|ing)?)\b/i;
+const NODE_INSTALL_SENSITIVE_VERIFICATION_PHRASE_RE =
+  /\b(?:tests?\s+(?:pass|passing|passed|run|runs|running|succeed|succeeds|succeeded)|coverage(?:\s+(?:reported|generated|collected|runs?|ran))?|builds?\s+(?:cleanly|correctly|successfully|without errors?|ok)|compiles?\s+(?:cleanly|correctly|successfully|without errors?)|typechecks?\s+(?:cleanly|correctly|successfully|without errors?)|lints?\s+(?:cleanly|correctly|successfully|without errors?)|installs?\s+(?:cleanly|correctly|successfully|without errors?)|npm\s+(?:test|run\s+build|run\s+typecheck|run\s+lint)\s+(?:passes?|succeeds?|runs?)|pnpm\s+(?:test|build|typecheck|lint)\s+(?:passes?|succeeds?|runs?)|yarn\s+(?:test|build|typecheck|lint)\s+(?:passes?|succeeds?|runs?)|bun\s+(?:test|run(?:\s+(?:build|typecheck|lint))?)\s+(?:passes?|succeeds?|runs?)|vite\s+build\s+(?:passes?|succeeds?|runs?)|tsc\s+(?:passes?|succeeds?|runs?))\b/i;
+const NODE_PACKAGE_MANAGER_COMMANDS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const NODE_INSTALL_ACTIONS = new Set(["install", "ci", "add"]);
 
 function isDialogueOnlyExactResponseTurn(messageText: string): boolean {
   return (
@@ -214,6 +312,78 @@ function isDialogueOnlyRecallTurn(messageText: string): boolean {
   );
 }
 
+function shouldIncludePlannerHostTooling(
+  messageText: string,
+  history: readonly LLMMessage[],
+): boolean {
+  if (
+    NODE_PACKAGE_TOOLING_RE.test(messageText) ||
+    NODE_PACKAGE_MANIFEST_PATH_RE.test(messageText)
+  ) {
+    return true;
+  }
+  return history.some((entry) => {
+    const raw =
+      typeof entry.content === "string"
+        ? entry.content
+        : entry.content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join(" ");
+    return (
+      NODE_PACKAGE_TOOLING_RE.test(raw) ||
+      NODE_PACKAGE_MANIFEST_PATH_RE.test(raw)
+    );
+  });
+}
+
+function buildPlannerHostToolingHint(
+  messageText: string,
+  history: readonly LLMMessage[],
+  hostToolingProfile?: HostToolingProfile | null,
+): string | undefined {
+  if (
+    !hostToolingProfile ||
+    !shouldIncludePlannerHostTooling(messageText, history)
+  ) {
+    return undefined;
+  }
+
+  const fragments = [`Host Node version: \`${hostToolingProfile.nodeVersion}\`.`];
+  if (hostToolingProfile.npm?.version) {
+    fragments.push(`Host npm version: \`${hostToolingProfile.npm.version}\`.`);
+  }
+  fragments.push(
+    "For Node workspace plans, keep manifest/config scaffolding before the real package-manager install, then run one host install before any delegated build/test/coverage validation.",
+  );
+  if (hostToolingProfile.npm?.workspaceProtocolSupport === "unsupported") {
+    const evidence = hostToolingProfile.npm.workspaceProtocolEvidence
+      ? ` (${hostToolingProfile.npm.workspaceProtocolEvidence})`
+      : "";
+    fragments.push(
+      "Empirical npm probe: local `workspace:*` dependency specifiers are unsupported on this host" +
+        `${evidence}.`,
+    );
+    fragments.push(
+      "Do not emit `workspace:*` in generated manifests. Choose a host-compatible local dependency reference and verify it with `npm install` on this host before continuing.",
+    );
+  } else if (hostToolingProfile.npm?.workspaceProtocolSupport === "unknown") {
+    const evidence = hostToolingProfile.npm.workspaceProtocolEvidence
+      ? ` (${hostToolingProfile.npm.workspaceProtocolEvidence})`
+      : "";
+    fragments.push(
+      "Empirical npm probe could not confirm whether local `workspace:*` dependency specifiers work on this host" +
+        `${evidence}. Verify local dependency specs with a real install before depending on workspace protocol semantics.`,
+    );
+  } else if (hostToolingProfile.npm?.workspaceProtocolSupport === "supported") {
+    fragments.push(
+      "Empirical npm probe: local `workspace:*` dependency specifiers are supported on this host.",
+    );
+  }
+
+  return fragments.join(" ");
+}
+
 // ============================================================================
 // Planner message building
 // ============================================================================
@@ -224,9 +394,15 @@ export function buildPlannerMessages(
   plannerMaxTokens: number,
   explicitDeterministicRequirements?: ExplicitDeterministicToolRequirements,
   refinementHint?: string,
+  hostToolingProfile?: HostToolingProfile | null,
 ): readonly LLMMessage[] {
   const explicitOrchestration =
     extractExplicitSubagentOrchestrationRequirements(messageText);
+  const hostToolingHint = buildPlannerHostToolingHint(
+    messageText,
+    history,
+    hostToolingProfile,
+  );
   const historyPreview = history
     .slice(-6)
     .map((entry) => {
@@ -275,9 +451,16 @@ export function buildPlannerMessages(
         "}\n" +
         "Rules:\n" +
         "- deterministic_tool steps are executable by the deterministic pipeline.\n" +
-        "- subagent_task steps MUST include all subagent fields.\n" +
+        "- subagent_task steps MUST include all required subagent fields.\n" +
+        "- `can_run_parallel` is optional; omit it when unknown and the runtime will default it to false.\n" +
+        "- When a subagent step needs a workspace, encode it in `context_requirements` as `cwd=/absolute/path`.\n" +
+        "- For deterministic_tool steps, put all tool parameters inside `args`. Do not place tool parameters like `cwd` or `timeoutMs` at the step root.\n" +
         "- Each subagent_task must stay narrowly scoped to one phase of work. Do not combine research, setup, implementation, and validation into one delegated step.\n" +
         "- Prefer multiple smaller subagent_task steps with explicit dependencies over one large delegated objective.\n" +
+        "- For deterministic system.bash/desktop.bash steps, do not use nested shell wrappers like `bash -c` or `sh -c`; call the target command directly or use shell mode.\n" +
+        "- Do not embed heredocs, multi-line shell scripts, or generated file contents inside deterministic bash steps. Use file mutation tools for file contents instead.\n" +
+        "- Verification/build/test commands must be non-interactive and exit on their own. Do not use watch mode or dev servers for validation. Prefer runner-native single-run invocations. For Vitest use `vitest run`/`vitest --run`. For Jest use `CI=1 npm test` or `jest --runInBand`. Only pass extra npm `--` flags when the underlying runner supports them.\n" +
+        "- max_budget_hint must use explicit units like `90s`, `2m`, or `1h`; do not use bare numeric hints such as `0.08`.\n" +
         "- synthesis steps describe final merge/synthesis intent and do not call tools.\n" +
         `Keep output concise and below approximately ${plannerMaxTokens} tokens. ` +
         `Never emit more than ${maxSteps} steps.`,
@@ -314,6 +497,13 @@ export function buildPlannerMessages(
         `Use only these tools in this order: ${requiredOrder}. ` +
         "Emit one `deterministic_tool` step per required tool call, preserve dependency order between the tool stages, and do not emit `subagent_task` steps or off-domain tools." +
         exactLiteralInstruction,
+    });
+  }
+
+  if (typeof hostToolingHint === "string" && hostToolingHint.length > 0) {
+    messages.push({
+      role: "system",
+      content: `Host tooling constraints: ${hostToolingHint}`,
     });
   }
 
@@ -707,6 +897,15 @@ interface ExplicitSubagentStepDefaults {
 }
 
 const TOOL_CAPABILITY_NAME_RE = /^(?:desktop|system|playwright|mcp)\.[A-Za-z0-9_.-]+$/;
+const DETERMINISTIC_TOOL_STEP_RESERVED_FIELDS = new Set([
+  "name",
+  "step_type",
+  "depends_on",
+  "tool",
+  "args",
+  "onError",
+  "maxRetries",
+]);
 
 function deriveExplicitSubagentStepDefaults(input: {
   stepName: string;
@@ -893,6 +1092,96 @@ function mergeExplicitContextRequirements(
   return merged.length > 0 ? merged : undefined;
 }
 
+function buildDefaultPlannerContextRequirements(
+  dependsOn: readonly string[],
+): readonly string[] {
+  return [
+    ...new Set([
+      "repo_context",
+      ...dependsOn.map((dependency) => sanitizePlannerStepName(dependency)),
+    ]),
+  ].filter((value) => value.length > 0);
+}
+
+function normalizeDeterministicPlannerToolArgs(params: {
+  readonly step: Record<string, unknown>;
+  readonly stepIndex: number;
+  readonly stepName: string;
+  readonly diagnostics: PlannerDiagnostic[];
+}): Record<string, unknown> | undefined {
+  const { step, stepIndex, stepName, diagnostics } = params;
+  if (
+    step.args !== undefined &&
+    (
+      typeof step.args !== "object" ||
+      step.args === null ||
+      Array.isArray(step.args)
+    )
+  ) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "parse",
+        "invalid_tool_args",
+        `Planner step "${stepName}" has invalid args; expected JSON object`,
+        { stepIndex, stepName, field: "args" },
+      ),
+    );
+    return undefined;
+  }
+
+  const rawArgs =
+    typeof step.args === "object" &&
+    step.args !== null &&
+    !Array.isArray(step.args)
+      ? (step.args as Record<string, unknown>)
+      : {};
+  let args = rawArgs;
+  const promotedFields: string[] = [];
+
+  for (const [field, value] of Object.entries(step)) {
+    if (DETERMINISTIC_TOOL_STEP_RESERVED_FIELDS.has(field)) continue;
+    if (value === undefined) continue;
+
+    if (Object.prototype.hasOwnProperty.call(args, field)) {
+      if (safeStringify(args[field]) !== safeStringify(value)) {
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "parse",
+            "planner_tool_root_arg_conflict",
+            `Planner deterministic step "${stepName}" has conflicting "${field}" values at the step root and inside args`,
+            { stepIndex, stepName, field },
+          ),
+        );
+        return undefined;
+      }
+      continue;
+    }
+
+    if (args === rawArgs) {
+      args = { ...rawArgs };
+    }
+    args[field] = value;
+    promotedFields.push(field);
+  }
+
+  if (promotedFields.length > 0) {
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "parse",
+        "planner_tool_root_args_promoted",
+        `Planner deterministic step "${stepName}" placed tool parameters at the step root; promoting them into args`,
+        {
+          stepIndex,
+          stepName,
+          promotedFields: promotedFields.join(","),
+        },
+      ),
+    );
+  }
+
+  return args;
+}
+
 export function parsePlannerPlan(
   content: string,
   repairRequirements?: ExplicitSubagentOrchestrationRequirements,
@@ -1009,30 +1298,15 @@ export function parsePlannerPlan(
         );
         return { diagnostics };
       }
-      if (
-        step.args !== undefined &&
-        (
-          typeof step.args !== "object" ||
-          step.args === null ||
-          Array.isArray(step.args)
-        )
-      ) {
-        diagnostics.push(
-          createPlannerDiagnostic(
-            "parse",
-            "invalid_tool_args",
-            `Planner step "${safeName}" has invalid args; expected JSON object`,
-            { stepIndex: index, stepName: safeName },
-          ),
-        );
+      const args = normalizeDeterministicPlannerToolArgs({
+        step,
+        stepIndex: index,
+        stepName: safeName,
+        diagnostics,
+      });
+      if (!args) {
         return { diagnostics };
       }
-      const args =
-        typeof step.args === "object" &&
-        step.args !== null &&
-        !Array.isArray(step.args)
-          ? (step.args as Record<string, unknown>)
-          : {};
       const onError =
         step.onError === "retry" ||
         step.onError === "skip" ||
@@ -1060,34 +1334,77 @@ export function parsePlannerPlan(
         safeName,
         dependsOn,
       );
+      const subagentArgs = parsePlannerArgsRecord(step.args);
       const objective =
         parsePlannerRequiredString(step.objective) ??
+        parsePlannerStringFromKeys(subagentArgs, ["objective", "task"]) ??
         explicitDefaults?.objective;
       const inputContract =
         parsePlannerRequiredString(step.input_contract) ??
+        parsePlannerStringFromKeys(subagentArgs, [
+          "input_contract",
+          "inputContract",
+        ]) ??
         explicitDefaults?.inputContract;
       const acceptanceCriteria =
         parsePlannerStringArray(step.acceptance_criteria) ??
+        parsePlannerStringArrayFromKeys(subagentArgs, [
+          "acceptance_criteria",
+          "acceptanceCriteria",
+        ]) ??
         explicitDefaults?.acceptanceCriteria;
+      const plannerRequiredToolCapabilities =
+        parsePlannerStringArray(step.required_tool_capabilities) ??
+        parsePlannerStringArrayFromKeys(subagentArgs, [
+          "required_tool_capabilities",
+          "requiredToolCapabilities",
+          "requiredCapabilities",
+        ]);
       const requiredToolCapabilities =
         normalizeExplicitRequiredToolCapabilities(
-          parsePlannerStringArray(step.required_tool_capabilities),
+          plannerRequiredToolCapabilities,
           explicitDefaults?.requiredToolCapabilities,
         ) ??
-        parsePlannerStringArray(step.required_tool_capabilities);
+        plannerRequiredToolCapabilities;
+      const plannerContextRequirements =
+        parsePlannerStringArray(step.context_requirements) ??
+        parsePlannerStringArrayFromKeys(subagentArgs, [
+          "context_requirements",
+          "contextRequirements",
+        ]);
       const contextRequirements =
         mergeExplicitContextRequirements(
-          parsePlannerStringArray(step.context_requirements),
+          plannerContextRequirements,
           explicitDefaults?.contextRequirements,
         ) ??
-        parsePlannerStringArray(step.context_requirements);
+        plannerContextRequirements ??
+        buildDefaultPlannerContextRequirements(dependsOn);
       const maxBudgetHint =
         parsePlannerRequiredString(step.max_budget_hint) ??
+        parsePlannerStringFromKeys(subagentArgs, ["max_budget_hint"]) ??
         explicitDefaults?.maxBudgetHint;
+      if (
+        step.can_run_parallel !== undefined &&
+        typeof step.can_run_parallel !== "boolean"
+      ) {
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "parse",
+            "invalid_subagent_field_type",
+            `Planner subagent step "${safeName}" has invalid can_run_parallel`,
+            {
+              stepIndex: index,
+              stepName: safeName,
+              field: "can_run_parallel",
+            },
+          ),
+        );
+        return { diagnostics };
+      }
       const canRunParallel =
         typeof step.can_run_parallel === "boolean"
           ? step.can_run_parallel
-          : explicitDefaults?.canRunParallel;
+          : explicitDefaults?.canRunParallel ?? false;
       if (!objective) {
         diagnostics.push(
           createPlannerDiagnostic(
@@ -1165,21 +1482,6 @@ export function parsePlannerPlan(
               stepIndex: index,
               stepName: safeName,
               field: "max_budget_hint",
-            },
-          ),
-        );
-        return { diagnostics };
-      }
-      if (canRunParallel === undefined) {
-        diagnostics.push(
-          createPlannerDiagnostic(
-            "parse",
-            "missing_subagent_field",
-            `Planner subagent step "${safeName}" is missing can_run_parallel`,
-            {
-              stepIndex: index,
-              stepName: safeName,
-              field: "can_run_parallel",
             },
           ),
         );
@@ -1361,9 +1663,207 @@ export function salvagePlannerToolCallsAsPlan(
   };
 }
 
+export function validateSalvagedPlannerToolPlan(input: {
+  readonly plannerPlan: PlannerPlan;
+  readonly messageText: string;
+  readonly history?: readonly LLMMessage[];
+  readonly explicitDeterministicRequirements?: ExplicitDeterministicToolRequirements;
+}): readonly PlannerDiagnostic[] {
+  if (input.plannerPlan.reason !== "planner_tool_call_salvaged") {
+    return [];
+  }
+  if (input.explicitDeterministicRequirements) {
+    return [];
+  }
+
+  const signals = collectPlannerRequestSignals(
+    input.messageText,
+    input.history ?? [],
+  );
+  const minimumExpectedSteps = deriveMinimumExpectedSalvagedSteps(signals);
+  const actualSteps = input.plannerPlan.steps.length;
+  if (actualSteps >= minimumExpectedSteps) {
+    return [];
+  }
+
+  const expectedSignals = [
+    signals.hasMultiStepCue ? "multi_step_cues" : "",
+    signals.hasImplementationScopeCue ? "implementation_scope" : "",
+    signals.hasVerificationCue ? "verification" : "",
+    signals.hasDocumentationCue ? "documentation" : "",
+    signals.longTask ? "long_or_structured_request" : "",
+    signals.structuredBulletCount >= 3 ? "structured_bullets" : "",
+  ].filter((value) => value.length > 0);
+
+  return [
+    createPlannerDiagnostic(
+      "validation",
+      "salvaged_tool_plan_underdecomposed",
+      "Planner salvaged raw tool calls but under-decomposed a structured request",
+      {
+        actualSteps,
+        minimumExpectedSteps,
+        structuredBulletCount: signals.structuredBulletCount,
+        signals: expectedSignals.join(","),
+      },
+    ),
+  ];
+}
+
 // ============================================================================
 // Planner graph validation
 // ============================================================================
+
+function collectPlannerSubagentStepText(
+  step: PlannerSubAgentTaskStepIntent,
+): string {
+  return [
+    step.objective,
+    step.inputContract,
+    ...step.acceptanceCriteria,
+  ]
+    .filter((value) => value.trim().length > 0)
+    .join(" ");
+}
+
+function isNodeWorkspaceSubagentStep(
+  step: PlannerSubAgentTaskStepIntent,
+): boolean {
+  const combined = collectPlannerSubagentStepText(step);
+  return NODE_PACKAGE_TOOLING_RE.test(combined) ||
+    NODE_PACKAGE_MANIFEST_PATH_RE.test(combined) ||
+    NODE_LOCAL_DEPENDENCY_SPEC_RE.test(combined);
+}
+
+function stepAuthorsNodeManifestOrConfig(
+  step: PlannerSubAgentTaskStepIntent,
+): boolean {
+  return NODE_MANIFEST_OR_CONFIG_RE.test(
+    [step.objective, step.inputContract, ...step.acceptanceCriteria].join(" "),
+  );
+}
+
+function stepObjectiveOrInputRequiresInstallSensitiveNodeVerification(
+  step: PlannerSubAgentTaskStepIntent,
+): boolean {
+  const combined = [step.objective, step.inputContract]
+    .filter((value) => value.trim().length > 0)
+    .join(" ");
+  if (combined.length === 0) return false;
+  if (NODE_INSTALL_SENSITIVE_VERIFICATION_PHRASE_RE.test(combined)) {
+    return true;
+  }
+  return NODE_INSTALL_SENSITIVE_VERIFICATION_ACTION_RE.test(combined) &&
+    NODE_INSTALL_SENSITIVE_VERIFICATION_TARGET_RE.test(combined);
+}
+
+function stepRequiresInstallSensitiveNodeVerification(
+  step: PlannerSubAgentTaskStepIntent,
+): {
+  readonly required: boolean;
+  readonly categories: readonly string[];
+} {
+  const categories = [
+    ...new Set(
+      step.acceptanceCriteria.flatMap((criterion) =>
+        getAcceptanceVerificationCategories(criterion)
+      ),
+    ),
+  ];
+  if (categories.length > 0) {
+    return { required: true, categories };
+  }
+  return {
+    required:
+      stepObjectiveOrInputRequiresInstallSensitiveNodeVerification(step),
+    categories: [],
+  };
+}
+
+function isNodeInstallPlannerStep(
+  step: PlannerStepIntent,
+): step is PlannerDeterministicToolStepIntent {
+  if (step.stepType !== "deterministic_tool") return false;
+  if (!PLANNER_BASH_TOOL_NAMES.has(step.tool)) return false;
+  const command =
+    typeof step.args.command === "string" ? step.args.command.trim() : "";
+  if (!NODE_PACKAGE_MANAGER_COMMANDS.has(commandBasename(command))) {
+    return false;
+  }
+  const parsedArgs = parsePlannerStringArgs(step.args.args);
+  if (!parsedArgs) return false;
+  if (
+    commandBasename(command) === "yarn" &&
+    parsedArgs.length === 0
+  ) {
+    return true;
+  }
+  return parsedArgs.some((entry, index) =>
+    index === 0 && NODE_INSTALL_ACTIONS.has(entry.trim().toLowerCase())
+  );
+}
+
+function validateNodeWorkspacePlannerStages(
+  plannerPlan: PlannerPlan,
+): readonly PlannerDiagnostic[] {
+  const diagnostics: PlannerDiagnostic[] = [];
+  const installSteps = plannerPlan.steps.filter(isNodeInstallPlannerStep);
+  if (installSteps.length === 0) return diagnostics;
+
+  const dependencyMap = buildPlannerDependencyMap(plannerPlan);
+  const ancestorMemo = new Map<string, ReadonlySet<string>>();
+  const indexByName = new Map(
+    plannerPlan.steps.map((step, index) => [step.name, index] as const),
+  );
+
+  for (const step of plannerPlan.steps) {
+    if (step.stepType !== "subagent_task") continue;
+    if (!isNodeWorkspaceSubagentStep(step)) continue;
+
+    const verification = stepRequiresInstallSensitiveNodeVerification(step);
+    if (!verification.required) continue;
+
+    const stepIndex = indexByName.get(step.name);
+    if (stepIndex === undefined) continue;
+
+    const laterInstallSteps = installSteps.filter((installStep) =>
+      (indexByName.get(installStep.name) ?? Number.NEGATIVE_INFINITY) > stepIndex
+    );
+    if (laterInstallSteps.length === 0) continue;
+
+    const ancestors = collectPlannerStepAncestors(
+      step.name,
+      dependencyMap,
+      ancestorMemo,
+    );
+    if (installSteps.some((installStep) => ancestors.has(installStep.name))) {
+      continue;
+    }
+
+    const requiresPhaseSplit = stepAuthorsNodeManifestOrConfig(step);
+    const verificationModes =
+      verification.categories.length > 0
+        ? verification.categories.join(",")
+        : "runner_or_build_tooling";
+    diagnostics.push(
+      createPlannerDiagnostic(
+        "validation",
+        "node_workspace_install_phase_mismatch",
+        requiresPhaseSplit
+          ? `Planner subagent step "${step.name}" mixes Node workspace manifest/config scaffolding with install-sensitive verification before install`
+          : `Planner subagent step "${step.name}" schedules install-sensitive Node verification before the workspace install step`,
+        {
+          stepName: step.name,
+          installSteps: laterInstallSteps.map((installStep) => installStep.name).join(","),
+          verificationModes,
+          requiresPhaseSplit: requiresPhaseSplit ? "true" : "false",
+        },
+      ),
+    );
+  }
+
+  return diagnostics;
+}
 
 export function validatePlannerGraph(
   plannerPlan: PlannerPlan,
@@ -1432,6 +1932,8 @@ export function validatePlannerGraph(
       ),
     );
   }
+
+  diagnostics.push(...validateNodeWorkspacePlannerStages(plannerPlan));
 
   return diagnostics;
 }
@@ -1685,6 +2187,239 @@ export function validateExplicitDeterministicToolRequirements(
   return diagnostics;
 }
 
+const PLANNER_BASH_TOOL_NAMES = new Set(["system.bash", "desktop.bash"]);
+const PLANNER_SHELL_WRAPPER_COMMANDS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh",
+  "fish",
+  "csh",
+  "tcsh",
+]);
+const PLANNER_SHELL_WRAPPER_FLAG_RE = /^-[A-Za-z]*c[A-Za-z]*$/;
+const PLANNER_INLINE_SHELL_WRAPPER_RE =
+  /^(?:\S+\/)?(?:bash|sh|zsh|dash|ksh|fish|csh|tcsh)\s+-[A-Za-z]*c\b/i;
+const PLANNER_HEREDOC_RE = /<<-?\s*['"]?[A-Za-z0-9_-]+['"]?/;
+const PLANNER_INLINE_FILE_WRITE_RE =
+  /\b(?:cat|tee)\b[\s\S]{0,96}(?:>\s*\S|>>\s*\S|<<-?\s*['"]?[A-Za-z0-9_-]+['"]?)|\b(?:echo|printf)\b[\s\S]{0,160}(?:>\s*\S|>>\s*\S)/i;
+
+function commandBasename(command: string): string {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return "";
+  const parts = trimmed.split(/[\\/]/);
+  return (parts[parts.length - 1] ?? "").toLowerCase();
+}
+
+function parsePlannerStringArgs(
+  value: unknown,
+): readonly string[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+  const parsed: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") return undefined;
+    parsed.push(entry);
+  }
+  return parsed;
+}
+
+function extractPlannerStepShellText(
+  command: string,
+  args: readonly string[],
+): readonly string[] {
+  return [command, ...args].filter((entry) => entry.trim().length > 0);
+}
+
+export function validatePlannerStepContracts(
+  plannerPlan: PlannerPlan,
+): readonly PlannerDiagnostic[] {
+  const diagnostics: PlannerDiagnostic[] = [];
+
+  for (const step of plannerPlan.steps) {
+    if (step.stepType === "deterministic_tool") {
+      if (!PLANNER_BASH_TOOL_NAMES.has(step.tool)) continue;
+
+      const command = step.args.command;
+      if (typeof command !== "string" || command.trim().length === 0) {
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "validation",
+            "planner_bash_missing_command",
+            `Planner bash step "${step.name}" must provide a non-empty string command`,
+            {
+              stepName: step.name,
+              tool: step.tool,
+            },
+          ),
+        );
+        continue;
+      }
+
+      const parsedArgs = parsePlannerStringArgs(step.args.args);
+      if (!parsedArgs) {
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "validation",
+            "planner_bash_invalid_args",
+            `Planner bash step "${step.name}" must provide string args when args is present`,
+            {
+              stepName: step.name,
+              tool: step.tool,
+            },
+          ),
+        );
+        continue;
+      }
+
+      const commandBase = commandBasename(command);
+      const firstArg = parsedArgs[0]?.trim() ?? "";
+      if (
+        (parsedArgs.length === 0 &&
+          PLANNER_INLINE_SHELL_WRAPPER_RE.test(command.trim())) ||
+        PLANNER_SHELL_WRAPPER_COMMANDS.has(commandBase) &&
+        PLANNER_SHELL_WRAPPER_FLAG_RE.test(firstArg)
+      ) {
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "validation",
+            "planner_bash_nested_shell_forbidden",
+            `Planner bash step "${step.name}" uses forbidden nested shell wrapper invocation`,
+            {
+              stepName: step.name,
+              tool: step.tool,
+              command: commandBase,
+            },
+          ),
+        );
+        continue;
+      }
+
+      const directModeShellTokens = collectDirectModeShellControlTokens(parsedArgs);
+      if (directModeShellTokens.length > 0) {
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "validation",
+            "planner_bash_shell_syntax_in_direct_args",
+            `Planner bash step "${step.name}" embeds shell-only control tokens in direct-mode args`,
+            {
+              stepName: step.name,
+              tool: step.tool,
+              shellTokens: directModeShellTokens.join(","),
+            },
+          ),
+        );
+        continue;
+      }
+
+      const shellFragments = extractPlannerStepShellText(command, parsedArgs);
+      const hasInlineFileMaterialization = shellFragments.some((fragment) =>
+        /\r|\n/.test(fragment) ||
+        PLANNER_HEREDOC_RE.test(fragment) ||
+        PLANNER_INLINE_FILE_WRITE_RE.test(fragment)
+      );
+      if (hasInlineFileMaterialization) {
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "validation",
+            "planner_bash_file_materialization_forbidden",
+            `Planner bash step "${step.name}" embeds file contents or a multiline shell script`,
+            {
+              stepName: step.name,
+              tool: step.tool,
+            },
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (step.stepType !== "subagent_task") continue;
+    const budgetHint = inspectDelegationBudgetHint(step.maxBudgetHint);
+    if (budgetHint.kind === "ambiguous_numeric") {
+      diagnostics.push(
+        createPlannerDiagnostic(
+          "validation",
+          "planner_subagent_budget_hint_ambiguous",
+          `Planner subagent step "${step.name}" uses an ambiguous max_budget_hint without units`,
+          {
+            stepName: step.name,
+            maxBudgetHint: step.maxBudgetHint,
+          },
+        ),
+      );
+      continue;
+    }
+    if (
+      budgetHint.kind === "explicit" &&
+      budgetHint.durationMs < MIN_DELEGATION_TIMEOUT_MS
+    ) {
+      diagnostics.push(
+        createPlannerDiagnostic(
+          "validation",
+          "planner_subagent_budget_hint_too_small",
+          `Planner subagent step "${step.name}" uses a max_budget_hint below the delegation minimum`,
+          {
+            stepName: step.name,
+            maxBudgetHint: step.maxBudgetHint,
+            minimumSeconds: Math.floor(MIN_DELEGATION_TIMEOUT_MS / 1000),
+          },
+        ),
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
+export function buildPlannerStepContractRefinementHint(
+  diagnostics: readonly PlannerDiagnostic[],
+): string {
+  const fragments = diagnostics
+    .map((diagnostic) => {
+      if (diagnostic.code === "planner_bash_nested_shell_forbidden") {
+        return "do not use `bash -c` or `sh -c` in deterministic bash steps";
+      }
+      if (
+        diagnostic.code === "planner_bash_shell_syntax_in_direct_args"
+      ) {
+        return "do not place shell separators or redirects in direct-mode bash args; use one executable in `command` with plain operands in `args`, or switch to shell mode";
+      }
+      if (
+        diagnostic.code === "planner_bash_file_materialization_forbidden"
+      ) {
+        return "do not embed heredocs, multiline shell scripts, or inline file contents in deterministic bash steps; use file tools instead";
+      }
+      if (
+        diagnostic.code === "planner_subagent_budget_hint_ambiguous"
+      ) {
+        return `replace bare max_budget_hint values like "${readDiagnosticDetail(diagnostic, "maxBudgetHint") ?? "0.08"}" with explicit units such as \`2m\``;
+      }
+      if (
+        diagnostic.code === "planner_subagent_budget_hint_too_small"
+      ) {
+        return `give subagent steps at least ${readDiagnosticDetail(diagnostic, "minimumSeconds") ?? "60"}s with an explicit unit`;
+      }
+      return diagnostic.message;
+    })
+    .filter((fragment) => fragment.length > 0);
+
+  if (fragments.length === 0) {
+    return (
+      "The previous plan violated runtime step contracts. Re-emit a plan that " +
+      "uses direct bash commands without shell wrappers, keeps file contents out " +
+      "of bash scripts, and uses explicit subagent budget units."
+    );
+  }
+
+  return (
+    "The previous plan violated runtime step contracts. " +
+    `${fragments.join(" | ")}. ` +
+    "Re-emit an executable plan that follows those constraints."
+  );
+}
+
 export function buildExplicitSubagentOrchestrationRefinementHint(
   requirements: ExplicitSubagentOrchestrationRequirements,
   diagnostics: readonly PlannerDiagnostic[] = [],
@@ -1792,6 +2527,18 @@ export function buildExplicitSubagentOrchestrationFailureMessage(
   return lines.join("\n");
 }
 
+export function buildPlannerValidationFailureMessage(
+  diagnostics: readonly PlannerDiagnostic[] = [],
+): string {
+  const lines = [
+    "Planner produced a structured plan that failed local validation, so execution stopped instead of bypassing planner safety checks.",
+  ];
+  for (const diagnostic of diagnostics.slice(0, 3)) {
+    lines.push(`- ${diagnostic.message}`);
+  }
+  return lines.join("\n");
+}
+
 function readDiagnosticDetail(
   diagnostic: PlannerDiagnostic,
   key: string,
@@ -1853,37 +2600,115 @@ export function extractPlannerDecompositionDiagnostics(
   );
 }
 
-export function buildPlannerDecompositionRefinementHint(
+const STRUCTURAL_PLANNER_GRAPH_DIAGNOSTIC_CODES = new Set([
+  "subagent_fanout_exceeded",
+  "cyclic_dependency",
+  "subagent_step_needs_decomposition",
+  "node_workspace_install_phase_mismatch",
+]);
+
+export function extractPlannerStructuralDiagnostics(
+  diagnostics: readonly PlannerDiagnostic[],
+): readonly PlannerDiagnostic[] {
+  return diagnostics.filter((diagnostic) =>
+    STRUCTURAL_PLANNER_GRAPH_DIAGNOSTIC_CODES.has(diagnostic.code)
+  );
+}
+
+export function buildPlannerStructuralRefinementHint(
   diagnostics: readonly PlannerDiagnostic[],
 ): string {
   const fragments = diagnostics
     .map((diagnostic) => {
-      const stepName = readDiagnosticDetail(diagnostic, "stepName") ?? "subagent_step";
-      const phases = readDiagnosticDetail(diagnostic, "phases");
-      const suggestedSteps = readDiagnosticDetail(
-        diagnostic,
-        "suggestedSteps",
-      );
-      const parts = [`step "${stepName}"`];
-      if (phases) {
-        parts.push(`phases: ${phases}`);
+      if (diagnostic.code === "subagent_fanout_exceeded") {
+        return (
+          "reduce the total number of subagent_task steps so it does not exceed " +
+          `maxFanoutPerTurn=${readDiagnosticDetail(diagnostic, "maxFanoutPerTurn") ?? "the configured limit"}`
+        );
       }
-      if (suggestedSteps) {
-        parts.push(`suggested split: ${suggestedSteps}`);
+      if (diagnostic.code === "cyclic_dependency") {
+        return "remove cycles from the step dependency graph";
       }
-      return parts.join("; ");
+      if (diagnostic.code === "subagent_step_needs_decomposition") {
+        const stepName = readDiagnosticDetail(diagnostic, "stepName") ?? "subagent_step";
+        const phases = readDiagnosticDetail(diagnostic, "phases");
+        const suggestedSteps = readDiagnosticDetail(
+          diagnostic,
+          "suggestedSteps",
+        );
+        const parts = [`step "${stepName}"`];
+        if (phases) {
+          parts.push(`phases: ${phases}`);
+        }
+        if (suggestedSteps) {
+          parts.push(`suggested split: ${suggestedSteps}`);
+        }
+        return parts.join("; ");
+      }
+      if (diagnostic.code === "node_workspace_install_phase_mismatch") {
+        const stepName = readDiagnosticDetail(diagnostic, "stepName") ?? "subagent_step";
+        const installSteps = readDiagnosticDetail(diagnostic, "installSteps") ?? "the install step";
+        const verificationModes =
+          readDiagnosticDetail(diagnostic, "verificationModes") ?? "build/test";
+        const requiresPhaseSplit =
+          readDiagnosticDetail(diagnostic, "requiresPhaseSplit") === "true";
+        return requiresPhaseSplit
+          ? `step "${stepName}" mixes manifest/config scaffolding with install-sensitive ${verificationModes} work; keep scaffolding before ${installSteps} and move verification after install`
+          : `step "${stepName}" must depend on ${installSteps} before ${verificationModes} verification`;
+      }
+      return diagnostic.message;
     })
     .filter((fragment) => fragment.length > 0);
+
   if (fragments.length === 0) {
     return (
-      "One or more delegated steps were overloaded. Split the work into smaller " +
-      "phase-scoped subagent_task steps with explicit dependencies."
+      "The previous plan violated structural delegation constraints. Re-emit " +
+      "a smaller acyclic plan whose delegated fanout stays within the runtime limit."
     );
   }
+
   return (
-    "The previous plan contained overloaded delegated steps: " +
+    "The previous plan violated structural delegation constraints: " +
     `${fragments.join(" | ")}. ` +
-    "Split them into smaller phase-scoped subagent_task steps."
+    "Re-emit a smaller acyclic plan that stays within the runtime fanout limit."
+  );
+}
+
+export function buildPlannerDecompositionRefinementHint(
+  diagnostics: readonly PlannerDiagnostic[],
+): string {
+  return buildPlannerStructuralRefinementHint(
+    diagnostics.filter(
+      (diagnostic) => diagnostic.code === "subagent_step_needs_decomposition",
+    ),
+  );
+}
+
+export function buildSalvagedPlannerToolCallRefinementHint(
+  diagnostics: readonly PlannerDiagnostic[],
+): string {
+  const underdecomposed = diagnostics.find(
+    (diagnostic) => diagnostic.code === "salvaged_tool_plan_underdecomposed",
+  );
+  const minimumExpectedSteps = underdecomposed
+    ? readDiagnosticDetail(underdecomposed, "minimumExpectedSteps")
+    : undefined;
+  const expectedSignals = underdecomposed
+    ? readDiagnosticDetail(underdecomposed, "signals")
+    : undefined;
+  const constraintFragments = [
+    minimumExpectedSteps
+      ? `emit at least ${minimumExpectedSteps} dependent step(s)`
+      : "emit multiple dependent steps",
+    expectedSignals ? `cover these request signals: ${expectedSignals}` : "",
+  ].filter((value) => value && value.length > 0);
+
+  return (
+    "The previous planner reply emitted raw tool calls that under-decomposed the request. " +
+    (constraintFragments.length > 0
+      ? `${constraintFragments.join("; ")}. `
+      : "") +
+    "Return strict JSON only and do not collapse the task into a single bootstrap action or direct tool call."
   );
 }
 
@@ -1904,6 +2729,65 @@ export function buildPipelineDecompositionRefinementHint(
     fragments.join(". ") +
     ". Replace the oversized delegated step with smaller dependent subagent_task steps."
   );
+}
+
+export function buildPipelineFailureRepairRefinementHint(params: {
+  readonly pipelineResult: PipelineResult;
+  readonly plannerPlan: PlannerPlan;
+}): string {
+  const failureSpecificRepairHint = buildFailureSpecificRepairHint(
+    params.pipelineResult.error,
+  );
+  const unresolvedSteps = params.plannerPlan.steps
+    .slice(Math.max(0, params.pipelineResult.completedSteps))
+    .map((step) => step.name)
+    .join(", ");
+  const fragments = [
+    `completed ${params.pipelineResult.completedSteps}/${params.pipelineResult.totalSteps} planned steps`,
+    typeof params.pipelineResult.stopReasonHint === "string"
+      ? `stop reason hint: ${params.pipelineResult.stopReasonHint}`
+      : "",
+    unresolvedSteps.length > 0 ? `unresolved steps: ${unresolvedSteps}` : "",
+    typeof params.pipelineResult.error === "string" &&
+      params.pipelineResult.error.trim().length > 0
+      ? `failure details: ${truncateText(params.pipelineResult.error.trim(), 800)}`
+      : "",
+    failureSpecificRepairHint ?? "",
+  ].filter((fragment) => fragment.length > 0);
+  return (
+    "A prior executable plan partially succeeded but failed during deterministic verification. " +
+    "Treat the existing workspace mutations from completed steps as already applied. " +
+    "Re-emit an incremental repair plan that focuses only on the remaining defect, inserts narrow repair subagent_task steps before re-running verification, and avoids redoing successful setup/build work unless the failure evidence proves it is necessary. " +
+    fragments.join(". ")
+  );
+}
+
+function buildFailureSpecificRepairHint(
+  error: string | undefined,
+): string | undefined {
+  if (typeof error !== "string" || error.trim().length === 0) {
+    return undefined;
+  }
+  const normalized = error.toLowerCase();
+  if (
+    normalized.includes('unsupported url type "workspace:"') ||
+    normalized.includes("eunsupportedprotocol")
+  ) {
+    return (
+      "This host package manager rejected `workspace:*`. " +
+      "Do not emit `workspace:*` in generated manifests. Use a host-compatible local dependency reference, then rerun `npm install` on this host before continuing."
+    );
+  }
+  if (
+    normalized.includes('unrecognized option "run"') ||
+    normalized.includes("unrecognized cli parameter")
+  ) {
+    return (
+      "Do not assume `npm test -- --run` works for every workspace. " +
+      "Re-run tests with a runner-compatible single-run command; for Jest prefer `CI=1 npm test` or `jest --runInBand`."
+    );
+  }
+  return undefined;
 }
 
 // ============================================================================
@@ -2073,6 +2957,39 @@ export function parsePlannerStringArray(
     items.push(trimmed);
   }
   return items;
+}
+
+function parsePlannerArgsRecord(
+  value: unknown,
+): Readonly<Record<string, unknown>> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function parsePlannerStringFromKeys(
+  source: Readonly<Record<string, unknown>> | undefined,
+  keys: readonly string[],
+): string | undefined {
+  if (!source) return undefined;
+  for (const key of keys) {
+    const parsed = parsePlannerRequiredString(source[key]);
+    if (parsed) return parsed;
+  }
+  return undefined;
+}
+
+function parsePlannerStringArrayFromKeys(
+  source: Readonly<Record<string, unknown>> | undefined,
+  keys: readonly string[],
+): readonly string[] | undefined {
+  if (!source) return undefined;
+  for (const key of keys) {
+    const parsed = parsePlannerStringArray(source[key]);
+    if (parsed) return parsed;
+  }
+  return undefined;
 }
 
 export function parsePlannerDependsOn(
@@ -2440,6 +3357,26 @@ export function assessAndRecordDelegationDecision(
 
   summaryState.delegationDecision = delegationDecision;
   if (!delegationDecision.shouldDelegate) {
+    const vetoDetails: Record<string, string | number | boolean> = {
+      reason: delegationDecision.reason,
+      threshold: delegationDecision.threshold,
+      utilityScore: Number(
+        delegationDecision.utilityScore.toFixed(4),
+      ),
+      safetyRisk: Number(delegationDecision.safetyRisk.toFixed(4)),
+    };
+    if (
+      delegationDecision.hardBlockedTaskClass &&
+      delegationDecision.hardBlockedTaskClassSource &&
+      delegationDecision.hardBlockedTaskClassSignal
+    ) {
+      vetoDetails.hardBlockedTaskClass =
+        delegationDecision.hardBlockedTaskClass;
+      vetoDetails.hardBlockedTaskClassSource =
+        delegationDecision.hardBlockedTaskClassSource;
+      vetoDetails.hardBlockedTaskClassSignal =
+        delegationDecision.hardBlockedTaskClassSignal;
+    }
     summaryState.routeReason =
       `delegation_veto_${delegationDecision.reason}`;
     summaryState.diagnostics.push({
@@ -2447,14 +3384,7 @@ export function assessAndRecordDelegationDecision(
       code: "delegation_veto",
       message:
         `Delegation vetoed by policy scorer: ${delegationDecision.reason}`,
-      details: {
-        reason: delegationDecision.reason,
-        threshold: delegationDecision.threshold,
-        utilityScore: Number(
-          delegationDecision.utilityScore.toFixed(4),
-        ),
-        safetyRisk: Number(delegationDecision.safetyRisk.toFixed(4)),
-      },
+      details: vetoDetails,
     });
   }
 

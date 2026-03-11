@@ -137,6 +137,7 @@ describe("executeTextChannelTurn", () => {
       systemPrompt: "system",
       chatExecutor: { execute } as any,
       toolHandler: vi.fn() as any,
+      defaultMaxToolRounds: 3,
       traceConfig: {
         enabled: false,
         includeHistory: true,
@@ -154,6 +155,9 @@ describe("executeTextChannelTurn", () => {
 
     expect(returned).toBe(result);
     expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ maxToolRounds: 3 }),
+    );
     expect(recordToolRoutingOutcome).toHaveBeenCalledWith(
       "session:test",
       undefined,
@@ -210,6 +214,7 @@ describe("executeTextChannelTurn", () => {
           }),
         } as any,
         toolHandler: vi.fn() as any,
+        defaultMaxToolRounds: 3,
         traceConfig: {
           enabled: false,
           includeHistory: true,

@@ -12,6 +12,7 @@ vi.mock("node:child_process", () => ({
 
 // Mock fs operations used by shell mode (temp script file)
 vi.mock("node:fs", () => ({
+  existsSync: vi.fn(() => false),
   writeFileSync: vi.fn(),
   unlinkSync: vi.fn(),
 }));
@@ -716,7 +717,7 @@ describe("system.bash tool", () => {
     expect(result.isError).toBe(true);
     const parsed = parseContent(result);
     expect(parsed.error).toContain("shell builtin");
-    expect(parsed.error).toContain("desktop.bash");
+    expect(parsed.error).toContain("omit `args`");
     expect(mockExecFile).not.toHaveBeenCalled();
   });
 
@@ -932,6 +933,25 @@ describe("system.bash tool", () => {
       // Direct mode: execFile with echo, not bash -c
       expect(cmd).toBe("echo");
       expect(args).toEqual(["hello | world"]);
+    });
+
+    it("treats an empty args array like omitted args for shell-mode commands", async () => {
+      const tool = createBashTool();
+      mockSpawnSuccess("tail output\n");
+
+      const result = await tool.execute({
+        command: "cat src/gridRouter.ts | tail -n 60",
+        args: [],
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
+        "cat src/gridRouter.ts | tail -n 60",
+        { mode: 0o700 },
+      );
+      expect(mockSpawn).toHaveBeenCalledOnce();
+      expect(mockExecFile).not.toHaveBeenCalled();
     });
 
     it("does NOT use shell mode for single-token commands without args", async () => {

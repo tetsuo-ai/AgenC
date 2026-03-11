@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { SqliteObservabilityStore } from "./sqlite-store.js";
+import { TraceLogFanout } from "./trace-log-fanout.js";
 import type {
   ObservabilityArtifactResponse,
   ObservabilityEventInput,
@@ -90,11 +91,13 @@ export interface ObservabilityServiceConfig {
   readonly logger?: Logger;
   readonly dbPath?: string;
   readonly daemonLogPath?: string;
+  readonly traceFanoutEnabled?: boolean;
 }
 
 export class ObservabilityService {
   private readonly logger: Logger;
   private readonly store: SqliteObservabilityStore;
+  private readonly traceLogFanout: TraceLogFanout;
   private writeChain: Promise<void> = Promise.resolve();
 
   constructor(config: ObservabilityServiceConfig = {}) {
@@ -103,16 +106,39 @@ export class ObservabilityService {
       dbPath: config.dbPath,
       daemonLogPath: config.daemonLogPath,
     });
+    this.traceLogFanout = new TraceLogFanout({
+      enabled: config.traceFanoutEnabled,
+      daemonLogPath: config.daemonLogPath ?? this.store.getDaemonLogPath(),
+    });
   }
 
   recordEvent(input: ObservabilityEventInput): void {
     const record = deriveEventRecord(input);
     if (!record) return;
     this.writeChain = this.writeChain
-      .then(() => this.store.recordEvent(record))
+      .then(async () => {
+        await Promise.all([
+          this.store.recordEvent(record).catch((error) => {
+            this.logger.warn?.(
+              `Observability event persistence failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }),
+          this.traceLogFanout.writeEvent(record).catch((error) => {
+            this.logger.warn?.(
+              `Observability trace fan-out failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }),
+        ]);
+      })
       .catch((error) => {
         this.logger.warn?.(
-          `Observability event persistence failed: ${error instanceof Error ? error.message : String(error)}`,
+          `Observability event pipeline failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         );
       });
   }
@@ -149,6 +175,7 @@ export class ObservabilityService {
 
   async close(): Promise<void> {
     await this.writeChain;
+    await this.traceLogFanout.close();
     await this.store.close();
   }
 }

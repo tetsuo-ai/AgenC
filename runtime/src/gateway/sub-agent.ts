@@ -15,6 +15,7 @@ import type {
 } from "./session-isolation.js";
 import { createGatewayMessage } from "./message.js";
 import { ChatExecutor } from "../llm/chat-executor.js";
+import type { PromptBudgetConfig } from "../llm/prompt-budget.js";
 import type {
   ChatExecutorResult,
   ToolCallRecord,
@@ -33,6 +34,7 @@ import {
   createExecutionTraceEventLogger,
   createProviderTraceEventLogger,
 } from "../llm/provider-trace-logger.js";
+import { resolveMaxToolRoundsForToolNames } from "./tool-round-budget.js";
 import type {
   DelegationContractSpec,
   DelegationOutputValidationCode,
@@ -132,6 +134,8 @@ export interface SubAgentConfig {
   readonly prompt?: string;
   readonly continuationSessionId?: string;
   readonly timeoutMs?: number;
+  readonly workingDirectory?: string;
+  readonly workingDirectorySource?: "context_requirement" | "task_text";
   readonly workspace?: string;
   readonly tools?: readonly string[];
   readonly requiredCapabilities?: readonly string[];
@@ -173,6 +177,7 @@ export interface SubAgentManagerConfig {
     baseToolHandler: ToolHandler;
     task: string;
     allowedToolNames?: readonly string[];
+    workingDirectory?: string;
     desktopRoutingSessionId: string;
   }) => ToolHandler;
   readonly selectLLMProvider?: (params: {
@@ -182,8 +187,12 @@ export interface SubAgentManagerConfig {
     tools?: readonly string[];
     requiredCapabilities?: readonly string[];
   }) => LLMProvider | undefined;
+  readonly resolveDefaultMaxToolRounds?: () => number | undefined;
   readonly logger?: Logger;
   readonly traceProviderPayloads?: boolean;
+  readonly promptBudget?: PromptBudgetConfig;
+  readonly sessionTokenBudget?: number;
+  readonly onCompaction?: (sessionId: string, summary: string) => void;
 }
 
 export interface SubAgentInfo {
@@ -569,12 +578,27 @@ export class SubAgentManager {
           tools: handle.config.tools,
           requiredCapabilities: handle.config.requiredCapabilities,
         }) ?? context.llmProvider;
+      const defaultMaxToolRounds = this.config.resolveDefaultMaxToolRounds?.();
+      const effectiveMaxToolRounds =
+        typeof defaultMaxToolRounds === "number" &&
+          Number.isFinite(defaultMaxToolRounds)
+          ? resolveMaxToolRoundsForToolNames(
+              Math.max(1, Math.floor(defaultMaxToolRounds)),
+              handle.config.tools,
+            )
+          : undefined;
       const executor = new ChatExecutor({
         providers: [selectedProvider],
         toolHandler,
         allowedTools: handle.config.tools
           ? [...handle.config.tools]
           : undefined,
+        promptBudget: this.config.promptBudget,
+        sessionTokenBudget: this.config.sessionTokenBudget,
+        onCompaction: this.config.onCompaction,
+        ...(typeof effectiveMaxToolRounds === "number"
+          ? { maxToolRounds: effectiveMaxToolRounds }
+          : {}),
       });
 
       const message = createGatewayMessage({
@@ -845,6 +869,7 @@ export class SubAgentManager {
       allowedToolNames: handle.config.tools
         ? [...handle.config.tools]
         : undefined,
+      workingDirectory: handle.config.workingDirectory,
       desktopRoutingSessionId: this.resolveDesktopRoutingSessionId(
         handle.parentSessionId,
       ),

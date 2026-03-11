@@ -5,6 +5,7 @@ import {
   normalizeDoomScreenResolution,
   normalizeToolCallArguments,
   repairToolCallArgumentsFromMessageText,
+  summarizeToolRoundProgress,
   summarizeToolArgumentChanges,
 } from "./chat-executor-tool-utils.js";
 
@@ -20,6 +21,10 @@ describe("chat-executor-tool-utils", () => {
 
     it("returns true for non-zero JSON exitCode", () => {
       expect(didToolCallFail(false, '{"exitCode":1}')).toBe(true);
+    });
+
+    it("returns true for JSON timeout payloads", () => {
+      expect(didToolCallFail(false, '{"timedOut":true,"exitCode":null}')).toBe(true);
     });
 
     it("returns true for MCP plain-text failure signatures", () => {
@@ -176,6 +181,38 @@ describe("chat-executor-tool-utils", () => {
         "screen_resolution",
         "window_visible",
       ]);
+    });
+  });
+
+  describe("summarizeToolRoundProgress", () => {
+    it("tracks verification diagnostics and repair-loop signals", () => {
+      const progress = summarizeToolRoundProgress(
+        [
+          {
+            name: "system.bash",
+            args: { command: "npm", args: ["run", "test"] },
+            result:
+              '{"exitCode":1,"stderr":"AssertionError: expected 0 to be greater than 0"}',
+            isError: false,
+            durationMs: 42,
+          },
+          {
+            name: "system.writeFile",
+            args: { path: "src/core.test.ts", content: "fixed" },
+            result: '{"path":"/tmp/core.test.ts","bytesWritten":5}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+        50,
+        new Set<string>(),
+        new Set<string>(),
+      );
+
+      expect(progress.newVerificationFailureDiagnosticKeys).toBe(1);
+      expect(progress.hadSuccessfulMutation).toBe(true);
+      expect(progress.hadVerificationCall).toBe(true);
+      expect(progress.hadMaterialProgress).toBe(true);
     });
   });
 

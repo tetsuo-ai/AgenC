@@ -162,6 +162,10 @@ export function evaluateSubagentDeterministicChecks(
         issues.push("contract_violation_acceptance_criteria_count");
       } else if (contractValidation.code === "acceptance_evidence_missing") {
         issues.push("acceptance_criteria_not_evidenced");
+      } else if (
+        contractValidation.code === "contradictory_completion_claim"
+      ) {
+        issues.push("child_claimed_completion_with_unresolved_work");
       } else if (contractValidation.code === "low_signal_browser_evidence") {
         issues.push("low_signal_browser_evidence");
       } else if (contractValidation.code === "missing_successful_tool_evidence") {

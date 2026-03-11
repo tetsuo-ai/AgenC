@@ -13,10 +13,12 @@ import type { ChatExecutionTraceEvent } from "../llm/chat-executor-types.js";
 import type { GatewayMessage } from "./message.js";
 import type { Session, SessionManager } from "./session.js";
 import type { ToolRoutingDecision } from "./tool-routing.js";
+import { resolveTurnMaxToolRounds } from "./tool-round-budget.js";
 import {
   buildSessionStatefulOptions,
   persistSessionStatefulContinuation,
 } from "./daemon-session-state.js";
+import { filterSystemPromptForToolRouting } from "./system-prompt-routing.js";
 import {
   logExecutionTraceEvent,
   logProviderPayloadTraceEvent,
@@ -43,6 +45,7 @@ export interface ExecuteTextChannelTurnParams {
   readonly systemPrompt: string;
   readonly chatExecutor: ChatExecutor;
   readonly toolHandler: ToolHandler;
+  readonly defaultMaxToolRounds: number;
   readonly traceConfig: ResolvedTraceLoggingConfig;
   readonly turnTraceId: string;
   readonly memoryBackend?: MemoryBackend | null;
@@ -71,6 +74,7 @@ export async function executeTextChannelTurn(
     systemPrompt,
     chatExecutor,
     toolHandler,
+    defaultMaxToolRounds,
     traceConfig,
     turnTraceId,
     memoryBackend,
@@ -80,17 +84,27 @@ export async function executeTextChannelTurn(
     recordToolRoutingOutcome,
   } = params;
 
+  const toolRoutingDecision = buildToolRoutingDecision(
+    msg.sessionId,
+    msg.content,
+    session.history,
+  );
+  const effectiveSystemPrompt = filterSystemPromptForToolRouting({
+    systemPrompt,
+    routedToolNames: toolRoutingDecision?.routedToolNames,
+  });
+
   if (traceConfig.enabled) {
     const requestTracePayload = {
       traceId: turnTraceId,
       sessionId: msg.sessionId,
       historyLength: session.history.length,
       historyRoleCounts: summarizeRoleCounts(session.history),
-      systemPromptChars: systemPrompt.length,
+      systemPromptChars: effectiveSystemPrompt.length,
       ...(traceConfig.includeSystemPrompt
         ? {
             systemPrompt: truncateToolLogText(
-              systemPrompt,
+              effectiveSystemPrompt,
               traceConfig.maxChars,
             ),
           }
@@ -113,8 +127,10 @@ export async function executeTextChannelTurn(
               sessionId: msg.sessionId,
               historyLength: session.history.length,
               historyRoleCounts: summarizeRoleCounts(session.history),
-              systemPromptChars: systemPrompt.length,
-              ...(traceConfig.includeSystemPrompt ? { systemPrompt } : {}),
+              systemPromptChars: effectiveSystemPrompt.length,
+              ...(traceConfig.includeSystemPrompt
+                ? { systemPrompt: effectiveSystemPrompt }
+                : {}),
               ...(traceConfig.includeHistory
                 ? { history: session.history }
                 : {}),
@@ -123,12 +139,6 @@ export async function executeTextChannelTurn(
         : undefined,
     );
   }
-
-  const toolRoutingDecision = buildToolRoutingDecision(
-    msg.sessionId,
-    msg.content,
-    session.history,
-  );
   if (traceConfig.enabled && toolRoutingDecision) {
     logTraceEvent(
       logger,
@@ -152,12 +162,17 @@ export async function executeTextChannelTurn(
   }
 
   const sessionStateful = buildSessionStatefulOptions(session);
+  const effectiveMaxToolRounds = resolveTurnMaxToolRounds(
+    defaultMaxToolRounds,
+    toolRoutingDecision,
+  );
   const result = await chatExecutor.execute({
     message: msg,
     history: session.history,
-    systemPrompt,
+    systemPrompt: effectiveSystemPrompt,
     sessionId: msg.sessionId,
     toolHandler,
+    maxToolRounds: effectiveMaxToolRounds,
     ...(sessionStateful ? { stateful: sessionStateful } : {}),
     toolRouting: toolRoutingDecision
       ? {

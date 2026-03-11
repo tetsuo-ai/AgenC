@@ -42,6 +42,7 @@ import {
   logProviderPayloadTraceEvent,
   logTraceErrorEvent,
   logTraceEvent,
+  resolveTraceFanoutEnabled,
   resolveTraceLoggingConfig,
   sanitizeLifecyclePayloadData,
   summarizeGatewayMessageForTrace,
@@ -55,6 +56,14 @@ import type { ResolvedTraceLoggingConfig } from "./daemon-trace.js";
 import { WebChatChannel } from "../channels/webchat/plugin.js";
 import { TelegramChannel } from "../channels/telegram/plugin.js";
 import { WorkspaceManager, WorkspaceValidationError } from "./workspace.js";
+import {
+  buildAllowedFilesystemPaths,
+  resolveHostWorkspacePath,
+} from "./host-workspace.js";
+import {
+  probeHostToolingProfile,
+  type HostToolingProfile,
+} from "./host-tooling.js";
 import {
   SessionIsolationManager,
   type SubAgentSessionIdentity,
@@ -182,6 +191,7 @@ import {
   getDefaultWorkspacePath,
   assembleSystemPrompt,
 } from "./workspace-files.js";
+import type { WorkspaceFiles } from "./workspace-files.js";
 import { loadPersonalityTemplate, mergePersonality } from "./personality.js";
 import { SlashCommandRegistry, createDefaultCommands } from "./commands.js";
 import { HookDispatcher, createBuiltinHooks } from "./hooks.js";
@@ -266,6 +276,7 @@ import {
 
 export {
   formatTracePayloadForLog,
+  resolveTraceFanoutEnabled,
   resolveTraceLoggingConfig,
   sanitizeToolResultTextForTrace,
   summarizeToolArgsForLog,
@@ -1038,7 +1049,7 @@ function resolveSubAgentRuntimeConfig(
       : "balanced";
   const baseSpawnDecisionThreshold = Math.min(
     1,
-    Math.max(0, subagents?.spawnDecisionThreshold ?? 0.65),
+    Math.max(0, subagents?.spawnDecisionThreshold ?? 0.2),
   );
   const policyLearning = subagents?.policyLearning;
   const policyLearningArms =
@@ -1447,7 +1458,9 @@ async function runEvalScript(
  *
  * Desktop-enabled sessions get 50 rounds because multi-step desktop automation
  * (open app → type → screenshot → verify → retry) legitimately chains many calls.
- * Text-only chat gets 3 rounds to keep responses snappy.
+ * Text-only chat gets 3 rounds to keep simple responses snappy. Foreground
+ * coding and durable-execution turns can raise their per-turn cap above this
+ * default via resolveTurnMaxToolRounds().
  * Voice delegation uses a separate cap (MAX_DELEGATION_TOOL_ROUNDS = 15) set
  * per-call in voice-bridge.ts.
  */
@@ -1600,6 +1613,7 @@ export interface DaemonManagerConfig {
   configPath: string;
   pidPath?: string;
   logger?: Logger;
+  yolo?: boolean;
 }
 
 export interface DaemonStatus {
@@ -1667,12 +1681,14 @@ export class DaemonManager {
     }
   >();
   private _resolvedContextWindowTokens: number | undefined;
+  private _hostToolingProfile: HostToolingProfile | null = null;
   private _allLlmTools: LLMTool[] = [];
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
   private _primaryLlmConfig: GatewayLLMConfig | undefined = undefined;
   private _toolRouter: ToolRouter | null = null;
   private _baseToolHandler: ToolHandler | null = null;
+  private _defaultForegroundMaxToolRounds = 10;
   private _desktopManager:
     | import("../desktop/manager.js").DesktopSandboxManager
     | null = null;
@@ -1742,6 +1758,7 @@ export class DaemonManager {
   private readonly configPath: string;
   private readonly pidPath: string;
   private readonly logger: Logger;
+  private readonly yolo: boolean;
   private readonly resolveDelegationToolContext: DelegationToolCompositionResolver =
     (): DelegationToolCompositionContext | undefined => {
       if (
@@ -1764,15 +1781,17 @@ export class DaemonManager {
     this.configPath = config.configPath;
     this.pidPath = config.pidPath ?? getDefaultPidPath();
     this.logger = config.logger ?? silentLogger;
+    this.yolo = config.yolo ?? false;
   }
 
-  private initializeObservabilityService(): void {
+  private initializeObservabilityService(logging?: GatewayLoggingConfig): void {
     if (this._observabilityService) {
       setDefaultObservabilityService(this._observabilityService);
       return;
     }
     this._observabilityService = new ObservabilityService({
       logger: this.logger,
+      traceFanoutEnabled: resolveTraceFanoutEnabled(logging),
     });
     setDefaultObservabilityService(this._observabilityService);
   }
@@ -2031,6 +2050,17 @@ export class DaemonManager {
     const workspaceManager = new WorkspaceManager(getDefaultWorkspacePath());
     await this.ensureSubAgentDefaultWorkspace(workspaceManager);
     const traceConfig = resolveTraceLoggingConfig(config.logging);
+    const contextWindowTokens = await this.resolveLlmContextWindowTokens(
+      config.llm,
+    );
+    const subAgentSessionTokenBudget = resolveSessionTokenBudget(
+      config.llm,
+      contextWindowTokens,
+    );
+    const subAgentPromptBudget = buildPromptBudgetConfig(
+      config.llm,
+      contextWindowTokens,
+    );
     const isolationManager = new SessionIsolationManager({
       workspaceManager,
       defaultLLMProvider: createDelegatingSubAgentLLMProvider(
@@ -2062,6 +2092,10 @@ export class DaemonManager {
       contextStartupTimeoutMs: config.desktop?.enabled ? 60_000 : undefined,
       maxConcurrent: resolved.maxConcurrent,
       maxDepth: resolved.maxDepth,
+      promptBudget: subAgentPromptBudget,
+      sessionTokenBudget: subAgentSessionTokenBudget,
+      onCompaction: this.handleCompaction,
+      resolveDefaultMaxToolRounds: () => this._defaultForegroundMaxToolRounds,
       selectLLMProvider: ({ requiredCapabilities, contextProvider }) =>
         this.selectSubagentProviderForTask(
           requiredCapabilities,
@@ -2073,12 +2107,15 @@ export class DaemonManager {
         sessionIdentity,
         baseToolHandler,
         allowedToolNames,
+        workingDirectory,
         desktopRoutingSessionId,
       }) =>
         createSessionToolHandler({
           sessionId: sessionIdentity.subagentSessionId,
           baseHandler: baseToolHandler,
           availableToolNames: allowedToolNames,
+          defaultWorkingDirectory: workingDirectory,
+          scopedFilesystemRoot: workingDirectory,
           desktopRouterFactory: this._desktopRouterFactory ?? undefined,
           routerId: desktopRoutingSessionId,
           send: (response) => {
@@ -2132,6 +2169,11 @@ export class DaemonManager {
     if (gatewayConfig.logging?.level) {
       this.logger.setLevel?.(gatewayConfig.logging.level);
     }
+    const hostWorkspacePath = resolveHostWorkspacePath({
+      config: gatewayConfig,
+      configPath: this.configPath,
+      daemonCwd: process.cwd(),
+    });
 
     await this.configureSubAgentInfrastructure(gatewayConfig);
 
@@ -2164,7 +2206,7 @@ export class DaemonManager {
     });
 
     await gateway.start();
-    this.initializeObservabilityService();
+    this.initializeObservabilityService(gatewayConfig.logging);
 
     // Start desktop sandbox manager before wiring WebChat (commands need it)
     if (gatewayConfig.desktop?.enabled) {
@@ -2178,7 +2220,7 @@ export class DaemonManager {
           gatewayConfig.desktop,
           {
             logger: this.logger,
-            workspacePath: resolvePath(process.cwd()),
+            workspacePath: hostWorkspacePath,
             workspaceAccess: "readwrite",
             workspaceMountPath: "/workspace",
             hostUid:
@@ -2500,11 +2542,23 @@ export class DaemonManager {
       config.llm,
       contextWindowTokens,
     );
+    const promptBudget = buildPromptBudgetConfig(
+      config.llm,
+      contextWindowTokens,
+    );
     const resolvedSubAgentConfig = resolveSubAgentRuntimeConfig(config.llm);
+    await this.refreshHostToolingProfile({
+      enabled: resolvedSubAgentConfig.enabled,
+      logging: config.logging,
+    });
     const plannerPipelineExecutor = this.createPlannerPipelineExecutor(
       pipelineExecutor,
       resolvedSubAgentConfig,
+      promptBudget,
     );
+    const defaultForegroundMaxToolRounds =
+      config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config);
+    this._defaultForegroundMaxToolRounds = defaultForegroundMaxToolRounds;
 
     this._chatExecutor =
       providers.length > 0
@@ -2516,12 +2570,8 @@ export class DaemonManager {
             memoryRetriever,
             learningProvider,
             progressProvider: progressTracker,
-            promptBudget: buildPromptBudgetConfig(
-              config.llm,
-              contextWindowTokens,
-            ),
-            maxToolRounds:
-              config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config),
+            promptBudget,
+            maxToolRounds: defaultForegroundMaxToolRounds,
             plannerEnabled:
               config.llm?.plannerEnabled ?? resolvedSubAgentConfig.enabled,
             plannerMaxTokens: config.llm?.plannerMaxTokens,
@@ -2554,6 +2604,7 @@ export class DaemonManager {
             requestTimeoutMs: config.llm?.requestTimeoutMs,
             retryPolicyMatrix: config.llm?.retryPolicy,
             toolFailureCircuitBreaker: config.llm?.toolFailureCircuitBreaker,
+            resolveHostToolingProfile: () => this._hostToolingProfile,
             pipelineExecutor: plannerPipelineExecutor,
             sessionTokenBudget,
             onCompaction: this.handleCompaction,
@@ -3285,7 +3336,7 @@ export class DaemonManager {
     const isSemanticAvailable = embeddingProvider.name !== "noop";
 
     const memoryRetriever = isSemanticAvailable
-      ? await this.createSemanticMemoryRetriever(embeddingProvider, hooks)
+      ? await this.createSemanticMemoryRetriever(embeddingProvider, hooks, config)
       : this.createMemoryRetriever(memoryBackend);
 
     if (!isSemanticAvailable) {
@@ -3303,16 +3354,17 @@ export class DaemonManager {
   private async createSemanticMemoryRetriever(
     embeddingProvider: Awaited<ReturnType<typeof createEmbeddingProvider>>,
     hooks: HookDispatcher,
+    config: GatewayConfig,
   ): Promise<MemoryRetriever> {
-    const workspacePath = getDefaultWorkspacePath();
+    const workspacePath = this.resolveActiveHostWorkspacePath(config);
     const vectorStore = new InMemoryVectorStore({
       dimension: embeddingProvider.dimension,
     });
 
-    const curatedMemory = new CuratedMemoryManager(
-      join(workspacePath, "MEMORY.md"),
-    );
-    const logManager = new DailyLogManager(join(workspacePath, "logs"));
+    const curatedMemoryPath = join(workspacePath, "MEMORY.md");
+    const dailyLogPath = join(workspacePath, "logs");
+    const curatedMemory = new CuratedMemoryManager(curatedMemoryPath);
+    const logManager = new DailyLogManager(dailyLogPath);
 
     const ingestionEngine = new MemoryIngestionEngine({
       embeddingProvider,
@@ -3331,7 +3383,7 @@ export class DaemonManager {
     }
 
     this.logger.info(
-      `Semantic memory enabled (embedding: ${embeddingProvider.name}, dim: ${embeddingProvider.dimension})`,
+      `Semantic memory enabled (embedding: ${embeddingProvider.name}, dim: ${embeddingProvider.dimension}, workspace: ${workspacePath}, curatedMemoryPath: ${curatedMemoryPath}, dailyLogPath: ${dailyLogPath})`,
     );
 
     return new SemanticMemoryRetriever({
@@ -3906,6 +3958,7 @@ export class DaemonManager {
           systemPrompt,
           chatExecutor,
           toolHandler,
+          defaultMaxToolRounds: this._defaultForegroundMaxToolRounds,
           traceConfig,
           turnTraceId,
           memoryBackend: this._memoryBackend,
@@ -4082,6 +4135,7 @@ export class DaemonManager {
           systemPrompt,
           chatExecutor,
           toolHandler,
+          defaultMaxToolRounds: this._defaultForegroundMaxToolRounds,
           traceConfig,
           turnTraceId,
           memoryBackend: this._memoryBackend,
@@ -4840,15 +4894,80 @@ export class DaemonManager {
     return inferContextWindowTokens(llmConfig);
   }
 
+  private async refreshHostToolingProfile(params: {
+    enabled: boolean;
+    logging?: GatewayLoggingConfig;
+  }): Promise<void> {
+    if (!params.enabled) {
+      this._hostToolingProfile = null;
+      return;
+    }
+
+    const traceConfig = resolveTraceLoggingConfig(params.logging);
+    try {
+      const profile = await probeHostToolingProfile();
+      this._hostToolingProfile = profile;
+      const payload = {
+        traceId: `daemon:host-tooling:${Date.now()}`,
+        sessionId: "daemon",
+        nodeVersion: profile.nodeVersion,
+        npm: profile.npm
+          ? {
+              version: profile.npm.version,
+              workspaceProtocolSupport: profile.npm.workspaceProtocolSupport,
+              ...(profile.npm.workspaceProtocolEvidence
+                ? {
+                    workspaceProtocolEvidence:
+                      profile.npm.workspaceProtocolEvidence,
+                  }
+                : {}),
+            }
+          : null,
+      };
+      if (traceConfig.enabled) {
+        logTraceEvent(
+          this.logger,
+          "subagents.host_tooling_profile_resolved",
+          payload,
+          traceConfig.maxChars,
+          { artifactPayload: payload },
+        );
+        return;
+      }
+      this.logger.info("Resolved host tooling profile", payload);
+    } catch (error) {
+      this._hostToolingProfile = null;
+      const payload = {
+        traceId: `daemon:host-tooling:${Date.now()}`,
+        sessionId: "daemon",
+        error: toErrorMessage(error),
+      };
+      if (traceConfig.enabled) {
+        logTraceErrorEvent(
+          this.logger,
+          "subagents.host_tooling_profile_resolution_failed",
+          payload,
+          traceConfig.maxChars,
+          { artifactPayload: payload },
+        );
+        return;
+      }
+      this.logger.warn("Failed to resolve host tooling profile", payload);
+    }
+  }
+
   private createPlannerPipelineExecutor(
     basePipelineExecutor: PipelineExecutor,
     resolvedSubAgentConfig: ResolvedSubAgentRuntimeConfig,
+    childPromptBudget?: ReturnType<typeof buildPromptBudgetConfig>,
   ): DeterministicPipelineExecutor {
     return new SubAgentOrchestrator({
       fallbackExecutor: basePipelineExecutor,
       resolveSubAgentManager: () => this._subAgentManager,
       resolveLifecycleEmitter: () => this._subAgentLifecycleEmitter,
       resolveTrajectorySink: () => this._delegationTrajectorySink,
+      resolveHostToolingProfile: () => this._hostToolingProfile,
+      childPromptBudget: childPromptBudget ?? undefined,
       allowParallelSubtasks: resolvedSubAgentConfig.allowParallelSubtasks,
       maxParallelSubtasks: resolvedSubAgentConfig.maxConcurrent,
       defaultSubagentTimeoutMs: resolvedSubAgentConfig.defaultTimeoutMs,
@@ -4894,13 +5013,25 @@ export class DaemonManager {
         newConfig.llm,
         contextWindowTokens,
       );
+      const promptBudget = buildPromptBudgetConfig(
+        newConfig.llm,
+        contextWindowTokens,
+      );
       const resolvedSubAgentConfig = resolveSubAgentRuntimeConfig(
         newConfig.llm,
       );
+      await this.refreshHostToolingProfile({
+        enabled: resolvedSubAgentConfig.enabled,
+        logging: newConfig.logging,
+      });
+      const defaultForegroundMaxToolRounds =
+        newConfig.llm?.maxToolRounds ?? getDefaultMaxToolRounds(newConfig);
+      this._defaultForegroundMaxToolRounds = defaultForegroundMaxToolRounds;
       const plannerPipelineExecutor = pipelineExecutor
         ? this.createPlannerPipelineExecutor(
             pipelineExecutor,
             resolvedSubAgentConfig,
+            promptBudget,
           )
         : undefined;
       const providers = await this.createLLMProviders(
@@ -4918,13 +5049,8 @@ export class DaemonManager {
               memoryRetriever,
               learningProvider,
               progressProvider,
-              promptBudget: buildPromptBudgetConfig(
-                newConfig.llm,
-                contextWindowTokens,
-              ),
-              maxToolRounds:
-                newConfig.llm?.maxToolRounds ??
-                getDefaultMaxToolRounds(newConfig),
+              promptBudget,
+              maxToolRounds: defaultForegroundMaxToolRounds,
               plannerEnabled:
                 newConfig.llm?.plannerEnabled ?? resolvedSubAgentConfig.enabled,
               plannerMaxTokens: newConfig.llm?.plannerMaxTokens,
@@ -4961,6 +5087,7 @@ export class DaemonManager {
               retryPolicyMatrix: newConfig.llm?.retryPolicy,
               toolFailureCircuitBreaker:
                 newConfig.llm?.toolFailureCircuitBreaker,
+              resolveHostToolingProfile: () => this._hostToolingProfile,
               pipelineExecutor: plannerPipelineExecutor,
               sessionTokenBudget,
               onCompaction: this.handleCompaction,
@@ -5000,9 +5127,16 @@ export class DaemonManager {
     await ensureChromiumCompatShims(config, safeEnv.PATH, this.logger);
     await ensureAgencRuntimeShim(config, safeEnv.PATH, this.logger);
 
-    // Security: Do NOT use unrestricted mode — the default deny list prevents
-    // dangerous commands (rm -rf, curl for exfiltration, etc.) from being
-    // executed via LLM tool calling / prompt injection attacks.
+    const unrestrictedHostExec = this.yolo;
+    if (unrestrictedHostExec) {
+      this.logger.warn(
+        "YOLO mode enabled: host execution deny lists are disabled for system.bash, system.process*, and system.server* tools.",
+      );
+    }
+
+    // Security: By default, do NOT use unrestricted mode — the default deny
+    // list prevents dangerous commands (rm -rf, curl for exfiltration, etc.)
+    // from being executed via LLM tool calling / prompt injection attacks.
     //
     // On macOS desktop agents, allow process management (killall, pkill) and
     // network tools for closing apps — the security boundary is Telegram user auth.
@@ -5017,6 +5151,7 @@ export class DaemonManager {
         logger: this.logger,
         env: safeEnv,
         denyExclusions: bashDenyExclusions,
+        unrestricted: unrestrictedHostExec,
         timeoutMs: config.desktop?.enabled ? 300_000 : undefined,
         maxTimeoutMs: config.desktop?.enabled ? 600_000 : undefined,
       }),
@@ -5026,6 +5161,7 @@ export class DaemonManager {
         logger: this.logger,
         env: safeEnv,
         denyExclusions: structuredExecDenyExclusions,
+        unrestricted: unrestrictedHostExec,
         onLifecycleEvent: async (event) => {
           if (event.state !== "exited" && event.state !== "failed") {
             return;
@@ -5072,7 +5208,11 @@ export class DaemonManager {
     registry.registerAll(
       createSandboxTools({
         logger: this.logger,
-        workspacePath: process.cwd(),
+        workspacePath: resolveHostWorkspacePath({
+          config,
+          configPath: this.configPath,
+          daemonCwd: process.cwd(),
+        }),
       }),
     );
     registry.registerAll(
@@ -5080,19 +5220,21 @@ export class DaemonManager {
         logger: this.logger,
         env: safeEnv,
         denyExclusions: structuredExecDenyExclusions,
+        unrestricted: unrestrictedHostExec,
       }),
     );
     registry.registerAll(createHttpTools({}, this.logger));
 
     // Security: Restrict filesystem access to workspace + project root + Desktop + /tmp.
     // Excludes ~/.ssh, ~/.gnupg, ~/.config/solana (private keys), etc.
-    const workspacePath = join(homedir(), ".agenc", "workspace");
-    const desktopPath = join(homedir(), "Desktop");
-    const projectPath = resolvePath(process.cwd());
-    const allowedFilesystemPaths = [workspacePath, desktopPath, "/tmp"];
-    if (projectPath !== "/" && !allowedFilesystemPaths.includes(projectPath)) {
-      allowedFilesystemPaths.push(projectPath);
-    }
+    const allowedFilesystemPaths = buildAllowedFilesystemPaths({
+      hostWorkspacePath: resolveHostWorkspacePath({
+        config,
+        configPath: this.configPath,
+        daemonCwd: process.cwd(),
+      }),
+      homePath: homedir(),
+    });
     registry.registerAll(
       createFilesystemTools({
         allowedPaths: allowedFilesystemPaths,
@@ -7651,6 +7793,22 @@ export class DaemonManager {
       activityData[key] = value;
     }
 
+    const traceConfig = resolveTraceLoggingConfig(
+      this.gateway?.config.logging,
+    );
+    if (traceConfig.enabled) {
+      logTraceEvent(
+        this.logger,
+        event.type,
+        {
+          ...activityData,
+          ...(traceId ? { traceId } : {}),
+          ...(parentTraceId ? { parentTraceId } : {}),
+        },
+        traceConfig.maxChars,
+      );
+    }
+
     webChat.broadcastEvent(event.type, {
       ...activityData,
       ...(traceId ? { traceId } : {}),
@@ -8294,6 +8452,7 @@ export class DaemonManager {
       hooks,
       memoryBackend,
       sessionTokenBudget,
+      defaultMaxToolRounds: this._defaultForegroundMaxToolRounds,
       contextWindowTokens,
       traceConfig,
       turnTraceId,
@@ -8426,6 +8585,7 @@ export class DaemonManager {
     hooks: HookDispatcher;
     memoryBackend: MemoryBackend;
     sessionTokenBudget: number;
+    defaultMaxToolRounds: number;
     contextWindowTokens?: number;
     traceConfig: ResolvedTraceLoggingConfig;
     turnTraceId: string;
@@ -8442,6 +8602,7 @@ export class DaemonManager {
       hooks,
       memoryBackend,
       sessionTokenBudget,
+      defaultMaxToolRounds,
       contextWindowTokens,
       traceConfig,
       turnTraceId,
@@ -8463,6 +8624,7 @@ export class DaemonManager {
         hooks,
         memoryBackend,
         sessionTokenBudget,
+        defaultMaxToolRounds,
         contextWindowTokens,
         traceConfig,
         turnTraceId,
@@ -8588,7 +8750,9 @@ export class DaemonManager {
       '1. **Direct mode**: `command` = executable name, `args` = flags/operands array (e.g. `command:"git", args:["status"]`).\n' +
       '2. **Shell mode**: `command` = full shell string, omit `args` (e.g. `command:"cat /tmp/data | jq .name"`).\n\n' +
       "Shell mode supports pipes, redirects, backgrounding (`&`), chaining (`&&`, `||`, `;`), and subshells. " +
-      "Dangerous patterns (sudo, rm -rf /, reverse shells, bash -c nesting) are blocked. " +
+      (this.yolo
+        ? "YOLO mode is enabled for host execution, so the usual host deny lists are disabled for system.bash, system.process*, and system.server* tools. Avoid destructive commands unless the user explicitly wants them. "
+        : "Dangerous patterns (sudo, rm -rf /, reverse shells, bash -c nesting) are blocked. ") +
       "You should use your tools proactively to fulfill requests.\n\n";
 
     if (desktopEnabled && !isMac && environment === "both") {
@@ -8754,22 +8918,38 @@ export class DaemonManager {
 
     const additionalContext =
       desktopContext + planningInstruction + modelDisclosureContext;
-    const workspacePath = getDefaultWorkspacePath();
+    const workspacePath = this.resolveActiveHostWorkspacePath(config);
     const loader = new WorkspaceLoader(workspacePath);
 
     try {
       const workspaceFiles = await loader.load();
-      // If at least AGENT.md exists, use workspace-driven prompt
+      // If at least AGENT.md exists, use workspace-driven prompt from the active host workspace.
       if (workspaceFiles.agent) {
         const prompt = assembleSystemPrompt(workspaceFiles, {
           additionalContext,
           maxLength: MAX_SYSTEM_PROMPT_CHARS,
         });
-        this.logger.info("System prompt loaded from workspace files");
+        this.logger.info(
+          `System prompt loaded from host workspace files: ${workspacePath}`,
+        );
         return prompt;
       }
     } catch {
       // Workspace directory doesn't exist or is unreadable — fall back
+    }
+
+    if (resolvePath(workspacePath) !== resolvePath(getDefaultWorkspacePath())) {
+      const prompt = assembleSystemPrompt(
+        this.buildGenericHostWorkspacePromptFiles(config),
+        {
+          additionalContext,
+          maxLength: MAX_SYSTEM_PROMPT_CHARS,
+        },
+      );
+      this.logger.info(
+        `System prompt loaded from generic host-workspace fallback: ${workspacePath}`,
+      );
+      return prompt;
     }
 
     // Fall back to personality template
@@ -8782,8 +8962,62 @@ export class DaemonManager {
       additionalContext,
       maxLength: MAX_SYSTEM_PROMPT_CHARS,
     });
-    this.logger.info("System prompt loaded from default personality template");
+    this.logger.info(
+      `System prompt loaded from default personality template: ${getDefaultWorkspacePath()}`,
+    );
     return prompt;
+  }
+
+  private resolveActiveHostWorkspacePath(config: GatewayConfig): string {
+    return resolveHostWorkspacePath({
+      config,
+      configPath: this.configPath,
+      daemonCwd: process.cwd(),
+    });
+  }
+
+  private buildGenericHostWorkspacePromptFiles(
+    config: GatewayConfig,
+  ): WorkspaceFiles {
+    const agentName = config.agent?.name?.trim() || "AgenC";
+    return {
+      agent: `# Agent Configuration
+
+## Name
+${agentName}
+
+## Role
+A helpful AI assistant for local engineering and automation tasks.
+
+## Instructions
+- Respond helpfully, directly, and accurately
+- Use available tools proactively when they materially advance the task
+- Prefer grounded verification over speculation
+- Stay focused on the user's stated objective
+`,
+      soul: `# Soul
+
+## Personality
+- Helpful and direct
+- Technically rigorous
+- Pragmatic about verification
+
+## Tone
+Concise and action-oriented.
+`,
+      user: `# User Preferences
+
+## Preferences
+- Response length: Concise
+`,
+      tools: `# Tool Guidelines
+
+## Available Tools
+- Use local filesystem and shell tools for engineering work
+- Verify builds, tests, and command outputs when they are part of the task
+- Avoid unrelated protocol or social workflows unless the user explicitly requests them
+`,
+    };
   }
 
   /**

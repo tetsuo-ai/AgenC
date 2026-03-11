@@ -8,6 +8,8 @@
  */
 
 import type { ControlResponse } from './types.js';
+import { existsSync } from 'node:fs';
+import { isAbsolute, relative, resolve as resolvePath } from 'node:path';
 import type { ToolHandler } from '../llm/types.js';
 import {
   didToolCallFail,
@@ -39,10 +41,325 @@ const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
   "system.makeDir": "system.mkdir",
   "system.listFiles": "system.listDir",
 };
+const TOOL_DEFAULT_CWD_NAMES = new Set([
+  "system.bash",
+  "system.processStart",
+  "system.serverStart",
+]);
+const TOOL_PATH_ARG_KEYS: Readonly<Record<string, readonly string[]>> = {
+  "system.readFile": ["path"],
+  "system.writeFile": ["path"],
+  "system.appendFile": ["path"],
+  "system.listDir": ["path"],
+  "system.stat": ["path"],
+  "system.mkdir": ["path"],
+  "system.delete": ["path"],
+  "system.move": ["source", "destination"],
+  "system.pdfInfo": ["path"],
+  "system.pdfExtractText": ["path"],
+  "system.officeDocumentInfo": ["path"],
+  "system.officeDocumentExtractText": ["path"],
+  "system.emailMessageInfo": ["path"],
+  "system.emailMessageExtractText": ["path"],
+  "system.calendarInfo": ["path"],
+  "system.calendarRead": ["path"],
+  "system.sqliteSchema": ["path"],
+  "system.sqliteQuery": ["path"],
+  "system.spreadsheetInfo": ["path"],
+  "system.spreadsheetRead": ["path"],
+};
+const ROOT_SCOPED_COMMAND_TOOLS = new Set([
+  "system.bash",
+  "desktop.bash",
+  "system.processStart",
+  "system.serverStart",
+]);
+const ABSOLUTE_PATH_ARG_RE = /^(?:~\/|\/)/;
+const SHELL_PATH_LITERAL_RE =
+  /(?<![A-Za-z0-9._~:/-])(?<path>(?:~\/|\/)[^\s"'`|;&<>()[\]{}]+)/g;
 
 function normalizeToolName(name: string): string {
   const alias = TOOL_NAME_ALIASES[name];
   return typeof alias === "string" ? alias : name;
+}
+
+function isRelativeLocalPath(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (isAbsolute(trimmed) || trimmed.startsWith("~")) {
+    return false;
+  }
+  return !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed);
+}
+
+function pathExists(candidatePath: string): boolean {
+  try {
+    return existsSync(candidatePath);
+  } catch {
+    return false;
+  }
+}
+
+function referencesAbsolutePathWithinRoot(
+  toolName: string,
+  args: Record<string, unknown>,
+  rootPath: string,
+): boolean {
+  const normalizedRoot = normalizeScopedPathCandidate(rootPath);
+  if ((toolName === "system.bash" || toolName === "desktop.bash")) {
+    if (Array.isArray(args.args)) {
+      for (const arg of args.args) {
+        if (typeof arg !== "string" || !ABSOLUTE_PATH_ARG_RE.test(arg.trim())) {
+          continue;
+        }
+        const candidatePath = normalizeScopedPathCandidate(arg);
+        if (isWithinRoot(normalizedRoot, candidatePath)) {
+          return true;
+        }
+      }
+    } else if (typeof args.command === "string") {
+      for (const pathValue of extractAbsoluteShellPaths(args.command)) {
+        const candidatePath = normalizeScopedPathCandidate(pathValue);
+        if (isWithinRoot(normalizedRoot, candidatePath)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+interface DefaultWorkingDirectoryApplication {
+  readonly args: Record<string, unknown>;
+  readonly missingDefaultWorkingDirectory?: {
+    readonly path: string;
+    readonly bootstrapPermitted: boolean;
+  };
+}
+
+function applyDefaultWorkingDirectory(
+  toolName: string,
+  args: Record<string, unknown>,
+  defaultWorkingDirectory?: string,
+): DefaultWorkingDirectoryApplication {
+  const workingDirectory = defaultWorkingDirectory?.trim();
+  if (!workingDirectory) {
+    return { args };
+  }
+
+  let nextArgs = args;
+  const cwdValue = typeof nextArgs.cwd === "string"
+    ? nextArgs.cwd.trim()
+    : undefined;
+  const hasExplicitCwd = typeof cwdValue === "string" && cwdValue.length > 0;
+  const logicalWorkingDirectory = cwdValue && isRelativeLocalPath(cwdValue)
+    ? resolvePath(workingDirectory, cwdValue)
+    : (cwdValue ?? workingDirectory);
+  const shouldInjectDefaultCwd = TOOL_DEFAULT_CWD_NAMES.has(toolName);
+  let executionWorkingDirectory: string | undefined = logicalWorkingDirectory;
+  let missingDefaultWorkingDirectory:
+    | DefaultWorkingDirectoryApplication["missingDefaultWorkingDirectory"]
+    | undefined;
+
+  if (
+    shouldInjectDefaultCwd &&
+    !hasExplicitCwd &&
+    !pathExists(logicalWorkingDirectory)
+  ) {
+    executionWorkingDirectory = undefined;
+    missingDefaultWorkingDirectory = {
+      path: logicalWorkingDirectory,
+      bootstrapPermitted: referencesAbsolutePathWithinRoot(
+        toolName,
+        nextArgs,
+        logicalWorkingDirectory,
+      ),
+    };
+  }
+
+  if (
+    shouldInjectDefaultCwd &&
+    typeof executionWorkingDirectory === "string" &&
+    nextArgs.cwd !== executionWorkingDirectory
+  ) {
+    nextArgs = { ...nextArgs, cwd: executionWorkingDirectory };
+  }
+
+  const pathArgKeys = TOOL_PATH_ARG_KEYS[toolName];
+  if (!pathArgKeys) {
+    return {
+      args: nextArgs,
+      ...(missingDefaultWorkingDirectory
+        ? { missingDefaultWorkingDirectory }
+        : {}),
+    };
+  }
+
+  for (const key of pathArgKeys) {
+    const value = nextArgs[key];
+    if (typeof value !== "string" || !isRelativeLocalPath(value)) {
+      continue;
+    }
+    if (nextArgs === args) {
+      nextArgs = { ...nextArgs };
+    }
+    nextArgs[key] = resolvePath(logicalWorkingDirectory, value);
+  }
+
+  return {
+    args: nextArgs,
+    ...(missingDefaultWorkingDirectory
+      ? { missingDefaultWorkingDirectory }
+      : {}),
+  };
+}
+
+function buildMissingDefaultWorkingDirectoryError(
+  path: string,
+  bootstrapPermitted: boolean,
+): string {
+  if (bootstrapPermitted) {
+    return (
+      `Delegated working directory "${path}" does not exist yet, so no default cwd was injected. ` +
+      "Retry with an existing cwd or keep targeting that workspace via absolute paths until it exists."
+    );
+  }
+  return (
+    `Delegated working directory "${path}" does not exist yet. ` +
+    "Create it first with system.mkdir or retry the command with an existing cwd."
+  );
+}
+
+function expandHomeDirectory(rawPath: string): string {
+  if (
+    rawPath === "~" ||
+    rawPath.startsWith("~/") ||
+    rawPath.startsWith("~\\")
+  ) {
+    const home = process.env.HOME ?? process.env.USERPROFILE;
+    if (!home || home.trim().length === 0) return rawPath;
+    if (rawPath === "~") return home;
+    return `${home}${rawPath.slice(1)}`;
+  }
+  return rawPath;
+}
+
+function normalizeScopedRootPath(rootPath: string): string {
+  return resolvePath(expandHomeDirectory(rootPath.trim()));
+}
+
+function isWithinRoot(rootPath: string, candidatePath: string): boolean {
+  const rel = relative(rootPath, candidatePath);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function normalizeScopedPathCandidate(rawPath: string): string {
+  return resolvePath(expandHomeDirectory(rawPath.trim()));
+}
+
+function buildScopedRootViolationMessage(
+  detail: string,
+  scopedFilesystemRoot: string,
+): string {
+  return (
+    `Delegated workspace root violation: ${detail}. ` +
+    `Keep all filesystem paths under ${scopedFilesystemRoot}.`
+  );
+}
+
+function extractAbsoluteShellPaths(command: string): readonly string[] {
+  const matches: string[] = [];
+  const seen = new Set<string>();
+  for (const match of command.matchAll(SHELL_PATH_LITERAL_RE)) {
+    const pathValue = match.groups?.path?.trim();
+    if (!pathValue) continue;
+    const normalized = pathValue.replace(/[),.;:]+$/g, "");
+    if (!normalized) continue;
+    const leadingText = command.slice(0, match.index ?? 0).trim();
+    if (leadingText.length === 0) {
+      // First shell token may be an absolute executable path.
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    matches.push(normalized);
+  }
+  return matches;
+}
+
+function validateScopedFilesystemRoot(
+  toolName: string,
+  args: Record<string, unknown>,
+  scopedFilesystemRoot?: string,
+): string | undefined {
+  const root = scopedFilesystemRoot?.trim();
+  if (!root) return undefined;
+  const normalizedRoot = normalizeScopedRootPath(root);
+
+  const pathArgKeys = TOOL_PATH_ARG_KEYS[toolName];
+  if (pathArgKeys) {
+    for (const key of pathArgKeys) {
+      const value = args[key];
+      if (typeof value !== "string" || value.trim().length === 0) continue;
+      const candidatePath = normalizeScopedPathCandidate(value);
+      if (!isWithinRoot(normalizedRoot, candidatePath)) {
+        return buildScopedRootViolationMessage(
+          `${key} must stay under the delegated workspace root`,
+          normalizedRoot,
+        );
+      }
+    }
+  }
+
+  if (ROOT_SCOPED_COMMAND_TOOLS.has(toolName)) {
+    const cwdValue = typeof args.cwd === "string" ? args.cwd.trim() : undefined;
+    if (cwdValue) {
+      const candidateCwd = normalizeScopedPathCandidate(cwdValue);
+      if (!isWithinRoot(normalizedRoot, candidateCwd)) {
+        return buildScopedRootViolationMessage(
+          "cwd must stay under the delegated workspace root",
+          normalizedRoot,
+        );
+      }
+    }
+  }
+
+  if (
+    (toolName === "system.bash" || toolName === "desktop.bash") &&
+    Array.isArray(args.args)
+  ) {
+    for (const arg of args.args) {
+      if (typeof arg !== "string" || !ABSOLUTE_PATH_ARG_RE.test(arg.trim())) {
+        continue;
+      }
+      const candidatePath = normalizeScopedPathCandidate(arg);
+      if (!isWithinRoot(normalizedRoot, candidatePath)) {
+        return buildScopedRootViolationMessage(
+          "command arguments reference a path outside the delegated workspace root",
+          normalizedRoot,
+        );
+      }
+    }
+  }
+
+  if (
+    (toolName === "system.bash" || toolName === "desktop.bash") &&
+    !Array.isArray(args.args) &&
+    typeof args.command === "string"
+  ) {
+    for (const pathValue of extractAbsoluteShellPaths(args.command)) {
+      const candidatePath = normalizeScopedPathCandidate(pathValue);
+      if (!isWithinRoot(normalizedRoot, candidatePath)) {
+        return buildScopedRootViolationMessage(
+          "shell mode command references a path outside the delegated workspace root",
+          normalizedRoot,
+        );
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function isDoomTool(name: string): boolean {
@@ -417,6 +734,10 @@ export interface SessionToolHandlerConfig {
   delegation?: DelegationToolCompositionResolver;
   /** Tool names visible to this session for child delegation scoping. */
   availableToolNames?: readonly string[];
+  /** Optional working directory used to rebase relative delegated tool args. */
+  defaultWorkingDirectory?: string;
+  /** Optional delegated workspace root. Absolute/tilde path escapes are rejected when set. */
+  scopedFilesystemRoot?: string;
   /** Extra metadata attached to tool hook payloads for this handler. */
   hookMetadata?: Record<string, unknown>;
   /** Optional session credential broker for structured secret injection. */
@@ -470,7 +791,33 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     const toolName = normalizeToolName(name);
-    const normalizedArgs = normalizeToolCallArguments(toolName, args);
+    const {
+      args: normalizedArgs,
+      missingDefaultWorkingDirectory,
+    } = applyDefaultWorkingDirectory(
+      toolName,
+      normalizeToolCallArguments(toolName, args),
+      config.defaultWorkingDirectory,
+    );
+    if (
+      missingDefaultWorkingDirectory &&
+      !missingDefaultWorkingDirectory.bootstrapPermitted
+    ) {
+      return JSON.stringify({
+        error: buildMissingDefaultWorkingDirectoryError(
+          missingDefaultWorkingDirectory.path,
+          false,
+        ),
+      });
+    }
+    const scopedRootViolation = validateScopedFilesystemRoot(
+      toolName,
+      normalizedArgs,
+      config.scopedFilesystemRoot,
+    );
+    if (scopedRootViolation) {
+      return JSON.stringify({ error: scopedRootViolation });
+    }
     const delegationContext = delegation?.();
     const subAgentManager = delegationContext?.subAgentManager ?? null;
     const policyEngine = delegationContext?.policyEngine ?? null;

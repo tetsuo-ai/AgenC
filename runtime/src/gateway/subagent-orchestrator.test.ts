@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { DeterministicPipelineExecutor } from "../llm/chat-executor.js";
 import { InMemoryDelegationTrajectorySink } from "../llm/delegation-learning.js";
+import { derivePromptBudgetPlan } from "../llm/prompt-budget.js";
 import type { Pipeline, PipelineResult } from "../workflow/pipeline.js";
 import type { SubAgentConfig, SubAgentResult } from "./sub-agent.js";
 import { SubAgentOrchestrator } from "./subagent-orchestrator.js";
@@ -59,6 +60,23 @@ class FakeSubAgentManager {
             durationMs: 1,
           } as any;
         }
+        if (
+          primaryTool === "system.writeFile" ||
+          primaryTool === "system.appendFile" ||
+          primaryTool === "mcp.neovim.vim_buffer_save" ||
+          primaryTool === "mcp.neovim.vim_search_replace"
+        ) {
+          return {
+            name: primaryTool,
+            args: {
+              path: "/workspace/src/game.js",
+              content: "export const ok = true;\n",
+            },
+            result: '{"path":"/workspace/src/game.js","bytesWritten":24}',
+            isError: false,
+            durationMs: 1,
+          } as any;
+        }
         return {
           name: primaryTool,
           args: {
@@ -80,7 +98,7 @@ class FakeSubAgentManager {
       result: {
         sessionId: id,
         output: this.shouldSucceed
-          ? `${evidenceLines.join("\n")}\n${config.task}`
+          ? `${evidenceLines.join("\n")}\n${config.delegationSpec?.objective ?? config.delegationSpec?.task ?? id}`
           : `failed:${id}`,
         success: this.shouldSucceed,
         durationMs: this.delayMs,
@@ -248,6 +266,95 @@ describe("SubAgentOrchestrator", () => {
     expect(manager.spawnCalls[0]?.requiredCapabilities).toEqual([
       "system.readFile",
     ]);
+  });
+
+  it("passes working-directory context requirements through planner-emitted subagent spawns", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(10, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 10,
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-1:cwd",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "implement_core",
+          stepType: "subagent_task",
+          objective: "Implement the grid router core",
+          inputContract: "Return a short summary",
+          acceptanceCriteria: ["write the core TypeScript files"],
+          requiredToolCapabilities: ["system.writeFile"],
+          contextRequirements: [
+            "repo_context",
+            "working_directory:/home/tetsuo/agent-test/grid-router-ts",
+          ],
+          maxBudgetHint: "1m",
+          canRunParallel: false,
+        },
+      ],
+    };
+
+    const result = await orchestrator.execute(pipeline);
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls[0]?.workingDirectory).toBe(
+      "/home/tetsuo/agent-test/grid-router-ts",
+    );
+    expect(manager.spawnCalls[0]?.delegationSpec?.contextRequirements).toEqual([
+      "repo_context",
+      "working_directory:/home/tetsuo/agent-test/grid-router-ts",
+    ]);
+  });
+
+  it("clamps planner-emitted child budget hints to the shared delegation minimum", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(10, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+    });
+
+    await orchestrator.execute({
+      id: "planner:session-min-budget:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "implement_core",
+          stepType: "subagent_task",
+          objective: "Implement the parser",
+          inputContract: "Project scaffold exists",
+          acceptanceCriteria: ["Parser implementation written"],
+          requiredToolCapabilities: ["system.writeFile"],
+          contextRequirements: ["repo_context"],
+          maxBudgetHint: "0.08",
+          canRunParallel: false,
+        },
+      ],
+      edges: [],
+    });
+
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls[0]?.timeoutMs).toBe(60_000);
   });
 
   it("emits normalized child trajectory records when trajectory sink is configured", async () => {
@@ -802,6 +909,145 @@ describe("SubAgentOrchestrator", () => {
 
     expect(result.status).toBe("completed");
     expect(result.completedSteps).toBe(2);
+  });
+
+  it("reserves default child-token headroom for one repair attempt per planned subagent step", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from log analysis",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/a.log" },
+            result: '{"stdout":"finding a","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Mapped findings to source hotspots",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/b.log" },
+            result: '{"stdout":"finding b","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Sub-agent timed out after 120000ms",
+          success: false,
+          durationMs: 120_000,
+          toolCalls: [],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from demos/tests repair after retry",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/c.log" },
+            result: '{"stdout":"finding c","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 140_000,
+            completionTokens: 10_000,
+            totalTokens: 150_000,
+          },
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      maxCumulativeTokensPerRequestTree: 250_000,
+      pollIntervalMs: 5,
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-token-repair-headroom:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_scope",
+          stepType: "subagent_task",
+          objective: "Analyze logs",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+        },
+        {
+          name: "delegate_map",
+          stepType: "subagent_task",
+          objective: "Map findings to source hotspots",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["runtime_sources"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+          dependsOn: ["delegate_scope"],
+        },
+        {
+          name: "delegate_repair",
+          stepType: "subagent_task",
+          objective: "Create demos and tests",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["workspace_files"],
+          maxBudgetHint: "2m",
+          canRunParallel: true,
+          dependsOn: ["delegate_map"],
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.completedSteps).toBe(3);
+    expect(manager.spawnCalls).toHaveLength(4);
   });
 
   it("honors an explicitly configured child-token ceiling as a hard limit", async () => {
@@ -1521,6 +1767,717 @@ describe("SubAgentOrchestrator", () => {
     expect(taskPrompt).toContain("Assigned phase only: recover_marker");
   });
 
+  it("adds structured shell usage guidance to child prompts when shell tools are allowed", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.writeFile",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-shell-guidance:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "setup_project",
+          stepType: "subagent_task",
+          objective: "Update package.json and scaffold source files.",
+          inputContract: "cwd=/workspace/project",
+          acceptanceCriteria: ["Files updated", "Project layout created"],
+          requiredToolCapabilities: ["file_system_write", "shell_execution"],
+          contextRequirements: ["cwd=/workspace/project"],
+          maxBudgetHint: "3m",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Scaffold the project in /workspace/project.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const step = pipeline.plannerSteps[0]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => { taskPrompt: string };
+    }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
+
+    expect(taskPrompt).toContain(
+      "For `system.bash`/`desktop.bash` direct mode, `command` must be exactly one executable token.",
+    );
+    expect(taskPrompt).toContain(
+      "Use file-write tools for file contents instead of shell heredocs",
+    );
+    expect(taskPrompt).toContain(
+      "Verification commands must be non-interactive and exit on their own.",
+    );
+  });
+
+  it("uses budget-derived caps and structural dependency summaries in child prompts", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      childPromptBudget: {
+        contextWindowTokens: 8_192,
+        maxOutputTokens: 1_024,
+        safetyMarginTokens: 1_024,
+        charPerToken: 4,
+        hardMaxPromptChars: 12_000,
+      },
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.writeFile",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-budgeted-prompt:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "add_tests_readme",
+          stepType: "subagent_task",
+          objective: "Add tests and README for the project.",
+          inputContract: "CLI and demos already exist.",
+          acceptanceCriteria: ["Tests added", "README added"],
+          requiredToolCapabilities: ["system.writeFile", "system.bash"],
+          contextRequirements: ["cwd=/workspace/project"],
+          maxBudgetHint: "5m",
+          canRunParallel: false,
+          dependsOn: ["implement_cli_and_demos"],
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Finish the project in /workspace/project.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const dependencyResult = JSON.stringify({
+      status: "completed",
+      success: true,
+      durationMs: 32655,
+      output: "CLI implemented, demos added, package bin verified.",
+      tokenUsage: { totalTokens: 4321 },
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: { path: "/workspace/project/src/cli.ts" },
+          result: "{\"bytesWritten\":2121}",
+        },
+        {
+          name: "system.bash",
+          args: { command: "npx", args: ["tsc", "--noEmit"] },
+          result: "{\"exitCode\":0}",
+        },
+      ],
+    });
+
+    const step = pipeline.plannerSteps[0]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => { taskPrompt: string };
+    }).buildSubagentTaskPrompt(
+      step,
+      pipeline,
+      { implement_cli_and_demos: dependencyResult },
+      toolScope,
+    );
+
+    const plan = derivePromptBudgetPlan({
+      contextWindowTokens: 8_192,
+      maxOutputTokens: 1_024,
+      safetyMarginTokens: 1_024,
+      charPerToken: 4,
+      hardMaxPromptChars: 12_000,
+    });
+    const maxPromptChars =
+      plan.caps.userChars +
+      plan.caps.historyChars +
+      plan.caps.memoryChars +
+      plan.caps.toolChars +
+      plan.caps.assistantRuntimeChars +
+      plan.caps.otherChars;
+
+    expect(taskPrompt.length).toBeLessThanOrEqual(maxPromptChars);
+    expect(taskPrompt).toContain("\"toolCallSummary\"");
+    expect(taskPrompt).toContain("\"tokenUsage\":{\"totalTokens\":4321}");
+    expect(taskPrompt).not.toContain("\"toolCalls\"");
+  });
+
+  it("injects dependency-derived file context into child prompts", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      childPromptBudget: {
+        contextWindowTokens: 8_192,
+        maxOutputTokens: 1_024,
+        safetyMarginTokens: 1_024,
+        charPerToken: 4,
+        hardMaxPromptChars: 12_000,
+      },
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.writeFile",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-artifact-context:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "demos_tests",
+          stepType: "subagent_task",
+          objective:
+            "Add demo maps and comprehensive Vitest tests covering parser, portals, conveyors, and CLI behavior.",
+          inputContract: "Core and CLI already implemented.",
+          acceptanceCriteria: [
+            "Demo maps present",
+            "All tests pass with Vitest",
+          ],
+          requiredToolCapabilities: ["system.bash", "system.writeFile"],
+          contextRequirements: ["cwd=/workspace/project"],
+          maxBudgetHint: "6m",
+          canRunParallel: false,
+          dependsOn: ["core_implementation", "cli_implementation"],
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Finish the terrain router workspace in /workspace/project.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const coreResult = JSON.stringify({
+      status: "completed",
+      success: true,
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "packages/core/src/index.ts",
+            content:
+              "export function findPath(map: string) { return { overlay: map, path: [], cost: 0, visited: [] }; }",
+          },
+        },
+        {
+          name: "system.bash",
+          args: { command: "cat", args: ["packages/core/package.json"] },
+          result:
+            JSON.stringify({
+              stdout:
+                "{\n  \"name\": \"@terrain-router/core\",\n  \"main\": \"dist/index.js\"\n}",
+            }),
+        },
+      ],
+    });
+    const cliResult = JSON.stringify({
+      status: "completed",
+      success: true,
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "packages/cli/src/cli.ts",
+            content:
+              "import { findPath } from '@terrain-router/core';\nconsole.log(findPath('S.G'));",
+          },
+        },
+      ],
+    });
+
+    const step = pipeline.plannerSteps[0]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => { taskPrompt: string };
+    }).buildSubagentTaskPrompt(
+      step,
+      pipeline,
+      {
+        core_implementation: coreResult,
+        cli_implementation: cliResult,
+      },
+      toolScope,
+    );
+
+    expect(taskPrompt).toContain("Dependency-derived workspace context:");
+    expect(taskPrompt).toContain("[artifact:core_implementation:packages/core/src/index.ts]");
+    expect(taskPrompt).toContain("[artifact:cli_implementation:packages/cli/src/cli.ts]");
+    expect(taskPrompt).toContain("\"dependencyArtifacts\":{");
+    expect(taskPrompt).toContain("\"available\":3");
+  });
+
+  it("injects host tooling constraints into npm workspace child prompts", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.writeFile",
+      ],
+      resolveHostToolingProfile: () => ({
+        nodeVersion: "v25.2.1",
+        npm: {
+          version: "11.7.0",
+          workspaceProtocolSupport: "unsupported",
+          workspaceProtocolEvidence:
+            'Unsupported URL Type "workspace:": workspace:*',
+        },
+      }),
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-host-tooling:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "init_monorepo",
+          stepType: "subagent_task",
+          objective:
+            "Init npm workspace root with package.json, tsconfig, and package manifests for packages/core and packages/cli",
+          inputContract:
+            "Create package.json files and install TypeScript workspace dependencies",
+          acceptanceCriteria: [
+            "workspaces configured",
+            "deps installed",
+          ],
+          requiredToolCapabilities: ["system.bash", "system.writeFile"],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "2m",
+        },
+      ],
+      edges: [],
+    };
+
+    const step = pipeline.plannerSteps[0]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => { taskPrompt: string };
+    }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
+
+    expect(taskPrompt).toContain("Host tooling constraints:");
+    expect(taskPrompt).toContain("workspace:*");
+    expect(taskPrompt).toContain("\"hostTooling\":{");
+    expect(taskPrompt).toContain("\"npmWorkspaceProtocolSupport\":\"unsupported\"");
+  });
+
+  it("uses transitive dependency artifacts to inject host tooling into downstream CLI phases", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+      ],
+      resolveHostToolingProfile: () => ({
+        nodeVersion: "v25.2.1",
+        npm: {
+          version: "11.7.0",
+          workspaceProtocolSupport: "unsupported",
+          workspaceProtocolEvidence:
+            'Unsupported URL Type "workspace:": workspace:*',
+        },
+      }),
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-cli-transitive-host-tooling:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "setup_project_structure",
+          stepType: "subagent_task",
+          objective:
+            "Create npm workspace root plus package manifests for packages/core and packages/cli",
+          inputContract: "Scaffold the package manifests and workspace config",
+          acceptanceCriteria: [
+            "package manifests exist",
+          ],
+          requiredToolCapabilities: ["system.writeFile", "system.bash"],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "2m",
+        },
+        {
+          name: "implement_core_logic",
+          stepType: "subagent_task",
+          objective: "Implement packages/core/src/index.ts findPath logic",
+          inputContract: "Export findPath from packages/core/src/index.ts",
+          acceptanceCriteria: ["findPath exported"],
+          requiredToolCapabilities: ["system.writeFile", "system.readFile"],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "4m",
+          dependsOn: ["setup_project_structure"],
+        },
+        {
+          name: "implement_cli",
+          stepType: "subagent_task",
+          objective:
+            "In packages/cli implement a CLI that depends on @terrain-router/core and builds cleanly",
+          inputContract: "CLI reads stdin or a file argument",
+          acceptanceCriteria: [
+            "Depends on @terrain-router/core",
+            "Builds cleanly",
+          ],
+          requiredToolCapabilities: [
+            "system.readFile",
+            "system.writeFile",
+            "system.bash",
+          ],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "2m",
+          dependsOn: ["implement_core_logic"],
+        },
+      ],
+      edges: [],
+      plannerContext: {
+        parentRequest:
+          "Build /workspace/terrain-router-ts as a new npm + TypeScript workspace with packages/core and packages/cli.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const setupResult = JSON.stringify({
+      status: "completed",
+      success: true,
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "package.json",
+            content:
+              '{ "private": true, "workspaces": ["packages/*"], "scripts": { "build": "tsc -b" } }',
+          },
+          result:
+            '{"path":"package.json","bytesWritten":86}',
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "packages/cli/package.json",
+            content:
+              '{ "name": "@terrain-router/cli", "dependencies": { "@terrain-router/core": "file:../core" } }',
+          },
+          result:
+            '{"path":"packages/cli/package.json","bytesWritten":95}',
+        },
+      ],
+    });
+    const coreResult = JSON.stringify({
+      status: "completed",
+      success: true,
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "packages/core/src/index.ts",
+            content:
+              "export function findPath(map: string, algorithm: 'dijkstra' | 'astar' = 'dijkstra') { return { map, algorithm }; }\n",
+          },
+          result:
+            '{"path":"packages/core/src/index.ts","bytesWritten":118}',
+        },
+      ],
+    });
+
+    const step = pipeline.plannerSteps[2]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => { taskPrompt: string };
+    }).buildSubagentTaskPrompt(
+      step,
+      pipeline,
+      {
+        setup_project_structure: setupResult,
+        implement_core_logic: coreResult,
+      },
+      toolScope,
+    );
+
+    expect(taskPrompt).toContain("[dependency:setup_project_structure]");
+    expect(taskPrompt).toContain("Host tooling constraints:");
+    expect(taskPrompt).toContain("workspace:*");
+    expect(taskPrompt).toContain(
+      "[artifact:setup_project_structure:packages/cli/package.json]",
+    );
+    expect(taskPrompt).toContain(
+      "[artifact:implement_core_logic:packages/core/src/index.ts]",
+    );
+  });
+
+  it("surfaces downstream build and verification contracts in child prompts", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-downstream-contracts:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "implement_core",
+          stepType: "subagent_task",
+          objective: "Implement packages/core/src/index.ts terrain routing logic",
+          inputContract: "Monorepo already scaffolded",
+          acceptanceCriteria: ["findPath exported"],
+          requiredToolCapabilities: [
+            "system.bash",
+            "system.readFile",
+            "system.writeFile",
+          ],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "6m",
+          canRunParallel: false,
+        },
+        {
+          name: "implement_cli",
+          stepType: "subagent_task",
+          objective: "Build the CLI around the core package",
+          inputContract: "Core package implemented and buildable",
+          acceptanceCriteria: ["CLI compiles cleanly"],
+          requiredToolCapabilities: [
+            "system.bash",
+            "system.readFile",
+            "system.writeFile",
+          ],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "3m",
+          canRunParallel: false,
+          dependsOn: ["implement_core"],
+        },
+        {
+          name: "run_test",
+          stepType: "deterministic_tool",
+          tool: "system.bash",
+          args: {
+            command: "npm",
+            args: ["test", "--", "--run"],
+            cwd: "/workspace/terrain-router-ts",
+          },
+          dependsOn: ["implement_cli"],
+        },
+        {
+          name: "run_build",
+          stepType: "deterministic_tool",
+          tool: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build"],
+            cwd: "/workspace/terrain-router-ts",
+          },
+          dependsOn: ["run_test"],
+        },
+      ],
+      plannerContext: {
+        parentRequest:
+          "Build /workspace/terrain-router-ts as a TypeScript workspace and verify it with npm test and npm run build.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const step = pipeline.plannerSteps[0]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => { taskPrompt: string };
+    }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
+
+    expect(taskPrompt).toContain("Downstream execution requirements:");
+    expect(taskPrompt).toContain("`implement_cli` expects: Core package implemented and buildable");
+    expect(taskPrompt).toContain(
+      "Later deterministic verification reruns the workspace test command in non-interactive single-run mode.",
+    );
+    expect(taskPrompt).toContain("Later deterministic verification runs `npm run build`.");
+  });
+
   it("adds semantic fallback tools for implementation steps when planner capabilities are unusable", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
@@ -1755,9 +2712,13 @@ describe("SubAgentOrchestrator", () => {
       totalSteps: pipeline.steps.length,
     }));
     const manager = new FakeSubAgentManager(20, true);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
     const orchestrator = new SubAgentOrchestrator({
       fallbackExecutor: fallback,
       resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
       pollIntervalMs: 10,
       childToolAllowlistStrategy: "inherit_intersection",
       resolveAvailableToolNames: () => ["mcp.browser.browser_tabs"],
@@ -1790,6 +2751,19 @@ describe("SubAgentOrchestrator", () => {
     expect(result.status).toBe("failed");
     expect(result.error).toContain("low-signal browser state checks");
     expect(manager.spawnCalls).toHaveLength(0);
+    const failedEvents = lifecycleEvents.filter(
+      (event) => event.type === "subagents.failed",
+    );
+    expect(failedEvents).toHaveLength(1);
+    expect(failedEvents[0]?.payload).toEqual(
+      expect.objectContaining({
+        stepName: "design_research",
+        stage: "validation",
+      }),
+    );
+    expect(
+      (failedEvents[0]?.payload as { reason?: string } | undefined)?.reason,
+    ).toContain("low-signal browser state checks");
   });
 
   it("retries timeout failures with deterministic backoff and then succeeds", async () => {
@@ -1935,6 +2909,268 @@ describe("SubAgentOrchestrator", () => {
     expect(manager.spawnCalls[1]?.task).toContain(
       "You must invoke one or more of the allowed tools before answering.",
     );
+  });
+
+  it("carries the last validation code into retried child spawns for routing-aware recovery", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output:
+            "**Phase `add_tests_demos` complete** Added demos and tests in `demos/basic.txt` and `packages/core/src/index.test.ts`.",
+          success: true,
+          durationMs: 14,
+          toolCalls: [{
+            name: "system.writeFile",
+            args: {
+              path: "packages/core/src/index.test.ts",
+              content: "test('ok', () => expect(true).toBe(true));\n",
+            },
+            result:
+              '{"path":"packages/core/src/index.test.ts","bytesWritten":42}',
+            durationMs: 2,
+          }],
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output:
+            "Demo maps present at `demos/basic.txt` and `demos/conveyor.txt`.\n" +
+            "All tests pass with Vitest via `vitest run`.\n" +
+            "Coverage for required cases was added in `packages/core/src/index.test.ts`.",
+          success: true,
+          durationMs: 11,
+          toolCalls: [
+            {
+              name: "system.writeFile",
+              args: {
+                path: "packages/core/src/index.test.ts",
+                content: "test('ok', () => expect(true).toBe(true));\n",
+              },
+              result:
+                '{"path":"packages/core/src/index.test.ts","bytesWritten":42}',
+              durationMs: 2,
+            },
+            {
+              name: "system.bash",
+              args: {
+                command: "vitest",
+                args: ["run"],
+              },
+              result:
+                '{"stdout":"PASS","stderr":"","exitCode":0}',
+              durationMs: 3,
+            },
+          ],
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-retry-validation-code:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "add_tests_demos",
+          stepType: "subagent_task",
+          objective:
+            "Add demo maps and comprehensive Vitest tests covering parser, portals, conveyors, unreachable maps, and CLI behavior.",
+          inputContract: "Core+CLI already implemented",
+          acceptanceCriteria: [
+            "Demo maps present",
+            "All tests pass with Vitest",
+            "Coverage for required cases",
+          ],
+          requiredToolCapabilities: ["system.bash", "system.writeFile"],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "3m",
+          canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toMatch(/^(completed|failed)$/);
+    expect(manager.spawnCalls).toHaveLength(2);
+    expect(manager.spawnCalls[1]?.delegationSpec?.lastValidationCode).toBe(
+      "acceptance_evidence_missing",
+    );
+  });
+
+  it("fails blocked successful child outputs without retrying them as completed phases", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output:
+            "**implement_cli blocked** Updated `./packages/cli/src/index.ts`, but the core package is not buildable yet and I cannot finish this phase until that issue is fixed.",
+          success: true,
+          durationMs: 14,
+          toolCalls: [{
+            name: "system.writeFile",
+            args: {
+              path: "packages/cli/src/index.ts",
+              content: "export {};\n",
+            },
+            result:
+              '{"path":"packages/cli/src/index.ts","bytesWritten":10}',
+            durationMs: 3,
+          }],
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-blocked-phase-output:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "implement_cli",
+          stepType: "subagent_task",
+          objective: "Build the CLI package and keep the workspace buildable",
+          inputContract: "Core package implemented and buildable",
+          acceptanceCriteria: ["CLI reads input and outputs summary"],
+          requiredToolCapabilities: ["system.bash", "system.writeFile"],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "3m",
+          canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("blocked or incomplete");
+    expect(result.stopReasonHint).toBe("validation_error");
+    expect(manager.spawnCalls).toHaveLength(1);
+  });
+
+  it("blocks dependent DAG nodes when an upstream delegated step falls back unresolved", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => {
+      const step = pipeline.steps[0]!;
+      return {
+        status: "completed",
+        context: {
+          results: {
+            ...pipeline.context.results,
+            [step.name]: JSON.stringify({ stdout: "verified" }),
+          },
+        },
+        completedSteps: 1,
+        totalSteps: 1,
+      };
+    });
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Tool budget exceeded (24 per request)",
+          success: false,
+          durationMs: 12,
+          toolCalls: [],
+          stopReason: "budget_exceeded",
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      fallbackBehavior: "continue_without_delegation",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-dependency-blocked:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [{ name: "verify_independent", tool: "system.bash", args: {} }],
+      plannerSteps: [
+        {
+          name: "implement_core",
+          stepType: "subagent_task",
+          objective: "Implement the core package",
+          inputContract: "Workspace structure exists",
+          acceptanceCriteria: ["Core builds"],
+          requiredToolCapabilities: ["system.bash", "system.writeFile"],
+          contextRequirements: ["cwd=/workspace/maze-forge"],
+          maxBudgetHint: "3m",
+          canRunParallel: true,
+        },
+        {
+          name: "verify_independent",
+          stepType: "deterministic_tool",
+          tool: "system.bash",
+          args: { command: "npm", args: ["run", "lint"] },
+        },
+        {
+          name: "implement_cli",
+          stepType: "subagent_task",
+          objective: "Implement the CLI package",
+          inputContract: "Core package fully implemented and buildable",
+          acceptanceCriteria: ["CLI builds"],
+          requiredToolCapabilities: ["system.bash", "system.writeFile"],
+          contextRequirements: ["cwd=/workspace/maze-forge"],
+          maxBudgetHint: "3m",
+          canRunParallel: true,
+          dependsOn: ["implement_core"],
+        },
+      ],
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.completedSteps).toBe(2);
+    expect(result.error).toContain("implement_cli");
+    expect(result.error).toContain("implement_core");
+    expect(result.stopReasonHint).toBe("budget_exceeded");
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(fallback.execute).toHaveBeenCalledTimes(1);
+
+    const corePayload = JSON.parse(
+      result.context.results.implement_core ?? "{}",
+    ) as {
+      status?: string;
+      stopReasonHint?: string;
+    };
+    expect(corePayload.status).toBe("delegation_fallback");
+    expect(corePayload.stopReasonHint).toBe("budget_exceeded");
+
+    const cliPayload = JSON.parse(
+      result.context.results.implement_cli ?? "{}",
+    ) as {
+      status?: string;
+      stopReasonHint?: string;
+      unmetDependencies?: Array<{ stepName?: string }>;
+    };
+    expect(cliPayload.status).toBe("dependency_blocked");
+    expect(cliPayload.stopReasonHint).toBe("budget_exceeded");
+    expect(cliPayload.unmetDependencies?.[0]?.stepName).toBe("implement_core");
   });
 
   it("retries child validation failures that return non-completed stop reasons without tool evidence", async () => {

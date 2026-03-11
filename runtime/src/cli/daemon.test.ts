@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonStartOptions } from "./types.js";
 import { createContextCapture } from "./test-utils.js";
+import { generateSystemdUnit } from "../gateway/daemon.js";
 
 const {
   execFileMock,
@@ -60,6 +61,7 @@ vi.mock("../utils/logger.js", () => ({
 }));
 
 import { runStartCommand } from "./daemon.js";
+import { runServiceInstallCommand } from "./daemon.js";
 
 class FakeChildProcess extends EventEmitter {
   readonly pid?: number;
@@ -182,6 +184,76 @@ describe("daemon: runStartCommand", () => {
       status: "error",
       command: "start",
       message: expect.stringContaining("desktop bootstrap failed"),
+    });
+  });
+
+  it("passes --yolo through to the daemon child process", async () => {
+    const child = new FakeChildProcess(65432);
+    forkMock.mockReturnValue(child);
+
+    let pidReady = false;
+    pidFileExistsMock.mockImplementation(async () => pidReady);
+    readPidFileMock.mockImplementation(async () =>
+      pidReady
+        ? { pid: 65432, port: 3100, configPath: "/tmp/config.json" }
+        : null,
+    );
+    sleepMock.mockImplementation(async () => {
+      if (!pidReady) {
+        pidReady = true;
+        child.emit("message", {
+          type: "daemon.ready",
+          pid: 65432,
+          configPath: "/tmp/config.json",
+        });
+      }
+    });
+
+    const { context, outputs, errors } = createContextCapture();
+    const options: DaemonStartOptions = {
+      configPath: "/tmp/config.json",
+      pidPath: "/tmp/daemon.pid",
+      yolo: true,
+    };
+
+    const code = await runStartCommand(context, options);
+
+    expect(code).toBe(0);
+    expect(errors).toHaveLength(0);
+    expect(outputs[0]).toMatchObject({
+      status: "ok",
+      command: "start",
+      yolo: true,
+    });
+    expect(forkMock).toHaveBeenCalledTimes(1);
+    expect(forkMock.mock.calls[0]?.[1]).toContain("--yolo");
+  });
+});
+
+describe("daemon: runServiceInstallCommand", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("includes --yolo in generated systemd units when requested", async () => {
+    const { context, outputs } = createContextCapture();
+    const generateSystemdUnitMock = vi.mocked(generateSystemdUnit);
+    generateSystemdUnitMock.mockReturnValue("[Unit]");
+
+    const code = await runServiceInstallCommand(context, {
+      configPath: "/tmp/config.json",
+      yolo: true,
+    });
+
+    expect(code).toBe(0);
+    expect(generateSystemdUnitMock).toHaveBeenCalledWith({
+      execStart: expect.stringContaining("--yolo"),
+    });
+    expect(outputs[0]).toMatchObject({
+      status: "ok",
+      command: "service.install",
+      platform: "systemd",
+      template: "[Unit]",
     });
   });
 });

@@ -154,6 +154,29 @@ describe("validateGatewayConfig desktop resource limits", () => {
 
 });
 
+describe("validateGatewayConfig workspace host path", () => {
+  it("accepts a non-empty workspace.hostPath string", () => {
+    const config = makeConfig();
+    config.workspace = { hostPath: "/home/tetsuo/agent-test" };
+
+    const result = validateGatewayConfig(config);
+
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects a blank workspace.hostPath string", () => {
+    const config = makeConfig();
+    config.workspace = { hostPath: "   " };
+
+    const result = validateGatewayConfig(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "workspace.hostPath must be a non-empty string",
+    );
+  });
+});
+
 describe("validateGatewayConfig autonomy controls", () => {
   it("accepts autonomy notifications, feature flags, kill switches, and canary settings", () => {
     const result = validateGatewayConfig({

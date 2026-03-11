@@ -147,6 +147,19 @@ export function buildRequiredToolEvidenceRetryInstruction(input: {
       "Create or edit the required files with the allowed file-mutation tools before answering, and name those files in the final output.",
     );
   }
+  if (input.validationCode === "blocked_phase_output") {
+    correctionLines.push(
+      "Do not return a success-path answer that says the phase is blocked or cannot be completed.",
+    );
+    correctionLines.push(
+      "Either fix the blocking issue with the allowed tools and verify the result, or let the failure surface instead of presenting a completed phase.",
+    );
+  }
+  if (input.validationCode === "contradictory_completion_claim") {
+    correctionLines.push(
+      "Do not claim the phase is complete while also mentioning unresolved mismatches, placeholders, or needed follow-up. Fix and verify the issue first, or explicitly report that the phase is blocked.",
+    );
+  }
   return (
     "Delegated output validation failed. " +
     `${input.missingEvidenceMessage}. ` +

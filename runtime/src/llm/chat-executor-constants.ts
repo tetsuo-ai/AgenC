@@ -99,6 +99,13 @@ export const DEFAULT_MAX_RUNTIME_SYSTEM_HINTS = 4;
 export const DEFAULT_PLANNER_MAX_TOKENS = 256;
 /** Bounded planner retries when a delegated step is rejected for decomposition. */
 export const DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS = 2;
+/** Default retries reserved for planner step-contract cleanup before structural replans. */
+export const DEFAULT_PLANNER_MAX_STEP_CONTRACT_RETRIES = 1;
+/**
+ * Additional repair replans allowed after executable planner steps have
+ * already changed the workspace but deterministic verification still fails.
+ */
+export const DEFAULT_PLANNER_MAX_RUNTIME_REPAIR_RETRIES = 1;
 /** Maximum deterministic steps accepted from a planner pass. */
 export const MAX_PLANNER_STEPS = 24;
 /** Parent history slice candidates retained for per-subagent curation. */
@@ -119,6 +126,11 @@ export const DEFAULT_FAILURE_BUDGET_PER_REQUEST = 8;
 export const DEFAULT_TOOL_CALL_TIMEOUT_MS = 180_000;
 /** Default end-to-end timeout for one execute() invocation in ms. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
+/**
+ * Absolute adaptive ceiling for tool rounds.
+ * Keep aligned with gateway config validation for `llm.maxToolRounds`.
+ */
+export const MAX_ADAPTIVE_TOOL_ROUNDS = 64;
 /** Default minimum verifier confidence for accepting subagent outputs. */
 export const DEFAULT_SUBAGENT_VERIFIER_MIN_CONFIDENCE = 0.65;
 /** Default max rounds for verifier/critique loops (initial round included). */

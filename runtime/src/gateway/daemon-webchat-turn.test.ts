@@ -87,6 +87,114 @@ function createResult(
 }
 
 describe("executeWebChatConversationTurn", () => {
+  it("filters protocol prompt sections for generic routed webchat turns", async () => {
+    const logger = createLoggerStub();
+    const memoryBackend = createMemoryBackendStub();
+    const session = createSession();
+    const sessionMgr = {
+      getOrCreate: vi.fn(() => session),
+      appendMessage: vi.fn(),
+      compact: vi.fn(async () => undefined),
+    } as any;
+    const webChat = {
+      createAbortController: vi.fn(() => new AbortController()),
+      clearAbortController: vi.fn(),
+      send: vi.fn(async () => undefined),
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as any;
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const signals = {
+      signalThinking: vi.fn(),
+      signalIdle: vi.fn(),
+    };
+    const execute = vi.fn(async () => createResult());
+
+    await executeWebChatConversationTurn({
+      logger,
+      msg: {
+        sessionId: "session:test",
+        senderId: "operator-1",
+        channel: "webchat",
+        content: "build a local typescript workspace with packages/core, packages/cli, and packages/web",
+      },
+      webChat,
+      chatExecutor: {
+        execute,
+      } as any,
+      sessionMgr,
+      getSystemPrompt: () => `# Agent Configuration
+
+## Role
+A privacy-preserving AI agent on the AgenC protocol.
+
+# Identity
+
+## Addresses
+- Solana: test
+
+# Tool Guidelines
+
+## Available Tools
+- Task operations (list, get, create, claim, complete)
+
+You have broad access to this machine via the system.bash tool.`,
+      sessionToolHandler: vi.fn() as any,
+      sessionStreamCallback: vi.fn(),
+      signals,
+      hooks,
+      memoryBackend,
+      sessionTokenBudget: 16_000,
+      defaultMaxToolRounds: 3,
+      contextWindowTokens: 64_000,
+      traceConfig: {
+        enabled: false,
+        includeHistory: true,
+        includeSystemPrompt: true,
+        includeToolArgs: true,
+        includeToolResults: true,
+        includeProviderPayloads: false,
+        maxChars: 20_000,
+      },
+      turnTraceId: "trace-1",
+      buildToolRoutingDecision: () => ({
+        routedToolNames: ["system.bash", "system.writeFile", "execute_with_agent"],
+        expandedToolNames: ["system.bash", "system.writeFile", "execute_with_agent"],
+        diagnostics: {
+          cacheHit: false,
+          clusterKey: "generic",
+          confidence: 1,
+          totalToolCount: 3,
+          routedToolCount: 3,
+          expandedToolCount: 3,
+          schemaCharsFull: 100,
+          schemaCharsRouted: 30,
+          schemaCharsExpanded: 30,
+          schemaCharsSaved: 70,
+        },
+      }),
+      recordToolRoutingOutcome: vi.fn(),
+      getSessionTokenUsage: () => 0,
+      onModelInfo: vi.fn(),
+      onSubagentSynthesis: vi.fn(),
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.not.stringContaining("Solana: test"),
+      }),
+    );
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining(
+          "You have broad access to this machine via the system.bash tool.",
+        ),
+      }),
+    );
+  });
+
   it("runs the shared webchat turn flow and persists stateful continuity", async () => {
     const logger = createLoggerStub();
     const memoryBackend = createMemoryBackendStub();
@@ -112,6 +220,7 @@ describe("executeWebChatConversationTurn", () => {
     };
     const onModelInfo = vi.fn();
     const onSubagentSynthesis = vi.fn();
+    const execute = vi.fn(async () => result);
     const result = createResult({
       compacted: true,
       toolCalls: [
@@ -172,7 +281,7 @@ describe("executeWebChatConversationTurn", () => {
       },
       webChat,
       chatExecutor: {
-        execute: vi.fn(async () => result),
+        execute,
       } as any,
       sessionMgr,
       getSystemPrompt: () => "system",
@@ -182,6 +291,7 @@ describe("executeWebChatConversationTurn", () => {
       hooks,
       memoryBackend,
       sessionTokenBudget: 16_000,
+      defaultMaxToolRounds: 3,
       contextWindowTokens: 64_000,
       traceConfig: {
         enabled: false,
@@ -216,6 +326,9 @@ describe("executeWebChatConversationTurn", () => {
       sessionId: "session:test",
       content: "reply",
     });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ maxToolRounds: 3 }),
+    );
     expect(webChat.pushToSession).toHaveBeenCalledWith(
       "session:test",
       expect.objectContaining({ type: "chat.usage" }),
@@ -307,6 +420,7 @@ describe("executeWebChatConversationTurn", () => {
       hooks,
       memoryBackend,
       sessionTokenBudget: 16_000,
+      defaultMaxToolRounds: 3,
       contextWindowTokens: 64_000,
       traceConfig: {
         enabled: false,

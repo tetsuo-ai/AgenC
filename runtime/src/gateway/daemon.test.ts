@@ -85,6 +85,7 @@ import {
   formatTracePayloadForLog,
   formatEvalScriptReply,
   didEvalScriptPass,
+  resolveTraceFanoutEnabled,
   resolveBashToolEnv,
   resolveRuntimeSkillDiscoveryPaths,
   resolveBashDenyExclusions,
@@ -115,6 +116,7 @@ import {
   type Session,
 } from "./session.js";
 import type { MemoryBackend } from "../memory/types.js";
+import { HookDispatcher } from "./hooks.js";
 
 function buildSkillMd(name: string): string {
   return `---
@@ -125,6 +127,69 @@ version: 0.1.0
 Body for ${name}.
 `;
 }
+
+describe("DaemonManager host workspace prompt and memory resolution", () => {
+  it("uses a generic local-engineering fallback for non-workspace host paths", async () => {
+    const hostPath = await mkdtemp(join(tmpdir(), "agenc-host-workspace-"));
+    try {
+      const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+      const prompt = await (dm as any).buildSystemPrompt({
+        gateway: { port: 9000 },
+        agent: { name: "host-test" },
+        connection: { rpcUrl: "http://localhost:8899" },
+        workspace: { hostPath },
+      });
+
+      expect(prompt).toContain("local engineering and automation tasks");
+      expect(prompt).not.toContain("AgenC protocol");
+      expect(prompt).not.toContain("Solana");
+      expect(prompt).not.toContain("# Identity");
+      expect(prompt).not.toContain("# Capabilities");
+      expect(prompt).not.toContain("# Reputation");
+    } finally {
+      await rm(hostPath, { recursive: true, force: true });
+    }
+  });
+
+  it("loads curated semantic memory from the configured host workspace", async () => {
+    const hostPath = await mkdtemp(join(tmpdir(), "agenc-host-memory-"));
+    try {
+      await writeFile(
+        join(hostPath, "MEMORY.md"),
+        "# Memory\n\n- host workspace fact\n",
+        "utf-8",
+      );
+
+      const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+      const retriever = await (dm as any).createSemanticMemoryRetriever(
+        {
+          name: "test",
+          dimension: 4,
+          embed: async () => [],
+          embedBatch: async () => [],
+          isAvailable: async () => true,
+        },
+        new HookDispatcher(),
+        {
+          gateway: { port: 9000 },
+          agent: { name: "host-test" },
+          connection: { rpcUrl: "http://localhost:8899" },
+          workspace: { hostPath },
+        },
+      );
+
+      const result = await (retriever as any).retrieveDetailed(
+        "host workspace fact",
+        "session-1",
+      );
+
+      expect(result.content).toContain("host workspace fact");
+      expect(result.content).not.toContain("(Add persistent context here)");
+    } finally {
+      await rm(hostPath, { recursive: true, force: true });
+    }
+  });
+});
 
 // ============================================================================
 // Command availability classifier
@@ -1078,6 +1143,32 @@ describe("resolveTraceLoggingConfig", () => {
       trace: { enabled: true, includeProviderPayloads: true },
     });
     expect(explicit.includeProviderPayloads).toBe(true);
+  });
+});
+
+describe("resolveTraceFanoutEnabled", () => {
+  it("defaults fan-out on when trace logging is enabled", () => {
+    expect(resolveTraceFanoutEnabled(undefined)).toBe(false);
+    expect(
+      resolveTraceFanoutEnabled({
+        trace: {
+          enabled: true,
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("respects explicit fan-out disablement", () => {
+    expect(
+      resolveTraceFanoutEnabled({
+        trace: {
+          enabled: true,
+          fanout: {
+            enabled: false,
+          },
+        },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -2190,6 +2281,41 @@ describe("DaemonManager", () => {
     expect(directResult).toContain("session-scoped tool handler");
   });
 
+  it("disables host execution deny lists when yolo mode is enabled", async () => {
+    const baseline = new DaemonManager({ configPath: "/tmp/config.json" });
+    const baselineRegistry = await (baseline as any).createToolRegistry({
+      desktop: { enabled: false },
+    });
+    const baselineHandler = baselineRegistry.createToolHandler();
+    const denied = await baselineHandler("system.bash", {
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('blocked')"],
+    });
+    expect(denied).toContain("is denied");
+
+    const dm = new DaemonManager({
+      configPath: "/tmp/config.json",
+      yolo: true,
+    });
+    const registry = await (dm as any).createToolRegistry({
+      desktop: { enabled: false },
+    });
+    const handler = registry.createToolHandler();
+    const allowed = await handler("system.bash", {
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('yolo-ok')"],
+    });
+    const parsed = JSON.parse(allowed) as {
+      stdout?: string;
+      stderr?: string;
+      exitCode?: number;
+    };
+
+    expect(parsed.exitCode).toBe(0);
+    expect(parsed.stderr).toBe("");
+    expect(parsed.stdout).toContain("yolo-ok");
+  });
+
   it("hotSwapLLMProvider refreshes the cached provider list", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     const providers = [
@@ -2682,6 +2808,29 @@ describe("DaemonManager", () => {
     await dm.stop();
   });
 
+  it("defaults subagent spawn decision threshold to the calibrated runtime baseline", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: { enabled: true },
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "subagent-default-threshold.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect(dm.subAgentRuntimeConfig?.baseSpawnDecisionThreshold).toBe(0.2);
+    expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(0.2);
+
+    await dm.stop();
+  });
+
   it("resolves delegation controls for aggressiveness, handoff confidence, provider strategy, and hard blocks", async () => {
     vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
       gateway: { port: 9000 },
@@ -2975,6 +3124,69 @@ describe("DaemonManager", () => {
     expect(typeof eventData.traceId).toBe("string");
     expect((eventData.result as Record<string, unknown>).artifactType).toBe(
       "image_data_url",
+    );
+  });
+
+  it("writes relayed subagent lifecycle events into trace logs when trace logging is enabled", () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      setLevel: vi.fn(),
+    };
+    const dm = new DaemonManager({
+      configPath: "/tmp/config.json",
+      logger,
+    });
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as unknown as {
+      pushToSession: (sessionId: string, response: unknown) => void;
+      broadcastEvent: (eventType: string, data: Record<string, unknown>) => void;
+    };
+
+    (dm as any)._activeSessionTraceIds.set("session-parent", "trace-parent");
+    (dm as any)._subAgentManager = {
+      getInfo: vi.fn().mockReturnValue({
+        sessionId: "subagent:child",
+        parentSessionId: "session-parent",
+        status: "failed",
+        startedAt: 1,
+        task: "test",
+      }),
+    };
+    (dm as any).gateway = {
+      config: {
+        logging: {
+          trace: {
+            enabled: true,
+            fanout: { enabled: true },
+          },
+        },
+      },
+    };
+
+    (dm as any).relaySubAgentLifecycleEvent(webChat as any, {
+      type: "subagents.failed",
+      timestamp: 1_234,
+      sessionId: "subagent:child",
+      subagentSessionId: "subagent:child",
+      toolName: "execute_with_agent",
+      payload: {
+        stepName: "add_tests_demos",
+        stage: "validation",
+        reason:
+          "Delegated task requires browser-grounded evidence but no meaningful browser interaction tools remain after policy scoping",
+      },
+    });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("[trace] subagents.failed"),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("\"stepName\":\"add_tests_demos\""),
     );
   });
 

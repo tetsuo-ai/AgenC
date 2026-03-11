@@ -147,6 +147,54 @@ describe("PipelineExecutor", () => {
       expect(result.completedSteps).toBe(0);
     });
 
+    it("returns failed when a resolved tool result reports a timeout", async () => {
+      const handler = createMockToolHandler({
+        "system.bash":
+          '{"exitCode":null,"timedOut":true,"stdout":"FAIL  Tests failed. Watching for file changes...","stderr":"Error: No path found"}',
+      });
+      const executor = createExecutor({ toolHandler: handler });
+      const pipeline = createPipeline([
+        { name: "run", tool: "system.bash", args: { command: "npm", args: ["test"] } },
+      ]);
+
+      const result = await executor.execute(pipeline);
+
+      expect(result.status).toBe("failed");
+      expect(result.error).toContain("Tool timed out before completing.");
+      expect(result.error).toContain("Error: No path found");
+      expect(result.completedSteps).toBe(0);
+    });
+
+    it("emits raw result and semantic error when a deterministic step fails", async () => {
+      const events: Array<Record<string, unknown>> = [];
+      const handler = createMockToolHandler({
+        "system.bash":
+          '{"exitCode":null,"timedOut":true,"stdout":"FAIL  Tests failed. Watching for file changes...","stderr":"Error: No path found"}',
+      });
+      const executor = createExecutor({ toolHandler: handler });
+      const pipeline = createPipeline([
+        { name: "run", tool: "system.bash", args: { command: "npm", args: ["test"] } },
+      ]);
+
+      await executor.execute(pipeline, 0, {
+        onEvent: (event) => {
+          events.push(event as unknown as Record<string, unknown>);
+        },
+      });
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "step_finished",
+            stepName: "run",
+            result:
+              '{"exitCode":null,"timedOut":true,"stdout":"FAIL  Tests failed. Watching for file changes...","stderr":"Error: No path found"}',
+            error: expect.stringContaining("Tool timed out before completing."),
+          }),
+        ]),
+      );
+    });
+
     it("skips failed step with skip policy", async () => {
       const handler = createMockToolHandler(
         { "tool.b": "b-result" },
