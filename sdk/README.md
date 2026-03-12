@@ -36,6 +36,7 @@ const proof = await generateProof(
     agentPubkey: worker.publicKey,
     output: [1n, 2n, 3n, 4n],
     salt: generateSalt(),
+    agentSecret: 12345n,
   },
   { kind: 'remote', endpoint: 'https://prover.example.com' }
 );
@@ -69,7 +70,7 @@ The SDK derives and submits the required verification accounts:
 
 ### Proof functions
 
-- `generateProof(params, proverConfig)` — generates a real RISC Zero proof via a local binary or remote prover
+- `generateProof(params, proverConfig)` — generates a real RISC Zero proof via the remote prover service
 - `computeHashes(taskPda, agentPubkey, output, salt, agentSecret?)` — computes all hash fields without proof generation
 - `generateSalt()` — generates a cryptographically random salt
 

@@ -23,6 +23,14 @@ function validInput(): ProverInput {
     outputCommitment: new Uint8Array(32).fill(4),
     binding: new Uint8Array(32).fill(5),
     nullifier: new Uint8Array(32).fill(6),
+    output: [
+      new Uint8Array(32).fill(7),
+      new Uint8Array(32).fill(8),
+      new Uint8Array(32).fill(9),
+      new Uint8Array(32).fill(10),
+    ],
+    salt: new Uint8Array(32).fill(11),
+    agentSecret: new Uint8Array(32).fill(12),
   };
 }
 
@@ -94,6 +102,38 @@ describe("prove — input validation", () => {
     input.nullifier = new Uint8Array(1);
     await expect(prove(input, remoteConfig)).rejects.toThrow(
       "nullifier must be exactly 32 bytes",
+    );
+  });
+
+  it("rejects output arrays with the wrong element count", async () => {
+    const input = validInput();
+    input.output = [new Uint8Array(32).fill(7)];
+    await expect(prove(input, remoteConfig)).rejects.toThrow(
+      "output must contain exactly 4 field elements",
+    );
+  });
+
+  it("rejects output elements that are not 32 bytes", async () => {
+    const input = validInput();
+    input.output[2] = new Uint8Array(31);
+    await expect(prove(input, remoteConfig)).rejects.toThrow(
+      "output[2] must be exactly 32 bytes",
+    );
+  });
+
+  it("rejects salt that is not 32 bytes", async () => {
+    const input = validInput();
+    input.salt = new Uint8Array(16);
+    await expect(prove(input, remoteConfig)).rejects.toThrow(
+      "salt must be exactly 32 bytes",
+    );
+  });
+
+  it("rejects agentSecret that is not 32 bytes", async () => {
+    const input = validInput();
+    input.agentSecret = new Uint8Array(48);
+    await expect(prove(input, remoteConfig)).rejects.toThrow(
+      "agentSecret must be exactly 32 bytes",
     );
   });
 });
@@ -233,7 +273,7 @@ describe("prove — remote backend", () => {
     });
   });
 
-  it("sends correct JSON body with all 6 fields", async () => {
+  it("sends correct JSON body with public fields and witness", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(validOutputPayload()),
@@ -252,6 +292,9 @@ describe("prove — remote backend", () => {
     );
     expect(body.binding).toEqual(Array.from(input.binding));
     expect(body.nullifier).toEqual(Array.from(input.nullifier));
+    expect(body.output).toEqual(input.output.map((field) => Array.from(field)));
+    expect(body.salt).toEqual(Array.from(input.salt));
+    expect(body.agent_secret).toEqual(Array.from(input.agentSecret));
   });
 });
 
