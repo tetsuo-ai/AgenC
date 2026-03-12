@@ -20,6 +20,7 @@ import {
   generateSalt,
   generateProof,
   FIELD_MODULUS,
+  bigintToBytes32,
 } from "../proofs";
 import {
   OUTPUT_FIELD_COUNT,
@@ -579,6 +580,7 @@ describe("proofs", () => {
             agentPubkey,
             output: [1n, 2n, 3n, 4n],
             salt: 0n,
+            agentSecret: 12345n,
           },
           { kind: "remote", endpoint: "https://test.com" },
         ),
@@ -689,13 +691,14 @@ describe("proofs", () => {
       const expectedJournal = buildExpectedJournal(params);
       const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BYTES_LEN, 0xab);
       const fakeImageId = Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xcd);
+      const proveMock = vi.fn().mockResolvedValue({
+        sealBytes: fakeSealBytes,
+        journal: expectedJournal,
+        imageId: fakeImageId,
+      });
 
       vi.doMock("../prover", () => ({
-        prove: vi.fn().mockResolvedValue({
-          sealBytes: fakeSealBytes,
-          journal: expectedJournal,
-          imageId: fakeImageId,
-        }),
+        prove: proveMock,
       }));
 
       const { generateProof: fn } = await import("../proofs");
@@ -718,6 +721,23 @@ describe("proofs", () => {
       expect(result.nullifier.length).toBe(32);
       expect(result.proofSize).toBe(RISC0_SEAL_BYTES_LEN - RISC0_SELECTOR_LEN);
       expect(result.generationTime).toBeGreaterThanOrEqual(0);
+      expect(proveMock).toHaveBeenCalledTimes(1);
+
+      const proveInput = proveMock.mock.calls[0][0];
+      expect(proveInput.taskPda).toEqual(new Uint8Array(params.taskPda.toBytes()));
+      expect(proveInput.agentAuthority).toEqual(
+        new Uint8Array(params.agentPubkey.toBytes()),
+      );
+      expect(proveInput.output).toEqual([
+        Uint8Array.from(bigintToBytes32(1n)),
+        Uint8Array.from(bigintToBytes32(2n)),
+        Uint8Array.from(bigintToBytes32(3n)),
+        Uint8Array.from(bigintToBytes32(4n)),
+      ]);
+      expect(proveInput.salt).toEqual(Uint8Array.from(bigintToBytes32(12345n)));
+      expect(proveInput.agentSecret).toEqual(
+        Uint8Array.from(bigintToBytes32(67890n)),
+      );
 
       vi.doUnmock("../prover");
     });

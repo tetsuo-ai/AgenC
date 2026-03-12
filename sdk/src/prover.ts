@@ -10,6 +10,7 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   HASH_SIZE,
+  OUTPUT_FIELD_COUNT,
 } from "./constants.js";
 import { validateProverEndpoint } from "./validation.js";
 
@@ -32,6 +33,9 @@ export interface ProverInput {
   outputCommitment: Uint8Array;
   binding: Uint8Array;
   nullifier: Uint8Array;
+  output: Uint8Array[];
+  salt: Uint8Array;
+  agentSecret: Uint8Array;
 }
 
 export class ProverError extends Error {
@@ -56,6 +60,18 @@ function validateInputField(name: string, field: Uint8Array): void {
   }
 }
 
+function validateOutputFields(output: Uint8Array[]): void {
+  if (output.length !== OUTPUT_FIELD_COUNT) {
+    throw new Error(
+      `output must contain exactly ${OUTPUT_FIELD_COUNT} field elements, got ${output.length}`,
+    );
+  }
+
+  output.forEach((field, index) => {
+    validateInputField(`output[${index}]`, field);
+  });
+}
+
 function validateProverInput(input: ProverInput): void {
   validateInputField("taskPda", input.taskPda);
   validateInputField("agentAuthority", input.agentAuthority);
@@ -63,6 +79,9 @@ function validateProverInput(input: ProverInput): void {
   validateInputField("outputCommitment", input.outputCommitment);
   validateInputField("binding", input.binding);
   validateInputField("nullifier", input.nullifier);
+  validateOutputFields(input.output);
+  validateInputField("salt", input.salt);
+  validateInputField("agentSecret", input.agentSecret);
 }
 
 interface RawProverOutput {
@@ -118,6 +137,9 @@ function buildInputJson(input: ProverInput): string {
     output_commitment: Array.from(input.outputCommitment),
     binding: Array.from(input.binding),
     nullifier: Array.from(input.nullifier),
+    output: input.output.map((field) => Array.from(field)),
+    salt: Array.from(input.salt),
+    agent_secret: Array.from(input.agentSecret),
   });
 }
 

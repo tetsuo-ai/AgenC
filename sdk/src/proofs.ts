@@ -326,7 +326,7 @@ export function buildJournalBytes(fields: {
  * Generate a RISC Zero Groth16 proof via an external prover backend.
  *
  * This function computes all hashes locally (same as the simulated path), then
- * delegates proof generation to a local binary or remote prover. The returned
+ * delegates proof generation to the remote prover service. The returned
  * journal is validated against locally computed fields to ensure integrity.
  *
  * `params.imageId` and `params.sealSelector` are ignored — the real image ID
@@ -359,6 +359,15 @@ export async function generateProof(
   const outputCommitmentBuf = bigintToBytes32(hashes.outputCommitment);
   const bindingSeedBuf = bigintToBytes32(hashes.binding);
   const nullifierSeedBuf = bigintToBytes32(hashes.nullifier);
+  const outputWitness = params.output.map((value) =>
+    Uint8Array.from(bigintToBytes32(normalizeFieldElement(value))),
+  );
+  const saltWitness = Uint8Array.from(
+    bigintToBytes32(normalizeFieldElement(params.salt)),
+  );
+  const agentSecretWitness = Uint8Array.from(
+    bigintToBytes32(normalizeFieldElement(params.agentSecret)),
+  );
 
   const proverInput = {
     taskPda: new Uint8Array(params.taskPda.toBytes()),
@@ -367,6 +376,9 @@ export async function generateProof(
     outputCommitment: new Uint8Array(outputCommitmentBuf),
     binding: new Uint8Array(bindingSeedBuf),
     nullifier: new Uint8Array(nullifierSeedBuf),
+    output: outputWitness,
+    salt: saltWitness,
+    agentSecret: agentSecretWitness,
   };
 
   const { prove } = await import("./prover.js");
