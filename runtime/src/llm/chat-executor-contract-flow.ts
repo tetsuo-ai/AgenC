@@ -5,6 +5,7 @@
  */
 
 import type {
+  DelegationContractSpec,
   DelegationOutputValidationCode,
   DelegationOutputValidationResult,
 } from "../utils/delegation-validation.js";
@@ -12,7 +13,9 @@ import {
   getMissingSuccessfulToolEvidenceMessage,
   validateDelegatedOutputContract,
 } from "../utils/delegation-validation.js";
-import type { ExecutionContext } from "./chat-executor-types.js";
+import { buildBrowserEvidenceRetryGuidance } from "../utils/browser-tool-taxonomy.js";
+import type { ExecutionContext, ToolCallRecord } from "./chat-executor-types.js";
+import type { LLMProviderEvidence } from "./types.js";
 import {
   type ToolContractGuidance,
   type ToolContractGuidancePhase,
@@ -112,21 +115,31 @@ export function buildRequiredToolEvidenceRetryInstruction(input: {
   readonly missingEvidenceMessage: string;
   readonly validationCode?: DelegationOutputValidationCode;
   readonly allowedToolNames: readonly string[];
+  readonly requiresAdditionalToolCalls?: boolean;
 }): string {
-  const allowedToolSummary = input.allowedToolNames.length > 0
+  const requiresAdditionalToolCalls =
+    input.requiresAdditionalToolCalls !== false;
+  const allowedToolSummary = requiresAdditionalToolCalls &&
+    input.allowedToolNames.length > 0
     ? ` Allowed tools: ${input.allowedToolNames.join(", ")}.`
     : "";
-  const correctionLines = [
-    "Tool-grounded evidence is required for this delegated task.",
-    "Before answering, call one or more allowed tools and base the answer on those results.",
-    "Do not answer from memory or restate the plan.",
-  ];
+  const correctionLines = requiresAdditionalToolCalls
+    ? [
+      "Tool-grounded evidence is required for this delegated task.",
+      "Before answering, call one or more allowed tools and base the answer on those results.",
+      "Do not answer from memory or restate the plan.",
+    ]
+    : [
+      "The required tool-grounded evidence is already present in this turn.",
+      "Do not call additional tools for this retry.",
+      "Re-emit the final answer only, grounded in the tools already executed.",
+    ];
   if (
     input.validationCode === "low_signal_browser_evidence" ||
     /browser-grounded evidence/i.test(input.missingEvidenceMessage)
   ) {
     correctionLines.push(
-      "Use concrete non-blank URLs or localhost targets with browser navigation plus snapshot/run_code. `browser_tabs` and about:blank state checks do not count.",
+      ...buildBrowserEvidenceRetryGuidance(input.allowedToolNames),
     );
   }
   if (
@@ -147,6 +160,14 @@ export function buildRequiredToolEvidenceRetryInstruction(input: {
       "Create or edit the required files with the allowed file-mutation tools before answering, and name those files in the final output.",
     );
   }
+  if (input.validationCode === "forbidden_phase_action") {
+    correctionLines.push(
+      "This phase explicitly forbids one or more actions such as install/build/test/typecheck/lint execution or banned dependency specifiers. Do not repeat them.",
+    );
+    correctionLines.push(
+      "Limit the retry to the file-authoring or inspection work that belongs to this phase, and leave verification for the later step.",
+    );
+  }
   if (input.validationCode === "blocked_phase_output") {
     correctionLines.push(
       "Do not return a success-path answer that says the phase is blocked or cannot be completed.",
@@ -165,5 +186,25 @@ export function buildRequiredToolEvidenceRetryInstruction(input: {
     `${input.missingEvidenceMessage}. ` +
     correctionLines.join(" ") +
     allowedToolSummary
+  );
+}
+
+export function canRetryDelegatedOutputWithoutAdditionalToolCalls(input: {
+  readonly validationCode?: DelegationOutputValidationCode;
+  readonly toolCalls: readonly ToolCallRecord[];
+  readonly delegationSpec?: DelegationContractSpec;
+  readonly providerEvidence?: LLMProviderEvidence;
+}): boolean {
+  if (
+    input.validationCode !== "expected_json_object" &&
+    input.validationCode !== "empty_structured_payload"
+  ) {
+    return false;
+  }
+
+  return !getMissingSuccessfulToolEvidenceMessage(
+    input.toolCalls,
+    input.delegationSpec,
+    input.providerEvidence,
   );
 }

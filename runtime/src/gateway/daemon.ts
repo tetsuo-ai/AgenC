@@ -17,7 +17,7 @@ import {
   chmod,
 } from "node:fs/promises";
 import { constants } from "node:fs";
-import { delimiter, dirname, join, resolve as resolvePath } from "node:path";
+import { basename, delimiter, dirname, join, resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { Gateway } from "./gateway.js";
@@ -62,6 +62,7 @@ import {
 } from "./host-workspace.js";
 import {
   probeHostToolingProfile,
+  findPackageManifestWorkspaceProtocolSpecifiers,
   type HostToolingProfile,
 } from "./host-tooling.js";
 import {
@@ -222,6 +223,7 @@ import {
   type ToolEnvironmentMode,
 } from "./tool-environment-policy.js";
 import { SubAgentOrchestrator } from "./subagent-orchestrator.js";
+import { deriveCuriosityInterestsFromWorkspaceFiles } from "../autonomous/curiosity-interests.js";
 import {
   BackgroundRunSupervisor,
   inferBackgroundRunIntent,
@@ -1682,6 +1684,7 @@ export class DaemonManager {
   >();
   private _resolvedContextWindowTokens: number | undefined;
   private _hostToolingProfile: HostToolingProfile | null = null;
+  private _hostWorkspacePath: string | null = null;
   private _allLlmTools: LLMTool[] = [];
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
@@ -2115,6 +2118,7 @@ export class DaemonManager {
           baseHandler: baseToolHandler,
           availableToolNames: allowedToolNames,
           defaultWorkingDirectory: workingDirectory,
+          workspaceAliasRoot: this._hostWorkspacePath ?? undefined,
           scopedFilesystemRoot: workingDirectory,
           desktopRouterFactory: this._desktopRouterFactory ?? undefined,
           routerId: desktopRoutingSessionId,
@@ -2174,6 +2178,7 @@ export class DaemonManager {
       configPath: this.configPath,
       daemonCwd: process.cwd(),
     });
+    this._hostWorkspacePath = hostWorkspacePath;
 
     await this.configureSubAgentInfrastructure(gatewayConfig);
 
@@ -4605,9 +4610,15 @@ export class DaemonManager {
       // Create GoalManager early so actions can reference it
       const { GoalManager } = await import("../autonomous/goal-manager.js");
       this._goalManager = new GoalManager({ memory: this._memoryBackend! });
+      const workspaceFiles = await new WorkspaceLoader(
+        this.resolveActiveHostWorkspacePath(config),
+      ).load();
+      const curiosityInterests = deriveCuriosityInterestsFromWorkspaceFiles(
+        workspaceFiles,
+      );
 
       const curiosityAction = createCuriosityAction({
-        interests: ["Solana ecosystem", "DeFi protocols", "AI agents"],
+        interests: [...curiosityInterests],
         chatExecutor: this._chatExecutor!,
         toolHandler: this._baseToolHandler!,
         memory: this._memoryBackend!,
@@ -4967,6 +4978,7 @@ export class DaemonManager {
       resolveLifecycleEmitter: () => this._subAgentLifecycleEmitter,
       resolveTrajectorySink: () => this._delegationTrajectorySink,
       resolveHostToolingProfile: () => this._hostToolingProfile,
+      resolveHostWorkspaceRoot: () => this._hostWorkspacePath,
       childPromptBudget: childPromptBudget ?? undefined,
       allowParallelSubtasks: resolvedSubAgentConfig.allowParallelSubtasks,
       maxParallelSubtasks: resolvedSubAgentConfig.maxConcurrent,
@@ -7866,8 +7878,35 @@ export class DaemonManager {
     return async (name, args) => {
       const normalizedArgs = normalizeToolCallArguments(name, args);
       const turnArgs = normalizeArgs?.(name, normalizedArgs) ?? normalizedArgs;
-      const interceptedResult = await beforeHandle?.(name, turnArgs);
+      const interceptedResult = await this.resolvePreToolExecutionBlock({
+        toolName: name,
+        args: turnArgs,
+        beforeHandle,
+      });
       if (typeof interceptedResult === "string") {
+        if (traceConfig.enabled) {
+          logTraceEvent(
+            this.logger,
+            `${traceLabel}.tool.intercepted`,
+            {
+              traceId: turnTraceId,
+              sessionId,
+              tool: name,
+              ...(traceConfig.includeToolArgs
+                ? { args: summarizeTraceValue(turnArgs, traceConfig.maxChars) }
+                : {}),
+              ...(traceConfig.includeToolResults
+                ? {
+                    result: summarizeToolResultForTrace(
+                      interceptedResult,
+                      traceConfig.maxChars,
+                    ),
+                  }
+                : {}),
+            },
+            traceConfig.maxChars,
+          );
+        }
         return interceptedResult;
       }
 
@@ -7932,6 +7971,104 @@ export class DaemonManager {
     };
   }
 
+  private async resolvePreToolExecutionBlock(params: {
+    toolName: string;
+    args: Record<string, unknown>;
+    beforeHandle?: (
+      name: string,
+      normalizedArgs: Record<string, unknown>,
+    ) => string | Promise<string | undefined> | undefined;
+  }): Promise<string | undefined> {
+    const { toolName, args, beforeHandle } = params;
+    const delegatedBlock = await beforeHandle?.(toolName, args);
+    if (typeof delegatedBlock === "string") {
+      return delegatedBlock;
+    }
+    return this.resolveHostToolingManifestWriteBlock(toolName, args);
+  }
+
+  private async resolveHostToolingManifestWriteBlock(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<string | undefined> {
+    const npmProfile = this._hostToolingProfile?.npm;
+    if (npmProfile?.workspaceProtocolSupport !== "unsupported") {
+      return undefined;
+    }
+    if (toolName !== "system.writeFile" && toolName !== "system.appendFile") {
+      return undefined;
+    }
+    const rawPath =
+      typeof args.path === "string" ? args.path.trim() : "";
+    if (rawPath.length === 0 || basename(rawPath) !== "package.json") {
+      return undefined;
+    }
+    if (toolName === "system.writeFile" && args.encoding === "base64") {
+      return undefined;
+    }
+    const incomingContent =
+      typeof args.content === "string" ? args.content : undefined;
+    if (typeof incomingContent !== "string" || incomingContent.length === 0) {
+      return undefined;
+    }
+
+    const cwd =
+      typeof args.cwd === "string" && args.cwd.trim().length > 0
+        ? args.cwd.trim()
+        : undefined;
+    const manifestPath = cwd ? resolvePath(cwd, rawPath) : rawPath;
+
+    let manifestContent = incomingContent;
+    if (toolName === "system.appendFile") {
+      try {
+        manifestContent =
+          (await readFile(manifestPath, "utf-8")) + incomingContent;
+      } catch {
+        manifestContent = incomingContent;
+      }
+    }
+
+    const blockedSpecifiers =
+      findPackageManifestWorkspaceProtocolSpecifiers(manifestContent);
+    if (blockedSpecifiers.length === 0) {
+      return undefined;
+    }
+
+    const formattedSpecifiers = blockedSpecifiers
+      .slice(0, 3)
+      .map((specifier) =>
+        specifier.packageName
+          ? `${specifier.dependencyField}.${specifier.packageName}=${specifier.specifier}`
+          : specifier.specifier,
+      )
+      .join(", ");
+    const evidence =
+      typeof npmProfile.workspaceProtocolEvidence === "string" &&
+      npmProfile.workspaceProtocolEvidence.trim().length > 0
+        ? ` Probe evidence: ${npmProfile.workspaceProtocolEvidence.trim()}.`
+        : "";
+
+    return JSON.stringify({
+      error: {
+        code: "host_tooling_workspace_protocol_unsupported",
+        message:
+          `Host npm ${npmProfile.version} does not support local \`workspace:\` dependency specifiers.` +
+          `${evidence} ` +
+          `Do not write ${formattedSpecifiers} into ${manifestPath}. ` +
+          "Use a host-compatible local dependency reference such as `file:../core`, then rerun `npm install`.",
+      },
+      manifestPath,
+      blockedSpecifiers,
+      hostTooling: {
+        npmVersion: npmProfile.version,
+        workspaceProtocolSupport: npmProfile.workspaceProtocolSupport,
+        ...(npmProfile.workspaceProtocolEvidence
+          ? { workspaceProtocolEvidence: npmProfile.workspaceProtocolEvidence }
+          : {}),
+      },
+    });
+  }
+
   private createWebChatSessionToolHandler(params: {
     sessionId: string;
     webChat: WebChatChannel;
@@ -7978,6 +8115,8 @@ export class DaemonManager {
       sessionId,
       baseHandler: baseToolHandler,
       availableToolNames: this.getAdvertisedToolNames(),
+      defaultWorkingDirectory: this._hostWorkspacePath ?? undefined,
+      workspaceAliasRoot: this._hostWorkspacePath ?? undefined,
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       routerId: sessionId,
       send: (m) => webChat.pushToSession(sessionId, m),
@@ -8039,6 +8178,8 @@ export class DaemonManager {
       sessionId,
       baseHandler: this._baseToolHandler!,
       availableToolNames: this.getAdvertisedToolNames(),
+      defaultWorkingDirectory: this._hostWorkspacePath ?? undefined,
+      workspaceAliasRoot: this._hostWorkspacePath ?? undefined,
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       routerId: sessionId,
       send: (response) => {
@@ -9421,6 +9562,7 @@ Concise and action-oriented.
       this._activeSessionTraceIds.clear();
       this._subagentActivityTraceBySession.clear();
       this._foregroundSessionLocks.clear();
+      this._hostWorkspacePath = null;
       if (this.gateway !== null) {
         await this.gateway.stop();
         this.gateway = null;

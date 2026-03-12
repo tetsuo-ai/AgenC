@@ -115,3 +115,29 @@ export function matchesTypedArtifactTerms(
 ): boolean {
   return terms.some((term) => domain[field].includes(term));
 }
+
+function escapeTypedArtifactRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function messageContainsTypedArtifactTerm(
+  messageText: string,
+  term: string,
+): boolean {
+  const normalizedMessage = messageText.toLowerCase();
+  const normalizedTerm = term.toLowerCase().trim();
+  if (normalizedTerm.length === 0) return false;
+
+  const boundaryAwareTerm = new RegExp(
+    `(^|[^a-z0-9])${escapeTypedArtifactRegex(normalizedTerm)}(?=$|[^a-z0-9])`,
+    "i",
+  );
+  return boundaryAwareTerm.test(normalizedMessage);
+}
+
+export function messageContainsAnyTypedArtifactTerm(
+  messageText: string,
+  terms: readonly string[],
+): boolean {
+  return terms.some((term) => messageContainsTypedArtifactTerm(messageText, term));
+}

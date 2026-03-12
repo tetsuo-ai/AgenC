@@ -75,8 +75,35 @@ const ROOT_SCOPED_COMMAND_TOOLS = new Set([
   "system.serverStart",
 ]);
 const ABSOLUTE_PATH_ARG_RE = /^(?:~\/|\/)/;
-const SHELL_PATH_LITERAL_RE =
-  /(?<![A-Za-z0-9._~:/-])(?<path>(?:~\/|\/)[^\s"'`|;&<>()[\]{}]+)/g;
+const HEAD_TAIL_OPTION_VALUE_FLAGS = new Set([
+  "-c",
+  "-n",
+  "--bytes",
+  "--lines",
+]);
+const GREP_OPTION_VALUE_FLAGS = new Set([
+  "-A",
+  "-B",
+  "-C",
+  "-D",
+  "-e",
+  "-f",
+  "-m",
+  "--after-context",
+  "--before-context",
+  "--context",
+  "--directories",
+  "--max-count",
+  "--regexp",
+  "--file",
+]);
+const SED_OPTION_VALUE_FLAGS = new Set([
+  "-e",
+  "-f",
+  "--expression",
+  "--file",
+]);
+const WORKSPACE_ALIAS_ROOT = "/workspace";
 
 function normalizeToolName(name: string): string {
   const alias = TOOL_NAME_ALIASES[name];
@@ -108,10 +135,7 @@ function referencesAbsolutePathWithinRoot(
   const normalizedRoot = normalizeScopedPathCandidate(rootPath);
   if ((toolName === "system.bash" || toolName === "desktop.bash")) {
     if (Array.isArray(args.args)) {
-      for (const arg of args.args) {
-        if (typeof arg !== "string" || !ABSOLUTE_PATH_ARG_RE.test(arg.trim())) {
-          continue;
-        }
+      for (const arg of extractDirectCommandPathArgs(args.command, args.args)) {
         const candidatePath = normalizeScopedPathCandidate(arg);
         if (isWithinRoot(normalizedRoot, candidatePath)) {
           return true;
@@ -258,6 +282,160 @@ function normalizeScopedPathCandidate(rawPath: string): string {
   return resolvePath(expandHomeDirectory(rawPath.trim()));
 }
 
+function hasWorkspaceAliasPath(rawPath: string): boolean {
+  return rawPath === WORKSPACE_ALIAS_ROOT ||
+    rawPath.startsWith(`${WORKSPACE_ALIAS_ROOT}/`);
+}
+
+function translateWorkspaceAliasPath(
+  rawPath: string,
+  workspaceRoot?: string,
+): string {
+  const trimmed = rawPath.trim();
+  if (!hasWorkspaceAliasPath(trimmed)) {
+    return rawPath;
+  }
+  const root = workspaceRoot?.trim();
+  if (!root || root === WORKSPACE_ALIAS_ROOT) {
+    return rawPath;
+  }
+  const normalizedRoot = normalizeScopedPathCandidate(root);
+  if (hasWorkspaceAliasPath(normalizedRoot)) {
+    return rawPath;
+  }
+  if (normalizedRoot === "/") {
+    return rawPath;
+  }
+  const relativePath = trimmed
+    .slice(WORKSPACE_ALIAS_ROOT.length)
+    .replace(/^\/+/, "");
+  return relativePath.length > 0
+    ? resolvePath(normalizedRoot, relativePath)
+    : normalizedRoot;
+}
+
+function rewriteWorkspaceAliasShellCommand(
+  command: string,
+  workspaceRoot?: string,
+): string {
+  const replacements = [...extractAbsoluteShellPaths(command)]
+    .map((value) => ({
+      from: value,
+      to: translateWorkspaceAliasPath(value, workspaceRoot),
+    }))
+    .filter((entry) => entry.from !== entry.to)
+    .sort((left, right) => right.from.length - left.from.length);
+
+  let rewritten = command;
+  for (const entry of replacements) {
+    rewritten = rewritten.split(entry.from).join(entry.to);
+  }
+  return rewritten;
+}
+
+function applyWorkspaceAliasTranslation(
+  toolName: string,
+  args: Record<string, unknown>,
+  workspaceRoot?: string,
+): Record<string, unknown> {
+  const root = workspaceRoot?.trim();
+  if (!root || root === WORKSPACE_ALIAS_ROOT) {
+    return args;
+  }
+
+  let nextArgs = args;
+  const updateArg = (key: string, nextValue: unknown): void => {
+    if (nextArgs === args) {
+      nextArgs = { ...args };
+    }
+    nextArgs[key] = nextValue;
+  };
+
+  const pathArgKeys = TOOL_PATH_ARG_KEYS[toolName];
+  if (pathArgKeys) {
+    for (const key of pathArgKeys) {
+      const value = nextArgs[key];
+      if (typeof value !== "string" || value.trim().length === 0) {
+        continue;
+      }
+      const translated = translateWorkspaceAliasPath(value, root);
+      if (translated !== value) {
+        updateArg(key, translated);
+      }
+    }
+  }
+
+  const cwdValue = typeof nextArgs.cwd === "string"
+    ? nextArgs.cwd.trim()
+    : undefined;
+  if (cwdValue) {
+    const translatedCwd = translateWorkspaceAliasPath(cwdValue, root);
+    if (translatedCwd !== cwdValue) {
+      updateArg("cwd", translatedCwd);
+    }
+  }
+
+  if (toolName !== "system.bash" && toolName !== "desktop.bash") {
+    return nextArgs;
+  }
+
+  const commandValue = typeof nextArgs.command === "string"
+    ? nextArgs.command
+    : undefined;
+  if (commandValue && !Array.isArray(nextArgs.args)) {
+    const translatedCommand = rewriteWorkspaceAliasShellCommand(
+      commandValue,
+      root,
+    );
+    if (translatedCommand !== commandValue) {
+      updateArg("command", translatedCommand);
+    }
+    return nextArgs;
+  }
+
+  if (commandValue) {
+    const translatedCommand = translateWorkspaceAliasPath(commandValue, root);
+    if (translatedCommand !== commandValue) {
+      updateArg("command", translatedCommand);
+    }
+  }
+
+  if (!Array.isArray(nextArgs.args)) {
+    return nextArgs;
+  }
+
+  const pathArgs = new Set(
+    extractDirectCommandPathArgs(nextArgs.command, nextArgs.args).map((value) =>
+      value.trim()
+    ),
+  );
+  if (pathArgs.size === 0) {
+    return nextArgs;
+  }
+
+  let didRewriteArgs = false;
+  const translatedArgs = nextArgs.args.map((value) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+    const trimmed = value.trim();
+    if (!pathArgs.has(trimmed)) {
+      return value;
+    }
+    const translated = translateWorkspaceAliasPath(trimmed, root);
+    if (translated === trimmed) {
+      return value;
+    }
+    didRewriteArgs = true;
+    return translated;
+  });
+  if (didRewriteArgs) {
+    updateArg("args", translatedArgs);
+  }
+
+  return nextArgs;
+}
+
 function buildScopedRootViolationMessage(
   detail: string,
   scopedFilesystemRoot: string,
@@ -268,24 +446,309 @@ function buildScopedRootViolationMessage(
   );
 }
 
+type ShellToken =
+  | { type: "word"; value: string }
+  | { type: "operator"; value: string };
+
+function tokenizeShellCommand(command: string): readonly ShellToken[] {
+  const tokens: ShellToken[] = [];
+  let current = "";
+  let index = 0;
+  let state: "normal" | "single" | "double" = "normal";
+
+  const pushCurrent = (): void => {
+    if (current.length === 0) return;
+    tokens.push({ type: "word", value: current });
+    current = "";
+  };
+
+  const pushOperator = (value: string): void => {
+    tokens.push({ type: "operator", value });
+  };
+
+  while (index < command.length) {
+    const ch = command[index]!;
+    if (state === "single") {
+      if (ch === "'") {
+        state = "normal";
+      } else {
+        current += ch;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (state === "double") {
+      if (ch === '"') {
+        state = "normal";
+        index += 1;
+        continue;
+      }
+      if (ch === "\\" && index + 1 < command.length) {
+        const next = command[index + 1]!;
+        if (next === '"' || next === "\\" || next === "$" || next === "`") {
+          current += next;
+          index += 2;
+          continue;
+        }
+      }
+      current += ch;
+      index += 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      state = "single";
+      index += 1;
+      continue;
+    }
+    if (ch === '"') {
+      state = "double";
+      index += 1;
+      continue;
+    }
+    if (ch === "\\" && index + 1 < command.length) {
+      current += command[index + 1]!;
+      index += 2;
+      continue;
+    }
+    if (ch === "\n") {
+      pushCurrent();
+      pushOperator("\n");
+      index += 1;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      pushCurrent();
+      index += 1;
+      continue;
+    }
+
+    if (ch === "|" || ch === "&" || ch === ";" || ch === "<" || ch === ">") {
+      let operator = ch;
+      if ((ch === "<" || ch === ">") && /^\d+$/.test(current)) {
+        operator = `${current}${ch}`;
+        current = "";
+      } else {
+        pushCurrent();
+      }
+
+      const next = command[index + 1];
+      if (ch === "|" && next === "|") {
+        operator += next;
+        index += 1;
+      } else if (ch === "&" && (next === "&" || next === ">")) {
+        operator += next;
+        index += 1;
+        if (operator === "&>" && command[index + 1] === ">") {
+          operator += ">";
+          index += 1;
+        }
+      } else if ((ch === "<" || ch === ">") && (next === ch || next === "&")) {
+        operator += next;
+        index += 1;
+      }
+
+      pushOperator(operator);
+      index += 1;
+      continue;
+    }
+
+    current += ch;
+    index += 1;
+  }
+
+  pushCurrent();
+  return tokens;
+}
+
+function isShellCommandBoundaryOperator(value: string): boolean {
+  return value === "|" || value === "||" || value === "&&" || value === ";" || value === "&" || value === "\n";
+}
+
+function isShellRedirectionOperator(value: string): boolean {
+  return /^(?:\d+)?(?:>>?|<<?|<>|>&|&>|&>>|<&)$/.test(value);
+}
+
+function isShellVariableAssignment(value: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value);
+}
+
 function extractAbsoluteShellPaths(command: string): readonly string[] {
   const matches: string[] = [];
   const seen = new Set<string>();
-  for (const match of command.matchAll(SHELL_PATH_LITERAL_RE)) {
-    const pathValue = match.groups?.path?.trim();
-    if (!pathValue) continue;
-    const normalized = pathValue.replace(/[),.;:]+$/g, "");
-    if (!normalized) continue;
-    const leadingText = command.slice(0, match.index ?? 0).trim();
-    if (leadingText.length === 0) {
-      // First shell token may be an absolute executable path.
+  const tokens = tokenizeShellCommand(command);
+  let currentCommandName: string | undefined;
+  let currentArgs: string[] = [];
+
+  const pushPath = (value: string): void => {
+    const trimmed = value.trim();
+    if (!ABSOLUTE_PATH_ARG_RE.test(trimmed)) return;
+    if (seen.has(trimmed)) return;
+    seen.add(trimmed);
+    matches.push(trimmed);
+  };
+
+  const flushCurrentCommand = (): void => {
+    if (!currentCommandName) {
+      currentArgs = [];
+      return;
+    }
+    for (const arg of extractDirectCommandPathArgs(currentCommandName, currentArgs)) {
+      pushPath(arg);
+    }
+    currentCommandName = undefined;
+    currentArgs = [];
+  };
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
+    if (token.type === "operator") {
+      if (isShellCommandBoundaryOperator(token.value)) {
+        flushCurrentCommand();
+        continue;
+      }
+      if (isShellRedirectionOperator(token.value)) {
+        const next = tokens[index + 1];
+        if (next?.type === "word") {
+          pushPath(next.value);
+          index += 1;
+        }
+      }
       continue;
     }
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    matches.push(normalized);
+
+    const value = token.value.trim();
+    if (value.length === 0) continue;
+    if (!currentCommandName) {
+      if (isShellVariableAssignment(value)) {
+        continue;
+      }
+      currentCommandName = value;
+      continue;
+    }
+    currentArgs.push(value);
+  }
+
+  flushCurrentCommand();
+  return matches;
+}
+
+function extractAbsoluteArgs(args: readonly unknown[]): string[] {
+  return args
+    .filter((arg): arg is string =>
+      typeof arg === "string" && ABSOLUTE_PATH_ARG_RE.test(arg.trim())
+    )
+    .map((arg) => arg.trim());
+}
+
+function extractAbsoluteNonOptionArgs(
+  args: readonly unknown[],
+  optionValueFlags: ReadonlySet<string> = new Set(),
+): string[] {
+  const matches: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (typeof arg !== "string") continue;
+    const trimmed = arg.trim();
+    if (trimmed.length === 0) continue;
+    if (optionValueFlags.has(trimmed)) {
+      index++;
+      continue;
+    }
+    if (trimmed.startsWith("-")) {
+      continue;
+    }
+    if (ABSOLUTE_PATH_ARG_RE.test(trimmed)) {
+      matches.push(trimmed);
+    }
   }
   return matches;
+}
+
+function extractSedPathArgs(args: readonly unknown[]): string[] {
+  let index = 0;
+  while (index < args.length) {
+    const arg = args[index];
+    if (typeof arg !== "string") {
+      index++;
+      continue;
+    }
+    const trimmed = arg.trim();
+    if (trimmed.length === 0) {
+      index++;
+      continue;
+    }
+    if (SED_OPTION_VALUE_FLAGS.has(trimmed)) {
+      index += 2;
+      continue;
+    }
+    if (trimmed.startsWith("-")) {
+      index++;
+      continue;
+    }
+    index++;
+    break;
+  }
+  return extractAbsoluteArgs(args.slice(index));
+}
+
+function extractGrepPathArgs(args: readonly unknown[]): string[] {
+  let index = 0;
+  while (index < args.length) {
+    const arg = args[index];
+    if (typeof arg !== "string") {
+      index++;
+      continue;
+    }
+    const trimmed = arg.trim();
+    if (trimmed.length === 0) {
+      index++;
+      continue;
+    }
+    if (GREP_OPTION_VALUE_FLAGS.has(trimmed)) {
+      index += 2;
+      continue;
+    }
+    if (trimmed.startsWith("-")) {
+      index++;
+      continue;
+    }
+    index++;
+    break;
+  }
+  return extractAbsoluteArgs(args.slice(index));
+}
+
+function extractDirectCommandPathArgs(
+  command: unknown,
+  args: readonly unknown[],
+): string[] {
+  const commandName = typeof command === "string"
+    ? command.trim().replace(/^.*[\\/]/, "").toLowerCase()
+    : "";
+  switch (commandName) {
+    case "sed":
+      return extractSedPathArgs(args);
+    case "grep":
+      return extractGrepPathArgs(args);
+    case "head":
+    case "tail":
+      return extractAbsoluteNonOptionArgs(args, HEAD_TAIL_OPTION_VALUE_FLAGS);
+    case "ls":
+    case "cat":
+    case "wc":
+    case "mkdir":
+    case "rm":
+    case "mv":
+    case "cp":
+    case "touch":
+    case "install":
+    case "find":
+      return extractAbsoluteNonOptionArgs(args);
+    default:
+      return extractAbsoluteArgs(args);
+  }
 }
 
 function validateScopedFilesystemRoot(
@@ -316,7 +779,15 @@ function validateScopedFilesystemRoot(
     const cwdValue = typeof args.cwd === "string" ? args.cwd.trim() : undefined;
     if (cwdValue) {
       const candidateCwd = normalizeScopedPathCandidate(cwdValue);
-      if (!isWithinRoot(normalizedRoot, candidateCwd)) {
+      if (
+        !isWithinRoot(normalizedRoot, candidateCwd) &&
+        !allowsMissingRootBootstrapCwd(
+          toolName,
+          args,
+          normalizedRoot,
+          candidateCwd,
+        )
+      ) {
         return buildScopedRootViolationMessage(
           "cwd must stay under the delegated workspace root",
           normalizedRoot,
@@ -329,10 +800,7 @@ function validateScopedFilesystemRoot(
     (toolName === "system.bash" || toolName === "desktop.bash") &&
     Array.isArray(args.args)
   ) {
-    for (const arg of args.args) {
-      if (typeof arg !== "string" || !ABSOLUTE_PATH_ARG_RE.test(arg.trim())) {
-        continue;
-      }
+    for (const arg of extractDirectCommandPathArgs(args.command, args.args)) {
       const candidatePath = normalizeScopedPathCandidate(arg);
       if (!isWithinRoot(normalizedRoot, candidatePath)) {
         return buildScopedRootViolationMessage(
@@ -360,6 +828,21 @@ function validateScopedFilesystemRoot(
   }
 
   return undefined;
+}
+
+function allowsMissingRootBootstrapCwd(
+  toolName: string,
+  args: Record<string, unknown>,
+  normalizedRoot: string,
+  candidateCwd: string,
+): boolean {
+  if (pathExists(normalizedRoot)) {
+    return false;
+  }
+  if (isWithinRoot(normalizedRoot, candidateCwd)) {
+    return false;
+  }
+  return referencesAbsolutePathWithinRoot(toolName, args, normalizedRoot);
 }
 
 function isDoomTool(name: string): boolean {
@@ -736,6 +1219,8 @@ export interface SessionToolHandlerConfig {
   availableToolNames?: readonly string[];
   /** Optional working directory used to rebase relative delegated tool args. */
   defaultWorkingDirectory?: string;
+  /** Optional host workspace root used to translate logical /workspace aliases. */
+  workspaceAliasRoot?: string;
   /** Optional delegated workspace root. Absolute/tilde path escapes are rejected when set. */
   scopedFilesystemRoot?: string;
   /** Extra metadata attached to tool hook payloads for this handler. */
@@ -791,12 +1276,20 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     const toolName = normalizeToolName(name);
+    const workspaceAliasRoot =
+      config.workspaceAliasRoot ??
+      config.scopedFilesystemRoot ??
+      config.defaultWorkingDirectory;
     const {
       args: normalizedArgs,
       missingDefaultWorkingDirectory,
     } = applyDefaultWorkingDirectory(
       toolName,
-      normalizeToolCallArguments(toolName, args),
+      applyWorkspaceAliasTranslation(
+        toolName,
+        normalizeToolCallArguments(toolName, args),
+        workspaceAliasRoot,
+      ),
       config.defaultWorkingDirectory,
     );
     if (
@@ -1018,6 +1511,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           lifecycleEmitter,
           verifier,
           availableToolNames,
+          defaultWorkingDirectory: config.defaultWorkingDirectory,
         })
       : routedHandler;
 

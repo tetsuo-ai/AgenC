@@ -3,6 +3,12 @@ import type { ChatToolRoutingSummary } from "../llm/chat-executor.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import {
+  HIGH_SIGNAL_BROWSER_TOOL_NAMES,
+  LOW_SIGNAL_BROWSER_TOOL_NAMES,
+  PRIMARY_BROWSER_READ_TOOL_NAMES,
+  PRIMARY_BROWSER_START_TOOL_NAMES,
+} from "../utils/browser-tool-taxonomy.js";
+import {
   createTypedArtifactTermSet,
   createTypedArtifactToolNameSet,
 } from "../tools/system/typed-artifact-domains.js";
@@ -303,50 +309,6 @@ const BROWSER_TERMS = new Set([
   "scroll",
   "tab",
   "vnc",
-]);
-
-const LOW_SIGNAL_BROWSER_TOOL_NAMES = new Set([
-  "mcp.browser.browser_tabs",
-  "playwright.browser_tabs",
-]);
-
-const HIGH_SIGNAL_BROWSER_TOOL_NAMES = new Set([
-  "system.browserSessionStart",
-  "system.browserSessionStatus",
-  "system.browserSessionResume",
-  "system.browserSessionArtifacts",
-  "system.browserSessionStop",
-  "mcp.browser.browser_navigate",
-  "mcp.browser.browser_snapshot",
-  "mcp.browser.browser_click",
-  "mcp.browser.browser_type",
-  "mcp.browser.browser_wait_for",
-  "mcp.browser.browser_run_code",
-  "mcp.browser.browser_evaluate",
-  "playwright.browser_navigate",
-  "playwright.browser_snapshot",
-  "playwright.browser_click",
-  "playwright.browser_type",
-  "playwright.browser_wait_for",
-  "playwright.browser_run_code",
-  "playwright.browser_evaluate",
-]);
-
-const PRIMARY_BROWSER_START_TOOL_NAMES = new Set([
-  "system.browserSessionStart",
-  "mcp.browser.browser_navigate",
-  "playwright.browser_navigate",
-]);
-
-const PRIMARY_BROWSER_READ_TOOL_NAMES = new Set([
-  "system.browserSessionStatus",
-  "system.browserSessionArtifacts",
-  "mcp.browser.browser_snapshot",
-  "mcp.browser.browser_run_code",
-  "mcp.browser.browser_evaluate",
-  "playwright.browser_snapshot",
-  "playwright.browser_run_code",
-  "playwright.browser_evaluate",
 ]);
 
 const TAB_MANAGEMENT_TERMS = new Set([

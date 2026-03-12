@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   contentHasExplicitFileArtifact,
+  getAcceptanceVerificationCategories,
   hasUnsupportedNarrativeFileClaims,
+  isDefinitionOnlyVerificationText,
   refineDelegatedChildToolAllowlist,
   resolveDelegatedChildToolScope,
   resolveDelegatedCorrectionToolChoiceToolNames,
@@ -14,6 +16,47 @@ import {
 import { PROVIDER_NATIVE_WEB_SEARCH_TOOL } from "../llm/provider-native-search.js";
 
 describe("delegation-validation", () => {
+  it("does not treat script-definition criteria as build or test verification", () => {
+    expect(
+      getAcceptanceVerificationCategories("scripts for build/test/dev set"),
+    ).toEqual([]);
+  });
+
+  it("does not treat authored manifest criteria with build/test/coverage scripts and devDeps as runtime verification", () => {
+    expect(
+      getAcceptanceVerificationCategories(
+        "Authored root package.json with private:true, workspaces:['packages/*'], scripts for build/test/coverage, devDeps including typescript, vitest, and @vitest/coverage-v8.",
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not treat manifest inventory criteria with file deps and build/test scripts as runtime verification", () => {
+    expect(
+      getAcceptanceVerificationCategories(
+        "Per-package package.json with names, file: deps, build/test scripts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not treat config-definition criteria as build verification", () => {
+    expect(
+      getAcceptanceVerificationCategories("TypeScript and build configs present"),
+    ).toEqual([]);
+  });
+
+  it("treats README install/build/test instructions as definition-only text", () => {
+    const criterion =
+      "Author short README.md with install/test/build/run instructions and usage placeholders.";
+    expect(isDefinitionOnlyVerificationText(criterion)).toBe(true);
+    expect(getAcceptanceVerificationCategories(criterion)).toEqual([]);
+  });
+
+  it("does not treat negative pre-install guardrails as build verification", () => {
+    expect(
+      getAcceptanceVerificationCategories("No logic code or install commands in objective"),
+    ).toEqual([]);
+  });
+
   it("rejects non-object output when JSON is required", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -120,6 +163,135 @@ describe("delegation-validation", () => {
     expect(result.error).toContain("partial");
   });
 
+  it("does not treat domain phrases like partial deliveries as unresolved work", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "design_research",
+        objective:
+          "Define the simulator rules for deadlines, deadlocks, and partial deliveries",
+        acceptanceCriteria: [
+          "Design doc with scenario/train/job/network types",
+          "Rules cover partial deliveries when enabled",
+        ],
+      },
+      output:
+        "**design_research complete** Rules cover single-track conflicts, deadlines, and partial deliveries when the scenario flag enables splitting. Ready for downstream tech_research.",
+      toolCalls: [{
+        name: "system.browse",
+        args: { url: "https://en.wikipedia.org/wiki/Single-track_railway" },
+        result:
+          '{"url":"https://en.wikipedia.org/wiki/Single-track_railway","text":"single-track operations and passing loops"}',
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not treat domain phrases like incomplete journeys as unresolved work in file evidence", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_core",
+        objective:
+          "Implement the scoring engine for late deliveries and incomplete journeys",
+        inputContract: "Workspace scaffold exists",
+        acceptanceCriteria: [
+          "Scoring logic covers late deliveries and incomplete journeys",
+        ],
+      },
+      output:
+        "**implement_core complete** Scoring logic now applies route, lateness, and incomplete journey penalties.",
+      toolCalls: [{
+        name: "system.writeFile",
+        args: {
+          path: "/workspace/freight-flow/packages/core/src/scoring.ts",
+          content:
+            "export const INCOMPLETE_JOURNEY_PENALTY = 25;\n" +
+            "// Penalty for incomplete journeys when jobs never reach destination.\n",
+        },
+        result:
+          "{\"path\":\"/workspace/freight-flow/packages/core/src/scoring.ts\",\"bytesWritten\":120}",
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects completion claims that omit required work due to a blocking issue", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "add_tests",
+        objective:
+          "Author Vitest test files covering parser, terrain weights, conveyors, portals, timed switches, unreachable cases, and CLI output.",
+        inputContract: "Implemented packages with src",
+        acceptanceCriteria: [
+          "Test files created in core/cli with described cases",
+        ],
+      },
+      output:
+        "**Phase completed:** Created `packages/core/src/index.test.ts` with Vitest tests covering parser, terrain weights, conveyors, portals, timed switches (*), unreachable cases (returns null), and findItinerary export. " +
+        "(CLI test file omitted due to core export duplication blocking runs; acceptance met via core test creation + inspections.)",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/transit-weave-ts/packages/core/src/index.test.ts",
+            content:
+              "import { describe, it, expect } from 'vitest';\n",
+          },
+          result:
+            '{"path":"/workspace/transit-weave-ts/packages/core/src/index.test.ts","bytesWritten":50}',
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["test", "--", "packages/core/src/index.test.ts"],
+          },
+          result:
+            '{"stdout":"","stderr":"core export duplication blocking runs","exitCode":1}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.error).toContain("claimed completion");
+    expect(result.error).toContain("unresolved work");
+  });
+
+  it("rejects completion claims that explicitly report an unmet acceptance criterion", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_web_package",
+        objective:
+          "Build a Vite React TypeScript app with scenario editor, simulation runner, canvas visualization, timeline, and metrics panels",
+        acceptanceCriteria: [
+          "All UI components and integration coded",
+          "App structure uses Vite/React/TS",
+        ],
+      },
+      output:
+        "**Phase `implement_web_package` completed.** Created/updated `packages/web/src/main.tsx`, `packages/web/src/index.css`, and `packages/web/src/App.tsx`. " +
+        "Note: one acceptance criterion unmet - \"All UI components and integration coded\" lacks full evidence because tsc reported type errors in App.tsx.",
+      toolCalls: [{
+        name: "system.writeFile",
+        args: {
+          path: "/workspace/transit-weave-ts/packages/web/src/App.tsx",
+          content:
+            "export default function App(): null {\n" +
+            "  return null;\n" +
+            "}\n",
+        },
+        result:
+          "{\"path\":\"/workspace/transit-weave-ts/packages/web/src/App.tsx\",\"bytesWritten\":56}",
+      }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.error).toContain("unmet");
+  });
+
   it("accepts scaffold completion claims that mention expected placeholders only", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -143,6 +315,357 @@ describe("delegation-validation", () => {
           },
           result:
             '{"path":"/workspace/terrain-router-ts/packages/core/src/index.ts","bytesWritten":15}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts scaffold completion claims when placeholder files contain todo markers", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_monorepo_structure",
+        objective:
+          "Create the workspace root and packages/core, data, cli, web with placeholder src/index.ts files only",
+        inputContract:
+          "Scaffold only; later phases implement the actual logic in these placeholder files",
+        acceptanceCriteria: [
+          "Root package.json and per-package manifests exist",
+          "packages/core, data, cli, web contain placeholder source entrypoints",
+        ],
+      },
+      output:
+        "**Phase `scaffold_monorepo_structure` complete** Root/package manifests and placeholder entrypoints were authored for downstream implementation phases.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/transit-weave-ts/packages/core/src/index.ts",
+            content:
+              "export interface SimulationConfig {\n" +
+              "  // TODO: implement core models in later phases\n" +
+              "}\n",
+          },
+          result:
+            '{"path":"/workspace/transit-weave-ts/packages/core/src/index.ts","bytesWritten":87}',
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/transit-weave-ts/packages/cli/src/index.ts",
+            content:
+              "export function main(): void {\n" +
+              "  // FIXME: wire CLI commands in later phases\n" +
+              "}\n",
+          },
+          result:
+            '{"path":"/workspace/transit-weave-ts/packages/cli/src/index.ts","bytesWritten":82}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts setup-heavy manifest scaffold phases with deferred entrypoint placeholders", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_package_manifests",
+        objective:
+          "Author package.json, tsconfig.json, and entry files for core, data, cli, web packages",
+        inputContract: "No inputs; build on root configs",
+        acceptanceCriteria: [
+          "Each package.json authored with name, file: deps to core/data/etc, and build scripts",
+          "Web package includes Vite/React deps and config",
+          "No npm install/build/test/typecheck/lint commands executed or claimed in this phase.",
+        ],
+      },
+      output:
+        "**Phase `scaffold_package_manifests` complete** Authored package manifests, tsconfig files, and minimal entry files for all packages. No install/build/test run in this phase.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/signal-cartography/packages/core/src/index.ts",
+            content:
+              "export const VERSION = '0.1.0';\n" +
+              "// TODO: replace scaffold exports during implementation phase.\n",
+          },
+          result:
+            "{\"path\":\"/workspace/signal-cartography/packages/core/src/index.ts\",\"bytesWritten\":91}",
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/signal-cartography/packages/web/src/main.tsx",
+            content:
+              "export function AppBootstrap() {\n" +
+              "  return null;\n" +
+              "}\n",
+          },
+          result:
+            "{\"path\":\"/workspace/signal-cartography/packages/web/src/main.tsx\",\"bytesWritten\":48}",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not treat historical scaffold placeholder mentions as unresolved after the file is overwritten", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_core",
+        objective:
+          "Implement pure TypeScript functions and types in packages/core for JSON parsing, track modeling, train simulation, dispatch decisions, deadlock detection, and scoring",
+        inputContract: "Scaffolded monorepo with installed dependencies",
+        acceptanceCriteria: [
+          "All core simulator logic and types fully implemented in src/index.ts",
+          "Exports pure functions for simulation",
+        ],
+      },
+      output:
+        "**Phase `implement_core` completed successfully**\n\n" +
+        "- Inspected scaffolded workspace (core/src/index.ts placeholder, package.json, tsconfig, empty test/, root scripts).\n" +
+        "- Overwrote `packages/core/src/index.ts` with complete pure TS implementation.\n" +
+        "- Verified: `npm run build --workspace=freight-flow-core` succeeds (tsc exits 0, no errors).",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/freight-flow-ts/packages/core/src/index.ts",
+            content:
+              "export interface Scenario { tracks: string[]; }\n" +
+              "export function parseScenario(input: string): Scenario { return JSON.parse(input) as Scenario; }\n",
+          },
+          result:
+            "{\"path\":\"/workspace/freight-flow-ts/packages/core/src/index.ts\",\"bytesWritten\":142}",
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build", "--workspace=freight-flow-core"],
+          },
+          result:
+            "{\"stdout\":\"build ok\\n\",\"stderr\":\"\",\"exitCode\":0}",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects scaffold phases that execute forbidden install commands before later verification steps", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_manifests",
+        objective:
+          "Author only root/package manifests and config files for the monorepo",
+        inputContract:
+          "Scaffold only; later deterministic verification runs npm install",
+        acceptanceCriteria: [
+          "All package.json and tsconfig files authored",
+          "No install/build/test commands executed or claimed",
+          "No workspace:* specifiers used",
+        ],
+      },
+      output:
+        "**Phase scaffold_manifests completed.** Authored manifests and ran npm install to confirm the file: links work.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/transit-weave/package.json",
+            content: '{ "name": "transit-weave", "private": true }',
+          },
+          result:
+            '{"path":"/workspace/transit-weave/package.json","bytesWritten":44}',
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["install"],
+          },
+          result: '{"stdout":"ok","stderr":"","exitCode":0}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("forbidden_phase_action");
+    expect(result.error).toContain("dependency-install commands");
+    expect(result.error).toContain("npm install");
+  });
+
+  it("does not treat authored root config summaries as forbidden test execution claims", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_root_files",
+        objective:
+          "Author only root files/configs and do not execute install/build/test commands in this phase",
+        acceptanceCriteria: [
+          "Root package.json authored with workspaces plus build/test scripts",
+          "tsconfig.json, vitest.config.ts, and .gitignore authored",
+          "No install/build/test commands executed or claimed",
+        ],
+      },
+      output:
+        "Root files confirmed via listDir+readFile: package.json (workspaces+scripts+file:deps), tsconfig.json, vitest.config.ts, .gitignore present+match expected root scaffolding.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/freight-flow/package.json",
+            content:
+              '{ "name": "freight-flow", "private": true, "scripts": { "build": "tsc -b", "test": "vitest run" } }',
+          },
+          result:
+            '{"path":"/workspace/freight-flow/package.json","bytesWritten":103}',
+        },
+        {
+          name: "system.listDir",
+          args: {
+            path: "/workspace/freight-flow",
+          },
+          result:
+            '{"path":"/workspace/freight-flow","entries":[{"name":"package.json","type":"file"},{"name":"tsconfig.json","type":"file"},{"name":"vitest.config.ts","type":"file"},{"name":".gitignore","type":"file"}]}',
+        },
+        {
+          name: "system.readFile",
+          args: {
+            path: "/workspace/freight-flow/vitest.config.ts",
+          },
+          result:
+            '{"path":"/workspace/freight-flow/vitest.config.ts","content":"import { defineConfig } from \\"vitest/config\\";"}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not treat compact negative no-install/build/test summaries as forbidden phase claims", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_manifests",
+        objective:
+          "Author only manifests/configs and do not execute install/build/test commands in this phase",
+      },
+      output:
+        "All via writeFile (no bash/npm install/build/test per acceptance; file: protocol used in manifests).",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/freight-flow/package.json",
+            content:
+              '{ "name": "freight-flow", "private": true, "scripts": { "build": "tsc -b", "test": "vitest run" } }',
+          },
+          result:
+            '{"path":"/workspace/freight-flow/package.json","bytesWritten":106}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not treat scaffold inspection summaries with negative no-run status as forbidden phase execution claims", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_monorepo",
+        objective:
+          "Author configs and dir structure only; do not execute install/build/test commands in this phase",
+        acceptanceCriteria: [
+          "Root and per-package package.json created with file: deps and no workspace:*",
+          "tsconfig.json, vitest.config, vite.config.ts authored",
+          "Basic dir layout with src placeholders",
+          "No npm install/build/test executed",
+        ],
+      },
+      output:
+        "**Phase `scaffold_monorepo` complete.** Verified via tools (ls -R + cat packages/web/package.json): root + per-package package.json created (workspaces:[\"packages/*\"], deps use \"file:../core\", no workspace:*), tsconfig.json/vitest.config.ts/vite.config.ts authored, basic per-package tsconfigs + src/index.ts placeholders + web React vite config present, dir layout matches objective. No install/build/test run. (Host npm file: protocol satisfied; root scripts \"build\"/\"test\" defined.)",
+      toolCalls: [
+        {
+          name: "system.bash",
+          args: {
+            command: "ls",
+            args: ["-R"],
+          },
+          result:
+            '{"exitCode":0,"stdout":"package.json\\npackages\\ntsconfig.json\\nvitest.config.ts","stderr":""}',
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "cat",
+            args: ["packages/web/package.json"],
+          },
+          result:
+            '{"exitCode":0,"stdout":"{\\"name\\":\\"@freight-flow/web\\",\\"scripts\\":{\\"dev\\":\\"vite\\",\\"build\\":\\"tsc && vite build\\",\\"test\\":\\"vitest run\\"}}","stderr":""}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not treat scaffold summaries that mention future build commands as forbidden execution claims", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_monorepo",
+        objective:
+          "Author configs and dir structure only; do not execute install/build/test commands in this phase",
+        inputContract:
+          "Scaffold only; later deterministic verification runs npm install",
+        acceptanceCriteria: [
+          "All manifests, configs and directories authored with correct deps and structure",
+          "Root package.json authored with npm scripts for build, test",
+          "No npm install/build/test/typecheck/lint commands executed or claimed in this phase",
+        ],
+      },
+      output:
+        "**Phase `scaffold_monorepo` completed.**\n\n" +
+        "Authored:\n" +
+        "- Root: `package.json` (workspaces, build/test scripts, devDeps), `tsconfig.json` (project references), `vitest.config.ts`.\n" +
+        "- `packages/core/`: `package.json` (file deps none, build/test scripts), `tsconfig.json` (composite, NodeNext, src).\n" +
+        "- `packages/data/`: `package.json` (core via `file:../core`), `tsconfig.json` (references core).\n" +
+        "- `packages/cli/`: `package.json` (core+data via `file:../*`), `tsconfig.json` (references).\n" +
+        "- `packages/web/`: `package.json` (core+data via `file:../*`, React/Vite deps), `tsconfig.json` (React JSX, references), `vite.config.ts`.\n" +
+        "- Directories: `packages/*/src` (and parents via writeFile).\n\n" +
+        "All use `file:../*` (no `workspace:*`), package-local TS configs for isolated `npm run build --workspace=...`, only manifests/configs (no source/code/commands executed). Verified via `ls -R` only.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/signal-cartography/package.json",
+            content:
+              '{ "name": "signal-cartography", "private": true, "scripts": { "build": "npm run build --workspaces", "test": "npm run test --workspaces" } }',
+          },
+          result:
+            '{"path":"/workspace/signal-cartography/package.json","bytesWritten":138}',
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/signal-cartography/packages/web/package.json",
+            content:
+              '{ "name": "@signal-cartography/web", "scripts": { "build": "tsc && vite build", "test": "vitest run" } }',
+          },
+          result:
+            '{"path":"/workspace/signal-cartography/packages/web/package.json","bytesWritten":109}',
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "ls",
+            args: ["-R"],
+          },
+          result:
+            '{"exitCode":0,"stdout":"package.json\\npackages\\ntsconfig.json\\nvitest.config.ts","stderr":""}',
         },
       ],
     });
@@ -175,8 +698,400 @@ describe("delegation-validation", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.code).toBe("blocked_phase_output");
     expect(result.error).toContain("Blocked on full verification");
+  });
+
+  it("rejects completion claims that describe an implementation as stubbed", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_cli",
+        objective:
+          "Implement packages/cli to load scenario file via args, use core for dispatch plan and timeline summary, print output, fail clearly on invalid JSON or conflicts.",
+        inputContract: "Existing cli structure and core import",
+        acceptanceCriteria: [
+          "CLI src/index.ts parses args, runs sim, outputs plan/timeline",
+        ],
+      },
+      output:
+        "**Phase `implement_cli` completed:** Wrote `packages/cli/src/index.ts`; implements arg-based scenario loading, stubbed dispatch-plan + timeline summary output, clear failure paths for bad JSON/validation/conflicts per contract.",
+      toolCalls: [{
+        name: "system.writeFile",
+        args: {
+          path: "/workspace/freight-flow-ts/packages/cli/src/index.ts",
+          content:
+            "export function main() {\n  return 'ok';\n}\n",
+        },
+        result:
+          '{"path":"/workspace/freight-flow-ts/packages/cli/src/index.ts","bytesWritten":41}',
+      }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.error).toContain("claimed completion");
+    expect(result.error).toContain("stubbed dispatch-plan");
+  });
+
+  it("rejects completion claims when authored files still contain placeholder implementation markers", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_cli",
+        objective:
+          "Implement packages/cli to load scenario file via args, use core for dispatch plan and timeline summary, print output, fail clearly on invalid JSON or conflicts.",
+        inputContract: "Existing cli structure and core import",
+        acceptanceCriteria: [
+          "CLI src/index.ts parses args, runs sim, outputs plan/timeline",
+        ],
+      },
+      output:
+        "**Phase `implement_cli` completed:** Wrote `packages/cli/src/index.ts` and handled CLI error cases.",
+      toolCalls: [{
+        name: "system.writeFile",
+        args: {
+          path: "/workspace/freight-flow-ts/packages/cli/src/index.ts",
+          content:
+            "import type { DispatchPlan } from '@freight-flow/core';\n" +
+            "// Placeholder for core functions assumed to exist based on types\n" +
+            "function generateDispatchPlan(): DispatchPlan {\n" +
+            "  return { decisions: [] };\n" +
+            "}\n",
+        },
+        result:
+          '{"path":"/workspace/freight-flow-ts/packages/cli/src/index.ts","bytesWritten":178}',
+      }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.error).toContain("file-mutation evidence");
+    expect(result.error).toContain("packages/cli/src/index.ts");
+    expect(result.error).toContain("Placeholder for core functions");
+  });
+
+  it("rejects completion claims when authored code elides implementation behind omission comments", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_web",
+        objective:
+          "Author the React app for the hex-grid simulator with editing, routing, metrics, and sample scenarios.",
+        inputContract: "Core/data packages already exist",
+        acceptanceCriteria: [
+          "packages/web/src/App.tsx contains the full interactive React implementation",
+        ],
+      },
+      output:
+        "**Phase `implement_web` completed.** Authored `packages/web/src/App.tsx` with the required UI and preserved the existing behavior.",
+      toolCalls: [{
+        name: "system.writeFile",
+        args: {
+          path: "/workspace/signal-cartography-ts/packages/web/src/App.tsx",
+          content:
+            "function App() {\n" +
+            "  // ... (rest of the component code remains unchanged to preserve functionality)\n" +
+            "  // Note: full implementation omitted in this minimal repair; original behavior intact\n" +
+            "  return (\n" +
+            "    <div className=\"app\">\n" +
+            "      {/* Original JSX structure preserved */}\n" +
+            "      <h1>Signal Cartography</h1>\n" +
+            "      {/* ... */}\n" +
+            "    </div>\n" +
+            "  );\n" +
+            "}\n",
+        },
+        result:
+          '{"path":"/workspace/signal-cartography-ts/packages/web/src/App.tsx","bytesWritten":340}',
+      }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.error).toContain("file-mutation evidence");
+    expect(result.error).toContain("packages/web/src/App.tsx");
+    expect(result.error).toContain(
+      "rest of the component code remains unchanged",
+    );
+  });
+
+  it("accepts completion claims that explicitly replaced scaffold placeholders", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_cli",
+        objective:
+          "Implement packages/cli to load scenario files, run commands, and print reports.",
+        inputContract: "Existing cli scaffold and core/data imports",
+        acceptanceCriteria: [
+          "CLI src/index.ts provides the required commands and argument handling",
+        ],
+      },
+      output:
+        "**Phase `implement_cli` completed.** Updated `packages/cli/src/index.ts` " +
+        "(replaced placeholder scaffold with Commander.js-based CLI commands for generate, simulate, and report).",
+      toolCalls: [{
+        name: "system.writeFile",
+        args: {
+          path: "/workspace/freight-flow-ts/packages/cli/src/index.ts",
+          content:
+            "import { Command } from 'commander';\n" +
+            "const program = new Command();\n" +
+            "program.command('generate');\n" +
+            "program.command('simulate');\n" +
+            "program.command('report');\n",
+        },
+        result:
+          '{"path":"/workspace/freight-flow-ts/packages/cli/src/index.ts","bytesWritten":134}',
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("uses the latest observed file state when checking contradictory completion claims", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_core",
+        objective:
+          "Implement the core simulator and verify the package builds and tests cleanly",
+        inputContract: "Workspace manifests and install are already complete",
+        acceptanceCriteria: [
+          "Core exports the simulator functions and types",
+          "Builds and tests pass",
+        ],
+      },
+      output:
+        "**Core implemented:** Added the final simulator implementation, fixed the tests, and verified build/test success.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/freight-flow-ts/packages/core/src/index.ts",
+            content:
+              "export function isDeadlock(): boolean {\n" +
+              "  // Simple cycle detection stub\n" +
+              "  return false;\n" +
+              "}\n",
+          },
+          result:
+            "{\"path\":\"/workspace/freight-flow-ts/packages/core/src/index.ts\",\"bytesWritten\":85}",
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/freight-flow-ts/packages/core/src/index.ts",
+            content:
+              "export function isDeadlock(): boolean {\n" +
+              "  return true;\n" +
+              "}\n",
+          },
+          result:
+            "{\"path\":\"/workspace/freight-flow-ts/packages/core/src/index.ts\",\"bytesWritten\":55}",
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build", "--workspace=@freight-flow/core"],
+          },
+          result:
+            "{\"stdout\":\"build ok\\n\",\"stderr\":\"\",\"exitCode\":0}",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("treats write-file result paths as canonical when later mutations replace earlier absolute-path reads", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_cli",
+        objective:
+          "Implement the CLI package and verify it builds successfully",
+        acceptanceCriteria: [
+          "placeholder logic removed",
+          "build succeeds",
+        ],
+      },
+      output:
+        "**implement_cli complete** placeholder logic removed and build succeeds.",
+      toolCalls: [
+        {
+          name: "system.readFile",
+          args: {
+            path: "packages/cli/src/index.ts",
+          },
+          result: JSON.stringify({
+            path: "/workspace/transit-weave/packages/cli/src/index.ts",
+            content:
+              "export function main() {\n" +
+              "  // placeholder implementation\n" +
+              "  return 'todo';\n" +
+              "}\n",
+          }),
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "packages/cli/src/index.ts",
+            content:
+              "export function main() {\n" +
+              "  return 'ok';\n" +
+              "}\n",
+          },
+          result: JSON.stringify({
+            path: "/workspace/transit-weave/packages/cli/src/index.ts",
+            bytesWritten: 43,
+          }),
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build", "--workspace=@transit-weave/cli"],
+          },
+          result: JSON.stringify({
+            stdout: "build ok\n",
+            stderr: "",
+            exitCode: 0,
+          }),
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("ignores stale generated-artifact snapshots after a later successful build", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_cli",
+        objective:
+          "Implement the CLI package and verify it builds successfully",
+        acceptanceCriteria: [
+          "CLI commands are implemented",
+          "CLI builds successfully",
+        ],
+      },
+      output:
+        "**implement_cli complete** `packages/cli/src/index.ts` implements the CLI commands and `npm run build --workspace=@transit-weave/cli` succeeds.",
+      toolCalls: [
+        {
+          name: "system.bash",
+          args: {
+            command: "cat",
+            args: ["packages/cli/dist/index.js"],
+          },
+          result: JSON.stringify({
+            stdout:
+              "export function main() {\n" +
+              "  // would need fs, but for basic, just print\n" +
+              "}\n",
+            stderr: "",
+            exitCode: 0,
+          }),
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "packages/cli/src/index.ts",
+            content:
+              "import * as fs from 'node:fs';\n" +
+              "export function main() {\n" +
+              "  return fs.existsSync('.') ? 'ok' : 'missing';\n" +
+              "}\n",
+          },
+          result: JSON.stringify({
+            path: "/workspace/transit-weave/packages/cli/src/index.ts",
+            bytesWritten: 102,
+          }),
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build", "--workspace=@transit-weave/cli"],
+          },
+          result: JSON.stringify({
+            stdout: "build ok\n",
+            stderr: "",
+            exitCode: 0,
+          }),
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not treat benign runtime warning strings inside authored code as unresolved work", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_cli",
+        objective:
+          "Implement packages/cli to load scenario file via args, use core for dispatch plan and timeline summary, print output, fail clearly on invalid JSON or conflicts.",
+        inputContract: "Existing cli structure and core import",
+        acceptanceCriteria: [
+          "CLI src/index.ts parses args, runs sim, outputs plan/timeline",
+        ],
+      },
+      output:
+        "**Phase `implement_cli` completed:** Wrote `packages/cli/src/index.ts`; scenario failures now emit a clear warning and the build passes.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/freight-flow-ts/packages/cli/src/index.ts",
+            content:
+              "export function reportIncompleteSimulation(): void {\n" +
+              "  console.warn('Warning: Simulation did not complete successfully.');\n" +
+              "}\n",
+          },
+          result:
+            "{\"path\":\"/workspace/freight-flow-ts/packages/cli/src/index.ts\",\"bytesWritten\":118}",
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build", "--workspace=freight-flow-cli"],
+          },
+          result:
+            "{\"stdout\":\"build ok\\n\",\"stderr\":\"\",\"exitCode\":0}",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("still flags unresolved implementation markers in authored code when they are not benign runtime messages", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_cli",
+        objective: "Implement the CLI package and keep the workspace buildable",
+        acceptanceCriteria: [
+          "CLI reads input and outputs summary",
+        ],
+      },
+      output:
+        "**Phase `implement_cli` completed:** Wrote `packages/cli/src/index.ts` and verified it.",
+      toolCalls: [{
+        name: "system.writeFile",
+        args: {
+          path: "/workspace/freight-flow-ts/packages/cli/src/index.ts",
+          content:
+            "export function unsupported(): never {\n" +
+            "  throw new Error('not yet implemented');\n" +
+            "}\n",
+        },
+        result:
+          "{\"path\":\"/workspace/freight-flow-ts/packages/cli/src/index.ts\",\"bytesWritten\":83}",
+      }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.error).toContain("not yet implemented");
   });
 
   it("rejects blocked phase outputs even without a completion claim", () => {
@@ -204,6 +1119,72 @@ describe("delegation-validation", () => {
     expect(result.ok).toBe(false);
     expect(result.code).toBe("blocked_phase_output");
     expect(result.error).toContain("blocked or incomplete");
+  });
+
+  it("does not treat domain summaries about blocked cells as blocked phase output", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_core",
+        objective:
+          "Implement typed hex-grid graph, Dijkstra and A* routing primitives, and reproducible scenario generator in the core package.",
+        inputContract: "Scaffolded and installed monorepo",
+        acceptanceCriteria: [
+          "All core primitives implemented and typed correctly",
+          "Routing algorithms produce deterministic results",
+          "Build succeeds for the core package",
+        ],
+      },
+      output:
+        "**Phase `implement_core` complete** Implemented `HexGrid` with blocked cells, neighbors, and validity checks. " +
+        "Added `dijkstra()` and `aStar()` plus reproducible scenario generation. " +
+        "Verified with `npm run build`; dist artifacts are present and ready for downstream phases.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/workspace/signal-cartography/packages/core/src/index.ts",
+            content:
+              "export class HexGrid {\n" +
+              "  blockedCells = new Set<string>();\n" +
+              "}\n",
+          },
+          result:
+            "{\"path\":\"/workspace/signal-cartography/packages/core/src/index.ts\",\"bytesWritten\":58}",
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build"],
+            cwd: "/workspace/signal-cartography/packages/core",
+          },
+          result:
+            "{\"stdout\":\"build ok\\n\",\"stderr\":\"\",\"exitCode\":0}",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("prefers blocked-phase validation when output explicitly reports the phase as blocked", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "repair_cli",
+        objective: "Implement the CLI and verify it end to end",
+        acceptanceCriteria: ["CLI builds and runs"],
+      },
+      output:
+        "**Phase result: blocked** CLI implementation is not complete and cannot be finished with the current evidence only.",
+      toolCalls: [{
+        name: "system.listDir",
+        args: { path: "/workspace/project/packages/cli/src" },
+        result: "{\"path\":\"/workspace/project/packages/cli/src\",\"entries\":[]}",
+      }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("blocked_phase_output");
   });
 
   it("rejects build-oriented acceptance criteria without successful verification evidence", () => {
@@ -398,6 +1379,50 @@ describe("delegation-validation", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("accepts shell-mode in-place edits as file mutation evidence when files are identified", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "core_repair",
+        objective: "Update the broken TypeScript implementation file",
+        inputContract: "JSON output with updated files",
+      },
+      output:
+        '{"files_updated":[{"path":"/workspace/neon-heist/src/index.ts"}]}',
+      toolCalls: [{
+        name: "system.bash",
+        args: {
+          command:
+            "cd /workspace/neon-heist && sed -i 's/broken/fixed/' src/index.ts",
+        },
+        result: '{"stdout":"","stderr":"","exitCode":0}',
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts structured in-place edit commands as file mutation evidence when files are identified", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "core_repair",
+        objective: "Update the broken TypeScript implementation file",
+        inputContract: "JSON output with updated files",
+      },
+      output:
+        '{"files_updated":[{"path":"/workspace/neon-heist/src/index.ts"}]}',
+      toolCalls: [{
+        name: "system.bash",
+        args: {
+          command: "sed",
+          args: ["-i", "s/broken/fixed/", "src/index.ts"],
+        },
+        result: '{"stdout":"","stderr":"","exitCode":0}',
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects tool-grounded research output when every child tool call failed", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -468,6 +1493,72 @@ describe("delegation-validation", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("accepts Chromium validation output backed by system browser session tools", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "qa_and_validation",
+        objective: "Validate the main web flows in Chromium and report issues",
+        inputContract: "Existing local web app and CLI",
+        requiredToolCapabilities: ["system.bash"],
+      },
+      output: "Validated the main web flows in Chromium.",
+      toolCalls: [
+        {
+          name: "system.browserSessionStart",
+          args: {
+            url: "http://127.0.0.1:4173/",
+            label: "freight-flow-validation",
+          },
+          result:
+            '{"sessionId":"browser-1","url":"http://127.0.0.1:4173/","title":"Freight Flow"}',
+        },
+        {
+          name: "system.browserAction",
+          args: {
+            url: "http://127.0.0.1:4173/",
+            action: "waitForSelector",
+            selector: "#app",
+          },
+          result:
+            '{"url":"http://127.0.0.1:4173/","action":"waitForSelector","description":"Selector found: #app"}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts Chromium validation output backed by host-side shell browser verification", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "qa_and_validation",
+        objective:
+          "Validate the running local web app in Chromium and report issues",
+        inputContract: "Existing local web app and CLI",
+        requiredToolCapabilities: ["system.bash"],
+      },
+      output:
+        "Validated the main web flows in Chromium against the local app and captured the observed title.",
+      toolCalls: [{
+        name: "system.bash",
+        args: {
+          command: "npx",
+          args: [
+            "playwright",
+            "open",
+            "http://127.0.0.1:4173/",
+            "--browser",
+            "chromium",
+          ],
+        },
+        result:
+          '{"exitCode":0,"stdout":"Opened Chromium for http://127.0.0.1:4173/ and observed title Freight Flow","stderr":"","timedOut":false}',
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("accepts research output backed by provider-native search citations", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -498,6 +1589,147 @@ describe("delegation-validation", () => {
     })).toBe(true);
   });
 
+  it("accepts system.browse as meaningful research evidence for browser-grounded research output", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "design_research",
+        objective:
+          "Research reference systems from official docs and cite sources",
+        inputContract:
+          "Return JSON with references, extracted findings, and citations",
+        requiredToolCapabilities: [
+          "mcp.browser.browser_navigate",
+          "mcp.browser.browser_snapshot",
+        ],
+      },
+      output:
+        '{"references":["https://pixijs.com"],"findings":["PixiJS is lightweight for 2D rendering"],"citations":["https://pixijs.com"]}',
+      toolCalls: [{
+        name: "system.browse",
+        args: { url: "https://pixijs.com" },
+        result:
+          '{"url":"https://pixijs.com","text":"PixiJS is a fast, lightweight 2D library."}',
+      }],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not reintroduce browser session tools when validation scope explicitly omits them", () => {
+    const spec = {
+      task: "qa_and_validation",
+      objective:
+        "Add meaningful Vitest coverage, CLI smoke tests, build/typecheck checks, and validate the main web flows in Chromium.",
+      inputContract: "Core, CLI, and web implementation already exist",
+      acceptanceCriteria: [
+        "Main web flows validated in Chromium",
+      ],
+      requiredToolCapabilities: ["system.bash", "system.writeFile", "system.readFile"],
+    };
+    const resolved = resolveDelegatedChildToolScope({
+      spec,
+      requestedTools: spec.requiredToolCapabilities,
+      parentAllowedTools: [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.browserSessionStart",
+        "system.browserAction",
+        "system.browserSessionResume",
+        "system.browserSessionArtifacts",
+      ],
+      availableTools: [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.browserSessionStart",
+        "system.browserAction",
+        "system.browserSessionResume",
+        "system.browserSessionArtifacts",
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.blockedReason).toBeUndefined();
+    expect(resolved.allowedTools).toEqual([
+      "system.bash",
+      "system.writeFile",
+      "system.readFile",
+    ]);
+    expect(resolved.semanticFallback).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+  });
+
+  it("still keeps browser session tools when validation scope explicitly requests them", () => {
+    const spec = {
+      task: "qa_and_validation",
+      objective:
+        "Validate the main web flows in Chromium and capture browser-grounded evidence.",
+      inputContract: "Web implementation already exists",
+      acceptanceCriteria: [
+        "Main web flows validated in Chromium",
+      ],
+      requiredToolCapabilities: [
+        "system.bash",
+        "system.browserSessionStart",
+        "system.browserAction",
+      ],
+    };
+    const resolved = resolveDelegatedChildToolScope({
+      spec,
+      requestedTools: spec.requiredToolCapabilities,
+      parentAllowedTools: [
+        "system.bash",
+        "system.browserSessionStart",
+        "system.browserAction",
+        "system.browserSessionResume",
+        "system.browserSessionArtifacts",
+      ],
+      availableTools: [
+        "system.bash",
+        "system.browserSessionStart",
+        "system.browserAction",
+        "system.browserSessionResume",
+        "system.browserSessionArtifacts",
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual([
+      "system.bash",
+      "system.browserSessionStart",
+      "system.browserAction",
+      "system.browserSessionResume",
+      "system.browserSessionArtifacts",
+    ]);
+  });
+
+  it("falls back to system.browse for research child scope when browser snapshot tools are removed by policy", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task: "design_research",
+        objective:
+          "Research official docs and cite sources for the simulator data model",
+        inputContract:
+          "Return JSON with references and extracted design findings",
+      },
+      requestedTools: [
+        "desktop.bash",
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_snapshot",
+      ],
+      parentAllowedTools: ["system.browse"],
+      availableTools: ["system.browse"],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.blockedReason).toBeUndefined();
+    expect(resolved.allowedTools).toEqual(["system.browse"]);
+    expect(resolved.semanticFallback).toEqual(["system.browse"]);
+  });
+
   it("does not let parent browser-research context force browser evidence onto validation steps", () => {
     expect(specRequiresMeaningfulBrowserEvidence({
       task: "workspace_validation",
@@ -511,6 +1743,85 @@ describe("delegation-validation", () => {
         "Tests pass",
       ],
       requiredToolCapabilities: ["system.bash", "system.writeFile"],
+    })).toBe(false);
+  });
+
+  it("treats shell verification tools as sufficient grounding for localhost browser validation", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task: "qa_and_validation",
+        objective:
+          "Add Vitest tests with coverage, CLI smoke tests, build/typecheck and Chromium web flow validation",
+        inputContract: "Packages from prior steps",
+        acceptanceCriteria: [
+          "Vitest suite and coverage",
+          "CLI and build checks pass",
+          "Web flows validated",
+        ],
+        requiredToolCapabilities: ["system.bash"],
+      },
+      requestedTools: ["system.bash"],
+      parentAllowedTools: [
+        "system.bash",
+        "system.writeFile",
+      ],
+      availableTools: [
+        "system.bash",
+        "system.writeFile",
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+    expect(resolved.blockedReason).toBeUndefined();
+    expect(resolved.semanticFallback).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+  });
+
+  it("does not treat domain model terms like Network as browser interaction cues", () => {
+    expect(specRequiresMeaningfulBrowserEvidence({
+      task: "design_research",
+      objective:
+        "define the rules and data model for a rail-freight dispatch simulator with shared single-track segments, passing sidings, timed cargo deadlines, and switch locks",
+      parentRequest:
+        "Create /home/tetsuo/agent-test/freight-flow-ts-05 from scratch. Build a TypeScript npm-workspaces monorepo with packages core, cli, and web. Assigned phase only: design_research. Ignore broader orchestration instructions and other phases.",
+      inputContract:
+        "Empty target directory /home/tetsuo/agent-test/freight-flow-ts-05",
+      acceptanceCriteria: [
+        "Design document detailing data models (Network/Train/Job/Scenario), simulation rules, deadlock detection, planner approach, and conflict handling",
+      ],
+      requiredToolCapabilities: [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+      ],
+    })).toBe(false);
+  });
+
+  it("does not inherit Chromium-only parent context into a file-authoring design step", () => {
+    expect(specRequiresMeaningfulBrowserEvidence({
+      task: "design_research",
+      objective:
+        "define the rules and data model for a rail-freight dispatch simulator with shared single-track segments, passing sidings, timed cargo deadlines, and switch locks.",
+      parentRequest:
+        "Create /home/tetsuo/agent-test/freight-flow-ts-06 from scratch. Build a TypeScript npm-workspaces monorepo with packages core, cli, and web. Sub-agent orchestration plan (required): design_research, tech_research, core_implementation, ai_and_systems, qa_and_validation, polish_and_docs. Web must be Vite + React with 2 built-in demo scenarios and a step-through timeline visualization. Validate the main web flows in Chromium.",
+      inputContract: "User request, simulation rules, and hard requirements",
+      acceptanceCriteria: [
+        "Design document or TS interfaces for Network/Train/Job/Scenario models authored",
+        "Rules for conflicts, single-track, locks, deadlines, deadlock documented in workspace",
+      ],
+      requiredToolCapabilities: [
+        "system.bash",
+        "system.writeFile",
+        "system.readFile",
+        "system.listDir",
+      ],
     })).toBe(false);
   });
 
@@ -1068,6 +2379,88 @@ describe("delegation-validation", () => {
     expect(resolved.blockedReason).toBeUndefined();
   });
 
+  it("does not collapse CLI implementation work with mechanics output into research-only tools", () => {
+    const spec = {
+      task: "implement_cli",
+      objective:
+        "Implement CLI in packages/cli: bin command to load map file, invoke core solver, print route steps, total cost, and mechanics explanation.",
+      inputContract: "Scaffolded cli with core dep",
+      acceptanceCriteria: [
+        "CLI bin script present and integrates core",
+        "Command produces required output format",
+      ],
+      requiredToolCapabilities: ["file_system_write"],
+    };
+    const resolved = resolveDelegatedChildToolScope({
+      spec,
+      requestedTools: spec.requiredToolCapabilities,
+      parentAllowedTools: [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        PROVIDER_NATIVE_WEB_SEARCH_TOOL,
+      ],
+      availableTools: [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        PROVIDER_NATIVE_WEB_SEARCH_TOOL,
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(specRequiresFileMutationEvidence(spec)).toBe(true);
+    expect(resolved.allowedTools).toEqual([
+      "system.writeFile",
+      "system.bash",
+    ]);
+    expect(resolved.semanticFallback).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+  });
+
+  it("treats in-browser web app authoring as implementation when file-write capability is required", () => {
+    const spec = {
+      task: "implement_web",
+      objective:
+        "Create Vite TS app in packages/web with map editor UI, in-browser solver using core, canvas visualization of path and cost.",
+      inputContract: "Scaffolded web with core dep",
+      acceptanceCriteria: [
+        "Vite config and basic interactive app with edit/solve/visualize flow",
+      ],
+      requiredToolCapabilities: ["file_system_write"],
+    };
+    const resolved = resolveDelegatedChildToolScope({
+      spec,
+      requestedTools: spec.requiredToolCapabilities,
+      parentAllowedTools: [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+      ],
+      availableTools: [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(specRequiresFileMutationEvidence(spec)).toBe(true);
+    expect(specRequiresMeaningfulBrowserEvidence(spec)).toBe(false);
+    expect(resolved.allowedTools).toEqual([
+      "system.writeFile",
+      "system.bash",
+    ]);
+    expect(resolved.semanticFallback).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+  });
+
   it("keeps file-mutation tools for validation-shaped test authoring work", () => {
     const resolved = resolveDelegatedChildToolScope({
       spec: {
@@ -1092,8 +2485,8 @@ describe("delegation-validation", () => {
     });
 
     expect(resolved.allowedTools).toEqual([
-      "system.bash",
       "system.writeFile",
+      "system.bash",
     ]);
     expect(resolved.semanticFallback).toEqual([
       "system.bash",
@@ -1130,14 +2523,61 @@ describe("delegation-validation", () => {
     });
 
     expect(resolved.allowedTools).toEqual([
-      "system.bash",
       "system.writeFile",
+      "system.bash",
     ]);
     expect(resolved.semanticFallback).toEqual([
       "system.bash",
       "system.writeFile",
     ]);
-    expect(resolved.removedByPolicy).toEqual(["file_write"]);
+    expect(resolved.removedByPolicy).toEqual([
+      "system.appendFile",
+    ]);
+  });
+
+  it("maps semantic file_read capability requests onto explicit read tools", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task: "core_implementation",
+        objective:
+          "Implement packages/core and inspect existing source and package files before editing",
+        inputContract: "Workspace scaffold already exists",
+        acceptanceCriteria: [
+          "Implementation compiles",
+          "Existing package files are inspected before changes",
+        ],
+        requiredToolCapabilities: ["file_write", "file_read", "bash"],
+      },
+      requestedTools: ["file_write", "file_read", "bash"],
+      parentAllowedTools: [
+        "system.bash",
+        "system.writeFile",
+        "system.readFile",
+        "system.listDir",
+      ],
+      availableTools: [
+        "system.bash",
+        "system.writeFile",
+        "system.readFile",
+        "system.listDir",
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual([
+      "system.readFile",
+      "system.listDir",
+      "system.writeFile",
+      "system.bash",
+    ]);
+    expect(resolved.semanticFallback).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+    expect(resolved.removedByPolicy).toEqual([
+      "system.appendFile",
+      "desktop.bash",
+    ]);
   });
 
   it("does not block local CLI snapshot test work as browser-grounded", () => {
@@ -1277,6 +2717,43 @@ describe("delegation-validation", () => {
     expect(toolNames).toEqual(["system.writeFile", "system.bash"]);
   });
 
+  it("preserves verification and mutation tools after low-signal browser evidence on validation-heavy implementation steps", () => {
+    const toolNames = resolveDelegatedCorrectionToolChoiceToolNames(
+      {
+        task: "qa_and_validation",
+        objective:
+          "Add tests, fix build issues, and validate the main web flows in Chromium",
+        inputContract: "Core, CLI, and web implementation already exist",
+        acceptanceCriteria: [
+          "Vitest passes",
+          "Build/typecheck succeed",
+          "Main web flows validated in Chromium",
+        ],
+      },
+      ["system.bash", "system.writeFile"],
+      "low_signal_browser_evidence",
+    );
+
+    expect(toolNames).toEqual(["system.bash", "system.writeFile"]);
+  });
+
+  it("steers forbidden phase-action retries back toward inspection and file mutation tools", () => {
+    const toolNames = resolveDelegatedCorrectionToolChoiceToolNames(
+      {
+        task: "scaffold_manifests",
+        objective:
+          "Author only manifests/configs and do not execute install/build/test commands in this phase",
+        acceptanceCriteria: [
+          "No install/build/test commands executed or claimed",
+        ],
+      },
+      ["system.bash", "system.writeFile", "system.readFile", "system.listDir"],
+      "forbidden_phase_action",
+    );
+
+    expect(toolNames).toEqual(["system.listDir", "system.writeFile"]);
+  });
+
   it("resolves a navigation-first initial tool choice for browser-grounded work", () => {
     const toolChoice = resolveDelegatedInitialToolChoiceToolName(
       {
@@ -1307,6 +2784,22 @@ describe("delegation-validation", () => {
     );
 
     expect(toolChoice).toBe(PROVIDER_NATIVE_WEB_SEARCH_TOOL);
+  });
+
+  it("resolves system.browse as the initial tool choice for research when available", () => {
+    const toolChoice = resolveDelegatedInitialToolChoiceToolName(
+      {
+        task: "design_research",
+        objective:
+          "Research official docs and cite sources for the simulator data model",
+      },
+      [
+        "system.browserSessionStart",
+        "system.browse",
+      ],
+    );
+
+    expect(toolChoice).toBe("system.browse");
   });
 
   it("resolves a local file inspection tool before provider-native search for repository docs review", () => {
@@ -1458,6 +2951,33 @@ describe("delegation-validation", () => {
     expect(toolNames).toEqual([
       "system.bash",
       "system.listDir",
+      "system.writeFile",
+    ]);
+  });
+
+  it("keeps browser, shell, and mutation tools available for browser-evidence correction retries", () => {
+    const toolNames = resolveDelegatedCorrectionToolChoiceToolNames(
+      {
+        task: "implement_web",
+        objective:
+          "Implement packages/web: Vite+React with 2 demo scenarios, JSON editor, timeline render, validation errors",
+        inputContract: "Installed deps + core",
+        acceptanceCriteria: [
+          "App builds and demos functional",
+        ],
+      },
+      [
+        "system.browserSessionStart",
+        "system.browserAction",
+        "system.bash",
+        "system.writeFile",
+      ],
+      "acceptance_evidence_missing",
+    );
+
+    expect(toolNames).toEqual([
+      "system.browserSessionStart",
+      "system.bash",
       "system.writeFile",
     ]);
   });

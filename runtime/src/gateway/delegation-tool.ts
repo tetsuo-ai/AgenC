@@ -7,7 +7,7 @@
  * @module
  */
 
-import { dirname } from "node:path";
+import { dirname, resolve as resolvePath } from "node:path";
 import type { Tool } from "../tools/types.js";
 import { safeStringify } from "../tools/types.js";
 
@@ -78,6 +78,7 @@ const ABSOLUTE_PATH_TOKEN_RE =
   /(?<![A-Za-z0-9._~:/-])(?<path>(?:~\/|\/)[^\s"'`<>|()[\]{}:,;]+)/g;
 const FILE_LIKE_BASENAME_RE =
   /(?:\.[A-Za-z0-9]{1,8}|(?:^|\/)(?:Dockerfile|Makefile|README|LICENSE|CHANGELOG)(?:\.[A-Za-z0-9]+)?)$/i;
+const WORKSPACE_ALIAS_ROOT = "/workspace";
 
 export interface DelegatedWorkingDirectoryResolution {
   readonly path: string;
@@ -192,6 +193,38 @@ export function resolveDelegatedWorkingDirectory(
     path: inferred,
     source: "task_text",
   };
+}
+
+export function resolveDelegatedWorkingDirectoryPath(
+  workingDirectory: string,
+  hostWorkspaceRoot?: string,
+): string {
+  const normalizedWorkingDirectory =
+    normalizeDelegatedDirectoryCandidate(workingDirectory);
+  const normalizedHostWorkspaceRoot = hostWorkspaceRoot?.trim().length
+    ? resolvePath(expandHomeDirectory(hostWorkspaceRoot.trim()))
+    : undefined;
+
+  if (
+    !normalizedHostWorkspaceRoot ||
+    normalizedHostWorkspaceRoot === WORKSPACE_ALIAS_ROOT
+  ) {
+    return normalizedWorkingDirectory;
+  }
+
+  if (
+    normalizedWorkingDirectory === WORKSPACE_ALIAS_ROOT ||
+    normalizedWorkingDirectory.startsWith(`${WORKSPACE_ALIAS_ROOT}/`)
+  ) {
+    const relativePath = normalizedWorkingDirectory
+      .slice(WORKSPACE_ALIAS_ROOT.length)
+      .replace(/^\/+/, "");
+    return relativePath.length > 0
+      ? resolvePath(normalizedHostWorkspaceRoot, relativePath)
+      : normalizedHostWorkspaceRoot;
+  }
+
+  return normalizedWorkingDirectory;
 }
 
 export function parseExecuteWithAgentInput(

@@ -935,23 +935,20 @@ describe("system.bash tool", () => {
       expect(args).toEqual(["hello | world"]);
     });
 
-    it("treats an empty args array like omitted args for shell-mode commands", async () => {
+    it("treats an explicit empty args array as direct mode and rejects shell-shaped commands", async () => {
       const tool = createBashTool();
-      mockSpawnSuccess("tail output\n");
 
       const result = await tool.execute({
         command: "cat src/gridRouter.ts | tail -n 60",
         args: [],
       });
 
-      expect(result.isError).toBeUndefined();
-      expect(writeFileSync).toHaveBeenCalledWith(
-        expect.stringMatching(/agenc-sh-[0-9a-f]+\.sh$/),
-        "cat src/gridRouter.ts | tail -n 60",
-        { mode: 0o700 },
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain(
+        "Shell operators/newlines are not allowed in direct mode",
       );
-      expect(mockSpawn).toHaveBeenCalledOnce();
       expect(mockExecFile).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it("does NOT use shell mode for single-token commands without args", async () => {

@@ -167,6 +167,99 @@ describe("chat-executor-recovery", () => {
     expect(hint?.message).toContain("CI=1 npm test");
   });
 
+  it("redirects timed-out non-watch tests to source inspection instead of retry flailing", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "npm run test --workspace=@signal-cartography/core",
+      },
+      result: JSON.stringify({
+        exitCode: null,
+        timedOut: true,
+        stdout:
+          "\n> @signal-cartography/core@1.0.0 test\n> vitest run\n\n\n RUN  v1.6.1 /workspace/signal-cartography/packages/core\n\n",
+        stderr: 'Command "npm run test --workspace=@signal-cartography/core" failed',
+      }),
+      isError: true,
+      durationMs: 30_053,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system.bash-test-runner-timeout");
+    expect(hint?.message).toContain("likely hung");
+    expect(hint?.message).toContain("Inspect the authored source and tests");
+    expect(hint?.message).toContain("Do not keep retrying");
+  });
+
+  it("treats direct node execution of compiled test artifacts as a timed-out test run", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "node",
+        args: ["packages/core/dist/test/index.test.js"],
+      },
+      result: JSON.stringify({
+        exitCode: null,
+        timedOut: true,
+        stdout:
+          "Running core tests...\nBFS test passed, cost: 3\nUnreachable test passed\n",
+        stderr: "Command failed: node packages/core/dist/test/index.test.js\n",
+      }),
+      isError: true,
+      durationMs: 30_006,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system.bash-test-runner-timeout");
+    expect(hint?.message).toContain("likely hung");
+    expect(hint?.message).toContain("Inspect the authored source and tests");
+  });
+
+  it("flags unsupported Vitest threads flags and points to the supported pool option", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "npx vitest run packages/core/src/index.test.ts --no-threads",
+      },
+      result: JSON.stringify({
+        exitCode: 1,
+        stdout: "",
+        stderr:
+          "CACError: Unknown option `--threads`\n    at Command.checkUnknownOptions (...)",
+      }),
+      isError: true,
+      durationMs: 203,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system.bash-vitest-unsupported-threads-flag");
+    expect(hint?.message).toContain("--no-threads");
+    expect(hint?.message).toContain("--pool=<threads|forks>");
+    expect(hint?.message).toContain("vitest run");
+  });
+
+  it("flags missing project-local binaries without misclassifying them as shell builtins", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "tsc",
+        args: ["--noEmit"],
+      },
+      result: JSON.stringify({
+        exitCode: 1,
+        stdout: "",
+        stderr: "spawn tsc ENOENT",
+      }),
+      isError: true,
+      durationMs: 9,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system-bash-missing-command:tsc");
+    expect(hint?.message).toContain("`npx tsc`");
+    expect(hint?.message).not.toContain("Shell builtins");
+  });
+
   it("flags unsupported workspace protocol failures as host tooling constraints", () => {
     const hint = inferRecoveryHint({
       name: "system.bash",
@@ -236,5 +329,29 @@ describe("chat-executor-recovery", () => {
     expect(hint?.key).toBe("system-bash-local-package-dist-missing");
     expect(hint?.message).toContain("dist/*");
     expect(hint?.message).toContain("Build the dependency package first");
+  });
+
+  it("flags direct-mode wildcard operands that rely on shell glob expansion", () => {
+    const hint = inferRecoveryHint({
+      name: "system.bash",
+      args: {
+        command: "ls",
+        args: ["packages/core/dist/*.d.ts"],
+      },
+      result: JSON.stringify({
+        exitCode: 2,
+        stdout: "",
+        stderr:
+          "ls: cannot access 'packages/core/dist/*.d.ts': No such file or directory\n",
+      }),
+      isError: true,
+      durationMs: 6,
+    });
+
+    expect(hint).toBeDefined();
+    expect(hint?.key).toBe("system-bash-literal-glob-operand");
+    expect(hint?.message).toContain("does not expand shell globs");
+    expect(hint?.message).toContain("find");
+    expect(hint?.message).toContain("shell mode");
   });
 });

@@ -36,6 +36,31 @@ import { safeStringify } from "../../tools/types.js";
 const DEFAULT_HOST = "http://localhost:11434";
 const DEFAULT_MODEL = "llama3";
 
+function normalizeTimeoutMs(timeoutMs: number | undefined): number | undefined {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
+    return undefined;
+  }
+  if (timeoutMs <= 0) {
+    return undefined;
+  }
+  return Math.max(1, Math.floor(timeoutMs));
+}
+
+function resolveRequestTimeoutMs(
+  providerTimeoutMs: number | undefined,
+  callTimeoutMs: number | undefined,
+): number | undefined {
+  const normalizedProviderTimeoutMs = normalizeTimeoutMs(providerTimeoutMs);
+  const normalizedCallTimeoutMs = normalizeTimeoutMs(callTimeoutMs);
+  if (normalizedProviderTimeoutMs === undefined) {
+    return normalizedCallTimeoutMs;
+  }
+  if (normalizedCallTimeoutMs === undefined) {
+    return normalizedProviderTimeoutMs;
+  }
+  return Math.max(1, Math.min(normalizedProviderTimeoutMs, normalizedCallTimeoutMs));
+}
+
 type ToolResolutionStrategy =
   | "all_tools_no_filter"
   | "all_tools_empty_filter"
@@ -189,6 +214,7 @@ function emitProviderTraceEvent(
 
 function buildToolSelectionTraceContext(
   selection: ToolSelectionDiagnostics,
+  timeoutMs?: number,
 ): Record<string, unknown> {
   return {
     requestedToolNames: selection.requestedToolNames,
@@ -197,7 +223,8 @@ function buildToolSelectionTraceContext(
     toolResolution: selection.toolResolution,
     providerCatalogToolCount: selection.providerCatalogToolCount,
     toolsAttached: selection.toolsAttached,
-    };
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
 }
 
 export class OllamaProvider implements LLMProvider {
@@ -228,6 +255,10 @@ export class OllamaProvider implements LLMProvider {
     const toolSelection = this.selectTools(options?.toolRouting?.allowedToolNames);
     const params = this.buildParams(messages, options, toolSelection);
     const requestMetrics = collectParamDiagnostics(params, toolSelection);
+    const requestTimeoutMs = resolveRequestTimeoutMs(
+      this.config.timeoutMs,
+      options?.timeoutMs,
+    );
 
     try {
       emitProviderTraceEvent(options, {
@@ -238,12 +269,13 @@ export class OllamaProvider implements LLMProvider {
         payload:
           cloneProviderTracePayload(params) ??
           { error: "provider_request_trace_unavailable" },
-        context: buildToolSelectionTraceContext(toolSelection),
+        context: buildToolSelectionTraceContext(toolSelection, requestTimeoutMs),
       });
       const response = await withTimeout(
         async (signal) => (client as any).chat(params, { signal }),
-        this.config.timeoutMs,
+        requestTimeoutMs,
         this.name,
+        options?.signal,
       );
       emitProviderTraceEvent(options, {
         kind: "response",
@@ -266,7 +298,7 @@ export class OllamaProvider implements LLMProvider {
         model: String(params.model ?? this.config.model),
         payload: buildProviderTraceErrorPayload(err),
       });
-      throw this.mapError(err);
+      throw this.mapError(err, requestTimeoutMs);
     }
   }
 
@@ -282,6 +314,10 @@ export class OllamaProvider implements LLMProvider {
       stream: true,
     };
     const requestMetrics = collectParamDiagnostics(params, toolSelection);
+    const requestTimeoutMs = resolveRequestTimeoutMs(
+      this.config.timeoutMs,
+      options?.timeoutMs,
+    );
     let content = "";
     let model = this.config.model;
     let toolCalls: LLMToolCall[] = [];
@@ -297,12 +333,13 @@ export class OllamaProvider implements LLMProvider {
         payload:
           cloneProviderTracePayload(params) ??
           { error: "provider_request_trace_unavailable" },
-        context: buildToolSelectionTraceContext(toolSelection),
+        context: buildToolSelectionTraceContext(toolSelection, requestTimeoutMs),
       });
       const stream = await withTimeout(
         async (signal) => (client as any).chat(params, { signal }),
-        this.config.timeoutMs,
+        requestTimeoutMs,
         this.name,
+        options?.signal,
       );
 
       for await (const chunk of stream as AsyncIterable<any>) {
@@ -381,7 +418,7 @@ export class OllamaProvider implements LLMProvider {
         payload: buildProviderTraceErrorPayload(err),
       });
       if (content.length > 0) {
-        const mappedError = this.mapError(err);
+        const mappedError = this.mapError(err, requestTimeoutMs);
         onChunk({ content: "", done: true, toolCalls });
         return {
           content,
@@ -399,7 +436,7 @@ export class OllamaProvider implements LLMProvider {
           ...this.buildUnsupportedDiagnostics(options),
         };
       }
-      throw this.mapError(err);
+      throw this.mapError(err, requestTimeoutMs);
     }
   }
 
@@ -620,7 +657,7 @@ export class OllamaProvider implements LLMProvider {
     };
   }
 
-  private mapError(err: unknown): Error {
+  private mapError(err: unknown, timeoutMs?: number): Error {
     // Ollama-specific: connection refused means server isn't running
     const e = err as any;
     if (e?.code === "ECONNREFUSED") {
@@ -630,6 +667,6 @@ export class OllamaProvider implements LLMProvider {
       );
     }
 
-    return mapLLMError(this.name, err, this.config.timeoutMs ?? 0);
+    return mapLLMError(this.name, err, timeoutMs ?? this.config.timeoutMs ?? 0);
   }
 }

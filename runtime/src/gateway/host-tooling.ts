@@ -9,6 +9,18 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 const NPM_WORKSPACE_PROTOCOL_RE =
   /unsupported url type\s+"workspace:"|eunsupportedprotocol/i;
+const WORKSPACE_PROTOCOL_PREFIX = "workspace:";
+const PACKAGE_MANIFEST_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+  "bundleDependencies",
+  "bundledDependencies",
+  "overrides",
+  "resolutions",
+] as const;
+const RAW_WORKSPACE_PROTOCOL_LITERAL_RE = /"(?<specifier>workspace:[^"]+)"/gi;
 
 export type HostWorkspaceProtocolSupport = "supported" | "unsupported" | "unknown";
 
@@ -21,6 +33,12 @@ export interface HostNpmToolingProfile {
 export interface HostToolingProfile {
   readonly nodeVersion: string;
   readonly npm?: HostNpmToolingProfile;
+}
+
+export interface PackageManifestWorkspaceProtocolSpecifier {
+  readonly dependencyField: string;
+  readonly packageName?: string;
+  readonly specifier: string;
 }
 
 interface CommandExecutionResult {
@@ -88,6 +106,65 @@ function summarizeProbeEvidence(text: string): string | undefined {
     .map((line) => line.trim())
     .find((line) => line.length > 0);
   return normalized?.slice(0, 240);
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function findPackageManifestWorkspaceProtocolSpecifiers(
+  manifestContent: string,
+): PackageManifestWorkspaceProtocolSpecifier[] {
+  const specifiers: PackageManifestWorkspaceProtocolSpecifier[] = [];
+
+  try {
+    const parsed = JSON.parse(manifestContent) as unknown;
+    if (isObjectRecord(parsed)) {
+      for (const dependencyField of PACKAGE_MANIFEST_DEPENDENCY_FIELDS) {
+        const dependencyMap = parsed[dependencyField];
+        if (!isObjectRecord(dependencyMap)) continue;
+        for (const [packageName, rawSpecifier] of Object.entries(dependencyMap)) {
+          if (typeof rawSpecifier !== "string") continue;
+          const specifier = rawSpecifier.trim();
+          if (!specifier.toLowerCase().startsWith(WORKSPACE_PROTOCOL_PREFIX)) {
+            continue;
+          }
+          specifiers.push({
+            dependencyField,
+            packageName,
+            specifier,
+          });
+        }
+      }
+    }
+  } catch {
+    // Fall through to the raw literal scan below so progressive append/write
+    // flows still get blocked once they introduce `workspace:` into package.json.
+  }
+
+  if (specifiers.length > 0) {
+    return specifiers;
+  }
+
+  for (const match of manifestContent.matchAll(RAW_WORKSPACE_PROTOCOL_LITERAL_RE)) {
+    const specifier = match.groups?.specifier?.trim();
+    if (!specifier) continue;
+    if (
+      specifiers.some(
+        (candidate) =>
+          candidate.dependencyField === "unknown" &&
+          candidate.specifier === specifier,
+      )
+    ) {
+      continue;
+    }
+    specifiers.push({
+      dependencyField: "unknown",
+      specifier,
+    });
+  }
+
+  return specifiers;
 }
 
 async function probeNpmWorkspaceProtocol(params: {

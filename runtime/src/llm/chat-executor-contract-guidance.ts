@@ -26,6 +26,7 @@ import {
 } from "../utils/delegation-validation.js";
 import {
   TYPED_ARTIFACT_DOMAINS,
+  messageContainsAnyTypedArtifactTerm,
   type TypedArtifactDomain,
 } from "../tools/system/typed-artifact-domains.js";
 import { extractExplicitImperativeToolNames } from "./chat-executor-explicit-tools.js";
@@ -369,13 +370,22 @@ function resolveTypedArtifactContractGuidance(
 function inferTypedArtifactContract(
   input: ToolContractGuidanceContext,
 ): TypedArtifactDomain | undefined {
-  const lower = input.messageText.toLowerCase();
   for (const contract of TYPED_ARTIFACT_DOMAINS) {
-    const domainMatch = contract.guidanceDomainTerms.some((term) => lower.includes(term));
+    const domainMatch = messageContainsAnyTypedArtifactTerm(
+      input.messageText,
+      contract.guidanceDomainTerms,
+    );
     if (!domainMatch) continue;
 
-    const infoMatch = contract.guidanceInfoTerms.some((term) => lower.includes(term));
-    const detailMatch = contract.guidanceDetailTerms.some((term) => lower.includes(term));
+    const infoMatch = messageContainsAnyTypedArtifactTerm(
+      input.messageText,
+      contract.guidanceInfoTerms,
+    );
+    const detailMatch = messageContainsAnyTypedArtifactTerm(
+      input.messageText,
+      contract.guidanceDetailTerms,
+    );
+    const lower = input.messageText.toLowerCase();
     const explicitToolMatch =
       lower.includes(contract.infoToolName.toLowerCase()) ||
       lower.includes(contract.detailToolName.toLowerCase()) ||
@@ -416,27 +426,33 @@ function resolveDelegationInitialContractGuidance(
   );
   if (routedToolNames.length === 0) return undefined;
 
-  const usesFlexibleInitialSubset = routedToolNames.length > 1;
   const workspaceBootstrap =
     isDelegatedWorkspaceBootstrapPhase(spec);
+  const effectiveRoutedToolNames = workspaceBootstrap
+    ? [preferredToolName]
+    : routedToolNames;
+  const usesFlexibleInitialSubset = effectiveRoutedToolNames.length > 1;
+  const runtimeInstruction = usesFlexibleInitialSubset
+    ? workspaceBootstrap
+      ? "Bootstrap the delegated workspace before inspecting it. " +
+        "If the delegated cwd does not exist yet, create the workspace root first or keep targeting that workspace via absolute paths until it exists. " +
+        "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations."
+      : "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
+        "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
+        "and use shell verification when build/test/install evidence is part of acceptance."
+    : preferredToolName === "system.writeFile" ||
+        preferredToolName === "system.appendFile"
+      ? workspaceBootstrap
+        ? "Begin by creating or updating files under the delegated workspace root. " +
+          "If the delegated cwd does not exist yet, target that workspace via absolute paths instead of starting with shell inspection."
+        : "Begin by creating or updating the required files from the delegated contract. " +
+          "Do not spend the first tool round rediscovering the workspace with shell inspection."
+      : undefined;
 
   return {
     source: "delegation-initial",
-    runtimeInstruction:
-      usesFlexibleInitialSubset
-        ? workspaceBootstrap
-          ? "Bootstrap the delegated workspace before inspecting it. " +
-            "If the delegated cwd does not exist yet, create it first or inspect its parent instead of issuing a cwd-relative inspection that is expected to fail. " +
-            "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations."
-          : "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
-            "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
-            "and use shell verification when build/test/install evidence is part of acceptance."
-        : preferredToolName === "system.writeFile" ||
-            preferredToolName === "system.appendFile"
-          ? "Begin by creating or updating the required files from the delegated contract. " +
-            "Do not spend the first tool round rediscovering the workspace with shell inspection."
-          : undefined,
-    routedToolNames,
+    runtimeInstruction,
+    routedToolNames: effectiveRoutedToolNames,
     persistRoutedToolNames: false,
     toolChoice: "required",
   };

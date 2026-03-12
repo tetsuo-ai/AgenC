@@ -72,6 +72,26 @@ describe("grok adapter utils", () => {
     );
   });
 
+  it("ignores assistant commentary phase when hashing reconciliation state", () => {
+    const first: LLMMessage[] = [
+      { role: "user", content: "finish the delegated phase" },
+      { role: "assistant", content: "**BLOCKED**: missing grounded evidence" },
+    ];
+    const second: LLMMessage[] = [
+      { role: "user", content: "finish the delegated phase" },
+      {
+        role: "assistant",
+        content: "**BLOCKED**: missing grounded evidence",
+        phase: "commentary",
+      },
+      { role: "system", content: "Retry with tool-grounded evidence." },
+    ];
+
+    expect(computeReconciliationChain(first, 8).anchorHash).toBe(
+      computeReconciliationChain(second, 8).anchorHash,
+    );
+  });
+
   it("keeps recent anchors matchable after the reconciliation window shifts", () => {
     const first: LLMMessage[] = Array.from({ length: 50 }, (_, index) => ({
       role: index % 2 === 0 ? "user" : "assistant",

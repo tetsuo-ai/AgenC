@@ -12,6 +12,7 @@ import type {
   LLMTool,
   LLMToolChoice,
 } from "../types.js";
+import { sanitizeToolCallArgumentsForReplay } from "../chat-executor-tool-utils.js";
 import { safeStringify } from "../../tools/types.js";
 
 const MAX_TOOL_DESCRIPTION_CHARS = 200;
@@ -212,7 +213,9 @@ function normalizeMessageForReconciliation(message: LLMMessage): unknown {
     role: message.role,
     content: normalizeHashContent(message.content),
   };
-  if (message.phase === "commentary") normalized.phase = message.phase;
+  if (message.phase === "commentary" && message.role !== "assistant") {
+    normalized.phase = message.phase;
+  }
   if (message.toolCallId) normalized.toolCallId = message.toolCallId;
   if (message.toolName) normalized.toolName = message.toolName;
   if (message.toolCalls && message.toolCalls.length > 0) {
@@ -220,7 +223,7 @@ function normalizeMessageForReconciliation(message: LLMMessage): unknown {
       .map((toolCall) => ({
         id: toolCall.id,
         name: toolCall.name,
-        arguments: toolCall.arguments,
+        arguments: sanitizeToolCallArgumentsForReplay(toolCall.arguments),
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
   }
@@ -232,19 +235,6 @@ function isReconciliationRelevantMessage(message: LLMMessage): boolean {
   // Dynamic system injections (memory, progress, runtime hints) can vary between
   // turns without invalidating the provider's previous_response_id anchor.
   return message.role !== "system";
-}
-
-function isPersistedSessionHistoryMessage(message: LLMMessage): boolean {
-  if (message.role === "system" || message.role === "tool") {
-    return false;
-  }
-  if (message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0) {
-    return false;
-  }
-  if (message.role === "assistant" && message.phase === "commentary") {
-    return false;
-  }
-  return true;
 }
 
 export function computeReconciliationChain(
@@ -287,14 +277,74 @@ export function computePersistedResponseReconciliationHash(
   response: Pick<LLMResponse, "content" | "finishReason" | "toolCalls">,
   windowSize: number,
 ): string {
-  const persistedMessages = messages.filter(isPersistedSessionHistoryMessage);
-  if (response.finishReason !== "tool_calls") {
-    persistedMessages.push({
-      role: "assistant",
-      content: response.content,
-    });
+  const lineageMessages = [...messages];
+  const assistantMessage =
+    response.toolCalls.length > 0
+      ? {
+        role: "assistant" as const,
+        content: response.content,
+        phase: "commentary" as const,
+        toolCalls: response.toolCalls,
+      }
+      : response.content.trim().length > 0
+        ? {
+          role: "assistant" as const,
+          content: response.content,
+        }
+        : undefined;
+
+  if (assistantMessage) {
+    lineageMessages.push(assistantMessage);
   }
-  return computeReconciliationChain(persistedMessages, windowSize).anchorHash;
+
+  return computeReconciliationChain(lineageMessages, windowSize).anchorHash;
+}
+
+export function buildIncrementalContinuationMessages(
+  messages: readonly LLMMessage[],
+  anchorRelevantMessageIndex: number,
+): {
+  messages: readonly LLMMessage[];
+  mode: "full_replay" | "incremental_delta";
+  omittedMessageCount: number;
+} {
+  if (!Number.isInteger(anchorRelevantMessageIndex) || anchorRelevantMessageIndex < 0) {
+    return {
+      messages,
+      mode: "full_replay",
+      omittedMessageCount: 0,
+    };
+  }
+
+  const incremental: LLMMessage[] = [];
+  let relevantIndex = -1;
+  let omittedMessageCount = 0;
+  for (const message of messages) {
+    if (!isReconciliationRelevantMessage(message)) {
+      incremental.push(message);
+      continue;
+    }
+    relevantIndex += 1;
+    if (relevantIndex <= anchorRelevantMessageIndex) {
+      omittedMessageCount += 1;
+      continue;
+    }
+    incremental.push(message);
+  }
+
+  if (omittedMessageCount <= 0) {
+    return {
+      messages,
+      mode: "full_replay",
+      omittedMessageCount: 0,
+    };
+  }
+
+  return {
+    messages: incremental,
+    mode: "incremental_delta",
+    omittedMessageCount,
+  };
 }
 
 export function isContinuationRetrievalFailure(error: unknown): boolean {

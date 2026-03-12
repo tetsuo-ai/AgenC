@@ -9,6 +9,9 @@
     "start": "node dist/index.js",
     "test": "npm run build && node --test dist/*.test.js"
   },
+  "dependencies": {
+    "@agenc/sdk": "file:../../../sdk"
+  },
   "devDependencies": {
     "typescript": "^5.9.3",
     "@types/node": "^25.4.0"

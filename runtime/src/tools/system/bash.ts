@@ -214,7 +214,7 @@ function isShellModeCommand(
   command: string,
   args: readonly string[] | undefined,
 ): boolean {
-  if (args !== undefined && args.length > 0) return false;
+  if (args !== undefined) return false;
   return SHELL_OPERATOR_RE.test(command) || /\s/.test(command);
 }
 
@@ -466,10 +466,9 @@ export function createBashTool(config?: BashToolConfig): Tool {
       }
 
       const command = input.command.trim();
-      const normalizedArgs =
-        Array.isArray(input.args) && input.args.length === 0
-          ? undefined
-          : input.args;
+      const normalizedArgs = Array.isArray(input.args)
+        ? input.args
+        : undefined;
 
       // Determine execution mode: shell vs direct
       const useShellMode =

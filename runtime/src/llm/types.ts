@@ -104,6 +104,8 @@ export interface LLMRequestMetrics {
   toolSchemaChars: number;
   serializedChars: number;
   previousResponseId?: string;
+  statefulInputMode?: "full_replay" | "incremental_delta";
+  statefulOmittedMessageCount?: number;
   store?: boolean;
   parallelToolCalls?: boolean;
   stream?: boolean;
@@ -363,6 +365,10 @@ export interface LLMChatOptions {
   readonly toolRouting?: LLMChatToolRoutingOptions;
   readonly toolChoice?: LLMToolChoice;
   readonly trace?: LLMChatTraceOptions;
+  /** Upper bound for this individual provider call. */
+  readonly timeoutMs?: number;
+  /** Abort signal propagated from the runtime when the request is cancelled. */
+  readonly signal?: AbortSignal;
 }
 
 export interface LLMProviderEvidence {

@@ -476,7 +476,10 @@ Use during incident triage. This profile prioritizes observability and reproduci
       "includeToolArgs": true,
       "includeToolResults": true,
       "includeProviderPayloads": true,
-      "maxChars": 20000
+      "maxChars": 20000,
+      "fanout": {
+        "enabled": true
+      }
     }
   }
 }
@@ -497,6 +500,8 @@ The runtime also persists those trace events into the local observability store 
 These queries power the WebChat `TRACE` view, which combines summary metrics, trace timelines, exact artifact payloads under `~/.agenc/trace-payloads/`, and trace-filtered daemon log slices without requiring operators to grep raw logs first.
 
 In foreground tmux or other multi-daemon local runs, the runtime now tees foreground daemon output into the configured daemon log path as well. That keeps pane scrollback, `observability.logs`, and exported debug bundles aligned even when each agent uses its own log file (for example `~/.agenc/localnet-soak/default/social/logs/agent-1.log`).
+
+When `logging.trace.enabled=true`, bounded concern-based derived files are enabled by default unless `logging.trace.fanout.enabled=false`. They live next to the active daemon log and mirror the same canonical trace stream into `*.provider.log`, `*.executor.log`, `*.subagents.log`, and `*.errors.log` views. Treat those files as operator conveniences, not separate sources of truth.
 
 When the executor normalizes or repairs tool arguments immediately before dispatch, `*.executor.tool_dispatch_started` trace events can include `argumentDiagnostics`. This payload records the repair source plus the repaired fields so operators can distinguish model-supplied arguments from deterministic runtime repair during incident replay.
 
@@ -541,7 +546,7 @@ Use for multi-step delegated workloads where planner DAG execution, verifier gat
       "maxCumulativeToolCallsPerRequestTree": 256,
       "maxCumulativeTokensPerRequestTree": 250000,
       "defaultTimeoutMs": 120000,
-      "spawnDecisionThreshold": 0.65,
+      "spawnDecisionThreshold": 0.2,
       "handoffMinPlannerConfidence": 0.82,
       "forceVerifier": true,
       "allowParallelSubtasks": true,

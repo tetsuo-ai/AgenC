@@ -64,7 +64,11 @@ import {
   assessDelegationScope,
   type DelegationDecompositionSignal,
 } from "../gateway/delegation-scope.js";
-import { getAcceptanceVerificationCategories } from "../utils/delegation-validation.js";
+import {
+  getAcceptanceVerificationCategories,
+  isDefinitionOnlyVerificationText,
+  specRequiresMeaningfulBrowserEvidence,
+} from "../utils/delegation-validation.js";
 import {
   inspectDelegationBudgetHint,
   MIN_DELEGATION_TIMEOUT_MS,
@@ -287,8 +291,14 @@ const NODE_INSTALL_SENSITIVE_VERIFICATION_TARGET_RE =
   /\b(?:tests?|coverage|vitest|jest|mocha|ava|npm\s+(?:test|run\s+build|run\s+typecheck|run\s+lint)|pnpm\s+(?:test|build|typecheck|lint)|yarn\s+(?:test|build|typecheck|lint)|bun\s+(?:test|run(?:\s+(?:build|typecheck|lint))?)|vite\s+build|tsc\b|build(?:s|ing)?|compile(?:s|d|ing)?|typecheck(?:s|ed|ing)?|lint(?:s|ed|ing)?|install(?:s|ed|ing)?)\b/i;
 const NODE_INSTALL_SENSITIVE_VERIFICATION_PHRASE_RE =
   /\b(?:tests?\s+(?:pass|passing|passed|run|runs|running|succeed|succeeds|succeeded)|coverage(?:\s+(?:reported|generated|collected|runs?|ran))?|builds?\s+(?:cleanly|correctly|successfully|without errors?|ok)|compiles?\s+(?:cleanly|correctly|successfully|without errors?)|typechecks?\s+(?:cleanly|correctly|successfully|without errors?)|lints?\s+(?:cleanly|correctly|successfully|without errors?)|installs?\s+(?:cleanly|correctly|successfully|without errors?)|npm\s+(?:test|run\s+build|run\s+typecheck|run\s+lint)\s+(?:passes?|succeeds?|runs?)|pnpm\s+(?:test|build|typecheck|lint)\s+(?:passes?|succeeds?|runs?)|yarn\s+(?:test|build|typecheck|lint)\s+(?:passes?|succeeds?|runs?)|bun\s+(?:test|run(?:\s+(?:build|typecheck|lint))?)\s+(?:passes?|succeeds?|runs?)|vite\s+build\s+(?:passes?|succeeds?|runs?)|tsc\s+(?:passes?|succeeds?|runs?))\b/i;
+const NEGATED_NODE_VERIFICATION_RE =
+  /\b(?:no|without|avoid(?:ing)?|skip|exclude(?:d|ing)?|do\s+not|don't)\s+(?:any\s+)?(?:install(?:ation|ing)?|run(?:ning)?|runtime\s+testing|tests?|testing|build(?:s|ing)?|compile(?:s|d|ing)?|typecheck(?:s|ed|ing)?|lint(?:s|ed|ing)?)(?:\s*(?:\/|or|and)\s*(?:install(?:ation|ing)?|run(?:ning)?|tests?|testing|build(?:s|ing)?|compile(?:s|d|ing)?|typecheck(?:s|ed|ing)?|lint(?:s|ed|ing)?))*\b/gi;
 const NODE_PACKAGE_MANAGER_COMMANDS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const NODE_INSTALL_ACTIONS = new Set(["install", "ci", "add"]);
+
+function stripNegatedNodeVerificationLanguage(value: string): string {
+  return value.replace(NEGATED_NODE_VERIFICATION_RE, " ");
+}
 
 function isDialogueOnlyExactResponseTurn(messageText: string): boolean {
   return (
@@ -356,6 +366,9 @@ function buildPlannerHostToolingHint(
   fragments.push(
     "For Node workspace plans, keep manifest/config scaffolding before the real package-manager install, then run one host install before any delegated build/test/coverage validation.",
   );
+  fragments.push(
+    "Before that install step, scaffold/setup subagent steps may only claim authored manifests, configs, scripts, directory structure, and local dependency links. Do not mention `npm install`, build, test, coverage, typecheck, lint, or runtime success in those step objectives or acceptance criteria.",
+  );
   if (hostToolingProfile.npm?.workspaceProtocolSupport === "unsupported") {
     const evidence = hostToolingProfile.npm.workspaceProtocolEvidence
       ? ` (${hostToolingProfile.npm.workspaceProtocolEvidence})`
@@ -395,9 +408,12 @@ export function buildPlannerMessages(
   explicitDeterministicRequirements?: ExplicitDeterministicToolRequirements,
   refinementHint?: string,
   hostToolingProfile?: HostToolingProfile | null,
+  runtimeConstraints?: PlannerRuntimeConstraints,
 ): readonly LLMMessage[] {
   const explicitOrchestration =
     extractExplicitSubagentOrchestrationRequirements(messageText);
+  const verificationRequirements =
+    extractPlannerVerificationRequirements(messageText);
   const hostToolingHint = buildPlannerHostToolingHint(
     messageText,
     history,
@@ -457,6 +473,13 @@ export function buildPlannerMessages(
         "- For deterministic_tool steps, put all tool parameters inside `args`. Do not place tool parameters like `cwd` or `timeoutMs` at the step root.\n" +
         "- Each subagent_task must stay narrowly scoped to one phase of work. Do not combine research, setup, implementation, and validation into one delegated step.\n" +
         "- Prefer multiple smaller subagent_task steps with explicit dependencies over one large delegated objective.\n" +
+        (
+          runtimeConstraints
+            ? `- Never emit more than ${runtimeConstraints.maxSubagentFanout} subagent_task steps in the full plan.\n`
+            : ""
+        ) +
+        "- If you need to reduce delegated fanout, only merge adjacent steps from the same phase family. Never merge research with setup/manifest work, or code implementation with broad validation/browser QA.\n" +
+        "- For Node workspace scaffold/setup steps that run before the real install step, objectives and acceptance criteria must stay file-authoring-only. Do not mention install/build/test/typecheck/lint/coverage/runtime success there; put those checks in later steps after install.\n" +
         "- For deterministic system.bash/desktop.bash steps, do not use nested shell wrappers like `bash -c` or `sh -c`; call the target command directly or use shell mode.\n" +
         "- Do not embed heredocs, multi-line shell scripts, or generated file contents inside deterministic bash steps. Use file mutation tools for file contents instead.\n" +
         "- Verification/build/test commands must be non-interactive and exit on their own. Do not use watch mode or dev servers for validation. Prefer runner-native single-run invocations. For Vitest use `vitest run`/`vitest --run`. For Jest use `CI=1 npm test` or `jest --runInBand`. Only pass extra npm `--` flags when the underlying runner supports them.\n" +
@@ -497,6 +520,17 @@ export function buildPlannerMessages(
         `Use only these tools in this order: ${requiredOrder}. ` +
         "Emit one `deterministic_tool` step per required tool call, preserve dependency order between the tool stages, and do not emit `subagent_task` steps or off-domain tools." +
         exactLiteralInstruction,
+    });
+  }
+
+  if (verificationRequirements.length > 0) {
+    messages.push({
+      role: "system",
+      content:
+        "The user explicitly required verification coverage before finishing. " +
+        `Preserve these verification modes in the plan: ${verificationRequirements.join(" -> ")}. ` +
+        "Do not silently drop a requested verification mode during fanout reduction or runtime repair. " +
+        "If browser-grounded checks are required, emit a later validation step whose objective or acceptance criteria explicitly require meaningful browser-grounded evidence.",
     });
   }
 
@@ -547,12 +581,50 @@ export interface ExplicitDeterministicToolRequirements {
   readonly exactResponseLiteral?: string;
 }
 
+export interface PlannerRuntimeConstraints {
+  readonly maxSubagentFanout: number;
+}
+
+export type PlannerVerificationRequirementCategory =
+  | "install"
+  | "build"
+  | "test"
+  | "browser";
+
 const REQUIRED_SUBAGENT_PLAN_MARKER_RE =
   /sub-agent orchestration plan(?:\s*\((?:required|mandatory)\)|\s+(?:required|mandatory))\s*:/i;
 const REQUIRED_SUBAGENT_STEP_NAME_RE =
   /(?:^|\s)(\d+)[\).:]\s*(?:`([^`]+)`|([A-Za-z0-9_-]+))/g;
 const REQUIRED_DELIVERABLE_CUE_RE =
   /\b(final deliverables|how to play|known limitations|architecture summary)\b/i;
+const REQUEST_VERIFICATION_DIRECTIVE_RE =
+  /\b(?:verify|verification|validated?|before\s+finish(?:ing)?|before\s+returning|before\s+completion|browser-grounded checks?)\b/i;
+const REQUEST_INSTALL_VERIFICATION_RE =
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:install|ci)\b|\binstall(?:ation|able|ed|ing|s)?\b/i;
+const REQUEST_BUILD_VERIFICATION_RE =
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:build|typecheck|lint)\b|\b(?:vite\s+build|tsc\b|build(?:s|ing)?|compile(?:s|d|ing)?|typecheck(?:s|ed|ing)?|lint(?:s|ed|ing)?)\b/i;
+const REQUEST_TEST_VERIFICATION_RE =
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|coverage|vitest|jest)\b|\b(?:tests?|testing|smoke tests?|unit tests?|vitest|jest|pytest|mocha|ava|coverage)\b/i;
+const REQUEST_BROWSER_VERIFICATION_RE =
+  /\b(?:browser(?:-grounded)?|browser\s+checks?|playwright|cypress|puppeteer|chrom(?:e|ium)|localhost|127\.0\.0\.1|e2e|end-to-end|ui validation|browser session|browser action)\b/i;
+const PLANNER_BROWSER_VERIFICATION_TOOL_NAMES = new Set([
+  "system.browserAction",
+  "system.browserSessionStart",
+  "system.browserSessionResume",
+  "system.browserSessionStatus",
+  "system.browserSessionArtifacts",
+  "mcp.browser.browser_navigate",
+  "mcp.browser.browser_snapshot",
+  "mcp.browser.browser_run_code",
+  "playwright.browser_navigate",
+  "playwright.browser_snapshot",
+]);
+const PLANNER_VERIFICATION_CATEGORY_ORDER: readonly PlannerVerificationRequirementCategory[] = [
+  "install",
+  "build",
+  "test",
+  "browser",
+];
 
 export function extractExplicitSubagentOrchestrationRequirements(
   messageText: string,
@@ -610,6 +682,79 @@ function normalizeExplicitRequirementDescription(description: string): string {
     .replace(/\s+/g, " ")
     .replace(/\s*-\s*/g, " - ")
     .trim();
+}
+
+function normalizePlannerVerificationCategories(
+  categories: readonly PlannerVerificationRequirementCategory[],
+): readonly PlannerVerificationRequirementCategory[] {
+  const remaining = new Set(categories);
+  return PLANNER_VERIFICATION_CATEGORY_ORDER.filter((category) =>
+    remaining.has(category)
+  );
+}
+
+function collectPlannerVerificationDirectiveSegments(
+  messageText: string,
+): readonly string[] {
+  const lineSegments = messageText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        REQUEST_VERIFICATION_DIRECTIVE_RE.test(line),
+    );
+  if (lineSegments.length > 0) {
+    return lineSegments;
+  }
+
+  const sentenceSegments =
+    messageText.match(
+      /(?:^|[\n.?!])\s*[^.\n?!]*(?:verify|verification|validated?|before\s+finish(?:ing)?|before\s+returning|before\s+completion|browser-grounded checks?)[^.\n?!]*/gi,
+    ) ?? [];
+  return sentenceSegments
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+function narrowPlannerVerificationDirectiveSegment(segment: string): string {
+  const leadingVerificationCue =
+    /\b(?:verify|verification|validated?|validation|validate)\b/i.exec(
+      segment,
+    );
+  if (!leadingVerificationCue) {
+    return segment;
+  }
+  return segment.slice(leadingVerificationCue.index).trim();
+}
+
+export function extractPlannerVerificationRequirements(
+  messageText: string,
+): readonly PlannerVerificationRequirementCategory[] {
+  const segments = collectPlannerVerificationDirectiveSegments(messageText);
+  if (segments.length === 0) return [];
+
+  const categories = new Set<PlannerVerificationRequirementCategory>();
+  for (const segment of segments) {
+    const narrowedSegment = narrowPlannerVerificationDirectiveSegment(segment);
+    if (REQUEST_INSTALL_VERIFICATION_RE.test(narrowedSegment)) {
+      categories.add("install");
+    }
+    if (REQUEST_BUILD_VERIFICATION_RE.test(narrowedSegment)) {
+      categories.add("build");
+    }
+    if (REQUEST_TEST_VERIFICATION_RE.test(narrowedSegment)) {
+      categories.add("test");
+    }
+    if (
+      REQUEST_BROWSER_VERIFICATION_RE.test(narrowedSegment) ||
+      specRequiresMeaningfulBrowserEvidence({ task: narrowedSegment })
+    ) {
+      categories.add("browser");
+    }
+  }
+
+  return normalizePlannerVerificationCategories([...categories]);
 }
 
 export function extractExplicitDeterministicToolRequirements(
@@ -896,7 +1041,6 @@ interface ExplicitSubagentStepDefaults {
   readonly canRunParallel: boolean;
 }
 
-const TOOL_CAPABILITY_NAME_RE = /^(?:desktop|system|playwright|mcp)\.[A-Za-z0-9_.-]+$/;
 const DETERMINISTIC_TOOL_STEP_RESERVED_FIELDS = new Set([
   "name",
   "step_type",
@@ -990,6 +1134,14 @@ function deriveExplicitSubagentStepDefaults(input: {
     lowerName.includes("design") ||
     lowerName.includes("tech") ||
     lowerDescription.includes("primary sources") ||
+    lowerDescription.includes("framework")
+  ) {
+    requiredToolCapabilities.add("system.browse");
+  }
+  if (
+    lowerName.includes("design") ||
+    lowerName.includes("tech") ||
+    lowerDescription.includes("primary sources") ||
     lowerDescription.includes("browser") ||
     lowerDescription.includes("chromium") ||
     lowerDescription.includes("framework")
@@ -1067,16 +1219,24 @@ function normalizeExplicitRequiredToolCapabilities(
   parsed: readonly string[] | undefined,
   defaults: readonly string[] | undefined,
 ): readonly string[] | undefined {
-  const validParsed = (parsed ?? []).filter((capability) =>
-    TOOL_CAPABILITY_NAME_RE.test(capability),
-  );
-  const merged = [
-    ...new Set([
-      ...validParsed,
-      ...(defaults ?? []),
-    ]),
+  const normalizedParsed = [
+    ...new Set(
+      (parsed ?? [])
+        .map((capability) => capability.trim())
+        .filter((capability) => capability.length > 0),
+    ),
   ];
-  return merged.length > 0 ? merged : undefined;
+  if (normalizedParsed.length > 0) {
+    return normalizedParsed;
+  }
+  const normalizedDefaults = [
+    ...new Set(
+      (defaults ?? [])
+        .map((capability) => capability.trim())
+        .filter((capability) => capability.length > 0),
+    ),
+  ];
+  return normalizedDefaults.length > 0 ? normalizedDefaults : undefined;
 }
 
 function mergeExplicitContextRequirements(
@@ -1103,13 +1263,43 @@ function buildDefaultPlannerContextRequirements(
   ].filter((value) => value.length > 0);
 }
 
+function normalizePlannerSubagentBudgetHint(params: {
+  readonly stepName: string;
+  readonly maxBudgetHint: string;
+  readonly diagnostics: PlannerDiagnostic[];
+}): string {
+  const inspection = inspectDelegationBudgetHint(params.maxBudgetHint);
+  if (
+    inspection.kind === "explicit" &&
+    inspection.durationMs < MIN_DELEGATION_TIMEOUT_MS
+  ) {
+    const repairedHint = `${Math.ceil(MIN_DELEGATION_TIMEOUT_MS / 1000)}s`;
+    params.diagnostics.push(
+      createPlannerDiagnostic(
+        "policy",
+        "planner_subagent_budget_hint_clamped",
+        `Planner subagent step "${params.stepName}" used a max_budget_hint below the runtime minimum; clamping to ${repairedHint}`,
+        {
+          stepName: params.stepName,
+          originalMaxBudgetHint: params.maxBudgetHint,
+          repairedMaxBudgetHint: repairedHint,
+          minimumSeconds: Math.floor(MIN_DELEGATION_TIMEOUT_MS / 1000),
+        },
+      ),
+    );
+    return repairedHint;
+  }
+  return params.maxBudgetHint;
+}
+
 function normalizeDeterministicPlannerToolArgs(params: {
   readonly step: Record<string, unknown>;
   readonly stepIndex: number;
   readonly stepName: string;
+  readonly toolName: string;
   readonly diagnostics: PlannerDiagnostic[];
 }): Record<string, unknown> | undefined {
-  const { step, stepIndex, stepName, diagnostics } = params;
+  const { step, stepIndex, stepName, toolName, diagnostics } = params;
   if (
     step.args !== undefined &&
     (
@@ -1179,7 +1369,51 @@ function normalizeDeterministicPlannerToolArgs(params: {
     );
   }
 
+  if (PLANNER_BASH_TOOL_NAMES.has(toolName)) {
+    const command =
+      typeof args.command === "string" ? args.command.trim() : "";
+    const parsedArgs = parsePlannerStringArgs(args.args);
+    if (command.length > 0 && parsedArgs && parsedArgs.length > 0) {
+      const shellTokens = collectDirectModeShellControlTokens(parsedArgs);
+      if (shellTokens.length > 0) {
+        const { args: _ignoredArgs, ...shellModeArgs } = args;
+        args = {
+          ...shellModeArgs,
+          command: [
+            quotePlannerShellWord(command),
+            ...parsedArgs.map((token) =>
+              collectDirectModeShellControlTokens([token]).length > 0
+                ? token
+                : quotePlannerShellWord(token)
+            ),
+          ].join(" "),
+        };
+        diagnostics.push(
+          createPlannerDiagnostic(
+            "parse",
+            "planner_bash_direct_args_normalized_to_shell_mode",
+            `Planner bash step "${stepName}" embedded shell-only control tokens in direct-mode args; normalizing to shell mode`,
+            {
+              stepIndex,
+              stepName,
+              tool: toolName,
+              shellTokens: shellTokens.join(","),
+            },
+          ),
+        );
+      }
+    }
+  }
+
   return args;
+}
+
+function quotePlannerShellWord(token: string): string {
+  if (token.length === 0) return "''";
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(token)) {
+    return token;
+  }
+  return `'${token.replace(/'/g, `'\"'\"'`)}'`;
 }
 
 export function parsePlannerPlan(
@@ -1302,6 +1536,7 @@ export function parsePlannerPlan(
         step,
         stepIndex: index,
         stepName: safeName,
+        toolName: step.tool.trim(),
         diagnostics,
       });
       if (!args) {
@@ -1487,6 +1722,11 @@ export function parsePlannerPlan(
         );
         return { diagnostics };
       }
+      const normalizedBudgetHint = normalizePlannerSubagentBudgetHint({
+        stepName: safeName,
+        maxBudgetHint,
+        diagnostics,
+      });
 
       steps.push({
         name: safeName,
@@ -1496,7 +1736,7 @@ export function parsePlannerPlan(
         acceptanceCriteria,
         requiredToolCapabilities,
         contextRequirements,
-        maxBudgetHint,
+        maxBudgetHint: normalizedBudgetHint,
         canRunParallel,
       });
       continue;
@@ -1746,9 +1986,12 @@ function stepAuthorsNodeManifestOrConfig(
 function stepObjectiveOrInputRequiresInstallSensitiveNodeVerification(
   step: PlannerSubAgentTaskStepIntent,
 ): boolean {
-  const combined = [step.objective, step.inputContract]
+  const actionableFragments = [step.objective, step.inputContract]
     .filter((value) => value.trim().length > 0)
-    .join(" ");
+    .filter((value) => !isDefinitionOnlyVerificationText(value));
+  const combined = stripNegatedNodeVerificationLanguage(
+    actionableFragments.join(" "),
+  );
   if (combined.length === 0) return false;
   if (NODE_INSTALL_SENSITIVE_VERIFICATION_PHRASE_RE.test(combined)) {
     return true;
@@ -1801,6 +2044,133 @@ function isNodeInstallPlannerStep(
   return parsedArgs.some((entry, index) =>
     index === 0 && NODE_INSTALL_ACTIONS.has(entry.trim().toLowerCase())
   );
+}
+
+function collectPlannerStepVerificationCategories(
+  step: PlannerStepIntent,
+): readonly PlannerVerificationRequirementCategory[] {
+  const categories = new Set<PlannerVerificationRequirementCategory>();
+  if (step.stepType === "deterministic_tool") {
+    if (isNodeInstallPlannerStep(step)) {
+      categories.add("install");
+    }
+    if (PLANNER_BROWSER_VERIFICATION_TOOL_NAMES.has(step.tool)) {
+      categories.add("browser");
+    }
+    if (!PLANNER_BASH_TOOL_NAMES.has(step.tool)) {
+      return normalizePlannerVerificationCategories([...categories]);
+    }
+
+    const command =
+      typeof step.args.command === "string" ? step.args.command : "";
+    const parsedArgs = parsePlannerStringArgs(step.args.args) ?? [];
+    const combined = [command, ...parsedArgs].join(" ").trim();
+    const normalized = stripNegatedNodeVerificationLanguage(combined);
+
+    if (REQUEST_INSTALL_VERIFICATION_RE.test(normalized)) {
+      categories.add("install");
+    }
+    if (REQUEST_BUILD_VERIFICATION_RE.test(normalized)) {
+      categories.add("build");
+    }
+    if (REQUEST_TEST_VERIFICATION_RE.test(normalized)) {
+      categories.add("test");
+    }
+    if (REQUEST_BROWSER_VERIFICATION_RE.test(combined)) {
+      categories.add("browser");
+    }
+
+    return normalizePlannerVerificationCategories([...categories]);
+  }
+
+  if (step.stepType !== "subagent_task") {
+    return [];
+  }
+
+  const combined = stripNegatedNodeVerificationLanguage(
+    [step.objective, step.inputContract, ...step.acceptanceCriteria].join(" "),
+  );
+  if (REQUEST_INSTALL_VERIFICATION_RE.test(combined)) {
+    categories.add("install");
+  }
+  if (REQUEST_BUILD_VERIFICATION_RE.test(combined)) {
+    categories.add("build");
+  }
+  if (REQUEST_TEST_VERIFICATION_RE.test(combined)) {
+    categories.add("test");
+  }
+  if (
+    specRequiresMeaningfulBrowserEvidence({
+      task: step.name,
+      objective: step.objective,
+      inputContract: step.inputContract,
+      acceptanceCriteria: step.acceptanceCriteria,
+      requiredToolCapabilities: step.requiredToolCapabilities,
+      contextRequirements: step.contextRequirements,
+    })
+  ) {
+    categories.add("browser");
+  }
+
+  return normalizePlannerVerificationCategories([...categories]);
+}
+
+function collectPlannerVerificationCoverage(
+  plannerPlan: PlannerPlan,
+): ReadonlyMap<PlannerVerificationRequirementCategory, readonly string[]> {
+  const coverage = new Map<PlannerVerificationRequirementCategory, string[]>();
+  for (const step of plannerPlan.steps) {
+    for (const category of collectPlannerStepVerificationCategories(step)) {
+      const bucket = coverage.get(category);
+      if (bucket) {
+        bucket.push(step.name);
+      } else {
+        coverage.set(category, [step.name]);
+      }
+    }
+  }
+  return coverage;
+}
+
+export function validatePlannerVerificationRequirements(
+  plannerPlan: PlannerPlan,
+  requiredCategories: readonly PlannerVerificationRequirementCategory[],
+): readonly PlannerDiagnostic[] {
+  const normalizedRequired = normalizePlannerVerificationCategories(
+    requiredCategories,
+  );
+  if (normalizedRequired.length === 0) return [];
+
+  const coverage = collectPlannerVerificationCoverage(plannerPlan);
+  const missingCategories = normalizedRequired.filter((category) =>
+    (coverage.get(category)?.length ?? 0) === 0
+  );
+  if (missingCategories.length === 0) {
+    return [];
+  }
+
+  const coverageSummary = PLANNER_VERIFICATION_CATEGORY_ORDER
+    .filter((category) => normalizedRequired.includes(category))
+    .map((category) =>
+      `${category}:${(coverage.get(category) ?? []).join("|") || "-"}`
+    )
+    .join(",");
+
+  return [
+    createPlannerDiagnostic(
+      "validation",
+      "planner_verification_requirements_missing",
+      "Planner omitted one or more user-requested verification modes before finishing",
+      {
+        missingCategories: missingCategories.join(","),
+        requiredCategories: normalizedRequired.join(","),
+        coveredCategories: normalizePlannerVerificationCategories(
+          [...coverage.keys()],
+        ).join(","),
+        coverageSummary,
+      },
+    ),
+  ];
 }
 
 function validateNodeWorkspacePlannerStages(
@@ -1914,6 +2284,7 @@ export function validatePlannerGraph(
       objective: step.objective,
       inputContract: step.inputContract,
       acceptanceCriteria: step.acceptanceCriteria,
+      requiredToolCapabilities: step.requiredToolCapabilities,
     });
     if (scopeAssessment.ok) continue;
     diagnostics.push(
@@ -2420,6 +2791,67 @@ export function buildPlannerStepContractRefinementHint(
   );
 }
 
+const RECOVERABLE_PLANNER_PARSE_DIAGNOSTIC_CODES = new Set([
+  "duplicate_step_name",
+  "missing_subagent_field",
+  "invalid_subagent_field_type",
+]);
+
+export function extractRecoverablePlannerParseDiagnostics(
+  diagnostics: readonly PlannerDiagnostic[],
+): readonly PlannerDiagnostic[] {
+  return diagnostics.filter((diagnostic) =>
+    RECOVERABLE_PLANNER_PARSE_DIAGNOSTIC_CODES.has(diagnostic.code)
+  );
+}
+
+export function buildPlannerParseRefinementHint(
+  diagnostics: readonly PlannerDiagnostic[],
+): string {
+  const recoverable = extractRecoverablePlannerParseDiagnostics(diagnostics);
+  const fragments = recoverable
+    .map((diagnostic) => {
+      const stepName = readDiagnosticDetail(diagnostic, "stepName");
+      const field = readDiagnosticDetail(diagnostic, "field");
+      if (
+        diagnostic.code === "duplicate_step_name" &&
+        stepName
+      ) {
+        return `planner step "${stepName}" must use a unique name`;
+      }
+      if (
+        diagnostic.code === "missing_subagent_field" &&
+        stepName &&
+        field
+      ) {
+        return `subagent step "${stepName}" must include "${field}"`;
+      }
+      if (
+        diagnostic.code === "invalid_subagent_field_type" &&
+        stepName &&
+        field
+      ) {
+        return `subagent step "${stepName}" must use the correct type for "${field}"`;
+      }
+      return diagnostic.message;
+    })
+    .filter((fragment) => fragment.length > 0);
+
+  const repairSummary =
+    fragments.length > 0
+      ? ` Fix these issues: ${fragments.join(" | ")}.`
+      : "";
+
+  return (
+    "The previous planner response was close but failed local schema checks." +
+    repairSummary +
+    " Re-emit strict JSON only. " +
+    "Each planner step name must be unique within the full plan. " +
+    "Every `subagent_task` must include `objective`, `input_contract`, `acceptance_criteria`, `required_tool_capabilities`, `context_requirements`, and `max_budget_hint`. " +
+    "If `can_run_parallel` is present, it must be a boolean."
+  );
+}
+
 export function buildExplicitSubagentOrchestrationRefinementHint(
   requirements: ExplicitSubagentOrchestrationRequirements,
   diagnostics: readonly PlannerDiagnostic[] = [],
@@ -2502,6 +2934,56 @@ export function buildExplicitDeterministicToolFailureMessage(
   return lines.join("\n");
 }
 
+export function buildPlannerVerificationRequirementsRefinementHint(
+  requiredCategories: readonly PlannerVerificationRequirementCategory[],
+  diagnostics: readonly PlannerDiagnostic[] = [],
+): string {
+  const missingCategories = diagnostics
+    .flatMap((diagnostic) =>
+      (readDiagnosticDetail(diagnostic, "missingCategories") ?? "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    )
+    .filter((value, index, values) => values.indexOf(value) === index);
+  const requiredSummary = normalizePlannerVerificationCategories(
+    requiredCategories,
+  ).join(" -> ");
+  const missingSummary =
+    missingCategories.length > 0 ? missingCategories.join(", ") : "unknown";
+  return (
+    "The user explicitly required verification coverage before finishing. " +
+    `Keep these verification modes in the plan: ${requiredSummary}. ` +
+    `The previous plan dropped: ${missingSummary}. ` +
+    "Add dependent verification steps or delegated validation contracts that preserve those modes, and do not collapse them away during repair."
+  );
+}
+
+export function buildPlannerVerificationRequirementsFailureMessage(
+  requiredCategories: readonly PlannerVerificationRequirementCategory[],
+  diagnostics: readonly PlannerDiagnostic[] = [],
+): string {
+  const missingCategories = diagnostics
+    .flatMap((diagnostic) =>
+      (readDiagnosticDetail(diagnostic, "missingCategories") ?? "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    )
+    .filter((value, index, values) => values.indexOf(value) === index);
+  const lines = [
+    "Planner could not preserve the user-requested verification coverage.",
+    `Required verification modes: ${normalizePlannerVerificationCategories(requiredCategories).join(" -> ")}`,
+  ];
+  if (missingCategories.length > 0) {
+    lines.push(`Missing verification modes: ${missingCategories.join(", ")}`);
+  }
+  for (const diagnostic of diagnostics.slice(0, 2)) {
+    lines.push(`- ${diagnostic.message}`);
+  }
+  return lines.join("\n");
+}
+
 function renderExplicitToolRequirementSummary(
   requirements: ExplicitDeterministicToolRequirements,
 ): string {
@@ -2544,9 +3026,16 @@ function readDiagnosticDetail(
   key: string,
 ): string | undefined {
   const value = diagnostic.details?.[key];
-  return typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : undefined;
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return undefined;
 }
 
 function buildPlannerDependencyMap(
@@ -2605,6 +3094,7 @@ const STRUCTURAL_PLANNER_GRAPH_DIAGNOSTIC_CODES = new Set([
   "cyclic_dependency",
   "subagent_step_needs_decomposition",
   "node_workspace_install_phase_mismatch",
+  "planner_verification_requirements_missing",
 ]);
 
 export function extractPlannerStructuralDiagnostics(
@@ -2637,11 +3127,32 @@ export function buildPlannerStructuralRefinementHint(
           "suggestedSteps",
         );
         const parts = [`step "${stepName}"`];
+        const normalizedPhases = new Set(
+          (phases ?? "")
+            .split(",")
+            .map((phase) => phase.trim())
+            .filter((phase) => phase.length > 0),
+        );
         if (phases) {
           parts.push(`phases: ${phases}`);
         }
         if (suggestedSteps) {
           parts.push(`suggested split: ${suggestedSteps}`);
+        }
+        if (
+          normalizedPhases.has("implementation") &&
+          normalizedPhases.has("browser")
+        ) {
+          parts.push(
+            "keep code/build work in this step and move browser-session validation into its own later step",
+          );
+        } else if (
+          normalizedPhases.has("implementation") &&
+          normalizedPhases.has("validation")
+        ) {
+          parts.push(
+            "keep implementation in this step and move broad validation into its own dependent verification step",
+          );
         }
         return parts.join("; ");
       }
@@ -2653,8 +3164,14 @@ export function buildPlannerStructuralRefinementHint(
         const requiresPhaseSplit =
           readDiagnosticDetail(diagnostic, "requiresPhaseSplit") === "true";
         return requiresPhaseSplit
-          ? `step "${stepName}" mixes manifest/config scaffolding with install-sensitive ${verificationModes} work; keep scaffolding before ${installSteps} and move verification after install`
-          : `step "${stepName}" must depend on ${installSteps} before ${verificationModes} verification`;
+          ? `step "${stepName}" must stay as pure manifest/config scaffolding before ${installSteps}; do not mention install/build/test/typecheck/lint/coverage success in that step's objective or acceptance criteria. Limit it to authored files, scripts, configs, directories, and local dependency links, then move verification after install`
+          : `step "${stepName}" must depend on ${installSteps} before ${verificationModes} verification and must not claim that verification earlier`;
+      }
+      if (diagnostic.code === "planner_verification_requirements_missing") {
+        return (
+          "preserve all user-requested verification modes before finishing; " +
+          `missing: ${readDiagnosticDetail(diagnostic, "missingCategories") ?? "unknown"}`
+        );
       }
       return diagnostic.message;
     })
