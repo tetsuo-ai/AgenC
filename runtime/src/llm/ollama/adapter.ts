@@ -32,6 +32,7 @@ import {
 import { withTimeout } from "../timeout.js";
 import { validateToolTurnSequence } from "../tool-turn-validator.js";
 import { safeStringify } from "../../tools/types.js";
+import { resolveContextWindowProfile } from "../../gateway/context-window.js";
 
 const DEFAULT_HOST = "http://localhost:11434";
 const DEFAULT_MODEL = "llama3";
@@ -460,6 +461,22 @@ export class OllamaProvider implements LLMProvider {
         deterministicFallback: true,
       },
     } as const;
+  }
+
+  async getExecutionProfile() {
+    return (
+      await resolveContextWindowProfile({
+        provider: "ollama",
+        baseUrl: this.config.host,
+        model: this.config.model,
+        maxTokens: this.config.maxTokens,
+        contextWindowTokens: this.config.numCtx,
+      })
+    ) ?? {
+      provider: "ollama",
+      model: this.config.model,
+      maxOutputTokens: this.config.maxTokens,
+    };
   }
 
   private async ensureClient(): Promise<unknown> {

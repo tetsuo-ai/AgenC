@@ -110,7 +110,7 @@ const EXPLICIT_FILE_ARTIFACT_RE =
 const LOCAL_FILE_REFERENCE_RE =
   /(?:^|[\s`'"])(?:\/[^\s`'"]+|\.{1,2}\/[^\s`'"]+|(?:[a-z0-9_.-]+\/)+[a-z0-9_.-]+|(?:ag(?:ent)?s|readme)\.md|[a-z0-9_.-]+\.(?:md|txt|json|js|jsx|ts|tsx|py|rs|go|toml|ya?ml|html?|css))(?=$|[\s`'"])/i;
 const EXPLICIT_BROWSER_ENVIRONMENT_CUE_RE =
-  /\b(?:localhost|127\.0\.0\.1|about:blank|browser(?:-grounded)?|playwright|mcp\.browser|chromium|playtest|end-to-end|e2e|url|website|web\s+site|webpage|web\s+page)\b/i;
+  /\b(?:localhost|127\.0\.0\.1|about:blank|browser(?:-grounded)?|playwright|mcp\.browser|chromium|playtest|url|website|web\s+site|webpage|web\s+page)\b/i;
 const BROWSER_ACTION_CUE_RE =
   /\b(?:navigate(?:\s+(?:to|the\s+(?:browser|page|site)|page|site|url))|click(?:\s+(?:the\s+)?(?:page|button|link|tab|selector|element))|hover(?:\s+(?:over|on)\s+(?:the\s+)?(?:page|button|link|selector|element))|scroll(?:\s+(?:the\s+)?(?:page|browser|viewport))|fill(?:\s+(?:the\s+)?(?:form|input|field))|select(?:\s+(?:the\s+)?(?:option|dropdown))|console\s+errors?|network\s+requests?)\b/i;
 const BROWSER_SNAPSHOT_CUE_RE =
@@ -295,6 +295,7 @@ const BENIGN_RUNTIME_MESSAGE_CONTEXT_RE =
 const EXPLICIT_FILE_MUTATION_TOOL_NAMES = new Set([
   "system.writeFile",
   "system.appendFile",
+  "system.mkdir",
   "mcp.neovim.vim_buffer_save",
   "mcp.neovim.vim_search_replace",
 ]);
@@ -375,6 +376,11 @@ function normalizeCapabilityName(value: string): string {
   return value.trim().replace(/[_-]+/g, " ").toLowerCase();
 }
 
+function isGenericFilesystemCapabilityName(capability: string): boolean {
+  const normalized = capability.trim().toLowerCase();
+  return normalized === "filesystem" || normalized === "file system";
+}
+
 function looksLikeExplicitDelegatedToolName(toolName: string): boolean {
   const normalized = toolName.trim().toLowerCase();
   return normalized === "execute_with_agent" ||
@@ -419,7 +425,8 @@ function getDelegatedCapabilityProfile(spec: DelegationContractSpec): {
     EXPLICIT_FILE_MUTATION_TOOL_NAMES.has(toolName)
   ) ||
     semanticCapabilities.some((capability) =>
-      FILE_WRITE_CAPABILITY_RE.test(capability)
+      FILE_WRITE_CAPABILITY_RE.test(capability) ||
+      isGenericFilesystemCapabilityName(capability)
     );
   const hasShellExecution = explicitTools.some((toolName) =>
     PREFERRED_IMPLEMENTATION_SHELL_TOOL_NAMES.has(toolName) ||
@@ -435,7 +442,8 @@ function getDelegatedCapabilityProfile(spec: DelegationContractSpec): {
     isContextOnlyCapabilityName(capability) ||
     FILE_READ_CAPABILITY_RE.test(capability) ||
     FILE_WRITE_CAPABILITY_RE.test(capability) ||
-    SHELL_EXECUTION_CAPABILITY_RE.test(capability)
+    SHELL_EXECUTION_CAPABILITY_RE.test(capability) ||
+    isGenericFilesystemCapabilityName(capability)
   );
   const hasRecognizedConstraint =
     explicitTools.length > 0 ||
@@ -1434,36 +1442,42 @@ export function specRequiresMeaningfulBrowserEvidence(
   spec: DelegationContractSpec,
 ): boolean {
   const stepText = collectDelegationStepText(spec);
+  const explicitBrowserInteraction = hasExplicitBrowserInteractionCue(stepText);
   const explicitTools = normalizeToolNames([
     ...(spec.tools ?? []),
     ...(spec.requiredToolCapabilities ?? []),
   ]);
   const hasExplicitBrowserTool = explicitTools.some((capability) => {
-    const normalized = capability.trim().toLowerCase();
-    return normalized.startsWith("mcp.browser.") ||
+    const canonical = capability.trim();
+    const normalized = canonical.toLowerCase();
+    return DELEGATION_MEANINGFUL_BROWSER_TOOL_NAMES.has(canonical) ||
+      normalized.startsWith("mcp.browser.") ||
       normalized.startsWith("playwright.");
   });
   if (hasExplicitBrowserTool) {
     return true;
+  }
+  const taskIntent = classifyDelegatedTaskIntent(spec);
+  const capabilityProfile = getDelegatedCapabilityProfile(spec);
+  const localWorkspaceContract =
+    capabilityProfile.hasFileWrite ||
+    capabilityProfile.hasShellExecution ||
+    specTargetsLocalFiles(spec);
+  if (taskIntent !== "research" && localWorkspaceContract && !explicitBrowserInteraction) {
+    return false;
   }
   const hasExplicitLocalFileInspectionTool = explicitTools.some((toolName) =>
     LOCAL_FILE_INSPECTION_TOOL_NAMES.has(toolName)
   );
   if (
     specTargetsLocalFiles(spec) &&
-    !hasExplicitBrowserInteractionCue(stepText) &&
+    !explicitBrowserInteraction &&
     (hasExplicitLocalFileInspectionTool || !hasExplicitBrowserTool)
   ) {
     return false;
   }
-  const taskIntent = classifyDelegatedTaskIntent(spec);
   if (hasPositiveBrowserGroundingCue(stepText)) return true;
-  const capabilityProfile = getDelegatedCapabilityProfile(spec);
-  const localWorkspaceContract =
-    capabilityProfile.hasFileWrite ||
-    capabilityProfile.hasShellExecution ||
-    specTargetsLocalFiles(spec);
-  if (localWorkspaceContract && !hasExplicitBrowserInteractionCue(stepText)) {
+  if (localWorkspaceContract && !explicitBrowserInteraction) {
     return false;
   }
   return taskIntent === "research" &&
@@ -1536,6 +1550,7 @@ export function resolveDelegatedChildToolScope(params: {
   availableTools?: readonly string[];
   forbiddenTools?: readonly string[];
   enforceParentIntersection?: boolean;
+  unsafeBenchmarkMode?: boolean;
 }): ResolvedDelegatedChildToolScope {
   const requestedSource = normalizeToolNames(
     params.requestedTools ?? params.spec.requiredToolCapabilities,
@@ -1547,6 +1562,8 @@ export function resolveDelegatedChildToolScope(params: {
   const parentAllowedSet = new Set(normalizeToolNames(params.parentAllowedTools));
   const availableSet = new Set(normalizeToolNames(params.availableTools));
   const forbiddenSet = new Set(normalizeToolNames(params.forbiddenTools));
+
+  const unsafeBenchmarkMode = params.unsafeBenchmarkMode === true;
 
   const removedByPolicy: string[] = [];
   const removedAsDelegationTools: string[] = [];
@@ -1579,6 +1596,7 @@ export function resolveDelegatedChildToolScope(params: {
     const normalized = toolName.trim();
     if (normalized.length === 0) return;
     if (
+      !unsafeBenchmarkMode &&
       params.enforceParentIntersection !== false &&
       parentAllowedSet.size > 0 &&
       !parentAllowedSet.has(normalized)
@@ -1586,11 +1604,11 @@ export function resolveDelegatedChildToolScope(params: {
       options.removalBucket?.push(normalized);
       return;
     }
-    if (forbiddenSet.has(normalized)) {
+    if (!unsafeBenchmarkMode && forbiddenSet.has(normalized)) {
       options.removalBucket?.push(normalized);
       return;
     }
-    if (isDelegationToolNameLike(normalized)) {
+    if (!unsafeBenchmarkMode && isDelegationToolNameLike(normalized)) {
       removedAsDelegationTools.push(normalized);
       return;
     }
@@ -1628,13 +1646,24 @@ export function resolveDelegatedChildToolScope(params: {
     });
   };
 
-  if (semanticCapabilities.some((capability) => FILE_READ_CAPABILITY_RE.test(capability))) {
+  if (
+    semanticCapabilities.some((capability) =>
+      FILE_READ_CAPABILITY_RE.test(capability) ||
+      isGenericFilesystemCapabilityName(capability)
+    )
+  ) {
     addRequestedSemanticTool("system.readFile");
     addRequestedSemanticTool("system.listDir");
   }
-  if (semanticCapabilities.some((capability) => FILE_WRITE_CAPABILITY_RE.test(capability))) {
+  if (
+    semanticCapabilities.some((capability) =>
+      FILE_WRITE_CAPABILITY_RE.test(capability) ||
+      isGenericFilesystemCapabilityName(capability)
+    )
+  ) {
     addRequestedSemanticTool("system.writeFile");
     addRequestedSemanticTool("system.appendFile");
+    addRequestedSemanticTool("system.mkdir");
   }
   if (semanticCapabilities.some((capability) => SHELL_EXECUTION_CAPABILITY_RE.test(capability))) {
     addRequestedSemanticTool("desktop.bash");
@@ -1687,6 +1716,7 @@ export function resolveDelegatedChildToolScope(params: {
     (requireFileMutation || taskIntent === "implementation" || setupHeavy)
   ) {
     addShellSemanticFallback();
+    addSemanticFallback("system.mkdir");
     addSemanticFallback("system.writeFile");
     addSemanticFallback("system.appendFile");
     addSemanticFallback("desktop.text_editor");
@@ -1714,6 +1744,10 @@ export function resolveDelegatedChildToolScope(params: {
     !capabilityProfile.isReadOnlyContract
   ) {
     addShellSemanticFallback();
+  }
+
+  if (unsafeBenchmarkMode) {
+    addCandidate("execute_with_agent");
   }
 
   const refined = refineDelegatedChildToolAllowlist({
@@ -3250,6 +3284,7 @@ export function validateDelegatedOutputContract(params: {
   toolCalls?: readonly DelegationValidationToolCall[];
   providerEvidence?: DelegationValidationProviderEvidence;
   enforceAcceptanceEvidence?: boolean;
+  unsafeBenchmarkMode?: boolean;
 }): DelegationOutputValidationResult {
   const {
     spec,
@@ -3257,12 +3292,14 @@ export function validateDelegatedOutputContract(params: {
     toolCalls,
     providerEvidence,
     enforceAcceptanceEvidence = true,
+    unsafeBenchmarkMode = false,
   } = params;
   const baseValidation = validateBasicOutputContract({
     inputContract: spec.inputContract,
     output,
   });
   if (!baseValidation.ok) return baseValidation;
+  if (unsafeBenchmarkMode) return baseValidation;
 
   const parsedOutput = baseValidation.parsedOutput;
   const toolEvidenceFailure = validateSuccessfulToolEvidence(

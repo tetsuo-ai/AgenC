@@ -36,6 +36,7 @@ import { supportsGrokServerSideTools } from "../provider-native-search.js";
 import { withTimeout } from "../timeout.js";
 import { validateToolTurnSequence } from "../tool-turn-validator.js";
 import type { GrokProviderConfig } from "./types.js";
+import { resolveContextWindowProfile } from "../../gateway/context-window.js";
 import {
   buildIncrementalContinuationMessages,
   buildProviderTraceErrorPayload,
@@ -1020,6 +1021,23 @@ export class GrokProvider implements LLMProvider {
         deterministicFallback: true,
       },
     } as const;
+  }
+
+  async getExecutionProfile() {
+    return (
+      await resolveContextWindowProfile({
+        provider: "grok",
+        apiKey: this.config.apiKey,
+        baseUrl: this.config.baseURL,
+        model: this.config.model,
+        maxTokens: this.config.maxTokens,
+        contextWindowTokens: this.config.contextWindowTokens,
+      })
+    ) ?? {
+      provider: "grok",
+      model: this.config.model,
+      maxOutputTokens: this.config.maxTokens,
+    };
   }
 
   resetSessionState(sessionId: string): void {

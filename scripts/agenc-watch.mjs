@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import {
   createOperatorInputBatcher,
+  matchWatchCommands,
+  parseWatchSlashCommand,
   shouldAutoInspectRun,
+  WATCH_COMMANDS,
 } from "./lib/agenc-watch-helpers.mjs";
 
 async function loadWebSocketConstructor() {
@@ -39,23 +42,35 @@ const watchStateFile =
   );
 const reconnectMinDelayMs = 1_000;
 const reconnectMaxDelayMs = 5_000;
-const maxEvents = 80;
+const maxEvents = 60;
 const maxInlineChars = 220;
-const maxBodyChars = 900;
-const maxSummaryChars = 120;
+const maxStoredBodyChars = 20_000;
+const maxFeedPreviewLines = 2;
+const maxPreviewSourceLines = 32;
+const introDismissKinds = new Set([
+  "you",
+  "agent",
+  "tool",
+  "tool result",
+  "tool error",
+  "run",
+  "approval",
+  "social",
+  "operator",
+]);
 
 const color = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
   border: "\x1b[38;5;54m",
-  borderStrong: "\x1b[38;5;45m",
+  borderStrong: "\x1b[38;5;99m",
   ink: "\x1b[38;5;225m",
   softInk: "\x1b[38;5;189m",
   slate: "\x1b[38;5;141m",
   fog: "\x1b[38;5;97m",
-  cyan: "\x1b[38;5;51m",
-  teal: "\x1b[38;5;45m",
+  cyan: "\x1b[38;5;117m",
+  teal: "\x1b[38;5;111m",
   blue: "\x1b[38;5;39m",
   green: "\x1b[38;5;50m",
   lime: "\x1b[38;5;87m",
@@ -63,7 +78,6 @@ const color = {
   amber: "\x1b[38;5;213m",
   magenta: "\x1b[38;5;177m",
   red: "\x1b[38;5;203m",
-  heroBg: "\x1b[49m",
   panelBg: "\x1b[49m",
   panelAltBg: "\x1b[48;5;233m",
   panelHiBg: "\x1b[48;5;234m",
@@ -106,11 +120,20 @@ let shuttingDown = false;
 let ws = null;
 let enteredAltScreen = false;
 let renderPending = false;
+let introDismissed = false;
 let transientStatus = "Booting watch client…";
 let lastStatus = null;
 let lastUsageSummary = null;
 let lastActivityAt = null;
 let ownerToken = loadPersistedOwnerToken();
+let manualSessionsRequestPending = false;
+let manualHistoryRequestPending = false;
+let expandedEventId = null;
+let composerInput = "";
+let composerCursor = 0;
+let composerHistory = [];
+let composerHistoryIndex = -1;
+let composerHistoryDraft = "";
 const queuedOperatorInputs = [];
 const operatorInputBatcher = createOperatorInputBatcher({
   onDispatch: (value) => {
@@ -120,12 +143,11 @@ const operatorInputBatcher = createOperatorInputBatcher({
 
 const pendingFrames = [];
 const events = [];
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  terminal: true,
-});
+readline.emitKeypressEvents(process.stdin);
+if (process.stdin.isTTY) {
+  process.stdin.setRawMode(true);
+}
+process.stdin.resume();
 
 function nextId(prefix = "req") {
   requestCounter += 1;
@@ -263,6 +285,10 @@ function formatCompactNumber(value) {
   }).format(numeric);
 }
 
+function dismissIntro() {
+  introDismissed = true;
+}
+
 function toneColor(tone) {
   return color[tone] ?? color.ink;
 }
@@ -280,47 +306,24 @@ function chip(label, value, tone = "ink") {
   return `${badge(label, tone)} ${toneColor(tone)}${color.bold}${truncate(String(value), 32)}${color.reset}`;
 }
 
-function meterBar(level, width = 10, tone = "green") {
-  const clamped = Math.max(0, Math.min(1, Number(level) || 0));
-  const fill = Math.max(0, Math.min(width, Math.round(clamped * width)));
-  return `${toneColor(tone)}${"█".repeat(fill)}${color.border}${"·".repeat(Math.max(0, width - fill))}${color.reset}`;
+function centerAnsi(text, width) {
+  const fitted = fitAnsi(text, width);
+  const remaining = Math.max(0, width - visibleLength(fitted));
+  const leftPad = Math.floor(remaining / 2);
+  const rightPad = remaining - leftPad;
+  return `${" ".repeat(leftPad)}${fitted}${" ".repeat(rightPad)}`;
 }
 
-function meter(label, level, tone = "green", width = 10) {
-  return `${badge(label, tone)} ${meterBar(level, width, tone)}`;
+function ruleLine(width) {
+  return `${color.border}${"─".repeat(Math.max(12, width))}${color.reset}`;
 }
 
-function connectionLevel() {
-  if (connectionState === "live") return 1;
-  if (connectionState === "reconnecting") return 0.55;
-  if (connectionState === "connecting") return 0.35;
-  return 0.15;
-}
-
-function cognitionLevel() {
-  const phase = String(runPhase ?? runState ?? "").toLowerCase();
-  if (phase.includes("tool")) return 0.9;
-  if (phase.includes("thinking")) return 0.76;
-  if (phase.includes("typing") || phase.includes("stream")) return 0.68;
-  if (phase.includes("idle")) return 0.32;
-  return 0.5;
-}
-
-function queueLevel() {
-  return Math.min(1, queuedOperatorInputs.length / 4);
-}
-
-function activityLevel() {
-  return Math.min(1, events.length / 12);
-}
-
-function bannerMood() {
-  if (!bootstrapReady) return "carrier acquisition in progress";
-  if (latestToolState === "error") return "fault recovery path engaged";
-  if (latestToolState === "running") return "execution bus hot";
-  if ((runPhase ?? "").toLowerCase().includes("thinking")) return "cognitive loop engaged";
-  if (connectionState === "live") return "neural uplink nominal";
-  return "standby for operator signal";
+function splashProgressLevel() {
+  if (bootstrapReady && connectionState === "live") return 1;
+  if (sessionId) return 0.8;
+  if (isOpen) return 0.58;
+  if (connectionState === "reconnecting") return 0.34;
+  return 0.2;
 }
 
 function termWidth() {
@@ -526,6 +529,35 @@ function compactBodyLines(value, maxLines = 4) {
   return lines.slice(0, maxLines).map((line) => truncate(line, maxInlineChars));
 }
 
+function eventBodyLines(value, maxLines = Infinity) {
+  const lines = sanitizeLargeText(String(value ?? "(empty)"))
+    .replace(/\r\n/g, "\n")
+    .replace(/\t/g, "  ")
+    .split("\n")
+    .map((line) => line.replace(/\r/g, "").replace(/\s+$/g, ""));
+  const normalized = [];
+  let blankRun = 0;
+  for (const line of lines) {
+    if (line.trim().length === 0) {
+      blankRun += 1;
+      if (blankRun > 1) {
+        continue;
+      }
+      normalized.push("");
+    } else {
+      blankRun = 0;
+      normalized.push(line);
+    }
+    if (normalized.length >= maxLines) {
+      break;
+    }
+  }
+  if (normalized.length === 0) {
+    return ["(empty)"];
+  }
+  return normalized;
+}
+
 function summarizeUsage(payload) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -543,16 +575,28 @@ function summarizeUsage(payload) {
 
 function pushEvent(kind, title, body, tone) {
   const timestamp = nowStamp();
+  const normalizedBody = tryPrettyJson(body || "(empty)");
   events.push({
+    id: nextId("evt"),
     kind,
     title,
     tone,
     timestamp,
-    body: truncate(tryPrettyJson(body || "(empty)"), maxBodyChars),
+    body:
+      normalizedBody.length > maxStoredBodyChars
+        ? `${normalizedBody.slice(0, maxStoredBodyChars - 1)}…`
+        : normalizedBody,
+    bodyTruncated: normalizedBody.length > maxStoredBodyChars,
   });
+  if (introDismissKinds.has(kind)) {
+    dismissIntro();
+  }
   lastActivityAt = timestamp;
   while (events.length > maxEvents) {
     events.shift();
+  }
+  if (expandedEventId && !events.some((event) => event.id === expandedEventId)) {
+    expandedEventId = null;
   }
   scheduleRender();
 }
@@ -568,6 +612,215 @@ function authPayload(extra = {}) {
     payload.ownerToken = ownerToken;
   }
   return payload;
+}
+
+function currentInputValue() {
+  return composerInput;
+}
+
+function currentSlashSuggestions(limit = 8) {
+  return matchWatchCommands(currentInputValue(), { limit });
+}
+
+function resetComposer() {
+  composerInput = "";
+  composerCursor = 0;
+  composerHistoryIndex = -1;
+  composerHistoryDraft = "";
+}
+
+function setComposerInput(nextValue) {
+  composerInput = String(nextValue ?? "");
+  composerCursor = Math.max(0, Math.min(composerCursor, composerInput.length));
+}
+
+function insertComposerText(text) {
+  if (!text) {
+    return;
+  }
+  composerInput =
+    composerInput.slice(0, composerCursor) +
+    text +
+    composerInput.slice(composerCursor);
+  composerCursor += text.length;
+}
+
+function navigateComposerHistory(direction) {
+  if (composerHistory.length === 0) {
+    return;
+  }
+  if (direction < 0) {
+    if (composerHistoryIndex === -1) {
+      composerHistoryDraft = composerInput;
+      composerHistoryIndex = composerHistory.length - 1;
+    } else if (composerHistoryIndex > 0) {
+      composerHistoryIndex -= 1;
+    }
+    setComposerInput(composerHistory[composerHistoryIndex] ?? "");
+    composerCursor = composerInput.length;
+    return;
+  }
+  if (composerHistoryIndex === -1) {
+    return;
+  }
+  if (composerHistoryIndex < composerHistory.length - 1) {
+    composerHistoryIndex += 1;
+    setComposerInput(composerHistory[composerHistoryIndex] ?? "");
+  } else {
+    composerHistoryIndex = -1;
+    setComposerInput(composerHistoryDraft);
+  }
+  composerCursor = composerInput.length;
+}
+
+function autocompleteSlashCommand() {
+  const input = currentInputValue();
+  if (!input.trimStart().startsWith("/")) {
+    return false;
+  }
+  const [commandToken = "/"] = input.trimStart().split(/\s+/, 1);
+  const matches = matchWatchCommands(commandToken, { limit: 1 });
+  if (matches.length === 0) {
+    return false;
+  }
+  const remainder = input.trimStart().slice(commandToken.length);
+  const completed = `${matches[0].name}${remainder}`;
+  const leadingWhitespaceMatch = input.match(/^\s*/);
+  const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0] : "";
+  setComposerInput(`${leadingWhitespace}${completed}`);
+  composerCursor = composerInput.length;
+  return true;
+}
+
+function composerRenderLine(width) {
+  const prompt = promptLabel();
+  const promptWidth = visibleLength(prompt);
+  const available = Math.max(1, width - promptWidth);
+  const maxStart = Math.max(0, composerInput.length - available);
+  const start = Math.max(0, Math.min(maxStart, composerCursor - available + 1));
+  const visibleInput = composerInput.slice(start, start + available);
+  return {
+    line: `${prompt}${visibleInput}`,
+    cursorColumn: Math.max(1, promptWidth + (composerCursor - start) + 1),
+  };
+}
+
+function shutdownWatch(exitCode = 0) {
+  shuttingDown = true;
+  operatorInputBatcher.dispose();
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  clearBootstrapTimer();
+  try {
+    ws?.close();
+  } catch {}
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(false);
+  }
+  leaveAltScreen();
+  process.exit(exitCode);
+}
+
+function recordComposerHistory(value) {
+  if (!value) {
+    return;
+  }
+  if (composerHistory[composerHistory.length - 1] !== value) {
+    composerHistory.push(value);
+    if (composerHistory.length > 200) {
+      composerHistory = composerHistory.slice(-200);
+    }
+  }
+  composerHistoryIndex = -1;
+  composerHistoryDraft = "";
+}
+
+function submitComposerInput() {
+  const value = composerInput.trim();
+  if (!value) {
+    scheduleRender();
+    return;
+  }
+  recordComposerHistory(value);
+  resetComposer();
+  operatorInputBatcher.push(value);
+  scheduleRender();
+}
+
+function formatCommandPaletteText(command) {
+  const aliasSuffix =
+    Array.isArray(command.aliases) && command.aliases.length > 0
+      ? `  ${color.fog}${command.aliases.join(", ")}${color.reset}`
+      : "";
+  return `${color.magenta}${command.usage}${color.reset}${aliasSuffix}\n${color.softInk}${command.description}${color.reset}`;
+}
+
+function formatSessionSummaries(payload) {
+  if (!Array.isArray(payload) || payload.length === 0) {
+    return "No resumable sessions found.";
+  }
+  return payload
+    .map((session) => {
+      const when = session?.lastActiveAt
+        ? new Date(session.lastActiveAt).toLocaleString("en-US", {
+          hour12: false,
+        })
+        : "unknown";
+      return [
+        `session: ${session?.sessionId ?? "unknown"}`,
+        `label: ${session?.label ?? "n/a"}`,
+        `messages: ${session?.messageCount ?? 0}`,
+        `last active: ${when}`,
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
+function formatHistoryPayload(payload) {
+  if (!Array.isArray(payload) || payload.length === 0) {
+    return "No history for this session.";
+  }
+  return payload
+    .map((entry) => {
+      const stamp = entry?.timestamp
+        ? new Date(entry.timestamp).toLocaleTimeString("en-US", {
+          hour12: false,
+        })
+        : "--:--:--";
+      const sender = String(entry?.sender ?? "unknown").toUpperCase();
+      const content = sanitizeDisplayText(entry?.content ?? "(empty)");
+      return `${stamp} ${sender}\n${content}`;
+    })
+    .join("\n\n");
+}
+
+function formatStatusPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return tryPrettyJson(payload ?? {});
+  }
+  return [
+    `state: ${payload.state ?? "unknown"}`,
+    `uptime: ${formatCompactNumber(payload.uptimeMs) ?? payload.uptimeMs ?? "n/a"} ms`,
+    `active sessions: ${payload.activeSessions ?? "n/a"}`,
+    `control plane: ${payload.controlPlanePort ?? "n/a"}`,
+    `agent: ${payload.agentName ?? "n/a"}`,
+    `channels: ${Array.isArray(payload.channels) ? payload.channels.join(", ") : "n/a"}`,
+  ].join("\n");
+}
+
+function formatLogPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return tryPrettyJson(payload ?? {});
+  }
+  if (Array.isArray(payload.lines) && payload.lines.length > 0) {
+    return payload.lines.join("\n");
+  }
+  if (typeof payload.text === "string" && payload.text.trim()) {
+    return payload.text;
+  }
+  return tryPrettyJson(payload);
 }
 
 function send(type, payload) {
@@ -799,224 +1052,260 @@ function scheduleBootstrap(reason = "restoring session") {
   setTransientStatus(`${reason}; retrying in ${delayMs}ms`);
 }
 
-function heroLines(width) {
-  const inner = width - 2;
-  const shortSession = sessionId ? sessionId.slice(-8) : "--------";
-  const runLabel = `${runState ?? "idle"}${runPhase ? ` / ${runPhase}` : ""}`;
-  const objective = currentObjective ?? runDetail?.objective ?? "No active run";
-  const heroTone = connectionState === "live" ? "cyan" : "amber";
-  const toolSummary = latestTool ?? "waiting";
-  const toolTone =
-    latestToolState === "error"
-      ? "red"
-      : latestToolState === "ok"
-        ? "green"
-        : latestToolState === "running"
-          ? "magenta"
-          : "slate";
+const SPLASH_ART_LARGE = [
+  { tone: "slate", text: "                  ░▒▓████████▓▒░                  " },
+  { tone: "magenta", text: "               ░▓██████████████▓░               " },
+  { tone: "magenta", text: "              ▒██████████████████▒              " },
+  { tone: "softInk", text: "             ▓████████████████████▓             " },
+  { tone: "softInk", text: "             ███████████████████▓██             " },
+  { tone: "ink", text: "             █████████████████▓   ░             " },
+  { tone: "ink", text: "             ████████████████▒                  " },
+  { tone: "ink", text: "             ████████████████                   " },
+  { tone: "magenta", text: "             ███████████████▓                   " },
+  { tone: "magenta", text: "             ▓██████████████▒                   " },
+  { tone: "slate", text: "              ▒████████████▓                    " },
+  { tone: "slate", text: "               ▓███████████                     " },
+  { tone: "slate", text: "                ▒█████████▓                     " },
+  { tone: "fog", text: "                 ▒███████▓                      " },
+  { tone: "fog", text: "                 ░██████▓                       " },
+  { tone: "fog", text: "                  ▓████▓                        " },
+  { tone: "fog", text: "                  ▒███▒                         " },
+  { tone: "fog", text: "                   ▓█▓                          " },
+];
 
-  return renderPanel({
-    title: "A G E N / C",
-    subtitle: connectionState === "live" ? `carrier ${lastActivityAt ?? "--:--:--"}` : "carrier scan",
-    tone: heroTone,
-    width,
-    bg: color.heroBg,
-    lines: [
-      row(
-        flexBetween(
-          `${color.cyan}${color.bold}COGNITIVE UPLINK // AUTONOMOUS TERMINAL${color.reset}`,
-          `${color.magenta}${color.bold}SYSOP LINK :: ${connectionState.toUpperCase()}${color.reset}`,
-          inner,
-        ),
-        color.heroBg,
-      ),
-      row(
-        `${color.fog}${truncate("0101 1100 0011 1010 1110 0111 0001 1010 0100 1110", Math.max(22, inner - 28))}${color.reset} ${color.borderStrong}//${color.reset} ${color.softInk}${bannerMood()}${color.reset}`,
-        color.heroBg,
-      ),
-      row(
-        flexBetween(
-          `${chip("NODE", shortSession, "slate")} ${chip("UPLINK", connectionState, stateTone(connectionState))} ${chip("CORE", runLabel, stateTone(runLabel))}`,
-          `${chip("LOG", events.length, "blue")} ${chip("QUEUE", queuedOperatorInputs.length, queuedOperatorInputs.length > 0 ? "amber" : "green")}`,
-          inner,
-        ),
-        color.heroBg,
-      ),
-      row(
-        `${badge("FOCUS", currentObjective || runDetail?.objective ? "magenta" : "slate")} ${color.softInk}${truncate(sanitizeInlineText(objective), Math.max(24, inner - 12))}${color.reset}`,
-        color.heroBg,
-      ),
-      row(
-        flexBetween(
-          `${badge("STATUS", stateTone(transientStatus))} ${color.softInk}${truncate(transientStatus, Math.max(18, inner - 38))}${color.reset}`,
-          lastUsageSummary
-            ? `${badge("TOKENS", "teal")} ${color.teal}${truncate(lastUsageSummary, 32)}${color.reset}`
-            : `${chip("MODE", bootstrapReady ? "synced" : "restoring", bootstrapReady ? "green" : "amber")}`,
-          inner,
-        ),
-        color.heroBg,
-      ),
-      row(
-        flexBetween(
-          `${meter("LINK", connectionLevel(), stateTone(connectionState), 10)} ${meter("CORE", cognitionLevel(), stateTone(runPhase ?? runState), 10)}`,
-          `${meter("QUEUE", queueLevel(), queuedOperatorInputs.length > 0 ? "amber" : "green", 8)} ${meter("LOG", activityLevel(), "blue", 8)}`,
-          inner,
-        ),
-        color.heroBg,
-      ),
-      row(
-        `${color.fog}SYSOP${color.reset} ${color.softInk}/help  /clear  enter${color.reset}  ${color.fog}SURFACE${color.reset} ${color.softInk}signal feed + trace bus${color.reset}`,
-        color.heroBg,
-      ),
-    ],
-  });
+const SPLASH_ART_SMALL = [
+  { tone: "slate", text: "              ░▒▓████▓▒░             " },
+  { tone: "magenta", text: "           ░▓██████████▓░            " },
+  { tone: "softInk", text: "          ▒██████████████▒           " },
+  { tone: "ink", text: "          ████████████▓ ░            " },
+  { tone: "ink", text: "          ███████████▓               " },
+  { tone: "magenta", text: "          ███████████▒               " },
+  { tone: "slate", text: "           ▓████████▓                " },
+  { tone: "slate", text: "            ▒██████▓                 " },
+  { tone: "fog", text: "             ▓████▒                  " },
+  { tone: "fog", text: "             ▒██▓                    " },
+];
+
+function shouldShowSplash() {
+  if (introDismissed || currentObjective || currentInputValue().trim().length > 0) {
+    return false;
+  }
+  return !events.some((event) => introDismissKinds.has(event.kind));
 }
 
-function compactHeroLines(width) {
-  const inner = width - 2;
-  const shortSession = sessionId ? sessionId.slice(-8) : "--------";
-  const runLabel = `${runState ?? "idle"}${runPhase ? ` / ${runPhase}` : ""}`;
-  return renderPanel({
-    title: "A G E N / C",
-    subtitle: connectionState === "live" ? `carrier ${lastActivityAt ?? "--:--:--"}` : "carrier scan",
-    tone: connectionState === "live" ? "cyan" : "amber",
-    width,
-    bg: color.heroBg,
-    lines: [
-      row(
-        flexBetween(
-          `${color.cyan}${color.bold}COGNITIVE UPLINK${color.reset} ${chip("NODE", shortSession, "slate")} ${chip("CORE", runLabel, stateTone(runLabel))}`,
-          `${chip("LOG", events.length, "blue")}`,
-          inner,
-        ),
-        color.heroBg,
-      ),
-      row(
-        flexBetween(
-          `${badge("STATUS", stateTone(transientStatus))} ${color.softInk}${truncate(transientStatus, Math.max(18, inner - 18))}${color.reset}`,
-          `${meter("LINK", connectionLevel(), stateTone(connectionState), 8)}`,
-          inner,
-        ),
-        color.heroBg,
-      ),
-    ],
-  });
+function splashArtLines(width) {
+  const source = width >= 96 ? SPLASH_ART_LARGE : SPLASH_ART_SMALL;
+  return source.map((entry) =>
+    centerAnsi(`${toneColor(entry.tone)}${entry.text}${color.reset}`, width),
+  );
 }
 
-function runPanelLines(width) {
-  const inner = width - 2;
-  const objective = currentObjective ?? runDetail?.objective ?? "No active run";
-  const explanation = runDetail?.explanation ?? "No durable run inspection loaded yet.";
-  const evidence =
-    runDetail?.lastToolEvidence ??
-    runDetail?.carryForwardSummary ??
-    runDetail?.lastUserUpdate ??
-    "No verified evidence yet.";
-  const nextCheck = runDetail?.nextCheckAt
-    ? new Date(runDetail.nextCheckAt).toLocaleTimeString("en-US", { hour12: false })
-    : "pending";
-  const subtitle = runDetail ? truncate(sanitizeInlineText(runDetail.state ?? runState), 20) : "idle";
-  const lines = [
-    row(
-      flexBetween(
-        `${chip("STATE", runState, stateTone(runState))}`,
-        `${chip("PHASE", runPhase ?? "idle", stateTone(runPhase ?? runState))}`,
-        inner,
-      ),
-      color.panelHiBg,
-    ),
-    row(formatMetric("next check", nextCheck, inner, nextCheck === "pending" ? "amber" : "green"), color.panelAltBg),
-    ...wrapAndLimit(`objective: ${objective}`, inner, 2).map((line, index) => (
-      row(`${color.softInk}${line}${color.reset}`, index === 0 ? color.panelBg : color.panelAltBg)
-    )),
-    ...wrapAndLimit(`evidence: ${evidence}`, inner, 1).map((line, index) => (
-      row(`${color.fog}${line}${color.reset}`, index === 0 ? color.panelBg : color.panelAltBg)
-    )),
-    ...wrapAndLimit(`note: ${explanation}`, inner, 1).map((line, index) => (
-      row(`${color.fog}${line}${color.reset}`, index === 0 ? color.panelAltBg : color.panelBg)
-    )),
+function splashProgressBar(width, level, tone = "magenta") {
+  const clamped = Math.max(0, Math.min(1, Number(level) || 0));
+  const fill = Math.max(0, Math.min(width, Math.round(clamped * width)));
+  return `${toneColor(tone)}${"█".repeat(fill)}${color.fog}${"░".repeat(Math.max(0, width - fill))}${color.reset}`;
+}
+
+function renderSplash(width, height) {
+  const progress = splashProgressLevel();
+  const tone = bootstrapReady && connectionState === "live" ? "teal" : "magenta";
+  const statusLabel = bootstrapReady
+    ? "READY"
+    : connectionState === "reconnecting"
+      ? "RECONNECTING"
+      : "CONNECTING TO AGENC";
+  const hint = bootstrapReady
+    ? "type a prompt to begin"
+    : "initializing agent runtime...";
+  const progressWidth = Math.max(18, Math.min(30, width - 28));
+  const progressLine = centerAnsi(
+    `${color.softInk}[${color.reset}${splashProgressBar(progressWidth, progress, tone)}${color.softInk}] ${String(Math.round(progress * 100)).padStart(3, " ")}%${color.reset}`,
+    width,
+  );
+  const content = [
+    centerAnsi(`${color.magenta}${color.bold}A G E N / C${color.reset} ${color.softInk}operator console${color.reset}`, width),
+    centerAnsi(`${color.fog}clean signal // low clutter // live autonomy${color.reset}`, width),
+    "",
+    ...splashArtLines(width),
+    "",
+    centerAnsi(`${toneColor(tone)}${color.bold}${statusLabel}${color.reset}`, width),
+    progressLine,
+    centerAnsi(`${color.fog}${hint}${color.reset}`, width),
   ];
+  const topPadding = Math.max(0, Math.floor((height - content.length) / 2));
+  return [
+    ...Array.from({ length: topPadding }, () => ""),
+    ...content,
+  ];
+}
+
+function headerLines(width) {
+  const shortSession = sessionId ? sessionId.slice(-8) : "--------";
+  const phaseLabel = runPhase ? `${runState} / ${runPhase}` : runState;
+  const objective =
+    currentObjective ??
+    runDetail?.objective ??
+    latestAgentSummary ??
+    "Awaiting operator prompt";
+  const statusSummary = lastUsageSummary
+    ? `usage ${lastUsageSummary}`
+    : transientStatus;
+  return [
+    flexBetween(
+      `${color.magenta}${color.bold}A G E N / C${color.reset} ${color.fog}operator console${color.reset}`,
+      `${toneColor(stateTone(connectionState))}${connectionState}${color.reset} ${color.fog}${shortSession}${color.reset} ${toneColor(stateTone(phaseLabel))}${truncate(phaseLabel, 16)}${color.reset}`,
+      width,
+    ),
+    `${color.softInk}${truncate(sanitizeInlineText(objective), Math.max(28, width))}${color.reset}`,
+    `${color.fog}${truncate(`tool ${latestTool ?? "idle"}  ${statusSummary}`, Math.max(28, width))}${color.reset}`,
+    "",
+  ];
+}
+
+function snapshotPanelLines(width) {
+  const inner = width - 2;
+  const objective = currentObjective ?? runDetail?.objective ?? "No active objective";
+  const note =
+    runDetail?.explanation ??
+    runDetail?.lastUserUpdate ??
+    latestAgentSummary ??
+    transientStatus;
   return renderPanel({
-    title: "NET // STATE",
-    subtitle,
-    tone: stateTone(runState),
+    title: "SNAPSHOT",
+    subtitle: lastActivityAt ? `@ ${lastActivityAt}` : "idle",
+    tone: "magenta",
     width,
     bg: color.panelBg,
-    lines,
-  });
-}
-
-function signalPanelLines(width) {
-  const inner = width - 2;
-  const shortSession = sessionId ? sessionId.slice(-8) : "--------";
-  const queued = queuedOperatorInputs.length;
-  const summary = latestAgentSummary
-    ? truncate(sanitizeInlineText(latestAgentSummary), maxSummaryChars)
-    : "waiting for agent output";
-  const lines = [
-    row(
-      flexBetween(
-        `${chip("SESSION", shortSession, "slate")}`,
-        `${chip("QUEUE", queued, queued > 0 ? "amber" : "green")}`,
-        inner,
-      ),
-      color.panelHiBg,
-    ),
-    row(formatMetric("connection", connectionState, inner, stateTone(connectionState)), color.panelAltBg),
-    row(formatMetric("latest tool", latestTool ?? "none", inner, stateTone(latestToolState ?? "idle")), color.panelBg),
-    row(formatMetric("usage", lastUsageSummary ?? "n/a", inner, lastUsageSummary ? "teal" : "slate"), color.panelAltBg),
-    row(`${color.softInk}${truncate(summary, inner)}${color.reset}`, color.panelBg),
-  ];
-  return renderPanel({
-    title: "SYS // LINK",
-    subtitle: lastActivityAt ? `carrier ${lastActivityAt}` : "carrier locked",
-    tone: connectionState === "live" ? "teal" : "amber",
-    width,
-    bg: color.panelAltBg,
-    lines,
+    lines: [
+      row(`${color.fog}${color.bold}RUN${color.reset}`, color.panelHiBg),
+      row(formatMetric("state", runState, inner, stateTone(runState)), color.panelBg),
+      row(formatMetric("phase", runPhase ?? "idle", inner, stateTone(runPhase ?? runState)), color.panelAltBg),
+      ...wrapAndLimit(`objective ${objective}`, inner, 2).map((line, index) => (
+        row(`${color.softInk}${line}${color.reset}`, index === 0 ? color.panelBg : color.panelAltBg)
+      )),
+      row("", color.panelBg),
+      row(`${color.fog}${color.bold}SESSION${color.reset}`, color.panelHiBg),
+      row(formatMetric("connection", connectionState, inner, stateTone(connectionState)), color.panelBg),
+      row(formatMetric("session", sessionId ? sessionId.slice(-8) : "--------", inner, "slate"), color.panelAltBg),
+      row(formatMetric("latest tool", latestTool ?? "none", inner, stateTone(latestToolState ?? "idle")), color.panelBg),
+      row(formatMetric("usage", lastUsageSummary ?? "n/a", inner, lastUsageSummary ? "teal" : "slate"), color.panelAltBg),
+      row("", color.panelBg),
+      row(`${color.fog}${color.bold}NOTES${color.reset}`, color.panelHiBg),
+      ...wrapAndLimit(note, inner, 3).map((line, index) => (
+        row(`${color.softInk}${line}${color.reset}`, index % 2 === 0 ? color.panelBg : color.panelAltBg)
+      )),
+      row("", color.panelBg),
+      row(`${color.fog}${color.bold}COMMANDS${color.reset}`, color.panelHiBg),
+      row(`${color.softInk}/new  /inspect  /trace${color.reset}`, color.panelBg),
+      row(`${color.softInk}/clear /pause /resume /stop${color.reset}`, color.panelAltBg),
+    ],
   });
 }
 
 function compactSummaryLines(width) {
   const inner = width - 2;
-  const objective = currentObjective ?? runDetail?.objective ?? "No active run";
-  const toolSummary = latestTool ?? "none";
-  const toolTone =
-    latestToolState === "error"
-      ? "red"
-      : latestToolState === "ok"
-        ? "green"
-        : latestToolState === "running"
-          ? "magenta"
-          : "slate";
-  const rightSummary = lastUsageSummary
-    ? `usage ${lastUsageSummary}`
-    : `queue ${queuedOperatorInputs.length}`;
+  const objective = currentObjective ?? runDetail?.objective ?? "No active objective";
+  const phaseLabel = runPhase ? `${runState} / ${runPhase}` : runState;
   return renderPanel({
-    title: "NODE // SNAPSHOT",
-    subtitle: runDetail ? truncate(sanitizeInlineText(runDetail.state ?? runState), 18) : "idle",
-    tone: stateTone(runState),
+    title: "SNAPSHOT",
+    subtitle: lastActivityAt ? `@ ${lastActivityAt}` : "idle",
+    tone: "magenta",
     width,
     bg: color.panelBg,
     lines: [
       row(
         flexBetween(
-          `${color.softInk}${truncate(`objective ${sanitizeInlineText(objective)}`, 56)}${color.reset}`,
-          `${chip("TOOL", toolSummary, toolTone)}`,
+          `${chip("STATE", phaseLabel, stateTone(phaseLabel))}`,
+          `${chip("UPLINK", connectionState, stateTone(connectionState))}`,
           inner,
         ),
         color.panelBg,
       ),
       row(
         flexBetween(
-          `${color.fog}phase${color.reset} ${color.softInk}${runPhase ?? "idle"}${color.reset}  ${color.fog}next${color.reset} ${color.softInk}${runDetail?.nextCheckAt ? new Date(runDetail.nextCheckAt).toLocaleTimeString("en-US", { hour12: false }) : "pending"}${color.reset}`,
-          `${color.fog}${truncate(rightSummary, 28)}${color.reset}`,
+          `${chip("TOOL", latestTool ?? "idle", stateTone(latestToolState ?? "idle"))}`,
+          `${chip("QUEUE", queuedOperatorInputs.length, queuedOperatorInputs.length > 0 ? "amber" : "green")}`,
           inner,
         ),
         color.panelAltBg,
       ),
+      row(
+        flexBetween(
+          `${color.softInk}${truncate(sanitizeInlineText(objective), Math.max(24, inner - 10))}${color.reset}`,
+          `${color.fog}${truncate(lastUsageSummary ?? "n/a", 18)}${color.reset}`,
+          inner,
+        ),
+        color.panelBg,
+      ),
     ],
   });
+}
+
+function commandPaletteLines(width, limit = 7) {
+  const inner = width - 2;
+  const input = currentInputValue().trimStart();
+  const suggestions = currentSlashSuggestions(limit);
+  const lines = [];
+  if (suggestions.length === 0) {
+    lines.push(row(`${color.red}No matching slash command.${color.reset}`, color.panelBg));
+    lines.push(row(`${color.softInk}Use /help for the full command reference.${color.reset}`, color.panelBg));
+  } else {
+    for (const command of suggestions) {
+      const [usageLine, descriptionLine = ""] = formatCommandPaletteText(command).split("\n");
+      lines.push(row(usageLine, color.panelBg));
+      if (descriptionLine) {
+        lines.push(row(truncate(descriptionLine, inner), color.panelBg));
+      }
+    }
+  }
+  return renderPanel({
+    title: input.length > 0 ? truncate(input, 22) : "/ commands",
+    tone: "teal",
+    width,
+    bg: color.panelBg,
+    lines,
+  });
+}
+
+function footerHintLine(width) {
+  const input = currentInputValue();
+  if (expandedEventId) {
+    return flexBetween(
+      `${color.fog}ctrl+o close detail${color.reset}`,
+      `${color.fog}${connectionState}${color.reset}`,
+      width,
+    );
+  }
+  if (input.trimStart().startsWith("/")) {
+    const suggestions = currentSlashSuggestions(6);
+    const suggestionText =
+      suggestions.length > 0
+        ? suggestions.map((command) => command.name).join("  ")
+        : "no matching command";
+    return flexBetween(
+      `${color.fog}${truncate(suggestionText, Math.max(20, width - 24))}${color.reset}`,
+      `${color.fog}enter run${color.reset}`,
+      width,
+    );
+  }
+  const rightHint =
+    !isOpen
+      ? "reconnecting"
+      : bootstrapPending()
+        ? "restoring session"
+        : sessionId
+          ? sessionId.slice(-8)
+          : "no session";
+  const latestExpandable = latestExpandableEvent();
+  const leftHint =
+    input.trim().length > 0
+      ? `enter send  / commands${latestExpandable ? "  ctrl+o detail" : ""}`
+      : `/ commands${latestExpandable ? "  ctrl+o detail" : ""}  ctrl+l clear`;
+  return flexBetween(
+    `${color.fog}${truncate(leftHint, Math.max(16, width - 22))}${color.reset}`,
+    `${color.fog}${rightHint}${color.reset}`,
+    width,
+  );
 }
 
 function resetLiveRunSurface() {
@@ -1027,82 +1316,135 @@ function resetLiveRunSurface() {
 }
 
 function styleEventBodyLine(line) {
-  const match = line.match(/^([A-Za-z0-9 _./-]{2,26}):(.*)$/);
-  if (!match) {
-    return `${color.softInk}${line}${color.reset}`;
-  }
-  return `${color.fog}${match[1]}:${color.reset}${color.softInk}${match[2]}${color.reset}`;
+  return `${color.softInk}${line}${color.reset}`;
 }
 
-function eventBadgeLabel(kind) {
+function eventBadge(kind) {
   switch (kind) {
     case "tool result":
-      return "RETURN";
+      return { label: "RETURN", tone: "green" };
     case "tool error":
-      return "FAULT";
+      return { label: "FAULT", tone: "red" };
     case "tool":
-      return "EXEC";
+      return { label: "EXEC", tone: "yellow" };
     case "agent":
-      return "CORE";
+      return { label: "CORE", tone: "cyan" };
     case "you":
-      return "SYSOP";
+      return { label: "YOU", tone: "teal" };
     case "operator":
-      return "CTRL";
+      return { label: "CTRL", tone: "teal" };
     case "run":
     case "inspect":
-      return "STATE";
+      return { label: "STATE", tone: "magenta" };
     case "trace":
-      return "TRACE";
+      return { label: "TRACE", tone: "slate" };
+    case "logs":
+      return { label: "LOGS", tone: "slate" };
+    case "history":
+      return { label: "HISTORY", tone: "slate" };
+    case "help":
+      return { label: "HELP", tone: "slate" };
+    case "status":
+      return { label: "STATUS", tone: "blue" };
+    case "session":
+      return { label: "SESS", tone: "teal" };
     case "approval":
-      return "AUTH";
+      return { label: "AUTH", tone: "red" };
     default:
-      return kind.toUpperCase().slice(0, 10);
+      return { label: kind.toUpperCase().slice(0, 10), tone: "slate" };
   }
 }
 
 function eventPreviewLines(event, width) {
   const maxLines =
-    event.kind === "agent"
-      ? 3
-      : event.kind === "tool result" || event.kind === "tool error"
+    event.kind === "help" ||
+    event.kind === "history" ||
+    event.kind === "logs" ||
+    event.kind === "trace" ||
+    event.kind === "status" ||
+    event.kind === "session" ||
+    event.kind === "runs"
+      ? 8
+      : event.kind === "operator" ||
+          event.kind === "you" ||
+          event.kind === "queued"
         ? 3
-        : 2;
-  const preview = compactBodyLines(event.body, 8)
-    .flatMap((line) => wrapLine(line, width))
-    .slice(0, maxLines);
+      : event.kind === "agent"
+        ? maxFeedPreviewLines
+        : event.kind === "tool result" || event.kind === "tool error"
+          ? maxFeedPreviewLines
+          : 2;
+  const wrapped = eventBodyLines(event.body, maxPreviewSourceLines)
+    .flatMap((line) => wrapLine(line, width));
+  if (wrapped.length <= maxLines) {
+    return wrapped;
+  }
+  const preview = wrapped.slice(0, maxLines);
+  const lastIndex = preview.length - 1;
+  preview[lastIndex] = `${truncate(preview[lastIndex].trimEnd(), Math.max(8, width - 1))}…`;
   return preview;
+}
+
+function eventHasHiddenPreview(event, width) {
+  const wrapped = eventBodyLines(event.body, maxPreviewSourceLines)
+    .flatMap((line) => wrapLine(line, width));
+  return event.bodyTruncated || wrapped.length > eventPreviewLines(event, width).length;
+}
+
+function latestExpandableEvent() {
+  const width = Math.max(24, termWidth() - 4);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (eventHasHiddenPreview(events[index], width)) {
+      return events[index];
+    }
+  }
+  return events[events.length - 1] ?? null;
+}
+
+function currentExpandedEvent() {
+  if (!expandedEventId) {
+    return null;
+  }
+  return events.find((event) => event.id === expandedEventId) ?? null;
+}
+
+function toggleExpandedEvent() {
+  if (expandedEventId) {
+    expandedEventId = null;
+    setTransientStatus("detail closed");
+    return;
+  }
+  const target = latestExpandableEvent();
+  if (!target) {
+    setTransientStatus("no detail available");
+    return;
+  }
+  expandedEventId = target.id;
+  setTransientStatus(`detail open: ${target.title}`);
 }
 
 function renderEventBlock(event, width) {
   const rows = [];
+  const badgeSpec = eventBadge(event.kind);
   const title = flexBetween(
-    `${badge(eventBadgeLabel(event.kind), event.tone)} ${toneColor(event.tone)}${color.bold}${truncate(sanitizeDisplayText(event.title), 34)}${color.reset}`,
-    `${color.fog}@${event.timestamp}${color.reset}`,
+    `${toneColor(badgeSpec.tone)}${color.bold}${badgeSpec.label.toLowerCase()}${color.reset} ${color.softInk}${truncate(sanitizeDisplayText(event.title), Math.max(20, width - 18))}${color.reset}`,
+    `${color.fog}${event.timestamp}${color.reset}`,
     width,
   );
-  rows.push(row(title, color.panelHiBg));
+  rows.push(title);
 
   const bodyLines = eventPreviewLines(event, Math.max(12, width - 2));
-  bodyLines.forEach((line, index) => {
-    rows.push(row(`${color.softInk}${index === 0 ? ":: " : "   "}${styleEventBodyLine(line)}${color.reset}`, color.panelBg));
+  bodyLines.forEach((line) => {
+    rows.push(line.length > 0 ? `${color.softInk}  ${line}${color.reset}` : "");
   });
-  const hiddenCount = Math.max(0, compactBodyLines(event.body, 8).length - bodyLines.length);
-  if (hiddenCount > 0) {
-    rows.push(
-      row(
-        `${color.fog}+${hiddenCount} more line(s)${color.reset}`,
-        color.panelBg,
-      ),
-    );
-  }
   return rows;
 }
 
 function collectEventRows(width, maxRows) {
   if (events.length === 0) {
     return [
-      row(`${color.softInk}No signal packets on the uplink yet.${color.reset}`, color.panelBg),
-      row(`${color.fog}Operator prompts, execution returns, and core replies will surface here.${color.reset}`, color.panelAltBg),
+      `${color.softInk}No signal packets on the uplink yet.${color.reset}`,
+      `${color.fog}Operator prompts, execution returns, and core replies will surface here.${color.reset}`,
     ];
   }
 
@@ -1121,7 +1463,7 @@ function collectEventRows(width, maxRows) {
   const rows = [];
   blocks.forEach((block, index) => {
     if (index > 0) {
-      rows.push(row("", color.panelBg));
+      rows.push("");
     }
     rows.push(...block);
   });
@@ -1129,27 +1471,50 @@ function collectEventRows(width, maxRows) {
 }
 
 function activityPanelLines(width, targetHeight) {
-  const chromeRows = 3;
-  const contentRows = Math.max(8, targetHeight - chromeRows);
-  const lines = collectEventRows(width - 2, contentRows).slice(-contentRows);
-  while (lines.length < contentRows) {
-    lines.push(row("", color.panelBg));
+  const lines = collectEventRows(width, Math.max(8, targetHeight)).slice(-Math.max(8, targetHeight));
+  while (lines.length < targetHeight) {
+    lines.push("");
   }
-  return renderPanel({
-    title: "SIGNAL FEED",
-    subtitle: events.length > 0 ? `${events.length} records` : "quiet",
-    tone: "blue",
-    width,
-    bg: color.panelBg,
-    lines,
-  });
+  return lines;
+}
+
+function expandedDetailLines(width, targetHeight) {
+  const event = currentExpandedEvent();
+  if (!event) {
+    expandedEventId = null;
+    return activityPanelLines(width, targetHeight);
+  }
+  const body = eventBodyLines(event.body, maxPreviewSourceLines * 8)
+    .flatMap((line) => wrapLine(line, width));
+  const header = [
+    flexBetween(
+      `${toneColor(event.tone)}${color.bold}${truncate(sanitizeDisplayText(event.title), Math.max(20, width - 18))}${color.reset}`,
+      `${color.fog}${event.timestamp}${color.reset}`,
+      width,
+    ),
+    `${color.fog}${eventBadge(event.kind).label.toLowerCase()}  ctrl+o close${color.reset}`,
+    "",
+  ];
+  const availableRows = Math.max(4, targetHeight - header.length - 1);
+  const visibleBody = body.slice(0, availableRows);
+  const rows = [
+    ...header,
+    ...visibleBody.map((line) => (line.length > 0 ? `${color.softInk}${line}${color.reset}` : "")),
+  ];
+  while (rows.length < targetHeight - 1) {
+    rows.push("");
+  }
+  rows.push(
+    `${color.fog}${Math.min(body.length, visibleBody.length)} of ${body.length} lines${event.bodyTruncated ? "  stored body truncated" : ""}${color.reset}`,
+  );
+  return rows.slice(0, targetHeight);
 }
 
 function enterAltScreen() {
   if (!process.stdout.isTTY || enteredAltScreen) {
     return;
   }
-  process.stdout.write("\x1b[?1049h\x1b[?25l");
+  process.stdout.write("\x1b[?1049h\x1b[?25h");
   enteredAltScreen = true;
 }
 
@@ -1162,9 +1527,9 @@ function leaveAltScreen() {
 }
 
 function promptLabel() {
-  const shortSession = sessionId ? sessionId.slice(-8) : "--------";
-  const runLabel = runPhase ? `${runState}/${runPhase}` : runState;
-  return `${color.amber}${color.bold}SYSOP${color.reset}${color.borderStrong}::${color.reset} ${color.slate}${shortSession}${color.reset} ${toneColor(stateTone(runLabel))}${runLabel}${color.reset} >> `;
+  const slashMode = currentInputValue().trimStart().startsWith("/");
+  const promptTone = slashMode ? color.teal : color.magenta;
+  return `${promptTone}${color.bold}>${color.reset} `;
 }
 
 function render() {
@@ -1173,51 +1538,37 @@ function render() {
   const width = termWidth();
   const height = termHeight();
   const footerRows = 2;
-  const compactHeightMode = height <= 22;
-  const hero = compactHeightMode ? compactHeroLines(width) : heroLines(width);
-  const bodyHeight = Math.max(8, height - hero.length - footerRows);
   let frame;
+  const slashMode = currentInputValue().trimStart().startsWith("/");
 
-  if (compactHeightMode) {
-    const summary = compactSummaryLines(width);
-    const activityPanel = activityPanelLines(width, Math.max(6, bodyHeight - summary.length));
-    frame = [
-      ...hero,
-      ...summary,
-      ...activityPanel,
-    ];
-  } else if (width >= 92) {
-    const gap = 2;
-    const leftWidth = Math.floor((width - gap) / 2);
-    const rightWidth = width - leftWidth - gap;
-    const runPanel = runPanelLines(leftWidth);
-    const sessionPanel = signalPanelLines(rightWidth);
-    const summaryRows = joinColumns(runPanel, sessionPanel, leftWidth, rightWidth, gap);
-    const activityPanel = activityPanelLines(width, Math.max(8, bodyHeight - summaryRows.length - 1));
-    frame = [
-      ...hero,
-      ...summaryRows,
-      "",
-      ...activityPanel,
-    ];
+  if (shouldShowSplash() && height >= 18) {
+    frame = renderSplash(width, height - footerRows);
   } else {
-    const runPanel = runPanelLines(width);
-    const sessionPanel = signalPanelLines(width);
-    const activityPanel = activityPanelLines(width, Math.max(8, bodyHeight - runPanel.length - sessionPanel.length));
+    const header = headerLines(width);
+    const popup = expandedEventId
+      ? []
+      : slashMode
+        ? commandPaletteLines(Math.min(68, Math.max(38, width - 4)), Math.max(4, Math.min(8, height - 12)))
+        : [];
+    const popupRows = popup.length > 0 ? popup.length + 1 : 0;
+    const bodyHeight = Math.max(8, height - header.length - footerRows - popupRows);
+    const transcript = expandedEventId
+      ? expandedDetailLines(width, bodyHeight)
+      : activityPanelLines(width, bodyHeight);
     frame = [
-      ...hero,
-      ...runPanel,
-      ...sessionPanel,
-      ...activityPanel,
+      ...header,
+      ...transcript,
+      ...(popup.length > 0 ? ["", ...popup.map((line) => `  ${line}`)] : []),
     ];
   }
 
-  process.stdout.write("\x1b[H\x1b[2J");
-  process.stdout.write(frame.join("\n"));
-  process.stdout.write(`\x1b[${height - 1};1H${color.border}${"─".repeat(Math.max(10, width))}${color.reset}`);
-  process.stdout.write(`\x1b[${height};1H`);
-  rl.setPrompt(promptLabel());
-  rl.prompt();
+  process.stdout.write(`${color.panelBg}\x1b[H\x1b[2J`);
+  process.stdout.write(frame.map((line) => paintSurface(line, width, color.panelBg)).join("\n"));
+  process.stdout.write(`\x1b[${height - 1};1H${paintSurface(footerHintLine(width), width, color.panelBg)}`);
+  const composer = composerRenderLine(width);
+  process.stdout.write(`\x1b[${height};1H${paintSurface(composer.line, width, color.panelBg)}`);
+  process.stdout.write(`\x1b[${height};${composer.cursorColumn}H\x1b[?25h`);
+  process.stdout.write(color.reset);
 }
 
 function scheduleRender() {
@@ -1267,7 +1618,6 @@ function attachSocket(socket) {
     bootstrapReady = false;
     connectionState = "live";
     setTransientStatus(`connected to ${wsUrl}`);
-    pushEvent("ws", "WebSocket Connected", wsUrl, "green");
     while (pendingFrames.length > 0) {
       socket.send(pendingFrames.shift());
     }
@@ -1305,6 +1655,12 @@ function attachSocket(socket) {
         requestRunInspect("resume");
         break;
       case "chat.sessions": {
+        if (manualSessionsRequestPending) {
+          manualSessionsRequestPending = false;
+          pushEvent("session", "Sessions", formatSessionSummaries(msg.payload), "teal");
+          setTransientStatus("session list loaded");
+          break;
+        }
         const target = latestSessionSummary(msg.payload, sessionId);
         if (target?.sessionId) {
           sessionId = target.sessionId;
@@ -1318,7 +1674,11 @@ function attachSocket(socket) {
       }
       case "chat.history": {
         const history = Array.isArray(msg.payload) ? msg.payload : [];
-        if (!bootstrapReady && sessionId) {
+        if (manualHistoryRequestPending) {
+          manualHistoryRequestPending = false;
+          pushEvent("history", "Chat History", formatHistoryPayload(history), "slate");
+          setTransientStatus(`history loaded: ${history.length} item(s)`);
+        } else if (!bootstrapReady && sessionId) {
           markBootstrapReady(`history restored: ${history.length} item(s)`);
         } else {
           setTransientStatus(`history restored: ${history.length} item(s)`);
@@ -1429,9 +1789,14 @@ function attachSocket(socket) {
           "slate",
         );
         break;
+      case "observability.logs":
+        setTransientStatus("log bundle loaded");
+        pushEvent("logs", "Daemon Logs", formatLogPayload(msg.payload), "slate");
+        break;
       case "status.update":
         lastStatus = msg.payload ?? lastStatus;
         setTransientStatus("gateway status loaded");
+        pushEvent("status", "Gateway Status", formatStatusPayload(msg.payload), "blue");
         break;
       case "agent.status":
         runPhase = msg.payload?.phase ?? runPhase;
@@ -1443,6 +1808,8 @@ function attachSocket(socket) {
         break;
       case "error":
         runInspectPending = false;
+        manualSessionsRequestPending = false;
+        manualHistoryRequestPending = false;
         if (isExpectedMissingRunInspect(msg.error)) {
           runDetail = null;
           runState = "idle";
@@ -1468,6 +1835,8 @@ function attachSocket(socket) {
     isOpen = false;
     ws = null;
     bootstrapReady = false;
+    manualSessionsRequestPending = false;
+    manualHistoryRequestPending = false;
     connectionState = "reconnecting";
     clearBootstrapTimer();
     if (shuttingDown) {
@@ -1480,7 +1849,15 @@ function attachSocket(socket) {
   });
 
   socket.addEventListener("error", (error) => {
-    pushEvent("ws-error", "WebSocket Error", error?.message ?? String(error), "red");
+    const message =
+      typeof error?.message === "string" && error.message.trim().length > 0
+        ? error.message.trim()
+        : "";
+    if (message) {
+      pushEvent("ws-error", "WebSocket Error", message, "red");
+    } else {
+      setTransientStatus("websocket reconnecting");
+    }
     if (!isOpen) {
       scheduleReconnect();
     }
@@ -1502,11 +1879,18 @@ function printHelp() {
     "help",
     "Command Help",
     [
-      "Type a prompt and press Enter.",
-      "Session: /new /runs /inspect /trace /status",
-      "Run controls: /pause /resume /stop /cancel",
-      "Console: /clear /help /quit",
-    ].join("\n"),
+      "Keyboard",
+      "Ctrl+O toggles the latest verbose event into a full detail view.",
+      "Ctrl+L clears the visible transcript without leaving the session.",
+      "",
+      ...WATCH_COMMANDS.map((command) => {
+        const aliasText =
+          Array.isArray(command.aliases) && command.aliases.length > 0
+            ? ` (${command.aliases.join(", ")})`
+            : "";
+        return `${command.usage}${aliasText}\n${command.description}`;
+      }),
+    ].join("\n\n"),
     "slate",
   );
 }
@@ -1522,6 +1906,7 @@ function shouldQueueOperatorInput(value) {
 }
 
 function dispatchOperatorInput(value, { replayed = false } = {}) {
+  dismissIntro();
   const maybeQueue = (reason) => {
     if (replayed) {
       pushEvent("error", "Queued Input Failed", `${value}\n\n${reason}`, "red");
@@ -1531,124 +1916,160 @@ function dispatchOperatorInput(value, { replayed = false } = {}) {
     return true;
   };
 
-  if (value === "/quit" || value === "/exit") {
-    shuttingDown = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    clearBootstrapTimer();
-    rl.close();
-    ws?.close();
-    leaveAltScreen();
-    return true;
-  }
-
-  if (value === "/help") {
+  if (value.trim() === "/") {
     printHelp();
     return true;
   }
 
-  if (value === "/clear") {
-    events.length = 0;
-    setTransientStatus("console cleared");
-    return true;
-  }
+  const parsedSlash = parseWatchSlashCommand(value);
+  if (parsedSlash) {
+    const canonicalName = parsedSlash.command?.name ?? null;
+    const firstArg = parsedSlash.args[0];
 
-  if (value === "/new") {
+    if (canonicalName === "/quit") {
+      shutdownWatch(0);
+      return true;
+    }
+
+    if (canonicalName === "/help") {
+      printHelp();
+      return true;
+    }
+
+    if (canonicalName === "/clear") {
+      events.length = 0;
+      setTransientStatus("console cleared");
+      return true;
+    }
+
+    if (!canonicalName) {
+      pushEvent(
+        "error",
+        "Unknown Command",
+        `${parsedSlash.commandToken} is not a supported command.\n\nUse /help for the full command list.`,
+        "red",
+      );
+      return true;
+    }
+
     if (shouldQueueOperatorInput(value)) {
       return maybeQueue("session bootstrap not complete");
     }
-    resetLiveRunSurface();
-    currentObjective = null;
-    runDetail = null;
-    runState = "idle";
-    runPhase = null;
-    bootstrapAttempts = 0;
-    clearBootstrapTimer();
-    pushEvent("operator", "New Session", "Requested a fresh chat session.", "teal");
-    send("chat.new", authPayload());
-    return true;
-  }
 
-  if (value === "/runs") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/new") {
+      resetLiveRunSurface();
+      currentObjective = null;
+      runDetail = null;
+      runState = "idle";
+      runPhase = null;
+      bootstrapAttempts = 0;
+      clearBootstrapTimer();
+      pushEvent("operator", "New Session", "Requested a fresh chat session.", "teal");
+      send("chat.new", authPayload());
+      return true;
     }
-    pushEvent("operator", "Run List", "Requested active runs for this session.", "teal");
-    send("runs.list", sessionId ? { sessionId } : {});
-    return true;
-  }
 
-  if (value === "/inspect") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/sessions") {
+      manualSessionsRequestPending = true;
+      pushEvent("operator", "Session List", "Requested resumable sessions.", "teal");
+      send("chat.sessions", authPayload());
+      return true;
     }
-    if (!requireSession("/inspect")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Run Inspect", `Inspecting run for ${sessionId}.`, "teal");
-    send("run.inspect", { sessionId });
-    return true;
-  }
 
-  if (value === "/trace") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/session") {
+      if (!firstArg) {
+        pushEvent(
+          "error",
+          "Missing Session Id",
+          "Usage: /session <sessionId>",
+          "red",
+        );
+        return true;
+      }
+      sessionId = firstArg;
+      pushEvent("operator", "Session Resume", `Resuming ${firstArg}.`, "teal");
+      send("chat.resume", authPayload({ sessionId: firstArg }));
+      return true;
     }
-    pushEvent("operator", "Trace Query", "Requested recent traces.", "teal");
-    send("observability.traces", sessionId ? { sessionId, limit: 5 } : { limit: 5 });
-    return true;
-  }
 
-  if (value === "/status") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/history") {
+      manualHistoryRequestPending = true;
+      const limit = Number(firstArg);
+      const payload = Number.isFinite(limit) && limit > 0
+        ? authPayload({ limit: Math.floor(limit) })
+        : authPayload();
+      pushEvent("operator", "History Query", "Requested recent chat history.", "teal");
+      send("chat.history", payload);
+      return true;
     }
-    pushEvent("operator", "Gateway Status", "Requested daemon status.", "teal");
-    send("status.get", {});
-    return true;
-  }
 
-  if (value === "/cancel") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/runs") {
+      pushEvent("operator", "Run List", "Requested active runs for this session.", "teal");
+      send("runs.list", sessionId ? { sessionId } : {});
+      return true;
     }
-    pushEvent("operator", "Cancel Chat", `Cancelling chat for ${clientKey}.`, "teal");
-    send("chat.cancel", authPayload());
-    return true;
-  }
 
-  if (value === "/pause") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/inspect") {
+      if (!requireSession("/inspect")) return;
+      runInspectPending = true;
+      pushEvent("operator", "Run Inspect", `Inspecting run for ${sessionId}.`, "teal");
+      send("run.inspect", { sessionId });
+      return true;
     }
-    if (!requireSession("/pause")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Pause Run", `Pausing run for ${sessionId}.`, "teal");
-    send("run.control", { action: "pause", sessionId, reason: "operator pause" });
-    return true;
-  }
 
-  if (value === "/resume") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/trace") {
+      if (firstArg) {
+        pushEvent("operator", "Trace Detail", `Inspecting trace ${firstArg}.`, "teal");
+        send("observability.trace", { traceId: firstArg });
+      } else {
+        pushEvent("operator", "Trace Query", "Requested recent traces.", "teal");
+        send("observability.traces", sessionId ? { sessionId, limit: 5 } : { limit: 5 });
+      }
+      return true;
     }
-    if (!requireSession("/resume")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Resume Run", `Resuming run for ${sessionId}.`, "teal");
-    send("run.control", { action: "resume", sessionId, reason: "operator resume" });
-    return true;
-  }
 
-  if (value === "/stop") {
-    if (shouldQueueOperatorInput(value)) {
-      return maybeQueue("session bootstrap not complete");
+    if (canonicalName === "/logs") {
+      const lines = Number(firstArg);
+      const payload =
+        Number.isFinite(lines) && lines > 0
+          ? { lines: Math.floor(lines) }
+          : { lines: 80 };
+      pushEvent("operator", "Log Query", `Requested recent daemon logs (${payload.lines} lines).`, "teal");
+      send("observability.logs", payload);
+      return true;
     }
-    if (!requireSession("/stop")) return;
-    runInspectPending = true;
-    pushEvent("operator", "Stop Run", `Stopping run for ${sessionId}.`, "teal");
-    send("run.control", { action: "stop", sessionId, reason: "operator stop" });
-    return true;
+
+    if (canonicalName === "/status") {
+      pushEvent("operator", "Gateway Status", "Requested daemon status.", "teal");
+      send("status.get", {});
+      return true;
+    }
+
+    if (canonicalName === "/cancel") {
+      pushEvent("operator", "Cancel Chat", `Cancelling chat for ${clientKey}.`, "teal");
+      send("chat.cancel", authPayload());
+      return true;
+    }
+
+    if (canonicalName === "/pause" || canonicalName === "/resume" || canonicalName === "/stop") {
+      if (!requireSession(canonicalName)) return;
+      runInspectPending = true;
+      const action = canonicalName.slice(1);
+      const title = action[0].toUpperCase() + action.slice(1);
+      const progressiveVerb =
+        action === "pause"
+          ? "Pausing"
+          : action === "resume"
+            ? "Resuming"
+            : "Stopping";
+      pushEvent("operator", `${title} Run`, `${progressiveVerb} run for ${sessionId}.`, "teal");
+      send("run.control", {
+        action,
+        sessionId,
+        reason: `operator ${action}`,
+      });
+      return true;
+    }
   }
 
   if (shouldQueueOperatorInput(value)) {
@@ -1665,35 +2086,114 @@ function dispatchOperatorInput(value, { replayed = false } = {}) {
 connect();
 scheduleRender();
 
-rl.on("line", (input) => {
-  const value = input.trim();
-  if (!value) {
+process.stdin.on("keypress", (_str, key) => {
+  if (shuttingDown) {
+    return;
+  }
+  if (key?.ctrl && key.name === "c") {
+    shutdownWatch(0);
+    return;
+  }
+  if (
+    !introDismissed &&
+    !key?.ctrl &&
+    !key?.meta &&
+    typeof _str === "string" &&
+    _str.length > 0 &&
+    _str !== "\u007f"
+  ) {
+    dismissIntro();
+  }
+  if (key?.ctrl && key.name === "o") {
+    toggleExpandedEvent();
     scheduleRender();
     return;
   }
-  operatorInputBatcher.push(value);
-});
-
-rl.on("SIGINT", () => {
-  shuttingDown = true;
-  operatorInputBatcher.dispose();
-  leaveAltScreen();
-  process.exit(0);
-});
-
-rl.on("close", () => {
-  shuttingDown = true;
-  operatorInputBatcher.dispose();
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  if (key?.ctrl && key.name === "l") {
+    events.length = 0;
+    expandedEventId = null;
+    setTransientStatus("view cleared");
+    scheduleRender();
+    return;
   }
-  clearBootstrapTimer();
-  try {
-    ws?.close();
-  } catch {}
-  leaveAltScreen();
-  process.exit(0);
+  if (expandedEventId && key?.name === "escape") {
+    expandedEventId = null;
+    setTransientStatus("detail closed");
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "return" || key?.name === "enter") {
+    submitComposerInput();
+    return;
+  }
+  if (key?.name === "tab") {
+    autocompleteSlashCommand();
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "backspace") {
+    if (composerCursor > 0) {
+      composerInput =
+        composerInput.slice(0, composerCursor - 1) +
+        composerInput.slice(composerCursor);
+      composerCursor -= 1;
+      composerHistoryIndex = -1;
+    }
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "delete") {
+    if (composerCursor < composerInput.length) {
+      composerInput =
+        composerInput.slice(0, composerCursor) +
+        composerInput.slice(composerCursor + 1);
+      composerHistoryIndex = -1;
+    }
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "left") {
+    composerCursor = Math.max(0, composerCursor - 1);
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "right") {
+    composerCursor = Math.min(composerInput.length, composerCursor + 1);
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "home" || (key?.ctrl && key.name === "a")) {
+    composerCursor = 0;
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "end" || (key?.ctrl && key.name === "e")) {
+    composerCursor = composerInput.length;
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "up") {
+    navigateComposerHistory(-1);
+    scheduleRender();
+    return;
+  }
+  if (key?.name === "down") {
+    navigateComposerHistory(1);
+    scheduleRender();
+    return;
+  }
+  if (
+    typeof _str === "string" &&
+    _str.length > 0 &&
+    !key?.ctrl &&
+    !key?.meta
+  ) {
+    insertComposerText(_str);
+    composerHistoryIndex = -1;
+    scheduleRender();
+    return;
+  }
+  scheduleRender();
 });
 
 process.stdout.on("resize", () => {

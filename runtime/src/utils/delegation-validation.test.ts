@@ -500,6 +500,36 @@ describe("delegation-validation", () => {
     expect(result.error).toContain("npm install");
   });
 
+  it("bypasses delegated contract enforcement in unsafe benchmark mode", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "scaffold_manifests",
+        objective:
+          "Author only manifests/configs and do not execute install/build/test commands in this phase",
+        inputContract:
+          "Scaffold only; later deterministic verification runs npm install",
+        acceptanceCriteria: [
+          "No install/build/test commands executed or claimed",
+        ],
+      },
+      output:
+        "**Phase scaffold_manifests completed.** Authored manifests and ran npm install to confirm the file: links work.",
+      toolCalls: [
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["install"],
+          },
+          result: '{"stdout":"ok","stderr":"","exitCode":0}',
+        },
+      ],
+      unsafeBenchmarkMode: true,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("does not treat authored root config summaries as forbidden test execution claims", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -1589,6 +1619,22 @@ describe("delegation-validation", () => {
     })).toBe(true);
   });
 
+  it("treats host browser-session tools as explicit browser-grounding requirements", () => {
+    expect(specRequiresMeaningfulBrowserEvidence({
+      task: "qa_and_validation",
+      objective:
+        "Validate the main localhost web flows in Chromium and capture browser-grounded evidence.",
+      inputContract: "Web app already exists locally",
+      acceptanceCriteria: [
+        "Main flows validated in Chromium against localhost",
+      ],
+      requiredToolCapabilities: [
+        "system.bash",
+        "system.browserSessionStart",
+      ],
+    })).toBe(true);
+  });
+
   it("accepts system.browse as meaningful research evidence for browser-grounded research output", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -1660,6 +1706,79 @@ describe("delegation-validation", () => {
       "system.bash",
       "system.writeFile",
     ]);
+  });
+
+  it("bypasses policy pruning while keeping unsafe benchmark child scope task-shaped", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task: "overloaded_benchmark_phase",
+        objective:
+          "Scaffold project, install dependencies, run build and test, and fix failures with child agents as needed.",
+        requiredToolCapabilities: ["system.writeFile", "system.bash"],
+      },
+      requestedTools: ["system.writeFile", "system.bash"],
+      parentAllowedTools: ["system.readFile"],
+      availableTools: [
+        "execute_with_agent",
+        "system.bash",
+        "system.writeFile",
+        "system.readFile",
+      ],
+      forbiddenTools: ["system.bash"],
+      enforceParentIntersection: true,
+      unsafeBenchmarkMode: true,
+    });
+
+    expect(resolved.allowedTools).toEqual([
+      "system.writeFile",
+      "system.bash",
+      "execute_with_agent",
+    ]);
+    expect(resolved.semanticFallback).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+    expect(resolved.blockedReason).toBeUndefined();
+    expect(resolved.removedByPolicy).toEqual([]);
+  });
+
+  it("maps generic filesystem capability names onto read/write directory tools", () => {
+    const resolved = resolveDelegatedChildToolScope({
+      spec: {
+        task: "scaffold_workspace",
+        objective: "Create the workspace directory tree and author initial manifests.",
+        inputContract: "Empty target path",
+        acceptanceCriteria: ["Workspace scaffolded"],
+        requiredToolCapabilities: ["file_system"],
+      },
+      requestedTools: ["file_system"],
+      parentAllowedTools: [
+        "system.bash",
+        "system.listDir",
+        "system.writeFile",
+        "system.mkdir",
+      ],
+      availableTools: [
+        "system.bash",
+        "system.listDir",
+        "system.writeFile",
+        "system.mkdir",
+      ],
+      enforceParentIntersection: true,
+    });
+
+    expect(resolved.allowedTools).toEqual([
+      "system.listDir",
+      "system.writeFile",
+      "system.mkdir",
+      "system.bash",
+    ]);
+    expect(resolved.semanticFallback).toEqual([
+      "system.bash",
+      "system.mkdir",
+      "system.writeFile",
+    ]);
+    expect(resolved.blockedReason).toBeUndefined();
   });
 
   it("still keeps browser session tools when validation scope explicitly requests them", () => {
@@ -1743,6 +1862,29 @@ describe("delegation-validation", () => {
         "Tests pass",
       ],
       requiredToolCapabilities: ["system.bash", "system.writeFile"],
+    })).toBe(false);
+  });
+
+  it("does not treat generic web run acceptance on local build-fix phases as browser-grounded", () => {
+    expect(specRequiresMeaningfulBrowserEvidence({
+      task: "build_test_fix",
+      objective:
+        "Run builds and tests across packages, fix any failures by editing files, ensure core pathfinding works, CLI is usable, and web builds.",
+      inputContract: "All files authored and dependencies installed",
+      acceptanceCriteria: [
+        "All packages build successfully",
+        "Core tests pass",
+        "CLI and web run without errors",
+        "Project is fully functional end-to-end",
+      ],
+      requiredToolCapabilities: [
+        "system.bash",
+        "system.writeFile",
+        "system.readFile",
+      ],
+      contextRequirements: [
+        "cwd=/workspace/atlas-graph-lab",
+      ],
     })).toBe(false);
   });
 
@@ -1929,6 +2071,63 @@ describe("delegation-validation", () => {
         "mcp.browser.browser_snapshot",
       ],
     })).toBe(false);
+  });
+
+  it("prefers contradictory completion over low-signal browser evidence for local build-fix phases", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "build_test_fix",
+        objective:
+          "Run builds and tests across packages, fix any failures by editing files, ensure core pathfinding works, CLI is usable, and web builds.",
+        inputContract: "All files authored and dependencies installed",
+        acceptanceCriteria: [
+          "All packages build successfully",
+          "Core tests pass",
+          "CLI and web run without errors",
+          "Project is fully functional end-to-end",
+        ],
+        requiredToolCapabilities: [
+          "system.bash",
+          "system.writeFile",
+          "system.readFile",
+        ],
+        contextRequirements: [
+          "cwd=/workspace/atlas-graph-lab",
+        ],
+      },
+      output: `**Phase: build_test_fix completed**
+
+- Updated/created: packages/core/src/graph.ts, packages/core/src/priority-queue.ts, packages/core/package.json, packages/core/tests/graph.test.ts, packages/core/tsconfig.json, apps/web/tsconfig.json, packages/cli/package.json.
+- Ran npm install, multiple npm run build (final: exit 0, all packages built), npm run test -w core (3/3 tests passed, final run clean after removing stray .js test artifact).
+- All packages build successfully and core tests pass (backed by tool logs).
+- Lacks evidence: direct "CLI and web run without errors" (no post-fix execution of CLI bin or web vite build due to tool budget exhaustion after final build/test).
+
+Project is functional for core/pathfinding; CLI/web assumed usable per authored sources + successful tsc but not explicitly validated in this phase.`,
+      toolCalls: [
+        {
+          name: "system.bash",
+          args: { command: "npm", args: ["run", "build"] },
+          result:
+            '{"exitCode":0,"stdout":"\\n> atlas-graph-lab@0.1.0 build\\n> tsc --build\\n\\n","stderr":"","timedOut":false,"durationMs":102,"truncated":false}',
+        },
+        {
+          name: "system.bash",
+          args: { command: "npm", args: ["run", "test", "-w", "core"] },
+          result:
+            '{"exitCode":0,"stdout":"\\n> core@0.1.0 test\\n> vitest run\\n\\n Test Files  1 passed (1)\\n      Tests  3 passed (3)\\n","stderr":"","timedOut":false,"durationMs":456,"truncated":false}',
+        },
+        {
+          name: "system.bash",
+          args: { command: "rm -f", args: ["packages/core/tests/graph.test.js"] },
+          result:
+            '{"exitCode":0,"stdout":"","stderr":"","timedOut":false,"durationMs":54,"truncated":false}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("contradictory_completion_claim");
+    expect(result.error).toContain("claimed completion");
   });
 
   it("does not require file mutation evidence for documentation-only summaries", () => {
@@ -2532,6 +2731,7 @@ describe("delegation-validation", () => {
     ]);
     expect(resolved.removedByPolicy).toEqual([
       "system.appendFile",
+      "system.mkdir",
     ]);
   });
 
@@ -2576,6 +2776,7 @@ describe("delegation-validation", () => {
     ]);
     expect(resolved.removedByPolicy).toEqual([
       "system.appendFile",
+      "system.mkdir",
       "desktop.bash",
     ]);
   });

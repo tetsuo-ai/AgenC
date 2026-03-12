@@ -4,6 +4,7 @@ import {
   inferContextWindowTokens,
   inferGrokContextWindowTokens,
   normalizeGrokModel,
+  resolveContextWindowProfile,
   resolveDynamicContextWindowTokens,
 } from "./context-window.js";
 
@@ -60,7 +61,7 @@ describe("inferContextWindowTokens", () => {
     })).toBe(2_000_000);
     expect(inferContextWindowTokens({
       provider: "ollama",
-    })).toBe(32_768);
+    })).toBe(4_096);
   });
 });
 
@@ -165,5 +166,58 @@ describe("resolveDynamicContextWindowTokens", () => {
     expect(first).toBe(256_000);
     expect(second).toBe(256_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses Ollama runtime metadata from /api/ps when available", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [
+          {
+            name: "codellama:latest",
+            context_length: 16_384,
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await resolveDynamicContextWindowTokens(
+      {
+        provider: "ollama",
+        baseUrl: "http://127.0.0.1:11434",
+        model: "codellama",
+      },
+      {
+        fetchImpl: fetchMock,
+        ollamaRuntimeCacheTtlMs: 60_000,
+      },
+    );
+
+    expect(result).toBe(16_384);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:11434/api/ps",
+      expect.any(Object),
+    );
+  });
+});
+
+describe("resolveContextWindowProfile", () => {
+  it("reports explicit Ollama request context as num_ctx-backed budgeting", async () => {
+    await expect(
+      resolveContextWindowProfile({
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        contextWindowTokens: 32_768,
+        maxTokens: 2_048,
+      }),
+    ).resolves.toEqual({
+      provider: "ollama",
+      model: "qwen2.5-coder",
+      contextWindowTokens: 32_768,
+      contextWindowSource: "ollama_request_num_ctx",
+      maxOutputTokens: 2_048,
+    });
   });
 });

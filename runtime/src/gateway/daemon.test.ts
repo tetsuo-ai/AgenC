@@ -240,6 +240,68 @@ describe("resolveSessionTokenBudget", () => {
   });
 });
 
+describe("resolveProviderExecutionBudget", () => {
+  it("matches provider profiles back to configured child models and derives prompt budgets from them", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._primaryLlmConfig = {
+      provider: "grok",
+      model: "grok-4-1-fast-reasoning",
+      maxTokens: 2_048,
+      promptSafetyMarginTokens: 4_096,
+      promptCharPerToken: 4,
+      promptHardMaxChars: 48_000,
+    };
+    (dm as any)._llmProviderConfigCatalog = [
+      {
+        provider: "grok",
+        model: "grok-code-fast-1",
+        config: {
+          provider: "grok",
+          model: "grok-code-fast-1",
+          maxTokens: 4_096,
+          promptSafetyMarginTokens: 2_048,
+          promptCharPerToken: 4,
+          promptHardMaxChars: 64_000,
+        },
+      },
+    ];
+
+    const provider = {
+      name: "subagent-delegating-provider",
+      chat: vi.fn(),
+      chatStream: vi.fn(),
+      healthCheck: vi.fn(async () => true),
+      getExecutionProfile: vi.fn(async () => ({
+        provider: "grok",
+        model: "grok-code-fast-1",
+        contextWindowTokens: 256_000,
+        contextWindowSource: "grok_model_catalog",
+        maxOutputTokens: 4_096,
+      })),
+    };
+
+    const resolved = await (dm as any).resolveProviderExecutionBudget(provider);
+
+    expect(resolved.providerProfile).toEqual({
+      provider: "grok",
+      model: "grok-code-fast-1",
+      contextWindowTokens: 256_000,
+      contextWindowSource: "grok_model_catalog",
+      maxOutputTokens: 4_096,
+    });
+    expect(resolved.promptBudget).toEqual(
+      expect.objectContaining({
+        contextWindowTokens: 256_000,
+        maxOutputTokens: 4_096,
+        safetyMarginTokens: 2_048,
+        charPerToken: 4,
+        hardMaxPromptChars: 64_000,
+      }),
+    );
+    expect(resolved.sessionTokenBudget).toBe(120_000);
+  });
+});
+
 describe("sanitizeToolResultTextForTrace", () => {
   it("scrubs embedded base64 blobs from mixed markdown tool output", () => {
     const hugeBase64 = "A".repeat(30_000);
@@ -2936,6 +2998,43 @@ describe("DaemonManager", () => {
     expect(dm.delegationPolicyEngine?.snapshot().spawnDecisionThreshold).toBe(0.61);
 
     await dm.stop();
+  });
+
+  it("enables unsafe delegation benchmark mode under --yolo", async () => {
+    const pidPath = join(tempDir, "subagent-yolo-unsafe.pid");
+    const dm = new DaemonManager({
+      configPath: "/tmp/config.json",
+      pidPath,
+      yolo: true,
+    });
+    (dm as any)._defaultForegroundMaxToolRounds = 3;
+    await (dm as any).configureSubAgentInfrastructure({
+      gateway: { port: 9000 },
+      agent: { name: "test" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      llm: {
+        provider: "grok",
+        subagents: {
+          enabled: true,
+          forceVerifier: true,
+          hardBlockedTaskClasses: [
+            "wallet_transfer",
+            "stake_or_rewards",
+          ],
+        },
+      },
+    });
+
+    expect(dm.subAgentRuntimeConfig?.unsafeBenchmarkMode).toBe(true);
+    expect(dm.subAgentRuntimeConfig?.forceVerifier).toBe(false);
+    expect(dm.subAgentRuntimeConfig?.hardBlockedTaskClasses).toEqual([]);
+    expect(dm.delegationPolicyEngine?.snapshot().unsafeBenchmarkMode).toBe(true);
+    expect(dm.delegationVerifierService?.snapshot()).toEqual({
+      enabled: false,
+      forceVerifier: false,
+    });
+
+    await (dm as any).destroySubAgentInfrastructure();
   });
 
   it("defaults subagent spawn decision threshold to the calibrated runtime baseline", async () => {

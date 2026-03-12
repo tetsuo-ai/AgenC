@@ -60,6 +60,7 @@ export interface ExecuteDelegationToolParams {
   readonly verifier: DelegationVerifier;
   readonly availableToolNames?: readonly string[];
   readonly defaultWorkingDirectory?: string;
+  readonly unsafeBenchmarkMode?: boolean;
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -271,6 +272,7 @@ export async function executeDelegationTool(
     verifier,
     availableToolNames,
     defaultWorkingDirectory,
+    unsafeBenchmarkMode = false,
   } = params;
   if (!subAgentManager) {
     return JSON.stringify({
@@ -302,7 +304,7 @@ export async function executeDelegationTool(
       : parsedInput.value,
   );
   const scopeAssessment = assessDelegationScope(input);
-  if (!scopeAssessment.ok) {
+  if (!unsafeBenchmarkMode && !scopeAssessment.ok) {
     lifecycleEmitter?.emit({
       type: "subagents.failed",
       timestamp: Date.now(),
@@ -334,6 +336,7 @@ export async function executeDelegationTool(
     parentAllowedTools: availableToolNames,
     availableTools: availableToolNames,
     enforceParentIntersection: true,
+    unsafeBenchmarkMode,
   });
   if (resolvedChildScope.blockedReason) {
     lifecycleEmitter?.emit({
@@ -402,6 +405,7 @@ export async function executeDelegationTool(
         : {}),
       requireToolCall: specRequiresSuccessfulToolEvidence(input),
       delegationSpec: input,
+      unsafeBenchmarkMode,
     });
   } catch (error) {
     const message = toErrorString(error);
@@ -463,6 +467,7 @@ export async function executeDelegationTool(
       ...(resolvedChildScope.semanticFallback.length
         ? { semanticFallback: resolvedChildScope.semanticFallback }
         : {}),
+      ...(unsafeBenchmarkMode ? { unsafeBenchmarkMode: true } : {}),
       toolCallId,
     },
   });
@@ -515,6 +520,7 @@ export async function executeDelegationTool(
         output: childResult.output,
         toolCalls: childResult.toolCalls,
         providerEvidence: childResult.providerEvidence,
+        unsafeBenchmarkMode,
       }).error
       : undefined;
     const unresolvedChildFailure =

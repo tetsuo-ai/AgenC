@@ -247,6 +247,70 @@ describe("SubAgentManager", () => {
       }
     });
 
+    it("emits execution trace callbacks even when raw provider payload tracing is disabled", async () => {
+      const logger = {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      } as any;
+      const executeSpy = vi
+        .spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValue({
+          content: "sub-agent output",
+          toolCalls: [],
+          providerEvidence: undefined,
+          tokenUsage: undefined,
+          stopReason: "completed",
+          stopReasonDetail: undefined,
+          callUsage: [],
+          finalPromptShape: undefined,
+          statefulSummary: undefined,
+          toolRoutingSummary: undefined,
+          plannerSummary: undefined,
+          model: "mock",
+        } as any);
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          logger,
+          traceExecution: true,
+          resolveExecutionBudget: () => ({
+            providerProfile: {
+              provider: "grok",
+              model: "grok-code-fast-1",
+              contextWindowTokens: 256_000,
+              contextWindowSource: "grok_model_catalog",
+              maxOutputTokens: 2_048,
+            },
+          }),
+        }),
+      );
+
+      try {
+        await manager.spawn({ parentSessionId: "p", task: "trace budget" });
+        await settle();
+
+        expect(executeSpy).toHaveBeenCalledTimes(1);
+        const params = executeSpy.mock.calls[0][0] as {
+          trace?: Record<string, unknown>;
+        };
+        expect(params.trace).toEqual(
+          expect.objectContaining({
+            onExecutionTraceEvent: expect.any(Function),
+          }),
+        );
+        expect(params.trace).not.toHaveProperty("includeProviderPayloads");
+        expect(params.trace).not.toHaveProperty("onProviderTraceEvent");
+        expect(logger.info).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "[trace] sub_agent.executor.execution_profile_resolved",
+          ),
+        );
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
     it("forwards prompt budgeting and compaction controls to child executors", async () => {
       const onCompaction = vi.fn();
       const executeSpy = vi
@@ -297,6 +361,81 @@ describe("SubAgentManager", () => {
         await settle();
 
         expect(executeSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("applies provider-specific execution budgets after child provider selection", async () => {
+      const selectedProvider = makeMockLLMProvider("matched-provider");
+      const selectLLMProvider = vi.fn(() => selectedProvider);
+      const resolveExecutionBudget = vi.fn(() => ({
+        promptBudget: {
+          contextWindowTokens: 256_000,
+          maxOutputTokens: 4_096,
+          safetyMarginTokens: 2_048,
+          charPerToken: 4,
+          hardMaxPromptChars: 64_000,
+        },
+        sessionTokenBudget: 54_321,
+        providerProfile: {
+          provider: "grok",
+          model: "grok-code-fast-1",
+          contextWindowTokens: 256_000,
+          contextWindowSource: "grok_model_catalog",
+          maxOutputTokens: 4_096,
+        },
+      }));
+      const executeSpy = vi
+        .spyOn(ChatExecutor.prototype, "execute")
+        .mockImplementation(async function () {
+          expect((this as any).sessionTokenBudget).toBe(54_321);
+          expect((this as any).promptBudget).toEqual(
+            expect.objectContaining({
+              contextWindowTokens: 256_000,
+              maxOutputTokens: 4_096,
+              safetyMarginTokens: 2_048,
+              charPerToken: 4,
+              hardMaxPromptChars: 64_000,
+            }),
+          );
+          return {
+            content: "sub-agent output",
+            toolCalls: [],
+            providerEvidence: undefined,
+            tokenUsage: undefined,
+            stopReason: "completed",
+            stopReasonDetail: undefined,
+            callUsage: [],
+            finalPromptShape: undefined,
+            statefulSummary: undefined,
+            toolRoutingSummary: undefined,
+            plannerSummary: undefined,
+            model: "grok-code-fast-1",
+          } as any;
+        });
+      const manager = new SubAgentManager(
+        makeManagerConfig({
+          selectLLMProvider,
+          resolveExecutionBudget,
+        }),
+      );
+
+      try {
+        await manager.spawn({
+          parentSessionId: "p",
+          task: "delegate",
+          requiredCapabilities: ["system.writeFile"],
+        });
+        await settle();
+
+        expect(selectLLMProvider).toHaveBeenCalledTimes(1);
+        expect(resolveExecutionBudget).toHaveBeenCalledWith(
+          expect.objectContaining({
+            selectedProvider,
+            requiredCapabilities: ["system.writeFile"],
+          }),
+        );
       } finally {
         executeSpy.mockRestore();
       }
@@ -764,6 +903,75 @@ describe("SubAgentManager", () => {
         expect(result!.stopReason).toBe("validation_error");
         expect(result!.validationCode).toBe("forbidden_phase_action");
         expect(result!.stopReasonDetail).toContain("dependency-install commands");
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("bypasses delegated contract enforcement but preserves tool evidence in unsafe benchmark mode", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content:
+            "**Phase scaffold_manifests completed.** Authored manifests and ran npm install to confirm the links work.",
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [{
+            name: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+            },
+            result: '{"stdout":"ok","stderr":"","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "completed",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        const delegationSpec = {
+          task: "scaffold_manifests",
+          objective:
+            "Author only manifests/configs and do not execute install/build/test commands in this phase",
+          inputContract:
+            "Scaffold only; later deterministic verification runs npm install",
+          acceptanceCriteria: [
+            "No install/build/test commands executed or claimed",
+          ],
+          requiredToolCapabilities: ["system.writeFile", "system.bash"],
+        } as const;
+        const sessionId = await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+          requireToolCall: true,
+          delegationSpec,
+          unsafeBenchmarkMode: true,
+        });
+        await settle();
+
+        const result = manager.getResult(sessionId);
+        expect(result).not.toBeNull();
+        expect(result!.success).toBe(true);
+        expect(result!.stopReason).toBe("completed");
+        expect(result!.validationCode).toBeUndefined();
+        expect(executeSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            requiredToolEvidence: expect.objectContaining({
+              maxCorrectionAttempts: 1,
+              delegationSpec,
+            }),
+          }),
+        );
       } finally {
         executeSpy.mockRestore();
       }

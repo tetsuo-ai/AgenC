@@ -4286,6 +4286,49 @@ describe("ChatExecutor", () => {
       expect(String(injectedHint?.content)).toContain("tsconfig.node.json");
     });
 
+    it("injects a recovery hint for duplicate export compiler errors", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        '{"exitCode":1,"stdout":"\\n> freight-scheduler-lab@0.1.0 test\\n> vitest run packages/core\\n","stderr":"Error: Transform failed with 1 error:\\n/workspace/packages/core/src/index.ts:257:9: ERROR: Multiple exports with the same name \\"Scheduler\\"\\n  255|\\n  256|  // Re-export main API\\n  257|  export { Scheduler };\\n     |           ^\\n  258|  export default Scheduler;\\n"}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments: '{"command":"npm","args":["test","--","packages/core"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("exports `Scheduler` more than once"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("export { Scheduler }");
+      expect(String(injectedHint?.content)).toContain("rerun the failing build/test");
+    });
+
     it("replaces stale recovery hints with the latest timeout hint and traces the active keys", async () => {
       const events: Array<Record<string, unknown>> = [];
       const toolHandler = vi

@@ -41,6 +41,7 @@ export const WS_EVENTS_EVENT = "events.event" as const;
 
 // Subagent lifecycle
 export const WS_SUBAGENTS_PLANNED = "subagents.planned" as const;
+export const WS_SUBAGENTS_POLICY_BYPASSED = "subagents.policy_bypassed" as const;
 export const WS_SUBAGENTS_SPAWNED = "subagents.spawned" as const;
 export const WS_SUBAGENTS_STARTED = "subagents.started" as const;
 export const WS_SUBAGENTS_PROGRESS = "subagents.progress" as const;
@@ -151,6 +152,7 @@ export interface EventsEventPayload {
 
 export const WS_SUBAGENT_LIFECYCLE_TYPES = [
   WS_SUBAGENTS_PLANNED,
+  WS_SUBAGENTS_POLICY_BYPASSED,
   WS_SUBAGENTS_SPAWNED,
   WS_SUBAGENTS_STARTED,
   WS_SUBAGENTS_PROGRESS,

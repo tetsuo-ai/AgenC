@@ -61,6 +61,23 @@ describe("GrokProvider", () => {
     expect(mockOpenAIConstructor.mock.calls[0][0].timeout).toBe(60_000);
   });
 
+  it("reports execution profile from explicit context window overrides", async () => {
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      model: "grok-3-mini",
+      contextWindowTokens: 99_999,
+      maxTokens: 4_096,
+    });
+
+    await expect(provider.getExecutionProfile?.()).resolves.toEqual({
+      provider: "grok",
+      model: "grok-3-mini",
+      contextWindowTokens: 99_999,
+      contextWindowSource: "explicit_config",
+      maxOutputTokens: 4_096,
+    });
+  });
+
   it("coerces non-positive timeoutMs to the default request timeout", async () => {
     mockCreate.mockResolvedValueOnce(makeCompletion());
 

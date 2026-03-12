@@ -84,6 +84,7 @@ import {
 } from "./delegation-runtime.js";
 import type {
   LLMProvider,
+  LLMProviderExecutionProfile,
   LLMProviderTraceEvent,
   LLMTool,
   ToolHandler,
@@ -200,7 +201,7 @@ import { ProgressTracker, summarizeToolResult } from "./progress.js";
 import {
   inferContextWindowTokens,
   normalizeGrokModel,
-  resolveDynamicContextWindowTokens,
+  resolveContextWindowProfile,
 } from "./context-window.js";
 import {
   PipelineExecutor,
@@ -1000,6 +1001,7 @@ export async function ensureAgencRuntimeShim(
 
 interface ResolvedSubAgentRuntimeConfig {
   readonly enabled: boolean;
+  readonly unsafeBenchmarkMode: boolean;
   readonly mode: "manager_tools" | "handoff" | "hybrid";
   readonly delegationAggressiveness: DelegationAggressivenessProfile;
   readonly maxConcurrent: number;
@@ -1039,8 +1041,12 @@ function applyDelegationAggressiveness(
 
 function resolveSubAgentRuntimeConfig(
   llmConfig: GatewayLLMConfig | undefined,
+  options?: {
+    readonly unsafeBenchmarkMode?: boolean;
+  },
 ): ResolvedSubAgentRuntimeConfig {
   const subagents = llmConfig?.subagents;
+  const unsafeBenchmarkMode = options?.unsafeBenchmarkMode === true;
   const maxCumulativeTokensPerRequestTreeExplicitlyConfigured =
     typeof subagents?.maxCumulativeTokensPerRequestTree === "number";
   const delegationAggressiveness =
@@ -1074,6 +1080,7 @@ function resolveSubAgentRuntimeConfig(
         ];
   return {
     enabled: subagents?.enabled !== false,
+    unsafeBenchmarkMode,
     mode: subagents?.mode ?? "manager_tools",
     delegationAggressiveness,
     maxConcurrent: Math.min(
@@ -1121,9 +1128,11 @@ function resolveSubAgentRuntimeConfig(
           DEFAULT_HANDOFF_MIN_PLANNER_CONFIDENCE,
       ),
     ),
-    forceVerifier: subagents?.forceVerifier === true,
+    forceVerifier: !unsafeBenchmarkMode && subagents?.forceVerifier === true,
     allowParallelSubtasks: subagents?.allowParallelSubtasks !== false,
-    hardBlockedTaskClasses:
+    hardBlockedTaskClasses: unsafeBenchmarkMode
+      ? []
+      :
       Array.isArray(subagents?.hardBlockedTaskClasses) &&
       subagents.hardBlockedTaskClasses.length > 0
         ? subagents.hardBlockedTaskClasses.filter(
@@ -1213,7 +1222,35 @@ function createDelegatingSubAgentLLMProvider(
       if (!provider) return false;
       return provider.healthCheck();
     },
+    getCapabilities() {
+      return resolve().getCapabilities?.() ?? {
+        provider: resolve().name,
+        stateful: {
+          assistantPhase: false,
+          previousResponseId: false,
+          opaqueCompaction: false,
+          deterministicFallback: true,
+        },
+      };
+    },
+    async getExecutionProfile() {
+      return (
+        await resolve().getExecutionProfile?.()
+      ) ?? { provider: resolve().name };
+    },
+    resetSessionState(sessionId) {
+      resolve().resetSessionState?.(sessionId);
+    },
+    clearSessionState() {
+      resolve().clearSessionState?.();
+    },
   };
+}
+
+interface LLMProviderConfigCatalogEntry {
+  readonly provider: GatewayLLMConfig["provider"];
+  readonly model?: string;
+  readonly config: GatewayLLMConfig;
 }
 
 export function resolveSessionTokenBudget(
@@ -1240,6 +1277,7 @@ export function resolveSessionTokenBudget(
 function buildPromptBudgetConfig(
   llmConfig: GatewayLLMConfig | undefined,
   contextWindowTokens?: number,
+  maxOutputTokens?: number,
 ):
   | {
       contextWindowTokens?: number;
@@ -1250,15 +1288,21 @@ function buildPromptBudgetConfig(
       maxRuntimeHints?: number;
     }
   | undefined {
-  if (!llmConfig) return undefined;
+  if (
+    !llmConfig &&
+    contextWindowTokens === undefined &&
+    maxOutputTokens === undefined
+  ) {
+    return undefined;
+  }
   return {
     contextWindowTokens:
       contextWindowTokens ?? inferContextWindowTokens(llmConfig),
-    maxOutputTokens: llmConfig.maxTokens,
-    hardMaxPromptChars: llmConfig.promptHardMaxChars,
-    safetyMarginTokens: llmConfig.promptSafetyMarginTokens,
-    charPerToken: llmConfig.promptCharPerToken,
-    maxRuntimeHints: llmConfig.maxRuntimeHints,
+    maxOutputTokens: maxOutputTokens ?? llmConfig?.maxTokens,
+    hardMaxPromptChars: llmConfig?.promptHardMaxChars,
+    safetyMarginTokens: llmConfig?.promptSafetyMarginTokens,
+    charPerToken: llmConfig?.promptCharPerToken,
+    maxRuntimeHints: llmConfig?.maxRuntimeHints,
   };
 }
 
@@ -1688,6 +1732,11 @@ export class DaemonManager {
   private _allLlmTools: LLMTool[] = [];
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
+  private _llmProviderConfigByInstance = new WeakMap<
+    LLMProvider,
+    GatewayLLMConfig
+  >();
+  private _llmProviderConfigCatalog: LLMProviderConfigCatalogEntry[] = [];
   private _primaryLlmConfig: GatewayLLMConfig | undefined = undefined;
   private _toolRouter: ToolRouter | null = null;
   private _baseToolHandler: ToolHandler | null = null;
@@ -1772,11 +1821,14 @@ export class DaemonManager {
       ) {
         return undefined;
       }
+      const unsafeBenchmarkMode =
+        this._subAgentRuntimeConfig?.unsafeBenchmarkMode === true;
       return {
         subAgentManager: this._subAgentManager,
         policyEngine: this._delegationPolicyEngine,
         verifier: this._delegationVerifierService,
         lifecycleEmitter: this._subAgentLifecycleEmitter,
+        unsafeBenchmarkMode,
       };
     };
 
@@ -1923,6 +1975,7 @@ export class DaemonManager {
       allowedParentTools: resolved.allowedParentTools,
       forbiddenParentTools: resolved.forbiddenParentTools,
       fallbackBehavior: resolved.fallbackBehavior,
+      unsafeBenchmarkMode: resolved.unsafeBenchmarkMode,
     } as const;
     if (this._delegationPolicyEngine) {
       this._delegationPolicyEngine.updateConfig(policyConfig);
@@ -1931,8 +1984,8 @@ export class DaemonManager {
     }
 
     const verifierConfig = {
-      enabled: resolved.enabled,
-      forceVerifier: resolved.forceVerifier,
+      enabled: resolved.enabled && !resolved.unsafeBenchmarkMode,
+      forceVerifier: !resolved.unsafeBenchmarkMode && resolved.forceVerifier,
     } as const;
     if (this._delegationVerifierService) {
       this._delegationVerifierService.updateConfig(verifierConfig);
@@ -2005,7 +2058,9 @@ export class DaemonManager {
     config: GatewayConfig,
   ): Promise<void> {
     const previous = this._subAgentRuntimeConfig;
-    const resolved = resolveSubAgentRuntimeConfig(config.llm);
+    const resolved = resolveSubAgentRuntimeConfig(config.llm, {
+      unsafeBenchmarkMode: this.yolo,
+    });
     this._subAgentRuntimeConfig = resolved;
     this.configureDelegationRuntimeServices(resolved);
     const effectiveDelegationThreshold =
@@ -2018,6 +2073,11 @@ export class DaemonManager {
         this.getActiveDelegationAggressiveness(resolved),
       hardCaps: SUBAGENT_CONFIG_HARD_CAPS,
     });
+    if (resolved.unsafeBenchmarkMode) {
+      this.logger.warn(
+        "Unsafe delegation benchmark mode enabled via --yolo; delegation policy checks and child contract enforcement are bypassed for delegated-agent flows",
+      );
+    }
 
     if (!resolved.enabled) {
       await this.destroySubAgentInfrastructure();
@@ -2098,12 +2158,15 @@ export class DaemonManager {
       promptBudget: subAgentPromptBudget,
       sessionTokenBudget: subAgentSessionTokenBudget,
       onCompaction: this.handleCompaction,
+      resolveExecutionBudget: async ({ selectedProvider }) =>
+        this.resolveProviderExecutionBudget(selectedProvider),
       resolveDefaultMaxToolRounds: () => this._defaultForegroundMaxToolRounds,
       selectLLMProvider: ({ requiredCapabilities, contextProvider }) =>
         this.selectSubagentProviderForTask(
           requiredCapabilities,
           contextProvider,
         ),
+      traceExecution: traceConfig.enabled,
       traceProviderPayloads:
         traceConfig.enabled && traceConfig.includeProviderPayloads,
       composeToolHandler: ({
@@ -2144,6 +2207,7 @@ export class DaemonManager {
 
     this.logger.info("Sub-agent orchestration manager ready", {
       mode: resolved.mode,
+      unsafeBenchmarkMode: resolved.unsafeBenchmarkMode,
       maxConcurrent: resolved.maxConcurrent,
       maxDepth: resolved.maxDepth,
       maxFanoutPerTurn: resolved.maxFanoutPerTurn,
@@ -2551,7 +2615,9 @@ export class DaemonManager {
       config.llm,
       contextWindowTokens,
     );
-    const resolvedSubAgentConfig = resolveSubAgentRuntimeConfig(config.llm);
+    const resolvedSubAgentConfig = resolveSubAgentRuntimeConfig(config.llm, {
+      unsafeBenchmarkMode: this.yolo,
+    });
     await this.refreshHostToolingProfile({
       enabled: resolvedSubAgentConfig.enabled,
       logging: config.logging,
@@ -2597,7 +2663,9 @@ export class DaemonManager {
             resolveDelegationScoreThreshold: () =>
               this.resolveDelegationScoreThreshold(),
             subagentVerifier: {
-              enabled: resolvedSubAgentConfig.enabled,
+              enabled:
+                resolvedSubAgentConfig.enabled &&
+                !resolvedSubAgentConfig.unsafeBenchmarkMode,
               force: resolvedSubAgentConfig.forceVerifier,
             },
             delegationLearning: {
@@ -4898,11 +4966,136 @@ export class DaemonManager {
   private async resolveLlmContextWindowTokens(
     llmConfig: GatewayLLMConfig | undefined,
   ): Promise<number | undefined> {
-    const dynamic = await resolveDynamicContextWindowTokens(llmConfig, {
-      logger: this.logger,
-    });
-    if (dynamic !== undefined) return dynamic;
-    return inferContextWindowTokens(llmConfig);
+    return (
+      await resolveContextWindowProfile(llmConfig, {
+        logger: this.logger,
+      })
+    )?.contextWindowTokens;
+  }
+
+  private normalizeProviderCatalogModel(
+    provider: string,
+    model: string | undefined,
+  ): string | undefined {
+    const trimmed = model?.trim();
+    if (!trimmed) return undefined;
+    if (provider === "grok") {
+      return normalizeGrokModel(trimmed)?.toLowerCase();
+    }
+    return trimmed.toLowerCase();
+  }
+
+  private buildProviderConfigCatalogEntry(
+    config: GatewayLLMConfig,
+  ): LLMProviderConfigCatalogEntry {
+    return {
+      provider: config.provider,
+      model: this.normalizeProviderCatalogModel(config.provider, config.model),
+      config,
+    };
+  }
+
+  private findConfiguredLlmConfigForProvider(
+    provider: LLMProvider,
+    profile?: LLMProviderExecutionProfile,
+  ): GatewayLLMConfig | undefined {
+    const direct = this._llmProviderConfigByInstance.get(provider);
+    if (direct) return direct;
+
+    const providerName = profile?.provider ?? provider.name;
+    const normalizedProvider = providerName.toLowerCase();
+    if (normalizedProvider !== "grok" && normalizedProvider !== "ollama") {
+      return this._primaryLlmConfig;
+    }
+
+    const normalizedModel = this.normalizeProviderCatalogModel(
+      normalizedProvider,
+      profile?.model,
+    );
+    if (!normalizedModel) {
+      return this._llmProviderConfigCatalog.find(
+        (entry) => entry.provider === normalizedProvider,
+      )?.config;
+    }
+
+    return this._llmProviderConfigCatalog.find(
+      (entry) =>
+        entry.provider === normalizedProvider &&
+        entry.model === normalizedModel,
+    )?.config ??
+      this._llmProviderConfigCatalog.find(
+        (entry) => entry.provider === normalizedProvider,
+      )?.config;
+  }
+
+  private async resolveProviderExecutionBudget(
+    provider: LLMProvider,
+  ): Promise<{
+    readonly promptBudget?: ReturnType<typeof buildPromptBudgetConfig>;
+    readonly sessionTokenBudget?: number;
+    readonly providerProfile?: LLMProviderExecutionProfile;
+  }> {
+    let providerProfile: LLMProviderExecutionProfile | undefined;
+    try {
+      providerProfile = await provider.getExecutionProfile?.();
+    } catch (error) {
+      this.logger.warn?.("Failed to resolve LLM provider execution profile", {
+        provider: provider.name,
+        error: toErrorMessage(error),
+      });
+    }
+
+    const matchedConfig = this.findConfiguredLlmConfigForProvider(
+      provider,
+      providerProfile,
+    );
+    const needsConfigFallback =
+      matchedConfig &&
+      (
+        providerProfile === undefined ||
+        providerProfile.contextWindowTokens === undefined ||
+        providerProfile.model === undefined ||
+        providerProfile.maxOutputTokens === undefined
+      );
+    if (needsConfigFallback) {
+      const configProfile = await resolveContextWindowProfile(matchedConfig, {
+        logger: this.logger,
+      });
+      providerProfile = {
+        provider:
+          providerProfile?.provider ??
+          configProfile?.provider ??
+          matchedConfig.provider,
+        model:
+          providerProfile?.model ??
+          configProfile?.model ??
+          matchedConfig.model,
+        contextWindowTokens:
+          providerProfile?.contextWindowTokens ??
+          configProfile?.contextWindowTokens,
+        contextWindowSource:
+          providerProfile?.contextWindowSource ??
+          configProfile?.contextWindowSource,
+        maxOutputTokens:
+          providerProfile?.maxOutputTokens ??
+          configProfile?.maxOutputTokens ??
+          matchedConfig.maxTokens,
+      };
+    }
+
+    const budgetConfig = matchedConfig ?? this._primaryLlmConfig;
+    return {
+      promptBudget: buildPromptBudgetConfig(
+        budgetConfig,
+        providerProfile?.contextWindowTokens,
+        providerProfile?.maxOutputTokens,
+      ),
+      sessionTokenBudget: resolveSessionTokenBudget(
+        budgetConfig,
+        providerProfile?.contextWindowTokens,
+      ),
+      providerProfile,
+    };
   }
 
   private async refreshHostToolingProfile(params: {
@@ -4980,6 +5173,26 @@ export class DaemonManager {
       resolveHostToolingProfile: () => this._hostToolingProfile,
       resolveHostWorkspaceRoot: () => this._hostWorkspacePath,
       childPromptBudget: childPromptBudget ?? undefined,
+      resolveChildPromptBudget: async ({ requiredCapabilities }) => {
+        const fallbackProvider = this._llmProviders[0];
+        if (!fallbackProvider) {
+          return childPromptBudget
+            ? { promptBudget: childPromptBudget }
+            : undefined;
+        }
+        const selectedProvider = this.selectSubagentProviderForTask(
+          requiredCapabilities,
+          fallbackProvider,
+        );
+        const resolvedBudget = await this.resolveProviderExecutionBudget(
+          selectedProvider,
+        );
+        return {
+          promptBudget:
+            resolvedBudget.promptBudget ?? childPromptBudget ?? undefined,
+          providerProfile: resolvedBudget.providerProfile,
+        };
+      },
       allowParallelSubtasks: resolvedSubAgentConfig.allowParallelSubtasks,
       maxParallelSubtasks: resolvedSubAgentConfig.maxConcurrent,
       defaultSubagentTimeoutMs: resolvedSubAgentConfig.defaultTimeoutMs,
@@ -4996,6 +5209,7 @@ export class DaemonManager {
       allowedParentTools: resolvedSubAgentConfig.allowedParentTools,
       forbiddenParentTools: resolvedSubAgentConfig.forbiddenParentTools,
       fallbackBehavior: resolvedSubAgentConfig.fallbackBehavior,
+      unsafeBenchmarkMode: resolvedSubAgentConfig.unsafeBenchmarkMode,
       resolveAvailableToolNames: () =>
         this.getAdvertisedToolNames(
           this._subAgentToolCatalog.map((tool) => tool.name),
@@ -5031,6 +5245,7 @@ export class DaemonManager {
       );
       const resolvedSubAgentConfig = resolveSubAgentRuntimeConfig(
         newConfig.llm,
+        { unsafeBenchmarkMode: this.yolo },
       );
       await this.refreshHostToolingProfile({
         enabled: resolvedSubAgentConfig.enabled,
@@ -5086,7 +5301,9 @@ export class DaemonManager {
               resolveDelegationScoreThreshold: () =>
                 this.resolveDelegationScoreThreshold(),
               subagentVerifier: {
-                enabled: resolvedSubAgentConfig.enabled,
+                enabled:
+                  resolvedSubAgentConfig.enabled &&
+                  !resolvedSubAgentConfig.unsafeBenchmarkMode,
                 force: resolvedSubAgentConfig.forceVerifier,
               },
               delegationLearning: {
@@ -8892,7 +9109,7 @@ export class DaemonManager {
       '2. **Shell mode**: `command` = full shell string, omit `args` (e.g. `command:"cat /tmp/data | jq .name"`).\n\n' +
       "Shell mode supports pipes, redirects, backgrounding (`&`), chaining (`&&`, `||`, `;`), and subshells. " +
       (this.yolo
-        ? "YOLO mode is enabled for host execution, so the usual host deny lists are disabled for system.bash, system.process*, and system.server* tools. Avoid destructive commands unless the user explicitly wants them. "
+        ? "YOLO mode is enabled for host execution, so the usual host deny lists are disabled for system.bash, system.process*, and system.server* tools. Unsafe delegation benchmark mode is also active, which bypasses delegation-policy checks and child contract enforcement for delegated-agent flows. Avoid destructive commands unless the user explicitly wants them. "
         : "Dangerous patterns (sudo, rm -rf /, reverse shells, bash -c nesting) are blocked. ") +
       "You should use your tools proactively to fulfill requests.\n\n";
 
@@ -9171,13 +9388,23 @@ Concise and action-oriented.
   ): Promise<LLMProvider[]> {
     if (!config.llm) {
       this._primaryLlmConfig = undefined;
+      this._llmProviderConfigByInstance = new WeakMap();
+      this._llmProviderConfigCatalog = [];
       return [];
     }
 
     this._primaryLlmConfig = config.llm;
     const providers: LLMProvider[] = [];
+    const providerConfigByInstance = new WeakMap<LLMProvider, GatewayLLMConfig>();
+    const providerConfigCatalog: LLMProviderConfigCatalogEntry[] = [];
     const primary = await this.createSingleLLMProvider(config.llm, tools);
-    if (primary) providers.push(primary);
+    if (primary) {
+      providers.push(primary);
+      providerConfigByInstance.set(primary, config.llm);
+      providerConfigCatalog.push(
+        this.buildProviderConfigCatalogEntry(config.llm),
+      );
+    }
 
     const fallbackConfigs: GatewayLLMConfig[] = [
       ...(config.llm.fallback ?? []),
@@ -9215,9 +9442,14 @@ Concise and action-oriented.
 
     for (const fb of fallbackConfigs) {
       const fallback = await this.createSingleLLMProvider(fb, tools);
-      if (fallback) providers.push(fallback);
+      if (!fallback) continue;
+      providers.push(fallback);
+      providerConfigByInstance.set(fallback, fb);
+      providerConfigCatalog.push(this.buildProviderConfigCatalogEntry(fb));
     }
 
+    this._llmProviderConfigByInstance = providerConfigByInstance;
+    this._llmProviderConfigCatalog = providerConfigCatalog;
     return providers;
   }
 
@@ -9268,6 +9500,7 @@ Concise and action-oriented.
           apiKey: apiKey ?? "",
           model: normalizedModel,
           baseURL: baseUrl,
+          contextWindowTokens: llmConfig.contextWindowTokens,
           webSearch: nativeWebSearchEnabled,
           searchMode,
           timeoutMs,
@@ -9284,6 +9517,7 @@ Concise and action-oriented.
           host: baseUrl,
           timeoutMs,
           maxTokens,
+          numCtx: llmConfig.contextWindowTokens,
           statefulResponses,
           tools,
         });

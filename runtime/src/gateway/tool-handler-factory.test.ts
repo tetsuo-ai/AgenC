@@ -5,7 +5,10 @@ import { describe, it, expect, vi } from "vitest";
 import type { ControlResponse } from "./types.js";
 import type { ApprovalEngine } from "./approvals.js";
 import { ApprovalEngine as ApprovalEngineImpl } from "./approvals.js";
-import { DelegationPolicyEngine } from "./delegation-runtime.js";
+import {
+  DelegationPolicyEngine,
+  SubAgentLifecycleEmitter,
+} from "./delegation-runtime.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import { SessionCredentialBroker } from "../policy/session-credentials.js";
 
@@ -2467,6 +2470,167 @@ describe("createSessionToolHandler", () => {
     expect(subAgentManager.spawn).not.toHaveBeenCalled();
   });
 
+  it("allows overloaded execute_with_agent objectives in unsafe benchmark mode", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:unsafe-benchmark"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:unsafe-benchmark",
+        output: '{"summary":"child completed"}',
+        success: true,
+        durationMs: 42,
+        toolCalls: [{
+          name: "system.bash",
+          args: { command: "npm", args: ["install"] },
+          result: '{"stdout":"ok","stderr":"","exitCode":0}',
+          isError: false,
+          durationMs: 5,
+        }],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:unsafe-benchmark",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 100,
+        task: "unsafe benchmark",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: [
+        "execute_with_agent",
+        "mcp.browser.browser_navigate",
+        "mcp.browser.browser_snapshot",
+        "system.bash",
+        "system.writeFile",
+      ],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+        unsafeBenchmarkMode: true,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task:
+        "Scaffold project, npm install dependencies, create index.html, package.json, tsconfig.json, " +
+        "src/main.ts, src/Game.ts, verify localhost, validate console errors, and write how to play and known limitations.",
+      inputContract: "JSON output with files, run_cmd, how to play, and known limitations",
+      acceptanceCriteria: [
+        "Create index.html",
+        "Create package.json",
+        "Create src/main.ts",
+        "Create src/Game.ts",
+        "Validate localhost runs cleanly",
+      ],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      status?: string;
+    };
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.status).toBe("completed");
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requireToolCall: true,
+        unsafeBenchmarkMode: true,
+      }),
+    );
+  });
+
+  it("emits an explicit lifecycle event when unsafe benchmark mode bypasses delegation policy", async () => {
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const lifecycleEmitter = new SubAgentLifecycleEmitter();
+    lifecycleEmitter.on((event) => {
+      lifecycleEvents.push(event as unknown as Record<string, unknown>);
+    });
+
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:unsafe-policy-bypass"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:unsafe-policy-bypass",
+        output: '{"summary":"child completed"}',
+        success: true,
+        durationMs: 42,
+        toolCalls: [{
+          name: "system.bash",
+          args: { command: "npm", args: ["install"] },
+          result: '{"stdout":"ok","stderr":"","exitCode":0}',
+          isError: false,
+          durationMs: 5,
+        }],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:unsafe-policy-bypass",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 100,
+        task: "unsafe benchmark",
+      })),
+    };
+    const policyEngine = new DelegationPolicyEngine({
+      enabled: true,
+      spawnDecisionThreshold: 0.2,
+      fallbackBehavior: "continue_without_delegation",
+      unsafeBenchmarkMode: true,
+    });
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: [
+        "execute_with_agent",
+        "system.bash",
+        "system.writeFile",
+      ],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine,
+        verifier: null,
+        lifecycleEmitter,
+        unsafeBenchmarkMode: true,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "Scaffold the workspace and validate npm install",
+      inputContract: "Return JSON summary",
+      acceptanceCriteria: ["Create files", "Run npm install"],
+    });
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      status?: string;
+    };
+    const bypassEvent = lifecycleEvents.find(
+      (event) => event.type === "subagents.policy_bypassed",
+    ) as
+      | {
+        payload?: {
+          unsafeBenchmarkMode?: boolean;
+          matchedRule?: string;
+          decisionThreshold?: number;
+        };
+      }
+      | undefined;
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.status).toBe("completed");
+    expect(bypassEvent?.payload).toMatchObject({
+      unsafeBenchmarkMode: true,
+      matchedRule: "unsafe_benchmark_bypass",
+      decisionThreshold: 0.2,
+    });
+  });
+
   it("rejects execute_with_agent browser research when only low-signal tab tools are scoped", async () => {
     const subAgentManager = {
       spawn: vi.fn(async () => "subagent:should-not-spawn"),
@@ -2766,6 +2930,62 @@ describe("createSessionToolHandler", () => {
     expect(baseHandler).not.toHaveBeenCalled();
     expect(sentMessages.some((msg) => msg.type === "tools.executing")).toBe(false);
     expect(sentMessages.some((msg) => msg.type === "tools.result")).toBe(false);
+  });
+
+  it("allows nested delegation from sub-agent sessions in unsafe benchmark mode", async () => {
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:grandchild-1"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:grandchild-1",
+        output: '{"summary":"grandchild completed"}',
+        success: true,
+        durationMs: 12,
+        toolCalls: [],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:grandchild-1",
+        parentSessionId: "subagent:child-1",
+        depth: 2,
+        status: "completed",
+        startedAt: Date.now() - 100,
+        task: "expand scope",
+      })),
+    };
+    const policyEngine = new DelegationPolicyEngine({
+      enabled: true,
+      spawnDecisionThreshold: 0.1,
+      fallbackBehavior: "continue_without_delegation",
+      unsafeBenchmarkMode: true,
+    });
+    const handler = createSessionToolHandler({
+      sessionId: "subagent:child-1",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["execute_with_agent", "system.readFile"],
+      routerId: "router-a",
+      send: vi.fn(),
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine,
+        verifier: null,
+        lifecycleEmitter: null,
+        unsafeBenchmarkMode: true,
+      }),
+    });
+
+    const result = await handler("execute_with_agent", {
+      task: "expand scope",
+      tools: ["system.readFile"],
+    });
+    const parsed = JSON.parse(result) as { success?: boolean };
+
+    expect(parsed.success).toBe(true);
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionId: "subagent:child-1",
+        requireToolCall: true,
+        unsafeBenchmarkMode: true,
+      }),
+    );
   });
 
   it("does not veto execute_with_agent calls just because the score is below threshold", async () => {
