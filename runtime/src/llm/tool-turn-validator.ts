@@ -21,6 +21,7 @@ export interface ToolTurnValidationIssue {
 
 export interface ToolTurnValidationOptions {
   readonly providerName?: string;
+  readonly allowLeadingToolResults?: boolean;
 }
 
 function summarizeToolIds(ids: Iterable<string>): string {
@@ -45,16 +46,19 @@ function makeIssue(
  */
 export function findToolTurnValidationIssue(
   messages: readonly LLMMessage[],
+  options?: ToolTurnValidationOptions,
 ): ToolTurnValidationIssue | null {
   let pendingToolCallIds: Set<string> | null = null;
   let pendingAssistantIndex = -1;
   const issuedToolCallIds = new Set<string>();
   const resolvedToolCallIds = new Set<string>();
+  let allowLeadingToolResults = options?.allowLeadingToolResults === true;
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
 
     if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      allowLeadingToolResults = false;
       if (pendingToolCallIds && pendingToolCallIds.size > 0) {
         return makeIssue(
           "assistant_tool_calls_started_before_results",
@@ -110,6 +114,10 @@ export function findToolTurnValidationIssue(
       }
 
       if (!pendingToolCallIds || pendingToolCallIds.size === 0) {
+        if (allowLeadingToolResults) {
+          resolvedToolCallIds.add(toolCallId);
+          continue;
+        }
         return makeIssue(
           "tool_result_without_assistant_call",
           i,
@@ -137,6 +145,10 @@ export function findToolTurnValidationIssue(
         `missing tool result message(s) for toolCallId(s): ${summarizeToolIds(pendingToolCallIds)}. Tool results must immediately follow assistant tool_calls.`,
       );
     }
+
+    if (msg.role !== "system") {
+      allowLeadingToolResults = false;
+    }
   }
 
   if (pendingToolCallIds && pendingToolCallIds.size > 0) {
@@ -158,7 +170,7 @@ export function validateToolTurnSequence(
   messages: readonly LLMMessage[],
   options?: ToolTurnValidationOptions,
 ): void {
-  const issue = findToolTurnValidationIssue(messages);
+  const issue = findToolTurnValidationIssue(messages, options);
   if (!issue) return;
 
   throw new LLMMessageValidationError(options?.providerName ?? "llm", {

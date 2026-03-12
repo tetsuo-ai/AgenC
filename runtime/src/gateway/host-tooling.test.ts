@@ -1,8 +1,55 @@
 import { describe, expect, it } from "vitest";
 
-import { probeHostToolingProfile } from "./host-tooling.js";
+import {
+  findPackageManifestWorkspaceProtocolSpecifiers,
+  probeHostToolingProfile,
+} from "./host-tooling.js";
 
 describe("host-tooling", () => {
+  it("finds unsupported workspace protocol specifiers in package manifests", () => {
+    const specifiers = findPackageManifestWorkspaceProtocolSpecifiers(
+      JSON.stringify(
+        {
+          name: "@demo/app",
+          dependencies: {
+            "@demo/core": "workspace:*",
+          },
+          devDependencies: {
+            "@demo/test-utils": "workspace:^",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    expect(specifiers).toEqual([
+      {
+        dependencyField: "dependencies",
+        packageName: "@demo/core",
+        specifier: "workspace:*",
+      },
+      {
+        dependencyField: "devDependencies",
+        packageName: "@demo/test-utils",
+        specifier: "workspace:^",
+      },
+    ]);
+  });
+
+  it("falls back to raw workspace literals when package manifest JSON is incomplete", () => {
+    const specifiers = findPackageManifestWorkspaceProtocolSpecifiers(
+      '{\n  "dependencies": {\n    "@demo/core": "workspace:*"',
+    );
+
+    expect(specifiers).toEqual([
+      {
+        dependencyField: "unknown",
+        specifier: "workspace:*",
+      },
+    ]);
+  });
+
   it("records unsupported npm workspace protocol from an empirical install probe", async () => {
     const calls: Array<{
       command: string;

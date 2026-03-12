@@ -8,6 +8,8 @@
  * @module
  */
 
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import type { DeterministicPipelineExecutor } from "../llm/chat-executor.js";
 import type {
   Pipeline,
@@ -33,7 +35,10 @@ import {
   derivePromptBudgetPlan,
   type PromptBudgetConfig,
 } from "../llm/prompt-budget.js";
-import { resolveDelegatedWorkingDirectory } from "./delegation-tool.js";
+import {
+  resolveDelegatedWorkingDirectory,
+  resolveDelegatedWorkingDirectoryPath,
+} from "./delegation-tool.js";
 import {
   resolveDelegationBudgetHintMs,
 } from "./delegation-timeout.js";
@@ -48,8 +53,10 @@ import {
 } from "./delegation-scope.js";
 import { sleep } from "../utils/async.js";
 import {
+  type DelegationContractSpec,
   type DelegationOutputValidationCode,
   resolveDelegatedChildToolScope,
+  specRequiresMeaningfulBrowserEvidence,
   specRequiresSuccessfulToolEvidence,
   validateDelegatedOutputContract,
 } from "../utils/delegation-validation.js";
@@ -58,11 +65,13 @@ import {
   extractToolFailureTextFromResult,
 } from "../llm/chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
+import { buildBrowserEvidenceRetryGuidance } from "../utils/browser-tool-taxonomy.js";
 import {
   computeDelegationFinalReward,
   deriveDelegationContextClusterId,
   type DelegationTrajectorySink,
 } from "../llm/delegation-learning.js";
+import { tokenizeShellCommand } from "../tools/system/command-line.js";
 
 interface SubAgentExecutionManager {
   spawn(config: SubAgentConfig): Promise<string>;
@@ -76,6 +85,7 @@ export interface SubAgentOrchestratorConfig {
   readonly resolveTrajectorySink?: () => DelegationTrajectorySink | null;
   readonly resolveAvailableToolNames?: () => readonly string[] | null;
   readonly resolveHostToolingProfile?: () => HostToolingProfile | null;
+  readonly resolveHostWorkspaceRoot?: () => string | null;
   readonly childPromptBudget?: PromptBudgetConfig;
   readonly allowParallelSubtasks?: boolean;
   readonly maxParallelSubtasks?: number;
@@ -125,6 +135,7 @@ type SubagentFailureOutcome = {
 interface ExecuteSubagentAttemptParams {
   readonly subAgentManager: SubAgentExecutionManager;
   readonly step: PipelinePlannerSubagentStep;
+  readonly pipeline: Pipeline;
   readonly parentSessionId: string;
   readonly parentRequest?: string;
   readonly lastValidationCode?: DelegationOutputValidationCode;
@@ -208,6 +219,22 @@ interface DependencyContextEntry {
   readonly orderIndex: number;
 }
 
+interface PackageAuthoringState {
+  readonly relativePackageDirectory: string;
+  readonly relativeSourceDirectory: string;
+  readonly sourceDirExists: boolean;
+  readonly sourceFileCount: number;
+  readonly testFileCount: number;
+}
+
+type AcceptanceProbeCategory = "build" | "typecheck" | "lint" | "test";
+
+interface AcceptanceProbePlan {
+  readonly name: string;
+  readonly category: AcceptanceProbeCategory;
+  readonly step: PipelinePlannerDeterministicStep;
+}
+
 interface SubagentPromptBudgetCaps {
   readonly historyChars: number;
   readonly memoryChars: number;
@@ -273,6 +300,9 @@ const DEFAULT_MAX_TOTAL_SUBAGENTS_PER_REQUEST = 32;
 const DEFAULT_MAX_CUMULATIVE_TOOL_CALLS_PER_REQUEST_TREE = 256;
 const DEFAULT_MAX_CUMULATIVE_TOKENS_PER_REQUEST_TREE = 250_000;
 const DEFAULT_MIN_TOKENS_PER_PLANNED_SUBAGENT_STEP = 150_000;
+const DEFAULT_PLANNED_SUBAGENT_TOKENS_PER_MS =
+  DEFAULT_MIN_TOKENS_PER_PLANNED_SUBAGENT_STEP /
+  DEFAULT_SUBAGENT_TIMEOUT_MS;
 const DEFAULT_REQUEST_TREE_SUBAGENT_PASSES = Math.max(
   1,
   DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS,
@@ -295,6 +325,12 @@ const NODE_PACKAGE_TOOLING_RE =
   /\b(?:node(?:\.js)?|npm|npx|package\.json|package-lock\.json|pnpm|pnpm-workspace\.yaml|yarn|bun|workspaces?|typescript|tsconfig(?:\.[a-z]+)?\.json|tsx|vitest|commander)\b/i;
 const NODE_PACKAGE_MANIFEST_PATH_RE =
   /(?:^|\/)(?:package\.json|package-lock\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|yarn\.lock|bun\.lockb|tsconfig(?:\.[a-z]+)?\.json)$/i;
+const TEST_ARTIFACT_PATH_RE =
+  /(?:^|\/)(?:tests?|__tests__|specs?)\/|(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+const SOURCE_ARTIFACT_PATH_RE = /\.(?:[cm]?[jt]sx?)$/i;
+const GENERATED_DECLARATION_PATH_RE = /\.d\.[cm]?ts$/i;
+const PLACEHOLDER_TEST_SCRIPT_RE =
+  /\berror:\s*no test specified\b|exit\s+1\b/i;
 const PRIVATE_KEY_BLOCK_RE =
   /-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----/g;
 const IMAGE_DATA_URL_RE = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
@@ -309,6 +345,32 @@ const ABSOLUTE_PATH_RE =
   /(^|[\s"'`])((?:\/home|\/Users|\/root|\/etc|\/var|\/opt|\/srv|\/tmp)\/[^\s"'`]+)/g;
 const SUBAGENT_ORCHESTRATION_SECTION_RE =
   /\bsub-agent orchestration plan(?:\s*\((?:required|mandatory)\)|\s+(?:required|mandatory))\s*:[\s\S]*$/i;
+const WORKSPACE_CONTEXT_CANDIDATE_PATH_RE =
+  /\.(?:[cm]?[jt]sx?|json|md|txt|html|css)$/i;
+const WORKSPACE_CONTEXT_SKIP_DIRS = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  ".vite",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out",
+]);
+const WORKSPACE_CONTEXT_MAX_SCAN_FILES = 160;
+const WORKSPACE_CONTEXT_MAX_SCAN_DEPTH = 5;
+const WORKSPACE_CONTEXT_MAX_FILE_BYTES = 64_000;
+const WORKSPACE_CONTEXT_MAX_CONTENT_CHARS = 6_000;
+const WORKSPACE_CONTEXT_MIN_CANDIDATES = 3;
+const WORKSPACE_CONTEXT_MAX_CANDIDATES = 10;
+const PACKAGE_AUTHORING_SCAN_SKIP_DIRS = new Set([
+  ".git",
+  "coverage",
+  "dist",
+  "node_modules",
+]);
+const PACKAGE_AUTHORING_MAX_SCAN_FILES = 128;
 
 function isPipelineStopReasonHint(
   value: unknown,
@@ -407,13 +469,47 @@ class RequestTreeBudgetTracker {
     private readonly maxCumulativeTokensPerRequestTree: number,
   ) {}
 
-  reserveSpawn(): string | null {
-    if (this.circuitBreakerReason) return this.circuitBreakerReason;
+  snapshot(): {
+    readonly spawnedChildren: number;
+    readonly reservedSpawns: number;
+    readonly cumulativeToolCalls: number;
+    readonly cumulativeTokens: number;
+    readonly maxTotalSubagentsPerRequest: number;
+    readonly maxCumulativeToolCallsPerRequestTree: number;
+    readonly maxCumulativeTokensPerRequestTree: number;
+  } {
+    return {
+      spawnedChildren: this.spawnedChildren,
+      reservedSpawns: this.reservedSpawns,
+      cumulativeToolCalls: this.cumulativeToolCalls,
+      cumulativeTokens: this.cumulativeTokens,
+      maxTotalSubagentsPerRequest: this.maxTotalSubagentsPerRequest,
+      maxCumulativeToolCallsPerRequestTree:
+        this.maxCumulativeToolCallsPerRequestTree,
+      maxCumulativeTokensPerRequestTree:
+        this.maxCumulativeTokensPerRequestTree,
+    };
+  }
+
+  reserveSpawn(): RequestTreeBudgetBreach | null {
+    if (this.circuitBreakerReason) {
+      return {
+        reason: this.circuitBreakerReason,
+        limitKind: "spawns",
+        attemptedSpawnCount: this.spawnedChildren + this.reservedSpawns + 1,
+        state: this.snapshot(),
+      };
+    }
     const projected = this.spawnedChildren + this.reservedSpawns + 1;
     if (projected > this.maxTotalSubagentsPerRequest) {
       this.circuitBreakerReason =
         `max spawned children per request exceeded (${this.maxTotalSubagentsPerRequest})`;
-      return this.circuitBreakerReason;
+      return {
+        reason: this.circuitBreakerReason,
+        limitKind: "spawns",
+        attemptedSpawnCount: projected,
+        state: this.snapshot(),
+      };
     }
     this.reservedSpawns += 1;
     return null;
@@ -424,27 +520,77 @@ class RequestTreeBudgetTracker {
     if (spawned) this.spawnedChildren += 1;
   }
 
-  recordUsage(toolCallCount: number, tokenCount: number): string | null {
-    if (this.circuitBreakerReason) return this.circuitBreakerReason;
-    this.cumulativeToolCalls += Math.max(0, Math.floor(toolCallCount));
-    this.cumulativeTokens += Math.max(0, Math.floor(tokenCount));
+  recordUsage(
+    toolCallCount: number,
+    tokenCount: number,
+  ): RequestTreeBudgetBreach | null {
+    const normalizedToolCalls = Math.max(0, Math.floor(toolCallCount));
+    const normalizedTokens = Math.max(0, Math.floor(tokenCount));
+    if (this.circuitBreakerReason) {
+      return {
+        reason: this.circuitBreakerReason,
+        limitKind: "tokens",
+        stepToolCalls: normalizedToolCalls,
+        stepTokens: normalizedTokens,
+        state: this.snapshot(),
+      };
+    }
+    this.cumulativeToolCalls += normalizedToolCalls;
+    this.cumulativeTokens += normalizedTokens;
     if (
       this.cumulativeToolCalls > this.maxCumulativeToolCallsPerRequestTree
     ) {
       this.circuitBreakerReason =
         `max cumulative child tool calls per request tree exceeded (${this.maxCumulativeToolCallsPerRequestTree})`;
-      return this.circuitBreakerReason;
+      return {
+        reason: this.circuitBreakerReason,
+        limitKind: "tool_calls",
+        stepToolCalls: normalizedToolCalls,
+        stepTokens: normalizedTokens,
+        state: this.snapshot(),
+      };
     }
     if (
       this.cumulativeTokens > this.maxCumulativeTokensPerRequestTree
     ) {
       this.circuitBreakerReason =
         `max cumulative child tokens per request tree exceeded (${this.maxCumulativeTokensPerRequestTree})`;
-      return this.circuitBreakerReason;
+      return {
+        reason: this.circuitBreakerReason,
+        limitKind: "tokens",
+        stepToolCalls: normalizedToolCalls,
+        stepTokens: normalizedTokens,
+        state: this.snapshot(),
+      };
     }
     return null;
   }
 }
+
+interface RequestTreeBudgetSnapshot {
+  readonly spawnedChildren: number;
+  readonly reservedSpawns: number;
+  readonly cumulativeToolCalls: number;
+  readonly cumulativeTokens: number;
+  readonly maxTotalSubagentsPerRequest: number;
+  readonly maxCumulativeToolCallsPerRequestTree: number;
+  readonly maxCumulativeTokensPerRequestTree: number;
+}
+
+type RequestTreeBudgetBreach =
+  | {
+    readonly reason: string;
+    readonly limitKind: "spawns";
+    readonly attemptedSpawnCount: number;
+    readonly state: RequestTreeBudgetSnapshot;
+  }
+  | {
+    readonly reason: string;
+    readonly limitKind: "tool_calls" | "tokens";
+    readonly stepToolCalls: number;
+    readonly stepTokens: number;
+    readonly state: RequestTreeBudgetSnapshot;
+  };
 
 export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   private readonly fallbackExecutor: DeterministicPipelineExecutor;
@@ -453,6 +599,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   private readonly resolveTrajectorySink: () => DelegationTrajectorySink | null;
   private readonly resolveAvailableToolNames: () => readonly string[] | null;
   private readonly resolveHostToolingProfile: () => HostToolingProfile | null;
+  private readonly resolveHostWorkspaceRoot: () => string | null;
   private readonly childPromptBudget?: PromptBudgetConfig;
   private readonly allowParallelSubtasks: boolean;
   private readonly maxParallelSubtasks: number;
@@ -482,6 +629,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     this.resolveAvailableToolNames = config.resolveAvailableToolNames ?? (() => null);
     this.resolveHostToolingProfile =
       config.resolveHostToolingProfile ?? (() => null);
+    this.resolveHostWorkspaceRoot =
+      config.resolveHostWorkspaceRoot ?? (() => null);
     this.childPromptBudget = config.childPromptBudget;
     this.allowParallelSubtasks = config.allowParallelSubtasks !== false;
     this.maxParallelSubtasks = Math.max(
@@ -670,13 +819,59 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         if (exclusiveRunning) break;
         if (exclusiveNode && running.size > 0) continue;
 
+        const traceTool = this.resolvePipelineTraceToolName(node.step);
+        const traceArgs = this.buildPipelineTraceArgs(node.step);
+        const emitPlannerNodeTrace = traceTool !== undefined;
+        const stepStartedAt = emitPlannerNodeTrace ? Date.now() : 0;
+        if (emitPlannerNodeTrace) {
+          options?.onEvent?.({
+            type: "step_started",
+            pipelineId: pipeline.id,
+            stepName: node.step.name,
+            stepIndex: node.orderIndex,
+            tool: traceTool,
+            args: traceArgs,
+          });
+        }
         const promise = this.executeNode(
           node.step,
           pipeline,
           mutableResults,
           budgetTracker,
           options,
-        );
+        ).then((outcome) => {
+          if (emitPlannerNodeTrace) {
+            const event: {
+              type: "step_finished";
+              pipelineId: string;
+              stepName: string;
+              stepIndex: number;
+              tool: string;
+              args?: Record<string, unknown>;
+              durationMs: number;
+              result?: string;
+              error?: string;
+            } = {
+              type: "step_finished",
+              pipelineId: pipeline.id,
+              stepName: node.step.name,
+              stepIndex: node.orderIndex,
+              tool: traceTool,
+              args: traceArgs,
+              durationMs: Math.max(0, Date.now() - stepStartedAt),
+            };
+            if ("result" in outcome && typeof outcome.result === "string") {
+              event.result = outcome.result;
+            }
+            if (outcome.status === "failed") {
+              event.error = outcome.error;
+            } else if (outcome.status === "halted" && outcome.error) {
+              event.error = outcome.error;
+            }
+            options?.onEvent?.(event);
+          }
+          return outcome;
+        });
         running.set(node.step.name, { promise, exclusive: exclusiveNode });
         pending.delete(node.step.name);
         scheduledAny = true;
@@ -1024,6 +1219,9 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   ): DependencySatisfactionState {
     if (step.stepType === "deterministic_tool") {
       if (result.startsWith("SKIPPED:")) {
+        if (step.onError === "skip") {
+          return { satisfied: true };
+        }
         const reason = result.slice("SKIPPED:".length).trim();
         return {
           satisfied: false,
@@ -1121,6 +1319,32 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       return !step.canRunParallel;
     }
     return false;
+  }
+
+  private resolvePipelineTraceToolName(
+    step: PipelinePlannerStep,
+  ): string | undefined {
+    if (step.stepType === "subagent_task") {
+      return "execute_with_agent";
+    }
+    return undefined;
+  }
+
+  private buildPipelineTraceArgs(
+    step: PipelinePlannerStep,
+  ): Record<string, unknown> | undefined {
+    if (step.stepType !== "subagent_task") {
+      return undefined;
+    }
+    return {
+      objective: step.objective,
+      inputContract: step.inputContract,
+      acceptanceCriteria: [...step.acceptanceCriteria],
+      requiredToolCapabilities: [...step.requiredToolCapabilities],
+      contextRequirements: [...step.contextRequirements],
+      maxBudgetHint: step.maxBudgetHint,
+      canRunParallel: step.canRunParallel,
+    };
   }
 
   private async executeNode(
@@ -1322,31 +1546,34 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
     while (true) {
       attempt += 1;
-      const reservationError = budgetTracker.reserveSpawn();
-      if (reservationError) {
+      const reservationBreach = budgetTracker.reserveSpawn();
+      if (reservationBreach) {
+        const breakerMessage =
+          this.formatRequestTreeBudgetBreach(reservationBreach);
         lifecycleEmitter?.emit({
           type: "subagents.failed",
           timestamp: Date.now(),
           sessionId: parentSessionId,
           parentSessionId,
           toolName: "execute_with_agent",
-          payload: {
+          payload: this.buildRequestTreeBudgetBreachPayload({
             stepName: step.name,
-            stage: "circuit_breaker",
-            reason: reservationError,
             attempt,
-          },
+            breach: reservationBreach,
+          }),
         });
         return {
           status: "failed",
           error:
-            `Sub-agent circuit breaker opened for step "${step.name}": ${reservationError}`,
+            `Sub-agent circuit breaker opened for step "${step.name}": ${breakerMessage}`,
           stopReasonHint: "budget_exceeded",
         };
       }
-      const attemptOutcome = await this.executeSubagentAttempt({
+      let attemptOutcome: ExecuteSubagentAttemptOutcome =
+        await this.executeSubagentAttempt({
         subAgentManager,
         step,
+        pipeline,
         parentSessionId,
         parentRequest: pipeline.plannerContext?.parentRequest,
         lastValidationCode: lastFailure?.validationCode,
@@ -1356,6 +1583,26 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         tools: toolScope.allowedTools,
         lifecycleEmitter,
       });
+      if (attemptOutcome.status === "completed") {
+        const acceptanceProbeFailure =
+          await this.runCompletedSubagentAcceptanceProbes({
+            step,
+            pipeline,
+            results,
+            parentSessionId,
+            subagentSessionId: attemptOutcome.subagentSessionId,
+            toolCalls: attemptOutcome.toolCalls,
+            tokenUsage: attemptOutcome.tokenUsage,
+            durationMs: attemptOutcome.durationMs,
+            lifecycleEmitter,
+          });
+        if (acceptanceProbeFailure) {
+          attemptOutcome = {
+            status: "failed",
+            failure: acceptanceProbeFailure,
+          };
+        }
+      }
       const spawnedChild =
         attemptOutcome.status === "completed"
           ? true
@@ -1400,6 +1647,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           attemptOutcome.tokenUsage?.totalTokens ?? 0,
         );
         if (usageBreach) {
+          const breakerMessage = this.formatRequestTreeBudgetBreach(usageBreach);
           this.recordSubagentTrajectory({
             traceId: trajectoryTraceId,
             turnId:
@@ -1440,17 +1688,16 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
             parentSessionId,
             subagentSessionId: attemptOutcome.subagentSessionId,
             toolName: "execute_with_agent",
-            payload: {
+            payload: this.buildRequestTreeBudgetBreachPayload({
               stepName: step.name,
-              stage: "circuit_breaker",
-              reason: usageBreach,
               attempt,
-            },
+              breach: usageBreach,
+            }),
           });
           return {
             status: "failed",
             error:
-              `Sub-agent circuit breaker opened for step "${step.name}": ${usageBreach}`,
+              `Sub-agent circuit breaker opened for step "${step.name}": ${breakerMessage}`,
             stopReasonHint: "budget_exceeded",
           };
         }
@@ -1479,6 +1726,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           lastFailure.tokenUsage?.totalTokens ?? 0,
         );
         if (usageBreach) {
+          const breakerMessage = this.formatRequestTreeBudgetBreach(usageBreach);
           this.recordSubagentTrajectory({
             traceId: trajectoryTraceId,
             turnId:
@@ -1519,17 +1767,16 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
             parentSessionId,
             subagentSessionId: lastFailure.childSessionId,
             toolName: "execute_with_agent",
-            payload: {
+            payload: this.buildRequestTreeBudgetBreachPayload({
               stepName: step.name,
-              stage: "circuit_breaker",
-              reason: usageBreach,
               attempt,
-            },
+              breach: usageBreach,
+            }),
           });
           return {
             status: "failed",
             error:
-              `Sub-agent circuit breaker opened for step "${step.name}": ${usageBreach}`,
+              `Sub-agent circuit breaker opened for step "${step.name}": ${breakerMessage}`,
             stopReasonHint: "budget_exceeded",
           };
         }
@@ -1912,6 +2159,27 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     return this.classifySubagentFailureMessage(message);
   }
 
+  private resolveEffectiveDelegatedWorkingDirectory(input: {
+    readonly task?: string;
+    readonly objective?: string;
+    readonly inputContract?: string;
+    readonly acceptanceCriteria?: readonly string[];
+    readonly contextRequirements?: readonly string[];
+  }) {
+    const delegatedWorkingDirectory = resolveDelegatedWorkingDirectory(input);
+    if (!delegatedWorkingDirectory) {
+      return undefined;
+    }
+
+    return {
+      ...delegatedWorkingDirectory,
+      path: resolveDelegatedWorkingDirectoryPath(
+        delegatedWorkingDirectory.path,
+        this.resolveHostWorkspaceRoot() ?? undefined,
+      ),
+    };
+  }
+
   private async executeSubagentAttempt(
     input: ExecuteSubagentAttemptParams,
   ): Promise<ExecuteSubagentAttemptOutcome> {
@@ -1919,6 +2187,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       objective: input.step.objective,
       inputContract: input.step.inputContract,
       acceptanceCriteria: input.step.acceptanceCriteria,
+      requiredToolCapabilities: input.step.requiredToolCapabilities,
     });
     if (!scopeAssessment.ok) {
       return {
@@ -1933,13 +2202,22 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       };
     }
 
-    const delegatedWorkingDirectory = resolveDelegatedWorkingDirectory({
+    const delegatedWorkingDirectory = this.resolveEffectiveDelegatedWorkingDirectory({
       task: input.step.name,
       objective: input.step.objective,
       inputContract: input.step.inputContract,
       acceptanceCriteria: input.step.acceptanceCriteria,
       contextRequirements: input.step.contextRequirements,
     });
+    const effectiveDelegationSpec = this.buildEffectiveDelegationSpec(
+      input.step,
+      input.pipeline,
+      {
+        parentRequest: input.parentRequest,
+        lastValidationCode: input.lastValidationCode,
+        delegatedWorkingDirectory: delegatedWorkingDirectory?.path,
+      },
+    );
     let childSessionId: string;
     try {
       const workingDirectory = delegatedWorkingDirectory?.path;
@@ -1956,23 +2234,12 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         requireToolCall: specRequiresSuccessfulToolEvidence({
           objective: input.step.objective,
           inputContract: input.step.inputContract,
-          acceptanceCriteria: input.step.acceptanceCriteria,
+          acceptanceCriteria:
+            effectiveDelegationSpec.acceptanceCriteria,
           requiredToolCapabilities: input.step.requiredToolCapabilities,
           tools: input.tools,
         }),
-        delegationSpec: {
-          task: input.step.name,
-          objective: input.step.objective,
-          parentRequest: input.parentRequest,
-          inputContract: input.step.inputContract,
-          acceptanceCriteria: input.step.acceptanceCriteria,
-          requiredToolCapabilities: input.step.requiredToolCapabilities,
-          contextRequirements: input.step.contextRequirements,
-          tools: input.tools,
-          ...(input.lastValidationCode
-            ? { lastValidationCode: input.lastValidationCode }
-            : {}),
-        },
+        delegationSpec: effectiveDelegationSpec,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2028,12 +2295,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
       if (result.success) {
         const contractValidation = validateDelegatedOutputContract({
-          spec: {
-            objective: input.step.objective,
-            inputContract: input.step.inputContract,
-            acceptanceCriteria: input.step.acceptanceCriteria,
-            requiredToolCapabilities: input.step.requiredToolCapabilities,
-          },
+          spec: effectiveDelegationSpec,
           output: result.output,
           toolCalls: result.toolCalls,
           providerEvidence: result.providerEvidence,
@@ -2094,12 +2356,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       const contractValidation =
         result.stopReason === "validation_error" && !result.validationCode
           ? validateDelegatedOutputContract({
-            spec: {
-              objective: input.step.objective,
-              inputContract: input.step.inputContract,
-              acceptanceCriteria: input.step.acceptanceCriteria,
-              requiredToolCapabilities: input.step.requiredToolCapabilities,
-            },
+            spec: effectiveDelegationSpec,
             output: result.output,
             toolCalls: result.toolCalls,
             providerEvidence: result.providerEvidence,
@@ -2129,6 +2386,567 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     }
   }
 
+  private async runCompletedSubagentAcceptanceProbes(params: {
+    readonly step: PipelinePlannerSubagentStep;
+    readonly pipeline: Pipeline;
+    readonly results: Record<string, string>;
+    readonly parentSessionId: string;
+    readonly subagentSessionId: string;
+    readonly toolCalls: SubAgentResult["toolCalls"];
+    readonly tokenUsage?: LLMUsage;
+    readonly durationMs: number;
+    readonly lifecycleEmitter: SubAgentLifecycleEmitter | null;
+  }): Promise<SubagentFailureOutcome | undefined> {
+    const probes = this.buildSubagentAcceptanceProbePlans(
+      params.step,
+      params.pipeline,
+      params.toolCalls,
+    );
+    if (probes.length === 0) {
+      return undefined;
+    }
+
+    for (const probe of probes) {
+      const probeArgs = probe.step.args as {
+        readonly command?: string;
+        readonly args?: readonly string[];
+        readonly cwd?: string;
+      };
+      params.lifecycleEmitter?.emit({
+        type: "subagents.acceptance_probe.started",
+        timestamp: Date.now(),
+        sessionId: params.parentSessionId,
+        parentSessionId: params.parentSessionId,
+        subagentSessionId: params.subagentSessionId,
+        toolName: probe.step.tool,
+        payload: {
+          stepName: params.step.name,
+          probeName: probe.name,
+          category: probe.category,
+          command: probeArgs.command ?? null,
+          args: probeArgs.args ?? [],
+          cwd: probeArgs.cwd ?? null,
+        },
+      });
+
+      const startedAt = Date.now();
+      const outcome = await this.executeDeterministicStep(
+        probe.step,
+        params.pipeline,
+        params.results,
+      );
+      const durationMs = Date.now() - startedAt;
+
+      if (outcome.status === "completed") {
+        params.lifecycleEmitter?.emit({
+          type: "subagents.acceptance_probe.completed",
+          timestamp: Date.now(),
+          sessionId: params.parentSessionId,
+          parentSessionId: params.parentSessionId,
+          subagentSessionId: params.subagentSessionId,
+          toolName: probe.step.tool,
+          payload: {
+            stepName: params.step.name,
+            probeName: probe.name,
+            category: probe.category,
+            durationMs,
+            result: outcome.result,
+          },
+        });
+        continue;
+      }
+
+      const commandSummary = this.renderDeterministicCommandSummary(probe.step);
+      const cwdSummary =
+        typeof probeArgs.cwd === "string" && probeArgs.cwd.trim().length > 0
+          ? ` in \`${this.redactSensitiveData(probeArgs.cwd)}\``
+          : "";
+      const failureMessage =
+        `Parent-side deterministic acceptance probe failed for step "${params.step.name}" ` +
+        `(${probe.category})${cwdSummary}: ${commandSummary}. ${outcome.error}`;
+      const probeStopReasonHint =
+        outcome.status === "failed" ? outcome.stopReasonHint : undefined;
+      params.lifecycleEmitter?.emit({
+        type: "subagents.acceptance_probe.failed",
+        timestamp: Date.now(),
+        sessionId: params.parentSessionId,
+        parentSessionId: params.parentSessionId,
+        subagentSessionId: params.subagentSessionId,
+        toolName: probe.step.tool,
+        payload: {
+          stepName: params.step.name,
+          probeName: probe.name,
+          category: probe.category,
+          durationMs,
+          command: probeArgs.command ?? null,
+          args: probeArgs.args ?? [],
+          cwd: probeArgs.cwd ?? null,
+          error: outcome.error,
+        },
+      });
+      return {
+        failureClass: "malformed_result_contract",
+        message: failureMessage,
+        validationCode: "acceptance_probe_failed",
+        stopReasonHint: probeStopReasonHint ?? "validation_error",
+        childSessionId: params.subagentSessionId,
+        durationMs: params.durationMs,
+        toolCallCount: params.toolCalls.length,
+        tokenUsage: params.tokenUsage,
+      };
+    }
+
+    return undefined;
+  }
+
+  private buildSubagentAcceptanceProbePlans(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+    toolCalls: SubAgentResult["toolCalls"],
+  ): readonly AcceptanceProbePlan[] {
+    if (!this.hasCompletedNodeInstallDependency(step, pipeline)) {
+      return [];
+    }
+
+    const verificationCategories = this.collectReachableVerificationCategories(
+      step,
+      pipeline,
+    );
+    if (verificationCategories.size === 0) {
+      return [];
+    }
+
+    const delegatedWorkingDirectory = this.resolveEffectiveDelegatedWorkingDirectory({
+      task: step.name,
+      objective: step.objective,
+      inputContract: step.inputContract,
+      acceptanceCriteria: step.acceptanceCriteria,
+      contextRequirements: step.contextRequirements,
+    });
+    const packageDirectories = this.collectAcceptanceProbePackageDirectories(
+      toolCalls,
+      delegatedWorkingDirectory?.path,
+    );
+    if (packageDirectories.length === 0) {
+      return [];
+    }
+
+    const plans: AcceptanceProbePlan[] = [];
+    const seenCommands = new Set<string>();
+    const pushProbe = (
+      category: AcceptanceProbeCategory,
+      scriptName: string,
+      cwd: string,
+    ): void => {
+      const stepName = `acceptance_probe_${category}_${plans.length + 1}`;
+      const commandKey = `${cwd}::${scriptName}`;
+      if (seenCommands.has(commandKey)) {
+        return;
+      }
+      seenCommands.add(commandKey);
+      plans.push({
+        name: stepName,
+        category,
+        step: {
+          name: stepName,
+          stepType: "deterministic_tool",
+          tool: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", scriptName],
+            cwd,
+          },
+          onError: "abort",
+        },
+      });
+    };
+
+    for (const packageDirectory of packageDirectories) {
+      const manifest = this.readPackageManifest(packageDirectory);
+      const scripts = this.readPackageScripts(manifest);
+      if (!scripts) continue;
+
+      if (verificationCategories.has("build") && scripts.build) {
+        pushProbe("build", "build", packageDirectory);
+      }
+      if (verificationCategories.has("typecheck") && scripts.typecheck) {
+        pushProbe("typecheck", "typecheck", packageDirectory);
+      }
+      if (verificationCategories.has("lint") && scripts.lint) {
+        pushProbe("lint", "lint", packageDirectory);
+      }
+      if (
+        verificationCategories.has("test") &&
+        this.shouldRunAcceptanceTestProbe(step, toolCalls, scripts.test)
+      ) {
+        pushProbe("test", "test", packageDirectory);
+      }
+    }
+
+    return plans;
+  }
+
+  private collectAcceptanceProbePackageDirectories(
+    toolCalls: SubAgentResult["toolCalls"],
+    delegatedWorkingDirectory?: string,
+  ): readonly string[] {
+    const directories: string[] = [];
+    const pushDirectory = (value: string | undefined): void => {
+      const normalized = value?.trim().replace(/\\/g, "/");
+      if (!normalized || directories.includes(normalized)) {
+        return;
+      }
+      directories.push(normalized);
+    };
+
+    for (const filePath of this.collectMutatedFilePaths(toolCalls)) {
+      pushDirectory(
+        this.resolvePackageDirectoryFromFilePath(
+          filePath,
+          delegatedWorkingDirectory,
+        ),
+      );
+    }
+
+    if (
+      directories.length === 0 &&
+      delegatedWorkingDirectory &&
+      this.hasFileMutationToolCalls(toolCalls)
+    ) {
+      pushDirectory(
+        this.findNearestPackageDirectory(
+          resolvePath(delegatedWorkingDirectory),
+        ),
+      );
+    }
+
+    return directories;
+  }
+
+  private collectMutatedFilePaths(
+    toolCalls: readonly SubAgentResult["toolCalls"][number][],
+  ): readonly string[] {
+    const paths: string[] = [];
+    const pushPath = (value: unknown): void => {
+      if (typeof value !== "string") return;
+      const normalized = value.trim();
+      if (normalized.length === 0 || paths.includes(normalized)) {
+        return;
+      }
+      paths.push(normalized);
+    };
+
+    for (const toolCall of toolCalls) {
+      if (
+        !toolCall ||
+        typeof toolCall !== "object" ||
+        typeof toolCall.name !== "string"
+      ) {
+        continue;
+      }
+      const args =
+        toolCall.args &&
+        typeof toolCall.args === "object" &&
+        !Array.isArray(toolCall.args)
+          ? toolCall.args as Record<string, unknown>
+          : undefined;
+      if (!args) continue;
+
+      if (
+        toolCall.name === "system.writeFile" ||
+        toolCall.name === "system.appendFile"
+      ) {
+        pushPath(args.path);
+        continue;
+      }
+
+      if (toolCall.name !== "desktop.text_editor") {
+        continue;
+      }
+      const action =
+        typeof args.command === "string" ? args.command.trim().toLowerCase() : "";
+      if (
+        action === "create" ||
+        action === "insert" ||
+        action === "str_replace"
+      ) {
+        pushPath(args.filePath);
+      }
+    }
+
+    return paths;
+  }
+
+  private hasFileMutationToolCalls(
+    toolCalls: readonly SubAgentResult["toolCalls"][number][],
+  ): boolean {
+    return this.collectMutatedFilePaths(toolCalls).length > 0;
+  }
+
+  private resolvePackageDirectoryFromFilePath(
+    filePath: string,
+    delegatedWorkingDirectory?: string,
+  ): string | undefined {
+    const trimmed = filePath.trim();
+    if (trimmed.length === 0) return undefined;
+    if (!trimmed.startsWith("/") && !delegatedWorkingDirectory) {
+      return undefined;
+    }
+
+    const absolutePath = trimmed.startsWith("/")
+      ? resolvePath(trimmed)
+      : resolvePath(delegatedWorkingDirectory!, trimmed);
+    return this.findNearestPackageDirectory(dirname(absolutePath));
+  }
+
+  private findNearestPackageDirectory(startDirectory: string): string | undefined {
+    let current = resolvePath(startDirectory);
+    while (true) {
+      const manifestPath = resolvePath(current, "package.json");
+      if (existsSync(manifestPath) && !this.isWorkspaceRootManifest(manifestPath)) {
+        return current;
+      }
+      const parent = dirname(current);
+      if (parent === current) {
+        return undefined;
+      }
+      current = parent;
+    }
+  }
+
+  private isWorkspaceRootManifest(manifestPath: string): boolean {
+    const manifest = this.readJsonFileObject(manifestPath);
+    if (!manifest) return false;
+    return Array.isArray(manifest.workspaces) ||
+      (
+        manifest.workspaces !== undefined &&
+        typeof manifest.workspaces === "object" &&
+        !Array.isArray(manifest.workspaces)
+      );
+  }
+
+  private readPackageManifest(
+    packageDirectory: string,
+  ): Record<string, unknown> | undefined {
+    return this.readJsonFileObject(resolvePath(packageDirectory, "package.json"));
+  }
+
+  private readPackageScripts(
+    manifest: Record<string, unknown> | undefined,
+  ): Partial<Record<AcceptanceProbeCategory, string>> | undefined {
+    if (!manifest) return undefined;
+    const rawScripts =
+      manifest.scripts &&
+      typeof manifest.scripts === "object" &&
+      !Array.isArray(manifest.scripts)
+        ? manifest.scripts as Record<string, unknown>
+        : undefined;
+    if (!rawScripts) return undefined;
+
+    const scripts: Partial<Record<AcceptanceProbeCategory, string>> = {};
+    for (const category of ["build", "typecheck", "lint", "test"] as const) {
+      const value = rawScripts[category];
+      if (typeof value === "string" && value.trim().length > 0) {
+        scripts[category] = value.trim();
+      }
+    }
+    return Object.keys(scripts).length > 0 ? scripts : undefined;
+  }
+
+  private readJsonFileObject(path: string): Record<string, unknown> | undefined {
+    try {
+      const raw = readFileSync(path, "utf8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Best-effort acceptance probing should never crash orchestration.
+    }
+    return undefined;
+  }
+
+  private shouldRunAcceptanceTestProbe(
+    step: PipelinePlannerSubagentStep,
+    toolCalls: readonly SubAgentResult["toolCalls"][number][],
+    testScript: string | undefined,
+  ): boolean {
+    if (!testScript || PLACEHOLDER_TEST_SCRIPT_RE.test(testScript)) {
+      return false;
+    }
+    const stepText = [
+      step.name,
+      step.objective,
+      step.inputContract,
+      ...step.acceptanceCriteria,
+      ...step.contextRequirements,
+    ].join(" ");
+    if (/\b(?:test|tests|vitest|jest|spec|coverage)\b/i.test(stepText)) {
+      return true;
+    }
+    return this.collectMutatedFilePaths(toolCalls).some((path) =>
+      TEST_ARTIFACT_PATH_RE.test(path)
+    );
+  }
+
+  private hasCompletedNodeInstallDependency(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+  ): boolean {
+    const plannerSteps = pipeline.plannerSteps ?? [];
+    if (plannerSteps.length === 0) {
+      return false;
+    }
+    const stepByName = new Map(
+      plannerSteps.map((plannerStep) => [plannerStep.name, plannerStep]),
+    );
+    const queue = [...(step.dependsOn ?? [])];
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const dependencyName = queue.shift();
+      if (!dependencyName || visited.has(dependencyName)) continue;
+      visited.add(dependencyName);
+      const dependency = stepByName.get(dependencyName);
+      if (!dependency) continue;
+      if (this.isNodeInstallPlannerStep(dependency)) {
+        return true;
+      }
+      for (const ancestor of dependency.dependsOn ?? []) {
+        if (!visited.has(ancestor)) {
+          queue.push(ancestor);
+        }
+      }
+    }
+    return false;
+  }
+
+  private collectReachableVerificationCategories(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+  ): ReadonlySet<AcceptanceProbeCategory> {
+    const plannerSteps = pipeline.plannerSteps ?? [];
+    if (plannerSteps.length === 0) {
+      return new Set();
+    }
+
+    const dependentsByName = new Map<string, PipelinePlannerStep[]>();
+    for (const plannerStep of plannerSteps) {
+      for (const dependencyName of plannerStep.dependsOn ?? []) {
+        const dependents = dependentsByName.get(dependencyName) ?? [];
+        dependents.push(plannerStep);
+        dependentsByName.set(dependencyName, dependents);
+      }
+    }
+
+    const categories = new Set<AcceptanceProbeCategory>();
+    const queue = [...(dependentsByName.get(step.name) ?? [])];
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || visited.has(current.name)) continue;
+      visited.add(current.name);
+
+      if (current.stepType === "deterministic_tool") {
+        for (const category of this.classifyDeterministicVerificationCategories(
+          current,
+        )) {
+          categories.add(category);
+        }
+      }
+
+      for (const next of dependentsByName.get(current.name) ?? []) {
+        if (!visited.has(next.name)) {
+          queue.push(next);
+        }
+      }
+    }
+
+    return categories;
+  }
+
+  private classifyDeterministicVerificationCategories(
+    step: PipelinePlannerDeterministicStep,
+  ): readonly AcceptanceProbeCategory[] {
+    if (step.tool !== "system.bash" && step.tool !== "desktop.bash") {
+      return [];
+    }
+
+    const args =
+      typeof step.args === "object" &&
+      step.args !== null &&
+      !Array.isArray(step.args)
+        ? step.args as Record<string, unknown>
+        : undefined;
+    const command = typeof args?.command === "string" ? args.command.trim() : "";
+    const commandArgs = Array.isArray(args?.args)
+      ? args.args.filter((value): value is string => typeof value === "string")
+      : [];
+    const tokens = commandArgs.length > 0
+      ? [command, ...commandArgs]
+      : tokenizeShellCommand(command);
+    const normalized = tokens
+      .map((token) => token.trim().toLowerCase())
+      .filter((token) => token.length > 0);
+    if (normalized.length === 0) {
+      return [];
+    }
+
+    const categories = new Set<AcceptanceProbeCategory>();
+    const joined = normalized.join(" ");
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\b.*\bbuild\b/.test(joined) ||
+      /\bvite\b.*\bbuild\b/.test(joined) ||
+      (
+        /\btsc\b/.test(joined) &&
+        !normalized.includes("--noemit")
+      )
+    ) {
+      categories.add("build");
+    }
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\b.*\btypecheck\b/.test(joined) ||
+      (
+        /\btsc\b/.test(joined) &&
+        normalized.includes("--noemit")
+      )
+    ) {
+      categories.add("typecheck");
+    }
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\b.*\blint\b/.test(joined) ||
+      /\beslint\b/.test(joined)
+    ) {
+      categories.add("lint");
+    }
+    if (
+      /\b(?:npm|pnpm|yarn|bun)\b.*\btest\b/.test(joined) ||
+      /\b(?:vitest|jest|pytest|mocha|ava)\b/.test(joined)
+    ) {
+      categories.add("test");
+    }
+    return [...categories];
+  }
+
+  private renderDeterministicCommandSummary(
+    step: PipelinePlannerDeterministicStep,
+  ): string {
+    const args =
+      typeof step.args === "object" &&
+      step.args !== null &&
+      !Array.isArray(step.args)
+        ? step.args as Record<string, unknown>
+        : undefined;
+    const command = typeof args?.command === "string" ? args.command.trim() : "";
+    const commandArgs = Array.isArray(args?.args)
+      ? args.args.filter((value): value is string => typeof value === "string")
+      : [];
+    const rendered = [command, ...commandArgs].filter((value) => value.length > 0)
+      .join(" ");
+    return rendered.length > 0
+      ? `\`${this.redactSensitiveData(rendered)}\``
+      : `deterministic probe "${step.name}"`;
+  }
+
   private buildSubagentTaskPrompt(
     step: PipelinePlannerSubagentStep,
     pipeline: Pipeline,
@@ -2154,16 +2972,34 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       ? this.summarizeParentRequestForSubagent(parentRequest, step)
       : undefined;
     const relevanceTerms = this.buildRelevanceTerms(step);
-    const artifactRelevanceTerms = this.buildArtifactRelevanceTerms(
-      step,
-      summarizedParentRequest,
-    );
+    const artifactRelevanceTerms = this.buildArtifactRelevanceTerms(step);
     const requirementTerms = this.extractTerms(step.contextRequirements.join(" "));
     const dependencies = this.collectDependencyContexts(step, pipeline, results);
+    const delegatedWorkingDirectory = this.resolveEffectiveDelegatedWorkingDirectory({
+      task: step.name,
+      objective: step.objective,
+      inputContract: step.inputContract,
+      acceptanceCriteria: step.acceptanceCriteria,
+      contextRequirements: step.contextRequirements,
+    });
     const dependencyArtifactCandidates = this.collectDependencyArtifactCandidates(
       dependencies,
       artifactRelevanceTerms,
+      delegatedWorkingDirectory?.path,
     );
+    const workspaceArtifactCandidates =
+      dependencyArtifactCandidates.length === 0 &&
+        delegatedWorkingDirectory?.path
+        ? this.collectWorkspaceArtifactCandidates(
+          delegatedWorkingDirectory.path,
+          artifactRelevanceTerms,
+          promptBudgetCaps.toolOutputChars,
+        )
+        : [];
+    const promptArtifactCandidates =
+      dependencyArtifactCandidates.length > 0
+        ? dependencyArtifactCandidates
+        : workspaceArtifactCandidates;
     const toolContextBudgets = this.allocateContextGroupBudgets(
       promptBudgetCaps.toolOutputChars,
       [
@@ -2173,7 +3009,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
             dependencies.length > 0 ||
             (plannerContext?.toolOutputs?.length ?? 0) > 0,
         },
-        { key: "dependencyArtifacts", active: dependencyArtifactCandidates.length > 0 },
+        { key: "dependencyArtifacts", active: promptArtifactCandidates.length > 0 },
       ],
     );
 
@@ -2184,7 +3020,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     );
     const memorySection = this.curateMemorySection(
       plannerContext?.memory ?? [],
-      requirementTerms,
+      step.contextRequirements,
+      relevanceTerms,
       promptBudgetCaps.memoryChars,
     );
     const toolOutputSection = this.curateToolOutputSection(
@@ -2196,8 +3033,14 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       toolContextBudgets.toolOutputs ?? 0,
     );
     const dependencyArtifactSection = this.curateDependencyArtifactSection(
-      dependencyArtifactCandidates,
+      promptArtifactCandidates,
       toolContextBudgets.dependencyArtifacts ?? 0,
+    );
+    const workspaceStateGuidanceLines = this.buildWorkspaceStateGuidanceLines(
+      step,
+      pipeline,
+      promptArtifactCandidates,
+      delegatedWorkingDirectory?.path,
     );
     const hostToolingSection = this.buildHostToolingPromptSection(
       step,
@@ -2207,13 +3050,13 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       step,
       pipeline,
     );
-    const delegatedWorkingDirectory = resolveDelegatedWorkingDirectory({
-      task: step.name,
-      objective: step.objective,
-      inputContract: step.inputContract,
-      acceptanceCriteria: step.acceptanceCriteria,
-      contextRequirements: step.contextRequirements,
-    });
+    const workspaceVerificationContractLines =
+      this.buildWorkspaceVerificationContractLines(step, pipeline);
+    const effectiveAcceptanceCriteria = this.buildEffectiveAcceptanceCriteria(
+      step,
+      pipeline,
+      delegatedWorkingDirectory?.path,
+    );
 
     const buildPrompt = (diagnostics: SubagentContextDiagnostics): string => {
       const sections: string[] = [];
@@ -2242,9 +3085,9 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           `Parent request summary: ${this.redactSensitiveData(summarizedParentRequest)}`,
         );
       }
-      if (step.acceptanceCriteria.length > 0) {
+      if (effectiveAcceptanceCriteria.length > 0) {
         sections.push(
-          `Acceptance criteria:\n${step.acceptanceCriteria.map((item) => `- ${this.redactSensitiveData(item)}`).join("\n")}`,
+          `Acceptance criteria:\n${effectiveAcceptanceCriteria.map((item) => `- ${this.redactSensitiveData(item)}`).join("\n")}`,
         );
       }
       if (step.contextRequirements.length > 0) {
@@ -2294,6 +3137,13 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         }
         sections.push(`Tool usage rules:\n${toolUsageRules.join("\n")}`);
       }
+      if (!allowsDirectFileWrite) {
+        sections.push(
+          "Output contract:\n" +
+            "- If this phase needs a design document, summary, JSON payload, notes, or other textual artifact and no file-write tools are allowed, return that artifact inline in your response.\n" +
+            "- Do not block solely because you cannot persist a workspace file unless the acceptance criteria explicitly require a file on disk.",
+        );
+      }
       if (historySection.lines.length > 0) {
         sections.push(
           `Curated parent history slice:\n${
@@ -2323,6 +3173,12 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
             dependencyArtifactSection.lines.map((line) => `- ${line}`).join("\n"),
         );
       }
+      if (workspaceStateGuidanceLines.length > 0) {
+        sections.push(
+          "Observed workspace state:\n" +
+            workspaceStateGuidanceLines.map((line) => `- ${line}`).join("\n"),
+        );
+      }
       if (hostToolingSection.lines.length > 0) {
         sections.push(
           `Host tooling constraints:\n${
@@ -2330,10 +3186,14 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           }`,
         );
       }
-      if (downstreamRequirementLines.length > 0) {
+      const allDownstreamRequirementLines = [
+        ...downstreamRequirementLines,
+        ...workspaceVerificationContractLines,
+      ];
+      if (allDownstreamRequirementLines.length > 0) {
         sections.push(
           "Downstream execution requirements:\n" +
-            downstreamRequirementLines.map((line) => `- ${line}`).join("\n"),
+            allDownstreamRequirementLines.map((line) => `- ${line}`).join("\n"),
         );
       }
       sections.push(`Budget hint: ${step.maxBudgetHint}`);
@@ -2364,8 +3224,11 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       },
       dependencyArtifacts: {
         selected: dependencyArtifactSection.selected,
-        available: dependencyArtifactSection.available,
-        omitted: dependencyArtifactSection.omitted,
+        available: promptArtifactCandidates.length,
+        omitted: Math.max(
+          0,
+          promptArtifactCandidates.length - dependencyArtifactSection.selected,
+        ),
         truncated: dependencyArtifactSection.truncated,
       },
       hostTooling: hostToolingSection.diagnostics,
@@ -2400,6 +3263,191 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     }
 
     return { taskPrompt, diagnostics };
+  }
+
+  private buildWorkspaceStateGuidanceLines(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+    promptArtifactCandidates: readonly DependencyArtifactCandidate[],
+    delegatedWorkingDirectory?: string,
+  ): readonly string[] {
+    if (
+      typeof delegatedWorkingDirectory !== "string" ||
+      delegatedWorkingDirectory.trim().length === 0
+    ) {
+      return [];
+    }
+
+    const workspaceRoot = resolvePath(delegatedWorkingDirectory);
+    const packageDirectories = this.collectPromptArtifactPackageDirectories(
+      promptArtifactCandidates,
+      workspaceRoot,
+    );
+    if (packageDirectories.length === 0) {
+      return [];
+    }
+
+    const stepText = [
+      step.name,
+      step.objective,
+      step.inputContract,
+      ...step.acceptanceCriteria,
+      ...step.contextRequirements,
+    ].join(" ");
+    const phaseMentionsTests =
+      this.collectReachableVerificationCategories(step, pipeline).has("test") ||
+      /\b(?:test|tests|vitest|jest|coverage|spec)\b/i.test(stepText);
+
+    const lines: string[] = [];
+    let missingSourceFiles = false;
+    let missingTests = false;
+    for (const packageDirectory of packageDirectories.slice(0, 3)) {
+      const state = this.inspectPackageAuthoringState(
+        packageDirectory,
+        workspaceRoot,
+      );
+      if (!state) continue;
+
+      if (state.sourceFileCount === 0) {
+        lines.push(
+          state.sourceDirExists
+            ? `\`${state.relativeSourceDirectory}\` exists but has no authored source files yet.`
+            : `\`${state.relativeSourceDirectory}\` does not exist yet.`,
+        );
+        missingSourceFiles = true;
+      }
+      if (phaseMentionsTests && state.testFileCount === 0) {
+        lines.push(
+          `No test files are present yet under \`${state.relativePackageDirectory}\` for this phase's test or coverage requirements.`,
+        );
+        missingTests = true;
+      }
+    }
+
+    if (missingSourceFiles) {
+      lines.push(
+        "Execution ordering: author the missing source files for this phase before invoking any verification command.",
+      );
+    }
+    if (missingTests) {
+      lines.push(
+        "If this phase owns test coverage, write the missing tests before invoking a test runner.",
+      );
+    }
+
+    return lines.filter((line, index, entries) =>
+      line.length > 0 && entries.indexOf(line) === index
+    );
+  }
+
+  private collectPromptArtifactPackageDirectories(
+    promptArtifactCandidates: readonly DependencyArtifactCandidate[],
+    workspaceRoot: string,
+  ): readonly string[] {
+    const directories: string[] = [];
+    const pushDirectory = (value: string | undefined): void => {
+      const normalized = value?.trim();
+      if (!normalized || directories.includes(normalized)) {
+        return;
+      }
+      directories.push(normalized);
+    };
+
+    for (const candidate of promptArtifactCandidates) {
+      const packageDirectory = this.resolvePackageDirectoryFromFilePath(
+        candidate.path,
+        workspaceRoot,
+      );
+      pushDirectory(packageDirectory);
+    }
+
+    return directories;
+  }
+
+  private inspectPackageAuthoringState(
+    packageDirectory: string,
+    workspaceRoot: string,
+  ): PackageAuthoringState | undefined {
+    const absolutePackageDirectory = resolvePath(packageDirectory);
+    const relativePackageDirectory = this.normalizeDependencyArtifactPath(
+      absolutePackageDirectory,
+      workspaceRoot,
+    );
+    if (relativePackageDirectory.length === 0) {
+      return undefined;
+    }
+
+    const sourceDirectory = resolvePath(absolutePackageDirectory, "src");
+    const relativeSourceDirectory = this.normalizeDependencyArtifactPath(
+      sourceDirectory,
+      workspaceRoot,
+    );
+    const sourceDirExists = existsSync(sourceDirectory);
+    const pendingDirectories = [absolutePackageDirectory];
+    let scannedFiles = 0;
+    let sourceFileCount = 0;
+    let testFileCount = 0;
+
+    while (
+      pendingDirectories.length > 0 &&
+      scannedFiles < PACKAGE_AUTHORING_MAX_SCAN_FILES
+    ) {
+      const currentDirectory = pendingDirectories.shift();
+      if (!currentDirectory) break;
+
+      let entries: { name: string; isDirectory(): boolean; isFile(): boolean }[];
+      try {
+        entries = readdirSync(currentDirectory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (scannedFiles >= PACKAGE_AUTHORING_MAX_SCAN_FILES) {
+          break;
+        }
+        if (entry.isDirectory()) {
+          if (!PACKAGE_AUTHORING_SCAN_SKIP_DIRS.has(entry.name)) {
+            pendingDirectories.push(join(currentDirectory, entry.name));
+          }
+          continue;
+        }
+        if (!entry.isFile()) {
+          continue;
+        }
+
+        scannedFiles += 1;
+        const absolutePath = join(currentDirectory, entry.name);
+        const relativePath = this.normalizeDependencyArtifactPath(
+          absolutePath,
+          workspaceRoot,
+        );
+        if (
+          relativePath.length === 0 ||
+          GENERATED_DECLARATION_PATH_RE.test(relativePath)
+        ) {
+          continue;
+        }
+        if (TEST_ARTIFACT_PATH_RE.test(relativePath)) {
+          testFileCount += 1;
+          continue;
+        }
+        if (
+          relativePath.startsWith(`${relativePackageDirectory}/src/`) &&
+          SOURCE_ARTIFACT_PATH_RE.test(relativePath)
+        ) {
+          sourceFileCount += 1;
+        }
+      }
+    }
+
+    return {
+      relativePackageDirectory,
+      relativeSourceDirectory,
+      sourceDirExists,
+      sourceFileCount,
+      testFileCount,
+    };
   }
 
   private buildHostToolingPromptSection(
@@ -2459,6 +3507,15 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     if (profile.npm?.version) {
       lines.push(`Host npm version: \`${profile.npm.version}\`.`);
     }
+    lines.push(
+      "Project-local CLIs such as `tsc`, `vite`, `vitest`, and `eslint` are not guaranteed to be on the host PATH. Prefer `npm run <script>`, `npx <bin>`, or `npm exec -- <bin>` from the correct cwd instead of assuming bare executables exist.",
+    );
+    lines.push(
+      "For npm workspaces, use `npm run <script> --workspaces` to fan out or `npm run <script> --workspace=<workspace-name>` with a real workspace name. Do not use globbed selectors such as `--workspace=packages/*`.",
+    );
+    lines.push(
+      "For TypeScript monorepos, prefer a package-local `tsconfig.json` (or project references) for each buildable package so `npm run build --workspace=<workspace-name>` verifies the targeted package without compiling sibling package source globs.",
+    );
     if (profile.npm?.workspaceProtocolSupport === "unsupported") {
       const evidence = profile.npm.workspaceProtocolEvidence
         ? ` (${this.redactSensitiveData(profile.npm.workspaceProtocolEvidence)})`
@@ -2556,17 +3613,24 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       );
     }
     if (failure.validationCode === "low_signal_browser_evidence") {
-      corrections.push(
-        "Use real browser interactions against concrete non-blank URLs or localhost pages. `browser_tabs` or about:blank state checks do not count as evidence.",
-      );
-      corrections.push(
-        "Use allowed browser tools like navigate, snapshot, or run_code on the target page and cite the visited URL in the output.",
-      );
+      corrections.push(...buildBrowserEvidenceRetryGuidance(allowedTools));
     }
     if (failure.validationCode === "acceptance_evidence_missing") {
       corrections.push(
         "Do not just restate the acceptance criteria. Use allowed tools to directly verify the missing criteria and cite the observed evidence.",
       );
+      if (
+        specRequiresMeaningfulBrowserEvidence({
+          task: step.name,
+          objective: step.objective,
+          inputContract: step.inputContract,
+          acceptanceCriteria: step.acceptanceCriteria,
+          requiredToolCapabilities: step.requiredToolCapabilities,
+          contextRequirements: step.contextRequirements,
+        })
+      ) {
+        corrections.push(...buildBrowserEvidenceRetryGuidance(allowedTools));
+      }
       if (
         /\b(?:compile|compiles|compiled|compiling|build|test|verify|validated?|output(?:\s+format)?|stdout|stderr|exit(?:\s+code|s)?)\b/i.test(
           [
@@ -2585,6 +3649,35 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       ) {
         corrections.push(
           "If the acceptance criteria mention compile/build/test/output behavior, run the relevant shell command(s) and report the observed result instead of rewriting the file again.",
+        );
+      }
+    }
+    if (failure.validationCode === "forbidden_phase_action") {
+      corrections.push(
+        "Do not execute or claim commands that this phase explicitly forbids, including install/build/test/typecheck/lint verification or banned dependency specifiers.",
+      );
+      corrections.push(
+        "Stay within the file-authoring or inspection contract for this phase and leave verification for the later step.",
+      );
+    }
+    if (failure.validationCode === "acceptance_probe_failed") {
+      corrections.push(
+        "A parent-side deterministic acceptance probe failed after your edits. Fix the cited package/workspace compatibility issue in the authored files before answering again.",
+      );
+      corrections.push(
+        "Do not guess or restate success. Ground the retry in the concrete probe failure details.",
+      );
+      corrections.push(
+        `Probe failure details: ${this.redactSensitiveData(failure.message)}`,
+      );
+      if (
+        step.acceptanceCriteria.some((criterion) =>
+          /\bno npm install\/build\/test\/typecheck\/lint commands executed or claimed in this phase\b/i
+            .test(criterion)
+        )
+      ) {
+        corrections.push(
+          "Do not run install/build/test/typecheck/lint yourself if this phase forbids it; repair the files and let the parent acceptance probe re-run.",
         );
       }
     }
@@ -2665,16 +3758,70 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     }
     const plannedSubagentSteps = plannerSteps.filter(
       (step) => step.stepType === "subagent_task",
-    ).length;
-    if (plannedSubagentSteps <= 0) {
+    ) as readonly PipelinePlannerSubagentStep[];
+    if (plannedSubagentSteps.length <= 0) {
       return this.maxCumulativeTokensPerRequestTree;
     }
+    const derivedBudget = plannedSubagentSteps.reduce(
+      (total, step) =>
+        total + this.estimatePlannedSubagentStepTokenBudget(step),
+      0,
+    );
     return Math.max(
       this.maxCumulativeTokensPerRequestTree,
-      plannedSubagentSteps *
-        DEFAULT_MIN_TOKENS_PER_PLANNED_SUBAGENT_STEP *
-        DEFAULT_REQUEST_TREE_SUBAGENT_PASSES,
+      derivedBudget * DEFAULT_REQUEST_TREE_SUBAGENT_PASSES,
     );
+  }
+
+  private estimatePlannedSubagentStepTokenBudget(
+    step: PipelinePlannerSubagentStep,
+  ): number {
+    const timeoutMs = this.parseBudgetHintMs(step.maxBudgetHint);
+    return Math.max(
+      DEFAULT_MIN_TOKENS_PER_PLANNED_SUBAGENT_STEP,
+      Math.ceil(timeoutMs * DEFAULT_PLANNED_SUBAGENT_TOKENS_PER_MS),
+    );
+  }
+
+  private formatRequestTreeBudgetBreach(
+    breach: RequestTreeBudgetBreach,
+  ): string {
+    const { state } = breach;
+    const usageSummary =
+      `cumulativeToolCalls=${state.cumulativeToolCalls}/${state.maxCumulativeToolCallsPerRequestTree}; ` +
+      `cumulativeTokens=${state.cumulativeTokens}/${state.maxCumulativeTokensPerRequestTree}; ` +
+      `spawnedChildren=${state.spawnedChildren}; reservedSpawns=${state.reservedSpawns}`;
+    if (breach.limitKind === "spawns") {
+      return `${breach.reason}; attemptedSpawnCount=${breach.attemptedSpawnCount}; ${usageSummary}`;
+    }
+    return (
+      `${breach.reason}; ` +
+      `stepToolCalls=${breach.stepToolCalls}; ` +
+      `stepTokens=${breach.stepTokens}; ` +
+      usageSummary
+    );
+  }
+
+  private buildRequestTreeBudgetBreachPayload(params: {
+    readonly stepName: string;
+    readonly attempt: number;
+    readonly breach: RequestTreeBudgetBreach;
+  }): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      stepName: params.stepName,
+      stage: "circuit_breaker",
+      reason: params.breach.reason,
+      limitKind: params.breach.limitKind,
+      attempt: params.attempt,
+      ...params.breach.state,
+    };
+    if (params.breach.limitKind === "spawns") {
+      payload.attemptedSpawnCount = params.breach.attemptedSpawnCount;
+    } else {
+      payload.stepToolCalls = params.breach.stepToolCalls;
+      payload.stepTokens = params.breach.stepTokens;
+    }
+    return payload;
   }
 
   private resolveParentPolicyAllowlist(
@@ -2748,15 +3895,16 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
   private buildArtifactRelevanceTerms(
     step: PipelinePlannerSubagentStep,
-    summarizedParentRequest: string | undefined,
   ): ReadonlySet<string> {
+    // Dependency artifact retrieval should be scoped to the delegated child
+    // contract, not the full parent request. Broad parent terms cause unrelated
+    // artifacts from sibling phases to leak into downstream prompts.
     const aggregate = [
       step.objective,
       step.inputContract,
       ...step.acceptanceCriteria,
       ...step.contextRequirements,
       ...step.requiredToolCapabilities,
-      summarizedParentRequest ?? "",
     ].join(" ");
     return new Set(this.extractTerms(aggregate));
   }
@@ -2815,6 +3963,249 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     return lines;
   }
 
+  private buildWorkspaceVerificationContractLines(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+  ): readonly string[] {
+    const stepTexts = [
+      step.name,
+      step.objective,
+      step.inputContract,
+      ...step.acceptanceCriteria,
+      ...step.contextRequirements,
+    ];
+    const relevant = stepTexts.some((text) =>
+      NODE_PACKAGE_TOOLING_RE.test(text) ||
+      /(?:manifest|scaffold|workspace|package\.json|tsconfig|vite\.config)/i.test(text)
+    );
+    if (!relevant) {
+      return [];
+    }
+
+    const delegatedWorkingDirectory = this.resolveEffectiveDelegatedWorkingDirectory({
+      task: step.name,
+      objective: step.objective,
+      inputContract: step.inputContract,
+      acceptanceCriteria: step.acceptanceCriteria,
+      contextRequirements: step.contextRequirements,
+    });
+    const downstreamRootScripts = this.collectDownstreamRootNpmScripts(
+      step,
+      pipeline,
+      delegatedWorkingDirectory?.path,
+    );
+    if (downstreamRootScripts.length === 0) {
+      return [];
+    }
+
+    return [
+      "If this phase authors the root workspace manifest or scaffold, define the downstream root npm scripts now: " +
+        downstreamRootScripts.map((script) => `\`${script}\``).join(", ") +
+        ".",
+      "Do not leave those root script definitions for a later implementation-only step when deterministic verification already depends on them.",
+    ];
+  }
+
+  private buildEffectiveDelegationSpec(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+    options: {
+      readonly parentRequest?: string;
+      readonly lastValidationCode?: DelegationOutputValidationCode;
+      readonly delegatedWorkingDirectory?: string;
+    } = {},
+  ): DelegationContractSpec {
+    return {
+      task: step.name,
+      objective: step.objective,
+      parentRequest: options.parentRequest,
+      inputContract: step.inputContract,
+      acceptanceCriteria: this.buildEffectiveAcceptanceCriteria(
+        step,
+        pipeline,
+        options.delegatedWorkingDirectory,
+      ),
+      requiredToolCapabilities: step.requiredToolCapabilities,
+      contextRequirements: step.contextRequirements,
+      ...(options.lastValidationCode
+        ? { lastValidationCode: options.lastValidationCode }
+        : {}),
+    };
+  }
+
+  private buildEffectiveAcceptanceCriteria(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+    delegatedWorkingDirectory?: string,
+  ): readonly string[] {
+    return [
+      ...step.acceptanceCriteria,
+      ...this.buildDerivedWorkspaceAcceptanceCriteria(
+        step,
+        pipeline,
+        delegatedWorkingDirectory,
+      ),
+    ]
+      .map((item) => item.trim())
+      .filter((item, index, items) =>
+        item.length > 0 && items.indexOf(item) === index
+      );
+  }
+
+  private buildDerivedWorkspaceAcceptanceCriteria(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+    delegatedWorkingDirectory?: string,
+  ): readonly string[] {
+    const stepTexts = [
+      step.name,
+      step.objective,
+      step.inputContract,
+      ...step.acceptanceCriteria,
+      ...step.contextRequirements,
+    ];
+    const relevant = stepTexts.some((text) =>
+      NODE_PACKAGE_TOOLING_RE.test(text) ||
+      NODE_PACKAGE_MANIFEST_PATH_RE.test(text)
+    );
+    if (!relevant) {
+      return [];
+    }
+
+    const criteria: string[] = [];
+    const downstreamRootScripts = this.collectDownstreamRootNpmScripts(
+      step,
+      pipeline,
+      delegatedWorkingDirectory,
+    );
+    if (downstreamRootScripts.length > 0) {
+      criteria.push(
+        `Root package.json authored with npm scripts for ${downstreamRootScripts.join(", ")}.`,
+      );
+    }
+    if (this.stepAuthorsNodeWorkspaceManifestOrConfig(step)) {
+      criteria.push(
+        "Buildable TypeScript workspace packages use package-local tsconfig/project references or equivalent so `npm run build --workspace=<workspace-name>` verifies the targeted package without compiling sibling packages.",
+      );
+    }
+
+    if (this.isPreInstallNodeWorkspaceStep(step, pipeline)) {
+      criteria.push(
+        "No npm install/build/test/typecheck/lint commands executed or claimed in this phase.",
+      );
+      const profile = this.resolveHostToolingProfile();
+      if (profile?.npm?.workspaceProtocolSupport === "unsupported") {
+        criteria.push(
+          "No `workspace:*` dependency specifiers used; use `file:` local dependency references instead.",
+        );
+      }
+    }
+
+    return criteria;
+  }
+
+  private stepAuthorsNodeWorkspaceManifestOrConfig(
+    step: PipelinePlannerSubagentStep,
+  ): boolean {
+    const combined = [
+      step.name,
+      step.objective,
+      step.inputContract,
+      ...step.acceptanceCriteria,
+      ...step.contextRequirements,
+    ].join(" ");
+    const hasNodeWorkspaceCue = NODE_PACKAGE_TOOLING_RE.test(combined);
+    const hasManifestOrConfigTarget =
+      /\b(?:manifest|config|package\.json|tsconfig(?:\.[a-z]+)?\.json|vite\.config(?:\.[a-z]+)?|vitest\.config(?:\.[a-z]+)?|readme|workspace|workspaces|dependencies|devdependencies|scripts?|bin)\b/i
+        .test(combined);
+    const hasAuthoringVerb =
+      /\b(?:author|create|scaffold|write|update|define|configure|declare|add)\b/i
+        .test(combined);
+    return hasNodeWorkspaceCue &&
+      hasManifestOrConfigTarget &&
+      hasAuthoringVerb;
+  }
+
+  private isPreInstallNodeWorkspaceStep(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+  ): boolean {
+    if (!this.hasReachableNodeInstallStep(step, pipeline)) {
+      return false;
+    }
+
+    const combined = [
+      step.name,
+      step.objective,
+      step.inputContract,
+      ...step.acceptanceCriteria,
+      ...step.contextRequirements,
+    ].join(" ");
+    return NODE_PACKAGE_TOOLING_RE.test(combined);
+  }
+
+  private hasReachableNodeInstallStep(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+  ): boolean {
+    const plannerSteps = pipeline.plannerSteps ?? [];
+    if (plannerSteps.length === 0) {
+      return false;
+    }
+    const dependentsByName = new Map<string, PipelinePlannerStep[]>();
+    for (const plannerStep of plannerSteps) {
+      for (const dependency of plannerStep.dependsOn ?? []) {
+        const dependents = dependentsByName.get(dependency) ?? [];
+        dependents.push(plannerStep);
+        dependentsByName.set(dependency, dependents);
+      }
+    }
+
+    const queue = [...(dependentsByName.get(step.name) ?? [])];
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || visited.has(current.name)) continue;
+      visited.add(current.name);
+      if (this.isNodeInstallPlannerStep(current)) {
+        return true;
+      }
+      for (const dependent of dependentsByName.get(current.name) ?? []) {
+        if (!visited.has(dependent.name)) {
+          queue.push(dependent);
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private isNodeInstallPlannerStep(
+    step: PipelinePlannerStep,
+  ): step is PipelinePlannerDeterministicStep {
+    if (step.stepType !== "deterministic_tool") {
+      return false;
+    }
+    if (step.tool !== "system.bash" && step.tool !== "desktop.bash") {
+      return false;
+    }
+    const command =
+      typeof step.args.command === "string"
+        ? step.args.command.trim().toLowerCase()
+        : "";
+    const commandArgs = Array.isArray(step.args.args)
+      ? step.args.args.filter((value): value is string => typeof value === "string")
+      : [];
+    const firstArg = commandArgs[0]?.trim().toLowerCase() ?? "";
+    if (!["npm", "pnpm", "yarn", "bun"].includes(command)) {
+      return false;
+    }
+    if (command === "yarn" && firstArg.length === 0) {
+      return true;
+    }
+    return ["install", "ci", "add"].includes(firstArg);
+  }
+
   private summarizeDownstreamRequirementStep(
     step: PipelinePlannerStep,
   ): readonly string[] {
@@ -2869,6 +4260,186 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     }
 
     return `Later deterministic verification runs \`${this.redactSensitiveData(rendered)}\`.`;
+  }
+
+  private collectDownstreamRootNpmScripts(
+    step: PipelinePlannerSubagentStep,
+    pipeline: Pipeline,
+    delegatedWorkingDirectory?: string,
+  ): readonly string[] {
+    const plannerSteps = pipeline.plannerSteps ?? [];
+    const dependentsByName = new Map<string, PipelinePlannerStep[]>();
+    for (const plannerStep of plannerSteps) {
+      for (const dependency of plannerStep.dependsOn ?? []) {
+        const dependents = dependentsByName.get(dependency) ?? [];
+        dependents.push(plannerStep);
+        dependentsByName.set(dependency, dependents);
+      }
+    }
+
+    const queue = [...(dependentsByName.get(step.name) ?? [])];
+    const visited = new Set<string>();
+    const scripts: string[] = [];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || visited.has(current.name)) continue;
+      visited.add(current.name);
+
+      const scriptNames = current.stepType === "deterministic_tool"
+        ? this.extractDownstreamRootNpmRunScripts(
+          current,
+          delegatedWorkingDirectory,
+        )
+        : [];
+      for (const scriptName of scriptNames) {
+        if (!scripts.includes(scriptName)) {
+          scripts.push(scriptName);
+        }
+      }
+
+      for (const next of dependentsByName.get(current.name) ?? []) {
+        if (!visited.has(next.name)) {
+          queue.push(next);
+        }
+      }
+    }
+
+    return scripts;
+  }
+
+  private extractDownstreamRootNpmRunScripts(
+    step: PipelinePlannerDeterministicStep,
+    delegatedWorkingDirectory?: string,
+  ): readonly string[] {
+    if (step.tool !== "system.bash" && step.tool !== "desktop.bash") {
+      return [];
+    }
+
+    const args =
+      typeof step.args === "object" &&
+        step.args !== null &&
+        !Array.isArray(step.args)
+        ? step.args as Record<string, unknown>
+        : undefined;
+    const cwd = typeof args?.cwd === "string" ? args.cwd.trim() : "";
+    const normalizedDelegatedCwd = delegatedWorkingDirectory
+      ? delegatedWorkingDirectory.replace(/\\/g, "/").replace(/\/+$/u, "")
+      : "";
+    const normalizedCommandCwd = cwd.replace(/\\/g, "/").replace(/\/+$/u, "");
+    if (
+      normalizedDelegatedCwd.length > 0 &&
+      normalizedCommandCwd.length > 0 &&
+      normalizedDelegatedCwd !== normalizedCommandCwd
+    ) {
+      return [];
+    }
+
+    const command = typeof args?.command === "string" ? args.command.trim() : "";
+    const commandArgs = Array.isArray(args?.args)
+      ? args.args.filter((value): value is string => typeof value === "string")
+      : [];
+    const tokens = commandArgs.length > 0
+      ? [command, ...commandArgs]
+      : tokenizeShellCommand(command);
+    return this.collectRootNpmScriptsFromTokens(tokens);
+  }
+
+  private collectRootNpmScriptsFromTokens(
+    tokens: readonly string[],
+  ): readonly string[] {
+    if (tokens.length === 0) {
+      return [];
+    }
+
+    const scripts: string[] = [];
+    const pushScript = (scriptName: string | undefined) => {
+      const normalized = scriptName?.trim();
+      if (!normalized || normalized.startsWith("-")) {
+        return;
+      }
+      if (!scripts.includes(normalized)) {
+        scripts.push(normalized);
+      }
+    };
+
+    let index = 0;
+    while (index < tokens.length) {
+      const token = tokens[index]?.trim().toLowerCase();
+      if (token !== "npm") {
+        index += 1;
+        continue;
+      }
+
+      index += 1;
+      let rootScoped = true;
+      while (index < tokens.length) {
+        const current = tokens[index]?.trim();
+        const normalized = current?.toLowerCase() ?? "";
+        if (
+          normalized === "&&" ||
+          normalized === "||" ||
+          normalized === ";" ||
+          normalized === "|" ||
+          normalized === "&"
+        ) {
+          break;
+        }
+
+        if (
+          normalized === "--prefix" ||
+          normalized === "-c" ||
+          normalized === "--workspace" ||
+          normalized === "-w" ||
+          normalized.startsWith("--prefix=") ||
+          normalized.startsWith("--workspace=")
+        ) {
+          rootScoped = false;
+          if (
+            normalized === "--prefix" ||
+            normalized === "-c" ||
+            normalized === "--workspace" ||
+            normalized === "-w"
+          ) {
+            index += 1;
+          }
+          index += 1;
+          continue;
+        }
+
+        if (normalized === "run") {
+          if (rootScoped) {
+            pushScript(tokens[index + 1]);
+          }
+          break;
+        }
+
+        if (normalized === "test") {
+          if (rootScoped) {
+            pushScript("test");
+          }
+          break;
+        }
+
+        index += 1;
+      }
+
+      while (index < tokens.length) {
+        const current = tokens[index]?.trim().toLowerCase();
+        if (
+          current === "&&" ||
+          current === "||" ||
+          current === ";" ||
+          current === "|" ||
+          current === "&"
+        ) {
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+    }
+
+    return scripts;
   }
 
   private curateHistorySection(
@@ -2937,7 +4508,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
   private curateMemorySection(
     memory: readonly PipelinePlannerContextMemoryEntry[],
-    requirementTerms: readonly string[],
+    contextRequirements: readonly string[],
+    relevanceTerms: ReadonlySet<string>,
     maxChars: number,
   ): CuratedSection {
     if (memory.length === 0) {
@@ -2949,30 +4521,60 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         truncated: false,
       };
     }
-    const lowerRequirements = requirementTerms.map((term) => term.toLowerCase());
-    const requirementTermSet = new Set(lowerRequirements);
+    const lowerRequirements = contextRequirements.map((term) =>
+      term.toLowerCase()
+    );
     const sourceHints = this.resolveAllowedMemorySources(lowerRequirements);
-    const candidates = memory
-      .map((entry) => {
-        if (!sourceHints.has(entry.source)) {
-          return null;
-        }
-        const sourceMatch = sourceHints.has(entry.source);
-        const score = this.scoreText(entry.content, requirementTermSet);
-        return { entry, sourceMatch, score };
-      })
-      .filter(
-        (entry): entry is {
-          entry: PipelinePlannerContextMemoryEntry;
-          sourceMatch: boolean;
-          score: number;
-        } => entry !== null,
-      )
-      .filter((entry) => entry.sourceMatch || entry.score > 0)
+    if (sourceHints.size === 0) {
+      return {
+        lines: [],
+        selected: 0,
+        available: memory.length,
+        omitted: memory.length,
+        truncated: false,
+      };
+    }
+    const eligible = memory.filter((entry) => sourceHints.has(entry.source));
+    if (eligible.length === 0) {
+      return {
+        lines: [],
+        selected: 0,
+        available: memory.length,
+        omitted: memory.length,
+        truncated: false,
+      };
+    }
+
+    const queryTerms = this.expandContextQueryTerms(relevanceTerms);
+    const bm25Scores = this.computeBm25Scores(
+      eligible.map((entry, index) => ({
+        id: String(index),
+        text: entry.content,
+      })),
+      queryTerms,
+    );
+    const queryTermSet = new Set(queryTerms);
+    const candidates = eligible
+      .map((entry, index) => ({
+        entry,
+        score:
+          (bm25Scores.get(String(index)) ?? 0) +
+          this.scoreText(entry.content, queryTermSet),
+      }))
+      .filter((entry) => entry.score > 0)
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         return a.entry.source.localeCompare(b.entry.source);
       });
+    if (candidates.length === 0) {
+      return {
+        lines: [],
+        selected: 0,
+        available: memory.length,
+        omitted: memory.length,
+        truncated: false,
+      };
+    }
     const lines = candidates.map(
       ({ entry }) =>
         `[${entry.source}] ${this.redactSensitiveData(entry.content)}`,
@@ -3099,6 +4701,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   private collectDependencyArtifactCandidates(
     dependencies: readonly DependencyContextEntry[],
     queryTerms: ReadonlySet<string>,
+    workspaceRoot?: string,
   ): readonly DependencyArtifactCandidate[] {
     if (dependencies.length === 0) return [];
     const candidates = new Map<string, DependencyArtifactCandidate>();
@@ -3123,7 +4726,10 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       for (const toolCall of toolCalls) {
         const extracted = this.extractDependencyArtifactsFromToolCall(toolCall);
         for (const artifact of extracted) {
-          const normalizedPath = artifact.path.trim().replace(/\\/g, "/");
+          const normalizedPath = this.normalizeDependencyArtifactPath(
+            artifact.path,
+            workspaceRoot,
+          );
           if (!this.isDependencyArtifactPathCandidate(normalizedPath)) {
             continue;
           }
@@ -3176,6 +4782,173 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         if (a.depth !== b.depth) return a.depth - b.depth;
         return a.order - b.order;
       });
+  }
+
+  private collectWorkspaceArtifactCandidates(
+    workspaceRoot: string,
+    queryTerms: ReadonlySet<string>,
+    maxChars: number,
+  ): readonly DependencyArtifactCandidate[] {
+    const normalizedWorkspaceRoot = resolvePath(workspaceRoot);
+    if (
+      maxChars <= 0 ||
+      !existsSync(normalizedWorkspaceRoot)
+    ) {
+      return [];
+    }
+
+    const candidatePaths = this.collectWorkspaceArtifactPaths(
+      normalizedWorkspaceRoot,
+      0,
+      [],
+    );
+    if (candidatePaths.length === 0) {
+      return [];
+    }
+
+    const documents: { id: string; text: string }[] = [];
+    const byPath = new Map<string, DependencyArtifactCandidate>();
+    for (const absolutePath of candidatePaths) {
+      try {
+        const stats = statSync(absolutePath);
+        if (!stats.isFile() || stats.size > WORKSPACE_CONTEXT_MAX_FILE_BYTES) {
+          continue;
+        }
+        const relativePath = this.normalizeDependencyArtifactPath(
+          absolutePath,
+          normalizedWorkspaceRoot,
+        );
+        if (!this.isDependencyArtifactPathCandidate(relativePath)) {
+          continue;
+        }
+        const rawContent = readFileSync(absolutePath, "utf-8");
+        const content = rawContent.trim();
+        if (content.length === 0) continue;
+        const truncatedContent = this.truncateText(
+          content,
+          WORKSPACE_CONTEXT_MAX_CONTENT_CHARS,
+        );
+        documents.push({
+          id: relativePath,
+          text: `${relativePath}\n${truncatedContent}`,
+        });
+        byPath.set(relativePath, {
+          dependencyName: "workspace_context",
+          path: relativePath,
+          content: truncatedContent,
+          score: 0,
+          order: byPath.size,
+          depth: 0,
+        });
+      } catch {
+        // Best-effort prompt enrichment only.
+      }
+    }
+
+    if (documents.length === 0) {
+      return [];
+    }
+
+    const scores = this.computeBm25Scores(documents, [...queryTerms]);
+    const scored = [...byPath.values()]
+      .map((candidate) => ({
+        ...candidate,
+        score:
+          (scores.get(candidate.path) ?? 0) +
+          this.scoreText(candidate.path, queryTerms),
+      }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.path.localeCompare(b.path);
+      });
+    const positiveScoreCount = scored.filter((candidate) => candidate.score > 0).length;
+    const targetCount = Math.max(
+      WORKSPACE_CONTEXT_MIN_CANDIDATES,
+      Math.min(
+        WORKSPACE_CONTEXT_MAX_CANDIDATES,
+        Math.floor(maxChars / 600),
+      ),
+    );
+    const selected = positiveScoreCount > 0
+      ? scored.slice(
+        0,
+        Math.min(
+          WORKSPACE_CONTEXT_MAX_CANDIDATES,
+          Math.max(targetCount, positiveScoreCount),
+        ),
+      )
+      : (() => {
+        const bootstrapCandidates = scored.filter((candidate) =>
+          this.isWorkspaceBootstrapArtifact(candidate.path)
+        );
+        return (bootstrapCandidates.length > 0 ? bootstrapCandidates : scored).slice(
+          0,
+          targetCount,
+        );
+      })();
+
+    return selected;
+  }
+
+  private collectWorkspaceArtifactPaths(
+    directory: string,
+    depth: number,
+    collected: string[],
+  ): string[] {
+    if (
+      depth > WORKSPACE_CONTEXT_MAX_SCAN_DEPTH ||
+      collected.length >= WORKSPACE_CONTEXT_MAX_SCAN_FILES
+    ) {
+      return collected;
+    }
+
+    let entries: { name: string; isDirectory(): boolean; isFile(): boolean }[];
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return collected;
+    }
+
+    for (const entry of entries) {
+      if (collected.length >= WORKSPACE_CONTEXT_MAX_SCAN_FILES) {
+        break;
+      }
+      if (WORKSPACE_CONTEXT_SKIP_DIRS.has(entry.name)) {
+        continue;
+      }
+      const absolutePath = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        this.collectWorkspaceArtifactPaths(
+          absolutePath,
+          depth + 1,
+          collected,
+        );
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (!WORKSPACE_CONTEXT_CANDIDATE_PATH_RE.test(entry.name)) {
+        continue;
+      }
+      collected.push(absolutePath);
+    }
+
+    return collected;
+  }
+
+  private isWorkspaceBootstrapArtifact(path: string): boolean {
+    const normalized = path.trim().toLowerCase();
+    return (
+      normalized.endsWith("package.json") ||
+      normalized.endsWith("index.html") ||
+      normalized.endsWith("tsconfig.json") ||
+      normalized.endsWith("vite.config.ts") ||
+      normalized.endsWith("vite.config.js") ||
+      normalized.endsWith("vitest.config.ts") ||
+      normalized.endsWith("vitest.config.js") ||
+      normalized.includes("/src/")
+    );
   }
 
   private extractDependencyArtifactsFromToolCall(
@@ -3263,6 +5036,42 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       : [];
   }
 
+  private normalizeDependencyArtifactPath(
+    path: string,
+    workspaceRoot?: string,
+  ): string {
+    const normalize = (value: string): string =>
+      value
+        .trim()
+        .replace(/\\/g, "/")
+        .replace(/\/{2,}/g, "/")
+        .replace(/^\.\//, "")
+        .replace(/\/$/, "");
+
+    const normalizedPath = normalize(path);
+    if (normalizedPath.length === 0) {
+      return normalizedPath;
+    }
+
+    const normalizedWorkspaceRoot =
+      typeof workspaceRoot === "string" && workspaceRoot.trim().length > 0
+        ? normalize(workspaceRoot)
+        : "";
+    if (
+      normalizedWorkspaceRoot.length > 0 &&
+      (
+        normalizedPath === normalizedWorkspaceRoot ||
+        normalizedPath.startsWith(`${normalizedWorkspaceRoot}/`)
+      )
+    ) {
+      return normalizedPath
+        .slice(normalizedWorkspaceRoot.length)
+        .replace(/^\/+/, "");
+    }
+
+    return normalizedPath;
+  }
+
   private isDependencyArtifactPathCandidate(path: string): boolean {
     const normalized = path.trim().toLowerCase();
     if (normalized.length === 0) return false;
@@ -3299,13 +5108,24 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   private resolveAllowedMemorySources(
     lowerRequirements: readonly string[],
   ): Set<PipelinePlannerContextMemorySource> {
-    const allowed = new Set<PipelinePlannerContextMemorySource>([
-      "memory_semantic",
-    ]);
-    for (const term of lowerRequirements) {
-      if (term.includes("semantic")) allowed.add("memory_semantic");
-      if (term.includes("episodic")) allowed.add("memory_episodic");
-      if (term.includes("working")) allowed.add("memory_working");
+    const allowed = new Set<PipelinePlannerContextMemorySource>();
+    for (const requirement of lowerRequirements) {
+      const normalized = requirement.replace(/[_-]+/g, " ").trim();
+      if (
+        /\b(?:memory semantic|semantic memory)\b/i.test(normalized)
+      ) {
+        allowed.add("memory_semantic");
+      }
+      if (
+        /\b(?:memory episodic|episodic memory)\b/i.test(normalized)
+      ) {
+        allowed.add("memory_episodic");
+      }
+      if (
+        /\b(?:memory working|working memory)\b/i.test(normalized)
+      ) {
+        allowed.add("memory_working");
+      }
     }
     return allowed;
   }
@@ -3341,6 +5161,32 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       ...step.requiredToolCapabilities,
     ].join(" ");
     return new Set(this.extractTerms(aggregate));
+  }
+
+  private singularizeContextTerm(value: string): string {
+    if (value.endsWith("ies") && value.length > 3) {
+      return `${value.slice(0, -3)}y`;
+    }
+    if (value.endsWith("s") && value.length > CONTEXT_TERM_MIN_LENGTH) {
+      return value.slice(0, -1);
+    }
+    return value;
+  }
+
+  private expandContextQueryTerms(terms: ReadonlySet<string>): string[] {
+    const expanded = new Set<string>();
+    for (const term of terms) {
+      const normalized = term.trim().toLowerCase();
+      if (normalized.length < CONTEXT_TERM_MIN_LENGTH) continue;
+      expanded.add(normalized);
+      expanded.add(this.singularizeContextTerm(normalized));
+      for (const fragment of normalized.split(/[._-]+/g)) {
+        if (fragment.length < CONTEXT_TERM_MIN_LENGTH) continue;
+        expanded.add(fragment);
+        expanded.add(this.singularizeContextTerm(fragment));
+      }
+    }
+    return [...expanded].filter((term) => term.length >= CONTEXT_TERM_MIN_LENGTH);
   }
 
   private extractTerms(value: string): string[] {
@@ -3517,11 +5363,11 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     try {
       parsed = JSON.parse(result);
     } catch {
-      return result;
+      return this.truncateText(result, 320);
     }
 
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return result;
+      return this.truncateText(result, 320);
     }
 
     const record = parsed as Record<string, unknown>;
@@ -3547,29 +5393,56 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       }
     }
 
-    if (typeof record.output === "string" && record.output.length > 0) {
-      summary.output = record.output;
-    }
-
-    if (
-      record.tokenUsage &&
-      typeof record.tokenUsage === "object" &&
-      !Array.isArray(record.tokenUsage)
-    ) {
-      const totalTokens = (record.tokenUsage as Record<string, unknown>).totalTokens;
-      if (typeof totalTokens === "number" && Number.isFinite(totalTokens)) {
-        summary.tokenUsage = { totalTokens };
-      }
-    }
-
     if (Array.isArray(record.toolCalls)) {
       const toolNames = new Set<string>();
+      const modifiedFiles: string[] = [];
+      const verificationCommandStates = new Map<string, number>();
       for (const entry of record.toolCalls) {
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-        const name = (entry as Record<string, unknown>).name;
+        const toolCall = entry as Record<string, unknown>;
+        const name = toolCall.name;
         if (typeof name === "string" && name.trim().length > 0) {
           toolNames.add(name);
         }
+        const args =
+          typeof toolCall.args === "object" &&
+            toolCall.args !== null &&
+            !Array.isArray(toolCall.args)
+            ? toolCall.args as Record<string, unknown>
+            : undefined;
+        if ((name === "system.writeFile" || name === "system.appendFile") && args) {
+          const path = typeof args.path === "string" ? args.path.trim() : "";
+          if (path.length > 0 && !modifiedFiles.includes(path)) {
+            modifiedFiles.push(path);
+          }
+        }
+        if (name === "system.bash" || name === "desktop.bash") {
+          const command = this.summarizeDependencyShellCommand(args);
+          if (!command || !this.isDependencyVerificationCommand(command)) {
+            continue;
+          }
+          const exitCode = this.extractDependencyCommandExitCode(
+            typeof toolCall.result === "string" ? toolCall.result : "",
+          );
+          if (typeof exitCode === "number") {
+            verificationCommandStates.set(command, exitCode);
+          }
+        }
+      }
+      const verifiedCommands = [...verificationCommandStates.entries()]
+        .filter(([, exitCode]) => exitCode === 0)
+        .map(([command]) => command);
+      const failedCommands = [...verificationCommandStates.entries()]
+        .filter(([, exitCode]) => exitCode !== 0)
+        .map(([command]) => command);
+      if (modifiedFiles.length > 0) {
+        summary.modifiedFiles = modifiedFiles.slice(0, 6);
+      }
+      if (verifiedCommands.length > 0) {
+        summary.verifiedCommands = verifiedCommands.slice(0, 4);
+      }
+      if (failedCommands.length > 0) {
+        summary.failedCommands = failedCommands.slice(0, 4);
       }
       summary.toolCallSummary = {
         count: record.toolCalls.length,
@@ -3577,9 +5450,63 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       };
     }
 
+    if (
+      typeof record.output === "string" &&
+      record.output.trim().length > 0 &&
+      summary.modifiedFiles === undefined &&
+      summary.verifiedCommands === undefined &&
+      summary.failedCommands === undefined
+    ) {
+      summary.outputSummary = this.summarizeDependencyOutputText(record.output);
+    }
+
     return safeStringify(
       Object.keys(summary).length > 0 ? summary : record,
     );
+  }
+
+  private summarizeDependencyShellCommand(
+    args: Record<string, unknown> | undefined,
+  ): string | undefined {
+    if (!args) return undefined;
+    const command =
+      typeof args.command === "string" ? args.command.trim() : "";
+    const commandArgs = Array.isArray(args.args)
+      ? args.args.filter((value): value is string => typeof value === "string")
+      : [];
+    const rendered = [command, ...commandArgs]
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .join(" ");
+    return rendered.length > 0 ? rendered : undefined;
+  }
+
+  private isDependencyVerificationCommand(command: string): boolean {
+    return /\b(?:npm|pnpm|yarn|bun|vitest|jest|tsc)\b/i.test(command) &&
+      /\b(?:build|test|coverage|verify|check|install|run)\b/i.test(command);
+  }
+
+  private extractDependencyCommandExitCode(result: string): number | undefined {
+    if (result.trim().length === 0) return undefined;
+    try {
+      const parsed = JSON.parse(result) as Record<string, unknown>;
+      return typeof parsed.exitCode === "number" && Number.isFinite(parsed.exitCode)
+        ? parsed.exitCode
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private summarizeDependencyOutputText(output: string): string {
+    const lines = output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (lines.length === 0) {
+      return this.truncateText(output.trim(), 240);
+    }
+    return this.truncateText(lines.slice(0, 3).join(" "), 240);
   }
 
   private resolveParentSessionId(pipelineId: string): string {

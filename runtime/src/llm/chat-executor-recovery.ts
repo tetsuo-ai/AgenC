@@ -59,6 +59,12 @@ function extractDeniedCommand(failureText: string): string | undefined {
   return undefined;
 }
 
+function extractSpawnEnoentCommand(failureText: string): string | undefined {
+  const match = failureText.match(/spawn\s+([^\s]+)\s+enoent/i);
+  const command = match?.[1]?.trim();
+  return command && command.length > 0 ? command : undefined;
+}
+
 function commandBasename(command: string): string {
   const normalized = command.trim().replace(/\\/g, "/");
   const parts = normalized.split("/");
@@ -163,6 +169,87 @@ function isWatchModeTestRunnerFailure(
   );
 }
 
+function isTestRunnerCommand(
+  call: ToolCallRecord,
+  failureTextLower: string,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  const command = String(call.args?.command ?? "").trim().toLowerCase();
+  const args = Array.isArray(call.args?.args)
+    ? call.args.args
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.toLowerCase())
+    : [];
+  const joined = [command, ...args].join(" ");
+  const invokesDirectTestArtifact =
+    isNodeInterpreterCommand(command) &&
+    args.some((value) =>
+      /(^|\/)(?:dist\/)?(?:test|tests|__tests__)\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(
+        value,
+      ) ||
+      /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(value)
+    );
+  if (/\b(?:vitest|jest|pytest|mocha|ava)\b/.test(joined)) {
+    return true;
+  }
+  if (invokesDirectTestArtifact) {
+    return true;
+  }
+  if (
+    ["npm", "pnpm", "yarn", "bun"].includes(command) &&
+    args.some((value) =>
+      value === "test" ||
+      value === "vitest" ||
+      value === "coverage" ||
+      value === "jest"
+    )
+  ) {
+    return true;
+  }
+  return failureTextLower.includes("vitest") || failureTextLower.includes("jest");
+}
+
+function isTimedOutNonWatchTestRunnerFailure(
+  call: ToolCallRecord,
+  parsedResult: Record<string, unknown> | null,
+  failureTextLower: string,
+): boolean {
+  if (!parsedResult || parsedResult.timedOut !== true) {
+    return false;
+  }
+  if (isWatchModeTestRunnerFailure(call, parsedResult, failureTextLower)) {
+    return false;
+  }
+  return isTestRunnerCommand(call, failureTextLower);
+}
+
+function isVitestUnsupportedThreadsFlagFailure(
+  call: ToolCallRecord,
+  failureTextLower: string,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  const command = String(call.args?.command ?? "").trim().toLowerCase();
+  const args = Array.isArray(call.args?.args)
+    ? call.args.args
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.toLowerCase())
+    : [];
+  const joined = [command, ...args].join(" ");
+  if (
+    !joined.includes("vitest") &&
+    !failureTextLower.includes("vitest")
+  ) {
+    return false;
+  }
+  if (
+    !failureTextLower.includes("unknown option") ||
+    !failureTextLower.includes("--threads")
+  ) {
+    return false;
+  }
+  return joined.includes("--threads") || joined.includes("--no-threads");
+}
+
 function isUnsupportedWorkspaceProtocolFailure(failureTextLower: string): boolean {
   return (
     failureTextLower.includes("unsupported url type \"workspace:\"") ||
@@ -201,9 +288,129 @@ function isRecursiveNpmInstallLifecycleFailure(
   );
 }
 
+function extractMissingNpmScriptName(failureText: string): string | undefined {
+  const match = failureText.match(/missing script:\s*["'`]?([^"'`\n]+)["'`]?/i);
+  const scriptName = match?.[1]?.trim();
+  return scriptName && scriptName.length > 0 ? scriptName : undefined;
+}
+
+function extractRequestedNpmWorkspaceSelectors(
+  call: ToolCallRecord,
+): readonly string[] {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return [];
+  const command = String(call.args?.command ?? "").trim().toLowerCase();
+  if (command !== "npm") return [];
+  const args = Array.isArray(call.args?.args)
+    ? call.args.args.filter((value): value is string => typeof value === "string")
+    : [];
+  const selectors: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index]?.trim();
+    if (!value) continue;
+    if (value.startsWith("--workspace=")) {
+      const selector = value.slice("--workspace=".length).trim();
+      if (selector.length > 0) selectors.push(selector);
+      continue;
+    }
+    if (value === "--workspace") {
+      const selector = args[index + 1]?.trim();
+      if (selector && selector.length > 0) {
+        selectors.push(selector);
+        index += 1;
+      }
+    }
+  }
+  return selectors;
+}
+
+function isMissingNpmScriptFailure(
+  call: ToolCallRecord,
+  failureText: string,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  const command = String(call.args?.command ?? "").trim().toLowerCase();
+  return command.includes("npm") && extractMissingNpmScriptName(failureText) !== undefined;
+}
+
+function isMissingNpmWorkspaceFailure(
+  call: ToolCallRecord,
+  failureText: string,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  const command = String(call.args?.command ?? "").trim().toLowerCase();
+  if (command !== "npm") return false;
+  return /npm error no workspaces found:/i.test(failureText);
+}
+
 function isMissingLocalPackageDistFailure(failureText: string): boolean {
   return /cannot find (?:package|module)\s+['"][^'"]*\/node_modules\/[^'"]*\/dist\/[^'"]+['"]/i
     .test(failureText);
+}
+
+function isTypescriptRootDirScopeFailure(failureText: string): boolean {
+  return /ts6059/i.test(failureText) && /is not under ['"`]rootdir['"`]/i.test(failureText);
+}
+
+function isPackagePathNotExportedFailure(failureTextLower: string): boolean {
+  return (
+    failureTextLower.includes("err_package_path_not_exported") ||
+    failureTextLower.includes("no \"exports\" main defined")
+  );
+}
+
+function usesCommonJsRequireSnippet(call: ToolCallRecord): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  const command = String(call.args?.command ?? "");
+  if (!/\bnode\b/i.test(command)) return false;
+  return /\brequire\s*\(/.test(command);
+}
+
+function hasExtendedGrepPatternWithoutFlag(
+  args: Record<string, unknown> | undefined,
+): boolean {
+  const rawArgs = Array.isArray(args?.args)
+    ? args.args.filter((value): value is string => typeof value === "string")
+    : [];
+  if (rawArgs.length === 0) return false;
+  const hasExtendedFlag = rawArgs.some((value) => value === "-E" || value === "-P");
+  if (hasExtendedFlag) return false;
+  return rawArgs.some((value) => {
+    if (value.startsWith("-")) return false;
+    return value.includes("|");
+  });
+}
+
+function isLikelyGrepOperandShapeFailure(
+  call: ToolCallRecord,
+  failureTextLower: string,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  const command = String(call.args?.command ?? "");
+  if (commandBasename(command) !== "grep") return false;
+  if (failureTextLower.includes("no such file or directory")) return true;
+  return hasExtendedGrepPatternWithoutFlag(call.args);
+}
+
+function isLikelyLiteralGlobFailure(
+  call: ToolCallRecord,
+  failureTextLower: string,
+): boolean {
+  if (call.name !== "system.bash" && call.name !== "desktop.bash") return false;
+  if (
+    !failureTextLower.includes("no such file or directory") &&
+    !failureTextLower.includes("cannot access")
+  ) {
+    return false;
+  }
+  const rawArgs = Array.isArray(call.args?.args)
+    ? call.args.args.filter((value): value is string => typeof value === "string")
+    : [];
+  if (rawArgs.length === 0) return false;
+  return rawArgs.some((value) => {
+    if (value.startsWith("-")) return false;
+    if (!/[/?[*\]]/.test(value)) return false;
+    return value.includes("/") || value.includes(".");
+  });
 }
 
 export function buildSemanticToolCallKey(
@@ -380,6 +587,24 @@ export function inferRecoveryHint(
         "Only append npm `--` flags when the underlying runner supports them.",
     };
   }
+  if (isTimedOutNonWatchTestRunnerFailure(call, parsedResult, failureTextLower)) {
+    return {
+      key: `${call.name}-test-runner-timeout`,
+      message:
+        "This non-interactive test command timed out without entering watch mode. " +
+        "A test or code path likely hung (for example an infinite loop, unresolved promise, or open handle). " +
+        "Do not keep retrying the same command or append ad-hoc runner flags. Inspect the authored source and tests, fix the hang, then rerun the minimal single-run test command.",
+    };
+  }
+  if (isVitestUnsupportedThreadsFlagFailure(call, failureTextLower)) {
+    return {
+      key: `${call.name}-vitest-unsupported-threads-flag`,
+      message:
+        "Vitest rejected an unsupported thread flag. Do not invent `--threads` or `--no-threads`. " +
+        "Keep the command in single-run mode (`vitest run` or `vitest --run`). " +
+        "If worker strategy matters for the installed Vitest version, use the supported `--pool=<threads|forks>` option or project config instead.",
+    };
+  }
   if (call.name === "execute_with_agent" && parsedResult) {
     const status =
       typeof parsedResult.status === "string"
@@ -451,6 +676,14 @@ export function inferRecoveryHint(
           "Retry only after explicitly using file-writing tools and naming the changed files in the result.",
       };
     }
+    if (validationCode === "forbidden_phase_action") {
+      return {
+        key: "execute-with-agent-forbidden-phase-action",
+        message:
+          "The previous `execute_with_agent` attempt violated the delegated phase contract by running or claiming a forbidden action for that phase. " +
+          "Retry only with the scoped file-authoring or inspection work, and leave install/build/test verification for the later step.",
+      };
+    }
     if (validationCode === "blocked_phase_output") {
       return {
         key: "execute-with-agent-blocked-phase-output",
@@ -507,6 +740,7 @@ export function inferRecoveryHint(
 
   if (call.name === "system.bash") {
     const command = String(call.args?.command ?? "").trim().toLowerCase();
+    const spawnEnoentCommand = extractSpawnEnoentCommand(failureText);
     if (hasBrokenHeredocConjunctionShape(call.args, failureTextLower)) {
       return {
         key: "system-bash-heredoc-conjunction-shape",
@@ -545,12 +779,76 @@ export function inferRecoveryHint(
           "Remove or rename the recursive `install` script in `package.json`, keep one-time setup out of `npm install`, then rerun `npm install` before continuing.",
       };
     }
+    if (isMissingNpmScriptFailure(call, failureText)) {
+      const scriptName = extractMissingNpmScriptName(failureText) ?? "requested";
+      return {
+        key: `system-bash-missing-npm-script:${scriptName.toLowerCase()}`,
+        message:
+          `The current package.json does not define the npm script \`${scriptName}\`. ` +
+          `Inspect the package.json at the active cwd, add the missing root/workspace script if later verification depends on \`npm run ${scriptName}\`, ` +
+          "or run the correct package-specific command instead of retrying the same missing script.",
+      };
+    }
+    if (isMissingNpmWorkspaceFailure(call, failureText)) {
+      const selectors = extractRequestedNpmWorkspaceSelectors(call);
+      const selectorSuffix = selectors.length > 0
+        ? ` The rejected selectors were: ${selectors.map((value) => `\`${value}\``).join(", ")}.`
+        : "";
+      return {
+        key: selectors.length > 0
+          ? `system-bash-missing-npm-workspace:${selectors.join(",").toLowerCase()}`
+          : "system-bash-missing-npm-workspace",
+        message:
+          "npm could not match one or more `--workspace` selectors in this repo." +
+          selectorSuffix +
+          " Inspect the root `package.json` workspaces and each package `name`, then rerun with the exact workspace package names " +
+          "(for example `--workspace=@scope/pkg`) or run the command from the matching workspace cwd.",
+      };
+    }
     if (isMissingLocalPackageDistFailure(failureText)) {
       return {
         key: "system-bash-local-package-dist-missing",
         message:
           "This local package link resolved to a `dist/*` entry that does not exist yet. " +
           "Build the dependency package first or point the consumer at source/exports that already exist on disk, then rerun the command before claiming success.",
+      };
+    }
+    if (isTypescriptRootDirScopeFailure(failureText)) {
+      return {
+        key: "system-bash-typescript-rootdir-scope",
+        message:
+          "This TypeScript config includes files outside `rootDir` (for example `vite.config.ts`). " +
+          "For Vite/browser packages, either remove the restrictive `rootDir`, exclude config files from that tsconfig, " +
+          "or move Node-side config files into a separate tsconfig such as `tsconfig.node.json` before rerunning `tsc`.",
+      };
+    }
+    if (isPackagePathNotExportedFailure(failureTextLower)) {
+      return {
+        key: usesCommonJsRequireSnippet(call)
+          ? "system-bash-esm-package-required-via-require"
+          : "system-bash-package-exports-mismatch",
+        message:
+          usesCommonJsRequireSnippet(call)
+            ? "This package exposes ESM/`exports` entry points. Do not verify it with CommonJS `require(...)` unless the package defines a `require` condition. " +
+              "Retry with an ESM import (for example `node --input-type=module -e \"import('pkg').then(...)\"`) or inspect the package `exports` map directly."
+            : "This package's `exports` map does not match the way the command is loading it. " +
+              "Inspect `package.json` `exports`/`main`/`types`, then retry with a loader and entry point that match the package format.",
+      };
+    }
+    if (isLikelyLiteralGlobFailure(call, failureTextLower)) {
+      return {
+        key: "system-bash-literal-glob-operand",
+        message:
+          "Direct mode passes `args` literally and does not expand shell globs like `*.d.ts`. " +
+          "Enumerate matches first with `find` or `rg --files`, or retry in shell mode with the full shell command in `command` and omit `args` when shell expansion is required.",
+      };
+    }
+    if (isLikelyGrepOperandShapeFailure(call, failureTextLower)) {
+      return {
+        key: "system-bash-grep-shape",
+        message:
+          "For code/text search, prefer `rg PATTERN PATH`. If you use `grep` in direct mode, pass exactly one pattern followed by file paths, " +
+          "and add `-E` (or use shell mode) when the pattern uses alternation like `foo|bar`. Extra non-flag args after the pattern are treated as file paths.",
       };
     }
     if (isDesktopBiasedSystemCommandFailure(command, failureTextLower)) {
@@ -569,17 +867,32 @@ export function inferRecoveryHint(
           "instead of raw docker shell commands on `system.bash`.",
       };
     }
-    const isBuiltin = command.length > 0 && SHELL_BUILTIN_COMMANDS.has(command);
+    const builtinCandidate =
+      spawnEnoentCommand && spawnEnoentCommand.length > 0
+        ? commandBasename(spawnEnoentCommand)
+        : command;
+    const isBuiltin =
+      builtinCandidate.length > 0 &&
+      SHELL_BUILTIN_COMMANDS.has(builtinCandidate);
     if (
       isBuiltin ||
-      failureTextLower.includes("shell builtin") ||
-      /spawn\s+\S+\s+enoent/i.test(failureText)
+      failureTextLower.includes("shell builtin")
     ) {
       return {
         key: "system-bash-shell-builtin",
         message:
           "Shell builtins (for example `set`, `cd`, `export`) are not standalone executables. " +
           "If you need shell semantics on the host, retry in `system.bash` shell mode by putting the full shell command in `command` and omitting `args`.",
+      };
+    }
+    if (spawnEnoentCommand) {
+      const missingCommand = commandBasename(spawnEnoentCommand);
+      return {
+        key: `system-bash-missing-command:${missingCommand}`,
+        message:
+          `The executable \`${missingCommand}\` was not found on the host PATH. ` +
+          "If this is a project-local Node/TypeScript tool, rerun it via `npx`, `npm exec --`, or `npm run` from the correct `cwd` " +
+          `(for example \`npx ${missingCommand}\`). Otherwise install the tool first or call the correct executable instead of retrying the same missing command.`,
       };
     }
     if (
@@ -689,6 +1002,26 @@ export function inferRecoveryHint(
           "Desktop tools run inside Docker and CANNOT reach the host's localhost.",
       };
     }
+  }
+
+  if (
+    (
+      call.name === "system.browserAction" ||
+      call.name.startsWith("system.browserSession")
+    ) &&
+    (
+      failureTextLower.includes("browser_session.domain_blocked") ||
+      failureTextLower.includes("ssrf target blocked") ||
+      failureTextLower.includes("private/loopback address blocked")
+    )
+  ) {
+    return {
+      key: "localhost-browser-session-blocked",
+      message:
+        "system.browserSession*/system.browserAction cannot open localhost/private/internal targets. " +
+        "For local service checks on the HOST, use system.bash (for example `curl -sSf http://127.0.0.1:PORT` or a host-side Playwright/Chromium command). " +
+        "Desktop/container browser tools also cannot reach the host's localhost.",
+    };
   }
 
   return undefined;

@@ -8,7 +8,7 @@ const PROVIDER_NATIVE_WEB_SEARCH_SCHEMA_CHARS = JSON.stringify({
 }).length;
 
 const RESEARCH_LIKE_RE =
-  /\b(?:research|compare|comparison|official docs?|primary sources?|reference|references|citation|citations|look up|latest|up[- ]to[- ]date|news|framework|mechanic|mechanics|tuning)\b/i;
+  /\b(?:research|compare|comparison|official docs?|primary sources?|reference|references|citation|citations|look up|latest|up[- ]to[- ]date|news)\b/i;
 const INTERACTIVE_BROWSER_RE =
   /\b(?:localhost|127\.0\.0\.1|about:blank|screenshot|snapshot|console|network|dom|inspect|click|type|hover|scroll|fill|select|tab|tabs|window|windows|playtest|qa|end-to-end|e2e|navigate to|open the page)\b/i;
 const GROK_SERVER_SIDE_TOOL_PREFIX = "grok-4";

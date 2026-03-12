@@ -91,6 +91,7 @@ Control example (valid linkage):
 Bundle these files/artifacts:
 
 - the active daemon log file(s): default `~/.agenc/daemon.log`, or the configured `AGENC_DAEMON_LOG_PATH` / per-daemon log path for local tmux runs such as `~/.agenc/localnet-soak/default/social/logs/agent-*.log`
+- when trace fan-out is enabled, the sibling derived views as needed: `*.provider.log`, `*.executor.log`, `*.subagents.log`, `*.errors.log`
 - `~/.agenc/config.json` (redact API keys/secrets)
 - repro harness JSON output
 - trace lines for `*.executor.*`

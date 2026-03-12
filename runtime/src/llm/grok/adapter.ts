@@ -37,6 +37,7 @@ import { withTimeout } from "../timeout.js";
 import { validateToolTurnSequence } from "../tool-turn-validator.js";
 import type { GrokProviderConfig } from "./types.js";
 import {
+  buildIncrementalContinuationMessages,
   buildProviderTraceErrorPayload,
   buildToolSelectionTraceContext,
   cloneProviderTracePayload,
@@ -91,6 +92,17 @@ function normalizeTimeoutMs(timeoutMs: number | undefined): number {
     return DEFAULT_TIMEOUT_MS;
   }
   return Math.max(1, Math.floor(timeoutMs));
+}
+
+function resolveRequestTimeoutMs(
+  providerTimeoutMs: number | undefined,
+  callTimeoutMs: number | undefined,
+): number {
+  const normalizedProviderTimeoutMs = normalizeTimeoutMs(providerTimeoutMs);
+  if (typeof callTimeoutMs !== "number" || !Number.isFinite(callTimeoutMs)) {
+    return normalizedProviderTimeoutMs;
+  }
+  return Math.max(1, Math.min(normalizedProviderTimeoutMs, Math.floor(callTimeoutMs)));
 }
 
 async function nextStreamChunkWithTimeout<T>(
@@ -218,6 +230,10 @@ function isPromptOverflowErrorMessage(message: string): boolean {
 function collectParamDiagnostics(
   params: Record<string, unknown>,
   selection?: ToolSelectionDiagnostics,
+  statefulInput?: {
+    mode: "full_replay" | "incremental_delta";
+    omittedMessageCount: number;
+  },
 ): LLMRequestMetrics {
   const messages = Array.isArray(params.messages)
     ? (params.messages as Array<Record<string, unknown>>)
@@ -306,6 +322,12 @@ function collectParamDiagnostics(
       typeof params.previous_response_id === "string"
         ? String(params.previous_response_id)
         : undefined,
+    ...(statefulInput
+      ? {
+        statefulInputMode: statefulInput.mode,
+        statefulOmittedMessageCount: statefulInput.omittedMessageCount,
+      }
+      : {}),
     store: typeof params.store === "boolean" ? params.store : undefined,
     parallelToolCalls:
       typeof params.parallel_tool_calls === "boolean"
@@ -313,6 +335,77 @@ function collectParamDiagnostics(
         : undefined,
     stream: typeof params.stream === "boolean" ? params.stream : undefined,
   };
+}
+
+function buildProviderRequestTraceContext(
+  selection: ToolSelectionDiagnostics,
+  toolChoice: LLMToolChoice | undefined,
+  requestMetrics: LLMRequestMetrics,
+  statefulDiagnostics?: LLMStatefulDiagnostics,
+  compactionDiagnostics?: LLMCompactionDiagnostics,
+  timeoutMs?: number,
+): Record<string, unknown> {
+  return {
+    ...buildToolSelectionTraceContext(selection, toolChoice),
+    messageCount: requestMetrics.messageCount,
+    systemMessages: requestMetrics.systemMessages,
+    userMessages: requestMetrics.userMessages,
+    assistantMessages: requestMetrics.assistantMessages,
+    toolMessages: requestMetrics.toolMessages,
+    totalContentChars: requestMetrics.totalContentChars,
+    maxMessageChars: requestMetrics.maxMessageChars,
+    serializedChars: requestMetrics.serializedChars,
+    statefulInputMode: requestMetrics.statefulInputMode,
+    statefulOmittedMessageCount: requestMetrics.statefulOmittedMessageCount,
+    previousResponseId: requestMetrics.previousResponseId,
+    ...(statefulDiagnostics
+      ? {
+        statefulAttempted: statefulDiagnostics.attempted,
+        statefulContinued: statefulDiagnostics.continued,
+        statefulFallbackReason: statefulDiagnostics.fallbackReason,
+        statefulAnchorMatched: statefulDiagnostics.anchorMatched,
+        statefulReconciliationHash: statefulDiagnostics.reconciliationHash,
+        statefulPreviousReconciliationHash:
+          statefulDiagnostics.previousReconciliationHash,
+        statefulReconciliationMessageCount:
+          statefulDiagnostics.reconciliationMessageCount,
+        statefulReconciliationSource:
+          statefulDiagnostics.reconciliationSource,
+        statefulHistoryCompacted: statefulDiagnostics.historyCompacted,
+        statefulCompactedHistoryTrusted:
+          statefulDiagnostics.compactedHistoryTrusted,
+      }
+      : {}),
+    ...(compactionDiagnostics
+      ? {
+        compactionActive: compactionDiagnostics.active,
+        compactionThreshold: compactionDiagnostics.threshold,
+      }
+      : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
+}
+
+function buildProviderResponseTraceContext(
+  statefulDiagnostics?: LLMStatefulDiagnostics,
+  compactionDiagnostics?: LLMCompactionDiagnostics,
+): Record<string, unknown> | undefined {
+  const context: Record<string, unknown> = {};
+  if (statefulDiagnostics) {
+    context.statefulResponseId = statefulDiagnostics.responseId;
+    context.statefulReconciliationHash = statefulDiagnostics.reconciliationHash;
+    context.statefulContinued = statefulDiagnostics.continued;
+    context.statefulAnchorMatched = statefulDiagnostics.anchorMatched;
+    context.statefulFallbackReason = statefulDiagnostics.fallbackReason;
+  }
+  if (compactionDiagnostics) {
+    context.compactionActive = compactionDiagnostics.active;
+    context.compactionObservedItemCount = compactionDiagnostics.observedItemCount;
+    if (compactionDiagnostics.latestItem) {
+      context.compactionLatestItem = compactionDiagnostics.latestItem;
+    }
+  }
+  return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function emitProviderTraceEvent(
@@ -486,8 +579,14 @@ export class GrokProvider implements LLMProvider {
   ): Promise<LLMResponse> {
     const client = await this.ensureClient();
     let plan = this.buildRequestPlan(messages, options);
+    const requestTimeoutMs = resolveRequestTimeoutMs(
+      this.config.timeoutMs,
+      options?.timeoutMs,
+    );
+    const requestDeadlineAt = Date.now() + requestTimeoutMs;
 
     const run = async (activePlan: ReturnType<GrokProvider["buildRequestPlan"]>) => {
+      const activeRequestTimeoutMs = Math.max(1, requestDeadlineAt - Date.now());
       emitProviderTraceEvent(options, {
         kind: "request",
         transport: "chat",
@@ -496,27 +595,23 @@ export class GrokProvider implements LLMProvider {
         payload:
           cloneProviderTracePayload(activePlan.params) ??
           { error: "provider_request_trace_unavailable" },
-        context: buildToolSelectionTraceContext(
+        context: buildProviderRequestTraceContext(
           activePlan.toolSelection,
           options?.toolChoice,
+          activePlan.requestMetrics,
+          activePlan.statefulDiagnostics,
+          activePlan.compactionDiagnostics,
+          activeRequestTimeoutMs,
         ),
       });
       try {
         const response = await withTimeout(
           async (signal) =>
             (client as any).responses.create(activePlan.params, { signal }),
-          this.config.timeoutMs,
+          activeRequestTimeoutMs,
           this.name,
+          options?.signal,
         );
-        emitProviderTraceEvent(options, {
-          kind: "response",
-          transport: "chat",
-          provider: this.name,
-          model: String(response?.model ?? activePlan.params.model ?? this.config.model),
-          payload:
-            cloneProviderTracePayload(response) ??
-            { error: "provider_response_trace_unavailable" },
-        });
         const parsed = this.parseResponse(
           response,
           activePlan.requestMetrics,
@@ -530,6 +625,19 @@ export class GrokProvider implements LLMProvider {
           this.serverCompactionSupported = true;
         }
         this.persistStatefulAnchor(activePlan, parsed);
+        emitProviderTraceEvent(options, {
+          kind: "response",
+          transport: "chat",
+          provider: this.name,
+          model: String(response?.model ?? activePlan.params.model ?? this.config.model),
+          payload:
+            cloneProviderTracePayload(response) ??
+            { error: "provider_response_trace_unavailable" },
+          context: buildProviderResponseTraceContext(
+            parsed.stateful,
+            parsed.compaction,
+          ),
+        });
         return parsed;
       } catch (error) {
         emitProviderTraceEvent(options, {
@@ -594,7 +702,7 @@ export class GrokProvider implements LLMProvider {
           });
           continue;
         }
-        const mapped = this.mapError(err);
+        const mapped = this.mapError(err, Math.max(1, requestDeadlineAt - Date.now()));
         this.logPromptOverflowDiagnostics(mapped, plan.params);
         throw mapped;
       }
@@ -609,7 +717,10 @@ export class GrokProvider implements LLMProvider {
     const client = await this.ensureClient();
     let plan = this.buildRequestPlan(messages, options);
     let params: Record<string, unknown> = { ...plan.params, stream: true };
-    let requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
+    let requestMetrics = {
+      ...plan.requestMetrics,
+      stream: true,
+    };
     let statefulDiagnostics = plan.statefulDiagnostics;
     let compactionDiagnostics = plan.compactionDiagnostics;
     let content = "";
@@ -620,12 +731,17 @@ export class GrokProvider implements LLMProvider {
     let providerEvidence: LLMResponse["providerEvidence"];
     const toolCallAccum = new Map<string, LLMToolCall>();
     let streamIterator: AsyncIterator<any> | null = null;
-    const streamTimeoutMs = normalizeTimeoutMs(this.config.timeoutMs);
+    let responseTracePayload: Record<string, unknown> | undefined;
+    const streamTimeoutMs = resolveRequestTimeoutMs(
+      this.config.timeoutMs,
+      options?.timeoutMs,
+    );
     const streamDeadlineAt = Date.now() + streamTimeoutMs;
 
     try {
       let stream: AsyncIterable<any>;
       while (true) {
+        const requestAttemptTimeoutMs = Math.max(1, streamDeadlineAt - Date.now());
         emitProviderTraceEvent(options, {
           kind: "request",
           transport: "chat_stream",
@@ -634,17 +750,22 @@ export class GrokProvider implements LLMProvider {
           payload:
             cloneProviderTracePayload(params) ??
             { error: "provider_request_trace_unavailable" },
-          context: buildToolSelectionTraceContext(
+          context: buildProviderRequestTraceContext(
             plan.toolSelection,
             options?.toolChoice,
+            requestMetrics,
+            statefulDiagnostics,
+            compactionDiagnostics,
+            requestAttemptTimeoutMs,
           ),
         });
         try {
           stream = await withTimeout(
             async (signal) =>
               (client as any).responses.create(params, { signal }),
-            this.config.timeoutMs,
+            requestAttemptTimeoutMs,
             this.name,
+            options?.signal,
           );
           if (plan.assistantPhaseEnabled) {
             this.assistantPhaseSupported = true;
@@ -665,7 +786,10 @@ export class GrokProvider implements LLMProvider {
               compactionFallbackReason: compactionDiagnostics?.fallbackReason,
             });
             params = { ...plan.params, stream: true };
-            requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
+            requestMetrics = {
+              ...plan.requestMetrics,
+              stream: true,
+            };
             statefulDiagnostics = plan.statefulDiagnostics;
             compactionDiagnostics = plan.compactionDiagnostics;
             continue;
@@ -684,7 +808,10 @@ export class GrokProvider implements LLMProvider {
               compactionFallbackReason: "request_rejected",
             });
             params = { ...plan.params, stream: true };
-            requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
+            requestMetrics = {
+              ...plan.requestMetrics,
+              stream: true,
+            };
             statefulDiagnostics = plan.statefulDiagnostics;
             compactionDiagnostics = plan.compactionDiagnostics;
             continue;
@@ -700,7 +827,10 @@ export class GrokProvider implements LLMProvider {
               compactionFallbackReason: compactionDiagnostics?.fallbackReason,
             });
             params = { ...plan.params, stream: true };
-            requestMetrics = collectParamDiagnostics(params, plan.toolSelection);
+            requestMetrics = {
+              ...plan.requestMetrics,
+              stream: true,
+            };
             statefulDiagnostics = plan.statefulDiagnostics;
             compactionDiagnostics = plan.compactionDiagnostics;
             continue;
@@ -743,15 +873,9 @@ export class GrokProvider implements LLMProvider {
 
         if (event.type === "response.completed") {
           const response = event.response ?? {};
-          emitProviderTraceEvent(options, {
-            kind: "response",
-            transport: "chat_stream",
-            provider: this.name,
-            model: String(response.model ?? model),
-            payload:
-              cloneProviderTracePayload(response) ??
-              { error: "provider_response_trace_unavailable" },
-          });
+          responseTracePayload =
+            cloneProviderTracePayload(response) ??
+            { error: "provider_response_trace_unavailable" };
           model = String(response.model ?? model);
           usage = this.parseUsage(response);
           providerEvidence = this.extractProviderEvidence(
@@ -829,6 +953,18 @@ export class GrokProvider implements LLMProvider {
         ...(responseError ? { error: responseError } : {}),
       };
       this.persistStatefulAnchor(plan, parsed);
+      emitProviderTraceEvent(options, {
+        kind: "response",
+        transport: "chat_stream",
+        provider: this.name,
+        model,
+        payload:
+          responseTracePayload ?? { error: "provider_response_trace_unavailable" },
+        context: buildProviderResponseTraceContext(
+          parsed.stateful,
+          parsed.compaction,
+        ),
+      });
       return parsed;
     } catch (err: unknown) {
       emitProviderTraceEvent(options, {
@@ -838,7 +974,7 @@ export class GrokProvider implements LLMProvider {
         model,
         payload: buildProviderTraceErrorPayload(err),
       });
-      const mappedError = this.mapError(err);
+      const mappedError = this.mapError(err, streamTimeoutMs);
       this.logPromptOverflowDiagnostics(mappedError, params);
       if (content.length > 0) {
         const partialToolCalls: LLMToolCall[] = Array.from(toolCallAccum.values());
@@ -995,6 +1131,7 @@ export class GrokProvider implements LLMProvider {
     let previousResponseId: string | undefined;
     let fallbackReason = overrides?.fallbackReason;
     let anchorMatched: boolean | undefined;
+    let anchorRelevantMessageIndex: number | undefined;
     const historyCompacted = options?.stateful?.historyCompacted === true;
     let compactedHistoryTrusted = false;
 
@@ -1005,7 +1142,15 @@ export class GrokProvider implements LLMProvider {
         detail: `session=${sessionId}`,
       });
 
-      anchorMatched = reconciliation.chain.includes(anchor.reconciliationHash);
+      const anchorRelativeIndex = reconciliation.chain.lastIndexOf(
+        anchor.reconciliationHash,
+      );
+      anchorMatched = anchorRelativeIndex >= 0;
+      if (anchorMatched) {
+        anchorRelevantMessageIndex =
+          reconciliation.messageCountUsed - reconciliation.chain.length +
+          anchorRelativeIndex;
+      }
       if (anchorMatched) {
         continued = true;
         appendStatefulEvent(events, "stateful_continuation_success");
@@ -1056,7 +1201,18 @@ export class GrokProvider implements LLMProvider {
     const toolSelection = this.resolveResponseTools(
       options?.toolRouting?.allowedToolNames,
     );
-    const built = this.buildParams(messages, {
+    const statefulInput =
+      continued && anchorMatched && anchorRelevantMessageIndex !== undefined
+        ? buildIncrementalContinuationMessages(
+          messages,
+          anchorRelevantMessageIndex,
+        )
+        : {
+          messages,
+          mode: "full_replay" as const,
+          omittedMessageCount: 0,
+        };
+    const built = this.buildParams(statefulInput.messages, {
       store: this.statefulConfig.store,
       previousResponseId: continued ? previousResponseId : undefined,
       allowedToolNames: options?.toolRouting?.allowedToolNames,
@@ -1072,11 +1228,12 @@ export class GrokProvider implements LLMProvider {
       requestMetrics: collectParamDiagnostics(
         built.params,
         built.toolSelection,
+        statefulInput,
       ),
       toolSelection: built.toolSelection,
       sessionId,
       reconciliationHash: reconciliation.anchorHash,
-      requestMessages: messages,
+      requestMessages: reconciliationMessages,
       compactionDiagnostics,
       assistantPhaseEnabled,
       statefulDiagnostics: {
@@ -1188,7 +1345,10 @@ export class GrokProvider implements LLMProvider {
     toolSelection: ToolSelectionDiagnostics;
   } {
     const visionModel = this.config.visionModel ?? DEFAULT_VISION_MODEL;
-    validateToolTurnSequence(messages, { providerName: this.name });
+    validateToolTurnSequence(messages, {
+      providerName: this.name,
+      allowLeadingToolResults: Boolean(options?.previousResponseId),
+    });
 
     // Build mapped messages, handling multimodal tool messages.
     // The OpenAI API requires tool message content to be a string.
@@ -1767,8 +1927,8 @@ export class GrokProvider implements LLMProvider {
     );
   }
 
-  private mapError(err: unknown): Error {
-    return mapLLMError(this.name, err, this.config.timeoutMs ?? 0);
+  private mapError(err: unknown, timeoutMs?: number): Error {
+    return mapLLMError(this.name, err, timeoutMs ?? this.config.timeoutMs ?? 0);
   }
 
   private logPromptOverflowDiagnostics(

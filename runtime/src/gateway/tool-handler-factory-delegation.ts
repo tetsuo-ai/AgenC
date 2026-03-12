@@ -9,6 +9,7 @@ import type { DelegationToolCompositionResolver } from "./delegation-runtime.js"
 import type { ExecuteWithAgentInput } from "./delegation-tool.js";
 import {
   parseExecuteWithAgentInput,
+  resolveDelegatedWorkingDirectoryPath,
   resolveDelegatedWorkingDirectory,
 } from "./delegation-tool.js";
 import { isSubAgentSessionId } from "./delegation-runtime.js";
@@ -58,6 +59,7 @@ export interface ExecuteDelegationToolParams {
   readonly lifecycleEmitter: DelegationLifecycleEmitter;
   readonly verifier: DelegationVerifier;
   readonly availableToolNames?: readonly string[];
+  readonly defaultWorkingDirectory?: string;
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -268,6 +270,7 @@ export async function executeDelegationTool(
     lifecycleEmitter,
     verifier,
     availableToolNames,
+    defaultWorkingDirectory,
   } = params;
   if (!subAgentManager) {
     return JSON.stringify({
@@ -366,7 +369,12 @@ export async function executeDelegationTool(
     });
   }
   const delegatedWorkingDirectory = resolveDelegatedWorkingDirectory(input);
-  const workingDirectory = delegatedWorkingDirectory?.path;
+  const workingDirectory = delegatedWorkingDirectory
+    ? resolveDelegatedWorkingDirectoryPath(
+      delegatedWorkingDirectory.path,
+      defaultWorkingDirectory,
+    )
+    : undefined;
   let childSessionId: string;
   try {
     const continuationSessionId = shouldReusePriorChildSession(input)

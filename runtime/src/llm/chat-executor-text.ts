@@ -23,8 +23,6 @@ import {
   MAX_HISTORY_MESSAGE_CHARS,
   MAX_TOOL_RESULT_CHARS,
   MAX_TOOL_RESULT_FIELD_CHARS,
-  MAX_TOOL_CALL_ARGUMENT_CHARS,
-  MAX_TOOL_CALL_ARGUMENT_PREVIEW_CHARS,
   MAX_TOOL_RESULT_ARRAY_ITEMS,
   MAX_TOOL_RESULT_OBJECT_KEYS,
   TOOL_RESULT_PRIORITY_KEYS,
@@ -40,6 +38,8 @@ import {
 import {
   didToolCallFail,
   parseToolResultObject,
+  sanitizeToolCallArgumentsForReplay,
+  sanitizeToolCallsForReplay,
 } from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
 import {
@@ -1022,32 +1022,7 @@ export function estimateToolCallsChars(
   }, 0);
 }
 
-export function sanitizeToolCallsForReplay(
-  toolCalls: readonly LLMToolCall[] | undefined,
-): LLMToolCall[] | undefined {
-  if (!toolCalls || toolCalls.length === 0) return undefined;
-  return toolCalls.map((toolCall) => ({
-    ...toolCall,
-    arguments: sanitizeToolCallArgumentsForReplay(
-      toolCall.arguments,
-    ),
-  }));
-}
-
-export function sanitizeToolCallArgumentsForReplay(raw: string): string {
-  if (raw.length <= MAX_TOOL_CALL_ARGUMENT_CHARS) {
-    return raw;
-  }
-  const preview = truncateText(
-    raw,
-    MAX_TOOL_CALL_ARGUMENT_PREVIEW_CHARS,
-  );
-  return safeStringify({
-    __truncatedToolCallArgs: true,
-    originalChars: raw.length,
-    preview,
-  });
-}
+export { sanitizeToolCallsForReplay, sanitizeToolCallArgumentsForReplay };
 
 // ============================================================================
 // JSON sanitization for prompts

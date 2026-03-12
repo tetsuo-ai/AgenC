@@ -467,6 +467,28 @@ describe("OllamaProvider", () => {
     ).rejects.toThrow(LLMTimeoutError);
   });
 
+  it("uses the per-call timeout override and forwards the abort signal", async () => {
+    mockChat.mockImplementationOnce(
+      (_params: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            reject({ name: "AbortError", message: "aborted" });
+          }, { once: true });
+        }),
+    );
+
+    const provider = new OllamaProvider({ timeoutMs: 60_000 });
+    await expect(
+      provider.chat(
+        [{ role: "user", content: "test" }],
+        { timeoutMs: 5 },
+      ),
+    ).rejects.toThrow(LLMTimeoutError);
+
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(mockChat.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("returns partial streamed content on mid-stream failure", async () => {
     mockChat.mockResolvedValueOnce(
       (async function* () {

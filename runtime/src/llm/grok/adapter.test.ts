@@ -8,6 +8,7 @@ import {
   LLMServerError,
   LLMTimeoutError,
 } from "../errors.js";
+import { sanitizeToolCallArgumentsForReplay } from "../chat-executor-tool-utils.js";
 
 // Mock the openai module
 const mockCreate = vi.fn();
@@ -364,6 +365,11 @@ describe("GrokProvider", () => {
         resolvedToolNames: ["system.bash"],
         missingRequestedToolNames: [],
         toolResolution: "subset_exact",
+        messageCount: 1,
+        systemMessages: 0,
+        userMessages: 1,
+        assistantMessages: 0,
+        toolMessages: 0,
       },
       payload: {
         tool_choice: {
@@ -435,6 +441,50 @@ describe("GrokProvider", () => {
         providerCatalogToolCount: 1,
       },
     });
+  });
+
+  it("records persisted stateful anchor details on provider response traces", async () => {
+    mockCreate.mockResolvedValueOnce(
+      makeCompletion({
+        id: "resp_trace_stateful_1",
+        output_text: "Stored",
+      }),
+    );
+
+    const events: Array<Record<string, unknown>> = [];
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "Persist the anchor." }],
+      {
+        stateful: { sessionId: "sess-trace-stateful" },
+        trace: {
+          includeProviderPayloads: true,
+          onProviderTraceEvent: (event) => {
+            events.push(event as unknown as Record<string, unknown>);
+          },
+        },
+      },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      kind: "response",
+      transport: "chat",
+      context: {
+        statefulResponseId: "resp_trace_stateful_1",
+        statefulContinued: false,
+      },
+    });
+    expect((events[1].context as Record<string, unknown>).statefulReconciliationHash)
+      .toEqual(expect.any(String));
   });
 
   it("preserves explicitly routed tools even when they were dropped from the slimmed full catalog", async () => {
@@ -827,6 +877,28 @@ describe("GrokProvider", () => {
     ).rejects.toThrow(LLMTimeoutError);
   });
 
+  it("uses the per-call timeout override and forwards the abort signal", async () => {
+    mockCreate.mockImplementationOnce(
+      (_params: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            reject({ name: "AbortError", message: "signal aborted" });
+          }, { once: true });
+        }),
+    );
+
+    const provider = new GrokProvider({ apiKey: "test-key", timeoutMs: 60_000 });
+    await expect(
+      provider.chat(
+        [{ role: "user", content: "test" }],
+        { timeoutMs: 5 },
+      ),
+    ).rejects.toThrow(LLMTimeoutError);
+
+    expect(mockCreate).toHaveBeenCalledOnce();
+    expect(mockCreate.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("returns partial streamed content on mid-stream failure", async () => {
     mockCreate.mockResolvedValueOnce(
       (async function* () {
@@ -1211,6 +1283,7 @@ describe("GrokProvider", () => {
         {
           role: "assistant",
           content: "",
+          phase: "commentary",
           toolCalls: [
             {
               id: "call_1",
@@ -1228,6 +1301,7 @@ describe("GrokProvider", () => {
         {
           role: "assistant",
           content: "",
+          phase: "commentary",
           toolCalls: [
             {
               id: "call_1",
@@ -1275,6 +1349,7 @@ describe("GrokProvider", () => {
         {
           role: "assistant",
           content: "",
+          phase: "commentary",
           toolCalls: [
             {
               id: "call_1",
@@ -1399,6 +1474,7 @@ describe("GrokProvider", () => {
       .mockResolvedValueOnce(
         makeCompletion({
           id: "resp_tool_initial",
+          output_text: "",
           output: [
             {
               type: "function_call",
@@ -1441,6 +1517,7 @@ describe("GrokProvider", () => {
         {
           role: "assistant",
           content: "",
+          phase: "commentary",
           toolCalls: [
             {
               id: "call_1",
@@ -1461,6 +1538,24 @@ describe("GrokProvider", () => {
     const third = await provider.chat(
       [
         { role: "user", content: "find the token" },
+        {
+          role: "assistant",
+          content: "",
+          phase: "commentary",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "desktop.bash",
+              arguments: '{"command":"echo TOKEN=ONYX-SHARD-58"}',
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: '{"stdout":"TOKEN=ONYX-SHARD-58\\n","exitCode":0}',
+          toolCallId: "call_1",
+          toolName: "desktop.bash",
+        },
         { role: "assistant", content: "TOKEN=ONYX-SHARD-58" },
         { role: "user", content: "repeat the token" },
       ],
@@ -1472,11 +1567,233 @@ describe("GrokProvider", () => {
     expect(mockCreate.mock.calls[1][0].previous_response_id).toBe(
       "resp_tool_initial",
     );
+    expect(JSON.stringify(mockCreate.mock.calls[1][0].input)).not.toContain(
+      "find the token",
+    );
+    expect(JSON.stringify(mockCreate.mock.calls[1][0].input)).toContain(
+      "TOKEN=ONYX-SHARD-58",
+    );
+    expect(second.requestMetrics?.statefulInputMode).toBe("incremental_delta");
+    expect(second.requestMetrics?.statefulOmittedMessageCount).toBeGreaterThan(0);
     expect(mockCreate.mock.calls[2][0].previous_response_id).toBe(
       "resp_tool_followup",
     );
+    expect(JSON.stringify(mockCreate.mock.calls[2][0].input)).not.toContain(
+      "find the token",
+    );
+    expect(JSON.stringify(mockCreate.mock.calls[2][0].input)).toContain(
+      "repeat the token",
+    );
     expect(third.stateful?.continued).toBe(true);
     expect(third.stateful?.fallbackReason).toBeUndefined();
+  });
+
+  it("keeps previous_response_id continuity when replayed tool-call arguments are sanitized", async () => {
+    const rawArguments = JSON.stringify({
+      path: "packages/core/src/routing.test.ts",
+      content: "x".repeat(5_000),
+    });
+    const replayArguments = sanitizeToolCallArgumentsForReplay(rawArguments);
+
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_large_tool_initial",
+          output_text: "",
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_large_1",
+              name: "system.writeFile",
+              arguments: rawArguments,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_large_tool_followup",
+          output_text: "patched",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    const first = await provider.chat(
+      [{ role: "user", content: "write the large routing test file" }],
+      { stateful: { sessionId: "sess-large-tool-turn" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "user", content: "write the large routing test file" },
+        {
+          role: "assistant",
+          content: "",
+          phase: "commentary",
+          toolCalls: [
+            {
+              id: "call_large_1",
+              name: "system.writeFile",
+              arguments: replayArguments,
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content:
+            '{"path":"packages/core/src/routing.test.ts","bytesWritten":5000}',
+          toolCallId: "call_large_1",
+          toolName: "system.writeFile",
+        },
+      ],
+      { stateful: { sessionId: "sess-large-tool-turn" } },
+    );
+
+    expect(first.finishReason).toBe("tool_calls");
+    expect(mockCreate.mock.calls[1][0].previous_response_id).toBe(
+      "resp_large_tool_initial",
+    );
+    expect(second.content).toBe("patched");
+    expect(second.requestMetrics?.statefulInputMode).toBe("incremental_delta");
+    expect(second.stateful?.continued).toBe(true);
+    expect(second.stateful?.fallbackReason).toBeUndefined();
+  });
+
+  it("advances the continuation anchor across consecutive tool rounds", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_round_1",
+          output_text: "",
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_round_1",
+              name: "system.bash",
+              arguments: '{"command":"echo","args":["phase-1"]}',
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_round_2",
+          output_text: "",
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_round_2",
+              name: "system.readFile",
+              arguments: '{"path":"phase-1.txt"}',
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_round_3",
+          output_text: "phase-2 complete",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "multi-step tool loop" }],
+      { stateful: { sessionId: "sess-multi-tool-rounds" } },
+    );
+
+    await provider.chat(
+      [
+        { role: "user", content: "multi-step tool loop" },
+        {
+          role: "assistant",
+          content: "",
+          phase: "commentary",
+          toolCalls: [
+            {
+              id: "call_round_1",
+              name: "system.bash",
+              arguments: '{"command":"echo","args":["phase-1"]}',
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: '{"stdout":"phase-1\\n","exitCode":0}',
+          toolCallId: "call_round_1",
+          toolName: "system.bash",
+        },
+      ],
+      { stateful: { sessionId: "sess-multi-tool-rounds" } },
+    );
+
+    const third = await provider.chat(
+      [
+        { role: "user", content: "multi-step tool loop" },
+        {
+          role: "assistant",
+          content: "",
+          phase: "commentary",
+          toolCalls: [
+            {
+              id: "call_round_1",
+              name: "system.bash",
+              arguments: '{"command":"echo","args":["phase-1"]}',
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: '{"stdout":"phase-1\\n","exitCode":0}',
+          toolCallId: "call_round_1",
+          toolName: "system.bash",
+        },
+        {
+          role: "assistant",
+          content: "",
+          phase: "commentary",
+          toolCalls: [
+            {
+              id: "call_round_2",
+              name: "system.readFile",
+              arguments: '{"path":"phase-1.txt"}',
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: '{"content":"phase-2 complete","path":"phase-1.txt"}',
+          toolCallId: "call_round_2",
+          toolName: "system.readFile",
+        },
+      ],
+      { stateful: { sessionId: "sess-multi-tool-rounds" } },
+    );
+
+    const thirdParams = mockCreate.mock.calls[2][0];
+    const thirdInput = JSON.stringify(thirdParams.input);
+
+    expect(thirdParams.previous_response_id).toBe("resp_round_2");
+    expect(third.requestMetrics?.statefulInputMode).toBe("incremental_delta");
+    expect(third.requestMetrics?.statefulOmittedMessageCount).toBeGreaterThan(1);
+    expect(thirdInput).not.toContain("multi-step tool loop");
+    expect(thirdInput).not.toContain("phase-1\\n");
+    expect(thirdInput).toContain("phase-2 complete");
   });
 
   it("requests server-side compaction when configured", async () => {
@@ -1992,6 +2309,59 @@ describe("GrokProvider", () => {
     expect(second.stateful?.fallbackReason).toBeUndefined();
   });
 
+  it("continues statefully when reconciliation history replays assistant commentary", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_commentary_1",
+          output_text: "**BLOCKED**: missing grounded evidence",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_commentary_2",
+          output_text: "Recovered",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [{ role: "user", content: "Implement the delegated phase." }],
+      { stateful: { sessionId: "sess-commentary-retry" } },
+    );
+    const second = await provider.chat(
+      [{ role: "system", content: "Retry with tool-grounded evidence." }],
+      {
+        stateful: {
+          sessionId: "sess-commentary-retry",
+          reconciliationMessages: [
+            { role: "user", content: "Implement the delegated phase." },
+            {
+              role: "assistant",
+              content: "**BLOCKED**: missing grounded evidence",
+              phase: "commentary",
+            },
+            { role: "system", content: "Retry with tool-grounded evidence." },
+          ],
+        },
+      },
+    );
+
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(secondParams.previous_response_id).toBe("resp_commentary_1");
+    expect(second.stateful?.continued).toBe(true);
+    expect(second.stateful?.anchorMatched).toBe(true);
+    expect(second.stateful?.fallbackReason).toBeUndefined();
+  });
+
   it("uses reconciliationMessages when prompt budgeting trims the provider payload", async () => {
     mockCreate
       .mockResolvedValueOnce(
@@ -2046,6 +2416,88 @@ describe("GrokProvider", () => {
     expect(second.stateful?.continued).toBe(true);
     expect(second.stateful?.anchorMatched).toBe(true);
     expect(second.stateful?.reconciliationMessageCount).toBe(3);
+    expect(second.stateful?.fallbackReason).toBeUndefined();
+  });
+
+  it("persists stateful anchors from reconciliationMessages when the first replay turn is already prompt-trimmed", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_trimmed_anchor_1",
+          output_text: "Continued from trimmed replay",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_trimmed_anchor_2",
+          output_text: "Resumed safely",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        store: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "# Agent Configuration\nstatic prompt" },
+        { role: "user", content: "Implement phase two only." },
+      ],
+      {
+        stateful: {
+          sessionId: "sess-trimmed-anchor-persist",
+          reconciliationMessages: [
+            { role: "system", content: "# Agent Configuration\nstatic prompt" },
+            { role: "user", content: "Implement phase one." },
+            {
+              role: "assistant",
+              content: "Phase one complete.",
+              phase: "final_answer",
+            },
+            { role: "user", content: "Implement phase two only." },
+          ],
+        },
+      },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "# Agent Configuration\nstatic prompt" },
+        { role: "user", content: "Add tests for phases one and two." },
+      ],
+      {
+        stateful: {
+          sessionId: "sess-trimmed-anchor-persist",
+          reconciliationMessages: [
+            { role: "system", content: "# Agent Configuration\nstatic prompt" },
+            { role: "user", content: "Implement phase one." },
+            {
+              role: "assistant",
+              content: "Phase one complete.",
+              phase: "final_answer",
+            },
+            { role: "user", content: "Implement phase two only." },
+            {
+              role: "assistant",
+              content: "Continued from trimmed replay",
+              phase: "final_answer",
+            },
+            { role: "user", content: "Add tests for phases one and two." },
+          ],
+        },
+      },
+    );
+
+    const firstParams = mockCreate.mock.calls[0][0];
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(firstParams.previous_response_id).toBeUndefined();
+    expect(secondParams.previous_response_id).toBe("resp_trimmed_anchor_1");
+    expect(second.stateful?.continued).toBe(true);
+    expect(second.stateful?.anchorMatched).toBe(true);
     expect(second.stateful?.fallbackReason).toBeUndefined();
   });
 });

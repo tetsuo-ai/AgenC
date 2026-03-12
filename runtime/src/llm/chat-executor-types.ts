@@ -103,6 +103,7 @@ export interface ToolCallRecord {
 export type ChatExecutionTraceEventType =
   | "completion_gate_checked"
   | "contract_guidance_resolved"
+  | "context_injected"
   | "model_call_prepared"
   | "planner_path_finished"
   | "planner_pipeline_finished"
@@ -111,8 +112,11 @@ export type ChatExecutionTraceEventType =
   | "planner_refinement_requested"
   | "planner_verifier_retry_scheduled"
   | "planner_verifier_round_finished"
+  | "recovery_hints_injected"
   | "route_expanded"
   | "tool_arguments_invalid"
+  | "tool_loop_stuck_detected"
+  | "tool_round_budget_finalization_finished"
   | "tool_round_budget_extension_evaluated"
   | "tool_round_budget_extended"
   | "tool_dispatch_finished"
@@ -700,6 +704,7 @@ export interface ExecutionContext {
   modelCalls: number;
   allToolCalls: ToolCallRecord[];
   failedToolCalls: number;
+  activeRecoveryHintKeys: string[];
   providerEvidence: LLMProviderEvidence | undefined;
   usedFallback: boolean;
   providerName: string;
@@ -711,6 +716,7 @@ export interface ExecutionContext {
   stopReason: LLMPipelineStopReason;
   stopReasonDetail?: string;
   activeRoutedToolNames: readonly string[];
+  transientRoutedToolNames: readonly string[] | undefined;
   routedToolsExpanded: boolean;
   routedToolMisses: number;
   plannerHandled: boolean;
@@ -827,6 +833,7 @@ export function buildDefaultExecutionContext(
     modelCalls: 0,
     allToolCalls: [],
     failedToolCalls: 0,
+    activeRecoveryHintKeys: [],
     providerEvidence: undefined,
     usedFallback: false,
     providerName: config.providerName,
@@ -838,6 +845,7 @@ export function buildDefaultExecutionContext(
     stopReason: "completed",
     stopReasonDetail: undefined,
     activeRoutedToolNames: params.initialRoutedToolNames,
+    transientRoutedToolNames: undefined,
     routedToolsExpanded: false,
     routedToolMisses: 0,
     plannerHandled: false,

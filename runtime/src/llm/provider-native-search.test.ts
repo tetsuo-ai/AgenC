@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getProviderNativeAdvertisedToolNames,
   getProviderNativeWebSearchRoutingDecision,
+  isResearchLikeText,
   supportsGrokServerSideTools,
 } from "./provider-native-search.js";
 
@@ -49,5 +50,13 @@ describe("provider-native-search", () => {
     });
 
     expect(decision?.toolName).toBe("web_search");
+  });
+
+  it("does not treat implementation mechanics language as research", () => {
+    expect(
+      isResearchLikeText(
+        "Implement CLI in packages/cli and print a short mechanics explanation for the chosen route.",
+      ),
+    ).toBe(false);
   });
 });

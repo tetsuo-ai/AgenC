@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkToolCallPermission,
   didToolCallFail,
+  extractToolFailureTextFromResult,
   normalizeDoomScreenResolution,
   normalizeToolCallArguments,
   repairToolCallArgumentsFromMessageText,
@@ -17,6 +18,20 @@ describe("chat-executor-tool-utils", () => {
 
     it("returns true for JSON error payloads", () => {
       expect(didToolCallFail(false, '{"error":"boom"}')).toBe(true);
+    });
+
+    it("returns true for nested JSON error payloads", () => {
+      expect(
+        didToolCallFail(
+          false,
+          JSON.stringify({
+            error: {
+              code: "browser_session.domain_blocked",
+              message: "SSRF target blocked: localhost",
+            },
+          }),
+        ),
+      ).toBe(true);
     });
 
     it("returns true for non-zero JSON exitCode", () => {
@@ -81,6 +96,37 @@ describe("chat-executor-tool-utils", () => {
 
     it("returns false for normal non-JSON output", () => {
       expect(didToolCallFail(false, "all good")).toBe(false);
+    });
+  });
+
+  describe("extractToolFailureTextFromResult", () => {
+    it("preserves both stderr and stdout when a failing tool writes diagnostics to stdout", () => {
+      expect(
+        extractToolFailureTextFromResult(
+          JSON.stringify({
+            exitCode: 2,
+            stdout:
+              "error TS6059: File '/workspace/packages/web/vite.config.ts' is not under 'rootDir' '/workspace/packages/web/src'.",
+            stderr: "Command failed: npx tsc --build",
+          }),
+        ),
+      ).toContain("TS6059");
+    });
+
+    it("extracts nested error diagnostics from structured tool results", () => {
+      const text = extractToolFailureTextFromResult(
+        JSON.stringify({
+          error: {
+            family: "browser_session",
+            code: "browser_session.domain_blocked",
+            message: "SSRF target blocked: localhost",
+          },
+        }),
+      );
+
+      expect(text).toContain("SSRF target blocked: localhost");
+      expect(text).toContain("browser_session.domain_blocked");
+      expect(text).toContain("browser_session");
     });
   });
 
@@ -211,6 +257,31 @@ describe("chat-executor-tool-utils", () => {
 
       expect(progress.newVerificationFailureDiagnosticKeys).toBe(1);
       expect(progress.hadSuccessfulMutation).toBe(true);
+      expect(progress.hadVerificationCall).toBe(true);
+      expect(progress.hadMaterialProgress).toBe(true);
+    });
+
+    it("treats failing node runtime checks against built artifacts as verification", () => {
+      const progress = summarizeToolRoundProgress(
+        [
+          {
+            name: "system.bash",
+            args: {
+              command:
+                "node -e \"require('./packages/data/dist/index.js')\"",
+            },
+            result:
+              "{\"exitCode\":1,\"stderr\":\"SyntaxError: Unexpected identifier 'assert' at packages/data/dist/index.js\"}",
+            isError: false,
+            durationMs: 84,
+          },
+        ],
+        84,
+        new Set<string>(),
+        new Set<string>(),
+      );
+
+      expect(progress.newVerificationFailureDiagnosticKeys).toBe(1);
       expect(progress.hadVerificationCall).toBe(true);
       expect(progress.hadMaterialProgress).toBe(true);
     });

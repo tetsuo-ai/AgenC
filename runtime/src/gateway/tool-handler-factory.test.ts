@@ -345,6 +345,71 @@ describe("createSessionToolHandler", () => {
     });
   });
 
+  it("rewrites /workspace aliases in structured tool paths and cwd to the configured host workspace root", async () => {
+    const workspaceRoot = createTempDir("agenc-tool-handler-workspace-");
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: workspaceRoot,
+    });
+
+    try {
+      await handler("system.writeFile", {
+        path: "/workspace/project/package.json",
+        content: "{\n}\n",
+      });
+      await handler("system.bash", {
+        command: "mkdir",
+        args: ["-p", "/workspace/project/src"],
+        cwd: "/workspace/project",
+      });
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenNthCalledWith(1, "system.writeFile", {
+      path: `${workspaceRoot}/project/package.json`,
+      content: "{\n}\n",
+    });
+    expect(baseHandler).toHaveBeenNthCalledWith(2, "system.bash", {
+      command: "mkdir",
+      args: ["-p", `${workspaceRoot}/project/src`],
+      cwd: `${workspaceRoot}/project`,
+    });
+  });
+
+  it("uses the host workspace alias root instead of the delegated cwd when rewriting nested /workspace paths", async () => {
+    const hostWorkspaceRoot = createTempDir("agenc-tool-handler-host-workspace-");
+    const delegatedWorkspaceRoot = `${hostWorkspaceRoot}/signal-cartography-ts-57`;
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: delegatedWorkspaceRoot,
+      workspaceAliasRoot: hostWorkspaceRoot,
+      scopedFilesystemRoot: delegatedWorkspaceRoot,
+    });
+
+    try {
+      await handler("system.writeFile", {
+        path: "/workspace/signal-cartography-ts-57/package.json",
+        content: "{\n}\n",
+      });
+    } finally {
+      rmSync(hostWorkspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: `${hostWorkspaceRoot}/signal-cartography-ts-57/package.json`,
+      content: "{\n}\n",
+    });
+  });
+
   it("omits an auto-injected cwd when bootstrapping a missing delegated workspace via absolute paths", async () => {
     const existingParent = createTempDir("agenc-tool-handler-parent-");
     const missingWorkspaceRoot = join(existingParent, "project-root");
@@ -370,6 +435,36 @@ describe("createSessionToolHandler", () => {
     expect(baseHandler).toHaveBeenCalledWith("system.bash", {
       command: "mkdir",
       args: ["-p", missingWorkspaceRoot],
+    });
+  });
+
+  it("allows explicit ancestor cwd during missing-root bootstrap when command paths stay scoped to the delegated workspace", async () => {
+    const existingParent = createTempDir("agenc-tool-handler-parent-");
+    const missingWorkspaceRoot = join(existingParent, "project-root");
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: missingWorkspaceRoot,
+      scopedFilesystemRoot: missingWorkspaceRoot,
+    });
+
+    try {
+      await handler("system.bash", {
+        command: "mkdir",
+        args: ["-p", missingWorkspaceRoot],
+        cwd: existingParent,
+      });
+    } finally {
+      rmSync(existingParent, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.bash", {
+      command: "mkdir",
+      args: ["-p", missingWorkspaceRoot],
+      cwd: existingParent,
     });
   });
 
@@ -447,6 +542,99 @@ describe("createSessionToolHandler", () => {
         "Delegated workspace root violation: shell mode command references a path outside the delegated workspace root. Keep all filesystem paths under /home/tetsuo/agent-test/terrain-router-ts-1.",
     });
     expect(baseHandler).not.toHaveBeenCalled();
+  });
+
+  it("rewrites /workspace aliases inside shell-mode commands to the configured host workspace root", async () => {
+    const workspaceRoot = createTempDir("agenc-tool-handler-shell-workspace-");
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: workspaceRoot,
+    });
+
+    try {
+      await handler("system.bash", {
+        command: "cd /workspace/project && mkdir -p /workspace/project/src && pwd",
+      });
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.bash", {
+      command:
+        `cd ${workspaceRoot}/project && mkdir -p ${workspaceRoot}/project/src && pwd`,
+      cwd: workspaceRoot,
+    });
+  });
+
+  it("does not treat shell-mode sed expressions as escaped filesystem paths in delegated bash commands", async () => {
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: "/home/tetsuo/agent-test/terrain-router-ts-1",
+      scopedFilesystemRoot: "/home/tetsuo/agent-test/terrain-router-ts-1",
+    });
+
+    const result = await handler("system.bash", {
+      command: "sed -n '/interface Scenario/,/}/p' packages/core/src/index.ts",
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      stdout: "",
+      exitCode: 0,
+    });
+    expect(baseHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects shell-mode redirect targets outside the delegated workspace root", async () => {
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: "/home/tetsuo/agent-test/terrain-router-ts-1",
+      scopedFilesystemRoot: "/home/tetsuo/agent-test/terrain-router-ts-1",
+    });
+
+    const result = await handler("system.bash", {
+      command: "echo ok > /tmp/terrain-monorepo.log",
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      error:
+        "Delegated workspace root violation: shell mode command references a path outside the delegated workspace root. Keep all filesystem paths under /home/tetsuo/agent-test/terrain-router-ts-1.",
+    });
+    expect(baseHandler).not.toHaveBeenCalled();
+  });
+
+  it("does not treat sed expressions as escaped filesystem paths in delegated bash commands", async () => {
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: "/home/tetsuo/agent-test/terrain-router-ts-1",
+      scopedFilesystemRoot: "/home/tetsuo/agent-test/terrain-router-ts-1",
+    });
+
+    const result = await handler("system.bash", {
+      command: "sed",
+      args: ["-i", "/In real, would use Yen's algorithm/d", "packages/core/src/index.ts"],
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      stdout: "",
+      exitCode: 0,
+    });
+    expect(baseHandler).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces the blocking reason returned by tool:before hooks", async () => {
@@ -1299,6 +1487,73 @@ describe("createSessionToolHandler", () => {
             "repo_context",
             "working_directory=/tmp/project-root/grid-router-ts",
           ],
+        }),
+      }),
+    );
+  });
+
+  it("maps /workspace delegated cwd requirements onto the configured host workspace root for execute_with_agent", async () => {
+    const hostWorkspaceRoot = "/home/tetsuo/agent-test";
+    const subAgentManager = {
+      spawn: vi.fn(async () => "subagent:child-1"),
+      getResult: vi.fn(() => ({
+        sessionId: "subagent:child-1",
+        output: '{"summary":"child completed"}',
+        success: true,
+        durationMs: 42,
+        toolCalls: [
+          {
+            name: "system.writeFile",
+            args: {
+              path: `${hostWorkspaceRoot}/signal-cartography-ts-57/package.json`,
+            },
+            result: '{"ok":true}',
+            isError: false,
+            durationMs: 5,
+          },
+        ],
+      })),
+      getInfo: vi.fn(() => ({
+        sessionId: "subagent:child-1",
+        parentSessionId: "session-parent",
+        depth: 1,
+        status: "completed",
+        startedAt: Date.now() - 100,
+        task: "Scaffold the signal cartography workspace",
+      })),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "session-parent",
+      baseHandler: vi.fn(async () => "should-not-run"),
+      availableToolNames: ["system.writeFile", "system.bash"],
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: hostWorkspaceRoot,
+      delegation: () => ({
+        subAgentManager: subAgentManager as any,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: null,
+      }),
+    });
+
+    await handler("execute_with_agent", {
+      task: "Scaffold the signal cartography workspace",
+      tools: ["system.writeFile", "system.bash"],
+      contextRequirements: ["cwd=/workspace/signal-cartography-ts-57"],
+    });
+
+    expect(subAgentManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionId: "session-parent",
+        workingDirectory: `${hostWorkspaceRoot}/signal-cartography-ts-57`,
+        workingDirectorySource: "context_requirement",
+        prompt: expect.stringContaining(
+          `Use \`${hostWorkspaceRoot}/signal-cartography-ts-57\` as the working directory for this phase.`,
+        ),
+        delegationSpec: expect.objectContaining({
+          contextRequirements: ["cwd=/workspace/signal-cartography-ts-57"],
         }),
       }),
     );
@@ -2207,6 +2462,7 @@ describe("createSessionToolHandler", () => {
       "scaffold_environment",
       "implement_core_scope",
       "verify_acceptance",
+      "browser_validation",
     ]);
     expect(subAgentManager.spawn).not.toHaveBeenCalled();
   });

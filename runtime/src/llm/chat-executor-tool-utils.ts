@@ -14,6 +14,8 @@ import {
   HIGH_RISK_TOOL_PREFIXES,
   SAFE_TOOL_RETRY_TOOLS,
   SAFE_TOOL_RETRY_PREFIXES,
+  MAX_TOOL_CALL_ARGUMENT_CHARS,
+  MAX_TOOL_CALL_ARGUMENT_PREVIEW_CHARS,
   MAX_CONSECUTIVE_IDENTICAL_FAILURES,
   MAX_CONSECUTIVE_ALL_FAILED_ROUNDS,
   MAX_CONSECUTIVE_SEMANTIC_DUPLICATE_ROUNDS,
@@ -36,6 +38,12 @@ const NULLISH_STRING_RE = /^(?:null|none|undefined)$/i;
 const DEFAULT_VISIBLE_DOOM_SCREEN_RESOLUTION = "RES_1280X720";
 const COLLABORATION_PAYOUT_MODES = new Set(["fixed", "weighted", "milestone"]);
 
+function truncateText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 3) return value.slice(0, Math.max(0, maxChars));
+  return value.slice(0, maxChars - 3) + "...";
+}
+
 export interface ToolArgumentRepairResult {
   readonly args: Record<string, unknown>;
   readonly repairedFields: readonly string[];
@@ -50,6 +58,25 @@ export function didToolCallFail(isError: boolean, result: string): boolean {
     }
     const obj = parsed as Record<string, unknown>;
     if (typeof obj.error === "string" && obj.error.trim().length > 0) return true;
+    if (
+      typeof obj.error === "object" &&
+      obj.error !== null &&
+      !Array.isArray(obj.error)
+    ) {
+      const nestedError = obj.error as Record<string, unknown>;
+      if (
+        typeof nestedError.message === "string" &&
+        nestedError.message.trim().length > 0
+      ) {
+        return true;
+      }
+      if (
+        typeof nestedError.code === "string" &&
+        nestedError.code.trim().length > 0
+      ) {
+        return true;
+      }
+    }
     if (obj.timedOut === true) return true;
     if (typeof obj.exitCode === "number" && obj.exitCode !== 0) return true;
   } catch {
@@ -82,19 +109,54 @@ export function extractToolFailureTextFromResult(result: string): string {
   if (!parsed) return result;
 
   const pieces: string[] = [];
+  const appendPiece = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return;
+    if (pieces.includes(trimmed)) return;
+    pieces.push(trimmed);
+  };
   if (typeof parsed.error === "string" && parsed.error.trim().length > 0) {
-    pieces.push(parsed.error.trim());
-  }
-  if (typeof parsed.stderr === "string" && parsed.stderr.trim().length > 0) {
-    pieces.push(parsed.stderr.trim());
+    appendPiece(parsed.error);
   }
   if (
-    pieces.length === 0 &&
-    parsed.timedOut === true &&
-    typeof parsed.stdout === "string" &&
-    parsed.stdout.trim().length > 0
+    typeof parsed.error === "object" &&
+    parsed.error !== null &&
+    !Array.isArray(parsed.error)
   ) {
-    pieces.push(parsed.stdout.trim());
+    const nestedError = parsed.error as Record<string, unknown>;
+    if (
+      typeof nestedError.message === "string" &&
+      nestedError.message.trim().length > 0
+    ) {
+      appendPiece(nestedError.message);
+    }
+    if (
+      typeof nestedError.code === "string" &&
+      nestedError.code.trim().length > 0
+    ) {
+      appendPiece(nestedError.code);
+    }
+    if (
+      typeof nestedError.family === "string" &&
+      nestedError.family.trim().length > 0
+    ) {
+      appendPiece(nestedError.family);
+    }
+    if (
+      typeof nestedError.kind === "string" &&
+      nestedError.kind.trim().length > 0
+    ) {
+      appendPiece(nestedError.kind);
+    }
+  }
+  if (typeof parsed.stderr === "string" && parsed.stderr.trim().length > 0) {
+    appendPiece(parsed.stderr);
+  }
+  if (typeof parsed.stdout === "string" && parsed.stdout.trim().length > 0) {
+    if (parsed.timedOut === true || pieces.length > 0) {
+      appendPiece(parsed.stdout);
+    }
   }
   if (parsed.timedOut === true) {
     pieces.unshift("Tool timed out before completing.");
@@ -127,6 +189,33 @@ export function resolveRetryPolicyMatrix(
 export function hasExplicitIdempotencyKey(args: Record<string, unknown>): boolean {
   const value = args.idempotencyKey;
   return typeof value === "string" && value.trim().length > 0;
+}
+
+export function sanitizeToolCallArgumentsForReplay(raw: string): string {
+  if (raw.length <= MAX_TOOL_CALL_ARGUMENT_CHARS) {
+    return raw;
+  }
+  const preview = truncateText(
+    raw,
+    MAX_TOOL_CALL_ARGUMENT_PREVIEW_CHARS,
+  );
+  return safeStringify({
+    __truncatedToolCallArgs: true,
+    originalChars: raw.length,
+    preview,
+  });
+}
+
+export function sanitizeToolCallsForReplay(
+  toolCalls: readonly LLMToolCall[] | undefined,
+): LLMToolCall[] | undefined {
+  if (!toolCalls || toolCalls.length === 0) return undefined;
+  return toolCalls.map((toolCall) => ({
+    ...toolCall,
+    arguments: sanitizeToolCallArgumentsForReplay(
+      toolCall.arguments,
+    ),
+  }));
 }
 
 export function isHighRiskToolCall(
@@ -680,13 +769,17 @@ const VERIFICATION_TOKENS = new Set([
 ]);
 const VERIFICATION_COMMANDS = new Set([
   "cargo",
+  "deno",
   "go",
   "gradle",
   "jest",
   "mvn",
+  "node",
   "npm",
   "npx",
   "pnpm",
+  "python",
+  "python3",
   "pytest",
   "ruff",
   "tsc",
@@ -695,6 +788,15 @@ const VERIFICATION_COMMANDS = new Set([
   "yarn",
   "bun",
 ]);
+const INTERPRETER_VERIFICATION_FLAGS = new Set([
+  "-c",
+  "-e",
+  "--eval",
+]);
+const INTERPRETER_VERIFICATION_ARTIFACT_RE =
+  /\b(?:build\/|coverage\/|dist\/|package\.json|src\/|test(?:s)?\/|tsconfig(?:\.[a-z]+)?|vite\.config(?:\.[a-z]+)?|vitest\.config(?:\.[a-z]+)?|\.spec\.|\.test\.)\b/i;
+const NODE_RUNTIME_VERIFICATION_SOURCE_RE =
+  /\b(?:await\s+import\s*\(|console\.(?:error|log)\s*\(|import\s*\(|require\s*\()\b/i;
 const MUTATING_COMMANDS = new Set([
   "cp",
   "git",
@@ -740,6 +842,33 @@ function extractCommandTokens(args: Record<string, unknown>): string[] {
   return tokens.map((token) => token.toLowerCase());
 }
 
+function isInterpreterVerificationInvocation(tokens: readonly string[]): boolean {
+  if (tokens.length === 0) return false;
+  const [command, ...rest] = tokens;
+  if (
+    command !== "deno" &&
+    command !== "node" &&
+    command !== "python" &&
+    command !== "python3"
+  ) {
+    return false;
+  }
+  if (rest.length === 0) return false;
+
+  const joined = rest.join(" ");
+  if (
+    INTERPRETER_VERIFICATION_FLAGS.has(rest[0] ?? "") &&
+    (
+      INTERPRETER_VERIFICATION_ARTIFACT_RE.test(joined) ||
+      (command === "node" && NODE_RUNTIME_VERIFICATION_SOURCE_RE.test(joined))
+    )
+  ) {
+    return true;
+  }
+
+  return rest.some((token) => INTERPRETER_VERIFICATION_ARTIFACT_RE.test(token));
+}
+
 function isVerificationToolCall(call: ToolCallRecord): boolean {
   if (call.name !== "system.bash" && call.name !== "desktop.bash") {
     return false;
@@ -747,6 +876,13 @@ function isVerificationToolCall(call: ToolCallRecord): boolean {
   const tokens = extractCommandTokens(call.args);
   if (tokens.length === 0) return false;
   const [command, ...rest] = tokens;
+  if (
+    (command === "deno" || command === "node" || command === "python" ||
+      command === "python3") &&
+    isInterpreterVerificationInvocation(tokens)
+  ) {
+    return true;
+  }
   if (VERIFICATION_COMMANDS.has(command)) {
     if (command === "npm" || command === "pnpm" || command === "yarn" || command === "bun") {
       return rest.some((token) => VERIFICATION_TOKENS.has(token));
@@ -755,6 +891,12 @@ function isVerificationToolCall(call: ToolCallRecord): boolean {
       return rest.some((token) =>
         VERIFICATION_COMMANDS.has(token) || VERIFICATION_TOKENS.has(token)
       );
+    }
+    if (
+      command === "deno" || command === "node" || command === "python" ||
+      command === "python3"
+    ) {
+      return isInterpreterVerificationInvocation(tokens);
     }
     return true;
   }

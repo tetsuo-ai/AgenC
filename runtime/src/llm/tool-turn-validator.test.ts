@@ -54,6 +54,34 @@ describe("tool-turn validator", () => {
     });
   });
 
+  it("accepts a leading tool-result block when previous_response_id continuity is in use", () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "runtime hint" },
+      {
+        role: "tool",
+        content: '{"stdout":"phase-1\\n","exitCode":0}',
+        toolCallId: "call_1",
+      },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "call_2", name: "desktop.bash", arguments: '{"command":"pwd"}' }],
+      },
+      {
+        role: "tool",
+        content: '{"stdout":"/tmp\\n","exitCode":0}',
+        toolCallId: "call_2",
+      },
+    ];
+
+    expect(() =>
+      validateToolTurnSequence(messages, { allowLeadingToolResults: true }),
+    ).not.toThrow();
+    expect(
+      findToolTurnValidationIssue(messages, { allowLeadingToolResults: true }),
+    ).toBeNull();
+  });
+
   it("rejects two malformed pairs and fails fast at first invalid pair", () => {
     const messages: LLMMessage[] = [
       { role: "user", content: "test" },

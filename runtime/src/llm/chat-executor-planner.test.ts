@@ -4,10 +4,15 @@ import {
   assessPlannerDecision,
   buildPipelineFailureRepairRefinementHint,
   buildPlannerMessages,
+  buildPlannerVerificationRequirementsFailureMessage,
+  buildPlannerVerificationRequirementsRefinementHint,
+  extractPlannerVerificationRequirements,
+  buildPlannerStructuralRefinementHint,
   extractExplicitDeterministicToolRequirements,
   extractExplicitSubagentOrchestrationRequirements,
   parsePlannerPlan,
   salvagePlannerToolCallsAsPlan,
+  validatePlannerVerificationRequirements,
   validatePlannerGraph,
   validatePlannerStepContracts,
   validateSalvagedPlannerToolPlan,
@@ -32,6 +37,154 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
         }),
       ]),
     );
+  });
+
+  it("includes first-pass runtime fanout guidance in planner messages", () => {
+    const messages = buildPlannerMessages(
+      "Create a TypeScript monorepo from scratch with multiple packages, tests, and docs.",
+      [],
+      512,
+      undefined,
+      undefined,
+      undefined,
+      { maxSubagentFanout: 8 },
+    );
+
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining(
+            "Never emit more than 8 subagent_task steps in the full plan.",
+          ),
+        }),
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining(
+            "Never merge research with setup/manifest work, or code implementation with broad validation/browser QA.",
+          ),
+        }),
+      ]),
+    );
+  });
+
+  it("extracts explicit request-level verification requirements from verification directives", () => {
+    expect(
+      extractPlannerVerificationRequirements(
+        "Create the project from scratch.\n" +
+          "Verify with install, build, test, and browser-grounded checks before finishing.\n" +
+          "Do not ask clarifying questions.",
+      ),
+    ).toEqual(["install", "build", "test", "browser"]);
+  });
+
+  it("adds planner guidance to preserve explicit verification coverage", () => {
+    const messages = buildPlannerMessages(
+      "Create the project from scratch.\n" +
+        "Verify with install, build, test, and browser-grounded checks before finishing.",
+      [],
+      256,
+    );
+
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining(
+            "Preserve these verification modes in the plan: install -> build -> test -> browser.",
+          ),
+        }),
+      ]),
+    );
+  });
+
+  it("flags planner plans that drop explicit verification modes", () => {
+    const result = parsePlannerPlan(
+      JSON.stringify({
+        reason: "freight_flow",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "scaffold_monorepo",
+            step_type: "subagent_task",
+            objective: "Author manifests and initial source files.",
+            input_contract: "Empty project directory.",
+            acceptance_criteria: [
+              "Workspace files authored",
+              "Core, CLI, and web packages scaffolded",
+            ],
+            required_tool_capabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+            ],
+            context_requirements: ["cwd=/tmp/freight-flow-ts"],
+            max_budget_hint: "4m",
+          },
+          {
+            name: "install_dependencies",
+            step_type: "deterministic_tool",
+            depends_on: ["scaffold_monorepo"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/freight-flow-ts",
+            },
+          },
+          {
+            name: "run_verification",
+            step_type: "subagent_task",
+            depends_on: ["install_dependencies"],
+            objective: "Execute build checks on the workspace before finishing.",
+            input_contract: "Implementation complete.",
+            acceptance_criteria: [
+              "Build succeeds cleanly",
+            ],
+            required_tool_capabilities: [
+              "system.bash",
+              "system.readFile",
+              "system.writeFile",
+            ],
+            context_requirements: ["cwd=/tmp/freight-flow-ts"],
+            max_budget_hint: "5m",
+          },
+          {
+            name: "final_synthesis",
+            step_type: "synthesis",
+            depends_on: ["run_verification"],
+          },
+        ],
+      }),
+    );
+
+    const diagnostics = validatePlannerVerificationRequirements(
+      result.plan!,
+      ["install", "build", "test", "browser"],
+    );
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        category: "validation",
+        code: "planner_verification_requirements_missing",
+        details: expect.objectContaining({
+          missingCategories: "test,browser",
+          requiredCategories: "install,build,test,browser",
+        }),
+      }),
+    ]);
+    expect(
+      buildPlannerVerificationRequirementsRefinementHint(
+        ["install", "build", "test", "browser"],
+        diagnostics,
+      ),
+    ).toContain("The previous plan dropped: test, browser");
+    expect(
+      buildPlannerVerificationRequirementsFailureMessage(
+        ["install", "build", "test", "browser"],
+        diagnostics,
+      ),
+    ).toContain("Missing verification modes: test, browser");
   });
 
   it("adds runner-compatible repair guidance for npm test -- --run failures", () => {
@@ -103,6 +256,12 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
           role: "system",
           content: expect.stringContaining("npm error code EUNSUPPORTEDPROTOCOL"),
         }),
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining(
+            "Do not mention `npm install`, build, test, coverage, typecheck, lint, or runtime success",
+          ),
+        }),
       ]),
     );
   });
@@ -150,6 +309,66 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
     expect(hint).toContain("rerun `npm install`");
   });
 
+  it("adds explicit browser split guidance for implementation-browser decomposition", () => {
+    const hint = buildPlannerStructuralRefinementHint([
+      {
+        category: "validation",
+        code: "subagent_step_needs_decomposition",
+        message:
+          'Planner subagent step "implement_web" is overloaded: Delegated objective is overloaded (implementation, browser).',
+        details: {
+          stepName: "implement_web",
+          phases: "implementation,browser",
+          suggestedSteps: "implement_core_scope,browser_validation",
+        },
+      },
+    ]);
+
+    expect(hint).toContain(
+      "move browser-session validation into its own later step",
+    );
+  });
+
+  it("preserves numeric fanout limits in structural refinement hints", () => {
+    const hint = buildPlannerStructuralRefinementHint([
+      {
+        category: "validation",
+        code: "subagent_fanout_exceeded",
+        message: "Planner fanout exceeded",
+        details: {
+          maxFanoutPerTurn: 8,
+        },
+      },
+    ]);
+
+    expect(hint).toContain("maxFanoutPerTurn=8");
+    expect(hint).not.toContain("the configured limit");
+  });
+
+  it("adds explicit no-verification guidance for pre-install scaffold steps", () => {
+    const hint = buildPlannerStructuralRefinementHint([
+      {
+        category: "validation",
+        code: "node_workspace_install_phase_mismatch",
+        message:
+          'Planner subagent step "scaffold_manifests" mixes Node workspace manifest/config scaffolding with install-sensitive verification before install',
+        details: {
+          stepName: "scaffold_manifests",
+          installSteps: "run_npm_install",
+          verificationModes: "runner_or_build_tooling",
+          requiresPhaseSplit: "true",
+        },
+      },
+    ]);
+
+    expect(hint).toContain(
+      "do not mention install/build/test/typecheck/lint/coverage success",
+    );
+    expect(hint).toContain(
+      "Limit it to authored files, scripts, configs, directories, and local dependency links",
+    );
+  });
+
   it("treats execute_with_agent child-memory prompts as planner-worthy delegation turns", () => {
     const decision = assessPlannerDecision(
       true,
@@ -178,6 +397,103 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
     expect(requirements?.steps[0]?.description).toContain(
       "recover the earlier continuity marker",
     );
+  });
+
+  it("preserves explicit planner tool capabilities instead of merging heuristic repair defaults", () => {
+    const requirements = extractExplicitSubagentOrchestrationRequirements(
+      "Sub-agent orchestration plan required: " +
+        "1. design_research: define the simulator rules and data model in workspace files. " +
+        "2. tech_research: choose the stack and repo layout. " +
+        "Final deliverables: implementation-ready workspace.",
+    );
+
+    const parsed = parsePlannerPlan(
+      JSON.stringify({
+        reason: "explicit_orchestration",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "design_research",
+            step_type: "subagent_task",
+            objective:
+              "Define the rules and data model for a rail-freight dispatch simulator.",
+            input_contract: "User requirements for the simulator",
+            acceptance_criteria: [
+              "Defined TypeScript interfaces for Network, Segment, Train, Job, Scenario",
+              "Documented simulation rules including conflicts, locks, deadlock, deadlines",
+              "Authored design document or types in workspace files",
+            ],
+            required_tool_capabilities: [
+              "system.bash",
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+            ],
+            context_requirements: ["cwd=/tmp/freight-flow-ts"],
+            max_budget_hint: "3m",
+          },
+        ],
+      }),
+      requirements,
+    );
+
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.plan?.steps).toEqual([
+      expect.objectContaining({
+        name: "design_research",
+        stepType: "subagent_task",
+        requiredToolCapabilities: [
+          "system.bash",
+          "system.writeFile",
+          "system.readFile",
+          "system.listDir",
+        ],
+      }),
+    ]);
+  });
+
+  it("preserves semantic planner capabilities instead of falling back to heuristic repair defaults", () => {
+    const requirements = extractExplicitSubagentOrchestrationRequirements(
+      "Sub-agent orchestration plan required: " +
+        "1. design_research: define the simulator rules and data model in workspace files. " +
+        "2. tech_research: choose the stack and repo layout. " +
+        "Final deliverables: implementation-ready workspace.",
+    );
+
+    const parsed = parsePlannerPlan(
+      JSON.stringify({
+        reason: "explicit_orchestration",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "design_research",
+            step_type: "subagent_task",
+            objective:
+              "Define rules, invariants, and data model for rail freight simulator in workspace files.",
+            input_contract: "Fresh workspace dir at /tmp/freight-flow-ts",
+            acceptance_criteria: [
+              "Data models as TS interfaces in core/src",
+              "Rules/invariants in Markdown or code comments",
+              "Sample scenario JSONs authored",
+              "Only file authoring completed",
+            ],
+            required_tool_capabilities: ["filesystem", "code_generation"],
+            context_requirements: ["cwd=/tmp/freight-flow-ts"],
+            max_budget_hint: "12m",
+          },
+        ],
+      }),
+      requirements,
+    );
+
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.plan?.steps).toEqual([
+      expect.objectContaining({
+        name: "design_research",
+        stepType: "subagent_task",
+        requiredToolCapabilities: ["filesystem", "code_generation"],
+      }),
+    ]);
   });
 
   it("extracts repeated deterministic tool counts and exact final literals from soak-style prompts", () => {
@@ -365,6 +681,55 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
         }),
       ]),
     );
+  });
+
+  it("normalizes planner bash direct args with shell separators into shell mode", () => {
+    const result = parsePlannerPlan(
+      JSON.stringify({
+        reason: "verify_build",
+        requiresSynthesis: false,
+        steps: [
+          {
+            name: "verify_all",
+            step_type: "deterministic_tool",
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["run", "build", "&&", "npm", "test", "--", "--coverage"],
+              cwd: "/tmp/transit-weave",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.plan?.steps).toEqual([
+      expect.objectContaining({
+        name: "verify_all",
+        stepType: "deterministic_tool",
+        tool: "system.bash",
+        args: {
+          command: "npm run build && npm test -- --coverage",
+          cwd: "/tmp/transit-weave",
+        },
+      }),
+    ]);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "parse",
+          code: "planner_bash_direct_args_normalized_to_shell_mode",
+          details: expect.objectContaining({
+            shellTokens: "&&",
+          }),
+        }),
+      ]),
+    );
+    expect(
+      validatePlannerStepContracts(result.plan!).some((diagnostic) =>
+        diagnostic.code === "planner_bash_shell_syntax_in_direct_args"
+      ),
+    ).toBe(false);
   });
 
   it("salvages direct planner tool calls into deterministic steps", () => {
@@ -617,6 +982,46 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
     ]);
   });
 
+  it("repairs explicit planner subagent budget hints up to the runtime minimum during parsing", () => {
+    const parsed = parsePlannerPlan(
+      JSON.stringify({
+        reason: "budget_repair",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "create_readme",
+            step_type: "subagent_task",
+            objective: "Write project README with usage",
+            input_contract: "All packages done",
+            acceptance_criteria: ["README.md present with instructions"],
+            required_tool_capabilities: ["system.writeFile"],
+            context_requirements: ["cwd=/tmp/maze-forge-ts"],
+            max_budget_hint: "30s",
+          },
+        ],
+      }),
+    );
+
+    expect(parsed.plan?.steps[0]).toEqual(
+      expect.objectContaining({
+        stepType: "subagent_task",
+        maxBudgetHint: "60s",
+      }),
+    );
+    expect(parsed.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "policy",
+          code: "planner_subagent_budget_hint_clamped",
+          details: expect.objectContaining({
+            originalMaxBudgetHint: "30s",
+            repairedMaxBudgetHint: "60s",
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("rejects node workspace steps that mix manifest setup with pre-install verification", () => {
     const diagnostics = validatePlannerGraph(
       {
@@ -737,6 +1142,593 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
           },
         ],
         edges: [{ from: "scaffold_structure_manifests", to: "npm_install" }],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch"
+      ),
+    ).toBe(false);
+  });
+
+  it("allows node workspace scaffold steps whose acceptance criteria only require script definitions", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "workspace_project",
+        requiresSynthesis: true,
+        confidence: 0.84,
+        steps: [
+          {
+            name: "scaffold_monorepo_manifests",
+            stepType: "subagent_task",
+            dependsOn: [],
+            objective:
+              "Create all package.json, tsconfig.json, vite.config.ts and vitest config with proper scripts/deps.",
+            inputContract:
+              "Directory structure ready at /tmp/maze-forge-ts",
+            acceptanceCriteria: [
+              "Manifests present",
+              "scripts for build/test/dev set",
+              "no workspace:*",
+            ],
+            requiredToolCapabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.bash",
+              "system.listDir",
+            ],
+            contextRequirements: ["cwd=/tmp/maze-forge-ts"],
+            maxBudgetHint: "90s",
+            canRunParallel: false,
+          },
+          {
+            name: "install_dependencies",
+            stepType: "deterministic_tool",
+            dependsOn: ["scaffold_monorepo_manifests"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/maze-forge-ts",
+            },
+          },
+        ],
+        edges: [
+          { from: "scaffold_monorepo_manifests", to: "install_dependencies" },
+        ],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch"
+      ),
+    ).toBe(false);
+  });
+
+  it("allows scaffold_environment plans that inventory package metadata and build/test scripts before install", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "workspace_project",
+        requiresSynthesis: false,
+        confidence: 0.82,
+        steps: [
+          {
+            name: "create_project_dir",
+            stepType: "deterministic_tool",
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/tmp/signal-cartography-ts-43"],
+            },
+            onError: "abort",
+          },
+          {
+            name: "scaffold_environment",
+            stepType: "subagent_task",
+            dependsOn: ["create_project_dir"],
+            objective:
+              "Author root package.json (workspaces, build/test scripts), tsconfig.json, per-package manifests with file:../ local deps, src dirs and basic configs for core/data/cli/web only.",
+            inputContract: "Empty target dir",
+            acceptanceCriteria: [
+              "Root package.json with workspaces and scripts",
+              "Per-package package.json with names, file: deps, build/test scripts",
+              "packages/*/src and tsconfigs present",
+            ],
+            requiredToolCapabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+            ],
+            contextRequirements: ["cwd=/tmp/signal-cartography-ts-43"],
+            maxBudgetHint: "8m",
+          },
+          {
+            name: "perform_npm_install",
+            stepType: "deterministic_tool",
+            dependsOn: ["scaffold_environment"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/signal-cartography-ts-43",
+            },
+            onError: "abort",
+          },
+        ],
+        edges: [
+          { from: "create_project_dir", to: "scaffold_environment" },
+          { from: "scaffold_environment", to: "perform_npm_install" },
+        ],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch"
+      ),
+    ).toBe(false);
+  });
+
+  it("allows authored manifest acceptance criteria that mention build/test/coverage scripts and devDeps", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "workspace_project",
+        requiresSynthesis: true,
+        confidence: 0.84,
+        steps: [
+          {
+            name: "scaffold_root_configs",
+            stepType: "subagent_task",
+            dependsOn: [],
+            objective:
+              "Author root package.json, tsconfig.json, .gitignore and README skeleton for a TypeScript workspaces monorepo.",
+            inputContract: "None - create from scratch",
+            acceptanceCriteria: [
+              "Authored root package.json with private:true, workspaces:['packages/*'], scripts for build/test/coverage, devDeps including typescript, vitest, @vitest/coverage-v8. Authored tsconfig.json, .gitignore and basic README.md with setup/usage sections.",
+            ],
+            requiredToolCapabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+            ],
+            contextRequirements: ["cwd=/tmp/transit-weave-ts-26"],
+            maxBudgetHint: "90s",
+            canRunParallel: false,
+          },
+          {
+            name: "install_dependencies",
+            stepType: "deterministic_tool",
+            dependsOn: ["scaffold_root_configs"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/transit-weave-ts-26",
+            },
+          },
+        ],
+        edges: [{ from: "scaffold_root_configs", to: "install_dependencies" }],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch"
+      ),
+    ).toBe(false);
+  });
+
+  it("allows pre-install scaffold objectives that only author README install/build/test placeholders", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "freight_flow_scaffold",
+        requiresSynthesis: true,
+        confidence: 0.86,
+        steps: [
+          {
+            name: "create_project_directory",
+            stepType: "deterministic_tool",
+            dependsOn: [],
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/tmp/freight-flow-ts-26/packages/core/src"],
+            },
+          },
+          {
+            name: "scaffold_monorepo",
+            stepType: "subagent_task",
+            dependsOn: ["create_project_directory"],
+            objective:
+              "Author root package.json, per-package manifests, tsconfig.json files, vite.config.ts, index.html, placeholder src files, and short README.md with install/test/build/run placeholders. Only create directories, manifests, configs and initial file contents.",
+            inputContract:
+              "Newly created empty directory tree with package subfolders",
+            acceptanceCriteria: [
+              "Root and per-package package.json files exist with correct metadata, file: local deps, and scripts",
+              "tsconfig.json, vite.config.ts and index.html are authored",
+              "README.md and basic src placeholder files are present",
+              "Directory structure matches monorepo layout",
+            ],
+            requiredToolCapabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+              "system.bash",
+            ],
+            contextRequirements: ["cwd=/tmp/freight-flow-ts-26"],
+            maxBudgetHint: "2m",
+            canRunParallel: false,
+          },
+          {
+            name: "install_dependencies",
+            stepType: "deterministic_tool",
+            dependsOn: ["scaffold_monorepo"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/freight-flow-ts-26",
+            },
+          },
+        ],
+        edges: [
+          { from: "create_project_directory", to: "scaffold_monorepo" },
+          { from: "scaffold_monorepo", to: "install_dependencies" },
+        ],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch"
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts live web-monorepo refinement steps that stay code-only and pre-install-only", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "transit_weave_refined_plan",
+        requiresSynthesis: true,
+        confidence: 0.86,
+        steps: [
+          {
+            name: "create_directory",
+            stepType: "deterministic_tool",
+            dependsOn: [],
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: [
+                "-p",
+                "/tmp/transit-weave-ts-29/packages/core",
+                "/tmp/transit-weave-ts-29/packages/cli",
+                "/tmp/transit-weave-ts-29/packages/web",
+              ],
+            },
+          },
+          {
+            name: "scaffold_manifests",
+            stepType: "subagent_task",
+            dependsOn: ["create_directory"],
+            objective:
+              "Author only root package.json with workspaces, packages/core/package.json, packages/cli/package.json, packages/web/package.json using file:../core for local dep, tsconfig.json files, vite.config.ts in web, and basic npm scripts. Create no source logic files.",
+            inputContract: "Empty dir at target path",
+            acceptanceCriteria: [
+              "All package.json files authored with correct metadata and file: deps",
+              "tsconfig.json and vite config present",
+              "Directory structure ready",
+              "No logic code or install commands in objective",
+            ],
+            requiredToolCapabilities: ["system.writeFile", "system.listDir"],
+            contextRequirements: ["cwd=/tmp/transit-weave-ts-29"],
+            maxBudgetHint: "2m",
+            canRunParallel: false,
+          },
+          {
+            name: "install_dependencies",
+            stepType: "deterministic_tool",
+            dependsOn: ["scaffold_manifests"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/transit-weave-ts-29",
+            },
+          },
+          {
+            name: "implement_core",
+            stepType: "subagent_task",
+            dependsOn: ["install_dependencies"],
+            objective:
+              "Implement TypeScript parser and routing engine in packages/core supporting weighted terrain, one-way conveyors, paired portals, timed switches toggling on alternating turns, and itinerary search from S to G with path reconstruction and cost.",
+            inputContract: "ASCII map string with defined symbols for S/G/terrain/mechanics",
+            acceptanceCriteria: [
+              "parseMap and findItinerary exported and functional",
+              "All mechanics (portals, conveyors, switches, weights) implemented",
+              "Path and total cost returned",
+            ],
+            requiredToolCapabilities: ["system.writeFile"],
+            contextRequirements: ["cwd=/tmp/transit-weave-ts-29"],
+            maxBudgetHint: "8m",
+            canRunParallel: false,
+          },
+          {
+            name: "implement_web",
+            stepType: "subagent_task",
+            dependsOn: ["implement_core"],
+            objective:
+              "Build Vite TS app in packages/web with map editor, in-browser solver using core, and visualization of path plus cost. Keep code/build only in this step.",
+            inputContract: "Core imported via file dep",
+            acceptanceCriteria: [
+              "Vite app with editable map and solve button",
+              "Visual path rendering and cost display",
+              "Web source files complete",
+            ],
+            requiredToolCapabilities: ["system.writeFile"],
+            contextRequirements: ["cwd=/tmp/transit-weave-ts-29"],
+            maxBudgetHint: "6m",
+            canRunParallel: false,
+          },
+        ],
+        edges: [
+          { from: "create_directory", to: "scaffold_manifests" },
+          { from: "scaffold_manifests", to: "install_dependencies" },
+          { from: "install_dependencies", to: "implement_core" },
+          { from: "implement_core", to: "implement_web" },
+        ],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch" &&
+        diagnostic.details.stepName === "scaffold_manifests"
+      ),
+    ).toBe(false);
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "subagent_step_needs_decomposition" &&
+        diagnostic.details.stepName === "implement_web"
+      ),
+    ).toBe(false);
+  });
+
+  it("allows refined workspace plans with source-code-free scaffolding and package-local compile acceptance", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "refined_workspace_project",
+        requiresSynthesis: true,
+        confidence: 0.88,
+        steps: [
+          {
+            name: "create_root_directory",
+            stepType: "deterministic_tool",
+            dependsOn: [],
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/tmp/transit-weave/packages/core/src"],
+            },
+          },
+          {
+            name: "scaffold_monorepo_configs",
+            stepType: "subagent_task",
+            dependsOn: ["create_root_directory"],
+            objective:
+              "Create root and per-package package.json/tsconfig/vite/vitest config files for workspaces monorepo; use file:../core links, add deps like typescript/vitest/commander/react/vite; no source code yet.",
+            inputContract: "Root dir and empty package subdirs exist.",
+            acceptanceCriteria: [
+              "Root package.json has workspaces and scripts; per-package package.json and tsconfigs present; configs valid; no src implementation",
+            ],
+            requiredToolCapabilities: [
+              "system.writeFile",
+              "system.bash",
+              "system.listDir",
+            ],
+            contextRequirements: ["cwd=/tmp/transit-weave"],
+            maxBudgetHint: "4m",
+          },
+          {
+            name: "install_dependencies",
+            stepType: "deterministic_tool",
+            dependsOn: ["scaffold_monorepo_configs"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/transit-weave",
+            },
+          },
+          {
+            name: "implement_core",
+            stepType: "subagent_task",
+            dependsOn: ["install_dependencies"],
+            objective:
+              "Implement packages/core/src for ASCII network parse and route search returning best itinerary plus two alternatives.",
+            inputContract: "Monorepo scaffolded, deps installed, core/src empty.",
+            acceptanceCriteria: [
+              "parseNetwork and findRoutes exported with types; logic handles all features; compiles cleanly",
+            ],
+            requiredToolCapabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.bash",
+            ],
+            contextRequirements: ["cwd=/tmp/transit-weave"],
+            maxBudgetHint: "6m",
+          },
+          {
+            name: "implement_cli",
+            stepType: "subagent_task",
+            dependsOn: ["implement_core"],
+            objective:
+              "Implement packages/cli with commander commands validate and route that use core; output cost, transfer count, and ordered steps.",
+            inputContract: "Core implemented and built; cli/src ready.",
+            acceptanceCriteria: [
+              "CLI commands functional and compile; uses core package",
+            ],
+            requiredToolCapabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.bash",
+            ],
+            contextRequirements: ["cwd=/tmp/transit-weave"],
+            maxBudgetHint: "4m",
+          },
+        ],
+        edges: [
+          { from: "create_root_directory", to: "scaffold_monorepo_configs" },
+          { from: "scaffold_monorepo_configs", to: "install_dependencies" },
+          { from: "install_dependencies", to: "implement_core" },
+          { from: "implement_core", to: "implement_cli" },
+        ],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "subagent_step_needs_decomposition"
+      ),
+    ).toBe(false);
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch"
+      ),
+    ).toBe(false);
+  });
+
+  it("allows workspace bootstrap steps whose acceptance criteria only require build configs to exist", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "bootstrap_workspace_project",
+        requiresSynthesis: true,
+        confidence: 0.85,
+        steps: [
+          {
+            name: "create_directories",
+            stepType: "deterministic_tool",
+            dependsOn: [],
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/tmp/transit-weave/packages/core/src"],
+            },
+          },
+          {
+            name: "bootstrap_monorepo",
+            stepType: "subagent_task",
+            dependsOn: ["create_directories"],
+            objective:
+              "Scaffold root package.json with workspaces and scripts, per-package package.json using file:../core refs, tsconfig.json files, vite.config for web; no workspace:* specifiers",
+            inputContract: "Empty dir at cwd",
+            acceptanceCriteria: [
+              "Root and package manifests valid",
+              "TypeScript and build configs present",
+              "No unsupported workspace:*",
+              "All packages declared",
+            ],
+            requiredToolCapabilities: [
+              "system.bash",
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+            ],
+            contextRequirements: ["cwd=/tmp/transit-weave"],
+            maxBudgetHint: "5m",
+          },
+          {
+            name: "install_dependencies",
+            stepType: "deterministic_tool",
+            dependsOn: ["bootstrap_monorepo"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/transit-weave",
+            },
+          },
+        ],
+        edges: [
+          { from: "create_directories", to: "bootstrap_monorepo" },
+          { from: "bootstrap_monorepo", to: "install_dependencies" },
+        ],
+      },
+      {
+        maxSubagentFanout: 8,
+        maxSubagentDepth: 4,
+      },
+    );
+
+    expect(
+      diagnostics.some((diagnostic) =>
+        diagnostic.code === "node_workspace_install_phase_mismatch"
+      ),
+    ).toBe(false);
+  });
+
+  it("allows workspace scaffold steps that explicitly prohibit install or test verification before install", () => {
+    const diagnostics = validatePlannerGraph(
+      {
+        reason: "workspace_project",
+        requiresSynthesis: true,
+        confidence: 0.84,
+        steps: [
+          {
+            name: "scaffold_web",
+            stepType: "subagent_task",
+            dependsOn: [],
+            objective:
+              "Scaffold packages/web: run create-vite react-ts, adjust package.json for monorepo/core dep file:../core, vite.config, no install/run or tests in this step.",
+            inputContract: "cli scaffolded",
+            acceptanceCriteria: ["web created and adjusted for monorepo"],
+            requiredToolCapabilities: ["system.bash", "system.writeFile"],
+            contextRequirements: ["cwd=/tmp/transit-weave"],
+            maxBudgetHint: "3m",
+          },
+          {
+            name: "npm_install",
+            stepType: "deterministic_tool",
+            dependsOn: ["scaffold_web"],
+            tool: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+              cwd: "/tmp/transit-weave",
+            },
+          },
+        ],
+        edges: [{ from: "scaffold_web", to: "npm_install" }],
       },
       {
         maxSubagentFanout: 8,

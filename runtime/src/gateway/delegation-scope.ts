@@ -14,6 +14,7 @@ export interface DelegationScopeSpec {
   readonly objective?: string;
   readonly inputContract?: string;
   readonly acceptanceCriteria?: readonly string[];
+  readonly requiredToolCapabilities?: readonly string[];
 }
 
 export type DelegationScopePhase =
@@ -45,17 +46,41 @@ export interface DelegationScopeAssessment {
 }
 
 const SETUP_PHASE_RE =
-  /\b(?:scaffold|bootstrap|mkdir|npm\s+(?:init|install)|pnpm\s+(?:install|add)|yarn\s+(?:install|add)|dependency|dependencies)\b/i;
-const IMPLEMENTATION_PHASE_RE =
-  /\b(?:create|edit|write|implement|code|class|module|component|game loop|src\/|index\.html|package\.json|tsconfig|vite\.config)\b/i;
+  /\b(?:bootstrap|dependencies|dependency|directories?|directory structure|mkdir|npm\s+(?:init|install)|pnpm\s+(?:install|add)|scaffold|workspace layout|yarn\s+(?:install|add))\b/i;
+const IMPLEMENTATION_ACTION_TARGET_RE =
+  /\b(?:author|build|code|create|edit|implement|scaffold|write)\b[^.!?\n]{0,80}\b(?:app|class|code|command|component|config(?:uration)?|directory|directories|entry files?|file|files|game loop|gameplay|helper|helpers|index\.html|main\.ts|manifest|module|package|package\.json|packages\/|routing|simulation engine|src\/|source files?|task|tasks|tsconfig|vite\.config|vitest\.config|workspace)\b/i;
+const IMPLEMENTATION_ARTIFACT_RE =
+  /\b(?:class|component|helper|helpers|index\.html|main\.ts|manifest|module|package\.json|packages\/|src\/|tsconfig|vite\.config|vitest\.config)\b/i;
 const VALIDATION_PHASE_RE =
   /\b(?:verify|validate|qa|console errors?|open localhost|run_cmd|how to play|known limitations|run tests?|build checks?)\b/i;
 const RESEARCH_PHASE_RE =
-  /\b(?:research|compare|official docs?|primary sources?|sources?|devlog)\b/i;
+  /\b(?:research|compare|official docs?|primary sources?|official sources?|citations?|devlog)\b/i;
 const BROWSER_PHASE_RE =
-  /\b(?:playwright|browser|snapshot|navigate|click|tabs)\b/i;
+  /\b(?:playwright|chromium|localhost|snapshot|navigate|click|tabs|browser\s+(?:automation|validation|session|tools?))\b/i;
+const NEGATED_BROWSER_REQUIREMENT_RE =
+  /\b(?:no|non|without|avoid(?:ing)?|exclude(?:d|ing)?)\s+(?:any\s+|the\s+)?(?:browser(?:-grounded)?(?:\s+tools?)?|browser\s+(?:automation|validation)|playwright|snapshot|navigate|click|tabs)\b/gi;
+const DO_NOT_USE_BROWSER_RE =
+  /\bdo\s+not\s+use\s+(?:any\s+|the\s+)?(?:browser(?:-grounded)?(?:\s+tools?)?|browser\s+(?:automation|validation)|playwright)\b/gi;
+const BROAD_VALIDATION_SCOPE_RE =
+  /\b(?:qa|console errors?|open localhost|run_cmd|how to play|known limitations|critical flows?|manual validation|playtest)\b/i;
 const FILE_REFERENCE_RE =
   /\b(?:src\/[a-z0-9_./-]+|[a-z0-9_.-]+\.(?:html?|css|js|jsx|ts|tsx|json|md|txt|py|rs|go))\b/gi;
+const SCAFFOLD_MANIFEST_OR_CONFIG_RE =
+  /\b(?:config(?:uration)? files?|local deps?|manifest|manifests|package\.json|root config files?|tsconfig|vite\.config|vitest\.config|workspace(?:s)?)\b/i;
+const SCAFFOLD_DIRECTORY_RE =
+  /\b(?:directories?|directory structure|folders?|mkdir|workspace layout)\b/i;
+const SCAFFOLD_ENTRY_FILE_RE =
+  /\b(?:basic entry files?|entry files?|placeholder files?|src\/index|src\/main)\b/i;
+const BROWSER_TOOL_CAPABILITY_RE =
+  /\b(?:browser|playwright|chromium|snapshot|navigate|browseraction|browsersessionstart)\b/i;
+const FILE_AUTHORING_CAPABILITY_RE =
+  /\b(?:appendfile|desktop\.text_editor|file_system|react|system\.writefile|typescript)\b/i;
+
+function stripNegativeBrowserLanguage(value: string): string {
+  return value
+    .replace(NEGATED_BROWSER_REQUIREMENT_RE, " ")
+    .replace(DO_NOT_USE_BROWSER_RE, " ");
+}
 
 function hasPhase(
   phases: readonly DelegationScopePhase[],
@@ -66,6 +91,7 @@ function hasPhase(
 
 function hasIncompatibleDelegationPhaseMix(
   phases: readonly DelegationScopePhase[],
+  hasBroadValidationScope: boolean,
 ): boolean {
   const hasResearch = hasPhase(phases, "research");
   const hasImplementation = hasPhase(phases, "implementation");
@@ -77,12 +103,33 @@ function hasIncompatibleDelegationPhaseMix(
     return true;
   }
 
-  // Implementation children should not also own browser/QA work.
-  if (hasImplementation && (hasValidation || hasBrowser)) {
+  // Implementation children can run bounded self-verification like focused
+  // build/tests, but they should not also own broader QA/browser validation.
+  if (hasImplementation && (hasBrowser || (hasValidation && hasBroadValidationScope))) {
     return true;
   }
 
   return false;
+}
+
+function hasImplementationPhase(combined: string): boolean {
+  return IMPLEMENTATION_ARTIFACT_RE.test(combined) ||
+    IMPLEMENTATION_ACTION_TARGET_RE.test(combined);
+}
+
+function hasBroadWorkspaceScaffoldScope(combined: string): boolean {
+  return SCAFFOLD_MANIFEST_OR_CONFIG_RE.test(combined) &&
+    SCAFFOLD_DIRECTORY_RE.test(combined) &&
+    SCAFFOLD_ENTRY_FILE_RE.test(combined);
+}
+
+function normalizeCapabilities(
+  capabilities: readonly string[] | undefined,
+): readonly string[] {
+  return (capabilities ?? [])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
 }
 
 function buildDecompositionSuggestions(
@@ -172,6 +219,16 @@ export function assessDelegationScope(
   ]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join(" ");
+  const browserNormalized = stripNegativeBrowserLanguage(combined);
+  const normalizedCapabilities = normalizeCapabilities(
+    spec.requiredToolCapabilities,
+  );
+  const hasBrowserToolCapability = normalizedCapabilities.some((capability) =>
+    BROWSER_TOOL_CAPABILITY_RE.test(capability)
+  );
+  const hasFileAuthoringCapability = normalizedCapabilities.some((capability) =>
+    FILE_AUTHORING_CAPABILITY_RE.test(capability)
+  );
 
   if (combined.length === 0) {
     return { ok: true, phases: [] };
@@ -179,19 +236,34 @@ export function assessDelegationScope(
 
   const phases: DelegationScopePhase[] = [];
   if (SETUP_PHASE_RE.test(combined)) phases.push("setup");
-  if (IMPLEMENTATION_PHASE_RE.test(combined)) phases.push("implementation");
+  if (hasImplementationPhase(combined)) phases.push("implementation");
   if (VALIDATION_PHASE_RE.test(combined)) phases.push("validation");
   if (RESEARCH_PHASE_RE.test(combined)) phases.push("research");
-  if (BROWSER_PHASE_RE.test(combined)) phases.push("browser");
+  if (BROWSER_PHASE_RE.test(browserNormalized)) phases.push("browser");
 
   const fileReferenceCount = combined.match(FILE_REFERENCE_RE)?.length ?? 0;
   const clauseCount = combined.split(/\bthen\b|;/i).filter((part) =>
     part.trim().length > 0
   ).length;
   const acceptanceCount = spec.acceptanceCriteria?.length ?? 0;
-  const incompatiblePhaseMix = hasIncompatibleDelegationPhaseMix(phases);
+  const incompatiblePhaseMix = hasIncompatibleDelegationPhaseMix(
+    phases,
+    BROAD_VALIDATION_SCOPE_RE.test(combined),
+  );
+  const broadWorkspaceScaffoldScope =
+    hasPhase(phases, "implementation") &&
+    hasBroadWorkspaceScaffoldScope(combined);
+  const browserValidationOnly =
+    hasPhase(phases, "browser") &&
+    hasPhase(phases, "validation") &&
+    !hasFileAuthoringCapability &&
+    hasBrowserToolCapability;
   const overloaded =
-    incompatiblePhaseMix ||
+    (
+      incompatiblePhaseMix &&
+      !browserValidationOnly
+    ) ||
+    broadWorkspaceScaffoldScope ||
     combined.length >= 2_000 ||
     (
       phases.length >= 3 &&

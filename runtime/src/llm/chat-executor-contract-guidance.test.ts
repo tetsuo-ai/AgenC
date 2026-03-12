@@ -386,6 +386,29 @@ describe("chat-executor-contract-guidance", () => {
     );
   });
 
+  it("does not misclassify coding turns that mention metrics as typed calendar inspection", () => {
+    const messageText =
+      "Create a TypeScript monorepo for a deterministic hex-grid routing simulator. " +
+      "Visualize the grid, inspect metrics, run routes, and verify the web app after build.";
+
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText,
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.calendarInfo", "system.calendarRead"],
+    });
+    const block = resolveToolContractExecutionBlock({
+      phase: "initial",
+      messageText,
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.calendarInfo", "system.calendarRead"],
+      candidateToolName: "system.bash",
+    });
+
+    expect(guidance).toBeUndefined();
+    expect(block).toBeUndefined();
+  });
+
   it("routes delegated implementation turns to an editor-first tool on initial guidance", () => {
     const guidance = resolveToolContractGuidance({
       phase: "initial",
@@ -441,6 +464,42 @@ describe("chat-executor-contract-guidance", () => {
     });
   });
 
+  it("keeps inspect/mutate/verify tools available for delegated implementation phases without explicit build wording", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText: "Implement the CLI package.",
+      toolCalls: [],
+      allowedToolNames: [
+        "system.writeFile",
+        "system.readFile",
+        "system.bash",
+        "system.appendFile",
+      ],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "implement_cli",
+          objective:
+            "Implement packages/cli to load JSON, run core sim, print dispatch plan+timeline, error on bad input",
+          inputContract: "Core ready",
+          acceptanceCriteria: [
+            "CLI parses args, uses core, formats output",
+          ],
+        },
+      },
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-initial",
+      runtimeInstruction:
+        "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
+        "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
+        "and use shell verification when build/test/install evidence is part of acceptance.",
+      routedToolNames: ["system.readFile", "system.writeFile", "system.bash"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
   it("tells delegated bootstrap phases to create a missing workspace root before inspecting it", () => {
     const guidance = resolveToolContractGuidance({
       phase: "initial",
@@ -465,10 +524,9 @@ describe("chat-executor-contract-guidance", () => {
     expect(guidance).toEqual({
       source: "delegation-initial",
       runtimeInstruction:
-        "Bootstrap the delegated workspace before inspecting it. " +
-        "If the delegated cwd does not exist yet, create it first or inspect its parent instead of issuing a cwd-relative inspection that is expected to fail. " +
-        "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations.",
-      routedToolNames: ["system.writeFile", "system.bash"],
+        "Begin by creating or updating files under the delegated workspace root. " +
+        "If the delegated cwd does not exist yet, target that workspace via absolute paths instead of starting with shell inspection.",
+      routedToolNames: ["system.writeFile"],
       persistRoutedToolNames: false,
       toolChoice: "required",
     });
@@ -500,10 +558,9 @@ describe("chat-executor-contract-guidance", () => {
     expect(guidance).toEqual({
       source: "delegation-initial",
       runtimeInstruction:
-        "Bootstrap the delegated workspace before inspecting it. " +
-        "If the delegated cwd does not exist yet, create it first or inspect its parent instead of issuing a cwd-relative inspection that is expected to fail. " +
-        "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations.",
-      routedToolNames: ["system.listDir", "system.writeFile", "system.bash"],
+        "Begin by creating or updating files under the delegated workspace root. " +
+        "If the delegated cwd does not exist yet, target that workspace via absolute paths instead of starting with shell inspection.",
+      routedToolNames: ["system.writeFile"],
       persistRoutedToolNames: false,
       toolChoice: "required",
     });
@@ -630,6 +687,43 @@ describe("chat-executor-contract-guidance", () => {
     });
   });
 
+  it("keeps browser, verification, and mutation tools available for browser-evidence corrections on implementation phases", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "correction",
+      messageText: "Verify the web acceptance criteria with tool-grounded evidence.",
+      toolCalls: [],
+      allowedToolNames: [
+        "system.browserSessionStart",
+        "system.browserAction",
+        "system.bash",
+        "system.writeFile",
+      ],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "implement_web",
+          objective:
+            "Implement packages/web: Vite+React with 2 demo scenarios, JSON editor, timeline render, validation errors",
+          inputContract: "Installed deps + core",
+          acceptanceCriteria: [
+            "App builds and demos functional",
+          ],
+        },
+      },
+      validationCode: "acceptance_evidence_missing",
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-correction",
+      routedToolNames: [
+        "system.browserSessionStart",
+        "system.bash",
+        "system.writeFile",
+      ],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
   it("keeps mutation and verification tools available for contradictory implementation corrections", () => {
     const guidance = resolveToolContractGuidance({
       phase: "correction",
@@ -651,6 +745,37 @@ describe("chat-executor-contract-guidance", () => {
     expect(guidance).toEqual({
       source: "delegation-correction",
       routedToolNames: ["system.writeFile", "system.bash"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("routes low-signal localhost browser-evidence corrections to verification first and keeps mutation available", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "correction",
+      messageText:
+        "Retry the localhost Chromium validation with tool-grounded evidence.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "qa_and_validation",
+          objective:
+            "Add tests, fix build issues, and validate the main web flows in Chromium.",
+          inputContract: "Core, CLI, and web packages already exist",
+          acceptanceCriteria: [
+            "Vitest passes",
+            "Build/typecheck succeed",
+            "Main web flows validated in Chromium",
+          ],
+        },
+      },
+      validationCode: "low_signal_browser_evidence",
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-correction",
+      routedToolNames: ["system.bash", "system.writeFile"],
       persistRoutedToolNames: false,
       toolChoice: "required",
     });

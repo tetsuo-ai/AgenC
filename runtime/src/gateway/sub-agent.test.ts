@@ -709,6 +709,146 @@ describe("SubAgentManager", () => {
       }
     });
 
+    it("preserves delegated validation codes for forbidden phase actions", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content:
+            "**Phase scaffold_manifests completed.** Authored manifests and ran npm install to confirm the links work.",
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [{
+            name: "system.bash",
+            args: {
+              command: "npm",
+              args: ["install"],
+            },
+            result: '{"stdout":"ok","stderr":"","exitCode":0}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "completed",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        const sessionId = await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+          requireToolCall: true,
+          delegationSpec: {
+            task: "scaffold_manifests",
+            objective:
+              "Author only manifests/configs and do not execute install/build/test commands in this phase",
+            inputContract:
+              "Scaffold only; later deterministic verification runs npm install",
+            acceptanceCriteria: [
+              "No install/build/test commands executed or claimed",
+            ],
+            requiredToolCapabilities: ["system.writeFile", "system.bash"],
+          },
+        });
+        await settle();
+
+        const result = manager.getResult(sessionId);
+        expect(result).not.toBeNull();
+        expect(result!.success).toBe(false);
+        expect(result!.stopReason).toBe("validation_error");
+        expect(result!.validationCode).toBe("forbidden_phase_action");
+        expect(result!.stopReasonDetail).toContain("dependency-install commands");
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("accepts scaffold summaries that mention script definitions without claiming forbidden execution", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content:
+            "**Phase `scaffold_monorepo` completed.**\n\n" +
+            "Authored:\n" +
+            "- Root: `package.json` (workspaces, build/test scripts, devDeps), `tsconfig.json` (project references), `vitest.config.ts`.\n" +
+            "- `packages/core/`: `package.json` (file deps none, build/test scripts), `tsconfig.json` (composite, NodeNext, src).\n" +
+            "- `packages/web/`: `package.json` (React/Vite deps), `tsconfig.json` (React JSX, references), `vite.config.ts`.\n\n" +
+            "All use `file:../*` (no `workspace:*`), package-local TS configs for isolated `npm run build --workspace=...`, only manifests/configs (no source/code/commands executed). Verified via `ls -R` only.",
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [
+            {
+              name: "system.writeFile",
+              args: {
+                path: "/workspace/signal-cartography/package.json",
+                content:
+                  '{ "name": "signal-cartography", "private": true, "scripts": { "build": "npm run build --workspaces", "test": "npm run test --workspaces" } }',
+              },
+              result:
+                '{"path":"/workspace/signal-cartography/package.json","bytesWritten":138}',
+              isError: false,
+              durationMs: 1,
+            },
+            {
+              name: "system.bash",
+              args: {
+                command: "ls",
+                args: ["-R"],
+              },
+              result:
+                '{"stdout":"package.json\\npackages\\ntsconfig.json\\nvitest.config.ts","stderr":"","exitCode":0}',
+              isError: false,
+              durationMs: 1,
+            },
+          ],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "completed",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        const sessionId = await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+          requireToolCall: true,
+          delegationSpec: {
+            task: "scaffold_monorepo",
+            objective:
+              "Author only manifests/configs and do not execute install/build/test commands in this phase",
+            inputContract:
+              "Scaffold only; later deterministic verification runs npm install",
+            acceptanceCriteria: [
+              "Root package.json authored with build/test scripts",
+              "No install/build/test commands executed or claimed",
+            ],
+            requiredToolCapabilities: ["system.writeFile", "system.bash"],
+          },
+        });
+        await settle();
+
+        const result = manager.getResult(sessionId);
+        expect(result).not.toBeNull();
+        expect(result!.success).toBe(true);
+        expect(result!.stopReason).toBe("completed");
+        expect(result!.validationCode).toBeUndefined();
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
     it("includes durationMs in result", async () => {
       const manager = new SubAgentManager(makeManagerConfig());
 

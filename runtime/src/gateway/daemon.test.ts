@@ -2474,6 +2474,136 @@ describe("DaemonManager", () => {
     });
   });
 
+  it("blocks package manifest writes with unsupported workspace protocol before execution", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._hostToolingProfile = {
+      nodeVersion: process.version,
+      npm: {
+        version: "11.7.0",
+        workspaceProtocolSupport: "unsupported",
+        workspaceProtocolEvidence: "npm error code EUNSUPPORTEDPROTOCOL",
+      },
+    };
+    const baseToolHandler = vi.fn(async () =>
+      JSON.stringify({ path: "/tmp/project/package.json", bytesWritten: 123 }),
+    );
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as any;
+
+    const handler = (dm as any).createWebChatSessionToolHandler({
+      sessionId: "session-host-tooling",
+      webChat,
+      hooks,
+      baseToolHandler,
+      traceLabel: "webchat",
+      traceConfig: { enabled: false },
+      traceId: "trace-host-tooling",
+    });
+
+    const blocked = await handler("system.writeFile", {
+      path: "/tmp/project/packages/data/package.json",
+      content: JSON.stringify(
+        {
+          name: "@demo/data",
+          dependencies: {
+            "@demo/core": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    });
+
+    expect(JSON.parse(blocked)).toEqual({
+      error: {
+        code: "host_tooling_workspace_protocol_unsupported",
+        message: expect.stringContaining("workspace:"),
+      },
+      manifestPath: "/tmp/project/packages/data/package.json",
+      blockedSpecifiers: [
+        {
+          dependencyField: "dependencies",
+          packageName: "@demo/core",
+          specifier: "workspace:*",
+        },
+      ],
+      hostTooling: {
+        npmVersion: "11.7.0",
+        workspaceProtocolSupport: "unsupported",
+        workspaceProtocolEvidence: "npm error code EUNSUPPORTEDPROTOCOL",
+      },
+    });
+    expect(baseToolHandler).not.toHaveBeenCalled();
+  });
+
+  it("allows package manifest writes when host workspace protocol support is available", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._hostToolingProfile = {
+      nodeVersion: process.version,
+      npm: {
+        version: "11.7.0",
+        workspaceProtocolSupport: "supported",
+      },
+    };
+    const baseToolHandler = vi.fn(async () =>
+      JSON.stringify({ path: "/tmp/project/package.json", bytesWritten: 123 }),
+    );
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as any;
+
+    const handler = (dm as any).createWebChatSessionToolHandler({
+      sessionId: "session-host-tooling-supported",
+      webChat,
+      hooks,
+      baseToolHandler,
+      traceLabel: "webchat",
+      traceConfig: { enabled: false },
+      traceId: "trace-host-tooling-supported",
+    });
+
+    const result = await handler("system.writeFile", {
+      path: "/tmp/project/packages/data/package.json",
+      content: JSON.stringify(
+        {
+          name: "@demo/data",
+          dependencies: {
+            "@demo/core": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      path: "/tmp/project/package.json",
+      bytesWritten: 123,
+    });
+    expect(baseToolHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: "/tmp/project/packages/data/package.json",
+      content: JSON.stringify(
+        {
+          name: "@demo/data",
+          dependencies: {
+            "@demo/core": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    });
+  });
+
   it("adds provider-native web_search to research routing but not interactive browser routing", () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     (dm as any)._primaryLlmConfig = {

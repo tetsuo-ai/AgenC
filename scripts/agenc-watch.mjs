@@ -2,11 +2,31 @@ import readline from "node:readline";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import WebSocket from "../node_modules/ws/wrapper.mjs";
 import {
   createOperatorInputBatcher,
   shouldAutoInspectRun,
 } from "./lib/agenc-watch-helpers.mjs";
+
+async function loadWebSocketConstructor() {
+  if (typeof globalThis.WebSocket === "function") {
+    return globalThis.WebSocket;
+  }
+
+  for (const candidate of [
+    "../runtime/node_modules/ws/wrapper.mjs",
+    "../node_modules/ws/wrapper.mjs",
+  ]) {
+    try {
+      return (await import(candidate)).default;
+    } catch {}
+  }
+
+  throw new Error(
+    "Unable to resolve a WebSocket implementation. Install `ws` or use a Node runtime with global WebSocket support.",
+  );
+}
+
+const WebSocket = await loadWebSocketConstructor();
 
 const wsUrl = process.env.AGENC_WATCH_WS_URL ?? "ws://127.0.0.1:3100";
 const clientKey = process.env.AGENC_WATCH_CLIENT_KEY ?? "tmux-live-watch";
@@ -999,6 +1019,13 @@ function compactSummaryLines(width) {
   });
 }
 
+function resetLiveRunSurface() {
+  latestAgentSummary = null;
+  latestTool = null;
+  latestToolState = null;
+  lastUsageSummary = null;
+}
+
 function styleEventBodyLine(line) {
   const match = line.match(/^([A-Za-z0-9 _./-]{2,26}):(.*)$/);
   if (!match) {
@@ -1260,6 +1287,7 @@ function attachSocket(socket) {
     switch (msg.type) {
       case "chat.session":
         sessionId = msg.payload?.sessionId ?? sessionId;
+        resetLiveRunSurface();
         runDetail = null;
         runState = "idle";
         runPhase = null;
@@ -1531,6 +1559,7 @@ function dispatchOperatorInput(value, { replayed = false } = {}) {
     if (shouldQueueOperatorInput(value)) {
       return maybeQueue("session bootstrap not complete");
     }
+    resetLiveRunSurface();
     currentObjective = null;
     runDetail = null;
     runState = "idle";

@@ -27,7 +27,6 @@ import type { DelegationOutputValidationCode } from "../utils/delegation-validat
 import {
   LLMProviderError,
   LLMRateLimitError,
-  LLMTimeoutError,
   classifyLLMFailure,
 } from "./errors.js";
 import {
@@ -92,6 +91,7 @@ import type {
   ToolLoopState,
   ToolCallAction,
   ExecutionContext,
+  PlannerDiagnostic,
 } from "./chat-executor-types.js";
 import {
   MAX_EVAL_USER_CHARS,
@@ -117,9 +117,11 @@ import {
   DEFAULT_TOOL_FAILURE_BREAKER_COOLDOWN_MS,
   DEFAULT_EVAL_RUBRIC,
   MAX_COMPACT_INPUT,
+  RECOVERY_HINT_PREFIX,
 } from "./chat-executor-constants.js";
 import {
   buildRequiredToolEvidenceRetryInstruction,
+  canRetryDelegatedOutputWithoutAdditionalToolCalls,
   resolveCorrectionAllowedToolNames,
   resolveExecutionToolContractGuidance,
   validateRequiredToolEvidence,
@@ -171,6 +173,81 @@ function shouldUseSessionStatefulContinuationForPhase(
   return phase === "initial" || phase === "tool_followup";
 }
 
+function buildPlannerDiagnosticSignature(
+  diagnostics: readonly PlannerDiagnostic[],
+): string {
+  return diagnostics
+    .map((diagnostic) => {
+      const stepName =
+        typeof diagnostic.details?.stepName === "string"
+          ? diagnostic.details.stepName
+          : "";
+      const installSteps =
+        typeof diagnostic.details?.installSteps === "string"
+          ? diagnostic.details.installSteps
+          : "";
+      const phases =
+        typeof diagnostic.details?.phases === "string"
+          ? diagnostic.details.phases
+          : "";
+      return [
+        diagnostic.category,
+        diagnostic.code,
+        stepName,
+        installSteps,
+        phases,
+        diagnostic.message,
+      ].join("::");
+    })
+    .sort()
+    .join("||");
+}
+
+interface DetailedMemoryTraceEntry {
+  readonly role?: string;
+  readonly source?: string;
+  readonly provenance?: string;
+  readonly combinedScore?: number;
+}
+
+interface DetailedMemoryRetrievalResult {
+  readonly content: string | undefined;
+  readonly entries?: readonly DetailedMemoryTraceEntry[];
+  readonly curatedIncluded?: boolean;
+  readonly estimatedTokens?: number;
+}
+
+interface DetailedMemoryRetriever extends MemoryRetriever {
+  retrieveDetailed(
+    message: string,
+    sessionId: string,
+  ): Promise<DetailedMemoryRetrievalResult>;
+}
+
+function isDetailedMemoryRetriever(
+  provider: SkillInjector | MemoryRetriever | undefined,
+): provider is DetailedMemoryRetriever {
+  return (
+    !!provider &&
+    "retrieveDetailed" in provider &&
+    typeof provider.retrieveDetailed === "function"
+  );
+}
+
+function buildPipelineFailureSignature(result: PipelineResult): string {
+  const normalizedError =
+    typeof result.error === "string"
+      ? truncateText(result.error.replace(/\s+/g, " ").trim(), 320)
+      : "";
+  return [
+    result.status,
+    result.stopReasonHint ?? "",
+    String(result.completedSteps),
+    String(result.totalSteps),
+    normalizedError,
+  ].join("::");
+}
+
 function mergeProviderEvidence(
   current: LLMProviderEvidence | undefined,
   incoming: LLMProviderEvidence | undefined,
@@ -201,6 +278,34 @@ function mergeExplicitRequirementToolNames(
     return merged;
   }
   return Array.from(new Set(fallbackToolNames));
+}
+
+function buildDelegatedBudgetFinalizationInstruction(params: {
+  readonly acceptanceCriteria?: readonly string[];
+  readonly requestedToolNames: readonly string[];
+}): string {
+  const acceptanceSummary = (params.acceptanceCriteria ?? [])
+    .filter((criterion) => typeof criterion === "string" && criterion.trim().length > 0)
+    .slice(0, 4)
+    .join("; ");
+  const requestedToolSummary = params.requestedToolNames.length > 0
+    ? ` The last tool request was not executed because the budget was exhausted: ${
+      params.requestedToolNames.join(", ")
+    }.`
+    : "";
+
+  return (
+    "Tool-call budget is exhausted for this delegated phase. " +
+    "Do not request more tools. " +
+    "Using only the authoritative runtime tool ledger and tool results already collected, " +
+    "produce the final grounded phase result now. " +
+    "Only claim work backed by executed tool results, and explicitly name the concrete files or artifacts created or updated. " +
+    "If any acceptance criterion is still unmet, state exactly which one lacks evidence instead of requesting another tool." +
+    (acceptanceSummary.length > 0
+      ? ` Acceptance criteria: ${acceptanceSummary}.`
+      : "") +
+    requestedToolSummary
+  );
 }
 import type {
   RoundStuckState,
@@ -238,8 +343,12 @@ import {
   assessPlannerDecision,
   buildPlannerMessages,
   buildPlannerExecutionContext,
+  buildPlannerVerificationRequirementsFailureMessage,
+  buildPlannerVerificationRequirementsRefinementHint,
   validatePlannerGraph,
+  validatePlannerVerificationRequirements,
   validatePlannerStepContracts,
+  extractPlannerVerificationRequirements,
   extractExplicitDeterministicToolRequirements,
   extractExplicitSubagentOrchestrationRequirements,
   validateExplicitDeterministicToolRequirements,
@@ -247,6 +356,7 @@ import {
   extractPlannerStructuralDiagnostics,
   buildExplicitDeterministicToolRefinementHint,
   buildExplicitDeterministicToolFailureMessage,
+  buildPlannerParseRefinementHint,
   buildPlannerStructuralRefinementHint,
   buildPlannerValidationFailureMessage,
   buildPipelineDecompositionRefinementHint,
@@ -255,6 +365,7 @@ import {
   buildSalvagedPlannerToolCallRefinementHint,
   buildExplicitSubagentOrchestrationRefinementHint,
   buildExplicitSubagentOrchestrationFailureMessage,
+  extractRecoverablePlannerParseDiagnostics,
   isHighRiskSubagentPlan,
   computePlannerGraphDepth,
   isPipelineStopReasonHint,
@@ -640,6 +751,7 @@ export class ChatExecutor {
       | "insufficient_recent_progress"
       | "request_time_exhausted"
       | "time_bound_exhausted"
+      | "tool_budget_exhausted"
       | "extension_budget_exhausted";
     readonly recentProgressRate: number;
     readonly recentTotalNewSuccessfulSemanticKeys: number;
@@ -648,6 +760,7 @@ export class ChatExecutor {
     readonly latestRoundHadMaterialProgress: boolean;
     readonly newLimit: number;
     readonly extensionRounds: number;
+    readonly remainingToolBudget: number;
     readonly remainingRequestMs: number;
     readonly recentAverageRoundMs: number;
     readonly latestRoundNewSuccessfulSemanticKeys: number;
@@ -660,7 +773,15 @@ export class ChatExecutor {
     readonly repairCycleNeedsMutation: boolean;
     readonly repairCycleNeedsVerification: boolean;
   } {
-    if (params.currentLimit >= MAX_ADAPTIVE_TOOL_ROUNDS) {
+    const remainingToolBudget = Math.max(
+      0,
+      params.ctx.effectiveToolBudget - params.ctx.allToolCalls.length,
+    );
+    const effectiveRoundCeiling = Math.min(
+      MAX_ADAPTIVE_TOOL_ROUNDS,
+      params.ctx.effectiveToolBudget,
+    );
+    if (params.currentLimit >= effectiveRoundCeiling) {
       return {
         decision: "ceiling_reached",
         recentProgressRate: 0,
@@ -670,6 +791,7 @@ export class ChatExecutor {
         latestRoundHadMaterialProgress: false,
         newLimit: params.currentLimit,
         extensionRounds: 0,
+        remainingToolBudget,
         remainingRequestMs: 0,
         recentAverageRoundMs: 0,
         latestRoundNewSuccessfulSemanticKeys: 0,
@@ -691,6 +813,7 @@ export class ChatExecutor {
         latestRoundHadMaterialProgress: false,
         newLimit: params.currentLimit,
         extensionRounds: 0,
+        remainingToolBudget,
         remainingRequestMs: 0,
         recentAverageRoundMs: 0,
         latestRoundNewSuccessfulSemanticKeys: 0,
@@ -772,6 +895,7 @@ export class ChatExecutor {
         latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
         newLimit: params.currentLimit,
         extensionRounds: 0,
+        remainingToolBudget,
         remainingRequestMs: this.getRemainingRequestMs(params.ctx),
         recentAverageRoundMs: 0,
         latestRoundNewSuccessfulSemanticKeys:
@@ -795,6 +919,7 @@ export class ChatExecutor {
         latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
         newLimit: params.currentLimit,
         extensionRounds: 0,
+        remainingToolBudget,
         remainingRequestMs,
         recentAverageRoundMs: 0,
         latestRoundNewSuccessfulSemanticKeys:
@@ -825,6 +950,7 @@ export class ChatExecutor {
         latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
         newLimit: params.currentLimit,
         extensionRounds: 0,
+        remainingToolBudget,
         remainingRequestMs,
         recentAverageRoundMs,
         latestRoundNewSuccessfulSemanticKeys:
@@ -843,10 +969,34 @@ export class ChatExecutor {
         latestRound.newSuccessfulSemanticKeys,
         Math.ceil(weightedAverageNewSuccessfulSemanticKeys),
       );
+    if (remainingToolBudget <= 0) {
+      return {
+        decision: "tool_budget_exhausted",
+        recentProgressRate,
+        recentTotalNewSuccessfulSemanticKeys,
+        recentTotalNewVerificationFailureDiagnosticKeys,
+        weightedAverageNewSuccessfulSemanticKeys,
+        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
+        newLimit: params.currentLimit,
+        extensionRounds: 0,
+        remainingToolBudget,
+        remainingRequestMs,
+        recentAverageRoundMs,
+        latestRoundNewSuccessfulSemanticKeys:
+          latestRound.newSuccessfulSemanticKeys,
+        latestRoundNewVerificationFailureDiagnosticKeys:
+          latestRound.newVerificationFailureDiagnosticKeys,
+        extensionReason: "none",
+        repairCycleOpen,
+        repairCycleNeedsMutation,
+        repairCycleNeedsVerification,
+      };
+    }
     const extensionRounds = Math.min(
       expectedMarginalRounds,
       timeBoundExtension,
-      MAX_ADAPTIVE_TOOL_ROUNDS - params.currentLimit,
+      effectiveRoundCeiling - params.currentLimit,
+      remainingToolBudget,
     );
     if (extensionRounds <= 0) {
       return {
@@ -858,6 +1008,7 @@ export class ChatExecutor {
         latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
         newLimit: params.currentLimit,
         extensionRounds: 0,
+        remainingToolBudget,
         remainingRequestMs,
         recentAverageRoundMs,
         latestRoundNewSuccessfulSemanticKeys:
@@ -879,6 +1030,7 @@ export class ChatExecutor {
       latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
       newLimit: params.currentLimit + extensionRounds,
       extensionRounds,
+      remainingToolBudget,
       remainingRequestMs,
       recentAverageRoundMs,
       latestRoundNewSuccessfulSemanticKeys:
@@ -994,6 +1146,31 @@ export class ChatExecutor {
     this.pushMessage(ctx, { role: "system", content }, "system_runtime");
   }
 
+  private replaceRuntimeRecoveryHintMessages(
+    ctx: ExecutionContext,
+    recoveryHints: readonly { key: string }[],
+  ): void {
+    const nextMessages: LLMMessage[] = [];
+    const nextSections: PromptBudgetSection[] = [];
+    for (let index = 0; index < ctx.messages.length; index++) {
+      const message = ctx.messages[index];
+      const section = ctx.messageSections[index];
+      if (
+        section === "system_runtime" &&
+        message?.role === "system" &&
+        typeof message.content === "string" &&
+        message.content.startsWith(RECOVERY_HINT_PREFIX)
+      ) {
+        continue;
+      }
+      nextMessages.push(message);
+      nextSections.push(section);
+    }
+    ctx.messages = nextMessages;
+    ctx.messageSections = nextSections;
+    ctx.activeRecoveryHintKeys = recoveryHints.map((hint) => hint.key);
+  }
+
   private resolveActiveToolContractGuidance(
     ctx: ExecutionContext,
     input?: {
@@ -1069,14 +1246,24 @@ export class ChatExecutor {
         return "failed";
       }
 
-      const correctionAllowedTools = resolveCorrectionAllowedToolNames(
-        ctx.activeRoutedToolNames,
-        this.allowedTools ?? undefined,
-      );
+      const canRetryWithoutAdditionalToolCalls =
+        canRetryDelegatedOutputWithoutAdditionalToolCalls({
+          validationCode: contractValidation?.code,
+          toolCalls: ctx.allToolCalls,
+          delegationSpec: ctx.requiredToolEvidence.delegationSpec,
+          providerEvidence: ctx.providerEvidence,
+        });
+      const correctionAllowedTools = canRetryWithoutAdditionalToolCalls
+        ? []
+        : resolveCorrectionAllowedToolNames(
+          ctx.activeRoutedToolNames,
+          this.allowedTools ?? undefined,
+        );
       const retryInstruction = buildRequiredToolEvidenceRetryInstruction({
         missingEvidenceMessage,
         validationCode: contractValidation?.code,
         allowedToolNames: correctionAllowedTools,
+        requiresAdditionalToolCalls: !canRetryWithoutAdditionalToolCalls,
       });
 
       if (
@@ -1107,17 +1294,20 @@ export class ChatExecutor {
           missingEvidenceMessage,
           validationCode: contractValidation?.code,
           allowedToolNames: correctionAllowedTools,
+          toollessRetry: canRetryWithoutAdditionalToolCalls,
         },
       });
 
-      const correctionContractGuidance = this.resolveActiveToolContractGuidance(
-        ctx,
-        {
-          phase: "correction",
-          allowedToolNames: correctionAllowedTools,
-          validationCode: contractValidation?.code,
-        },
-      );
+      const correctionContractGuidance = canRetryWithoutAdditionalToolCalls
+        ? undefined
+        : this.resolveActiveToolContractGuidance(
+          ctx,
+          {
+            phase: "correction",
+            allowedToolNames: correctionAllowedTools,
+            validationCode: contractValidation?.code,
+          },
+        );
       if (correctionContractGuidance) {
         this.emitExecutionTrace(ctx, {
           type: "contract_guidance_resolved",
@@ -1144,7 +1334,10 @@ export class ChatExecutor {
         statefulSessionId: ctx.sessionId,
         statefulResumeAnchor: ctx.stateful?.resumeAnchor,
         statefulHistoryCompacted: ctx.stateful?.historyCompacted,
-        toolChoice: correctionContractGuidance?.toolChoice ?? "required",
+        toolChoice:
+          canRetryWithoutAdditionalToolCalls
+            ? "none"
+            : correctionContractGuidance?.toolChoice ?? "required",
         ...((correctionContractGuidance?.routedToolNames?.length ?? 0) > 0
           ? {
             routedToolNames: correctionContractGuidance!.routedToolNames,
@@ -1163,6 +1356,146 @@ export class ChatExecutor {
     return retried ? "continue" : "not_required";
   }
 
+  private async finalizeDelegatedTurnAfterToolBudgetExhaustion(
+    ctx: ExecutionContext,
+    effectiveMaxToolRounds: number,
+  ): Promise<boolean> {
+    const delegationSpec = ctx.requiredToolEvidence?.delegationSpec;
+    if (!delegationSpec || ctx.response?.finishReason !== "tool_calls") {
+      return false;
+    }
+
+    const requestedToolNames = ctx.response.toolCalls
+      .map((toolCall) => toolCall.name?.trim())
+      .filter((toolName): toolName is string => Boolean(toolName));
+    const instruction = buildDelegatedBudgetFinalizationInstruction({
+      acceptanceCriteria: delegationSpec.acceptanceCriteria,
+      requestedToolNames,
+    });
+
+    this.pushMessage(
+      ctx,
+      { role: "system", content: instruction },
+      "system_runtime",
+    );
+
+    const finalResponse = await this.callModelForPhase(ctx, {
+      phase: "tool_followup",
+      callMessages: ctx.messages,
+      callSections: ctx.messageSections,
+      onStreamChunk: ctx.activeStreamCallback,
+      statefulSessionId: ctx.sessionId,
+      statefulResumeAnchor: ctx.stateful?.resumeAnchor,
+      statefulHistoryCompacted: ctx.stateful?.historyCompacted,
+      routedToolNames: [],
+      persistRoutedToolNames: false,
+      toolChoice: "none",
+      preparationDiagnostics: {
+        toolBudgetFinalization: true,
+        requestedToolNames,
+        recallBudgetBypassed: true,
+      },
+      allowRecallBudgetBypass: true,
+      budgetReason:
+        "Max model recalls exceeded while finalizing delegated result after tool budget exhaustion",
+    });
+    const supersededStopReason =
+      ctx.stopReason === "completed" ? undefined : ctx.stopReason;
+
+    if (!finalResponse) {
+      this.emitExecutionTrace(ctx, {
+        type: "tool_round_budget_finalization_finished",
+        phase: "tool_followup",
+        callIndex: ctx.callIndex + 1,
+        payload: {
+          outcome: "model_call_unavailable",
+          maxToolRounds: effectiveMaxToolRounds,
+          requestedToolNames,
+          requestedToolCount: requestedToolNames.length,
+          ...(supersededStopReason
+            ? { supersededStopReason }
+            : {}),
+        },
+      });
+      return true;
+    }
+
+    ctx.response = finalResponse;
+    const {
+      contractValidation,
+      missingEvidenceMessage,
+    } = validateRequiredToolEvidence({ ctx });
+    const validationCode = contractValidation?.code;
+
+    if (ctx.response.finishReason === "tool_calls") {
+      this.emitExecutionTrace(ctx, {
+        type: "tool_round_budget_finalization_finished",
+        phase: "tool_followup",
+        callIndex: ctx.callIndex,
+        payload: {
+          outcome: "returned_tool_calls",
+          finishReason: ctx.response.finishReason,
+          maxToolRounds: effectiveMaxToolRounds,
+          requestedToolNames,
+          requestedToolCount: requestedToolNames.length,
+          ...(supersededStopReason
+            ? { supersededStopReason }
+            : {}),
+        },
+      });
+      this.setStopReason(
+        ctx,
+        "tool_calls",
+        `Reached max tool rounds (${effectiveMaxToolRounds})`,
+      );
+      return true;
+    }
+
+    if (missingEvidenceMessage) {
+      this.emitExecutionTrace(ctx, {
+        type: "tool_round_budget_finalization_finished",
+        phase: "tool_followup",
+        callIndex: ctx.callIndex,
+        payload: {
+          outcome: "validation_error",
+          finishReason: ctx.response.finishReason,
+          maxToolRounds: effectiveMaxToolRounds,
+          requestedToolNames,
+          requestedToolCount: requestedToolNames.length,
+          validationCode,
+          missingEvidenceMessage,
+          ...(supersededStopReason
+            ? { supersededStopReason }
+            : {}),
+        },
+      });
+      this.setStopReason(ctx, "validation_error", missingEvidenceMessage);
+      ctx.finalContent = missingEvidenceMessage;
+      return true;
+    }
+
+    if (supersededStopReason) {
+      ctx.stopReason = "completed";
+      ctx.stopReasonDetail = undefined;
+    }
+    this.emitExecutionTrace(ctx, {
+      type: "tool_round_budget_finalization_finished",
+      phase: "tool_followup",
+      callIndex: ctx.callIndex,
+      payload: {
+        outcome: "completed",
+        finishReason: ctx.response.finishReason,
+        maxToolRounds: effectiveMaxToolRounds,
+        requestedToolNames,
+        requestedToolCount: requestedToolNames.length,
+        ...(supersededStopReason
+          ? { supersededStopReason }
+          : {}),
+      },
+    });
+    return true;
+  }
+
   private async callModelForPhase(
     ctx: ExecutionContext,
     input: {
@@ -1178,10 +1511,11 @@ export class ChatExecutor {
       persistRoutedToolNames?: boolean;
       toolChoice?: LLMToolChoice;
       preparationDiagnostics?: Record<string, unknown>;
+      allowRecallBudgetBypass?: boolean;
       budgetReason: string;
     },
   ): Promise<LLMResponse | undefined> {
-    if (!this.hasModelRecallBudget(ctx)) {
+    if (!input.allowRecallBudgetBypass && !this.hasModelRecallBudget(ctx)) {
       this.setStopReason(ctx, "budget_exceeded", input.budgetReason);
       return undefined;
     }
@@ -1198,6 +1532,9 @@ export class ChatExecutor {
       shouldUseSessionStatefulContinuationForPhase(input.phase);
     if (input.persistRoutedToolNames !== false) {
       applyActiveRoutedToolNames(ctx, effectiveRoutedToolNames);
+      ctx.transientRoutedToolNames = undefined;
+    } else {
+      ctx.transientRoutedToolNames = effectiveRoutedToolNames;
     }
     const groundingMessage =
       input.phase === "tool_followup" || input.phase === "planner_synthesis"
@@ -1222,6 +1559,9 @@ export class ChatExecutor {
           : {}),
         ...(input.preparationDiagnostics ?? {}),
         routedToolNames: effectiveRoutedToolNames ?? [],
+        activeRecoveryHintKeys: ctx.activeRecoveryHintKeys,
+        remainingRequestMs: Math.max(0, this.getRemainingRequestMs(ctx)),
+        effectiveRequestTimeoutMs: ctx.effectiveRequestTimeoutMs,
         toolChoice:
           input.toolChoice === undefined
             ? undefined
@@ -1242,6 +1582,7 @@ export class ChatExecutor {
         effectiveCallSections,
         {
           requestDeadlineAt: ctx.requestDeadlineAt,
+          signal: ctx.signal,
           ...(allowStatefulContinuation && input.statefulSessionId
             ? {
               statefulSessionId: input.statefulSessionId,
@@ -1476,6 +1817,7 @@ export class ChatExecutor {
 
     // Context injection — skill, memory, and learning (all best-effort)
     await this.injectContext(
+      ctx,
       this.skillInjector,
       ctx.messageText,
       ctx.sessionId,
@@ -1487,6 +1829,7 @@ export class ChatExecutor {
     // For the first turn, only inject static skill context.
     if (ctx.hasHistory) {
       await this.injectContext(
+        ctx,
         this.memoryRetriever,
         ctx.messageText,
         ctx.sessionId,
@@ -1495,6 +1838,7 @@ export class ChatExecutor {
         "memory_semantic",
       );
       await this.injectContext(
+        ctx,
         this.learningProvider,
         ctx.messageText,
         ctx.sessionId,
@@ -1503,6 +1847,7 @@ export class ChatExecutor {
         "memory_episodic",
       );
       await this.injectContext(
+        ctx,
         this.progressProvider,
         ctx.messageText,
         ctx.sessionId,
@@ -1848,7 +2193,6 @@ export class ChatExecutor {
 
     let rounds = 0;
     let effectiveMaxToolRounds = ctx.effectiveMaxToolRounds;
-    const emittedRecoveryHints = new Set<string>();
     const successfulSemanticToolKeys = new Set<string>();
     const verificationFailureDiagnosticKeys = new Set<string>();
     const recentRoundProgress: ToolRoundProgressSummary[] = [];
@@ -1886,9 +2230,12 @@ export class ChatExecutor {
       rounds++;
       const roundToolCallStart = ctx.allToolCalls.length;
       const roundStartedAt = Date.now();
+      const roundRoutedToolNames =
+        ctx.transientRoutedToolNames ?? ctx.activeRoutedToolNames;
       loopState.activeRoutedToolSet = buildActiveRoutedToolSet(
-        ctx.activeRoutedToolNames,
+        roundRoutedToolNames,
       );
+      ctx.transientRoutedToolNames = undefined;
       loopState.expandAfterRound = false;
 
       this.pushMessage(
@@ -1926,12 +2273,44 @@ export class ChatExecutor {
       // Stuck-loop detection (consecutive failures, semantic duplicates).
       const stuckResult = checkToolLoopStuckDetection(roundCalls, loopState, stuckState);
       if (stuckResult.shouldBreak) {
+        const roundFailures = roundCalls.filter((call) =>
+          didToolCallFail(call.isError, call.result)
+        ).length;
+        this.emitExecutionTrace(ctx, {
+          type: "tool_loop_stuck_detected",
+          phase: "tool_followup",
+          callIndex: ctx.callIndex,
+          payload: {
+            reason: stuckResult.reason,
+            roundToolCallCount: roundCalls.length,
+            roundFailureCount: roundFailures,
+            consecutiveFailCount: loopState.consecutiveFailCount,
+            consecutiveAllFailedRounds: stuckState.consecutiveAllFailedRounds,
+            consecutiveSemanticDuplicateRounds:
+              stuckState.consecutiveSemanticDuplicateRounds,
+          },
+        });
         this.setStopReason(ctx, "no_progress", stuckResult.reason);
         break;
       }
 
       // Recovery hints.
-      const recoveryHints = buildRecoveryHints(roundCalls, emittedRecoveryHints);
+      const recoveryHints = buildRecoveryHints(roundCalls, new Set<string>());
+      this.replaceRuntimeRecoveryHintMessages(ctx, recoveryHints);
+      if (recoveryHints.length > 0) {
+        this.emitExecutionTrace(ctx, {
+          type: "recovery_hints_injected",
+          phase: "tool_followup",
+          callIndex: ctx.callIndex + 1,
+          payload: {
+            count: recoveryHints.length,
+            hints: recoveryHints.map((hint) => ({
+              key: hint.key,
+              message: hint.message,
+            })),
+          },
+        });
+      }
       const runtimeHintCount = ctx.messageSections.filter(
         (s) => s === "system_runtime",
       ).length;
@@ -2081,6 +2460,8 @@ export class ChatExecutor {
               extension.repairCycleNeedsMutation,
             repairCycleNeedsVerification:
               extension.repairCycleNeedsVerification,
+            effectiveToolBudget: ctx.effectiveToolBudget,
+            remainingToolBudget: extension.remainingToolBudget,
             remainingRequestMs: extension.remainingRequestMs,
             recentAverageRoundMs: extension.recentAverageRoundMs,
             extensionRounds: extension.extensionRounds,
@@ -2105,6 +2486,8 @@ export class ChatExecutor {
                 extension.latestRoundNewSuccessfulSemanticKeys,
               latestRoundNewVerificationFailureDiagnosticKeys:
                 extension.latestRoundNewVerificationFailureDiagnosticKeys,
+              effectiveToolBudget: ctx.effectiveToolBudget,
+              remainingToolBudget: extension.remainingToolBudget,
               repairCycleOpen: extension.repairCycleOpen,
               repairCycleNeedsMutation:
                 extension.repairCycleNeedsMutation,
@@ -2123,11 +2506,17 @@ export class ChatExecutor {
       ctx.response.finishReason === "tool_calls" &&
       rounds >= effectiveMaxToolRounds
     ) {
-      this.setStopReason(
+      const finalized = await this.finalizeDelegatedTurnAfterToolBudgetExhaustion(
         ctx,
-        "tool_calls",
-        `Reached max tool rounds (${effectiveMaxToolRounds})`,
+        effectiveMaxToolRounds,
       );
+      if (!finalized) {
+        this.setStopReason(
+          ctx,
+          "tool_calls",
+          `Reached max tool rounds (${effectiveMaxToolRounds})`,
+        );
+      }
     }
 
     ctx.finalContent = ctx.response?.content ?? "";
@@ -2402,6 +2791,8 @@ export class ChatExecutor {
               this.allowedTools ? [...this.allowedTools] : [],
             ),
           );
+    const explicitVerificationRequirements =
+      extractPlannerVerificationRequirements(ctx.messageText);
     const explicitPlannerToolNames =
       explicitDeterministicToolRequirements?.orderedToolNames;
     let refinementHint: string | undefined;
@@ -2422,7 +2813,9 @@ export class ChatExecutor {
       maxRuntimeRepairRetries;
     let structuralPlannerRetriesUsed = 0;
     let plannerStepContractRetriesUsed = 0;
-    let runtimeRepairRetriesUsed = 0;
+    const seenStructuralDiagnosticSignatures = new Set<string>();
+    const seenRuntimeRepairFailureSignatures = new Set<string>();
+    let latestPlannerValidationDiagnostics: readonly PlannerDiagnostic[] = [];
 
     for (
       let plannerAttempt = 1;
@@ -2436,6 +2829,9 @@ export class ChatExecutor {
         explicitDeterministicToolRequirements,
         refinementHint,
         this.resolveHostToolingProfile?.(),
+        {
+          maxSubagentFanout: this.delegationDecisionConfig.maxFanoutPerTurn,
+        },
       );
       const plannerResponse = await this.callModelForPhase(ctx, {
         phase: "planner",
@@ -2569,6 +2965,41 @@ export class ChatExecutor {
           ctx.plannerHandled = true;
           return;
         }
+        const recoverablePlannerParseDiagnostics =
+          extractRecoverablePlannerParseDiagnostics(
+            plannerParse.diagnostics,
+          );
+        if (
+          recoverablePlannerParseDiagnostics.length > 0 &&
+          recoverablePlannerParseDiagnostics.length ===
+            plannerParse.diagnostics.length &&
+          plannerAttempt < maxPlannerAttempts &&
+          plannerStepContractRetriesUsed < maxPlannerStepContractRetries
+        ) {
+          plannerStepContractRetriesUsed++;
+          refinementHint = buildPlannerParseRefinementHint(
+            recoverablePlannerParseDiagnostics,
+          );
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code: "planner_parse_contract_retry",
+            message:
+              "Planner emitted recoverable parse issues; requesting a refined plan",
+            details: {
+              attempt: plannerAttempt,
+              nextAttempt: plannerAttempt + 1,
+              maxAttempts: maxPlannerAttempts,
+            },
+          });
+          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
+            attempt: plannerAttempt,
+            nextAttempt: plannerAttempt + 1,
+            reason: "planner_parse_contract_retry",
+            routeReason: "planner_parse_failed",
+            diagnostics: recoverablePlannerParseDiagnostics,
+          });
+          continue;
+        }
         ctx.plannerSummaryState.routeReason = "planner_parse_failed";
         this.emitPlannerTrace(ctx, "planner_path_finished", {
           plannerCalls: plannerAttempt,
@@ -2639,8 +3070,18 @@ export class ChatExecutor {
       const plannerStepContractDiagnostics = validatePlannerStepContracts(
         plannerPlan,
       );
+      const verificationRequirementDiagnostics =
+        explicitVerificationRequirements.length > 0
+          ? validatePlannerVerificationRequirements(
+              plannerPlan,
+              explicitVerificationRequirements,
+            )
+          : [];
       const structuralGraphDiagnostics = extractPlannerStructuralDiagnostics(
-        graphDiagnostics,
+        [
+          ...graphDiagnostics,
+          ...verificationRequirementDiagnostics,
+        ],
       );
       const requiredOrchestrationDiagnostics =
         explicitOrchestrationRequirements
@@ -2660,13 +3101,36 @@ export class ChatExecutor {
         structuralGraphDiagnostics.length > 0 ||
         requiredOrchestrationDiagnostics.length > 0 ||
         explicitToolDiagnostics.length > 0;
+      const currentValidationDiagnostics = [
+        ...graphDiagnostics,
+        ...plannerStepContractDiagnostics,
+        ...verificationRequirementDiagnostics,
+        ...requiredOrchestrationDiagnostics,
+        ...explicitToolDiagnostics,
+      ];
+      latestPlannerValidationDiagnostics = currentValidationDiagnostics;
       const hasOnlyStepContractDiagnostics =
         !hasStructuralDiagnostics &&
         plannerStepContractDiagnostics.length > 0;
+      const structuralDiagnosticSignature =
+        hasStructuralDiagnostics
+          ? buildPlannerDiagnosticSignature([
+              ...structuralGraphDiagnostics,
+              ...requiredOrchestrationDiagnostics,
+              ...explicitToolDiagnostics,
+            ])
+          : "";
+      const canUseProgressStructuralRetry =
+        hasStructuralDiagnostics &&
+        structuralPlannerRetriesUsed >= maxStructuralPlannerRetries &&
+        plannerAttempt < maxPlannerAttempts &&
+        structuralDiagnosticSignature.length > 0 &&
+        !seenStructuralDiagnosticSignatures.has(structuralDiagnosticSignature);
       const shouldRefinePlan =
         (
           structuralGraphDiagnostics.length > 0 ||
           plannerStepContractDiagnostics.length > 0 ||
+          verificationRequirementDiagnostics.length > 0 ||
           requiredOrchestrationDiagnostics.length > 0 ||
           explicitToolDiagnostics.length > 0
         ) &&
@@ -2676,17 +3140,22 @@ export class ChatExecutor {
             hasOnlyStepContractDiagnostics &&
             plannerStepContractRetriesUsed < maxPlannerStepContractRetries
           ) ||
-          structuralPlannerRetriesUsed < maxStructuralPlannerRetries
+          structuralPlannerRetriesUsed < maxStructuralPlannerRetries ||
+          canUseProgressStructuralRetry
         );
       if (
         graphDiagnostics.length > 0 ||
         plannerStepContractDiagnostics.length > 0 ||
+        verificationRequirementDiagnostics.length > 0 ||
         requiredOrchestrationDiagnostics.length > 0 ||
         explicitToolDiagnostics.length > 0
       ) {
         ctx.plannerSummaryState.diagnostics.push(...graphDiagnostics);
         ctx.plannerSummaryState.diagnostics.push(
           ...plannerStepContractDiagnostics,
+        );
+        ctx.plannerSummaryState.diagnostics.push(
+          ...verificationRequirementDiagnostics,
         );
         ctx.plannerSummaryState.diagnostics.push(
           ...requiredOrchestrationDiagnostics,
@@ -2698,8 +3167,13 @@ export class ChatExecutor {
             plannerStepContractRetriesUsed < maxPlannerStepContractRetries
           ) {
             plannerStepContractRetriesUsed++;
-          } else {
+          } else if (structuralPlannerRetriesUsed < maxStructuralPlannerRetries) {
             structuralPlannerRetriesUsed++;
+          }
+          if (structuralDiagnosticSignature.length > 0) {
+            seenStructuralDiagnosticSignatures.add(
+              structuralDiagnosticSignature,
+            );
           }
           const refinementHints: string[] = [];
           if (structuralGraphDiagnostics.length > 0) {
@@ -2713,6 +3187,14 @@ export class ChatExecutor {
             refinementHints.push(
               buildPlannerStepContractRefinementHint(
                 plannerStepContractDiagnostics,
+              ),
+            );
+          }
+          if (verificationRequirementDiagnostics.length > 0) {
+            refinementHints.push(
+              buildPlannerVerificationRequirementsRefinementHint(
+                explicitVerificationRequirements,
+                verificationRequirementDiagnostics,
               ),
             );
           }
@@ -2738,6 +3220,8 @@ export class ChatExecutor {
               ? "planner_required_orchestration_retry"
               : explicitToolDiagnostics.length > 0
                 ? "planner_explicit_tool_retry"
+                : verificationRequirementDiagnostics.length > 0
+                  ? "planner_verification_requirements_retry"
                 : plannerStepContractDiagnostics.length > 0
                   ? "planner_step_contract_retry"
                 : "planner_refinement_retry";
@@ -2746,6 +3230,8 @@ export class ChatExecutor {
               ? "Planner did not satisfy the user-required sub-agent orchestration plan; requesting a refined plan"
               : explicitToolDiagnostics.length > 0
                 ? "Planner drifted outside the explicitly requested deterministic tool contract; requesting a refined plan"
+                : verificationRequirementDiagnostics.length > 0
+                  ? "Planner dropped one or more user-requested verification modes; requesting a refined plan"
                 : plannerStepContractDiagnostics.length > 0
                   ? "Planner emitted steps that violate runtime tool contracts; requesting a refined plan"
                 : "Planner emitted structural delegation violations; requesting a refined plan";
@@ -2757,6 +3243,7 @@ export class ChatExecutor {
               attempt: plannerAttempt,
               nextAttempt: plannerAttempt + 1,
               maxAttempts: maxPlannerAttempts,
+              progressRetry: canUseProgressStructuralRetry ? "true" : "false",
             },
           });
           this.emitPlannerTrace(ctx, "planner_refinement_requested", {
@@ -2765,6 +3252,8 @@ export class ChatExecutor {
             reason: plannerRetryCode,
             graphDiagnostics,
             plannerStepContractDiagnostics,
+            verificationRequirementDiagnostics,
+            requestedVerificationCategories: explicitVerificationRequirements,
             requiredOrchestrationDiagnostics,
             explicitToolDiagnostics,
           });
@@ -2782,6 +3271,30 @@ export class ChatExecutor {
             explicitOrchestrationRequirements!,
             requiredOrchestrationDiagnostics,
           );
+          this.emitPlannerTrace(ctx, "planner_path_finished", {
+            plannerCalls: plannerAttempt,
+            routeReason: ctx.plannerSummaryState.routeReason,
+            stopReason: ctx.stopReason,
+            stopReasonDetail: ctx.stopReasonDetail,
+            diagnostics: ctx.plannerSummaryState.diagnostics,
+            handled: true,
+          });
+          ctx.plannerHandled = true;
+          return;
+        }
+        if (verificationRequirementDiagnostics.length > 0) {
+          ctx.plannerSummaryState.routeReason =
+            "planner_verification_requirements_unmet";
+          this.setStopReason(
+            ctx,
+            "validation_error",
+            "Planner did not preserve the user-requested verification coverage",
+          );
+          ctx.finalContent =
+            buildPlannerVerificationRequirementsFailureMessage(
+              explicitVerificationRequirements,
+              verificationRequirementDiagnostics,
+            );
           this.emitPlannerTrace(ctx, "planner_path_finished", {
             plannerCalls: plannerAttempt,
             routeReason: ctx.plannerSummaryState.routeReason,
@@ -2840,8 +3353,12 @@ export class ChatExecutor {
         ).length,
         graphDiagnostics,
         plannerStepContractDiagnostics,
+        verificationRequirementDiagnostics,
+        requestedVerificationCategories: explicitVerificationRequirements,
         requiredOrchestrationDiagnostics,
         explicitToolDiagnostics,
+        steps: plannerPlan.steps.map((step) => ({ ...step })),
+        edges: plannerPlan.edges.map((edge) => ({ ...edge })),
       });
 
       ctx.plannerSummaryState.plannedSteps = plannerPlan.steps.length;
@@ -2934,7 +3451,9 @@ export class ChatExecutor {
         ctx.history,
         ctx.messages,
         ctx.messageSections,
-        ctx.activeRoutedToolNames.length > 0
+        ctx.expandedRoutedToolNames.length > 0
+          ? ctx.expandedRoutedToolNames
+          : ctx.activeRoutedToolNames.length > 0
           ? ctx.activeRoutedToolNames
           : (this.allowedTools ? [...this.allowedTools] : undefined),
       );
@@ -3113,11 +3632,17 @@ export class ChatExecutor {
           continue;
         }
 
+        const runtimeRepairFailureSignature = pipelineResult
+          ? buildPipelineFailureSignature(pipelineResult)
+          : undefined;
+        const runtimeRepairSignatureSeen =
+          runtimeRepairFailureSignature !== undefined &&
+          seenRuntimeRepairFailureSignatures.has(runtimeRepairFailureSignature);
         const shouldRetryFailedPipelineWithRepairPlan =
           pipelineResult?.status === "failed" &&
           plannerAttempt < maxPlannerAttempts &&
-          runtimeRepairRetriesUsed < maxRuntimeRepairRetries &&
           pipelineResult.completedSteps > 0 &&
+          !runtimeRepairSignatureSeen &&
           (
             pipelineResult.stopReasonHint === "tool_error" ||
             pipelineResult.stopReasonHint === "validation_error" ||
@@ -3129,7 +3654,9 @@ export class ChatExecutor {
           pipelineResult &&
           shouldRetryFailedPipelineWithRepairPlan
         ) {
-          runtimeRepairRetriesUsed++;
+          if (runtimeRepairFailureSignature) {
+            seenRuntimeRepairFailureSignatures.add(runtimeRepairFailureSignature);
+          }
           refinementHint = buildPipelineFailureRepairRefinementHint({
             pipelineResult,
             plannerPlan,
@@ -3169,6 +3696,21 @@ export class ChatExecutor {
             totalSteps: pipelineResult.totalSteps,
           });
           continue;
+        }
+
+        if (pipelineResult && runtimeRepairSignatureSeen) {
+          ctx.plannerSummaryState.diagnostics.push({
+            category: "policy",
+            code: "planner_runtime_repair_stalled",
+            message:
+              "Deterministic verification repeated the same failure signature after a repair-focused replan; stopping additional repair retries",
+            details: {
+              attempt: plannerAttempt,
+              completedSteps: pipelineResult.completedSteps,
+              totalSteps: pipelineResult.totalSteps,
+              stopReasonHint: pipelineResult.stopReasonHint ?? "tool_error",
+            },
+          });
         }
 
         if (pipelineResult) {
@@ -3347,7 +3889,9 @@ export class ChatExecutor {
           "Planner emitted a structured plan that failed local validation",
         );
         ctx.finalContent = buildPlannerValidationFailureMessage(
-          ctx.plannerSummaryState.diagnostics,
+          latestPlannerValidationDiagnostics.length > 0
+            ? latestPlannerValidationDiagnostics
+            : ctx.plannerSummaryState.diagnostics,
         );
         this.emitPlannerTrace(ctx, "planner_path_finished", {
           plannerCalls: plannerAttempt,
@@ -3355,6 +3899,7 @@ export class ChatExecutor {
           stopReason: ctx.stopReason,
           stopReasonDetail: ctx.stopReasonDetail,
           diagnostics: ctx.plannerSummaryState.diagnostics,
+          latestDiagnostics: latestPlannerValidationDiagnostics,
           handled: true,
         });
         ctx.plannerHandled = true;
@@ -3416,6 +3961,7 @@ export class ChatExecutor {
       routedToolNames?: readonly string[];
       toolChoice?: LLMToolChoice;
       requestDeadlineAt?: number;
+      signal?: AbortSignal;
       trace?: ChatExecuteParams["trace"];
       callIndex?: number;
       callPhase?: ChatCallUsageRecord["phase"];
@@ -3439,11 +3985,16 @@ export class ChatExecutor {
       hasStatefulSessionId && options?.statefulHistoryCompacted === true;
     const hasRoutedToolNames = options?.routedToolNames !== undefined;
     const hasToolChoice = options?.toolChoice !== undefined;
+    const hasAbortSignal = options?.signal !== undefined;
     const hasProviderTrace =
       options?.trace?.includeProviderPayloads === true ||
       options?.trace?.onProviderTraceEvent !== undefined;
-    const chatOptions: LLMChatOptions | undefined =
-      hasStatefulSessionId || hasRoutedToolNames || hasToolChoice || hasProviderTrace
+    const baseChatOptions: LLMChatOptions | undefined =
+      hasStatefulSessionId ||
+        hasRoutedToolNames ||
+        hasToolChoice ||
+        hasAbortSignal ||
+        hasProviderTrace
         ? {
           ...(hasStatefulSessionId
             ? {
@@ -3464,6 +4015,7 @@ export class ChatExecutor {
             ? { toolRouting: { allowedToolNames: options?.routedToolNames } }
             : {}),
           ...(hasToolChoice ? { toolChoice: options?.toolChoice } : {}),
+          ...(hasAbortSignal ? { signal: options?.signal } : {}),
           ...(hasProviderTrace
             ? {
               trace: {
@@ -3483,7 +4035,7 @@ export class ChatExecutor {
     let lastError: Error | undefined;
     const transport =
       onStreamChunk !== undefined &&
-      !shouldBypassStreamingForForcedSingleToolTurn(chatOptions)
+      !shouldBypassStreamingForForcedSingleToolTurn(baseChatOptions)
         ? "chat_stream"
         : "chat";
 
@@ -3516,36 +4068,25 @@ export class ChatExecutor {
           const streamChunkCallback = onStreamChunk;
           const shouldStream =
             transport === "chat_stream" && streamChunkCallback !== undefined;
-          const providerCall = shouldStream
-            ? provider.chatStream(
-              boundedMessages,
-              streamChunkCallback,
-              chatOptions,
-            )
-            : provider.chat(boundedMessages, chatOptions);
           const remainingProviderMs = options?.requestDeadlineAt !== undefined
             ? Math.max(1, options.requestDeadlineAt - Date.now())
             : undefined;
-          let response: LLMResponse;
-          if (remainingProviderMs !== undefined) {
-            let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-            try {
-              response = await Promise.race([
-                providerCall,
-                new Promise<LLMResponse>((_, reject) => {
-                  timeoutHandle = setTimeout(() => {
-                    reject(new LLMTimeoutError(provider.name, remainingProviderMs));
-                  }, remainingProviderMs);
-                }),
-              ]);
-            } finally {
-              if (timeoutHandle !== undefined) {
-                clearTimeout(timeoutHandle);
+          const providerChatOptions: LLMChatOptions | undefined =
+            baseChatOptions || remainingProviderMs !== undefined
+              ? {
+                ...(baseChatOptions ?? {}),
+                ...(remainingProviderMs !== undefined
+                  ? { timeoutMs: remainingProviderMs }
+                  : {}),
               }
-            }
-          } else {
-            response = await providerCall;
-          }
+              : undefined;
+          const response = shouldStream
+            ? await provider.chatStream(
+              boundedMessages,
+              streamChunkCallback,
+              providerChatOptions,
+            )
+            : await provider.chat(boundedMessages, providerChatOptions);
 
           if (response.finishReason === "error") {
             throw (
@@ -3896,6 +4437,7 @@ export class ChatExecutor {
    * and MemoryRetriever (`.retrieve()`) interfaces.
    */
   private async injectContext(
+    ctx: ExecutionContext,
     provider: SkillInjector | MemoryRetriever | undefined,
     message: string,
     sessionId: string,
@@ -3904,24 +4446,71 @@ export class ChatExecutor {
     section: PromptBudgetSection,
   ): Promise<void> {
     if (!provider) return;
+    const isSkillInjector = "inject" in provider;
+    const providerKind = isSkillInjector ? "skill" : "memory";
     try {
+      const detailedMemoryResult =
+        providerKind === "memory" && isDetailedMemoryRetriever(provider)
+          ? await provider.retrieveDetailed(message, sessionId)
+          : undefined;
       const context =
-        "inject" in provider
+        isSkillInjector
           ? await provider.inject(message, sessionId)
-          : await provider.retrieve(message, sessionId);
-      if (context) {
-        const sectionMaxChars = this.getContextSectionMaxChars(section);
+          : (detailedMemoryResult?.content ??
+            await (provider as MemoryRetriever).retrieve(message, sessionId));
+      const sectionMaxChars = this.getContextSectionMaxChars(section);
+      const truncatedContext = typeof context === "string" && context.length > 0
+        ? truncateText(context, sectionMaxChars)
+        : undefined;
+      if (truncatedContext) {
         messages.push({
           role: "system",
-          content: truncateText(
-            context,
-            sectionMaxChars,
-          ),
+          content: truncatedContext,
         });
         sections.push(section);
       }
+      this.emitExecutionTrace(ctx, {
+        type: "context_injected",
+        phase: "initial",
+        callIndex: ctx.callIndex,
+        payload: {
+          providerKind,
+          section,
+          injected: Boolean(truncatedContext),
+          originalChars: typeof context === "string" ? context.length : 0,
+          injectedChars: typeof truncatedContext === "string"
+            ? truncatedContext.length
+            : 0,
+          ...(detailedMemoryResult
+            ? {
+                curatedIncluded: detailedMemoryResult.curatedIncluded ?? false,
+                estimatedTokens: detailedMemoryResult.estimatedTokens ?? 0,
+                entries: (detailedMemoryResult.entries ?? []).slice(0, 8).map(
+                  (entry) => ({
+                    role: entry.role ?? "unknown",
+                    source: entry.source ?? "unknown",
+                    provenance: entry.provenance ?? "unknown",
+                    score: typeof entry.combinedScore === "number"
+                      ? Number(entry.combinedScore.toFixed(4))
+                      : undefined,
+                  }),
+                ),
+              }
+            : {}),
+        },
+      });
     } catch {
-      // Context injection failure is non-blocking
+      this.emitExecutionTrace(ctx, {
+        type: "context_injected",
+        phase: "initial",
+        callIndex: ctx.callIndex,
+        payload: {
+          providerKind,
+          section,
+          injected: false,
+          error: "context_injection_failed",
+        },
+      });
     }
   }
 
