@@ -89,6 +89,16 @@
   - make the program read that PDA during `complete_task_private`
   - make SDK preflight/wrappers read `zk_config` instead of assuming a local constant is authoritative
 
+## 2026-03-11 - Request-tree breaker traces must log structured usage, not opaque strings
+
+- If a delegated child request-tree circuit breaker trips, the emitted `subagents.failed` payload must include the breached limit kind plus the actual per-step and cumulative usage counters.
+- Logging only the threshold string forces operators back into provider artifacts to infer what happened and breaks the “logs are the source of truth” contract.
+
+## 2026-03-11 - Default child request-tree headroom must scale with planner budget hints
+
+- A flat default like “150k tokens per planned subagent step” underbudgets long coding phases and overbudgets short research phases.
+- When no explicit operator ceiling is set, derive request-tree child-token headroom from the planner’s `max_budget_hint` durations, then apply retry/verifier pass multipliers on top of that derived per-step envelope.
+
 ## 2026-03-10 - Newer SBF toolchains expose stack overflows in large Anchor `Accounts` validators
 
 - `cargo-build-sbf --tools-version v1.52` surfaced 4 KB frame overflows that the older local toolchain was not blocking on.
