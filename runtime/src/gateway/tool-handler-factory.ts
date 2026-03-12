@@ -1316,6 +1316,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     const policyEngine = delegationContext?.policyEngine ?? null;
     const verifier = delegationContext?.verifier ?? null;
     const lifecycleEmitter = delegationContext?.lifecycleEmitter ?? null;
+    const unsafeBenchmarkMode = delegationContext?.unsafeBenchmarkMode === true;
     const isSubAgentSession = isSubAgentSessionId(sessionId);
     const subAgentInfo = isSubAgentSession
       ? subAgentManager?.getInfo(sessionId) ?? null
@@ -1378,6 +1379,27 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         args: normalizedArgs,
         isSubAgentSession,
       });
+      if (
+        decision.matchedRule === "unsafe_benchmark_bypass" &&
+        lifecycleEmitter &&
+        policyEngine.isDelegationTool(toolName)
+      ) {
+        lifecycleEmitter.emit({
+          type: "subagents.policy_bypassed",
+          timestamp: Date.now(),
+          sessionId,
+          ...(parentSessionId ? { parentSessionId } : {}),
+          ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
+          toolName,
+          payload: {
+            stage: "policy",
+            unsafeBenchmarkMode: true,
+            matchedRule: decision.matchedRule,
+            decisionThreshold: decision.threshold,
+            isSubAgentSession,
+          },
+        });
+      }
       if (!decision.allowed) {
         const err = JSON.stringify({
           error: decision.reason ?? `Tool "${toolName}" blocked by delegation policy`,
@@ -1512,6 +1534,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           verifier,
           availableToolNames,
           defaultWorkingDirectory: config.defaultWorkingDirectory,
+          unsafeBenchmarkMode,
         })
       : routedHandler;
 

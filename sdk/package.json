@@ -12,15 +12,12 @@
       "require": "./dist/index.js"
     }
   },
-  "bin": {
-    "agenc": "./dist/bin/agenc.js"
-  },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/bin/agenc.ts --format cjs,esm --dts --clean --external privacycash --external @solana/spl-token",
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external privacycash --external @solana/spl-token",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

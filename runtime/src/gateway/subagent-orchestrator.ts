@@ -42,7 +42,10 @@ import {
 import {
   resolveDelegationBudgetHintMs,
 } from "./delegation-timeout.js";
-import type { LLMUsage } from "../llm/types.js";
+import type {
+  LLMProviderExecutionProfile,
+  LLMUsage,
+} from "../llm/types.js";
 import { DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS } from "../llm/chat-executor-constants.js";
 import type {
   SubAgentLifecycleEmitter,
@@ -78,6 +81,11 @@ interface SubAgentExecutionManager {
   getResult(sessionId: string): SubAgentResult | null;
 }
 
+interface ResolvedChildPromptBudget {
+  readonly promptBudget?: PromptBudgetConfig;
+  readonly providerProfile?: LLMProviderExecutionProfile;
+}
+
 export interface SubAgentOrchestratorConfig {
   readonly fallbackExecutor: DeterministicPipelineExecutor;
   readonly resolveSubAgentManager: () => SubAgentExecutionManager | null;
@@ -87,6 +95,14 @@ export interface SubAgentOrchestratorConfig {
   readonly resolveHostToolingProfile?: () => HostToolingProfile | null;
   readonly resolveHostWorkspaceRoot?: () => string | null;
   readonly childPromptBudget?: PromptBudgetConfig;
+  readonly resolveChildPromptBudget?: (params: {
+    task: string;
+    tools?: readonly string[];
+    requiredCapabilities?: readonly string[];
+  }) =>
+    | Promise<ResolvedChildPromptBudget | undefined>
+    | ResolvedChildPromptBudget
+    | undefined;
   readonly allowParallelSubtasks?: boolean;
   readonly maxParallelSubtasks?: number;
   readonly pollIntervalMs?: number;
@@ -101,6 +117,7 @@ export interface SubAgentOrchestratorConfig {
   readonly allowedParentTools?: readonly string[];
   readonly forbiddenParentTools?: readonly string[];
   readonly fallbackBehavior?: "continue_without_delegation" | "fail_request";
+  readonly unsafeBenchmarkMode?: boolean;
 }
 
 type SubagentFailureClass =
@@ -243,6 +260,17 @@ interface SubagentPromptBudgetCaps {
 }
 
 interface SubagentContextDiagnostics {
+  readonly executionBudget: {
+    readonly provider?: string;
+    readonly model?: string;
+    readonly contextWindowTokens?: number;
+    readonly contextWindowSource?: string;
+    readonly maxOutputTokens?: number;
+    readonly historyChars: number;
+    readonly memoryChars: number;
+    readonly toolOutputChars: number;
+    readonly totalPromptChars: number;
+  };
   readonly history: {
     readonly selected: number;
     readonly available: number;
@@ -278,6 +306,7 @@ interface SubagentContextDiagnostics {
   readonly promptTruncated: boolean;
   readonly toolScope: {
     readonly strategy: "inherit_intersection" | "explicit_only";
+    readonly unsafeBenchmarkMode: boolean;
     readonly required: readonly string[];
     readonly parentPolicyAllowed: readonly string[];
     readonly parentPolicyForbidden: readonly string[];
@@ -601,6 +630,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   private readonly resolveHostToolingProfile: () => HostToolingProfile | null;
   private readonly resolveHostWorkspaceRoot: () => string | null;
   private readonly childPromptBudget?: PromptBudgetConfig;
+  private readonly resolveChildPromptBudget?:
+    SubAgentOrchestratorConfig["resolveChildPromptBudget"];
   private readonly allowParallelSubtasks: boolean;
   private readonly maxParallelSubtasks: number;
   private readonly pollIntervalMs: number;
@@ -619,6 +650,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   private readonly fallbackBehavior:
     | "continue_without_delegation"
     | "fail_request";
+  private readonly unsafeBenchmarkMode: boolean;
 
   constructor(config: SubAgentOrchestratorConfig) {
     this.fallbackExecutor = config.fallbackExecutor;
@@ -632,6 +664,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     this.resolveHostWorkspaceRoot =
       config.resolveHostWorkspaceRoot ?? (() => null);
     this.childPromptBudget = config.childPromptBudget;
+    this.resolveChildPromptBudget = config.resolveChildPromptBudget;
     this.allowParallelSubtasks = config.allowParallelSubtasks !== false;
     this.maxParallelSubtasks = Math.max(
       1,
@@ -685,6 +718,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       (config.forbiddenParentTools ?? []).map((name) => name.trim()).filter((name) => name.length > 0),
     );
     this.fallbackBehavior = config.fallbackBehavior ?? DEFAULT_FALLBACK_BEHAVIOR;
+    this.unsafeBenchmarkMode = config.unsafeBenchmarkMode === true;
   }
 
   async execute(
@@ -1504,7 +1538,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         stopReasonHint: "validation_error",
       };
     }
-    const subagentTask = this.buildSubagentTaskPrompt(
+    const subagentTask = await this.buildSubagentTaskPrompt(
       step,
       pipeline,
       results,
@@ -2232,14 +2266,15 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         tools: input.tools,
         requiredCapabilities: input.step.requiredToolCapabilities,
         requireToolCall: specRequiresSuccessfulToolEvidence({
-          objective: input.step.objective,
-          inputContract: input.step.inputContract,
-          acceptanceCriteria:
-            effectiveDelegationSpec.acceptanceCriteria,
-          requiredToolCapabilities: input.step.requiredToolCapabilities,
-          tools: input.tools,
-        }),
+            objective: input.step.objective,
+            inputContract: input.step.inputContract,
+            acceptanceCriteria:
+              effectiveDelegationSpec.acceptanceCriteria,
+            requiredToolCapabilities: input.step.requiredToolCapabilities,
+            tools: input.tools,
+          }),
         delegationSpec: effectiveDelegationSpec,
+        unsafeBenchmarkMode: this.unsafeBenchmarkMode,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2266,6 +2301,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         stepName: input.step.name,
         timeoutMs: input.timeoutMs,
         contextCuration: input.diagnostics,
+        ...(this.unsafeBenchmarkMode ? { unsafeBenchmarkMode: true } : {}),
         ...(delegatedWorkingDirectory
           ? {
             workingDirectory: delegatedWorkingDirectory.path,
@@ -2299,6 +2335,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           output: result.output,
           toolCalls: result.toolCalls,
           providerEvidence: result.providerEvidence,
+          unsafeBenchmarkMode: this.unsafeBenchmarkMode,
         });
         if (contractValidation.error) {
           return {
@@ -2360,6 +2397,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
             output: result.output,
             toolCalls: result.toolCalls,
             providerEvidence: result.providerEvidence,
+            unsafeBenchmarkMode: this.unsafeBenchmarkMode,
           })
           : undefined;
       const validationCode = result.validationCode ?? contractValidation?.code;
@@ -2947,7 +2985,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       : `deterministic probe "${step.name}"`;
   }
 
-  private buildSubagentTaskPrompt(
+  private async buildSubagentTaskPrompt(
     step: PipelinePlannerSubagentStep,
     pipeline: Pipeline,
     results: Readonly<Record<string, string>>,
@@ -2961,12 +2999,27 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       removedAsUnknownTools: readonly string[];
       parentPolicyAllowed: readonly string[];
     },
-  ): {
+  ): Promise<{
     taskPrompt: string;
     diagnostics: SubagentContextDiagnostics;
-  } {
+  }> {
     const plannerContext = pipeline.plannerContext;
-    const promptBudgetCaps = this.resolveSubagentPromptBudgetCaps();
+    let resolvedChildPromptBudget: ResolvedChildPromptBudget | undefined;
+    try {
+      resolvedChildPromptBudget =
+        await this.resolveChildPromptBudget?.({
+          task: step.objective,
+          tools: toolScope.allowedTools,
+          requiredCapabilities: step.requiredToolCapabilities,
+        });
+    } catch {
+      resolvedChildPromptBudget = undefined;
+    }
+    const effectivePromptBudget =
+      resolvedChildPromptBudget?.promptBudget ?? this.childPromptBudget;
+    const promptBudgetCaps = this.resolveSubagentPromptBudgetCaps(
+      effectivePromptBudget,
+    );
     const parentRequest = plannerContext?.parentRequest?.trim();
     const summarizedParentRequest = parentRequest
       ? this.summarizeParentRequestForSubagent(parentRequest, step)
@@ -3204,6 +3257,22 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     };
 
     let diagnostics: SubagentContextDiagnostics = {
+      executionBudget: {
+        provider: resolvedChildPromptBudget?.providerProfile?.provider,
+        model: resolvedChildPromptBudget?.providerProfile?.model,
+        contextWindowTokens:
+          resolvedChildPromptBudget?.providerProfile?.contextWindowTokens ??
+          effectivePromptBudget?.contextWindowTokens,
+        contextWindowSource:
+          resolvedChildPromptBudget?.providerProfile?.contextWindowSource,
+        maxOutputTokens:
+          resolvedChildPromptBudget?.providerProfile?.maxOutputTokens ??
+          effectivePromptBudget?.maxOutputTokens,
+        historyChars: promptBudgetCaps.historyChars,
+        memoryChars: promptBudgetCaps.memoryChars,
+        toolOutputChars: promptBudgetCaps.toolOutputChars,
+        totalPromptChars: promptBudgetCaps.totalPromptChars,
+      },
       history: {
         selected: historySection.selected,
         available: historySection.available,
@@ -3235,6 +3304,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       promptTruncated: false,
       toolScope: {
         strategy: this.childToolAllowlistStrategy,
+        unsafeBenchmarkMode: this.unsafeBenchmarkMode,
         required: [...step.requiredToolCapabilities],
         parentPolicyAllowed: [...toolScope.parentPolicyAllowed],
         parentPolicyForbidden: [...this.forbiddenParentTools],
@@ -3279,6 +3349,11 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     }
 
     const workspaceRoot = resolvePath(delegatedWorkingDirectory);
+    if (!existsSync(workspaceRoot)) {
+      return [
+        "The delegated workspace root does not exist yet. Create it before listing directories or writing phase files.",
+      ];
+    }
     const packageDirectories = this.collectPromptArtifactPackageDirectories(
       promptArtifactCandidates,
       workspaceRoot,
@@ -3575,6 +3650,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       forbiddenTools: [...this.forbiddenParentTools],
       enforceParentIntersection:
         this.childToolAllowlistStrategy === "inherit_intersection",
+      unsafeBenchmarkMode: this.unsafeBenchmarkMode,
     });
 
     return {
@@ -5331,8 +5407,10 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     return value.slice(0, maxChars - 3) + "...";
   }
 
-  private resolveSubagentPromptBudgetCaps(): SubagentPromptBudgetCaps {
-    if (!this.childPromptBudget) {
+  private resolveSubagentPromptBudgetCaps(
+    promptBudget?: PromptBudgetConfig,
+  ): SubagentPromptBudgetCaps {
+    if (!promptBudget) {
       return {
         historyChars: FALLBACK_CONTEXT_HISTORY_CHARS,
         memoryChars: FALLBACK_CONTEXT_MEMORY_CHARS,
@@ -5341,7 +5419,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       };
     }
 
-    const plan = derivePromptBudgetPlan(this.childPromptBudget);
+    const plan = derivePromptBudgetPlan(promptBudget);
     return {
       historyChars: plan.caps.historyChars,
       memoryChars: plan.caps.memoryChars,

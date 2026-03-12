@@ -257,6 +257,12 @@ async function runForeground(
       mode: "foreground",
       pid: process.pid,
       ...(options.yolo ? { yolo: true } : {}),
+      ...(options.yolo
+        ? {
+          unsafeBenchmarkMode: "delegation_policy_bypass",
+          hostExecutionDenyListsDisabled: true,
+        }
+        : {}),
       ...(foregroundLogTee ? { logPath: foregroundLogTee.logPath } : {}),
     });
 
@@ -400,6 +406,12 @@ async function runDaemonized(
             pid: info.pid,
             port: info.port,
             ...(options.yolo ? { yolo: true } : {}),
+            ...(options.yolo
+              ? {
+                unsafeBenchmarkMode: "delegation_policy_bypass",
+                hostExecutionDenyListsDisabled: true,
+              }
+              : {}),
             ...(logFd !== undefined ? { logPath } : {}),
           });
           return 0;

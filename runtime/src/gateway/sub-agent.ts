@@ -23,6 +23,7 @@ import type {
 import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
 import type {
   LLMProvider,
+  LLMProviderExecutionProfile,
   LLMMessage,
   LLMProviderEvidence,
   LLMUsage,
@@ -33,6 +34,7 @@ import { silentLogger } from "../utils/logger.js";
 import {
   createExecutionTraceEventLogger,
   createProviderTraceEventLogger,
+  logStructuredTraceEvent,
 } from "../llm/provider-trace-logger.js";
 import { resolveMaxToolRoundsForToolNames } from "./tool-round-budget.js";
 import type {
@@ -141,6 +143,7 @@ export interface SubAgentConfig {
   readonly requiredCapabilities?: readonly string[];
   readonly requireToolCall?: boolean;
   readonly delegationSpec?: DelegationContractSpec;
+  readonly unsafeBenchmarkMode?: boolean;
 }
 
 export interface SubAgentResult {
@@ -187,12 +190,30 @@ export interface SubAgentManagerConfig {
     tools?: readonly string[];
     requiredCapabilities?: readonly string[];
   }) => LLMProvider | undefined;
+  readonly resolveExecutionBudget?: (params: {
+    sessionIdentity: SubAgentSessionIdentity;
+    contextProvider: LLMProvider;
+    selectedProvider: LLMProvider;
+    task: string;
+    tools?: readonly string[];
+    requiredCapabilities?: readonly string[];
+  }) =>
+    | Promise<ResolvedSubAgentExecutionBudget | undefined>
+    | ResolvedSubAgentExecutionBudget
+    | undefined;
   readonly resolveDefaultMaxToolRounds?: () => number | undefined;
   readonly logger?: Logger;
+  readonly traceExecution?: boolean;
   readonly traceProviderPayloads?: boolean;
   readonly promptBudget?: PromptBudgetConfig;
   readonly sessionTokenBudget?: number;
   readonly onCompaction?: (sessionId: string, summary: string) => void;
+}
+
+export interface ResolvedSubAgentExecutionBudget {
+  readonly promptBudget?: PromptBudgetConfig;
+  readonly sessionTokenBudget?: number;
+  readonly providerProfile?: LLMProviderExecutionProfile;
 }
 
 export interface SubAgentInfo {
@@ -578,6 +599,32 @@ export class SubAgentManager {
           tools: handle.config.tools,
           requiredCapabilities: handle.config.requiredCapabilities,
         }) ?? context.llmProvider;
+      let resolvedExecutionBudget: ResolvedSubAgentExecutionBudget | undefined;
+      try {
+        resolvedExecutionBudget =
+          await this.config.resolveExecutionBudget?.({
+            sessionIdentity,
+            contextProvider: context.llmProvider,
+            selectedProvider,
+            task: handle.task,
+            tools: handle.config.tools,
+            requiredCapabilities: handle.config.requiredCapabilities,
+          });
+      } catch (error) {
+        this.logger.warn(
+          `Failed to resolve execution budget for sub-agent ${handle.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      if (handle.abortController.signal.aborted) return;
+
+      const resolvedPromptBudget =
+        resolvedExecutionBudget?.promptBudget ?? this.config.promptBudget;
+      const resolvedSessionTokenBudget =
+        resolvedExecutionBudget?.sessionTokenBudget ??
+        this.config.sessionTokenBudget;
+      const resolvedProviderProfile =
+        resolvedExecutionBudget?.providerProfile;
       const defaultMaxToolRounds = this.config.resolveDefaultMaxToolRounds?.();
       const effectiveMaxToolRounds =
         typeof defaultMaxToolRounds === "number" &&
@@ -593,8 +640,8 @@ export class SubAgentManager {
         allowedTools: handle.config.tools
           ? [...handle.config.tools]
           : undefined,
-        promptBudget: this.config.promptBudget,
-        sessionTokenBudget: this.config.sessionTokenBudget,
+        promptBudget: resolvedPromptBudget,
+        sessionTokenBudget: resolvedSessionTokenBudget,
         onCompaction: this.config.onCompaction,
         ...(typeof effectiveMaxToolRounds === "number"
           ? { maxToolRounds: effectiveMaxToolRounds }
@@ -613,34 +660,70 @@ export class SubAgentManager {
       const systemPrompt =
         this.config.systemPrompt ?? DEFAULT_SUB_AGENT_SYSTEM_PROMPT;
       const subAgentTraceId = `subagent:${handle.sessionId}:${Date.now()}`;
+      const unsafeBenchmarkMode = handle.config.unsafeBenchmarkMode === true;
+      const traceEnabled =
+        this.config.traceExecution === true ||
+        this.config.traceProviderPayloads === true;
+      const traceStaticFields = {
+        parentSessionId: handle.parentSessionId,
+        depth: handle.depth,
+      };
       const providerTrace =
-        this.config.traceProviderPayloads === true
+        traceEnabled
           ? {
-            includeProviderPayloads: true as const,
-            onProviderTraceEvent: createProviderTraceEventLogger({
-              logger: this.logger,
-              traceLabel: "sub_agent.provider",
-              traceId: subAgentTraceId,
-              sessionId: handle.sessionId,
-              staticFields: {
-                parentSessionId: handle.parentSessionId,
-                depth: handle.depth,
-              },
-            }),
+            ...(this.config.traceProviderPayloads === true
+              ? {
+                includeProviderPayloads: true as const,
+                onProviderTraceEvent: createProviderTraceEventLogger({
+                  logger: this.logger,
+                  traceLabel: "sub_agent.provider",
+                  traceId: subAgentTraceId,
+                  sessionId: handle.sessionId,
+                  staticFields: traceStaticFields,
+                }),
+              }
+              : {}),
             onExecutionTraceEvent: createExecutionTraceEventLogger({
               logger: this.logger,
               traceLabel: "sub_agent.executor",
               traceId: subAgentTraceId,
               sessionId: handle.sessionId,
-              staticFields: {
-                parentSessionId: handle.parentSessionId,
-                depth: handle.depth,
-              },
+              staticFields: traceStaticFields,
             }),
           }
           : undefined;
 
-      const resultOrAbort = await raceAbort(
+      if (traceEnabled) {
+        logStructuredTraceEvent({
+          logger: this.logger,
+          traceLabel: "sub_agent.executor",
+          traceId: subAgentTraceId,
+          sessionId: handle.sessionId,
+          eventType: "execution_profile_resolved",
+          staticFields: traceStaticFields,
+          payload: {
+            provider: resolvedProviderProfile?.provider ?? selectedProvider.name,
+            model: resolvedProviderProfile?.model,
+            contextWindowTokens: resolvedProviderProfile?.contextWindowTokens,
+            contextWindowSource: resolvedProviderProfile?.contextWindowSource,
+            maxOutputTokens: resolvedProviderProfile?.maxOutputTokens,
+            unsafeBenchmarkMode,
+            sessionTokenBudget: resolvedSessionTokenBudget,
+            promptBudget: resolvedPromptBudget
+              ? {
+                contextWindowTokens: resolvedPromptBudget.contextWindowTokens,
+                maxOutputTokens: resolvedPromptBudget.maxOutputTokens,
+                hardMaxPromptChars: resolvedPromptBudget.hardMaxPromptChars,
+                safetyMarginTokens: resolvedPromptBudget.safetyMarginTokens,
+                charPerToken: resolvedPromptBudget.charPerToken,
+                maxRuntimeHints: resolvedPromptBudget.maxRuntimeHints,
+              }
+              : undefined,
+          },
+        });
+      }
+
+        const resultOrAbort = await raceAbort(
         executor.execute({
           message,
           history: handle.history,
@@ -666,12 +749,14 @@ export class SubAgentManager {
       );
       const delegatedOutputValidation =
         handle.config.delegationSpec &&
-          resultOrAbort.stopReason === "completed"
+          resultOrAbort.stopReason === "completed" &&
+          !unsafeBenchmarkMode
         ? validateDelegatedOutputContract({
             spec: handle.config.delegationSpec,
             output: resultOrAbort.content,
             toolCalls: resultOrAbort.toolCalls,
             providerEvidence: resultOrAbort.providerEvidence,
+            unsafeBenchmarkMode,
           })
           : undefined;
       const requireToolCallFailure = handle.config.requireToolCall === true &&

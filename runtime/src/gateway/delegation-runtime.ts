@@ -19,6 +19,7 @@ export interface DelegationPolicyRuntimeConfig {
   readonly allowedParentTools?: readonly string[];
   readonly forbiddenParentTools?: readonly string[];
   readonly fallbackBehavior: GatewaySubagentFallbackBehavior;
+  readonly unsafeBenchmarkMode?: boolean;
 }
 
 export interface DelegationPolicyInput {
@@ -38,6 +39,7 @@ export interface DelegationPolicyDecision {
     | "forbidden_tool"
     | "tool_not_allowlisted"
     | "score_below_threshold"
+    | "unsafe_benchmark_bypass"
     | "allowed";
   readonly threshold: number;
 }
@@ -90,6 +92,7 @@ export class DelegationPolicyEngine {
       forbiddenParentTools: this.config.forbiddenParentTools
         ? [...this.config.forbiddenParentTools]
         : undefined,
+      unsafeBenchmarkMode: this.config.unsafeBenchmarkMode === true,
     };
   }
 
@@ -114,6 +117,14 @@ export class DelegationPolicyEngine {
             ? "Delegation is disabled by configuration"
             : "Delegation disabled; continue without delegation",
         matchedRule: "delegation_disabled",
+        threshold: this.config.spawnDecisionThreshold,
+      };
+    }
+
+    if (this.config.unsafeBenchmarkMode === true) {
+      return {
+        allowed: true,
+        matchedRule: "unsafe_benchmark_bypass",
         threshold: this.config.spawnDecisionThreshold,
       };
     }
@@ -186,6 +197,7 @@ export class DelegationVerifierService {
 
 export type SubAgentLifecycleEventType =
   | "subagents.planned"
+  | "subagents.policy_bypassed"
   | "subagents.spawned"
   | "subagents.started"
   | "subagents.progress"
@@ -241,6 +253,7 @@ export interface DelegationToolCompositionContext {
   readonly policyEngine: DelegationPolicyEngine | null;
   readonly verifier: DelegationVerifierService | null;
   readonly lifecycleEmitter: SubAgentLifecycleEmitter | null;
+  readonly unsafeBenchmarkMode?: boolean;
 }
 
 export type DelegationToolCompositionResolver =

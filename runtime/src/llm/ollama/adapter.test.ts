@@ -134,6 +134,22 @@ describe("OllamaProvider", () => {
     });
   });
 
+  it("reports execution profile from explicit num_ctx configuration", async () => {
+    const provider = new OllamaProvider({
+      model: "qwen2.5-coder",
+      numCtx: 32_768,
+      maxTokens: 2_048,
+    });
+
+    await expect(provider.getExecutionProfile?.()).resolves.toEqual({
+      provider: "ollama",
+      model: "qwen2.5-coder",
+      contextWindowTokens: 32_768,
+      contextWindowSource: "ollama_request_num_ctx",
+      maxOutputTokens: 2_048,
+    });
+  });
+
   it("parses tool calls", async () => {
     const response = makeResponse({
       message: {

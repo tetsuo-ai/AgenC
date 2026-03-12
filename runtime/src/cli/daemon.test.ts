@@ -224,6 +224,8 @@ describe("daemon: runStartCommand", () => {
       status: "ok",
       command: "start",
       yolo: true,
+      unsafeBenchmarkMode: "delegation_policy_bypass",
+      hostExecutionDenyListsDisabled: true,
     });
     expect(forkMock).toHaveBeenCalledTimes(1);
     expect(forkMock.mock.calls[0]?.[1]).toContain("--yolo");

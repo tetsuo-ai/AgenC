@@ -13,15 +13,17 @@ vi.mock("node:child_process", () => ({
 // Mock fs operations used by shell mode (temp script file)
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => false),
+  statSync: vi.fn(() => ({ isDirectory: () => true })),
   writeFileSync: vi.fn(),
   unlinkSync: vi.fn(),
 }));
 
 import { execFile, spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
 
 const mockExecFile = vi.mocked(execFile);
 const mockSpawn = vi.mocked(spawn);
+const mockStatSync = vi.mocked(statSync);
 
 /** Create a fake ChildProcess for spawn mocking. */
 function createFakeChild() {
@@ -133,6 +135,7 @@ function createMockLogger(): Logger {
 describe("system.bash tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStatSync.mockReturnValue({ isDirectory: () => true } as any);
   });
 
   // ---- Basic execution ----
@@ -780,6 +783,26 @@ describe("system.bash tool", () => {
     expect(result.isError).toBe(true);
     const parsed = parseContent(result);
     expect(parsed.stderr).toContain("ENOENT");
+  });
+
+  it("returns an explicit cwd error when the working directory does not exist", async () => {
+    const tool = createBashTool();
+    mockStatSync.mockImplementation(() => {
+      const error = Object.assign(new Error("missing cwd"), { code: "ENOENT" });
+      throw error;
+    });
+
+    const result = await tool.execute({
+      command: "npm",
+      args: ["install"],
+      cwd: "/missing/workspace",
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = parseContent(result);
+    expect(parsed.stderr).toBe("Working directory does not exist: /missing/workspace");
+    expect(parsed.exitCode).toBeNull();
+    expect(mockExecFile).not.toHaveBeenCalled();
   });
 
   // ---- Logging ----

@@ -272,6 +272,29 @@ export interface LLMProviderCapabilities {
   readonly stateful: LLMProviderStatefulCapabilities;
 }
 
+export type LLMContextWindowSource =
+  | "explicit_config"
+  | "grok_model_catalog"
+  | "grok_model_heuristic"
+  | "ollama_request_num_ctx"
+  | "ollama_running_context_length"
+  | "ollama_model_info"
+  | "ollama_model_parameters"
+  | "ollama_default";
+
+export interface LLMProviderExecutionProfile {
+  /** Provider name exposed by the adapter. */
+  readonly provider: string;
+  /** Effective model identifier used for calls when known. */
+  readonly model?: string;
+  /** Effective input context window used for prompt budgeting. */
+  readonly contextWindowTokens?: number;
+  /** How the effective context window was resolved. */
+  readonly contextWindowSource?: LLMContextWindowSource;
+  /** Effective max output tokens configured for the provider, if any. */
+  readonly maxOutputTokens?: number;
+}
+
 /**
  * Persisted provider-managed continuation anchor.
  *
@@ -434,6 +457,8 @@ export interface LLMProvider {
   healthCheck(): Promise<boolean>;
   /** Report provider-native continuation / compaction support. */
   getCapabilities?(): LLMProviderCapabilities;
+  /** Report the effective model/context profile used for prompt budgeting. */
+  getExecutionProfile?(): Promise<LLMProviderExecutionProfile>;
   /** Optional lifecycle hook for session-scoped provider state cleanup. */
   resetSessionState?(sessionId: string): void;
   /** Optional lifecycle hook to clear all provider-managed session state. */

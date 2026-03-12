@@ -4,7 +4,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   createOperatorInputBatcher,
+  findWatchCommandDefinition,
+  matchWatchCommands,
+  parseWatchSlashCommand,
   shouldAutoInspectRun,
+  WATCH_COMMANDS,
 } from "./lib/agenc-watch-helpers.mjs";
 
 test("createOperatorInputBatcher coalesces rapid pasted lines into one turn", async () => {
@@ -61,4 +65,30 @@ test("shouldAutoInspectRun only enables auto inspect for background-run state", 
   assert.equal(shouldAutoInspectRun(null, "queued"), false);
   assert.equal(shouldAutoInspectRun(null, "working"), true);
   assert.equal(shouldAutoInspectRun({ state: "completed" }, "idle"), true);
+});
+
+test("matchWatchCommands returns the full command palette for slash-only input", () => {
+  const matches = matchWatchCommands("/");
+  assert.equal(matches.length, WATCH_COMMANDS.length);
+  assert.equal(matches[0]?.name, "/cancel");
+  assert.equal(matches.at(-1)?.name, "/trace");
+});
+
+test("matchWatchCommands filters by prefix and aliases", () => {
+  assert.deepEqual(
+    matchWatchCommands("/se").map((command) => command.name),
+    ["/session", "/sessions"],
+  );
+  assert.equal(findWatchCommandDefinition("/commands")?.name, "/help");
+});
+
+test("parseWatchSlashCommand resolves canonical command metadata and args", () => {
+  assert.deepEqual(parseWatchSlashCommand("/logs 200"), {
+    raw: "/logs 200",
+    commandToken: "/logs",
+    args: ["200"],
+    command: findWatchCommandDefinition("/logs"),
+  });
+  assert.equal(parseWatchSlashCommand("ship it"), null);
+  assert.equal(parseWatchSlashCommand("/unknown")?.command, null);
 });

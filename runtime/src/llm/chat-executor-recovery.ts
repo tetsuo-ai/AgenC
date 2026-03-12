@@ -351,6 +351,26 @@ function isTypescriptRootDirScopeFailure(failureText: string): boolean {
   return /ts6059/i.test(failureText) && /is not under ['"`]rootdir['"`]/i.test(failureText);
 }
 
+function extractDuplicateExportName(failureText: string): string | undefined {
+  const patterns = [
+    /multiple exports with the same name ["'`](.+?)["'`]/i,
+    /duplicate export(?:s)?(?: with the same name)? ["'`](.+?)["'`]/i,
+    /already exported a member named ['"`]([^'"`]+)['"`]/i,
+  ];
+  for (const pattern of patterns) {
+    const match = failureText.match(pattern);
+    const name = match?.[1]?.trim();
+    if (name && name.length > 0) {
+      return name;
+    }
+  }
+  return undefined;
+}
+
+function isDuplicateExportFailure(failureText: string): boolean {
+  return extractDuplicateExportName(failureText) !== undefined || /ts2308/i.test(failureText);
+}
+
 function isPackagePathNotExportedFailure(failureTextLower: string): boolean {
   return (
     failureTextLower.includes("err_package_path_not_exported") ||
@@ -820,6 +840,17 @@ export function inferRecoveryHint(
           "This TypeScript config includes files outside `rootDir` (for example `vite.config.ts`). " +
           "For Vite/browser packages, either remove the restrictive `rootDir`, exclude config files from that tsconfig, " +
           "or move Node-side config files into a separate tsconfig such as `tsconfig.node.json` before rerunning `tsc`.",
+      };
+    }
+    if (isDuplicateExportFailure(failureText)) {
+      const exportName = extractDuplicateExportName(failureText) ?? "the symbol";
+      return {
+        key: `system-bash-duplicate-export:${exportName.toLowerCase()}`,
+        message:
+          `This module exports \`${exportName}\` more than once. ` +
+          `If the declaration already uses an export modifier (for example \`export class ${exportName}\` or \`export const ${exportName}\`), ` +
+          `remove the extra \`export { ${exportName} }\` re-export or rename one export instead of retrying the same build/test. ` +
+          "After editing the module, rerun the failing build/test command and only continue once it passes.",
       };
     }
     if (isPackagePathNotExportedFailure(failureTextLower)) {

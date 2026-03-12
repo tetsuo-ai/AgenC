@@ -2299,13 +2299,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
 
     expect(taskPrompt).toContain(
@@ -2406,13 +2406,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(
       step,
       pipeline,
@@ -2440,6 +2440,129 @@ describe("SubAgentOrchestrator", () => {
     expect(taskPrompt).toContain("\"modifiedFiles\":[\"/workspace/project/src/cli.ts\"]");
     expect(taskPrompt).not.toContain("\"toolCalls\"");
     expect(taskPrompt).not.toContain("\"tokenUsage\"");
+  });
+
+  it("uses dynamically resolved child prompt budgets for context curation diagnostics and caps", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const resolveChildPromptBudget = vi.fn(async () => ({
+      promptBudget: {
+        contextWindowTokens: 4_096,
+        maxOutputTokens: 512,
+        safetyMarginTokens: 512,
+        charPerToken: 4,
+        hardMaxPromptChars: 6_000,
+      },
+      providerProfile: {
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        contextWindowTokens: 4_096,
+        contextWindowSource: "ollama_running_context_length",
+        maxOutputTokens: 512,
+      },
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      childPromptBudget: {
+        contextWindowTokens: 32_768,
+        maxOutputTokens: 2_048,
+        safetyMarginTokens: 2_048,
+        charPerToken: 4,
+        hardMaxPromptChars: 24_000,
+      },
+      resolveChildPromptBudget,
+      resolveAvailableToolNames: () => [
+        "system.readFile",
+        "system.writeFile",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-dynamic-budgeted-prompt:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "tight_budget_phase",
+          stepType: "subagent_task",
+          objective: "Update the worker implementation and add verification notes.",
+          inputContract: "Existing project files are already present.",
+          acceptanceCriteria: ["Worker updated", "Verification notes added"],
+          requiredToolCapabilities: ["system.writeFile", "system.readFile"],
+          contextRequirements: ["cwd=/workspace/project"],
+          maxBudgetHint: "4m",
+          canRunParallel: false,
+          dependsOn: [],
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Finish the worker phase in /workspace/project.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const step = pipeline.plannerSteps[0]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = await (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => Promise<{ taskPrompt: string }>;
+    }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
+
+    const plan = derivePromptBudgetPlan({
+      contextWindowTokens: 4_096,
+      maxOutputTokens: 512,
+      safetyMarginTokens: 512,
+      charPerToken: 4,
+      hardMaxPromptChars: 6_000,
+    });
+    const maxPromptChars =
+      plan.caps.userChars +
+      plan.caps.historyChars +
+      plan.caps.memoryChars +
+      plan.caps.toolChars +
+      plan.caps.assistantRuntimeChars +
+      plan.caps.otherChars;
+
+    expect(resolveChildPromptBudget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "Update the worker implementation and add verification notes.",
+        tools: expect.arrayContaining([
+          "system.readFile",
+          "system.writeFile",
+        ]),
+        requiredCapabilities: ["system.writeFile", "system.readFile"],
+      }),
+    );
+    expect(taskPrompt.length).toBeLessThanOrEqual(maxPromptChars);
+    expect(taskPrompt).toContain("\"provider\":\"ollama\"");
+    expect(taskPrompt).toContain("\"contextWindowSource\":\"ollama_running_context_length\"");
   });
 
   it("injects dependency-derived file context into child prompts", async () => {
@@ -2551,13 +2674,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(
       step,
       pipeline,
@@ -2707,13 +2830,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(
       step,
       pipeline,
@@ -2803,13 +2926,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
 
     expect(taskPrompt).toContain("Host tooling constraints:");
@@ -2946,13 +3069,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(
       step,
       pipeline,
@@ -2966,6 +3089,91 @@ describe("SubAgentOrchestrator", () => {
     );
     expect(taskPrompt).toContain(
       "Execution ordering: author the missing source files for this phase before invoking any verification command.",
+    );
+  });
+
+  it("surfaces missing delegated workspace roots before scaffold phases inspect them", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.listDir",
+        "system.writeFile",
+        "system.mkdir",
+      ],
+    });
+
+    const workspaceRoot = join(
+      tmpdir(),
+      `subagent-missing-root-guidance-${Date.now()}`,
+    );
+    const pipeline: Pipeline = {
+      id: "planner:session-missing-root-guidance:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "scaffold_workspace",
+          stepType: "subagent_task",
+          objective: "Create the directory tree and author the initial manifests.",
+          inputContract: "Empty target path.",
+          acceptanceCriteria: ["Workspace scaffolded."],
+          requiredToolCapabilities: ["file_system"],
+          contextRequirements: [`cwd=${workspaceRoot}`],
+          maxBudgetHint: "3m",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest: "Create a new TypeScript workspace in the provided target path.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const step = pipeline.plannerSteps[0]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = await (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => Promise<{ taskPrompt: string }>;
+    }).buildSubagentTaskPrompt(
+      step,
+      pipeline,
+      {},
+      toolScope,
+    );
+
+    expect(taskPrompt).toContain("Observed workspace state:");
+    expect(taskPrompt).toContain(
+      "The delegated workspace root does not exist yet. Create it before listing directories or writing phase files.",
     );
   });
 
@@ -3024,13 +3232,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
 
     expect(taskPrompt).toContain("Output contract:");
@@ -3164,13 +3372,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(
       step,
       pipeline,
@@ -3395,13 +3603,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(
       step,
       pipeline,
@@ -3525,13 +3733,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(
       step,
       pipeline,
@@ -3654,13 +3862,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
 
     expect(taskPrompt).toContain("Downstream execution requirements:");
@@ -3800,7 +4008,7 @@ describe("SubAgentOrchestrator", () => {
           removedAsUnknownTools: readonly string[];
           parentPolicyAllowed: readonly string[];
         },
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
       buildEffectiveDelegationSpec: (
         step: PipelinePlannerSubagentStep,
         pipeline: Pipeline,
@@ -3813,13 +4021,13 @@ describe("SubAgentOrchestrator", () => {
         acceptanceCriteria?: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
     const delegationSpec = (orchestrator as unknown as {
       buildEffectiveDelegationSpec: (
@@ -3958,7 +4166,7 @@ describe("SubAgentOrchestrator", () => {
           removedAsUnknownTools: readonly string[];
           parentPolicyAllowed: readonly string[];
         },
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
       buildEffectiveDelegationSpec: (
         step: PipelinePlannerSubagentStep,
         pipeline: Pipeline,
@@ -3971,13 +4179,13 @@ describe("SubAgentOrchestrator", () => {
         acceptanceCriteria?: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
     const delegationSpec = (orchestrator as unknown as {
       buildEffectiveDelegationSpec: (
@@ -4006,7 +4214,7 @@ describe("SubAgentOrchestrator", () => {
     );
   });
 
-  it("derives multiple downstream root npm scripts from a combined shell-mode verification step", () => {
+  it("derives multiple downstream root npm scripts from a combined shell-mode verification step", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
       context: pipeline.context,
@@ -4080,13 +4288,13 @@ describe("SubAgentOrchestrator", () => {
         parentPolicyAllowed: readonly string[];
       };
     }).deriveChildToolAllowlist(step, pipeline);
-    const { taskPrompt } = (orchestrator as unknown as {
+    const { taskPrompt } = await (orchestrator as unknown as {
       buildSubagentTaskPrompt: (
         step: Pipeline["plannerSteps"][number],
         pipeline: Pipeline,
         results: Readonly<Record<string, string>>,
         toolScope: typeof toolScope,
-      ) => { taskPrompt: string };
+      ) => Promise<{ taskPrompt: string }>;
     }).buildSubagentTaskPrompt(step, pipeline, {}, toolScope);
 
     expect(taskPrompt).toContain(

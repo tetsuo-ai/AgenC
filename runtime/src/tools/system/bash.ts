@@ -10,7 +10,7 @@
  */
 
 import { execFile, spawn } from "node:child_process";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { statSync, writeFileSync, unlinkSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -189,6 +189,23 @@ function buildEnv(configEnv?: Record<string, string>): Record<string, string> {
     PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: process.env.HOME ?? "",
   };
+}
+
+function validateWorkingDirectory(cwd: string): string | null {
+  try {
+    const stat = statSync(cwd);
+    return stat.isDirectory()
+      ? null
+      : `Working directory is not a directory: ${cwd}`;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return `Working directory does not exist: ${cwd}`;
+    }
+    return `Unable to access working directory ${cwd}: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+  }
 }
 
 /**
@@ -576,6 +593,29 @@ export function createBashTool(config?: BashToolConfig): Tool {
           );
         }
         cwd = input.cwd;
+      }
+
+      const cwdValidationError = validateWorkingDirectory(cwd);
+      if (cwdValidationError) {
+        return {
+          content: safeStringify({
+            error: cwdValidationError,
+            exitCode: null,
+            stdout: "",
+            stderr: cwdValidationError,
+            timedOut: false,
+            durationMs: 0,
+            truncated: false,
+          }),
+          isError: true,
+          metadata: {
+            command,
+            args: execArgs,
+            cwd,
+            shellMode: useShellMode,
+            durationMs: 0,
+          },
+        };
       }
 
       // Apply timeout — cap at maxTimeoutMs to prevent LLM from setting arbitrarily high values

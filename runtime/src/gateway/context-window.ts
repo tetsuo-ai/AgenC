@@ -1,13 +1,21 @@
 import { createHash } from "node:crypto";
 import type { GatewayLLMConfig } from "./types.js";
+import type {
+  LLMContextWindowSource,
+  LLMProviderExecutionProfile,
+} from "../llm/types.js";
 
 const DEFAULT_GROK_API_BASE_URL = "https://api.x.ai/v1";
+const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
 const DEFAULT_GROK_CONTEXT_WINDOW_TOKENS = 256_000;
-const DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS = 32_768;
+const DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS = 4_096;
+const DEFAULT_OLLAMA_MODEL = "llama3";
 const MIN_CONTEXT_WINDOW_TOKENS = 2_048;
 const MAX_CONTEXT_WINDOW_TOKENS = 10_000_000;
-const DYNAMIC_MODELS_FETCH_TIMEOUT_MS = 8_000;
+const DYNAMIC_FETCH_TIMEOUT_MS = 8_000;
 const DYNAMIC_MODELS_CACHE_TTL_MS = 15 * 60_000;
+const DYNAMIC_OLLAMA_RUNTIME_CACHE_TTL_MS = 30_000;
+const DYNAMIC_OLLAMA_MODEL_INFO_CACHE_TTL_MS = 15 * 60_000;
 
 const LEGACY_GROK_MODEL_ALIASES: Record<string, string> = {
   "grok-4": "grok-4-1-fast-reasoning",
@@ -26,9 +34,18 @@ const GROK_CONTEXT_WINDOW_BY_PREFIX: ReadonlyArray<{
   { prefix: "grok-4-1-fast-non-reasoning", contextWindowTokens: 2_000_000 },
   { prefix: "grok-4-fast-reasoning", contextWindowTokens: 2_000_000 },
   { prefix: "grok-4-fast-non-reasoning", contextWindowTokens: 2_000_000 },
-  { prefix: "grok-4.20-experimental-beta-0304-reasoning", contextWindowTokens: 2_000_000 },
-  { prefix: "grok-4.20-experimental-beta-0304-non-reasoning", contextWindowTokens: 2_000_000 },
-  { prefix: "grok-4.20-multi-agent-experimental-beta-0304", contextWindowTokens: 2_000_000 },
+  {
+    prefix: "grok-4.20-experimental-beta-0304-reasoning",
+    contextWindowTokens: 2_000_000,
+  },
+  {
+    prefix: "grok-4.20-experimental-beta-0304-non-reasoning",
+    contextWindowTokens: 2_000_000,
+  },
+  {
+    prefix: "grok-4.20-multi-agent-experimental-beta-0304",
+    contextWindowTokens: 2_000_000,
+  },
   { prefix: "grok-code-fast-1", contextWindowTokens: 256_000 },
   { prefix: "grok-4-0709", contextWindowTokens: 256_000 },
   { prefix: "grok-3-mini", contextWindowTokens: 131_072 },
@@ -44,6 +61,8 @@ interface LoggerLike {
 interface DynamicContextWindowOptions {
   readonly fetchImpl?: typeof fetch;
   readonly cacheTtlMs?: number;
+  readonly ollamaRuntimeCacheTtlMs?: number;
+  readonly ollamaModelInfoCacheTtlMs?: number;
   readonly logger?: LoggerLike;
 }
 
@@ -52,48 +71,69 @@ interface CachedModelCatalog {
   readonly byModelId: Map<string, number>;
 }
 
-const dynamicCatalogCache = new Map<string, CachedModelCatalog>();
+interface CachedResolvedContextWindow {
+  readonly expiresAtMs: number;
+  readonly resolved?: ResolvedContextWindow;
+}
 
-function normalizeBaseUrl(baseUrl: string | undefined): string {
-  const raw = baseUrl?.trim() || DEFAULT_GROK_API_BASE_URL;
+interface ResolvedContextWindow {
+  readonly contextWindowTokens: number;
+  readonly source: LLMContextWindowSource;
+}
+
+const grokCatalogCache = new Map<string, CachedModelCatalog>();
+const ollamaRuntimeCatalogCache = new Map<string, CachedModelCatalog>();
+const ollamaModelInfoCache = new Map<string, CachedResolvedContextWindow>();
+
+function normalizeBaseUrl(
+  baseUrl: string | undefined,
+  defaultBaseUrl: string,
+): string {
+  const raw = baseUrl?.trim() || defaultBaseUrl;
   return raw.replace(/\/+$/, "");
 }
 
-function buildDynamicCacheKey(baseUrl: string, apiKey: string): string {
-  const digest = createHash("sha256").update(apiKey).digest("hex").slice(0, 16);
+function buildDynamicCacheKey(baseUrl: string, credentialSeed: string): string {
+  const digest = createHash("sha256")
+    .update(credentialSeed)
+    .digest("hex")
+    .slice(0, 16);
   return `${baseUrl}#${digest}`;
 }
 
-function parseContextTokenValue(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const normalized = Math.floor(value);
-    if (
-      normalized >= MIN_CONTEXT_WINDOW_TOKENS &&
-      normalized <= MAX_CONTEXT_WINDOW_TOKENS
-    ) {
-      return normalized;
-    }
+function normalizeNumericContextWindow(value: number): number | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  const normalized = Math.floor(value);
+  if (
+    normalized < MIN_CONTEXT_WINDOW_TOKENS ||
+    normalized > MAX_CONTEXT_WINDOW_TOKENS
+  ) {
     return undefined;
+  }
+  return normalized;
+}
+
+function parseContextTokenValue(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    return normalizeNumericContextWindow(value);
   }
   if (typeof value === "string") {
     const compact = value.trim();
     if (!/^\d[\d,_\s]*$/.test(compact)) return undefined;
     const parsed = Number(compact.replace(/[,_\s]/g, ""));
     if (!Number.isFinite(parsed)) return undefined;
-    const normalized = Math.floor(parsed);
-    if (
-      normalized >= MIN_CONTEXT_WINDOW_TOKENS &&
-      normalized <= MAX_CONTEXT_WINDOW_TOKENS
-    ) {
-      return normalized;
-    }
+    return normalizeNumericContextWindow(parsed);
   }
   return undefined;
 }
 
 function isContextCandidatePath(path: string): boolean {
   const normalized = path.toLowerCase();
-  if (/(^|[._])(rpm|tpm|rate|pricing|price|cost|throughput)($|[._])/.test(normalized)) {
+  if (
+    /(^|[._])(rpm|tpm|rate|pricing|price|cost|throughput)($|[._])/.test(
+      normalized,
+    )
+  ) {
     return false;
   }
   if (
@@ -169,7 +209,9 @@ function extractModelId(entry: Record<string, unknown>): string | undefined {
   return normalized ? normalized.toLowerCase() : undefined;
 }
 
-function extractContextWindowFromModel(entry: Record<string, unknown>): number | undefined {
+function extractContextWindowFromModel(
+  entry: Record<string, unknown>,
+): number | undefined {
   const directFields = [
     entry.context_window,
     entry.contextWindow,
@@ -205,18 +247,10 @@ function buildCatalogFromPayload(payload: unknown): Map<string, number> {
   return catalog;
 }
 
-function lookupCatalogContextWindow(
+function lookupContextWindow(
   catalog: Map<string, number>,
-  model: string | undefined,
+  candidates: ReadonlySet<string>,
 ): number | undefined {
-  const normalized = normalizeGrokModel(model)?.toLowerCase();
-  if (!normalized) return undefined;
-
-  const candidates = new Set<string>([normalized]);
-  if (normalized.endsWith("-latest")) {
-    candidates.add(normalized.slice(0, -"-latest".length));
-  }
-
   for (const candidate of candidates) {
     const exact = catalog.get(candidate);
     if (exact !== undefined) return exact;
@@ -234,7 +268,54 @@ function lookupCatalogContextWindow(
   return bestMatch?.tokens;
 }
 
-async function fetchModelCatalog(
+function buildGrokModelLookupCandidates(
+  model: string | undefined,
+): ReadonlySet<string> {
+  const normalized = normalizeGrokModel(model)?.toLowerCase();
+  if (!normalized) return new Set();
+  const candidates = new Set<string>([normalized]);
+  if (normalized.endsWith("-latest")) {
+    candidates.add(normalized.slice(0, -"-latest".length));
+  }
+  return candidates;
+}
+
+function buildOllamaModelLookupCandidates(
+  model: string | undefined,
+): ReadonlySet<string> {
+  const normalized = model?.trim().toLowerCase();
+  if (!normalized) return new Set();
+  const candidates = new Set<string>([normalized]);
+  if (normalized.endsWith(":latest")) {
+    candidates.add(normalized.slice(0, -":latest".length));
+  } else if (!normalized.includes(":")) {
+    candidates.add(`${normalized}:latest`);
+  }
+  return candidates;
+}
+
+async function fetchJsonWithTimeout(
+  url: string,
+  init: RequestInit,
+  fetchImpl: typeof fetch,
+): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DYNAMIC_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} from ${url}`);
+    }
+    return response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchGrokModelCatalog(
   baseUrl: string,
   apiKey: string,
   fetchImpl: typeof fetch,
@@ -245,29 +326,23 @@ async function fetchModelCatalog(
 
   for (const endpoint of endpoints) {
     const url = `${baseUrl}${endpoint}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DYNAMIC_MODELS_FETCH_TIMEOUT_MS);
     try {
-      const response = await fetchImpl(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "application/json",
+      const payload = await fetchJsonWithTimeout(
+        url,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: "application/json",
+          },
         },
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        lastError = new Error(`HTTP ${response.status} from ${url}`);
-        continue;
-      }
-      const payload = await response.json();
+        fetchImpl,
+      );
       const catalog = buildCatalogFromPayload(payload);
       if (catalog.size > 0) return catalog;
       lastError = new Error(`No context window fields found in ${url} response`);
     } catch (error) {
       lastError = error;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -281,8 +356,223 @@ async function fetchModelCatalog(
   return new Map();
 }
 
+async function resolveDynamicGrokContextWindowTokens(
+  llmConfig: GatewayLLMConfig,
+  options?: DynamicContextWindowOptions,
+): Promise<number | undefined> {
+  if (llmConfig.provider !== "grok" || !llmConfig.apiKey) return undefined;
+
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  const logger = options?.logger;
+  const cacheTtlMs = options?.cacheTtlMs ?? DYNAMIC_MODELS_CACHE_TTL_MS;
+  const baseUrl = normalizeBaseUrl(llmConfig.baseUrl, DEFAULT_GROK_API_BASE_URL);
+  const cacheKey = buildDynamicCacheKey(baseUrl, llmConfig.apiKey);
+  const now = Date.now();
+  const cached = grokCatalogCache.get(cacheKey);
+
+  if (cached && cached.expiresAtMs > now) {
+    return lookupContextWindow(
+      cached.byModelId,
+      buildGrokModelLookupCandidates(llmConfig.model),
+    );
+  }
+
+  const catalog = await fetchGrokModelCatalog(
+    baseUrl,
+    llmConfig.apiKey,
+    fetchImpl,
+    logger,
+  );
+  if (catalog.size > 0) {
+    grokCatalogCache.set(cacheKey, {
+      byModelId: catalog,
+      expiresAtMs: now + Math.max(1_000, Math.floor(cacheTtlMs)),
+    });
+    return lookupContextWindow(catalog, buildGrokModelLookupCandidates(llmConfig.model));
+  }
+
+  if (cached) {
+    logger?.warn?.("Using stale Grok model metadata cache after refresh failure");
+    return lookupContextWindow(
+      cached.byModelId,
+      buildGrokModelLookupCandidates(llmConfig.model),
+    );
+  }
+
+  return undefined;
+}
+
+async function fetchOllamaRuntimeCatalog(
+  host: string,
+  fetchImpl: typeof fetch,
+  logger: LoggerLike | undefined,
+): Promise<Map<string, number>> {
+  const url = `${host}/api/ps`;
+  try {
+    const payload = await fetchJsonWithTimeout(
+      url,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      },
+      fetchImpl,
+    );
+    return buildCatalogFromPayload(payload);
+  } catch (error) {
+    logger?.debug?.("Dynamic Ollama runtime metadata fetch failed", {
+      host,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Map();
+  }
+}
+
+function parseOllamaParametersContextWindow(
+  value: unknown,
+): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const match = value.match(
+    /(?:^|\r?\n)\s*num_ctx(?:\s+|=|:)\s*([0-9][0-9,_\s]*)/im,
+  );
+  return parseContextTokenValue(match?.[1]);
+}
+
+function extractOllamaShowContextWindow(
+  payload: unknown,
+): ResolvedContextWindow | undefined {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return undefined;
+  }
+  const record = payload as Record<string, unknown>;
+  const fromModelInfo = extractContextWindowFromModel(record);
+  if (fromModelInfo !== undefined) {
+    return {
+      contextWindowTokens: fromModelInfo,
+      source: "ollama_model_info",
+    };
+  }
+  const fromParameters = parseOllamaParametersContextWindow(record.parameters);
+  if (fromParameters !== undefined) {
+    return {
+      contextWindowTokens: fromParameters,
+      source: "ollama_model_parameters",
+    };
+  }
+  return undefined;
+}
+
+async function resolveDynamicOllamaContextWindow(
+  llmConfig: GatewayLLMConfig,
+  options?: DynamicContextWindowOptions,
+): Promise<ResolvedContextWindow | undefined> {
+  if (llmConfig.provider !== "ollama") return undefined;
+
+  const model = llmConfig.model?.trim() || DEFAULT_OLLAMA_MODEL;
+  const host = normalizeBaseUrl(llmConfig.baseUrl, DEFAULT_OLLAMA_HOST);
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  const logger = options?.logger;
+  const runtimeCacheTtlMs =
+    options?.ollamaRuntimeCacheTtlMs ?? DYNAMIC_OLLAMA_RUNTIME_CACHE_TTL_MS;
+  const modelInfoCacheTtlMs =
+    options?.ollamaModelInfoCacheTtlMs ?? DYNAMIC_OLLAMA_MODEL_INFO_CACHE_TTL_MS;
+  const now = Date.now();
+
+  const runtimeCached = ollamaRuntimeCatalogCache.get(host);
+  if (runtimeCached && runtimeCached.expiresAtMs > now) {
+    const matched = lookupContextWindow(
+      runtimeCached.byModelId,
+      buildOllamaModelLookupCandidates(model),
+    );
+    if (matched !== undefined) {
+      return {
+        contextWindowTokens: matched,
+        source: "ollama_running_context_length",
+      };
+    }
+  }
+
+  const runtimeCatalog = await fetchOllamaRuntimeCatalog(host, fetchImpl, logger);
+  if (runtimeCatalog.size > 0) {
+    ollamaRuntimeCatalogCache.set(host, {
+      byModelId: runtimeCatalog,
+      expiresAtMs: now + Math.max(1_000, Math.floor(runtimeCacheTtlMs)),
+    });
+    const matched = lookupContextWindow(
+      runtimeCatalog,
+      buildOllamaModelLookupCandidates(model),
+    );
+    if (matched !== undefined) {
+      return {
+        contextWindowTokens: matched,
+        source: "ollama_running_context_length",
+      };
+    }
+  } else if (runtimeCached) {
+    const matched = lookupContextWindow(
+      runtimeCached.byModelId,
+      buildOllamaModelLookupCandidates(model),
+    );
+    if (matched !== undefined) {
+      logger?.warn?.(
+        "Using stale Ollama runtime context metadata cache after refresh failure",
+        { host, model },
+      );
+      return {
+        contextWindowTokens: matched,
+        source: "ollama_running_context_length",
+      };
+    }
+  }
+
+  const modelInfoCacheKey = `${host}#${model.toLowerCase()}`;
+  const cachedModelInfo = ollamaModelInfoCache.get(modelInfoCacheKey);
+  if (cachedModelInfo && cachedModelInfo.expiresAtMs > now) {
+    return cachedModelInfo.resolved;
+  }
+
+  const url = `${host}/api/show`;
+  try {
+    const payload = await fetchJsonWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ model }),
+      },
+      fetchImpl,
+    );
+    const resolved = extractOllamaShowContextWindow(payload);
+    ollamaModelInfoCache.set(modelInfoCacheKey, {
+      resolved,
+      expiresAtMs: now + Math.max(1_000, Math.floor(modelInfoCacheTtlMs)),
+    });
+    if (resolved) return resolved;
+  } catch (error) {
+    logger?.debug?.("Dynamic Ollama model metadata fetch failed", {
+      host,
+      model,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (cachedModelInfo?.resolved) {
+    logger?.warn?.("Using stale Ollama model metadata cache after refresh failure", {
+      host,
+      model,
+    });
+    return cachedModelInfo.resolved;
+  }
+
+  return undefined;
+}
+
 export function clearDynamicContextWindowCache(): void {
-  dynamicCatalogCache.clear();
+  grokCatalogCache.clear();
+  ollamaRuntimeCatalogCache.clear();
+  ollamaModelInfoCache.clear();
 }
 
 export function normalizeGrokModel(model: string | undefined): string | undefined {
@@ -305,16 +595,16 @@ export function inferContextWindowTokens(
   llmConfig: GatewayLLMConfig | undefined,
 ): number | undefined {
   if (!llmConfig) return undefined;
-  if (
-    typeof llmConfig.contextWindowTokens === "number" &&
-    Number.isFinite(llmConfig.contextWindowTokens)
-  ) {
-    return Math.max(MIN_CONTEXT_WINDOW_TOKENS, Math.floor(llmConfig.contextWindowTokens));
+  const explicit = parseContextTokenValue(llmConfig.contextWindowTokens);
+  if (explicit !== undefined) {
+    return explicit;
   }
   if (llmConfig.provider === "grok") {
     return inferGrokContextWindowTokens(llmConfig.model);
   }
-  if (llmConfig.provider === "ollama") return DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS;
+  if (llmConfig.provider === "ollama") {
+    return DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS;
+  }
   return undefined;
 }
 
@@ -322,33 +612,82 @@ export async function resolveDynamicContextWindowTokens(
   llmConfig: GatewayLLMConfig | undefined,
   options?: DynamicContextWindowOptions,
 ): Promise<number | undefined> {
-  if (!llmConfig || llmConfig.provider !== "grok") return undefined;
-  if (!llmConfig.apiKey) return undefined;
+  if (!llmConfig) return undefined;
+  if (llmConfig.provider === "grok") {
+    return resolveDynamicGrokContextWindowTokens(llmConfig, options);
+  }
+  if (llmConfig.provider === "ollama") {
+    return (await resolveDynamicOllamaContextWindow(llmConfig, options))
+      ?.contextWindowTokens;
+  }
+  return undefined;
+}
 
-  const fetchImpl = options?.fetchImpl ?? fetch;
-  const logger = options?.logger;
-  const cacheTtlMs = options?.cacheTtlMs ?? DYNAMIC_MODELS_CACHE_TTL_MS;
-  const baseUrl = normalizeBaseUrl(llmConfig.baseUrl);
-  const cacheKey = buildDynamicCacheKey(baseUrl, llmConfig.apiKey);
-  const now = Date.now();
-  const cached = dynamicCatalogCache.get(cacheKey);
+export async function resolveContextWindowProfile(
+  llmConfig: GatewayLLMConfig | undefined,
+  options?: DynamicContextWindowOptions,
+): Promise<LLMProviderExecutionProfile | undefined> {
+  if (!llmConfig) return undefined;
 
-  if (cached && cached.expiresAtMs > now) {
-    return lookupCatalogContextWindow(cached.byModelId, llmConfig.model);
+  const explicit = parseContextTokenValue(llmConfig.contextWindowTokens);
+  if (llmConfig.provider === "grok") {
+    const model = normalizeGrokModel(llmConfig.model);
+    if (explicit !== undefined) {
+      return {
+        provider: "grok",
+        model,
+        contextWindowTokens: explicit,
+        contextWindowSource: "explicit_config",
+        maxOutputTokens: llmConfig.maxTokens,
+      };
+    }
+    const dynamic = await resolveDynamicGrokContextWindowTokens(llmConfig, options);
+    if (dynamic !== undefined) {
+      return {
+        provider: "grok",
+        model,
+        contextWindowTokens: dynamic,
+        contextWindowSource: "grok_model_catalog",
+        maxOutputTokens: llmConfig.maxTokens,
+      };
+    }
+    return {
+      provider: "grok",
+      model,
+      contextWindowTokens: inferGrokContextWindowTokens(model),
+      contextWindowSource: "grok_model_heuristic",
+      maxOutputTokens: llmConfig.maxTokens,
+    };
   }
 
-  const catalog = await fetchModelCatalog(baseUrl, llmConfig.apiKey, fetchImpl, logger);
-  if (catalog.size > 0) {
-    dynamicCatalogCache.set(cacheKey, {
-      byModelId: catalog,
-      expiresAtMs: now + Math.max(1_000, Math.floor(cacheTtlMs)),
-    });
-    return lookupCatalogContextWindow(catalog, llmConfig.model);
-  }
-
-  if (cached) {
-    logger?.warn?.("Using stale Grok model metadata cache after refresh failure");
-    return lookupCatalogContextWindow(cached.byModelId, llmConfig.model);
+  if (llmConfig.provider === "ollama") {
+    const model = llmConfig.model?.trim() || DEFAULT_OLLAMA_MODEL;
+    if (explicit !== undefined) {
+      return {
+        provider: "ollama",
+        model,
+        contextWindowTokens: explicit,
+        contextWindowSource: "ollama_request_num_ctx",
+        maxOutputTokens: llmConfig.maxTokens,
+      };
+    }
+    const dynamic = await resolveDynamicOllamaContextWindow(llmConfig, options);
+    if (dynamic) {
+      return {
+        provider: "ollama",
+        model,
+        contextWindowTokens: dynamic.contextWindowTokens,
+        contextWindowSource: dynamic.source,
+        maxOutputTokens: llmConfig.maxTokens,
+      };
+    }
+    return {
+      provider: "ollama",
+      model,
+      contextWindowTokens: DEFAULT_OLLAMA_CONTEXT_WINDOW_TOKENS,
+      contextWindowSource: "ollama_default",
+      maxOutputTokens: llmConfig.maxTokens,
+    };
   }
 
   return undefined;
