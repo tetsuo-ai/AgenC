@@ -1049,6 +1049,155 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls).toEqual([]);
     });
 
+    it("retries plan-only execution responses before accepting a coding turn", async () => {
+      const events: Record<string, unknown>[] = [];
+      const toolHandler = vi.fn().mockResolvedValue("wrote file");
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "**Plan**\n1. Create `main.c`\n2. Compile with gcc\n3. Run the binary\n\nStarting execution.",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-1",
+                  name: "system.writeFile",
+                  arguments: safeJson({
+                    path: "/tmp/tui-smoke/main.c",
+                    content: "int main(void) { return 0; }\n",
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "Created `main.c` and continued execution with tools.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["system.writeFile", "system.bash"],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "In /tmp/tui-smoke only, create main.c, compile it with gcc, run it, and verify the output.",
+          ),
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toContain("continued execution");
+      expect(toolHandler).toHaveBeenCalledWith("system.writeFile", {
+        path: "/tmp/tui-smoke/main.c",
+        content: "int main(void) { return 0; }\n",
+      });
+      expect(provider.chat).toHaveBeenCalledTimes(3);
+      expect(
+        (provider.chat as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]?.toolChoice,
+      ).toBe("required");
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "initial",
+            payload: expect.objectContaining({
+              gate: "plan_only_execution",
+              decision: "retry",
+            }),
+          }),
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "tool_followup",
+            payload: expect.objectContaining({
+              gate: "plan_only_execution",
+              decision: "accept",
+            }),
+          }),
+        ]),
+      );
+    });
+
+    it("fails coding turns that return only plans after the retry", async () => {
+      const events: Record<string, unknown>[] = [];
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "**Plan**\n1. Create `main.c`\n2. Compile with gcc\n3. Run the binary\n\nStarting execution.",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "**Plan**\n1. Write the code\n2. Compile it\n3. Verify it\n\nStarting execution.",
+            }),
+          ),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn(),
+        allowedTools: ["system.writeFile", "system.bash"],
+      });
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "In /tmp/tui-smoke only, create main.c, compile it with gcc, run it, and verify the output.",
+          ),
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.stopReasonDetail).toContain("plan without grounded tool work");
+      expect(result.content).toContain("plan without grounded tool work");
+      expect(result.toolCalls).toEqual([]);
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "initial",
+            payload: expect.objectContaining({
+              gate: "plan_only_execution",
+              decision: "retry",
+            }),
+          }),
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "initial",
+            payload: expect.objectContaining({
+              gate: "plan_only_execution",
+              decision: "fail",
+            }),
+          }),
+        ]),
+      );
+    });
+
     it("uses a toolless correction retry when delegated evidence exists but the result contract is malformed", async () => {
       const provider = createMockProvider("primary", {
         chat: vi
@@ -1200,6 +1349,7 @@ describe("ChatExecutor", () => {
       );
 
       expect(result.stopReason).toBe("validation_error");
+      expect(result.validationCode).toBe("contradictory_completion_claim");
       expect(result.stopReasonDetail).toContain(
         "claimed completion while still reporting unresolved work",
       );
@@ -1218,6 +1368,140 @@ describe("ChatExecutor", () => {
         "system.writeFile",
         "system.bash",
       ]);
+    });
+
+    it("fails delegated corrections that still answer blocked after a contradictory completion retry", async () => {
+      const events: Record<string, unknown>[] = [];
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-write-initial",
+                  name: "system.writeFile",
+                  arguments: safeJson({
+                    path: "/workspace/space-colony/src/simulation.ts",
+                    content:
+                      "export function generateAsteroidSurface() {\n" +
+                      "  // placeholder stub\n" +
+                      "  return [];\n" +
+                      "}\n",
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "**implement_core_drones complete** Updated `src/simulation.ts`. " +
+                "Note: `src/simulation.ts` still contains placeholder stub lines " +
+                "that need follow-up cleanup before the phase is really complete.",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "tc-write-fixed",
+                  name: "system.writeFile",
+                  arguments: safeJson({
+                    path: "/workspace/space-colony/src/simulation.ts",
+                    content:
+                      "export function generateAsteroidSurface() {\n" +
+                      "  return [];\n" +
+                      "}\n",
+                  }),
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "**Blocked** The placeholder is fixed, but the prior validation error still says this phase is blocked.",
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content:
+                "**implement_core_drones complete** Updated `src/simulation.ts` and removed the placeholder stub.",
+            }),
+          ),
+      });
+      const toolHandler = vi.fn().mockImplementation(
+        async (name: string, args: Record<string, unknown>) => {
+          if (name === "system.writeFile") {
+            return safeJson({
+              path: args.path,
+              bytesWritten: String(args.content ?? "").length,
+            });
+          }
+          throw new Error(`Unexpected tool: ${name}`);
+        },
+      );
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ["system.writeFile", "system.readFile"],
+      });
+      const result = await executor.execute(
+        createParams({
+          requiredToolEvidence: {
+            maxCorrectionAttempts: 1,
+            delegationSpec: {
+              task: "assess_core_drones",
+              objective:
+                "Inspect src/simulation.ts and confirm whether the placeholder stub is gone",
+              inputContract: "src/simulation.ts exists",
+              acceptanceCriteria: [
+                "Report whether src/simulation.ts still contains placeholder comments",
+              ],
+            },
+          },
+          toolRouting: {
+            routedToolNames: ["system.writeFile", "system.readFile"],
+            expandedToolNames: ["system.writeFile", "system.readFile"],
+          },
+          trace: {
+            onExecutionTraceEvent: (event) => {
+              events.push(event as unknown as Record<string, unknown>);
+            },
+          },
+        }),
+      );
+
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.validationCode).toBeDefined();
+      expect(toolHandler).not.toHaveBeenCalled();
+      expect(provider.chat).toHaveBeenCalledTimes(4);
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "tool_followup",
+            payload: expect.objectContaining({
+              decision: "retry",
+              validationCode: "contradictory_completion_claim",
+            }),
+          }),
+          expect.objectContaining({
+            type: "completion_gate_checked",
+            phase: "tool_followup",
+            payload: expect.objectContaining({
+              decision: "fail",
+              validationCode: "blocked_phase_output",
+            }),
+          }),
+        ]),
+      );
     });
 
     it("fails when delegated browser research only uses low-signal about:blank tab checks", async () => {
@@ -1278,6 +1562,7 @@ describe("ChatExecutor", () => {
       );
 
       expect(result.stopReason).toBe("validation_error");
+      expect(result.validationCode).toBe("low_signal_browser_evidence");
       expect(result.stopReasonDetail).toContain("browser-grounded evidence");
       expect(result.toolCalls).toHaveLength(1);
       expect(
@@ -1535,7 +1820,6 @@ describe("ChatExecutor", () => {
       expect(firstOptions?.toolRouting?.allowedToolNames).toEqual([
         "system.readFile",
         "system.writeFile",
-        "system.bash",
       ]);
       expect(secondOptions?.toolRouting?.allowedToolNames).toEqual([
         "system.bash",
@@ -2604,30 +2888,39 @@ describe("ChatExecutor", () => {
       expect(result.toolCalls).toHaveLength(2);
     });
 
-    it("per-call maxModelRecalls overrides constructor default", async () => {
+    it("per-call maxModelRecalls=0 removes the recall cap", async () => {
       const toolHandler = vi.fn().mockResolvedValue("ok");
       const provider = createMockProvider("primary", {
-        chat: vi.fn().mockResolvedValue(
-          mockResponse({
-            content: "looping",
-            finishReason: "tool_calls",
-            toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
-          }),
-        ),
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "looping",
+              finishReason: "tool_calls",
+              toolCalls: [{ id: "tc-1", name: "tool", arguments: "{}" }],
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "done",
+              finishReason: "stop",
+            }),
+          ),
       });
 
       const executor = new ChatExecutor({
         providers: [provider],
         toolHandler,
-        maxModelRecallsPerRequest: 3,
+        maxModelRecallsPerRequest: 1,
       });
       const result = await executor.execute(
         createParams({ maxModelRecallsPerRequest: 0 }),
       );
 
-      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(provider.chat).toHaveBeenCalledTimes(2);
       expect(result.toolCalls).toHaveLength(1);
-      expect(result.stopReason).toBe("budget_exceeded");
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toBe("done");
     });
 
     it("per-call toolBudgetPerRequest overrides constructor default", async () => {
@@ -4095,7 +4388,51 @@ describe("ChatExecutor", () => {
       );
       expect(injectedHint).toBeDefined();
       expect(String(injectedHint?.content)).toContain("add `-E`");
-      expect(String(injectedHint?.content)).toContain("treated as file paths");
+      expect(String(injectedHint?.content)).toContain("reads stdin instead of searching files");
+    });
+
+    it("injects a recovery hint after grep is given a pattern but no search path", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        '{"exitCode":1,"stdout":"","stderr":"","timedOut":false}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments:
+                    '{"command":"grep","args":["-E","enemy|combat|attack","--include=*.{h,cpp}"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("Direct-mode `grep` with only a pattern reads stdin"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("pair `--include` with `-r`");
+      expect(String(injectedHint?.content)).toContain("`rg PATTERN src include`");
     });
 
     it("injects a recovery hint when npm run targets a missing script", async () => {
@@ -4327,6 +4664,50 @@ describe("ChatExecutor", () => {
       expect(injectedHint).toBeDefined();
       expect(String(injectedHint?.content)).toContain("export { Scheduler }");
       expect(String(injectedHint?.content)).toContain("rerun the failing build/test");
+    });
+
+    it("injects a recovery hint for JSON-escaped source content written into a compiler target", async () => {
+      const toolHandler = vi.fn().mockResolvedValue(
+        '{"exitCode":101,"stdout":"","stderr":"error: unknown start of token: \\\\\\n --> gridforge-core/src/lib.rs:48:15\\n  |\\n48 |     let map = \\\\\\"S#G\\\\\\";\\n  |               ^\\n\\nerror[E0765]: unterminated double quote string\\n --> gridforge-core/src/lib.rs:48:16\\n  |\\n48 |     let map = \\\\\\"S#G\\\\\\";\\n  |                ^^^^^^^^^\\n\\nerror: could not compile `gridforge-core` due to 2 previous errors"}',
+      );
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  name: "system.bash",
+                  arguments:
+                    '{"command":"cargo","args":["test","--workspace","--quiet"]}',
+                },
+              ],
+            }),
+          )
+          .mockResolvedValueOnce(mockResponse({ content: "recovered" })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 4,
+      });
+      await executor.execute(createParams());
+
+      const secondCallMessages = (provider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[1][0] as LLMMessage[];
+      const injectedHint = secondCallMessages.find(
+        (msg) =>
+          msg.role === "system" &&
+          typeof msg.content === "string" &&
+          msg.content.includes("JSON escape sequences"),
+      );
+      expect(injectedHint).toBeDefined();
+      expect(String(injectedHint?.content)).toContain("raw source code");
+      expect(String(injectedHint?.content)).toContain("JSON-encoded representation");
     });
 
     it("replaces stale recovery hints with the latest timeout hint and traces the active keys", async () => {
@@ -6669,6 +7050,7 @@ describe("ChatExecutor", () => {
         toolHandler: vi.fn().mockResolvedValue("unused"),
         plannerEnabled: true,
         pipelineExecutor: pipelineExecutor as any,
+        maxModelRecallsPerRequest: 1,
         delegationDecision: {
           enabled: true,
           scoreThreshold: 0,
@@ -9670,6 +10052,100 @@ describe("ChatExecutor", () => {
       ]);
     });
 
+    it("falls back to a deterministic summary when planner synthesis times out after a completed pipeline", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: safeJson({
+                reason: "delegated_investigation",
+                requiresSynthesis: true,
+                steps: [
+                  {
+                    name: "prep",
+                    step_type: "deterministic_tool",
+                    tool: "system.bash",
+                    args: { command: "pwd" },
+                  },
+                  {
+                    name: "delegate_logs",
+                    step_type: "subagent_task",
+                    objective: "Inspect flaky test logs",
+                    input_contract: "Return a JSON object with findings",
+                    acceptance_criteria: ["Include grounded log findings"],
+                    required_tool_capabilities: ["system.readFile"],
+                    context_requirements: ["ci_logs"],
+                    max_budget_hint: "2m",
+                    can_run_parallel: false,
+                    depends_on: ["prep"],
+                  },
+                  {
+                    name: "finalize",
+                    step_type: "synthesis",
+                    objective: "Summarize the findings",
+                    depends_on: ["delegate_logs"],
+                  },
+                ],
+              }),
+            }),
+          )
+          .mockRejectedValue(new LLMTimeoutError("grok", 60_000)),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: {
+            results: {
+              prep: '{"exitCode":0,"stdout":"/tmp\\n"}',
+              delegate_logs:
+                '{"status":"completed","output":"Clustered failures around request timeouts."}',
+            },
+          },
+          completedSteps: 2,
+          totalSteps: 2,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "First run setup checks, then delegate deeper research, then synthesize results.",
+          ),
+        }),
+      );
+
+      expect((provider.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.stopReason).toBe("completed");
+      expect(result.content).toContain(
+        "Completed the requested workflow, but the final synthesis model call failed.",
+      );
+      expect(result.content).toContain(
+        "delegate_logs [source:delegate_logs]",
+      );
+      expect(result.content).toContain(
+        "planner_synthesis model call failed (timeout)",
+      );
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "planner_synthesis_fallback_applied",
+          }),
+        ]),
+      );
+    });
+
     it("runs bounded verifier rounds for child outputs and retries low-confidence delegation once", async () => {
       const events: Array<Record<string, unknown>> = [];
       const provider = createMockProvider("primary", {
@@ -10281,6 +10757,89 @@ describe("ChatExecutor", () => {
 
       expect(result.stopReason).toBe("timeout");
       expect(result.stopReasonDetail).toContain("planner pipeline execution");
+      expect(provider.chat).toHaveBeenCalledTimes(1);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses unlimited end-to-end timeout by default", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "completed without end-to-end timeout",
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage("Reply with a completion."),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
+      const providerOptions = (provider.chat as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[1] as LLMChatOptions | undefined;
+      expect(providerOptions?.timeoutMs).toBeUndefined();
+    });
+
+    it("treats requestTimeoutMs=0 as unlimited during planner execution", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: safeJson({
+              reason: "unlimited_timeout_guard",
+              requiresSynthesis: false,
+              steps: [
+                {
+                  name: "run_long_pipeline",
+                  step_type: "deterministic_tool",
+                  tool: "system.readFile",
+                  args: { path: "ci.log" },
+                },
+              ],
+            }),
+          }),
+        ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              setTimeout(() => {
+                resolve({
+                  status: "completed",
+                  context: {
+                    results: {
+                      run_long_pipeline: safeJson({ stdout: "ok" }),
+                    },
+                  },
+                  completedSteps: 1,
+                  totalSteps: 1,
+                });
+              }, 60);
+            }),
+        ),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        requestTimeoutMs: 0,
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Run the deterministic planner pipeline and return the result.",
+          ),
+        }),
+      );
+
+      expect(result.stopReason).toBe("completed");
       expect(provider.chat).toHaveBeenCalledTimes(1);
       expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
     });
@@ -12340,6 +12899,118 @@ describe("ChatExecutor", () => {
       );
     });
 
+    it("rejects planner retries that keep dropping explicit acceptance commands", async () => {
+      const invalidPlan = safeJson({
+        reason: "regexkit_project",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "setup_codebase",
+            step_type: "subagent_task",
+            objective: "Author the regex toolkit source files, tests, and README.",
+            input_contract: "Empty scratch directory.",
+            acceptance_criteria: [
+              "package.json exists and uses ESM",
+              "src contains parser, compiler, matcher, and CLI files",
+            ],
+            required_tool_capabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+            ],
+            context_requirements: ["cwd=/tmp/agenc-codegen/regexkit"],
+            max_budget_hint: "6m",
+          },
+          {
+            name: "run_tests",
+            step_type: "deterministic_tool",
+            depends_on: ["setup_codebase"],
+            tool: "system.bash",
+            args: {
+              command: "node",
+              args: ["--test"],
+              cwd: "/tmp/agenc-codegen/regexkit",
+            },
+          },
+          {
+            name: "final_synthesis",
+            step_type: "synthesis",
+            depends_on: ["run_tests"],
+          },
+        ],
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: invalidPlan,
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: invalidPlan,
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: "direct fallback should not run",
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn(),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue("unused"),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Build regexkit in /tmp/agenc-codegen/regexkit.\n" +
+              "Acceptance criteria:\n" +
+              "- `node --test` passes from `/tmp/agenc-codegen/regexkit`.\n" +
+              "- `node src/cli.mjs match 'a(b|c)+d' 'abbd'` reports a match.\n" +
+              "- `node src/cli.mjs grep 'colou?r' fixtures/sample.txt` returns only matching lines.\n" +
+              "- `node src/cli.mjs explain 'ab|cd*'` prints a useful structured explanation.\n",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(pipelineExecutor.execute).not.toHaveBeenCalled();
+      expect(result.stopReason).toBe("validation_error");
+      expect(result.content).toContain("Missing acceptance commands");
+      expect(result.plannerSummary?.routeReason).toBe(
+        "planner_verification_requirements_unmet",
+      );
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "validation",
+            code: "planner_verification_requirements_missing",
+            details: expect.objectContaining({
+              missingCommands: expect.stringContaining(
+                "node src/cli.mjs match 'a(b|c)+d' 'abbd'",
+              ),
+            }),
+          }),
+          expect.objectContaining({
+            category: "policy",
+            code: "planner_verification_requirements_retry",
+          }),
+        ]),
+      );
+    });
+
     it("accepts a refined workspace planner plan that keeps scaffolding source-free and package verification bounded", async () => {
       const refinedPlan = safeJson({
         reason: "refined_workspace_project",
@@ -12559,6 +13230,214 @@ describe("ChatExecutor", () => {
             code: "subagent_step_needs_decomposition",
             details: expect.objectContaining({
               stepName: "implement_cli",
+            }),
+          }),
+        ]),
+      );
+    });
+
+    it("grants extra planner retries for repeated decomposition-only scaffold violations", async () => {
+      const invalidPlanOne = safeJson({
+        reason: "workspace_project",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "create_root_directory",
+            step_type: "deterministic_tool",
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/tmp/galaxy-factory"],
+            },
+            onError: "abort",
+          },
+          {
+            name: "scaffold_project",
+            step_type: "subagent_task",
+            depends_on: ["create_root_directory"],
+            objective:
+              "Author workspace package.json and tsconfig files, create package src directories, and write starter index.ts entry files for the galaxy factory project.",
+            input_contract: "Empty target directory.",
+            acceptance_criteria: [
+              "Workspace manifests and tsconfig files authored",
+              "package src directories created",
+              "starter index.ts entry files implemented",
+            ],
+            required_tool_capabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.bash",
+            ],
+            context_requirements: ["cwd=/tmp/galaxy-factory"],
+            max_budget_hint: "6m",
+          },
+          {
+            name: "final_synthesis",
+            step_type: "synthesis",
+            depends_on: ["scaffold_project"],
+            objective: "Summarize the completed workspace.",
+          },
+        ],
+      });
+      const invalidPlanTwo = safeJson({
+        reason: "workspace_project_refined",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "create_root_directory",
+            step_type: "deterministic_tool",
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/tmp/galaxy-factory"],
+            },
+            onError: "abort",
+          },
+          {
+            name: "scaffold_environment",
+            step_type: "subagent_task",
+            depends_on: ["create_root_directory"],
+            objective:
+              "Set up workspace manifests and tsconfigs, create src directories, and implement starter entry files for core and cli packages.",
+            input_contract: "Empty target directory.",
+            acceptance_criteria: [
+              "Workspace manifests and configs exist",
+              "src directories created",
+              "starter entry files implemented",
+            ],
+            required_tool_capabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.bash",
+            ],
+            context_requirements: ["cwd=/tmp/galaxy-factory"],
+            max_budget_hint: "6m",
+          },
+          {
+            name: "final_synthesis",
+            step_type: "synthesis",
+            depends_on: ["scaffold_environment"],
+            objective: "Summarize the completed workspace.",
+          },
+        ],
+      });
+      const invalidPlanThree = safeJson({
+        reason: "workspace_project_still_overloaded",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "create_root_directory",
+            step_type: "deterministic_tool",
+            tool: "system.bash",
+            args: {
+              command: "mkdir",
+              args: ["-p", "/tmp/galaxy-factory"],
+            },
+            onError: "abort",
+          },
+          {
+            name: "scaffold_environment",
+            step_type: "subagent_task",
+            depends_on: ["create_root_directory"],
+            objective:
+              "Prepare package manifests and tsconfigs, create source directories, and implement initial entry files for the simulation packages in one pass.",
+            input_contract: "Empty target directory.",
+            acceptance_criteria: [
+              "Workspace manifests authored",
+              "source directories created",
+              "initial entry files complete",
+            ],
+            required_tool_capabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.bash",
+            ],
+            context_requirements: ["cwd=/tmp/galaxy-factory"],
+            max_budget_hint: "6m",
+          },
+          {
+            name: "final_synthesis",
+            step_type: "synthesis",
+            depends_on: ["scaffold_environment"],
+            objective: "Summarize the completed workspace.",
+          },
+        ],
+      });
+      const validPlan = safeJson({
+        reason: "refined_workspace_project",
+        requiresSynthesis: false,
+        steps: [
+          {
+            name: "inspect_workspace",
+            step_type: "deterministic_tool",
+            tool: "system.listDir",
+            args: { path: "/tmp/galaxy-factory" },
+            onError: "abort",
+          },
+        ],
+      });
+      const provider = createMockProvider("primary", {
+        chat: vi
+          .fn()
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: invalidPlanOne,
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: invalidPlanTwo,
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: invalidPlanThree,
+            }),
+          )
+          .mockResolvedValueOnce(
+            mockResponse({
+              content: validPlan,
+            }),
+          ),
+      });
+      const pipelineExecutor = {
+        execute: vi.fn().mockResolvedValue({
+          status: "completed",
+          context: { results: { inspect_workspace: '{"entries":[]}' } },
+          completedSteps: 1,
+          totalSteps: 1,
+        }),
+      };
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler: vi.fn().mockResolvedValue('{"entries":[]}'),
+        plannerEnabled: true,
+        pipelineExecutor: pipelineExecutor as any,
+        delegationDecision: {
+          enabled: true,
+          scoreThreshold: 0,
+        },
+      });
+
+      const result = await executor.execute(
+        createParams({
+          message: createMessage(
+            "Build a TypeScript workspace project in /tmp/galaxy-factory with multiple packages and verification.",
+          ),
+        }),
+      );
+
+      expect(provider.chat).toHaveBeenCalledTimes(4);
+      expect(pipelineExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(result.stopReason).toBe("completed");
+      expect(result.plannerSummary?.plannerCalls).toBe(4);
+      expect(result.plannerSummary?.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "policy",
+            code: "planner_refinement_retry",
+            details: expect.objectContaining({
+              decompositionRetry: "true",
             }),
           }),
         ]),
@@ -14471,6 +15350,43 @@ describe("ChatExecutor", () => {
       expect(
         result.statefulSummary?.fallbackReasons.provider_retrieval_failure,
       ).toBe(1);
+    });
+
+    it("tracks store-disabled stateful fallbacks in the result summary", async () => {
+      const provider = createMockProvider("primary", {
+        chat: vi.fn().mockResolvedValue(
+          mockResponse({
+            content: "ok",
+            stateful: {
+              enabled: true,
+              attempted: false,
+              continued: false,
+              store: false,
+              fallbackToStateless: true,
+              fallbackReason: "store_disabled",
+              events: [
+                {
+                  type: "stateful_fallback",
+                  reason: "store_disabled",
+                },
+              ],
+            },
+          }),
+        ),
+      });
+      const executor = new ChatExecutor({ providers: [provider] });
+      const message = { ...createMessage("stateful"), sessionId: "stateful-store-disabled" };
+
+      const result = await executor.execute(
+        createParams({
+          message,
+          sessionId: "stateful-store-disabled",
+        }),
+      );
+
+      expect(result.statefulSummary).toBeDefined();
+      expect(result.statefulSummary?.fallbackReasons.store_disabled).toBe(1);
+      expect(result.statefulSummary?.attemptedCalls).toBe(0);
     });
   });
 });

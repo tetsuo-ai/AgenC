@@ -114,11 +114,25 @@ export interface LLMRequestMetrics {
 /**
  * Stateful response fallback reasons when continuation cannot be used.
  */
+export const LLM_STATEFUL_FALLBACK_REASONS = [
+  "missing_previous_response_id",
+  "store_disabled",
+  "provider_retrieval_failure",
+  "state_reconciliation_mismatch",
+  "unsupported",
+] as const;
+
 export type LLMStatefulFallbackReason =
-  | "missing_previous_response_id"
-  | "provider_retrieval_failure"
-  | "state_reconciliation_mismatch"
-  | "unsupported";
+  (typeof LLM_STATEFUL_FALLBACK_REASONS)[number];
+
+export function createLLMStatefulFallbackReasonCounts(): Record<
+  LLMStatefulFallbackReason,
+  number
+> {
+  return Object.fromEntries(
+    LLM_STATEFUL_FALLBACK_REASONS.map((reason) => [reason, 0]),
+  ) as Record<LLMStatefulFallbackReason, number>;
+}
 
 /**
  * Structured stateful event types for trace logging/diagnostics.

@@ -1441,6 +1441,60 @@ describe("GrokProvider", () => {
     expect(second.stateful?.responseId).toBe("resp_2");
   });
 
+  it("defaults stateful Responses requests to store=false and replays locally", async () => {
+    mockCreate
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_default_store_1",
+          output_text: "Hello",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeCompletion({
+          id: "resp_default_store_2",
+          output_text: "Follow-up",
+        }),
+      );
+
+    const provider = new GrokProvider({
+      apiKey: "test-key",
+      statefulResponses: {
+        enabled: true,
+        fallbackToStateless: true,
+      },
+    });
+
+    await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+      ],
+      { stateful: { sessionId: "sess-default-store" } },
+    );
+    const second = await provider.chat(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "Hello" },
+        { role: "user", content: "follow up" },
+      ],
+      { stateful: { sessionId: "sess-default-store" } },
+    );
+
+    const firstParams = mockCreate.mock.calls[0][0];
+    const secondParams = mockCreate.mock.calls[1][0];
+    expect(firstParams.store).toBe(false);
+    expect(secondParams.store).toBe(false);
+    expect(secondParams.previous_response_id).toBeUndefined();
+    expect(second.stateful?.attempted).toBe(false);
+    expect(second.stateful?.continued).toBe(false);
+    expect(second.stateful?.fallbackReason).toBe("store_disabled");
+    expect(
+      second.stateful?.events?.some((event) => event.reason === "store_disabled"),
+    ).toBe(true);
+    expect(second.stateful?.responseId).toBe("resp_default_store_2");
+  });
+
   it("does not persist previous_response_id anchors for empty assistant turns", async () => {
     mockCreate
       .mockResolvedValueOnce(

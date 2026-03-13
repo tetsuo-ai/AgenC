@@ -43,10 +43,12 @@ const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
 };
 const TOOL_DEFAULT_CWD_NAMES = new Set([
   "system.bash",
+  "desktop.bash",
   "system.processStart",
   "system.serverStart",
 ]);
 const TOOL_PATH_ARG_KEYS: Readonly<Record<string, readonly string[]>> = {
+  "desktop.text_editor": ["path"],
   "system.readFile": ["path"],
   "system.writeFile": ["path"],
   "system.appendFile": ["path"],
@@ -751,6 +753,10 @@ function extractDirectCommandPathArgs(
   }
 }
 
+function isAllowedOutOfRootShellSinkPath(candidatePath: string): boolean {
+  return candidatePath === "/dev/null";
+}
+
 function validateScopedFilesystemRoot(
   toolName: string,
   args: Record<string, unknown>,
@@ -802,6 +808,9 @@ function validateScopedFilesystemRoot(
   ) {
     for (const arg of extractDirectCommandPathArgs(args.command, args.args)) {
       const candidatePath = normalizeScopedPathCandidate(arg);
+      if (isAllowedOutOfRootShellSinkPath(candidatePath)) {
+        continue;
+      }
       if (!isWithinRoot(normalizedRoot, candidatePath)) {
         return buildScopedRootViolationMessage(
           "command arguments reference a path outside the delegated workspace root",
@@ -818,6 +827,9 @@ function validateScopedFilesystemRoot(
   ) {
     for (const pathValue of extractAbsoluteShellPaths(args.command)) {
       const candidatePath = normalizeScopedPathCandidate(pathValue);
+      if (isAllowedOutOfRootShellSinkPath(candidatePath)) {
+        continue;
+      }
       if (!isWithinRoot(normalizedRoot, candidatePath)) {
         return buildScopedRootViolationMessage(
           "shell mode command references a path outside the delegated workspace root",
@@ -980,6 +992,16 @@ function buildApprovalMessage(params: {
     `Sub-agent session: ${sessionId}\n` +
     `Delegated task: ${taskPreview}`
   );
+}
+
+function extractDelegationObjective(
+  args: Record<string, unknown>,
+): string | undefined {
+  const task =
+    typeof args.task === "string"
+      ? args.task.trim()
+      : "";
+  return task || undefined;
 }
 
 function sendImmediateToolError(params: {
@@ -1354,6 +1376,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     }
 
     const toolCallId = nextToolCallId();
+    const delegationObjective = extractDelegationObjective(normalizedArgs);
 
     if (
       lifecycleEmitter &&
@@ -1368,6 +1391,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         toolName: name,
         payload: {
           decisionThreshold: policyEngine.snapshot().spawnDecisionThreshold,
+          ...(delegationObjective ? { objective: delegationObjective } : {}),
         },
       });
     }
@@ -1397,6 +1421,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
             matchedRule: decision.matchedRule,
             decisionThreshold: decision.threshold,
             isSubAgentSession,
+            ...(delegationObjective ? { objective: delegationObjective } : {}),
           },
         });
       }
@@ -1562,6 +1587,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     }
     const durationMs = Date.now() - start;
     result = canonicalizeToolFailureResult(toolName, result);
+    const isError = didToolCallFail(false, result);
 
     if (launchKey && shouldMarkGuiLaunchSeen(result)) {
       seenGuiLaunches.add(launchKey);
@@ -1574,6 +1600,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         toolName,
         result,
         durationMs,
+        isError,
         toolCallId,
         ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
       },
@@ -1589,6 +1616,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         payload: {
           result,
           durationMs,
+          isError,
           toolCallId,
           verifyRequested: verifier?.shouldVerifySubAgentResult() ?? false,
         },
