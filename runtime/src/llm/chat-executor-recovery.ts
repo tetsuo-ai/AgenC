@@ -20,6 +20,7 @@ import type {
   DelegationTrajectoryFinalReward,
   DelegationTrajectoryRecord,
 } from "./delegation-learning.js";
+import { createLLMStatefulFallbackReasonCounts } from "./types.js";
 import { SHELL_BUILTIN_COMMANDS } from "./chat-executor-constants.js";
 import {
   didToolCallFail,
@@ -371,6 +372,23 @@ function isDuplicateExportFailure(failureText: string): boolean {
   return extractDuplicateExportName(failureText) !== undefined || /ts2308/i.test(failureText);
 }
 
+function isJsonEscapedSourceLiteralFailure(failureText: string): boolean {
+  const lower = failureText.toLowerCase();
+  const hasCompilerStylePath =
+    /(?:^|\s|["'`])[^"'`\s]+\.(?:rs|c|cc|cpp|h|hpp|ts|tsx|js|jsx|py):\d+/i.test(
+      failureText,
+    );
+  const hasEscapeTokenSignal =
+    lower.includes("unknown start of token: \\") ||
+    lower.includes("unknown character escape") ||
+    lower.includes("unterminated double quote string");
+  const hasEscapedLiteralSignal =
+    failureText.includes('\\"') ||
+    failureText.includes("\\n") ||
+    failureText.includes("\\t");
+  return hasCompilerStylePath && hasEscapeTokenSignal && hasEscapedLiteralSignal;
+}
+
 function isPackagePathNotExportedFailure(failureTextLower: string): boolean {
   return (
     failureTextLower.includes("err_package_path_not_exported") ||
@@ -400,6 +418,65 @@ function hasExtendedGrepPatternWithoutFlag(
   });
 }
 
+function collectDirectGrepOperands(
+  args: Record<string, unknown> | undefined,
+): string[] {
+  const rawArgs = Array.isArray(args?.args)
+    ? args.args.filter((value): value is string => typeof value === "string")
+    : [];
+  const operands: string[] = [];
+  const flagsWithSeparateValue = new Set([
+    "-A",
+    "-B",
+    "-C",
+    "-D",
+    "-d",
+    "-e",
+    "-f",
+    "-m",
+    "--after-context",
+    "--before-context",
+    "--binary-files",
+    "--color",
+    "--colour",
+    "--context",
+    "--devices",
+    "--directories",
+    "--exclude",
+    "--exclude-dir",
+    "--file",
+    "--include",
+    "--label",
+    "--max-count",
+    "--regexp",
+  ]);
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const value = rawArgs[index];
+    if (!value || value === "--") continue;
+    if (flagsWithSeparateValue.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--include=") || value.startsWith("--exclude=")) {
+      continue;
+    }
+    if (value.startsWith("--exclude-dir=")) {
+      continue;
+    }
+    if (value.startsWith("-")) {
+      continue;
+    }
+    operands.push(value);
+  }
+  return operands;
+}
+
+function hasGrepPatternWithoutSearchScope(
+  args: Record<string, unknown> | undefined,
+): boolean {
+  return collectDirectGrepOperands(args).length <= 1;
+}
+
 function isLikelyGrepOperandShapeFailure(
   call: ToolCallRecord,
   failureTextLower: string,
@@ -408,7 +485,8 @@ function isLikelyGrepOperandShapeFailure(
   const command = String(call.args?.command ?? "");
   if (commandBasename(command) !== "grep") return false;
   if (failureTextLower.includes("no such file or directory")) return true;
-  return hasExtendedGrepPatternWithoutFlag(call.args);
+  if (hasExtendedGrepPatternWithoutFlag(call.args)) return true;
+  return hasGrepPatternWithoutSearchScope(call.args);
 }
 
 function isLikelyLiteralGlobFailure(
@@ -475,12 +553,8 @@ export function summarizeStateful(
     );
   if (entries.length === 0) return undefined;
 
-  const fallbackReasons: Record<LLMStatefulFallbackReason, number> = {
-    missing_previous_response_id: 0,
-    provider_retrieval_failure: 0,
-    state_reconciliation_mismatch: 0,
-    unsupported: 0,
-  };
+  const fallbackReasons: Record<LLMStatefulFallbackReason, number> =
+    createLLMStatefulFallbackReasonCounts();
   let attemptedCalls = 0;
   let continuedCalls = 0;
   let fallbackCalls = 0;
@@ -853,6 +927,16 @@ export function inferRecoveryHint(
           "After editing the module, rerun the failing build/test command and only continue once it passes.",
       };
     }
+    if (isJsonEscapedSourceLiteralFailure(failureText)) {
+      return {
+        key: "system-bash-json-escaped-source-literal",
+        message:
+          "The compiler output suggests JSON escape sequences like `\\\\\"` or `\\\\n` were written into source code. " +
+          "Re-read the failing source file, replace the escaped string-literal text with raw source code, " +
+          "and when using write/edit tools pass the file contents directly instead of a JSON-encoded representation. " +
+          "Only rerun the compile/test command after the source file itself is fixed.",
+      };
+    }
     if (isPackagePathNotExportedFailure(failureTextLower)) {
       return {
         key: usesCommonJsRequireSnippet(call)
@@ -879,7 +963,8 @@ export function inferRecoveryHint(
         key: "system-bash-grep-shape",
         message:
           "For code/text search, prefer `rg PATTERN PATH`. If you use `grep` in direct mode, pass exactly one pattern followed by file paths, " +
-          "and add `-E` (or use shell mode) when the pattern uses alternation like `foo|bar`. Extra non-flag args after the pattern are treated as file paths.",
+          "and add `-E` (or use shell mode) when the pattern uses alternation like `foo|bar`. Direct-mode `grep` with only a pattern reads stdin instead of searching files, " +
+          "so pair `--include` with `-r` and a directory path (for example `grep -r -E --include='*.cpp' 'foo|bar' src include`) or just use `rg PATTERN src include`.",
       };
     }
     if (isDesktopBiasedSystemCommandFailure(command, failureTextLower)) {

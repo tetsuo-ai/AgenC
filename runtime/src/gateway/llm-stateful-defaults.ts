@@ -29,7 +29,7 @@ export function resolveGatewayStatefulResponses(
   const enabled = statefulResponses?.enabled ?? true;
   if (statefulResponses?.enabled === undefined) usedDefaults = true;
 
-  const store = statefulResponses?.store ?? enabled;
+  const store = statefulResponses?.store ?? false;
   if (statefulResponses?.store === undefined) usedDefaults = true;
 
   const fallbackToStateless = statefulResponses?.fallbackToStateless ?? true;

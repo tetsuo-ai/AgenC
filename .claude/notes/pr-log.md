@@ -60,3 +60,24 @@
 - **What worked:** Moved trusted RISC Zero image selection on-chain via `zk_config`, regenerated and synced IDL/types, added a thin authority CLI for show/init/rotate, and closed the stale runtime event-contract drift so the IDL gate passes again.
 - **What didn't:** The admin flow still depends on an operator providing the new guest image ID explicitly; that is deliberate, but it means release discipline around the separate prover repo remains mandatory.
 - **Rule added to CLAUDE.md:** yes, `Authority Model: Do not invent multisig requirements for ZK image rotation`; `Scope Control: Do not spin up historical worktrees without explicit user buy-in`; `Architecture Advice: Clarify deployment model before recommending prover topology`
+
+## PR #[local]: unlimited recall budget default for autonomous runs
+- **Date:** 2026-03-12
+- **Files changed:** runtime/src/llm/{chat-executor-constants,chat-executor,chat-executor-types,chat-executor.test}.ts, runtime/src/gateway/types.ts, docs/{RUNTIME_API.md,architecture/flows/runtime-chat-pipeline.md}, .claude/notes/{gotchas,pr-log,techdebt-2026-03-12-recall-budget.md}, CLAUDE.md
+- **What worked:** Aligned `maxModelRecallsPerRequest` semantics so `0` and an omitted value both mean unlimited, removed the hidden 24-recall stop for long codegen runs, updated docs/comments, and verified with targeted executor/background-run tests plus a live daemon restart into `agenc-watch`.
+- **What didn't:** "Indefinite" is still bounded by the real guards: request timeout, tool budgets, failure budgets, and no-progress breakers. Child subagents also still inherit their own tool budgets, so long delegated phases can stop there even though recall budget no longer does.
+- **Rule added to CLAUDE.md:** yes, `Autonomous budgets: keep recall budget unlimited unless an operator sets a cap`
+
+## PR #[local]: live benchmark routing and prompt neutrality
+- **Date:** 2026-03-12
+- **Files changed:** runtime/src/gateway/tool-routing.ts, runtime/src/gateway/tool-routing.test.ts, CLAUDE.md, .claude/notes/{gotchas,pr-log}.md
+- **What worked:** Fixed the host code/file/system phrasing route miss that collapsed a live codegen benchmark into the wrong tool subset, relaunched the benchmark with a normal user-style prompt, and codified that streamed autonomy prompts must not carry tool-policy steering.
+- **What didn't:** The routed host coding subset is still noisier than it should be for pure codegen turns, so follow-up routing cleanup is still warranted after the stream-critical regressions are closed.
+- **Rule added to CLAUDE.md:** yes, `Benchmark prompts: keep streamed codegen prompts natural`
+
+## PR #[local]: grok store-disabled continuation gating and delegation trace cleanup
+- **Date:** 2026-03-12
+- **Files changed:** runtime/src/gateway/{llm-stateful-defaults,subagent-orchestrator,tool-handler-factory}.{ts,test.ts}, runtime/src/llm/{chat-executor-recovery,chat-executor,grok/adapter,grok/adapter.test,provider-capabilities,provider-capabilities.test,types}.ts, .claude/notes/{gotchas,pr-log,techdebt-2026-03-12-grok-store-disabled}.md
+- **What worked:** Reproduced delegated full-codebase generation in isolated `/workspace` sandboxes, fixed noisy retry lifecycle emissions, surfaced tool-result `isError` on both client and subagent events, gated Grok `previous_response_id` continuation behind `store:true`, and then centralized fallback-reason defaults so stateful summary accounting no longer relies on a hand-maintained mirror map.
+- **What didn't:** The live verification used focused daemon probes and targeted Vitest coverage rather than a full repo-wide test pass, so broader runtime confidence still depends on the existing larger suite.
+- **Rule added to CLAUDE.md:** no

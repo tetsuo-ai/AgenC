@@ -9,7 +9,7 @@ describe("resolveGatewayStatefulResponses", () => {
     expect(resolved.usedDefaults).toBe(true);
     expect(resolved.config).toEqual({
       enabled: true,
-      store: true,
+      store: false,
       fallbackToStateless: true,
       compaction: {
         enabled: true,
@@ -30,7 +30,7 @@ describe("resolveGatewayStatefulResponses", () => {
     expect(resolved.usedDefaults).toBe(true);
     expect(resolved.config).toEqual({
       enabled: true,
-      store: true,
+      store: false,
       fallbackToStateless: true,
       compaction: {
         enabled: false,

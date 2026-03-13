@@ -99,6 +99,52 @@
 - A flat default like “150k tokens per planned subagent step” underbudgets long coding phases and overbudgets short research phases.
 - When no explicit operator ceiling is set, derive request-tree child-token headroom from the planner’s `max_budget_hint` durations, then apply retry/verifier pass multipliers on top of that derived per-step envelope.
 
+## 2026-03-12 - Execution turns must fail closed on plan-only completions
+
+- If a coding or file-mutating turn can be grounded with tools, do not accept a bare `Plan` reply as `completed`.
+- Keep two layers aligned:
+  - the daemon system prompt must be execute-first for tool-using turns
+  - the executor must locally reject or retry plan-only completions even if the model ignores that prompt
+- Live watch UIs should also avoid mixed-state headers like `idle / thinking`; contradictory chrome makes backend retries look like hangs.
+
+## 2026-03-12 - Live watch layout must fit whole panels and follow current source writes
+
+- In `agenc-watch`, never truncate the sidebar by slicing a raw stack of panel rows to viewport height. Fit whole panels or compact them first, or borders and metric rows will get cut off mid-box.
+- In follow mode, recent source-preview events should anchor the viewport. Blind bottom-following hides the code being written behind later summary rows and makes the operator surface look stale even while writes are happening.
+
+## 2026-03-12 - Watch surfaces must not mix direct `subagents.*` messages with observability replay as independent UI events
+
+- `agenc-watch` receives both typed websocket lifecycle messages and the generic `events.event` observability feed for subagent activity.
+- If both feeds are rendered independently, the transcript duplicates `spawned/started` rows and anonymous top-level lifecycle events create ghost `child` plan entries that never retire.
+- The safe pattern is:
+  - treat typed `subagents.*` messages as the operator surface source of truth
+  - use `events.event` only for raw diagnostics or explicit observability views
+  - never create a persistent plan step when a lifecycle payload has no `subagentSessionId`, `stepName`, or `objective`
+
+## 2026-03-12 - Top-level delegation lifecycle events must include the delegated objective
+
+- Parent-side `subagents.planned` and `subagents.policy_bypassed` events are operator-facing, not just internal telemetry.
+- If those payloads omit the delegated task text, the live watch can only show anonymous filler like `child` or `Delegation planned`, which makes the surface feel broken even when the runtime is behaving correctly.
+- When emitting top-level delegation lifecycle events from `execute_with_agent`, include the normalized delegated task/objective in the payload.
+
+## 2026-03-12 - Recall budget defaults must not silently cap healthy autonomous runs
+
+- `ChatExecutor` previously treated an omitted `llm.maxModelRecallsPerRequest` as a hidden hardcoded cap of 24, and treated `0` as zero recalls instead of unlimited.
+- That drift is especially dangerous because other runtime surfaces were already using `0` as the intended "unlimited" value for autonomous/background work.
+- Keep the semantics aligned: `0` or omitted means unlimited recall budget, while request timeout, tool budgets, failure budgets, and no-progress breakers remain the real stop conditions.
+
+## 2026-03-12 - Live codegen benchmarks should reveal routing bugs, not hide them with prompt policy
+
+- If a streamed benchmark prompt includes hard tool rules like "use only host code/file/system tools," the run stops being a realistic autonomy test and starts becoming a routing workaround.
+- The right fix is to make natural coding prompts route to the correct host file/code tools in `tool-routing.ts`, then verify that behavior from daemon traces.
+- The live benchmark prompt should stay normal-language, while any routing failure is treated as a runtime/logging bug to patch and regression-test.
+
+## 2026-03-12 - xAI Responses `store:false` must not use `previous_response_id`
+
+- The xAI Responses docs and live daemon traces agree: `store:false` requests should continue locally via replayed `response.output`, not by sending `previous_response_id`.
+- If the Grok adapter still sends `previous_response_id` while `store:false`, xAI responds with `404 Response ... not found` and every delegated follow-up pays an avoidable stateless retry.
+- Treat `store:false` as a local-replay-only mode in the adapter and emit an explicit `store_disabled` fallback reason so the trace explains why provider continuation was skipped.
+
 ## 2026-03-10 - Newer SBF toolchains expose stack overflows in large Anchor `Accounts` validators
 
 - `cargo-build-sbf --tools-version v1.52` surfaced 4 KB frame overflows that the older local toolchain was not blocking on.

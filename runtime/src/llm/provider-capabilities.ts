@@ -36,7 +36,7 @@ export function resolveLLMStatefulResponsesConfig(
   const enabled = config?.enabled === true;
   return {
     enabled,
-    store: config?.store ?? enabled,
+    store: config?.store ?? false,
     fallbackToStateless: config?.fallbackToStateless ?? true,
     reconciliationWindow: Math.min(
       MAX_STATEFUL_RECONCILIATION_WINDOW,

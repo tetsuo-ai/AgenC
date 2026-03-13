@@ -1144,6 +1144,7 @@ export class GrokProvider implements LLMProvider {
         : undefined
     );
     const forceStateless = overrides?.forceStateless === true;
+    const providerContinuationEnabled = this.statefulConfig.store === true;
     let attempted = false;
     let continued = false;
     let previousResponseId: string | undefined;
@@ -1153,7 +1154,14 @@ export class GrokProvider implements LLMProvider {
     const historyCompacted = options?.stateful?.historyCompacted === true;
     let compactedHistoryTrusted = false;
 
-    if (!forceStateless && anchor?.responseId) {
+    if (!forceStateless && continuationTurn && !providerContinuationEnabled) {
+      fallbackReason = "store_disabled";
+      appendStatefulEvent(events, "stateful_fallback", {
+        reason: "store_disabled",
+        detail:
+          "provider continuation disabled because store=false; replaying local history instead",
+      });
+    } else if (!forceStateless && anchor?.responseId) {
       attempted = true;
       previousResponseId = anchor.responseId;
       appendStatefulEvent(events, "stateful_continuation_attempt", {
